@@ -154,7 +154,7 @@ decimal text under that option and refuses the unparseable.
 | Gap | Status |
 |---|---|
 | No `esm test` subcommand | **Being added by another agent**; will evaluate observed fields without an ODE solve. This plan depends on it and does not duplicate it. |
-| `simulate` reports only *scalar* observeds | Open. Array observeds are absent from its JSON output, so an emission field cannot be compared row-by-row to a snapshot. `data_output.rs`'s `derive_output_plan` already builds the plan; the CLI never calls it. |
+| `simulate` reports only *scalar* observeds | **Closed** (EarthSciAST `a784c5444`). Confirmed real first: an array observed was absent from `simulate --output` entirely, while a scalar one in the same model appeared. Now `SolveOptions::output_observed` names the subset to emit, `simulate --observed <NAME>` selects it, and `--format grid` renders `derive_output_plan` — which the CLI had never called. Array observeds flatten to one row per cell under the same cell-key scheme an array *state* gets, so both land on one grid. |
 | Data sources off by default | `esio` is an opt-in Cargo feature — `esm simulate` silently loads no data unless built with it. |
 
 Also: the checked-in `target/release/esm` in EarthSciAST is stale (Aug 11,
@@ -282,6 +282,10 @@ relational form from the first line.
    readable, deleting a conversion stage from every fixture.
 4. **Close the array-output gap** (§1.5) — a CLI shim over
    `derive_output_plan`, so an emission field can be written and diffed.
+   *Done.* Note for the fixture stage: `--format flat` is the old output
+   byte-for-byte, so `grid` must be passed explicitly, and the emitted shape is
+   field-for-field `earthsciio::format::OutputSchema` — pointing it at a Zarr
+   sink later is a serializer swap, not a re-derivation.
 5. **Take the `esm test` dependency**, don't duplicate it. Once it lands,
    component tests drop the `clock` state (§1.2).
 6. **`run-tests.sh`** (checked in, kept current): `esm validate` every `.esm`,
