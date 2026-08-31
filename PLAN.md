@@ -40,7 +40,14 @@ Convention: **components carry no `clock`.** Only a runnable assembly driven
 through `simulate` adds one, and that need disappears once array-observed
 output lands (§1.5).
 
-### 1.3 The equi-join gate is a prerequisite, not an optimization
+### 1.3 The equi-join gate is a prerequisite, not an optimization — **built**
+
+> **Status: landed** in EarthSciAST `28bda86ac`. Measured on the merged tree:
+> at 10⁸ combinations with 10⁴ matches the driven contraction runs in
+> **0.032 s**; the undriven arm needs 0.184 s at 10⁷, an order of magnitude
+> *smaller*. Cost now tracks matches, not the product. The rest of this section
+> is the reasoning that got there, kept because §1.3.1 is now the record of what
+> was built. See §1.3.2 for what shipped.
 
 MOVES is a join pipeline, and the `.esm` must read like one — a reader should
 see the same relational steps `moves.rs` names in its SQL step tables. That
@@ -105,6 +112,42 @@ An equality-driven gate for `join.on`, structurally the mirror of
 
 Item 3 is what decides whether the `.esm` reads like the SQL it ports, so it
 belongs in the same piece of work as items 1 and 2, not after them.
+
+#### 1.3.2 What shipped, and one thing we did not expect
+
+All three items landed. `join.rs` resolves each `on` pair to a `(loop symbol,
+key column)` where the column may be a genuine declared 1-D variable — **the
+data-column rejection is gone**, so a MOVES join spells as one table's
+`sourceTypeID` against another's. `relational.rs` gained the `equijoin`
+primitive its own docs had promised but never had. `OverlapGate` generalized to
+`JoinGate`, so the two gate kinds differ only in how the pair set is computed
+and `overlap`'s three binding cases carry over verbatim.
+
+Two things worth knowing beyond the plan:
+
+**A latent correctness bug, not just a performance one.** `prepare.rs`
+evaluates observeds directly and had a resolution hook for `overlap` symbols
+but none for `on`. So a `join.on` on a build-time observed reached the
+evaluator with neither the predicate nor the gate attached — **an unfiltered
+full product, silently wrong**. That is precisely the path a relational `.esm`
+takes. It is fixed, and an unresolvable key column is now a build error rather
+than an ignored clause.
+
+**A fourth drive shape.** Where both gated symbols are contracted *alongside*
+other contracted axes, the later gated axis walks only the earlier one's
+partner list, removing the whole `N_later` factor. A MOVES rollup hits this the
+moment it also sums over months — which every fixture does.
+
+The equality still lowers into `filter` *as well as* attaching the gate. That
+is a deliberate asymmetry with `overlap`: an overlap gate is a conservative
+broad phase with the author's filter behind it, so declining to drive is free,
+whereas an `on` gate is exact with nothing behind it. Keeping the predicate
+makes every non-consulting path correct for free, and makes driven-vs-undriven
+directly comparable — which is what the kill-switch differential tests exploit.
+
+Not yet done: Julia does not implement the gate (`BEHAV-10-B-001`/`-004`, with
+a written handoff); Python admits data columns but is one item behind. Neither
+blocks us — Rust is the binding that executes here.
 
 The performance envelope to aim at: a probe contracting 600,000 output cells —
 the size of `emissionratebyage` — through gather-shaped access ran in 5.8 s in
@@ -265,12 +308,9 @@ Phase 0 is longer than a harness phase usually is, because the gate (§1.3) is
 in it. That is deliberate: it is what lets every later phase be written in
 relational form from the first line.
 
-1. **Build the equality-driven `join.on` gate** (§1.3.1) in
-   `../EarthSciAST` — candidate set built once per node from the
-   `relational.rs` kernel, gate drives enumeration, data-column keys admitted.
-   Land it with conformance fixtures in the Julia and Python tracks so the
-   determinism contract holds across bindings. **Everything numerical depends
-   on this**; it is the critical path.
+1. ~~**Build the equality-driven `join.on` gate**~~ — **done** (§1.3.2),
+   EarthSciAST `28bda86ac`, specified as CONFORMANCE_SPEC §5.5.8. The critical
+   path is clear.
 2. **Build the CLI.** `cargo build --release --features esio,parallel` in
    `../EarthSciAST/pkg/earthsci-ast-rs`; copy to `./esm` (untracked, per
    CLAUDE.md). Record the EarthSciAST commit in a checked-in `esm-version.lock`
