@@ -142,6 +142,12 @@ fixture and lets the `.esm` documents read the oracle data in place.
 Also: the checked-in `target/release/esm` in EarthSciAST is stale (Aug 11,
 schema predating the `state`/`observed` → `unknown` rename). Build fresh.
 
+The rename itself has already landed on `main`: a variable's `type` now accepts
+only `unknown` or `parameter`, and a document written with `observed` is
+rejected at validation. "Observed" survives as the *concept* this plan uses
+throughout — a quantity the model computes rather than integrates — but it is
+not a schema value. Every hand-authored document must say `unknown`.
+
 ### 1.6 Fidelity will be tolerance-based, not bit-exact
 
 `moves.rs`'s NONROAD port is deliberately `f32` throughout to stay
@@ -151,6 +157,26 @@ associativity operation by operation
 ESM evaluates in `binary64`; `domain.element_type: "Float32"` is document-wide
 and does not reproduce per-expression single-precision rounding. Set a relative
 tolerance and record it — do not promise bit equality.
+
+**Which tolerance, though, is not the obvious one.** An earlier draft of this
+plan said to mirror `moves.rs/characterization/tolerance.toml`. That is wrong:
+that file sets `default_float_tolerance = 0.0` — byte identity — and exists to
+diff two runs of the *same* binary against the same container image. `moves.rs`
+says so in the file itself, and its own full-suite regression gate
+(`crates/moves-cli/tests/full_suite_regression.rs`, `canonical_snapshot_diff`)
+deliberately bypasses it, because a cell-level `MOVESOutput` diff is unusable
+for canonical-vs-port comparison: the two tables disagree on metadata and
+labeling columns that carry no emitted mass (`iterationID`, `roadTypeID`, the
+SCC road-type subfield) and on which uncertainty columns are even present.
+
+The gate that actually runs there compares per-pollutant `emissionQuant` sums
+with relative tolerances defined in-test — `ONROAD_REL_TOL = 1e-3`,
+`NONROAD_REL_TOL = 1e-2`, justified per fixture in
+`moves.rs/docs/known-divergences.md` §1b/§4.2. Our `tolerance.toml` mirrors
+*that*, and keeps the structural checks exact: the emitted key set and the row
+count must match the snapshot exactly regardless of the float tolerance. A
+per-fixture override requires a written reason — an override without one is a
+bug being hidden.
 
 ---
 
@@ -208,9 +234,12 @@ relational form from the first line.
    component tests drop the `clock` state (§1.2).
 6. **`run-tests.sh`** (checked in, kept current): `esm validate` every `.esm`,
    then `esm test` every `.esm`, then per-fixture end-to-end comparisons.
-   Non-zero exit on any failure.
-7. **`tolerance.toml`** — per-fixture, per-column, mirroring
-   `moves.rs/characterization/tolerance.toml`.
+   Non-zero exit on any failure. *Done* — it degrades honestly meanwhile: a CLI
+   build without a `test` subcommand reports skip with the reason, and an empty
+   repo exits 0.
+7. **`tolerance.toml`** — per-pollutant relative tolerance on `emissionQuant`
+   sums with exact structural checks, mirroring the gate `moves.rs` actually
+   runs rather than its byte-identity file (§1.6). *Done.*
 
 Items 2–7 are independent of item 1 and proceed in parallel with it. Component
 authoring (Phase 1, and the arithmetic of Phase 2) can also start against small
