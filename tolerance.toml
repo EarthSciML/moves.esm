@@ -1,0 +1,45 @@
+# Numerical tolerances for comparing this implementation's output against the
+# `moves.rs` characterization snapshots.
+#
+# Why this file is not a copy of `moves.rs/characterization/tolerance.toml`:
+# that file encodes a *byte-identity* contract (`default_float_tolerance = 0.0`)
+# for diffing two runs of the same binary against the same container image. It
+# is the wrong gate for us, and `moves.rs` says so itself — its own full-suite
+# regression gate (`crates/moves-cli/tests/full_suite_regression.rs`,
+# `canonical_snapshot_diff`) deliberately bypasses that file, because a
+# cell-level diff of MOVESOutput is unusable across implementations: the two
+# tables disagree on metadata and labeling columns that carry no mass
+# (`iterationID`, `roadTypeID`, the SCC road-type subfield) and on which
+# uncertainty columns are even present.
+#
+# So we mirror the gate that actually runs there: per-pollutant `emissionQuant`
+# sums, compared with a relative tolerance. Those constants are defined in-test
+# in `moves.rs` and justified per fixture in its `docs/known-divergences.md`
+# (§1b, §4.2).
+#
+# A second, tighter reason for a floor under NONROAD: `moves.rs`'s NONROAD port
+# is deliberately `f32` throughout to stay bit-identical to the Fortran `real*4`
+# reference, and preserves Fortran associativity operation by operation
+# (`crates/moves-nonroad/src/emissions/exhaust.rs`, "Numerical-fidelity
+# policy"). EarthSciAST evaluates in binary64 and its `Float32` element type is
+# document-wide, so per-expression single-precision rounding is not
+# reproducible. Divergence here is expected and bounded, not a bug to chase.
+
+[default]
+# Relative tolerance on per-pollutant emissionQuant sums.
+onroad = 1e-3
+nonroad = 1e-2
+
+# Row-level structural checks are exact regardless of the float tolerance:
+# the set of (pollutantID, processID, sourceTypeID/SCC, time) keys emitted must
+# match the snapshot exactly, and row counts must be equal.
+[structure]
+require_exact_key_set = true
+require_exact_row_count = true
+
+# Per-fixture overrides go here as fixtures land, each with a one-line
+# justification. An override without a reason is a bug being hidden.
+#
+#   [fixtures."nr-logging-county"]
+#   rel = 2e-2
+#   why = "..."
