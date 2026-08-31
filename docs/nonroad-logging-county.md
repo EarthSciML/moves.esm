@@ -1174,3 +1174,622 @@ All from `crates/moves-nonroad/src/common/consts.rs`.
 | CO2 stoichiometry | 44 / 12 | CO2 per carbon | `exhaust.rs:1144-1145` |
 | SOx factors | 0.01, 2.0 | `clcems` SOx EF rewrite | `exhaust.rs:1110-1113` |
 | PM sulfur factors | 7.0, 0.01 | diesel PM sulfur correction | `exhaust.rs:1172-1176` |
+
+---
+
+## 6. Hand-checkable worked examples
+
+All numbers below were **read from the snapshot Parquet** with
+`python3` + `pyarrow` (21.0.0) / `pandas` (2.3.3), and the arithmetic was
+re-executed independently in `numpy.float32` — not taken from a `moves.rs`
+trace. The script in §6.5 reproduces **all 144 rows** end to end; the two
+examples below are the worked longhand for a subset of them.
+
+### 6.0 Run-level values used by every example
+
+| Quantity | Value | Where it comes from |
+|---|---|---|
+| `tamb` (daytime mean, °F) | `73.576927` (f32) | `zonemonthhour` zone 261610, month 8, hourID 6–18; 13 rows, f64 mean `73.57692425067616`, cast to f32 |
+| `oxy` (gasoline oxygen, wt %) | `3.653` | one supply row: formulation 9114 (Gasohol E10), `marketShare = 1.0`, `ETOHVolume = 10.0`, `volToWtPercentOxy = 0.3653` |
+| `rfg` | `false` | RFG (subtype 11) share 0 of gasoline share 1.0 |
+| growth pattern (all three SCCs) | `2176` | `nrgrowthpatternfinder` SCC `2265007000` / `2260007000`, `stateID = 26` |
+| `G(1990)`, `G(1991)`, `G(2020)` | `321`, `449.8889`, `1508` | `nrgrowthindex` pattern 2176; 1991 interpolated between the 1990 (321) and 1999 (1481) rows |
+| `pgf = grwfac(1990, 1991)` | `0.401523` | `(449.8889 − 321) / (321 × 1)` |
+| `G(2020)/G(1990)` | `4.697819` | the cumulative growth the age distribution carries |
+| `allocFrac` (surrogate 8) | `0.0032382987` (f32) | `nrstatesurrogate`: county 26161 quant `1512186`, state 26000 quant `466969286`, both `surrogateYearID = 2002` |
+| `monthFraction` (all three SCCs) | `0.0833333` | `nrmonthallocation`, key `2260007000`/`2265007000`, state 26, month 8 |
+| `dayFraction` (all three SCCs) | `0.166667` | `nrdayallocation`, key `2260007000`/`2265007000`, dayID 5 |
+| `tpltmp = mthf × 7 × dayFraction` | `0.09722238` (f32) | |
+| `adjtime = 1/ndays` | `1/31` | August |
+
+Adjustment factors (`adjems`), from §4.2 + §4.3 with `tamb = 73.576927 ≤ 75`
+and `oxy = 3.653`:
+
+| fuel | THC | CO | NOx | PM |
+|---|---|---|---|---|
+| Gasoline 2-stroke (`2260…`) | `0.978082` | `0.7625550` | `1.6794580` | `1.0` |
+| Gasoline 4-stroke (`2265…`) | `0.8384738` | `0.7717785` | `1.4382362` | `1.0` |
+
+(4-stroke temperature parts alone: THC `1.0034212`, CO `0.9977564`,
+NOx `1.0127747`.)
+
+---
+
+### 6.1 Worked example A — `2260007005` (2-stroke chain saws), all 12 rows
+
+The cleanest example in the fixture: **one** equipment point, **one** active
+engine tech, **three** model years.
+
+#### Inputs read from the snapshot
+
+`nrsourceusetype` row (`sourceTypeID = 1059`):
+
+| column | value |
+|---|---|
+| `SCC` | `2260007005` |
+| `hpAvg` | `6.81` |
+| `hoursUsedPerYear` | `303.0` |
+| `loadFactor` | `0.7` |
+| `medianLifeFullLoad` | `191.0` |
+
+`nrbaseyearequippopulation` (`sourceTypeID = 1059`, `stateID = 26`,
+`NRBaseYearID = 1990`): `population = 83.279223744292`.
+
+`nrengtechfraction` (SCC `2260007005`, bin `hpMin = 6`, `hpMax = 9999`,
+`processGroupID = 1`): mix years `1900, 1996, 1997, 2002…2008`; the latest year
+≤ 2020 is **2008**, with `engTechID 125 = 1.00` and every other tech `0.00`.
+So a single tech, `125` (`G2H52`, Phase 2 gas 2-stroke handheld Class V).
+
+`nremissionrate` (SCC `2260007005`, bin 6–9999, `modelYearID = 1900`,
+`engTechID = 125`), units `g/hp-hr`:
+
+| pollutant | `polProcessID` | `meanBaseRate` |
+|---|---|---|
+| THC | 101 | `47.98` |
+| CO | 201 | `283.4` |
+| NOx | 301 | `0.910` |
+| PM10 | 10001 | `7.70` |
+| *BSFC* | 9901 | `0.608` (units column empty; unused here) |
+
+`nrdeterioration` (`engTechID = 125`):
+
+| `polProcessID` | `DFCoefficient` A | `DFAgeExponent` B | `emissionCap` |
+|---|---|---|---|
+| 101 | `0.266` | `1.0` | `1` |
+| 201 | `0.231` | `1.0` | `1` |
+| 301 | `0.000` | `1.0` | `1` |
+| 10001 | `0.266` | `1.0` | `1` |
+
+#### Step 1 — population
+
+```
+pop_state  = round1dp(83.279223744292)  = 83.3
+allocFrac  = 1512186 / 466969286        = 0.0032382987
+pop_county = 83.3 × 0.0032382987        = 0.269750297      (f32)
+```
+
+#### Step 2 — scrappage (`scrptime`)
+
+```
+medianLifeYears = min(25, (191 / 0.7) / 303) = 0.90051866
+1 / medianLifeYears                          = 1.1104711
+```
+
+Cumulative scrappage at each age (step lookup into the default curve):
+
+| age | `fracLifeUsed` | `pctScrapped` | `yryrfrcscrp` |
+|---|---|---|---|
+| 1 | 0 | 0 | 0 |
+| 2 | 1.1104711 | 73.5 | `100 × 0.735 / 100` = `0.735` |
+| 3 | 2.2209423 | 100.0 | `100 × 0.265 / 26.5` = `0.99999994` |
+
+`pctScrapped[age 3] = 100` ⇒ at `iage = 4` the loop sets **`nyrlif = 3`**.
+Three model years: 2020, 2019, 2018 — exactly the set in the snapshot.
+
+Sales / initial fractions:
+
+```
+salesGrowth = 0.401523 / ((−1.4306 × 0.401523) × 0.90051866 + (−0.24 × 0.401523) + 1)
+modfrc(base) = [0.8506725, 0.1493275, 0.0]
+```
+
+#### Step 3 — grow the age distribution to 2020 (`agedist`)
+
+30 iterations, 1991 → 2020. Result:
+
+```
+modfrc = [3.7072685, 0.9905483, 5.8885583e-08]     Σ = 4.697817 ≈ G(2020)/G(1990) = 4.697819 ✓
+```
+
+The third slot is `5.9e-08` rather than 0 — it is the residual of 30 rounds of
+shift-and-scrap, and it is what produces the `4.27e-06 g` THC row for MY2018.
+
+#### Step 4 — deterioration age
+
+```
+detage[i] = (i+1) × 303 × 0.7 / 191   ⇒  [1.1104711, 2.2209423, 3.3314135]
+```
+
+All three exceed `emissionCap = 1`, so `min(age, cap) = 1.0` for every model
+year, and with `B = 1`:
+
+```
+DF(THC) = DF(PM) = 1 + 0.266 = 1.266
+DF(CO)            = 1 + 0.231 = 1.231
+DF(NOx)           = 1 + 0.000 = 1.000
+```
+
+#### Step 5 — the roll-up
+
+`cvttmp = hpAvg × loadFactor = 6.81 × 0.7 = 4.7669997`
+
+```
+emstmp = EF × 4.7669997 × DF × adjems × (1/31)
+emiss  = emstmp × 303 × 0.09722238 × 0.269750297 × modfrc[idxyr] × 1.0
+grams  = emiss × CVTTON × (1/CVTTON)
+```
+
+| pollutant | `emstmp` |
+|---|---|
+| THC | `9.135927` |
+| CO | `40.90840` |
+| NOx | `0.2350141` |
+| PM | `1.499022` |
+
+#### Results — all 12 rows
+
+| pollutantID | modelYearID | computed (g) | snapshot (g) | rel. error |
+|---|---|---|---|---|
+| 1 (THC) | 2020 | `269.1395` | `269.139` | `+1.9e-06` |
+| 1 | 2019 | `71.91162` | `71.9116` | `+3.5e-07` |
+| 1 | 2018 | `4.274964e-06` | `4.27496e-06` | `+8.6e-07` |
+| 2 (CO) | 2020 | `1205.139` | `1205.140` | `−5.1e-07` |
+| 2 | 2019 | `322.0022` | `322.0020` | `+7.7e-07` |
+| 2 | 2018 | `1.914222e-05` | `1.91422e-05` | `+9.1e-07` |
+| 3 (NOx) | 2020 | `6.923390` | `6.923380` | `+1.5e-06` |
+| 3 | 2019 | `1.849867` | `1.849860` | `+3.7e-06` |
+| 3 | 2018 | `1.099699e-07` | `1.09970e-07` | `−1.1e-06` |
+| 100 (PM10) | 2020 | `44.16037` | `44.16030` | `+1.7e-06` |
+| 100 | 2019 | `11.79925` | `11.79920` | `+4.1e-06` |
+| 100 | 2018 | `7.014354e-07` | `7.01435e-07` | `+5.9e-07` |
+
+Every residual is at the level of the snapshot's 6-significant-figure storage.
+
+---
+
+### 6.2 Worked example B — `2265007015` (4-stroke feller/buncher), all 16 rows
+
+Chosen because it exercises what example A does not: the **temperature
+exponential**, a **multi-tech mix**, a **non-unit deterioration exponent**
+(`B = 0.5`, `cap = 2`), **two equipment points summed into one output row**, and
+the `modfrc ≤ 0` skip.
+
+#### Inputs
+
+Two `nrsourceusetype` rows, both `SCC = 2265007015`:
+
+| `sourceTypeID` | `hpAvg` | `hoursUsedPerYear` | `loadFactor` | `medianLifeFullLoad` | state-26 population |
+|---|---|---|---|---|---|
+| 1389 | `5.5` | `350.0` | `0.7` | `200.0` | `1.121332091290` → **1.1** |
+| 1390 | `9.0` | `350.0` | `0.7` | `400.0` | `0.463483931067` → **0.5** |
+
+Note the second population rounds *up* from 0.4635 to 0.5 — a 7.9 % change,
+entirely an artefact of the `%17.1f` `.POP` format, and it is required to match.
+
+Both points fall back to `2265000000` for rates and mixes (`2265007015` and
+`2265007000` have no rows), but into **different HP bins**:
+
+| point | mix/EF bin | mix year used (≤ 2020) | active techs |
+|---|---|---|---|
+| hp 5.5 | `0 ≤ hp ≤ 6` | 2014 | `143` = 0.40, `144` = 0.60 |
+| hp 9.0 | `6 ≤ hp ≤ 25` | 2015 | `134` = 1.00 |
+
+Emission factors (`modelYearID = 1900`, `g/hp-hr`) and deterioration
+(`B = 0.5`, `cap = 2` for all of these):
+
+| tech | THC EF | CO EF | NOx EF | PM EF | A(THC) | A(CO) | A(NOx) | A(PM) |
+|---|---|---|---|---|---|---|---|---|
+| 143 | `3.80` | `242.4` | `1.424` | `0.037` | `0.797` | `0.070` | `0.302` | `1.753` |
+| 144 | `4.18` | `238.4` | `1.044` | `0.179` | `0.797` | `0.070` | `0.302` | `1.753` |
+| 134 | `3.17` | `321.9` | `1.007` | `0.060` | `0.797` | `0.080` | `0.302` | `1.095` |
+
+#### Derived per point
+
+| | hp 5.5 point | hp 9.0 point |
+|---|---|---|
+| `pop_county` | `1.1 × allocFrac = 0.0035621286` | `0.5 × allocFrac = 0.0016191494` |
+| `medianLifeYears = (mdl/ldf)/hrs` | `(200/0.7)/350 = 0.8163266` | `(400/0.7)/350 = 1.632653` |
+| `1/medianLifeYears` | `1.225` | `0.6125` |
+| `nyrlif` | `3` | `5` |
+| `cvttmp = hp × ldf` | `3.85` | `6.30` |
+| `detage[0..]` | `1.225, 2.45, 3.675` | `0.6125, 1.225, 1.8375, 2.45, 3.0625` |
+| `modfrc` (grown) | `3.9099162, 0.7879026, 0.0` | `2.1914759, 2.0018263, 0.4327385, 0.0717785, 0.0` |
+
+The hp-9.0 point's `nyrlif = 5` would reach back to MY2016, but its
+`modfrc[4] = 0.0` (age 5 has `yryrfrcscrp = 1.0`, so the shift zeroes it), and
+the `modfrc ≤ 0` skip drops it. Both points' oldest slot is likewise zero. The
+union of surviving model years is **2017–2020**, matching the snapshot.
+
+Because `B = 0.5` and `cap = 2`, the deterioration factor genuinely varies with
+age here — e.g. for tech 134, THC:
+
+```
+MY2020: 1 + 0.797 × 0.6125^0.5 = 1.623713
+MY2019: 1 + 0.797 × 1.2250^0.5 = 1.882109
+MY2018: 1 + 0.797 × 1.8375^0.5 = 2.080366
+MY2017: 1 + 0.797 × min(2.45, 2)^0.5 = 1 + 0.797 × 2^0.5 = 2.127187
+```
+
+Note MY2017 uses the **capped age 2.0 inside the square root**, not a capped
+multiplier — the distinction §4.1 flags.
+
+#### Results — all 16 rows (sum of both equipment points)
+
+| pollutantID | modelYearID | computed (g) | snapshot (g) | rel. error |
+|---|---|---|---|---|
+| 1 (THC) | 2017 | `0.004543986` | `0.00454398` | `+1.3e-06` |
+| 1 | 2018 | `0.02679258` | `0.0267926` | `−5.9e-07` |
+| 1 | 2019 | `0.1973395` | `0.197339` | `+2.7e-06` |
+| 1 | 2020 | `0.4800438` | `0.480043` | `+1.6e-06` |
+| 2 (CO) | 2017 | `0.2222577` | `0.222258` | `−1.2e-06` |
+| 2 | 2018 | `1.334298` | `1.334300` | `−1.7e-06` |
+| 2 | 2019 | `8.476013` | `8.476010` | `+4.1e-07` |
+| 2 | 2020 | `18.22461` | `18.22460` | `+5.8e-07` |
+| 3 (NOx) | 2017 | `0.001661140` | `0.00166114` | `+2.1e-07` |
+| 3 | 2018 | `0.009890348` | `0.00989034` | `+7.8e-07` |
+| 3 | 2019 | `0.07242940` | `0.0724293` | `+1.4e-06` |
+| 3 | 2020 | `0.1790237` | `0.179024` | `−1.7e-06` |
+| 100 (PM10) | 2017 | `0.0001228970` | `0.000122897` | `+1.2e-07` |
+| 100 | 2018 | `0.0007222449` | `0.000722244` | `+1.3e-06` |
+| 100 | 2019 | `0.008017370` | `0.00801736` | `+1.3e-06` |
+| 100 | 2020 | `0.02388155` | `0.0238815` | `+2.3e-06` |
+
+---
+
+### 6.3 Worked example C — `2265007010`, the 116 remaining rows
+
+Not tabulated longhand (116 rows), but reproduced by the same script. It is the
+one that exercises the parts A and B do not:
+
+- **Three** equipment points (`sourceTypeID` 1386/1387/1388, `hpAvg`
+  8.117 / 12.62 / 20.56), all in the `6 ≤ hp ≤ 25` bin of `2265000000`, with
+  `medianLifeFullLoad` 400 / 400 / **750** and `hoursUsedPerYear = 50`,
+  `loadFactor = 0.8`. The third point's `medianLifeYears = 750/0.8/50 = 18.75`
+  gives `nyrlif = 38`, which is what stretches the model-year span back to 1983.
+- **The gappy model-year set.** MY 1991, 2000, 2001, 2002 and 2006–2010 are
+  absent from the snapshot. They are the years where `agedist`'s unclamped
+  residual `mdyrfrc[0] = totpopfrc − frcsum` came out ≤ 0, because the truncated
+  growth index dipped year-over-year. This is the single most fragile behaviour
+  in the whole chain: it depends jointly on (i) the integer truncation of
+  `growthIndex`, (ii) the residual **not** being clamped, and (iii) the
+  downstream `modfrc ≤ 0` skip. Get any one wrong and the row count changes.
+- **Per-model-year tech mixes** that actually move (mix years 1900, 1996, 1997,
+  2001–2005, 2011, 2013, 2015 in that bin), so the "latest mix year ≤ model
+  year" rule is exercised across many distinct mixes.
+
+All 116 rows agree with the snapshot to ≤ 4.9 × 10⁻⁶ relative.
+
+### 6.4 Aggregate check
+
+| pollutantID | snapshot total (g) | `moves.rs` total (g) |
+|---|---|---|
+| 1 (THC) | `397.250859` | `397.251361` |
+| 2 (CO) | `4658.921054` | `4658.924298` |
+| 3 (NOx) | `33.042431` | `33.042465` |
+| 100 (PM10) | `57.295225` | `57.295338` |
+
+(`moves.rs` totals from `./target/release/moves run --runspec
+characterization/fixtures/nr-logging-county.xml --snapshot
+characterization/snapshots/nr-logging-county --output <dir>`, 487 ms wall.)
+
+### 6.5 The reproduction script
+
+Self-contained; run from the `moves.rs` repo root. Requires only `numpy` and
+`pyarrow`/`pandas`. Asserts 144 rows and max relative error < 1e-5.
+
+```python
+#!/usr/bin/env python3
+"""Independent reproduction of every nr-logging-county MOVESOutput row.
+
+Reimplements the moves.rs NONROAD chain in float32 straight from the snapshot
+Parquet tables. Run from the moves.rs repo root (or pass the snapshot dir).
+"""
+import sys
+import numpy as np
+import pyarrow.parquet as pq
+
+f = np.float32
+MXAGYR = 51
+SNAP = sys.argv[1] if len(sys.argv) > 1 else "characterization/snapshots/nr-logging-county"
+D = SNAP + "/tables/"
+PRE = "db__movesexecution1ccc0232_campuscluster_illinois_edu__"
+rd = lambda t: pq.read_table(D + PRE + t + ".parquet").to_pandas()
+
+# ---------------------------------------------------------------- run scope
+COUNTY, STATE, YEAR, MONTH, DAYID, NDAYS = 26161, 26, 2020, 8, 5, 31
+PP = {"THC": 101, "CO": 201, "NOx": 301, "PM": 10001}
+POLID = {"THC": 1, "CO": 2, "NOx": 3, "PM": 100}
+
+# ------------------------------------------------- growth (getgrw / grwfac)
+gi = rd("nrgrowthindex")
+gp = rd("nrgrowthpatternfinder")
+
+def growth_series(pattern):
+    g = gi[gi.growthPatternID == pattern].sort_values("yearID")
+    # /GROWTH/ packet is written %20d -> truncate toward zero
+    return [int(r.yearID) for r in g.itertuples()], [f(int(r.growthIndex)) for r in g.itertuples()]
+
+def indicator(ys, vs, y):
+    ib, ie = 0, len(ys) - 1
+    if y < ys[ib]:
+        s = (vs[ib + 1] - vs[ib]) / f(ys[ib + 1] - ys[ib])
+        return max(f(vs[ib] + s * f(y - ys[ib])), f(0))
+    if y > ys[ie]:
+        s = (vs[ie] - vs[ie - 1]) / f(ys[ie] - ys[ie - 1])
+        return max(f(vs[ie] + s * f(y - ys[ie])), f(0))
+    if y == ys[ie]:
+        return vs[ie]
+    for i in range(ib, ie):
+        if y == ys[i]:
+            return vs[i]
+        if y < ys[i + 1]:
+            s = (vs[i + 1] - vs[i]) / f(ys[i + 1] - ys[i])
+            return f(vs[i] + s * f(y - ys[i]))
+    return vs[ie]
+
+def growth_factor(ys, vs, y1, y2):
+    if y1 == y2:
+        return f(0)
+    b, g = indicator(ys, vs, y1), indicator(ys, vs, y2)
+    if b == 0 and g == 0:
+        return f(0)
+    return f((g - b) / (b * f(y2 - y1)))
+
+# ------------------------------------------------------------ scrappage curve
+sc = rd("nrscrappagecurve")
+sc = sc[sc.NREquipTypeID == 0]
+CURVE = [(f(k / 1e6), f(v)) for k, v in sorted(
+    {round(float(r.fractionLifeused) * 1e6): float(r.percentageScrapped) for r in sc.itertuples()}.items())]
+
+def find_scrappage_percent(x):            # output/find.rs:233 - step function
+    if x < CURVE[0][0]:
+        return CURVE[0][1]
+    for i in range(len(CURVE) - 1):
+        if CURVE[i + 1][0] > x:
+            return CURVE[i][1]
+    return CURVE[-1][1]
+
+def scrptime(mdlfhrs, ldfctr, acthpy, pgf):        # driver/scrptime.rs:84
+    mly = min(f(MXAGYR // 2), f(f(mdlfhrs / ldfctr) / acthpy))
+    mlpy = f(1.0) / mly
+    yy = [f(0)] * MXAGYR
+    pct = [f(0)] * MXAGYR
+    nyrlif = 0
+    for iage in range(2, MXAGYR + 1):
+        cur, prev = iage - 1, iage - 2
+        pct[cur] = find_scrappage_percent(f(f(iage - 1) * mlpy))
+        yfs = f((pct[cur] - pct[prev]) / f(100))
+        if pct[prev] >= 100:
+            if nyrlif == 0:
+                nyrlif = iage - 1
+            yy[cur] = f(0)
+        else:
+            yy[cur] = f(f(100) * yfs / (f(100) - pct[prev]))
+    if pct[MXAGYR - 1] >= 100 and nyrlif == 0:
+        nyrlif = MXAGYR
+    sg = f(pgf / (f(f(-1.4306) * pgf) * mly + f(-0.24) * pgf + f(1.0)))
+    sales = [f(f(1000.0) + f(f(1000.0) * sg * f(i))) for i in range(MXAGYR)]
+    surv = [f(0)] * MXAGYR
+    tot = f(0)
+    for iage in range(1, MXAGYR + 1):
+        i0 = iage - 1
+        if iage <= nyrlif:
+            surv[i0] = f(sales[nyrlif - iage] * (f(1.0) - f(pct[i0] / f(100))))
+        tot = f(tot + surv[i0])
+    return yy, [f(s / tot) for s in surv], nyrlif
+
+def agedist(baspop, modfrc, base_year, growth_year, yy, ys, vs):   # population/agedist.rs:128
+    md = list(modfrc)
+    totpop = f(baspop)
+    for iyear in range(base_year + 1, growth_year + 1):
+        tmp = list(md)
+        gf = growth_factor(ys, vs, iyear - 1, iyear)
+        if gf != 0:
+            totpop = max(totpop, f(0.0001))               # MINGRWIND
+        totpop = max(f(totpop * (f(1.0) + gf)), f(0))
+        tpf = f(totpop / f(baspop))
+        s = f(0)
+        for ia in range(1, MXAGYR):
+            u = max(f(tmp[ia - 1] * (f(1.0) - yy[ia])), f(0))
+            md[ia] = u
+            s = f(s + u)
+        md[0] = f(tpf - s)                                # residual, unclamped
+    return md
+
+# ------------------------------------------------------------------ geography
+ss = rd("nrstatesurrogate")
+def alloc_frac(sur):                                      # alocty.f / getind.f
+    def pick(fips):
+        rows = ss[(ss.surrogateID == sur) & (ss.countyID == fips)]
+        low = rows[rows.surrogateYearID <= YEAR]
+        if len(low):
+            return f(float(low.sort_values("surrogateYearID").iloc[-1].surrogatequant))
+        hi = rows[rows.surrogateYearID > YEAR]
+        if len(hi):
+            return f(float(hi.sort_values("surrogateYearID").iloc[0].surrogatequant))
+        return None
+    qs, qc = pick(STATE * 1000), pick(COUNTY)
+    return f(qc / qs) if (qs is not None and qs > 0 and qc is not None) else f(0)
+
+# ------------------------------------------------------------------- temporal
+ma, da = rd("nrmonthallocation"), rd("nrdayallocation")
+def scc_ladder(s):                                        # nonroad_loader.rs:839
+    return [s] + [s[:10 - k] + "0" * k for k in (2, 4, 6)]
+def equip_chain(s):                                       # nonroad_loader.rs:816
+    return [s, s[:7] + "000", s[:4] + "000000"]
+def month_fraction(scc):
+    for k in scc_ladder(scc):
+        for st in (STATE, 0):                             # state rows win
+            r = ma[(ma.SCC == k) & (ma.stateID == st) & (ma.monthID == MONTH)]
+            if len(r):
+                return f(float(r.iloc[0].monthFraction))
+    return f(1.0 / 12.0)                                  # defmth
+def day_fraction(scc):
+    for k in scc_ladder(scc):
+        r = da[(da.scc == k) & (da.dayID == DAYID)]
+        if len(r):
+            return f(float(r.iloc[0].dayFraction))
+    return f(1.0 / 7.0)                                   # defday
+
+# ---------------------------------------------------------------- temperature
+z = rd("zone"); zmh = rd("zonemonthhour")
+zids = set(z[z.countyID == COUNTY].zoneID)
+t = zmh[(zmh.zoneID.isin(zids)) & (zmh.monthID == MONTH)
+        & (zmh.hourID >= 6) & (zmh.hourID <= 18)].temperature.astype(float)
+TAMB = f(t.mean())
+
+# ------------------------------------------------------------------ fuel props
+yr = rd("year"); fuel_year = int(yr[yr.yearID == YEAR].fuelYearID.iloc[0])
+rc = rd("regioncounty")
+regions = set(rc[(rc.regionCodeID == 2) & (rc.countyID == COUNTY)
+                 & (rc.fuelYearID == fuel_year)].regionID)
+sup, form, fst = rd("nrfuelsupply"), rd("fuelformulation"), rd("nrfuelsubtype")
+sup["marketShare"] = sup.marketShare.astype(float)
+for c in ("ETOHVolume", "MTBEVolume", "ETBEVolume", "TAMEVolume", "volToWtPercentOxy"):
+    form[c] = form[c].astype(float)
+m = sup[sup.fuelRegionID.isin(regions) & (sup.monthGroupID == MONTH)
+        & (sup.fuelYearID == fuel_year)].merge(form, on="fuelFormulationID") \
+                                        .merge(fst[["fuelSubtypeID", "fuelTypeID"]], on="fuelSubtypeID")
+gas = m[m.fuelTypeID == 1]
+OXY = f((gas.marketShare * ((gas.ETOHVolume + gas.MTBEVolume + gas.ETBEVolume
+                            + gas.TAMEVolume) * gas.volToWtPercentOxy)).sum())
+
+def adjustments(scc):                                     # emsadj.f
+    two = scc[:4] == "2260"
+    dt = f(TAMB - f(75.0))
+    if two:
+        a = (f(0.0), f(0.0), f(0.0))
+        c = (f(0.006), f(0.065), f(-0.186))
+    else:
+        a = (f(-0.00240), f(0.0015784), f(-0.00892)) if TAMB <= 75 else (f(0.00132), f(0.00375), f(-0.00873))
+        c = (f(0.045), f(0.062), f(-0.115))
+    out = {}
+    for i, p in enumerate(("THC", "CO", "NOx")):
+        out[p] = f(f(np.exp(f(a[i] * dt))) * f(f(1.0) - c[i] * OXY))
+    out["PM"] = f(1.0)
+    return out
+
+# ------------------------------------------------- emission factors / tech mix
+er, tf, det = rd("nremissionrate"), rd("nrengtechfraction"), rd("nrdeterioration")
+DET = {(k, int(r.engTechID)): (f(float(r.DFCoefficient)), f(float(r.DFAgeExponent)),
+                               f(float(r.emissionCap)))
+       for k, pp in PP.items() for r in det[det.polProcessID == pp].itertuples()}
+
+def tech_mix(scc, hp):                                    # .TECH, processGroupID 1
+    for s in equip_chain(scc):
+        sub = tf[(tf.SCC == s) & (tf.processGroupID == 1)
+                 & (tf.hpMin <= hp) & (tf.hpMax >= hp)]
+        if len(sub):
+            out = {}
+            for r in sub.itertuples():
+                out.setdefault(int(r.modelYearID), {})[int(r.engTechID)] = f(float(r.NREngTechFraction))
+            return out
+    return {}
+
+def ef_map(scc, hp):                                      # .EMF, independent chain
+    for s in equip_chain(scc):
+        e = er[(er.SCC == s) & (er.hpMin <= hp) & (er.hpMax >= hp)]
+        if len(e):
+            return {(k, int(r.engTechID)): f(float(r.meanBaseRate))
+                    for k, pp in PP.items() for r in e[e.polProcessID == pp].itertuples()}
+    return {}
+
+# --------------------------------------------------------------- the run itself
+sut, pop, scct, eqt = rd("nrsourceusetype"), rd("nrbaseyearequippopulation"), rd("nrscc"), rd("nrequipmenttype")
+sectors = set(rd("runspecsector").sectorID)
+fuels = set(rd("runspecfueltype").fuelTypeID)
+eq_sector = dict(zip(eqt.NREquipTypeID, eqt.sectorID))
+eq_surr = dict(zip(eqt.NREquipTypeID, eqt.surrogateID))
+allowed = {r.SCC for r in scct.itertuples()
+           if eq_sector.get(r.NREquipTypeID) in sectors and r.fuelTypeID in fuels}
+scc_surr = {r.SCC: eq_surr[r.NREquipTypeID] for r in scct.itertuples() if r.NREquipTypeID in eq_surr}
+
+pop_by_src = {}
+for r in pop[pop.stateID == STATE].itertuples():          # .POP is written %17.1f
+    pop_by_src[r.sourceTypeID] = pop_by_src.get(r.sourceTypeID, 0.0) + round(float(r.population) * 10) / 10
+
+totals = {}
+for r in sut.itertuples():
+    if r.SCC not in allowed:
+        continue
+    sp = pop_by_src.get(r.sourceTypeID)
+    if not sp:
+        continue
+    scc = r.SCC
+    hp = f(float(r.hpAvg)); hrs = f(float(r.hoursUsedPerYear))
+    ldf = f(float(r.loadFactor)); mdl = f(float(r.medianLifeFullLoad))
+    ys, vs = growth_series(int(gp[(gp.SCC.isin(equip_chain(scc)))
+                                  & (gp.stateID.isin([STATE, 0]))].iloc[0].growthPatternID))
+    yy, mf0, ny = scrptime(mdl, ldf, hrs, growth_factor(ys, vs, 1990, 1991))
+    md = agedist(f(sp), mf0, 1990, YEAR, yy, ys, vs)
+    cp = f(f(sp) * alloc_frac(scc_surr[scc]))
+    tpl = f(month_fraction(scc) * f(f(7.0) * day_fraction(scc)))
+    adjtime = f(f(1.0) / f(NDAYS))
+    cvt = f(hp * ldf)
+    adj = adjustments(scc)
+    MIX, EF = tech_mix(scc, hp), ef_map(scc, hp)
+    for idx in range(ny):
+        if md[idx] <= 0:                                  # prccty.f skips modfrc <= 0
+            continue
+        my = YEAR - idx
+        detage = f(f(idx + 1) * hrs * ldf / mdl)
+        years_le = [y for y in sorted(MIX) if y <= min(my, YEAR)]
+        mix = MIX[years_le[-1]] if years_le else MIX[sorted(MIX)[0]]
+        for p in PP:
+            for tid, frac in mix.items():
+                if frac <= 0:
+                    continue
+                A, B, cap = DET.get((p, tid), (f(0), f(1), f(0)))
+                DF = f(f(1.0) + A * f((detage if detage <= cap else cap) ** B))
+                emstmp = f(f(f(f(EF.get((p, tid), f(0)) * cvt) * DF) * adj[p]) * adjtime)
+                emiss = f(f(f(f(f(emstmp * hrs) * tpl) * cp) * md[idx]) * frac)
+                k = (POLID[p], scc, my)
+                totals[k] = f(totals.get(k, f(0)) + f(emiss * f(1.102311e-06)))
+
+# ------------------------------------------------------------------- compare
+exp = pq.read_table(D + "db__out_nr_logging_county__movesoutput.parquet").to_pandas()
+exp["emissionQuant"] = exp.emissionQuant.astype(float)
+obs = {(int(r.pollutantID), r.SCC, int(r.modelYearID)): float(r.emissionQuant) for r in exp.itertuples()}
+worst, n = 0.0, 0
+for k in sorted(set(list(totals) + list(obs))):
+    got = float(totals.get(k, 0.0)) / 1.102311e-6
+    want = obs.get(k)
+    if want is None:
+        print("EXTRA", k, got); continue
+    rel = (got - want) / want
+    worst = max(worst, abs(rel)); n += 1
+print(f"{n} rows compared, max |relative error| = {worst:.3e}")
+assert n == 144 and worst < 1e-5
+```
+
+Output:
+
+```
+144 rows compared, max |relative error| = 4.897e-06
+```
+
+### 6.6 Suggested inline `.esm` tests
+
+The two hand-worked examples give three tiers of inline test, all with
+`const`-array inputs and no data dependency:
+
+1. **Template level.** `deterioration_factor(0.797, 0.5, 2.0, 2.45) = 2.127187`
+   (the cap-inside-the-power case);
+   `exhaust_temperature_adjustment(-0.00892, -0.00873, 73.576927) = 1.0127747`;
+   `oxygenate_adjustment(-0.115, 3.653) = 1.420095`;
+   `unit_conversion(g/hp-hr, 6.81, 0.7) = 4.7669997`.
+2. **Component level.** `scrptime(191, 0.7, 303, 0.401523)` ⇒ `nyrlif = 3`,
+   `modfrc = [0.8506725, 0.1493275, 0]`; `agedist` of that over 1990→2020 with
+   pattern 2176 ⇒ `[3.7072685, 0.9905483, 5.8886e-08]`.
+3. **Chain level.** The 12 rows of §6.1 as literal expected values — one SCC,
+   one tech, no summation, so a mismatch localises immediately.
