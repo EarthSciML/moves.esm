@@ -131,6 +131,24 @@ Arrow-typed columns map onto the `NativeDataset` contract more directly than
 CF-decoded NetCDF does. This deletes a whole conversion stage from every
 fixture and lets the `.esm` documents read the oracle data in place.
 
+**Landed** (EarthSciIO `c2c603d`): `parquet` is a registered format name in the
+Rust reader, decoding a file as a flat table — one rank-1 field per column over
+`index` — with column selection pushed down as a real projection, verified at
+the byte level. Registered without touching `Provider`. Rust track only; the
+Python and Julia registries deliberately do not claim `parquet`, so those
+tracks give a clean registration gap rather than a wrong decode
+(`spec/parquet-bindings-handoff.md` is the work order). Note `rust-version`
+moved 1.74 → 1.85, arrow-rs's MSRV.
+
+**One snapshot detail with teeth.** MOVES snapshot floats are stored as
+*decimal text*, not floats. In `nr-logging-county`'s `MOVESOutput`, every ID
+column is `int64` and `SCC` is a string — but so are `emissionQuant`,
+`emissionQuantMean`, and `emissionQuantSigma`, held as strings like
+`"261.000000000000"` for byte-reproducibility. So the reader's `float_columns`
+option is not an edge case for us; **every fixture must declare its float
+columns**, or the emission quantities arrive as strings. The reader parses
+decimal text under that option and refuses the unparseable.
+
 ### 1.5 CLI gaps
 
 | Gap | Status |
