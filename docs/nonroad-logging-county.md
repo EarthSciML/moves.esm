@@ -878,3 +878,299 @@ rounded to 1 dp before summing (`:1226`), and J9's `growthIndex` is truncated to
 an integer at load (`:1516`).
 
 ---
+
+## 4. Reusable shapes (`expression_templates`)
+
+Each of these appears many times in the chain and should live once, in a library
+file, imported by reference (PLAN.md §3 Phase 1).
+
+### 4.1 `deterioration_factor`
+
+The single most-reused expression: applied to every
+`(pollutant, tech, model year)` cell.
+
+```
+deterioration_factor(A, B, cap, age) = 1 + A * min(age, cap)^B
+```
+
+Source: `crates/moves-nonroad/src/emissions/exhaust.rs:833-836`.
+**The cap applies to the age argument, before the power** — with `B = 0.5`
+(every 4-stroke tech here) capping the product instead would be wrong.
+`age` is `detage`, a *fraction of median life consumed*, not years:
+
+```
+detage(idxyr) = (idxyr + 1) * hoursUsedPerYear * loadFactor / medianLifeFullLoad
+```
+
+(`crates/moves-nonroad/src/population/modyr.rs:308-317`.) With `A = 0` the whole
+thing collapses to 1, which is how NOx deterioration is switched off for
+2-stroke techs — so no special case is needed.
+
+### 4.2 `exhaust_temperature_adjustment`
+
+```
+exhaust_temperature_adjustment(a_cold, a_hot, T)
+    = exp( (T <= 75 ? a_cold : a_hot) * (T - 75) )
+```
+
+Source: `exhaust.rs:539-567`. Instantiated six ways (three pollutants × two
+gasoline stroke counts); the 2-stroke instantiations have both coefficients 0.
+
+| fuel | pollutant | `a_cold` (T ≤ 75) | `a_hot` (T > 75) |
+|---|---|---|---|
+| Gasoline 4-stroke | THC | −0.00240 | 0.00132 |
+| Gasoline 4-stroke | CO | 0.0015784 | 0.00375 |
+| Gasoline 4-stroke | NOx | −0.00892 | −0.00873 |
+| Gasoline 2-stroke | THC, CO, NOx | 0.0 | 0.0 |
+| Diesel / CNG / LPG | — | *not applied* | *not applied* |
+
+Not a quadratic — see the naming note in §2.5(b).
+
+### 4.3 `oxygenate_adjustment`
+
+```
+oxygenate_adjustment(c, oxy) = 1 - c * oxy
+```
+
+Source: `exhaust.rs:606-625`. Six instantiations:
+
+| fuel | THC `c` | CO `c` | NOx `c` |
+|---|---|---|---|
+| Gasoline 4-stroke | 0.045 | 0.062 | −0.115 |
+| Gasoline 2-stroke | 0.006 | 0.065 | −0.186 |
+
+Gated on `not rfg` and gasoline. Keep the sign in the coefficient, as the source
+does (`1.0 - (-0.115) * oxy`), so the template stays a single form.
+
+### 4.4 `unit_conversion` (`unitcf.f`)
+
+```
+unit_conversion(unitCode, hpAvg, loadFactor, activityUnit, density, bsfc) =
+      unitCode = g/hp-hr   ->  hpAvg * loadFactor
+      unitCode = g/gallon  ->  activityUnit in {gal/yr, gal/day} ? 1
+                               : density = 0 ? 0
+                               : (bsfc * loadFactor * hpAvg) / density
+      otherwise            ->  1
+```
+
+Source: `exhaust.rs:249-276`. Only the `g/hp-hr` branch fires in this fixture,
+but the whole shape belongs in the library — the other NONROAD sectors use
+`g/gallon` and `g/day`.
+
+### 4.5 `scc_fallback_key`
+
+Not an arithmetic template but the most-repeated *relational* shape — used by at
+least six joins with two different ladders:
+
+```
+equipment_chain(SCC) = [SCC, SCC[0..7] ++ "000", SCC[0..4] ++ "000000"]     # rates, mixes, growth
+scc_lookup_ladder(SCC) = [SCC, SCC[0..8] ++ "00", SCC[0..6] ++ "0000", SCC[0..4] ++ "000000"]
+```
+
+Sources: `nonroad_loader.rs:816-837` and `:839-852`. Model it as a build-time
+`SCC → effective key` mapping per target table (a `skolem`, in PLAN.md §3 Phase 1
+terms), so the run-time join stays a plain equi-join.
+
+### 4.6 `state_default_precedence`
+
+```
+effective_row(SCC, state) = rows[state == 26] if any else rows[state == 0]
+```
+
+Used by `nrgrowthpatternfinder` (`:1477-1494`) and `nrmonthallocation`
+(`:1898-1925`, `:2237-2258`). Same remark: precompute the effective key.
+
+### 4.7 `temporal_scale`
+
+```
+temporal_scale(mthf, dayFraction, ndays) = mthf * (7 * dayFraction) / ndays
+```
+
+Sources: `driver/daymthf.rs:108-117` (the `7 ×`), `geography/common.rs:987-1010`
+(the `1/ndays`), documented together at `nonroad_loader.rs:2213-2222`. In the
+engine the two halves enter the product separately — `adjustment_time = 1/ndays`
+inside `emstmp`, `tpltmp2 = mthf·dayf` outside — and mixing them up
+double-applies the monthly factor (`executor.rs:1513-1519` spells out the
+≈2.6× error for a 31-day month).
+
+### 4.8 `carbon_balance_ef` (present in `clcems`, not exercised here)
+
+```
+co2_ef(hpAvg, loadFactor, bsfc, ems_thc, cfrac) =
+    hpAvg * loadFactor * (bsfc * 453.6 - ems_thc / (hpAvg * loadFactor)) * cfrac * 44 / 12
+```
+
+Source: `exhaust.rs:1131-1147`. Worth putting in the library now: Phase 5's other
+NONROAD sectors select CO2 (pollutantID 90).
+
+---
+
+## 5. Literals and enums
+
+Everything below is a magic value the chain depends on. This is the `enums`
+section for the `.esm` port.
+
+### 5.1 Pollutants
+
+| Name | MOVES `pollutantID` | NONROAD engine slot (0-based) | Fortran `IDX*` (1-based) |
+|---|---|---|---|
+| `TotalGaseousHydrocarbons` | 1 | 0 | `IDXTHC` = 1 |
+| `CarbonMonoxide` | 2 | 1 | `IDXCO` = 2 |
+| `OxidesOfNitrogen` | 3 | 2 | `IDXNOX` = 3 |
+| `AtmosphericCO2` | 90 | 3 | `IDXCO2` = 4 |
+| `SulfurDioxide` | 31 | 4 | `IDXSOX` = 5 |
+| `PrimaryExhaustPM10Total` | 100 | 5 | `IDXPM` = 6 |
+
+Slot↔ID map: `nonroad_loader.rs:2183` (`SLOT_POLLUTANT`). Full engine slot
+enumeration (23 slots, `MXPOL`): `exhaust.rs:56-105` — crankcase 7, evap
+8–17, start emissions 18–23. The exhaust loop skips slots 8–17
+(`exhaust.rs:1046-1049`).
+
+**Selected by this RunSpec:** 1, 2, 3, 100.
+
+### 5.2 Processes and `polProcessID`
+
+| Name | ID |
+|---|---|
+| `RunningExhaust` | 1 |
+
+`polProcessID = pollutantID * 100 + processID` (`nonroad_loader.rs:59-60`).
+Selected: `101, 201, 301, 10001`.
+
+Two `polProcessID`s are structural, not pollutants:
+
+| Constant | Value | Meaning | Source |
+|---|---|---|---|
+| `PP_BSFC` | 9901 | Brake-specific fuel consumption carrier (pollutant 99). Feeds the CO2/SOx branches; never emitted. | `nonroad_loader.rs:66` |
+
+Processes the `NonroadEmissionCalculator` subscribes to (DAY granularity):
+`1, 15, 18, 19, 20, 21, 30, 31, 32` (`nonroad_emission.rs:70`). Only 1 matters
+here.
+
+### 5.3 SCCs
+
+| SCC | Description | `NREquipTypeID` | nonroad `fuelTypeID` | `sectorID` | `surrogateID` |
+|---|---|---|---|---|---|
+| `2260007005` | 2-Str Chain Saws > 6 HP | 71 | 1 | 7 | 8 |
+| `2265007010` | 4-Str Shredders > 6 HP | 72 | 1 | 7 | 8 |
+| `2265007015` | 4-Str Forest Eqp – Feller/Bunch/Skidder | 73 | 1 | 7 | 8 |
+| `2270007010` | Dsl – Shredders > 6 HP | 72 | 23 | 7 | 8 |
+| `2270007015` | Dsl – Forest Eqp – Feller/Bunch/Skidder | 73 | 23 | 7 | 8 |
+
+SCC prefix → engine fuel kind, `crates/moves-nonroad/src/driver/run.rs:276-292`:
+
+| Prefix test | `FuelKind` | Fortran index |
+|---|---|---|
+| `SCC[0..4] == "2260"` or `SCC[0..7] ∈ {2282005, 2285003}` | `Gasoline2Stroke` | 1 |
+| `SCC[0..4] == "2265"` or `SCC[0..7] ∈ {2282010, 2285004}` | `Gasoline4Stroke` | 2 |
+| `SCC[0..4] == "2270"` or `SCC[0..7] ∈ {2280002, 2282020, 2285002}` | `Diesel` | 3 |
+| `SCC[0..4] == "2267"` or `SCC[0..7] == "2285006"` | `Lpg` | 4 |
+| `SCC[0..4] == "2268"` or `SCC[0..7] == "2285008"` | `Cng` | 5 |
+
+Two SCC prefixes carry a rec-marine diesel sulfur override in `emsadj.f`:
+`"2282020"` and `"2280002"` (`exhaust.rs:637-639`).
+
+### 5.4 Fuel types — the two namespaces, and why diesel drops out
+
+MOVES **onroad** `fueltype` (what the RunSpec stores):
+`1 = Gasoline`, `2 = Diesel Fuel`.
+
+NONROAD `nrfueltype` (what `nrscc.fuelTypeID` uses):
+
+| ID | Description | Density (`fuelDensity`) |
+|---|---|---|
+| 1 | Gasoline | 2829 |
+| 3 | Compressed Natural Gas (CNG) | 500 |
+| 4 | Liquefied Petroleum Gas (LPG) | 1923 |
+| 23 | Nonroad Diesel Fuel | 3198 |
+| 24 | Marine Diesel Fuel | 3198 |
+
+`selected_sccs` (`nonroad_loader.rs:1119-1174`) intersects the RunSpec selection
+`{1, 2}` against `nrscc.fuelTypeID`. `1` matches the gasoline logging SCCs; `2`
+matches **nothing**, because nonroad diesel is 23/24. The intersection is
+therefore non-empty (three gasoline SCCs) and the restriction applies — which is
+exactly why this fixture's output is gasoline-only.
+
+> The load-bearing quirk documented at `nonroad_loader.rs:1145-1163`: if the
+> intersection were **empty** (a diesel-only RunSpec), canonical would emit an
+> empty `/SOURCE CATEGORY/` packet, and the NONROAD Fortran treats an empty
+> packet like a missing one — running the *entire* inventory. Verified against
+> the canonical binary and four other snapshots. That branch does not fire here,
+> but an `.esm` port that models the selection must not "simplify" it away.
+
+Fuel subtypes seen in the supply join: `10 = Conventional Gasoline`,
+`11 = Reformulated Gasoline` (the RFG test, `:1830`), `12 = Gasohol (E10)`,
+`23 = Nonroad Diesel`, `24 = Marine Diesel`, `30 = CNG`, `40 = LPG`
+(`:1834-1839`).
+
+### 5.5 Engine technology codes
+
+`engTechID` is an opaque key into `enginetech`; the relevant ones here:
+
+| `engTechID` | `engTechName` | tier | strokes | description |
+|---|---|---|---|---|
+| 121 | `G2H5` | 0 | 2 | Baseline gas 2-stroke handheld Class V |
+| 122 | `G2H5C` | 0 | 2 | …with Catalyst |
+| 123 | `G2H51` | 1 | 2 | Phase 1 gas 2-stroke handheld Class V |
+| 124 | `G2H5C1` | 1 | 2 | Phase 1 …with Catalyst |
+| 125 | `G2H52` | 2 | 2 | Phase 2 gas 2-stroke handheld Class V |
+| 126 | `G2H5C2` | 2 | 2 | Phase 2 …with Catalyst |
+| 127–135 | — | — | 4 | 4-stroke non-handheld, 6–25 hp bin |
+| 136–144 | — | — | 4 | 4-stroke non-handheld, 0–6 hp bin |
+
+`processGroupID`: **1 = exhaust, 2 = evap** (`nonroad_loader.rs:352-354`,
+`:1376-1378`). The `nrprocessgroup` table is empty in this snapshot, so the
+meaning has to come from the code.
+
+### 5.6 Other identifiers
+
+| Name | Value | Meaning |
+|---|---|---|
+| `sectorID` Logging | 7 | `sector` table |
+| `roadTypeID` Nonroad | 100 | `roadtype` table; `isAffectedByNonroad = 1` |
+| `dayID` weekday | 5 | slot 0 of the daily profile |
+| `dayID` weekend | 2 | slot 1 |
+| `regionCodeID` nonroad fuel | 2 | `regioncounty` filter (`:1770`) |
+| `NREquipTypeID` default scrappage | 0 | the only curve canonical writes (`:1560-1562`) |
+| `modelYearID` sentinel | 1900 | "all model years" in `nremissionrate` / `nrengtechfraction` |
+| `hpMax` sentinel | 9999 | open-ended top bin |
+| Base population year | 1990 | `nrbaseyearequippopulation.NRBaseYearID` |
+| Pseudo county | `"00001"` | internal region code for the engine's County dispatch (`nonroad_loader.rs:48`) |
+
+### 5.7 Physical and dimensioning constants
+
+All from `crates/moves-nonroad/src/common/consts.rs`.
+
+| Constant | Value | Meaning | Line |
+|---|---|---|---|
+| `MXPOL` | 23 | pollutant slots | `:30` |
+| `MXTECH` | 32 | max engine techs per (SCC, hp bin) | `:51` |
+| `MXHPC` | 18 | HP categories | `:62` |
+| `MXAGYR` | 51 | max equipment ages (⇒ median-life cap `int(51/2) = 25` yr) | `:67` |
+| `MXDAYS` | 365 | Julian days | `:86` |
+| `MINGRWIND` | 1e-4 | growth-indicator / population floor | `:158` |
+| `GRMLB` | 453.6 | grams per pound (`f64`, cast to `f32` at use) | `:225` |
+| `RMISS` | −9.0 | missing-value flag | `:339` |
+| `CVTTON` | 1.102311e-06 | short tons per gram | `:355` |
+| `CMFGAS` | 0.87 | gasoline carbon mass fraction | `:361` |
+| `CMFCNG` | 0.717 | CNG carbon mass fraction | `:366` |
+| `CMFLPG` | 0.817 | LPG carbon mass fraction | `:371` |
+| `CMFDSL` | 0.87 | diesel carbon mass fraction | `:376` |
+| `SWTGS2` | 0.0339 | base sulfur wt %, gasoline 2-stroke | `:381` |
+| `SWTGS4` | 0.0339 | base sulfur wt %, gasoline 4-stroke | `:386` |
+| `SWTDSL` | 0.33 | base sulfur wt %, diesel | `:401` |
+| `SFCGS2` | 0.03 | sulfur→SOx/PM conversion fraction, gas 2-stroke | `:406` |
+| `SFCGS4` | 0.03 | …gas 4-stroke | `:411` |
+| `SFCDSL` | 0.02247 | …diesel | `:426` |
+| `GRAMS_PER_SHORT_TON` | 1 / 1.102311e-6 | inverse of `CVTTON` | `nonroad_loader.rs:2177` |
+| `initial_sales` | 1000.0 | `scrptime` sales base | `scrptime.rs:147` |
+| sales-growth coefficients | −1.4306, −0.24 | `scrptime` | `scrptime.rs:139-143` |
+| `HP_LEVELS` | 3, 6, 11, 16, 25, 40, 50, 75, 100, 175, 300, 600, 750, 1000, 1200, 1500, 1800, 2000 | representative HP levels | `nonroad_loader.rs:52-55` |
+| `defmth` / `defday` | 1/12, 1/7 | temporal fallbacks | `nonroad_loader.rs:2273-2288` |
+| days per month | 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 | non-leap | `nonroad_loader.rs:2202-2209` |
+| temperature threshold | 75 °F | `emsadj.f` branch point | `exhaust.rs:539-547` |
+| daytime hour window | `hourID ∈ [6, 18]` | ambient-temperature mean | `nonroad_loader.rs:1613-1615` |
+| sulfur divisor | 10 000 | ppm → weight % | `nonroad_loader.rs:1826` |
+| CO2 stoichiometry | 44 / 12 | CO2 per carbon | `exhaust.rs:1144-1145` |
+| SOx factors | 0.01, 2.0 | `clcems` SOx EF rewrite | `exhaust.rs:1110-1113` |
+| PM sulfur factors | 7.0, 0.01 | diesel PM sulfur correction | `exhaust.rs:1172-1176` |
