@@ -196,6 +196,40 @@ count must match the snapshot exactly regardless of the float tolerance. A
 per-fixture override requires a written reason — an override without one is a
 bug being hidden.
 
+#### 1.6.1 Measured: binary64 costs four rows, and the fix is a modelling rule
+
+No longer a projection. Running the `nr-logging-county` reproduction in both
+precisions:
+
+| precision | result |
+|---|---|
+| `float32` | 144/144 rows, max relative error **4.9 × 10⁻⁶** |
+| `float64` | 140/144 — four cells compute **exactly zero** |
+
+The four are `(THC, CO, NOx, PM) × SCC 2260007005 × modelYear 2018`. The cause
+is one operation in `moves.rs/crates/moves-nonroad/src/driver/scrptime.rs`:
+`100 × ((100 − 73.5)/100) / (100 − 73.5)` is `0.99999994` in binary32 and
+exactly `1.0` in binary64, so `1 − yryrfrcscrp` is one ulp versus zero. The age
+distribution carries that 5.96 × 10⁻⁸ through 30 iterations, and a
+`modfrc <= 0` skip then does or does not fire.
+
+**Under the gate we actually apply this costs nothing.** Those four cells carry
+2.4 × 10⁻⁵ g out of 5,146 g, so per-pollutant `emissionQuant` sums in binary64
+come out at worst **2.6 × 10⁻⁶** relative — three orders inside the 1 × 10⁻²
+NONROAD tolerance, and inside a per-cell 2 × 10⁻⁵ as well.
+
+**But it breaks the structural check, and that decides a modelling rule.** In
+the binary64 run the four keys are *absent*, not zero — the Fortran skip
+suppresses the row. Against `require_exact_key_set = true` that is a failure.
+The resolution is not to loosen the check: it is that **the `.esm` must not
+reproduce `modfrc <= 0` as row suppression.** A relational document emits every
+key combination its joins produce and lets the value be whatever it computes;
+the skip is Fortran control flow, not model semantics. Emit the row, emit the
+zero, and the key set matches exactly while the sums gate passes at 2.6 × 10⁻⁶.
+
+That is the happier answer — the legible form and the passing form are the same
+form. Do not add a four-key allow-list.
+
 ---
 
 ## 2. Target ladder
@@ -285,9 +319,12 @@ later phase inherits its decisions.
   than a column, and `coordinates` to record the original key so output rows
   label back to `countyID` / `SCC`.
 - **Reused shapes as `expression_templates`** in library files imported by
-  reference — the temperature-adjustment quadratic, the I/M blend
-  `max(rIM·f + r·(1−f), 0)`, unit conversion, the deterioration curve. Each
-  appears exactly once.
+  reference — the exhaust temperature adjustment
+  `exp((T ≤ 75 ? a_cold : a_hot)·(T − 75))` (an *exponential*, not the quadratic
+  an earlier draft of this plan called it), the I/M blend
+  `max(rIM·f + r·(1−f), 0)`, unit conversion, the deterioration curve
+  `1 + A·min(detage, cap)^B`. Each appears exactly once;
+  `docs/nonroad-logging-county.md` §4 names eight with their exact forms.
 - **One `.esm` per calculator/generator**, mounted into a run-level assembly via
   §4.7 subsystem refs. Index sets merge across the mount, so leaf components
   never redeclare shared axes.
@@ -315,6 +352,23 @@ Components, one `.esm` each, composed in order:
 5. Adjustments — temperature, fuel, sulfur (`emsadj.f`)
 6. Unit conversion (`unitcf.f`) and the exhaust roll-up (`clcems.f`)
 7. Output aggregation to the `MOVESOutput` schema
+
+The port specification for this fixture is written and verified:
+`docs/nonroad-logging-county.md`. It carries the input inventory (21 of the
+snapshot's 324 tables carry data; 11 more are declared by
+`NonroadEmissionCalculator` and never read), the chain with source lines, 25
+joins with exact key pairs, and a standalone script reproducing all 144 rows in
+`float32` at 4.9 × 10⁻⁶.
+
+**Three joins are not plain equi-joins** and need a precomputed key rather than
+a `join.on` — the exceptions to the Phase 1 rule, worth knowing before
+authoring: HP containment (`hpMin ≤ hpAvg ≤ hpMax`, both inclusive); the two
+*different* SCC fallback ladders (rates/mixes/growth walk one, month/day
+allocation another, and rates and mixes must walk theirs independently); and
+state-default precedence (`stateID = 26` beats `stateID = 0`). Two further
+joins are on *rounded* values — population quantized to 1 dp, `growthIndex`
+truncated to integer — and the truncation decides the sign of near-zero growth
+factors, so both must be modelled explicitly.
 
 **Exit criterion:** all 144 rows match the snapshot within the recorded
 tolerance, driven by `./run-tests.sh`. This phase proves the whole approach;

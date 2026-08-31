@@ -37,9 +37,31 @@ nonroad = 1e-2
 require_exact_key_set = true
 require_exact_row_count = true
 
+# Per-cell relative tolerance, applied in addition to the sums gate above.
+# Measured drift on nr-logging-county is 5-7e-6, so 2e-5 is a real gate; the
+# 1e-2 that moves.rs applies to per-pollutant sums is loose enough to hide, for
+# instance, a swapped 2-stroke/4-stroke oxygenate coefficient.
+[cell]
+rel = 2e-5
+
 # Per-fixture overrides go here as fixtures land, each with a one-line
 # justification. An override without a reason is a bug being hidden.
 #
-#   [fixtures."nr-logging-county"]
+#   [fixtures."<name>"]
 #   rel = 2e-2
 #   why = "..."
+
+# nr-logging-county needs NO override, and that is a deliberate finding rather
+# than an omission. Evaluating this fixture in binary64 instead of the f32 the
+# Fortran uses drives four cells --- (THC, CO, NOx, PM) x SCC 2260007005 x
+# modelYear 2018 --- to exactly zero, because a 1-ulp difference in
+# `1 - yryrfrcscrp` propagates through 30 age-distribution iterations until a
+# `modfrc <= 0` skip changes sides (PLAN.md 1.6.1). They carry 2.4e-5 g out of
+# 5,146 g, so per-pollutant sums still agree to 2.6e-6.
+#
+# The structural risk is real but is a modelling question, not a tolerance one:
+# in Fortran the skip SUPPRESSES those rows, and a document that copies that
+# control flow would emit 140 keys against the snapshot's 144. The .esm must
+# instead emit every key its joins produce and let the value be whatever it
+# computes. Then the key set matches exactly. Do not weaken
+# `require_exact_key_set` to accommodate this.
