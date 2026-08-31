@@ -1793,3 +1793,294 @@ The two hand-worked examples give three tiers of inline test, all with
    pattern 2176 ⇒ `[3.7072685, 0.9905483, 5.8886e-08]`.
 3. **Chain level.** The 12 rows of §6.1 as literal expected values — one SCC,
    one tech, no summation, so a mismatch localises immediately.
+
+---
+
+## 7. Fidelity notes and tolerance
+
+### 7.1 What `moves.rs` does
+
+`crates/moves-nonroad/src/emissions/exhaust.rs:14-38` states the policy:
+
+> All calculations use `f32` (single precision). The Fortran source declares
+> every variable `real*4`; matching the storage type is required to produce the
+> same rounding behaviour … Where the Fortran code multiplies several `real*4`
+> quantities in a specific order (e.g. `a * b * c * d` versus `(a * b) * (c * d)`),
+> the Rust port reproduces the original associativity.
+
+This is accurate: the `f32` reimplementation in §6.5 lands within
+**4.9 × 10⁻⁶** relative of the canonical snapshot on every one of the 144 rows,
+and the `moves.rs` binary itself lands within **4.8 × 10⁻⁶**.
+
+> **Stale documentation.** `docs/known-divergences.md` §4.2 says "NONROAD
+> arithmetic uses Fortran single-precision (`real*4`) in the original; the Rust
+> port uses `f64` throughout." That is **wrong** for the NONROAD engine — the
+> code is `f32` throughout, as `exhaust.rs`'s header and PLAN.md §1.6 both say,
+> and as the §6.5 reproduction demonstrates. The `NONROAD_REL_TOL = 1e-2`
+> constant in `crates/moves-cli/tests/full_suite_regression.rs:450` carries the
+> same incorrect justification in its doc comment.
+
+### 7.2 What EarthSciAST will do, measured
+
+ESM evaluates in `binary64`, and `domain.element_type: "Float32"` is
+document-wide — it cannot reproduce *per-expression* single-precision rounding
+(PLAN.md §1.6). To measure the consequence rather than guess it, I re-ran the
+§6.5 script with `f = np.float64` and nothing else changed:
+
+| | rows produced | max rel. error vs snapshot |
+|---|---|---|
+| `float32` (matches `moves.rs`) | **144 / 144** | 4.897 × 10⁻⁶ |
+| `float64` | **140 / 144** | 6.879 × 10⁻⁶ on the 140 |
+
+So binary64 reproduces the *arithmetic* essentially as well as binary32 —
+6.9e-6 vs 4.9e-6, both at the level of the snapshot's own 6-significant-figure
+storage. **The precision problem is not accuracy; it is four rows that exist
+only because of an f32 rounding artefact.**
+
+### 7.3 The one operation where precision changes the answer
+
+`crates/moves-nonroad/src/driver/scrptime.rs:122-131`:
+
+```rust
+let year_frac_scrapped = (pct_scrapped[cur] - pct_scrapped[prev]) / 100.0;
+...
+yryrfrcscrp[cur] = 100.0 * year_frac_scrapped / (100.0 - pct_scrapped[prev]);
+```
+
+For `2260007005`'s age-3 transition, `pct_prev = 73.5`, `pct_cur = 100.0`:
+
+| | `year_frac_scrapped` | `yryrfrcscrp` | `1 − yryrfrcscrp` |
+|---|---|---|---|
+| binary32 | `0.265` | `0.99999994` | **`5.9604645e-08`** |
+| binary64 | `0.265` | `1.0` | **`0.0`** |
+
+Algebraically the expression is `(100 − pct_cur)/(100 − pct_prev)`, which is
+exactly 0 when `pct_cur = 100`. The `f32` evaluation lands one ulp short of 1,
+`agedist` carries that `5.96e-08` through 30 shift-and-scrap iterations
+(`population/agedist.rs:139-143`) into `modfrc[2] = 5.8886e-08`, and the
+`modfrc <= 0` skip at `crates/moves-nonroad/src/geography/process.rs:380-383`
+therefore does *not* fire for model year 2018.
+
+Consequence: the four rows `(pollutantID ∈ {1,2,3,100}, SCC 2260007005,
+modelYearID 2018)` — emission quantities `4.27e-06`, `1.91e-05`, `1.10e-07`,
+`7.01e-07` g, **total 2.42 × 10⁻⁵ g out of the fixture's 5 146.51 g
+(4.7 × 10⁻⁹ of the mass)**. They are numerical noise in the canonical Fortran,
+faithfully reproduced by `moves.rs`, and unreachable from binary64.
+
+Two non-fixes, both checked:
+
+- **Relaxing the skip to `modfrc < 0`** recovers those four keys but adds **44
+  spurious zero-valued keys** (every other model year whose `modfrc` is exactly
+  0), giving 188 rows. Worse. Keep the `<= 0` skip exactly as written.
+- **Rewriting the expression** as `(100 − pct_cur)/(100 − pct_prev)` — the
+  algebraically equal form — gives exactly 0 in *both* precisions and so does
+  not help either.
+
+The only faithful reproduction would round `yryrfrcscrp` to single precision at
+that one operation, which ESM cannot express per-expression. If exact row parity
+is wanted, the honest route is to **precompute `yryrfrcscrp` in f32 outside the
+document** (it depends only on the scrappage curve and `medianLifeYears`, both
+inputs) and feed it in as data — a `data_sources` entry or a build-time
+`skolem`, not an in-document expression.
+
+Otherwise: **record 140/144 as a known structural difference with this cause**,
+and assert the total mass separately.
+
+### 7.4 Other precision-sensitive operations, ranked
+
+| Rank | Operation | Why it is sensitive | Observed margin in this fixture |
+|---|---|---|---|
+| 1 | `yryrfrcscrp` (§7.3) | cancellation against exactly 1.0, then a sign/zero test 30 iterations later | **fails** — 4 rows |
+| 2 | `agedist` residual `mdyrfrc[0] = totpopfrc − frcsum` (`agedist.rs:144`) | catastrophic cancellation whose **sign** decides whether a model year exists at all | safe: smallest surviving positive residual `0.168`, largest non-positive `−0.089` — margins of order 10⁻¹, ~10⁶× the f32/f64 gap |
+| 3 | `find_scrappage_percent` step lookup (`output/find.rs:233-244`) | a discrete bin choice; crossing a breakpoint jumps `pctScrapped` by 0.5 pp and can change `nyrlif` | one **exact tie**: `medianLifeYears = 10` (the `2265007010` 400-hr points) puts `fracLifeUsed = 1.000000` exactly on a curve breakpoint at age 11. Verified to select the same bin in both precisions (next edge is `1.000050`). Every other evaluation clears its nearest edge by ≥ 1.16 × 10⁻⁴ relative. |
+| 4 | Population rounding `(pop*10).round()/10` (`nonroad_loader.rs:1226`) | an explicit quantization, **not** a precision artefact | must be modelled explicitly; `0.463484 → 0.5` is a 7.9 % change that is required to match |
+| 5 | `growthIndex` integer truncation (`nonroad_loader.rs:1516`) | explicit `as i64`; decides the **sign** of near-zero growth factors | must be modelled explicitly (`trunc`, not `round`) |
+| 6 | `apply_deterioration` `powf(B)` with `B = 0.5` (`exhaust.rs:835`) | `sqrt` differs ~1 ulp between precisions | benign, ~1e-7 relative |
+| 7 | `exp(a·(T−75))` (`exhaust.rs:551-566`) | libm difference | benign, ~1e-7 relative |
+| 8 | The 10-factor roll-up product (`exhaust.rs:1079-1208`) | associativity preserved from Fortran; binary64 reassociation changes the last bits | benign, ≲ 5e-6 relative accumulated |
+| 9 | Short-ton round trip `× CVTTON` then `÷ 1.102311e-6` (`exhaust.rs:1227`, `nonroad_loader.rs:2177`, `:2378`) | the f32 tons value is the stored intermediate | benign, ~6e-8 relative |
+
+Items 4 and 5 are the ones most likely to be "simplified away" by an `.esm`
+author who reads them as noise. They are not noise; they are the file formats
+canonical MOVES writes.
+
+### 7.5 Recommended tolerance
+
+**What `characterization/tolerance.toml` uses for this fixture: nothing.** The
+file sets `default_float_tolerance = 0.0` (line 21) and contains **no
+per-table or per-column overrides at all** — the example block is commented out
+(lines 26-32). Its own trailing NOTE says the full-suite regression gate does
+not use the file, because a cell-level `moves_snapshot diff` of `MOVESOutput` is
+unusable for canonical-vs-port comparison (the two sides disagree on labelling
+columns that carry no mass).
+
+The tolerance actually applied to this fixture is in
+`crates/moves-cli/tests/full_suite_regression.rs`:
+
+- `NONROAD_REL_TOL: f64 = 1e-2` (`:450`)
+- `("nr-logging-county", NONROAD_REL_TOL, false),   // ~2.0e-6, 144/144` (`:498`)
+
+— a **per-pollutant total** relative tolerance, and the in-line comment records
+that the fixture actually lands at ~2 × 10⁻⁶.
+
+For the `.esm` port I recommend **tighter and structured**, not `1e-2`:
+
+```toml
+# tolerance.toml (moves.esm)
+[fixtures."nr-logging-county"]
+# Per-cell relative tolerance on MOVESOutput.emissionQuant.
+# Observed: f32 reimplementation 4.9e-6, binary64 6.9e-6, moves.rs 4.8e-6,
+# all against a snapshot stored to 6 significant figures. 2e-5 gives ~3x
+# headroom over the worst observed and still catches a 0.01% modelling error.
+emissionQuant_rel = 2e-5
+
+# Per-pollutant total, where cancellation cannot hide behind a large cell.
+total_rel = 1e-5
+
+# Key-set assertion. binary64 cannot produce the four f32-artefact rows;
+# see docs/nonroad-logging-county.md section 7.3.
+expected_rows = 144
+allowed_missing = [
+  "pollutantID=1,SCC=2260007005,modelYearID=2018",
+  "pollutantID=2,SCC=2260007005,modelYearID=2018",
+  "pollutantID=3,SCC=2260007005,modelYearID=2018",
+  "pollutantID=100,SCC=2260007005,modelYearID=2018",
+]
+allowed_missing_mass_g = 2.5e-5     # total mass those four rows carry
+allowed_extra = []                  # no spurious keys permitted
+```
+
+`1e-2` is three orders of magnitude looser than the physics warrants here and
+would hide, for example, a wrong oxygenate coefficient (the THC/CO/NOx
+coefficients differ by 4–30× between 2- and 4-stroke; a swap would show as a
+2–20 % error) or a missing deterioration cap. The row-count assertion is the
+part that actually needs a documented exception, and it should be an explicit
+allow-list of four named keys rather than a slack number.
+
+---
+
+## 8. Gaps, uncertainties and things I could not verify
+
+Listed honestly, in rough order of how much they could cost the `.esm` port.
+
+### 8.1 Paths this fixture does not exercise — described from code only
+
+My reading of these is a code reading, **not** validated by the fixture:
+
+- **CO2 (pollutantID 90) and SO2 (31).** Not in the RunSpec selection, so the
+  BSFC-derived branches (`exhaust.rs:1092-1147`) never ran. In particular the
+  order dependence on `ems_thc` (saved at `:1086-1088`, consumed at `:1108` and
+  `:1141`) means the pollutant loop must run THC first; I could not confirm the
+  numerical consequence.
+- **The diesel PM sulfur correction** (`exhaust.rs:1150-1180`) and the
+  **SOx sulfur correction** (`exhaust.rs:632-643`). Gasoline-only fixture.
+- **`nrsulfuradjustment` / `SulfurAlternate`.** Loaded and wired
+  (`nonroad_loader.rs:1635-1662`, `executor.rs:1479-1487`) but inert here. Note
+  the loader filters rows to `fuelTypeID ∈ {23, 24}` yet keys the resulting map
+  by `engTechID` **string** alone. I did not check whether the diesel and
+  gasoline `engTechID` spaces overlap; if they do, a gasoline tech could pick up
+  a diesel alternate. Worth checking before porting the sulfur path.
+- **RFG, altitude, evap and start-emission branches.** All gated off.
+- **The `GramsPerGallon` / `GramsPerDay` unit-conversion branches**
+  (`exhaust.rs:259-271`). Every rate here is `g/hp-hr`.
+
+### 8.2 An inconsistency I noticed but did not chase
+
+`compute_exhaust_iteration` builds its `PollutantFilter` by indexing
+`emission_factors.get(pol * MXTECH + t)` — **no `year_index` stride**
+(`executor.rs:1500-1507`) — while `calculate_exhaust` builds the same filter with
+`inputs.year_index * (MXPOL * MXTECH) + pol * MXTECH + t`
+(`executor.rs:2775-2784`), and the actual factor read uses
+`ef_cell(year_index, pollutant, tech_index)` in both. For this fixture the
+emission rates are model-year independent (every `nremissionrate` row is
+`modelYearID = 1900`), so every year slice is identical and the discrepancy
+cannot show. **I am not claiming this is a bug** — I did not read enough of the
+`ExhaustFactorsLookup` construction to know which stride is correct at each call
+site. A fixture with model-year-varying rates would distinguish them.
+
+### 8.3 Output labelling I verified empirically but not in code
+
+Running `moves.rs` on this fixture produces the 144 rows with correct keys and
+quantities but leaves `stateID`, `countyID`, `fuelTypeID` and `roadTypeID`
+**NULL**, where the canonical snapshot fills `26`, `26161`, `1`, `100`. It also
+emits an extra `emissionRate` and `runHash` column and no `iterationID`. I
+located the emission side (`emissions_to_dataframe`,
+`nonroad_loader.rs:2380-2390`, which emits only nine columns) but **did not find
+where canonical fills the geographic and fuel labels**. For the `.esm` port the
+values are unambiguous — `countyID` from the RunSpec, `stateID = countyID/1000`,
+`roadTypeID = 100`, `fuelTypeID` from `nrscc` — but the *rule* mapping nonroad
+`fuelTypeID` 23/24 to MOVES `fuelTypeID` 2 is **unverified**; only gasoline
+(1 → 1) appears in this fixture.
+
+Likewise `hourID = 0` in every output row despite
+`<outputtimestep value="Hour"/>` and `runspechour.hourID = 7`. I read this off
+the data and it is consistent with NONROAD being a typical-day model, but I did
+not find the code that zeroes it.
+
+### 8.4 `nrhourallocation` — unused, but by inference
+
+I verified there is no `store.get("nrhourallocation")` anywhere in the loader,
+and the chain reproduces to ~5 × 10⁻⁶ without it, which is conclusive for *this*
+port. I did **not** confirm that canonical MOVES also ignores it for an
+hour-selected RunSpec — only that the numbers agree without it.
+
+### 8.5 Fuel kind resolution: two mechanisms
+
+`emission_adjustments` derives the fuel from the SCC prefix
+(`fuel_for_scc(scc)`, `executor.rs:963`), while `compute_exhaust_iteration`
+passes `options.fuel` — the *dispatch plan's* fuel (`executor.rs:1553`,
+`simulation/mod.rs:200`) — into `clcems` for `cfrac`, `sox_conversion` and the
+diesel-PM branch. For this fixture each dispatch group is a single SCC so the
+two agree, and none of the `options.fuel`-dependent branches fire. **I did not
+verify that `plan.fuel` is always the SCC's own fuel.** An `.esm` port should
+treat fuel as a pure function of the SCC prefix (§5.3) and flag it if a fixture
+ever disagrees.
+
+### 8.6 A naming correction for PLAN.md
+
+PLAN.md §3 Phase 1 lists "the temperature-adjustment quadratic" as a template
+candidate. There is no quadratic on the exhaust path: the correction is
+`exp(a · (T − 75))` with a threshold-selected coefficient (§4.2). The only
+quadratic-ish forms in `emsadj.f` are the permeation corrections
+`3.788519e-2 · exp(3.850818e-2 · T)` / `6.013899e-2 · exp(3.850818e-2 · T)`
+(`exhaust.rs:664-666`), which are evap-only and not exercised here.
+
+### 8.7 Things I deliberately did not model
+
+- The engine also emits per-record total rows (`model_year = None`) alongside the
+  by-model-year rows; `emissions_to_dataframe` discards them
+  (`nonroad_loader.rs:2334-2341`). An `.esm` port needs only the by-model-year
+  form.
+- `MOVESActivityOutput` (144 rows in this snapshot) and the `translate_*` /
+  `finalagg*` / `temporary*import` tables are output-pipeline artefacts, not
+  inputs, and are out of scope for Phase 2's emission chain.
+- Retrofit (`nrretrofitfactors` is empty; `options.retrofit_enabled` is false)
+  and the `(1 − retro)` factor at `exhaust.rs:1222-1225`.
+
+---
+
+## 9. Summary for the `.esm` author
+
+The whole fixture is one scalar formula evaluated over
+`(SCC, equipment point, model year, engine tech, pollutant)` and summed to
+`(SCC, model year, pollutant)`:
+
+```
+grams =  round1dp(pop_state)
+       × surrogateFrac
+       × modfrc[age]                                   ← scrptime → modyr → agedist
+       × techFraction[latest mix year ≤ model year]
+       × EF[pollutant, tech]                           ← nremissionrate, hp-binned
+       × (hpAvg × loadFactor)                          ← unitcf.f, g/hp-hr branch
+       × (1 + A · min(detage[age], cap)^B)             ← emfclc.f / clcems.f
+       × exp(a_p · (tamb − 75)) × (1 − c_p · oxy)      ← emsadj.f
+       × hoursUsedPerYear
+       × monthFraction × 7 × dayFraction / daysInMonth
+```
+
+Seven `.esm` components, in dependency order: geography/allocation → population
+→ activity → emission factors + deterioration → adjustments → unit conversion +
+roll-up → output aggregation. Twenty-five joins (§3), of which three are not
+plain equi-joins and want a precomputed key. Eight reusable expression templates
+(§4). Expect 140 of 144 rows to match in binary64 at ≤ 7 × 10⁻⁶ relative, with
+the four documented exceptions in §7.3.
