@@ -1,0 +1,86 @@
+{
+  "esm": "1.0.0",
+  "metadata": {
+    "name": "nr-logging-county snapshot tables",
+    "description": "A SOURCE-CATALOG FILE (esm-spec §2): data_sources only, no component, not mountable as a subsystem. It declares the nr-logging-county snapshot tables that the Phase 1 components stand in for with inline literals, so that the ingest configuration is written, reviewed and version-controlled now rather than invented under time pressure in Phase 2.\n\nNOTHING CONSUMES IT YET, AND THAT IS DELIBERATE. No CLI subcommand can load a data source at the pinned toolchain: `src/bin/esm.rs` supplies no PrepareProvider, so a parameter with `update.kind: \"data\"` silently keeps its default and an aggregate over it silently sums to zero (build-esm.sh, KNOWN BLOCKER; PLAN.md §1.5). Wiring a component to one of these entries today would make a green test that compared nothing. So the entries are declared and validated, and the components read `const` arrays until the provider lands.\n\nWHAT THIS FILE ALREADY PROVES: that `float_columns` is mandatory, and on EVERY table rather than only on MOVESOutput. Checked directly against the snapshot parquet with pyarrow: `zonemonthhour.temperature`, every float column of `nrsourceusetype` (`hpAvg`, `loadFactor`, `hoursUsedPerYear`, `medianLifeFullLoad`), `nremissionrate.meanBaseRate`, `nrdeterioration.DFCoefficient` and `MOVESOutput.emissionQuant` are all physically `string` in the file, holding 12-place decimal text for byte-reproducibility, even though the sidecar .meta.json calls them float64. Without `float_columns` they arrive as strings and no arithmetic on them means anything.\n\nWHAT IT WILL PROVE ONCE THE PROVIDER IS WIRED: that components/exhaust_adjustment.esm computes the fixture's tamb (73.576927 degF) from the real 930,816-row zonemonthhour rather than from a synthetic column chosen to land on it; that components/deteriorated_emission_rate.esm selects its five rows out of the real 55,471-row nremissionrate by (SCC, hp bin, modelYearID, engTechID) rather than transcribing them; and that the roll-up can be diffed row by row against the 144-row MOVESOutput at the tolerances in tolerance.toml.",
+    "authors": ["EarthSciML Authors and Contributors"],
+    "tags": ["moves", "nonroad", "nr-logging-county", "source-catalog", "not-yet-consumed"]
+  },
+
+  "data_sources": {
+    "nr_logging_county_nremissionrate": {
+      "kind": "static",
+      "source": {
+        "url_template": "${MOVES_SNAPSHOTS}/nr-logging-county/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__nremissionrate.parquet"
+      },
+      "reader_options": {
+        "format": "parquet",
+        "float_columns": ["meanBaseRate"]
+      },
+      "metadata": {
+        "tags": ["emission-factors"],
+        "note": "55,471 rows. Join J12 selects on (SCC via the equipment-chain fallback, engTechID, hpMin <= hpAvg <= hpMax, polProcessID in {101, 201, 301, 10001}); J13 takes polProcessID 9901 from the same table. SCC is utf8 in the file and becomes an integer key column in the document."
+      }
+    },
+
+    "nr_logging_county_nrdeterioration": {
+      "kind": "static",
+      "source": {
+        "url_template": "${MOVES_SNAPSHOTS}/nr-logging-county/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__nrdeterioration.parquet"
+      },
+      "reader_options": {
+        "format": "parquet",
+        "float_columns": ["DFCoefficient", "DFAgeExponent"]
+      },
+      "metadata": {
+        "tags": ["emission-factors"],
+        "note": "424 rows. Join J14 on the composite key (polProcessID, engTechID). emissionCap is int64 in the file and needs no float_columns entry."
+      }
+    },
+
+    "nr_logging_county_zonemonthhour": {
+      "kind": "static",
+      "source": {
+        "url_template": "${MOVES_SNAPSHOTS}/nr-logging-county/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__zonemonthhour.parquet"
+      },
+      "reader_options": {
+        "format": "parquet",
+        "float_columns": ["temperature", "relHumidity", "heatIndex", "specificHumidity", "molWaterFraction"]
+      },
+      "metadata": {
+        "tags": ["meteorology"],
+        "note": "930,816 rows for the whole zone set. Joins J17/J18 restrict to zone 261610, monthID 8, hourID in [6, 18] -- 13 rows -- and average temperature over them. The most important entry here for the scaling gate: an unfiltered contraction against this table is the first place a non-driving join.on would stop being merely slow."
+      }
+    },
+
+    "nr_logging_county_nrsourceusetype": {
+      "kind": "static",
+      "source": {
+        "url_template": "${MOVES_SNAPSHOTS}/nr-logging-county/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__nrsourceusetype.parquet"
+      },
+      "reader_options": {
+        "format": "parquet",
+        "float_columns": ["medianLifeFullLoad", "hoursUsedPerYear", "loadFactor", "hpAvg"]
+      },
+      "metadata": {
+        "tags": ["activity"],
+        "note": "1,183 rows. Supplies hpAvg, loadFactor, hoursUsedPerYear and medianLifeFullLoad, which components/deteriorated_emission_rate.esm currently carries as parameter defaults. hpAvg is in horsepower, which the unit registry has no name for -- `hp` is not a recognised unit -- so it stays unitless in the document and the native unit lives in the variable description."
+      }
+    },
+
+    "nr_logging_county_movesoutput": {
+      "kind": "static",
+      "source": {
+        "url_template": "${MOVES_SNAPSHOTS}/nr-logging-county/tables/db__out_nr_logging_county__movesoutput.parquet"
+      },
+      "reader_options": {
+        "format": "parquet",
+        "float_columns": ["emissionQuant", "emissionQuantMean", "emissionQuantSigma"]
+      },
+      "metadata": {
+        "tags": ["oracle", "expected-output"],
+        "note": "The 144-row expected output: the other half of the comparison, shipped in the same snapshot, so no canonical MOVES, MariaDB or JVM is needed to develop against it. Compared under tolerance.toml, whose structural checks stay exact -- see PLAN.md §1.6.1 for why the document must emit every key its joins produce, zeros included, rather than reproducing the Fortran's row suppression."
+      }
+    }
+  }
+}

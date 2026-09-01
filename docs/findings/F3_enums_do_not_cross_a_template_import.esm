@@ -1,0 +1,30 @@
+{
+  "esm": "1.0.0",
+  "metadata": {
+    "name": "F3EnumsDoNotCrossATemplateImport",
+    "description": "FINDING F3 (expected to FAIL at the pinned toolchain, at LOAD/VALIDATE time). An `enums` block does not travel across an `expression_template_imports` edge, so a template body that resolves an enum symbol cannot be imported.\n\nExpected diagnostic:\n  Schema validation error: [unknown_enum] unknown_enum: enum `activity_unit` is not declared in the file's `enums` block\n\nesm-spec §9.3 is explicit that enums are file-local and 'never merged across files', and names only ONE inheritance path -- a §4.7 subsystem ref, which inherits the REFERENCED file's enums. A template import is not that path, and §9.7.5 merges only `index_sets` across it. So the behaviour is arguably correct per the spec; what it costs is worth writing down, because it is not obvious from either section read alone: a library CANNOT name its own constants symbolically. Every enum-shaped literal a library needs is either a zero-parameter constant-fragment template (§9.6.1) or a parameter the CALL SITE binds to an `enum` op in its own file.\n\nThis repo takes both routes: lib/conversion.esm carries `activity_unit_g_per_hp_hr` as a zero-parameter fragment, and lib/identifiers.esm's `pol_process_id` takes pollutant and process as parameters that components/deteriorated_emission_rate.esm binds to `enum` ops in its own scope. See docs/esm-conventions.md §4.\n\nThe diagnostic is also worth noting for its own sake: it fires at the IMPORTER, naming an enum the importer never mentioned, which is a confusing place to read it from.",
+    "authors": ["EarthSciML Authors and Contributors"]
+  },
+  "index_sets": { "probe_rows": { "kind": "interval", "size": 2 } },
+  "models": {
+    "Consumer": {
+      "expression_template_imports": [ { "ref": "./F3_lib_with_enum.esm" } ],
+      "variables": {
+        "probe": { "type": "unknown", "shape": ["probe_rows"] },
+        "isPerHorsepowerHour": { "type": "unknown" }
+      },
+      "equations": [
+        { "lhs": "probe", "rhs": { "op": "const", "args": [], "value": [1, 2] } },
+        { "lhs": "isPerHorsepowerHour",
+          "rhs": { "op": "apply_expression_template", "args": [], "name": "is_rate_per_horsepower_hour",
+            "bindings": { "unit_code": 1 } } }
+      ],
+      "tests": [
+        { "id": "the_imported_body_should_resolve_its_own_enum",
+          "description": "Should be 1 (true). The document does not load at all instead.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [ { "variable": "isPerHorsepowerHour", "time": 0.0, "expected": 1.0 } ] }
+      ]
+    }
+  }
+}
