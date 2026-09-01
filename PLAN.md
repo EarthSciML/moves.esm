@@ -524,19 +524,54 @@ per CLAUDE.md.
 | Memory — a 600k-cell probe used ~236 MB across 95 output points | Medium | Limit output points; MOVES needs one evaluation, not a trajectory |
 | Other upstream dependencies: Parquet reader, array output, `esm test` | Medium | All three are thin additions over existing structure and run in parallel with the gate |
 | Scope: 39 fixtures over ~70 onroad calculators and a 29k-line Fortran rewrite | High | The ladder delivers a working, tested end-to-end path at Phase 2 and stays green after every later phase |
+| **This toolchain's characteristic failure is returning `0`, not raising** | High | Four independent instances found in one day, all silent, all a plausible zero on a document that validates: (a) a `data_sources` entry read by no provider; (b) the same when the registry `earthsciio` shadows the local checkout; (c) F4, an `aggregate` range symbol named `t`; (d) F5, `skolem`/`distinct`/`rank` validating but materializing empty. Zero is the worst possible sentinel here — it is a *legal* emission quantity, it flows through sums without a NaN to trace, and a per-pollutant tolerance absorbs it. Mitigation is structural, not vigilance: every inline test asserts a specific non-zero expected value rather than a bound; `run-oracle.sh` gives an independent third implementation to attribute a disagreement to; and `compare-output.py`'s exact key set catches the row-shaped version. Assume the next one exists and has not been found yet |
 
 ---
 
 ## 6. Immediate next steps
 
-1. **Start the equi-join gate** (§1.3.1) in `../EarthSciAST` — the critical
-   path. Candidate set from the `relational.rs` kernel, gate drives
-   enumeration, data-column keys admitted, conformance fixtures in all three
-   executing bindings.
-2. Build `./esm` with `--features esio,parallel`; record the commit in
-   `esm-version.lock`.
-3. Write `run-tests.sh` with `validate` over `*.esm` — it passes trivially now
-   and grows with the repo.
-4. Add the EarthSciIO Parquet reader (§1.4), in parallel with step 1.
-5. Author the Phase 1 spine and its scaling gate — the conventions can be
-   written and unit-tested against `const` arrays before the gate lands.
+Phases 0 and 1 are done and merged. What follows is ordered by what blocks what.
+
+1. **Wire a `PrepareProvider` into the `esm` binary** (§1.5) — the one hard
+   blocker. Until it lands, no `.esm` can read a `data_sources` entry, so the
+   144-row comparison cannot run at all. In flight upstream.
+2. **Fix F1 and F4** (`docs/findings/README.md`). F4 is a silent wrong answer —
+   an `aggregate` range symbol named `t` makes `join.on` match nothing and the
+   reduction returns 0, with no error and a document that validates. F1 blocks
+   the nested subsystem mount that CLAUDE.md's compositional rule assumes, so
+   every relational leaf currently mounts as a top-level `{ref}` instead. Both
+   in flight upstream.
+3. **Author the Phase 2 chain** — unblocked *except* for the fixture
+   comparison, because each stage's inline tests take their numbers from the
+   specification's worked examples (§6.1–§6.3) and run today against `const`
+   arrays. In flight.
+4. **Finish the parquet work in EarthSciIO** — the cross-language conformance
+   corpus case. In flight.
+5. **Julia's `join.on` gate** — `BEHAV-10-B-001` and `-004`. In flight. Python
+   needs only `-004`.
+
+Then Phase 3 (`mixed-onroad`, 250 rows), which is the first onroad slice and
+the first test of whether the conventions survive contact with the rates-first
+base-rate path rather than a self-contained NONROAD chain.
+
+### 6.1 What the fidelity gate now consists of
+
+Three checked-in pieces, all green:
+
+- `compare-output.py` — the row-by-row diff, with a falsification suite the
+  harness runs *before* trusting it. Verified by sabotaging each gate in turn
+  and confirming the suite goes red.
+- `run-oracle.sh` — extracts and runs the independent float32 reproduction that
+  lives in `docs/nonroad-logging-county.md` §6.5, so the specification stays
+  executable and there is a third implementation to attribute disagreements to.
+  Reproduces all 144 rows at 4.897e-6.
+- `tolerance.toml` — the contract, with the reasoning next to the numbers.
+
+The layered gates are not belt-and-braces. Measured by perturbing the real
+snapshot: dropping the four rows a Fortran-faithful `modfrc <= 0` skip would
+suppress leaves per-pollutant sums agreeing to **1.2e-8**, four orders inside
+the 1e-2 gate; zeroing those same four cells does too; and moving mass between
+model years leaves them agreeing to **2e-16** by construction. The loose
+per-pollutant gate `moves.rs` uses across implementations would pass every
+realistic failure this port can produce. Only the exact key set and the
+per-cell check see them.

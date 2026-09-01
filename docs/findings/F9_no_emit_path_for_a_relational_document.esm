@@ -1,0 +1,40 @@
+{
+  "esm": "1.0.0",
+  "metadata": {
+    "name": "F9NoEmitPathForARelationalDocument",
+    "description": "FINDING F9 (expected to FAIL at the pinned toolchain) -- and a blocker for the Phase 2 exit criterion, alongside the unwired data provider.\n\nA MOVES calculator is a RELATIONAL document: it computes rows from rows and integrates nothing. This one has three array-shaped unknowns, an aggregate over a join, and ZERO `D(x)/dt` equations, which is the shape every component in components/ already has and every Phase 2 stage will have.\n\n`esm test` evaluates it correctly -- the assertion below passes when run under `esm test`. But `esm test` only ASSERTS; it never writes values out. The only subcommand that writes computed values to a file is `esm simulate --output`, and on a document with no ODE it fails:\n\n    Error: solve failed: diffsol error: ODE solver error:\n           Exceeded maximum number of nonlinear solver failures (51) at time = 0\n\nreproduced on both components/*.esm (0 of 11 and 0 of 15 equations carry D()) at --time 0 and --time 1 alike. `analyze` and `info` report structure, not values.\n\nSo there is currently NO way to get a relational document's computed rows into a file, and therefore no way to run the 144-row fixture comparison that Phase 2 exits on -- independently of whether the data provider is wired.\n\nPLAN.md §1.5 records the array-output gap as closed by `simulate --observed` plus `--format grid` (EarthSciAST a784c5444). That closure is real but assumed a document that SIMULATES; it does not reach a document that has nothing to integrate.\n\nFix shape: either let `simulate` treat an ODE-free document as a single evaluation at t=0 rather than a solve, or give `esm test`/a new subcommand an `--output` that writes the same `derive_output_plan` shape `--format grid` already produces. The second is probably cleaner -- evaluation without a solve is exactly what `esm test` already does.\n\nThis file's own inline test PASSES under `esm test`; the finding is what CANNOT be done with the result, so unlike F1-F6 the tripwire here is the command in docs/findings/README.md, not this assertion.",
+    "authors": ["EarthSciML Authors and Contributors"]
+  },
+  "index_sets": {
+    "f9_left": { "kind": "interval", "size": 3 },
+    "f9_right": { "kind": "interval", "size": 3 }
+  },
+  "models": {
+    "PurelyRelational": {
+      "variables": {
+        "left_key":  { "type": "unknown", "shape": ["f9_left"] },
+        "right_key": { "type": "unknown", "shape": ["f9_right"] },
+        "matchedCount": { "type": "unknown" }
+      },
+      "equations": [
+        { "lhs": "left_key",
+          "rhs": { "op": "aggregate", "args": [], "output_idx": ["i"],
+            "ranges": { "i": { "from": "f9_left" } }, "expr": "i" } },
+        { "lhs": "right_key",
+          "rhs": { "op": "aggregate", "args": [], "output_idx": ["j"],
+            "ranges": { "j": { "from": "f9_right" } }, "expr": "j" } },
+        { "lhs": "matchedCount",
+          "rhs": { "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": [],
+            "ranges": { "l": { "from": "f9_left" }, "r": { "from": "f9_right" } },
+            "join": [ { "on": [["left_key", "right_key"]] } ],
+            "expr": 1.0 } }
+      ],
+      "tests": [
+        { "id": "the_document_evaluates_but_cannot_be_emitted",
+          "description": "Three keys on each side, all matching: 3. This PASSES under `esm test`, which is the point -- the evaluator is fine. What fails is every route from here to a file.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [ { "variable": "matchedCount", "time": 0.0, "expected": 3.0 } ] }
+      ]
+    }
+  }
+}
