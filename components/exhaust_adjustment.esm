@@ -1,0 +1,327 @@
+{
+  "esm": "1.0.0",
+  "metadata": {
+    "name": "ExhaustAdjustment",
+    "description": "One calculator, one file. Ports joins J17/J18 and the §2.5(b)/(c) adjustments of docs/nonroad-logging-county.md: the daytime mean ambient temperature for the run's county-month, and the per-pollutant multiplicative adjustment (temperature x oxygenate) that emsadj.f applies to a zero-hour gasoline exhaust factor.\n\nThis is the file that demonstrates DISCRETE TIME AS AN INDEX-SET AXIS. MOVES time is a discrete (yearID, monthID, dayID, hourID) key, not the domain's continuous t: the run's temporal scope is a row set with four key columns, and it joins to `zonemonthhour` on (monthID, hourID) like any other relation. Nothing here differentiates with respect to t, and the component carries no clock (PLAN.md §1.2).\n\nIt is also where the honest use of `filter` appears. The daytime window 6 <= hourID <= 18 (nonroad_loader.rs:1613-1615) is a genuine RANGE PREDICATE and belongs in `filter`; the (monthID, hourID) equality beside it is a `join.on`. The two are different things and this file keeps them apart, which is the rule a reviewer can grep for.\n\nThe hourly temperature column is synthetic -- the snapshot's own 24 values are not reproduced here, because no CLI subcommand can read a data source yet (build-esm.sh, KNOWN BLOCKER). It is chosen so that its daytime mean is the fixture's VERIFIED 73.576927 degF, so the adjustment factors this component computes are the ones docs/nonroad-logging-county.md §6.0 read out of the real run: THC 0.8384738, CO 0.7717785, NOx 1.4382362. sources/nr_logging_county.esm declares the real table, ready for the day ingest works.",
+    "authors": ["EarthSciML Authors and Contributors"],
+    "tags": ["moves", "nonroad", "adjustments", "temporal", "component"]
+  },
+
+  "enums": {
+    "pollutant": {
+      "TotalGaseousHydrocarbons": 1,
+      "CarbonMonoxide": 2,
+      "OxidesOfNitrogen": 3,
+      "PrimaryExhaustPM10Total": 100
+    },
+    "process": { "RunningExhaust": 1 },
+    "month": {
+      "January": 1, "February": 2, "March": 3, "April": 4, "May": 5, "June": 6,
+      "July": 7, "August": 8, "September": 9, "October": 10, "November": 11, "December": 12
+    },
+    "day_type": { "Weekend": 2, "Weekday": 5 }
+  },
+
+  "index_sets": {
+    "time_rows": { "kind": "interval", "size": 24 },
+    "zone_month_hour_rows": { "kind": "interval", "size": 27 },
+    "adjustment_rows": { "kind": "interval", "size": 4 }
+  },
+
+  "coordinates": {
+    "adjustment_pol_process": {
+      "source": "adj_polProcessID",
+      "standard_name": "pollutant_process_identifier"
+    }
+  },
+
+  "models": {
+    "ExhaustAdjustment": {
+      "expression_template_imports": [
+        { "ref": "../lib/adjustments.esm",
+          "only": ["exhaust_temperature_adjustment", "oxygenate_adjustment"] },
+        { "ref": "../lib/identifiers.esm", "only": ["pol_process_id"] }
+      ],
+
+      "tolerance": { "rel": 1e-12 },
+
+      "variables": {
+        "runYearID": {
+          "type": "parameter", "units": "1", "default": 2020.0,
+          "description": "The RunSpec's calendar year. A discrete key, not a time coordinate."
+        },
+        "daytimeHourFirst": {
+          "type": "parameter", "units": "1", "default": 6.0,
+          "description": "First hourID of the ambient-temperature averaging window (nonroad_loader.rs:1613-1615)."
+        },
+        "daytimeHourLast": {
+          "type": "parameter", "units": "1", "default": 18.0,
+          "description": "Last hourID of the window. Both bounds inclusive."
+        },
+        "oxygenWeightPercent": {
+          "type": "parameter", "units": "1", "default": 3.653,
+          "description": "Gasoline oxygen content, weight percent, for the run's fuel supply (docs/nonroad-logging-county.md §6.0: formulation 9114, E10, volToWtPercentOxy 0.3653 x ETOHVolume 10.0)."
+        },
+
+        "time_yearID": {
+          "type": "unknown", "shape": ["time_rows"],
+          "description": "Discrete time key, field 1 of 4. The run's temporal scope is a ROW SET over these four columns, not a continuous axis."
+        },
+        "time_monthID": {
+          "type": "unknown", "shape": ["time_rows"],
+          "description": "Discrete time key, field 2 of 4."
+        },
+        "time_dayID": {
+          "type": "unknown", "shape": ["time_rows"],
+          "description": "Discrete time key, field 3 of 4. dayID 5 is the weekday profile slot, 2 the weekend one."
+        },
+        "time_hourID": {
+          "type": "unknown", "shape": ["time_rows"],
+          "description": "Discrete time key, field 4 of 4. Equals the row position for a whole-day scope."
+        },
+
+        "zmh_monthID": {
+          "type": "unknown", "shape": ["zone_month_hour_rows"],
+          "description": "zonemonthhour.monthID. Column 1 of the relation."
+        },
+        "zmh_hourID": {
+          "type": "unknown", "shape": ["zone_month_hour_rows"],
+          "description": "zonemonthhour.hourID. Column 2."
+        },
+        "zmh_temperature": {
+          "type": "unknown", "shape": ["zone_month_hour_rows"], "units": "degF",
+          "description": "zonemonthhour.temperature for the run's zone. Column 3. Synthetic: chosen so the daytime mean equals the fixture's verified 73.576927."
+        },
+
+        "daytimeHourCount": {
+          "type": "unknown", "units": "1",
+          "description": "How many (time, zonemonthhour) pairs survive the join and the window. The AVG's denominator, computed relationally rather than written as 13."
+        },
+        "daytimeTemperatureSum": {
+          "type": "unknown", "units": "degF",
+          "description": "The AVG's numerator."
+        },
+        "daytimeMeanTemperature": {
+          "type": "unknown", "units": "degF",
+          "description": "tamb: the daytime mean ambient temperature emsadj.f branches on."
+        },
+
+        "adj_polProcessID": {
+          "type": "unknown", "shape": ["adjustment_rows"],
+          "description": "Column 1: which pollutant process this adjustment row adjusts."
+        },
+        "adj_temperatureCoefficientCold": {
+          "type": "unknown", "shape": ["adjustment_rows"], "units": "1/degF",
+          "description": "Column 2: a_cold, used when tamb <= 75 degF. Gasoline 4-stroke coefficients (docs/nonroad-logging-county.md §4.2)."
+        },
+        "adj_temperatureCoefficientHot": {
+          "type": "unknown", "shape": ["adjustment_rows"], "units": "1/degF",
+          "description": "Column 3: a_hot, used when tamb > 75 degF."
+        },
+        "adj_oxygenateCoefficient": {
+          "type": "unknown", "shape": ["adjustment_rows"], "units": "1",
+          "description": "Column 4: c in 1 - c*oxy. The sign lives in the coefficient, as exhaust.rs:606-625 keeps it, so one template serves all six instantiations. The PM row is all zeros, which is how PM is switched off without a branch."
+        },
+        "adjustment": {
+          "type": "unknown", "shape": ["adjustment_rows"], "units": "1",
+          "description": "adjems: the product of the temperature and oxygenate adjustments, one per pollutant process."
+        }
+      },
+
+      "equations": [
+        {
+          "_comment": "The run's discrete temporal scope: one calendar day, 24 hourly keys. yearID/monthID/dayID are constant over the scope and hourID is the row position -- a run covering three months would carry three months of rows here and nothing else in the file would change.",
+          "lhs": "time_yearID",
+          "rhs": { "op": "aggregate", "args": [], "output_idx": ["h"],
+            "ranges": { "h": { "from": "time_rows" } },
+            "expr": "runYearID" }
+        },
+        {
+          "lhs": "time_monthID",
+          "rhs": { "op": "aggregate", "args": [], "output_idx": ["h"],
+            "ranges": { "h": { "from": "time_rows" } },
+            "expr": { "op": "enum", "args": ["month", "August"] } }
+        },
+        {
+          "lhs": "time_dayID",
+          "rhs": { "op": "aggregate", "args": [], "output_idx": ["h"],
+            "ranges": { "h": { "from": "time_rows" } },
+            "expr": { "op": "enum", "args": ["day_type", "Weekday"] } }
+        },
+        {
+          "lhs": "time_hourID",
+          "rhs": { "op": "aggregate", "args": [], "output_idx": ["h"],
+            "ranges": { "h": { "from": "time_rows" } },
+            "expr": "h" }
+        },
+
+        {
+          "_comment": "zonemonthhour for one zone. Rows 1-24 are the run's month; rows 25-27 are July decoys at hours 6, 12 and 18 carrying an impossible 200 degF. They are what makes the composite key load-bearing: joining on hourID alone would pull them in and the mean would be 89.4 instead of 73.6.",
+          "lhs": "zmh_monthID",
+          "rhs": { "op": "makearray", "args": [],
+            "regions": [[[1, 24]], [[25, 27]]],
+            "values": [
+              { "op": "enum", "args": ["month", "August"] },
+              { "op": "enum", "args": ["month", "July"] }
+            ] }
+        },
+        {
+          "lhs": "zmh_hourID",
+          "rhs": { "op": "const", "args": [],
+            "value": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12,
+                      13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24,
+                      6, 12, 18] }
+        },
+        {
+          "lhs": "zmh_temperature",
+          "rhs": { "op": "const", "args": [],
+            "value": [62.576927, 63.576927, 64.576927, 65.576927, 66.576927, 67.576927,
+                      68.576927, 69.576927, 70.576927, 71.576927, 72.576927, 73.576927,
+                      74.576927, 75.576927, 76.576927, 77.576927, 78.576927, 79.576927,
+                      80.576927, 81.576927, 82.576927, 83.576927, 84.576927, 85.576927,
+                      200.0, 200.0, 200.0] }
+        },
+
+        {
+          "_comment": "J17/J18. The composite equality is a `join.on`; the inclusive daytime window is a `filter`, because it is a genuine range predicate and not an ON clause in disguise. The time-side loop symbol is `k`, not `t`: a range symbol named `t` collides with the independent variable and makes the gate match NOTHING, silently (docs/findings/README.md, finding F4).",
+          "lhs": "daytimeHourCount",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": [],
+            "ranges": { "k": { "from": "time_rows" }, "z": { "from": "zone_month_hour_rows" } },
+            "join": [ { "on": [["time_monthID", "zmh_monthID"], ["time_hourID", "zmh_hourID"]] } ],
+            "filter": {
+              "op": "and",
+              "args": [
+                { "op": ">=", "args": [{ "op": "index", "args": ["time_hourID", "k"] }, "daytimeHourFirst"] },
+                { "op": "<=", "args": [{ "op": "index", "args": ["time_hourID", "k"] }, "daytimeHourLast"] }
+              ]
+            },
+            "expr": 1.0
+          }
+        },
+        {
+          "lhs": "daytimeTemperatureSum",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": [],
+            "ranges": { "k": { "from": "time_rows" }, "z": { "from": "zone_month_hour_rows" } },
+            "join": [ { "on": [["time_monthID", "zmh_monthID"], ["time_hourID", "zmh_hourID"]] } ],
+            "filter": {
+              "op": "and",
+              "args": [
+                { "op": ">=", "args": [{ "op": "index", "args": ["time_hourID", "k"] }, "daytimeHourFirst"] },
+                { "op": "<=", "args": [{ "op": "index", "args": ["time_hourID", "k"] }, "daytimeHourLast"] }
+              ]
+            },
+            "expr": { "op": "index", "args": ["zmh_temperature", "z"] }
+          }
+        },
+        {
+          "lhs": "daytimeMeanTemperature",
+          "rhs": { "op": "/", "args": ["daytimeTemperatureSum", "daytimeHourCount"] }
+        },
+
+        {
+          "lhs": "adj_polProcessID",
+          "rhs": { "op": "makearray", "args": [],
+            "regions": [[[1, 1]], [[2, 2]], [[3, 3]], [[4, 4]]],
+            "values": [
+              { "op": "apply_expression_template", "args": [], "name": "pol_process_id",
+                "bindings": { "pollutant_id": { "op": "enum", "args": ["pollutant", "TotalGaseousHydrocarbons"] },
+                              "process_id": { "op": "enum", "args": ["process", "RunningExhaust"] } } },
+              { "op": "apply_expression_template", "args": [], "name": "pol_process_id",
+                "bindings": { "pollutant_id": { "op": "enum", "args": ["pollutant", "CarbonMonoxide"] },
+                              "process_id": { "op": "enum", "args": ["process", "RunningExhaust"] } } },
+              { "op": "apply_expression_template", "args": [], "name": "pol_process_id",
+                "bindings": { "pollutant_id": { "op": "enum", "args": ["pollutant", "OxidesOfNitrogen"] },
+                              "process_id": { "op": "enum", "args": ["process", "RunningExhaust"] } } },
+              { "op": "apply_expression_template", "args": [], "name": "pol_process_id",
+                "bindings": { "pollutant_id": { "op": "enum", "args": ["pollutant", "PrimaryExhaustPM10Total"] },
+                              "process_id": { "op": "enum", "args": ["process", "RunningExhaust"] } } }
+            ] }
+        },
+        {
+          "lhs": "adj_temperatureCoefficientCold",
+          "rhs": { "op": "const", "args": [], "value": [-0.00240, 0.0015784, -0.00892, 0.0] }
+        },
+        {
+          "lhs": "adj_temperatureCoefficientHot",
+          "rhs": { "op": "const", "args": [], "value": [0.00132, 0.00375, -0.00873, 0.0] }
+        },
+        {
+          "lhs": "adj_oxygenateCoefficient",
+          "rhs": { "op": "const", "args": [], "value": [0.045, 0.062, -0.115, 0.0] }
+        },
+        {
+          "_comment": "adjems. Pointwise over the adjustment relation -- no join, no contraction -- with both shapes coming from lib/adjustments.esm by reference.",
+          "lhs": "adjustment",
+          "rhs": {
+            "op": "aggregate", "args": [], "output_idx": ["p"],
+            "ranges": { "p": { "from": "adjustment_rows" } },
+            "expr": {
+              "op": "*",
+              "args": [
+                { "op": "apply_expression_template", "args": [], "name": "exhaust_temperature_adjustment",
+                  "bindings": {
+                    "a_cold": { "op": "index", "args": ["adj_temperatureCoefficientCold", "p"] },
+                    "a_hot": { "op": "index", "args": ["adj_temperatureCoefficientHot", "p"] },
+                    "temperature": "daytimeMeanTemperature"
+                  } },
+                { "op": "apply_expression_template", "args": [], "name": "oxygenate_adjustment",
+                  "bindings": {
+                    "coefficient": { "op": "index", "args": ["adj_oxygenateCoefficient", "p"] },
+                    "oxygen_weight_percent": "oxygenWeightPercent"
+                  } }
+              ]
+            }
+          }
+        }
+      ],
+
+      "tests": [
+        {
+          "id": "discrete_time_is_a_row_set",
+          "description": "The temporal scope is a relation with four key columns. hourID is the row position; yearID, monthID and dayID are constant over this one-day scope. Nothing about this depends on the domain's continuous t.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "time_hourID", "time": 0.0, "expected": 13.0, "coords": { "time_rows": 13 } },
+            { "variable": "time_hourID", "time": 0.0, "expected": 24.0, "reduce": "max" },
+            { "variable": "time_monthID", "time": 0.0, "expected": 8.0, "reduce": "min" },
+            { "variable": "time_dayID", "time": 0.0, "expected": 5.0, "reduce": "max" },
+            { "variable": "time_yearID", "time": 0.0, "expected": 2020.0, "reduce": "min" }
+          ]
+        },
+        {
+          "id": "window_filter_and_month_join_are_separate_things",
+          "description": "13 hours survive: the join drops the three July decoys, and the filter drops hours 1-5 and 19-24. If the window were spelled as part of the join, or the month equality as part of the filter, this component would still be right -- and the next one would not be. The count is 13, not 16 (decoys admitted) and not 24 (window dropped).",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "daytimeHourCount", "time": 0.0, "expected": 13.0 },
+            { "variable": "daytimeTemperatureSum", "time": 0.0, "expected": 956.5000509999998 },
+            { "variable": "daytimeMeanTemperature", "time": 0.0, "expected": 73.57692699999998 }
+          ]
+        },
+        {
+          "id": "adjustments_match_the_verified_fixture",
+          "description": "docs/nonroad-logging-county.md §6.0, gasoline 4-stroke: THC 0.8384738, CO 0.7717785, NOx 1.4382362, PM exactly 1. Those were computed in float32 from the real run; these are the binary64 values of the same expressions at the same tamb and oxy, and they agree to the spec's seven figures.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "adjustment", "time": 0.0, "expected": 0.8384738179367311, "coords": { "adjustment_rows": 1 } },
+            { "variable": "adjustment", "time": 0.0, "expected": 0.7717784993948426, "coords": { "adjustment_rows": 2 } },
+            { "variable": "adjustment", "time": 0.0, "expected": 1.438236315378913,  "coords": { "adjustment_rows": 3 } },
+            { "variable": "adjustment", "time": 0.0, "expected": 1.0, "coords": { "adjustment_rows": 4 } }
+          ]
+        },
+        {
+          "id": "the_hot_branch_is_reachable",
+          "description": "Same expression, other side of the 75 degF branch point. Raising the window to hours 19-24 makes tamb the mean of 80.576927..85.576927 = 83.076927, so a_hot applies: exp(0.00132*8.076927) * (1 - 0.045*3.653). A single instantiation covering both branches is the point of the template.",
+          "parameter_overrides": { "daytimeHourFirst": 19.0, "daytimeHourLast": 24.0 },
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "daytimeMeanTemperature", "time": 0.0, "expected": 83.076927 },
+            { "variable": "adjustment", "time": 0.0, "expected": 0.8445716065744837, "coords": { "adjustment_rows": 1 } }
+          ]
+        }
+      ]
+    }
+  }
+}
