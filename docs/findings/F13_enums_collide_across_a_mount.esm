@@ -1,0 +1,47 @@
+{
+  "esm": "1.0.0",
+  "metadata": {
+    "name": "F13EnumsCollideAcrossAMount",
+    "description": "REPRO, EXPECTED TO FAIL. **The silent one of Phase 2.** `enums` declarations MERGE across a top-level `models` {ref} mount into one document-scoped registry, first declaration wins, and the losing file's reading of its own symbol changes underneath it with no error and no warning.\n\nThis document mounts two leaves that each declare `probe.Symbol` and read it back: F13_enum_leaf_one.esm says 1, F13_enum_leaf_two.esm says 2. Both pass standalone. Mounted together, leaf two reads **1**, so the difference this document computes is 0 rather than 1. `esm validate` is clean.\n\nTHE OTHER HALF, WHICH IS AT LEAST LOUD. Where the winning file simply lacks a symbol the losing one uses, loading fails instead:\n\n    [unknown_enum_symbol] symbol `CompressedNaturalGas` is not declared under enum `nonroad_fuel_type`\n\nMeasured on two real components: components/geographic_allocation.esm declares `nonroad_fuel_type` with Gasoline, NonroadDiesel and MarineDiesel; components/fuel_properties.esm declares the same name with CNG and LPG as well. Either mounts alone. Mounted together, whichever loses the name loses its extra symbols.\n\nWHAT esm-spec SAYS. §9.3 makes an `enums` block file-local, `never merged across files`, and names one inheritance path -- a §4.7 subsystem ref, which inherits the REFERENCED file's block. This edge does neither: it merges, and it merges the wrong way. It is the third member of a family: F2 (index sets do not merge across this edge) and F3 (enums do not cross a template import).\n\nIMPACT ON THIS REPO. runs/nr_logging_county_run.esm mounts ten leaves and restates twenty enums and sixty-two symbols so that the merge resolves to one consistent registry -- none of which its own equations use. Because a value collision is SILENT, tools/check-conventions.py now compares an assembly's enums against every leaf it mounts, symbol by symbol, and rejects a missing symbol or a disagreeing value; that check is the only thing standing between a future edit and a quiet relabelling of pollutant identifiers. One mitigation is worth recording: a mounted leaf's OWN inline tests run under the mount, so a leaf that asserts a value derived from its enum catches the substitution -- leaf two's test fails in exactly this document.\n\n**Fix shape.** Resolve each leaf's `enum` ops against ITS OWN block, as §9.3 says; if a merged registry is wanted instead, make a same-name declaration with a different value a load error, the way §4.7 already treats a conflicting index set.",
+    "authors": ["EarthSciML Authors and Contributors"],
+    "tags": ["finding", "expected-to-fail", "enums", "composition", "silent"]
+  },
+
+  "index_sets": {
+    "leaf_one_rows": { "kind": "interval", "size": 1 },
+    "leaf_two_rows": { "kind": "interval", "size": 1 }
+  },
+
+  "models": {
+    "One": { "ref": "./F13_enum_leaf_one.esm" },
+    "Two": { "ref": "./F13_enum_leaf_two.esm" },
+
+    "Probe": {
+      "tolerance": { "rel": 1e-12 },
+      "variables": {
+        "symbolValueGap": {
+          "type": "unknown", "units": "1",
+          "description": "What the two leaves disagree by. Their own blocks say 2 and 1, so it is 1 unless one of them has been overwritten."
+        }
+      },
+      "equations": [
+        {
+          "lhs": "symbolValueGap",
+          "rhs": { "op": "-", "args": [
+            { "op": "index", "args": ["Two.leaf_two_symbolValue", 1] },
+            { "op": "index", "args": ["One.leaf_one_symbolValue", 1] }] }
+        }
+      ],
+      "tests": [
+        {
+          "id": "each_mounted_leaf_keeps_its_own_enum_values",
+          "description": "INTENDED behaviour: mounting a file does not change what it computes. Leaf two reads 2, leaf one reads 1, and the gap is 1. Observed: the gap is 0, because leaf two reads leaf one's value -- and leaf two's OWN test, which runs under this mount, fails beside this one for the same reason. When this goes green, runs/nr_logging_county_run.esm can delete its restated enum union and tools/check-conventions.py the rule that guards it.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "symbolValueGap", "time": 0.0, "expected": 1.0 }
+          ]
+        }
+      ]
+    }
+  }
+}

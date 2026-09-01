@@ -1,10 +1,10 @@
 # Findings: conventions the format or the toolchain could not express
 
-Twelve things PLAN.md §3 Phase 1 and Phase 2 assumed, or that an author would
+Fourteen things PLAN.md §3 Phase 1 and Phase 2 assumed, or that an author would
 reasonably assume, that do not hold at the pinned toolchain (`esm-version.lock`:
 EarthSciAST `b680f5301`, EarthSciIO `8e1df2280`, `--features esio,parallel`).
 
-F1–F6 and F9–F12 each have a minimal `.esm` repro in this directory; F7 and F8 are
+F1–F6 and F9–F14 each have a minimal `.esm` repro in this directory; F7 and F8 are
 CLI behaviours rather than documents, and are checked by command against the
 ordinary files of the repo. **Every repro is expected to fail**, and each one's inline test asserts the *intended* behaviour, so a repro
 that starts passing means the defect is fixed. `run-tests.sh` runs them as a
@@ -30,6 +30,8 @@ three of them do not load.
 | **F10** | The evaluable-core op `true` panics at evaluation | evaluation (panic) | no |
 | **F11** | A relation cannot be joined to itself: two ranges over one index set | build | no |
 | **F12** | A recurrence over an index axis has no spelling | evaluation | no |
+| **F13** | `enums` merge first-wins across a mount; a colliding value is applied | — | **yes** |
+| **F14** | A `ragged` index set ignores its member factor | evaluation | **yes** |
 
 ---
 
@@ -310,6 +312,73 @@ the accumulator (`acc[i] = f(acc[i−1], body[i])`), which the ascending
 left-fold order already licenses and which all three executing bindings already
 maintain internally; or admit `Pre` on an index axis. Until then, no NONROAD
 port can compute its own age distribution.
+
+## F13 — `enums` merge first-wins across a mount, silently
+
+`F13_enums_collide_across_a_mount.esm`, with `F13_enum_leaf_one.esm` and
+`F13_enum_leaf_two.esm`. **The silent one of Phase 2.**
+
+Two leaves each declare `probe.Symbol` — one says 1, the other 2 — and each
+reads it back. Both pass alone. Mounted together, leaf two reads **1**: the
+first declaration wins and the second file's reading of its own symbol changes
+underneath it. `esm validate` is clean, and the only thing that notices is leaf
+two's own inline test, which runs under the mount and fails.
+
+Where the winner merely *lacks* a symbol, it is at least loud. Measured on two
+real components — `geographic_allocation.esm` declares `nonroad_fuel_type`
+without CNG or LPG, `fuel_properties.esm` declares the same name with them:
+
+```
+[unknown_enum_symbol] symbol `CompressedNaturalGas` is not declared under enum
+`nonroad_fuel_type`
+```
+
+esm-spec §9.3 says an `enums` block is file-local and "never merged across
+files", and names one inheritance path — a §4.7 subsystem ref, inheriting the
+*referenced* file's block. This edge does neither: it merges, and the wrong
+way. Third of a family with F2 (index sets do not merge here) and F3 (enums do
+not cross a template import).
+
+**Impact.** `runs/nr_logging_county_run.esm` restates twenty enums and
+sixty-two symbols for ten leaves; `runs/micro_exhaust_run.esm` restates seven
+for two. None are used by the assemblies' own equations. Because a value
+collision is silent, `tools/check-conventions.py` now compares an assembly's
+enums against every leaf it mounts, symbol by symbol **[checked]** — a missing
+symbol or a disagreeing value is a violation.
+
+**Fix shape.** Resolve each leaf's `enum` ops against its own block, per §9.3;
+or, if a merged registry is intended, make a conflicting redeclaration a load
+error the way §4.7 already treats a conflicting index set.
+
+## F14 — a `ragged` index set ignores its member factor
+
+`F14_ragged_index_set_ignores_its_member_factor.esm`.
+
+A `kind: "ragged"` set declares `offsets` (per-parent length) and `values` (the
+flattened CSR member array). It evaluates — and reads only `offsets`,
+enumerating positions `1..offsets[i]` instead of parent *i*'s members. With
+lengths `[1, 2, 3]` over the flat layout `[1 | 2, 3 | 4, 5, 6]`, the per-parent
+sums come out `10, 30, 60` where the members give `10, 50, 150`. Three probes
+pin it: changing `offsets` to `[1, 3, 6]` gives `10, 60, 210`; `[0, 1, 3]`
+gives `0, 10, 60`; and **reversing `values` changes nothing**.
+
+**Why this project cares.** The `nr-logging-county` key set is *ragged*: 36
+`(SCC, modelYearID)` pairs over three SCCs whose model-year counts are 3, 4 and
+29, each set by that equipment point's `nyrlif`. A rectangular
+`[SCC × modelYear]` axis would emit 3 × 29 × 4 = **348** keys where the
+snapshot has 144, and `tolerance.toml`'s `require_exact_key_set` is not
+negotiable. A ragged inner axis is exactly the shape the schema advertises.
+
+**Workaround, and a good one.** Keep the output a **flat row relation** whose
+parent is a key *column* — `(SCC, modelYearID, polProcessID)` over one row axis
+— and join on it. Raggedness then needs no axis machinery, because a relation's
+key set is data (conventions §2). `components/movesoutput_aggregation.esm` is
+written that way, so this costs the port only the axis it cannot use.
+
+**Fix shape.** Read `values`: `member(i, k) = values[offset(i) + k]` with
+`offset` the exclusive prefix sum of `offsets`. The RFC's own MPAS example has
+the same requirement — cell *i*'s edges are not the first `nEdgesOnCell[i]`
+entries of `edgesOnCell`.
 
 ## F7 — `esm round-trip` resolves refs against the working directory
 
