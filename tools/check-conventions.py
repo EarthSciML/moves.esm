@@ -172,12 +172,51 @@ def check_assembly_index_sets(p: pathlib.Path, doc) -> None:
                      f"{json.dumps(definition, sort_keys=True)}")
 
 
+def check_assembly_enums(p: pathlib.Path, doc) -> None:
+    """RULE: an assembly's enums cover, and agree with, those of every file it mounts.
+
+    `enums` declarations MERGE across a top-level `models` {ref} edge into one
+    document-scoped registry, first declaration wins, and a same-name symbol
+    with a DIFFERENT value is applied silently (docs/findings F13). So the
+    mounting document must restate the union, and a drift between an assembly's
+    copy and the leaf that owns the symbol would relabel data with no error.
+    That is what this rule catches -- the conflict detection esm-spec §4.7
+    performs for index sets, performed here for enums because the loader does
+    not perform it at all.
+    """
+    mine = doc.get("enums") or {}
+    for name, entry in (doc.get("models") or {}).items():
+        if not isinstance(entry, dict) or "ref" not in entry:
+            continue
+        target = (p.parent / entry["ref"]).resolve()
+        if not target.is_file():
+            continue  # reported by check_assembly_index_sets
+        try:
+            ref_doc = json.loads(target.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            continue  # reported by check_assembly_index_sets
+        for enum_name, symbols in (ref_doc.get("enums") or {}).items():
+            for symbol, value in symbols.items():
+                if enum_name not in mine or symbol not in mine[enum_name]:
+                    fail(p, "/enums/" + enum_name, "assembly-enums",
+                         f"{entry['ref']} declares {enum_name}.{symbol} = {value} "
+                         "and this document does not restate it; enums merge "
+                         "first-wins across the mount, so another leaf's "
+                         "declaration of the same enum would drop it")
+                elif mine[enum_name][symbol] != value:
+                    fail(p, f"/enums/{enum_name}/{symbol}", "assembly-enums",
+                         f"disagrees with {entry['ref']}: "
+                         f"{mine[enum_name][symbol]} vs {value} — a silent "
+                         "relabelling under the mount")
+
+
 CHECKS = (
     check_no_equality_filter,
     check_reserved_loop_symbols,
     check_join_clauses_are_on,
     check_library_purity,
     check_assembly_index_sets,
+    check_assembly_enums,
 )
 
 

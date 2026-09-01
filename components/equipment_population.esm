@@ -1,0 +1,240 @@
+{
+  "esm": "1.0.0",
+  "metadata": {
+    "name": "EquipmentPopulation",
+    "description": "Stage 2(a) of the nr-logging-county chain: the base-year equipment population. Ports joins J4 and J5 of docs/nonroad-logging-county.md §3 — nrsourceusetype's equipment points attached to nrbaseyearequippopulation's 1990 state populations — and the allocation of §2.1's `net effect`: the age distribution is grown on the STATE population and the county fraction multiplies the result.\n\nTHE ROUNDING IS THE POINT (§2.2(a), §7.4 rank 4). Canonical writes each state population to the .POP file with %17.1f (NonroadDataFileHelper.generatePopFile), so the engine only ever sees a population rounded to ONE DECIMAL, and nonroad_loader.rs:1226 reproduces that with (pop*10).round()/10 applied PER ROW before summing. It is not a precision artefact to be tidied away: sourceTypeID 1390's 0.463484 becomes 0.5, a 7.9% change, and the snapshot cannot be matched without it. The rule lives in lib/population.esm as `pop_file_rounding` so that it is findable by name.\n\nEvery population and equipment-point value here is read from the nr-logging-county snapshot parquet (nrsourceusetype, nrbaseyearequippopulation), including the Ohio rows: stateID 39 is not a decoy this file invented but the real neighbouring state whose rows J5 must exclude. One synthetic row IS present and is marked -- a 2011 base year -- because every other row in the table shares NRBaseYearID 1990 and a join no row can fail is a join nothing checks.",
+    "authors": ["EarthSciML Authors and Contributors"],
+    "tags": ["moves", "nonroad", "population", "component"]
+  },
+
+  "enums": {
+    "state": { "Michigan": 26, "Ohio": 39 },
+    "base_population_year": { "NonroadBaseYear": 1990 }
+  },
+
+  "index_sets": {
+    "equipment_point_rows": { "kind": "interval", "size": 6 },
+    "base_population_rows": { "kind": "interval", "size": 13 },
+    "runspec_state_rows": { "kind": "interval", "size": 1 },
+    "base_population_year_rows": { "kind": "interval", "size": 1 }
+  },
+
+  "coordinates": {
+    "equipment_point_scc": {
+      "source": "eqp_SCC",
+      "standard_name": "source_classification_code"
+    }
+  },
+
+  "models": {
+    "EquipmentPopulation": {
+      "expression_template_imports": [
+        { "ref": "../lib/population.esm", "only": ["pop_file_rounding"] }
+      ],
+
+      "tolerance": { "rel": 1e-12 },
+
+      "variables": {
+        "allocationFraction": {
+          "type": "parameter", "units": "1", "default": 0.0032382986319147338,
+          "description": "allocFrac for surrogate 8, computed by components/geographic_allocation.esm and carried here as a parameter so this file tests standalone. The assembly joins the two instead."
+        },
+
+        "eqp_sourceTypeID": {
+          "type": "unknown", "shape": ["equipment_point_rows"],
+          "description": "nrsourceusetype.sourceTypeID. Column 1: one EQUIPMENT POINT per row (an (SCC, hpAvg) pair), which is the grain the whole chain runs at."
+        },
+        "eqp_SCC": {
+          "type": "unknown", "shape": ["equipment_point_rows"],
+          "description": "nrsourceusetype.SCC. Column 2. Three SCCs over six points: 2265007010 has three HP points and 2265007015 has two."
+        },
+
+        "pop_sourceTypeID": {
+          "type": "unknown", "shape": ["base_population_rows"],
+          "description": "nrbaseyearequippopulation.sourceTypeID. Column 1, the J4 key."
+        },
+        "pop_stateID": {
+          "type": "unknown", "shape": ["base_population_rows"],
+          "description": "nrbaseyearequippopulation.stateID. Column 2, the J5 key."
+        },
+        "pop_population": {
+          "type": "unknown", "shape": ["base_population_rows"], "units": "1",
+          "description": "nrbaseyearequippopulation.population: the 1990 equipment count for this source type in this state, at the full precision the table stores. The engine never sees this number."
+        },
+        "pop_NRBaseYearID": {
+          "type": "unknown", "shape": ["base_population_rows"],
+          "description": "nrbaseyearequippopulation.NRBaseYearID. Column 4: 1990 for every real row."
+        },
+
+        "runspec_stateID": {
+          "type": "unknown", "shape": ["runspec_state_rows"],
+          "description": "The RunSpec's state, derived from its county in components/geographic_allocation.esm and stated here as the relation J5 semi-joins against."
+        },
+        "runspec_baseYearID": {
+          "type": "unknown", "shape": ["base_population_year_rows"],
+          "description": "The NONROAD base population year, 1990."
+        },
+
+        "eqp_rawStatePopulation": {
+          "type": "unknown", "shape": ["equipment_point_rows"], "units": "1",
+          "description": "What the state population would be without the .POP quantization. Computed only so the test can show the two apart; nothing downstream reads it."
+        },
+        "eqp_statePopulation": {
+          "type": "unknown", "shape": ["equipment_point_rows"], "units": "1",
+          "description": "The state population as the engine sees it: each row rounded to one decimal, then summed."
+        },
+        "eqp_countyPopulation": {
+          "type": "unknown", "shape": ["equipment_point_rows"], "units": "1",
+          "description": "The county's share. This is the `population` factor of the §2.6(b) roll-up product."
+        }
+      },
+
+      "equations": [
+        {
+          "_comment": "The fixture's six equipment points (docs/nonroad-logging-county.md §6.1, §6.2, §6.3), read from nrsourceusetype.",
+          "lhs": "eqp_sourceTypeID",
+          "rhs": { "op": "const", "args": [], "value": [1059, 1386, 1387, 1388, 1389, 1390] }
+        },
+        {
+          "lhs": "eqp_SCC",
+          "rhs": { "op": "const", "args": [],
+            "value": [2260007005, 2265007010, 2265007010, 2265007010, 2265007015, 2265007015] }
+        },
+
+        {
+          "_comment": "nrbaseyearequippopulation, both states, from the snapshot. Row 13 is the one synthetic row in this file: a 2011 base year carrying an absurd population, so that the base-year join has something to exclude.",
+          "lhs": "pop_sourceTypeID",
+          "rhs": { "op": "const", "args": [],
+            "value": [1059, 1386, 1387, 1388, 1389, 1390,
+                      1059, 1386, 1387, 1388, 1389, 1390,
+                      1059] }
+        },
+        {
+          "lhs": "pop_stateID",
+          "rhs": { "op": "makearray", "args": [],
+            "regions": [[[1, 6]], [[7, 12]], [[13, 13]]],
+            "values": [
+              { "op": "enum", "args": ["state", "Michigan"] },
+              { "op": "enum", "args": ["state", "Ohio"] },
+              { "op": "enum", "args": ["state", "Michigan"] }
+            ] }
+        },
+        {
+          "lhs": "pop_population",
+          "rhs": { "op": "const", "args": [],
+            "value": [83.279223744292, 647.173078714485, 35.792920353982,
+                      11.602049371216, 1.121332091290, 0.463483931067,
+                      33.842105263158, 163.003992015968, 9.011976047904,
+                      2.924151696607, 0.279441117764, 0.119760479042,
+                      999.0] }
+        },
+        {
+          "lhs": "pop_NRBaseYearID",
+          "rhs": { "op": "makearray", "args": [],
+            "regions": [[[1, 12]], [[13, 13]]],
+            "values": [
+              { "op": "enum", "args": ["base_population_year", "NonroadBaseYear"] },
+              2011
+            ] }
+        },
+        {
+          "lhs": "runspec_stateID",
+          "rhs": { "op": "makearray", "args": [],
+            "regions": [[[1, 1]]],
+            "values": [{ "op": "enum", "args": ["state", "Michigan"] }] }
+        },
+        {
+          "lhs": "runspec_baseYearID",
+          "rhs": { "op": "makearray", "args": [],
+            "regions": [[[1, 1]]],
+            "values": [{ "op": "enum", "args": ["base_population_year", "NonroadBaseYear"] }] }
+        },
+
+        {
+          "_comment": "J4 and J5 as three separate `join.on` clauses over three different symbol pairs, which compose by conjunction (docs/esm-conventions.md §3). Without the rounding this is the number the .POP file would have carried had canonical written it at full precision.",
+          "lhs": "eqp_rawStatePopulation",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["e"],
+            "ranges": {
+              "e": { "from": "equipment_point_rows" },
+              "p": { "from": "base_population_rows" },
+              "s": { "from": "runspec_state_rows" },
+              "b": { "from": "base_population_year_rows" }
+            },
+            "join": [
+              { "on": [["eqp_sourceTypeID", "pop_sourceTypeID"]] },
+              { "on": [["pop_stateID", "runspec_stateID"]] },
+              { "on": [["pop_NRBaseYearID", "runspec_baseYearID"]] }
+            ],
+            "expr": { "op": "index", "args": ["pop_population", "p"] }
+          }
+        },
+        {
+          "_comment": "The same contraction with nonroad_loader.rs:1226's per-row quantization applied inside it. Rounding the SUM instead would be a different number wherever an equipment point has rows in more than one populated state.",
+          "lhs": "eqp_statePopulation",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["e"],
+            "ranges": {
+              "e": { "from": "equipment_point_rows" },
+              "p": { "from": "base_population_rows" },
+              "s": { "from": "runspec_state_rows" },
+              "b": { "from": "base_population_year_rows" }
+            },
+            "join": [
+              { "on": [["eqp_sourceTypeID", "pop_sourceTypeID"]] },
+              { "on": [["pop_stateID", "runspec_stateID"]] },
+              { "on": [["pop_NRBaseYearID", "runspec_baseYearID"]] }
+            ],
+            "expr": {
+              "op": "apply_expression_template", "args": [], "name": "pop_file_rounding",
+              "bindings": { "population": { "op": "index", "args": ["pop_population", "p"] } }
+            }
+          }
+        },
+        {
+          "lhs": "eqp_countyPopulation",
+          "rhs": {
+            "op": "aggregate", "args": [], "output_idx": ["e"],
+            "ranges": { "e": { "from": "equipment_point_rows" } },
+            "expr": { "op": "*", "args": [{ "op": "index", "args": ["eqp_statePopulation", "e"] },
+                                          "allocationFraction"] }
+          }
+        }
+      ],
+
+      "tests": [
+        {
+          "id": "the_pop_file_rounding_changes_the_answer",
+          "description": "docs/nonroad-logging-county.md §6.2 and §7.4 rank 4. Point 1390 carries 0.463483931067 in the table and 0.5 in the engine — 7.9% more equipment, entirely because of a %17.1f write. Point 1059 rounds down, 83.279224 to 83.3. An .esm that skipped this would be wrong on every row of SCC 2265007015 by 7.9% and on SCC 2260007005 by 0.02%, which is exactly the kind of error a loose tolerance hides.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "eqp_rawStatePopulation", "time": 0.0, "expected": 0.463483931067, "coords": { "equipment_point_rows": 6 } },
+            { "variable": "eqp_statePopulation", "time": 0.0, "expected": 0.5, "coords": { "equipment_point_rows": 6 } },
+            { "variable": "eqp_rawStatePopulation", "time": 0.0, "expected": 83.279223744292, "coords": { "equipment_point_rows": 1 } },
+            { "variable": "eqp_statePopulation", "time": 0.0, "expected": 83.3, "coords": { "equipment_point_rows": 1 } },
+            { "variable": "eqp_statePopulation", "time": 0.0, "expected": 1.1, "coords": { "equipment_point_rows": 5 } }
+          ]
+        },
+        {
+          "id": "the_state_and_base_year_joins_both_exclude",
+          "description": "J5 keeps Ohio out: with stateID unfiltered, point 1059 would read 83.3 + 33.8 = 117.1 and every 2260007005 row would be 41% high. The synthetic 2011 row would add another 999. Both are excluded by `join.on` clauses, not by a filter, because both are equalities.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "eqp_statePopulation", "time": 0.0, "expected": 83.3, "coords": { "equipment_point_rows": 1 } },
+            { "variable": "eqp_statePopulation", "time": 0.0, "expected": 647.2, "coords": { "equipment_point_rows": 2 } }
+          ]
+        },
+        {
+          "id": "county_population_matches_the_worked_example",
+          "description": "docs/nonroad-logging-county.md §6.1 step 1: 83.3 x 0.0032382987 = 0.269750297 in the float32 reference. This is the binary64 value of the same product, 0.26975028, differing in the 8th significant figure because the reference rounds allocFrac to float32 first. §6.2's two points give 0.0035621286 and 0.0016191494 there against 0.0035621285 and 0.0016191493 here.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "eqp_countyPopulation", "time": 0.0, "expected": 0.2697502760384973, "coords": { "equipment_point_rows": 1 } },
+            { "variable": "eqp_countyPopulation", "time": 0.0, "expected": 0.0035621284951062072, "coords": { "equipment_point_rows": 5 } },
+            { "variable": "eqp_countyPopulation", "time": 0.0, "expected": 0.0016191493159573669, "coords": { "equipment_point_rows": 6 } }
+          ]
+        }
+      ]
+    }
+  }
+}

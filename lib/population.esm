@@ -1,0 +1,154 @@
+{
+  "esm": "1.0.0",
+  "metadata": {
+    "name": "moves.population",
+    "description": "Template library: the arithmetic of the NONROAD population stage — the base-year equipment population, the growth indicator series that projects it, and the scrappage curve that spreads it over model years (docs/nonroad-logging-county.md §2.2). Four of these shapes are the ones §7.4 warns an author is most likely to read as noise and simplify away, and they are not noise; they are the file formats canonical MOVES writes and reads.\n\n`pop_file_rounding` is the `%17.1f` of the .POP file: the engine never sees a population at full precision, and 0.463484 -> 0.5 is a 7.9% change that is REQUIRED to match the snapshot. `truncate_toward_zero` is the `%20d` of the /GROWTH/ packet: the year-over-year indicator changes sit near zero, so the truncation decides the SIGN of the growth factor and with it which model years survive agedist's clamp at all.\n\n`annualized_growth_factor` is grwfac.f: the ANNUALIZED fractional change (g - b)/(b*span), not the cumulative ratio g/b — mixing them up compounds a per-year rate as if it were a total. `median_life_years` keeps grwfac's sibling trap: scrptime.rs:102 divides LEFT TO RIGHT, (mdlfhrs/ldfctr)/acthpy, and caps at MXAGYR/2 = 25 years.\n\nLayering (esm-spec §9.7.3): `median_life_years` invokes `median_life_cap_years`, which invokes `max_equipment_ages`, so MXAGYR = 51 appears once in the repository and the cap is derived from it rather than written as 25.",
+    "authors": ["EarthSciML Authors and Contributors"],
+    "tags": ["moves", "nonroad", "population", "growth", "scrappage", "template-library"]
+  },
+  "expression_templates": {
+    "max_equipment_ages": {
+      "params": [],
+      "body": 51
+    },
+    "median_life_cap_years": {
+      "params": [],
+      "body": {
+        "op": "floor",
+        "args": [
+          { "op": "/", "args": [
+            { "op": "apply_expression_template", "args": [], "name": "max_equipment_ages", "bindings": {} },
+            2] }
+        ]
+      }
+    },
+    "initial_sales": {
+      "params": [],
+      "body": 1000.0
+    },
+    "pop_file_rounding": {
+      "params": ["population"],
+      "body": {
+        "op": "/",
+        "args": [
+          { "op": "floor", "args": [
+            { "op": "+", "args": [{ "op": "*", "args": ["population", 10.0] }, 0.5] }] },
+          10.0
+        ]
+      }
+    },
+    "truncate_toward_zero": {
+      "params": ["value"],
+      "body": {
+        "op": "*",
+        "args": [
+          { "op": "sign", "args": ["value"] },
+          { "op": "floor", "args": [{ "op": "abs", "args": ["value"] }] }
+        ]
+      }
+    },
+    "linear_series_interpolation": {
+      "params": ["x", "x_low", "y_low", "x_high", "y_high"],
+      "body": {
+        "op": "+",
+        "args": [
+          "y_low",
+          {
+            "op": "/",
+            "args": [
+              { "op": "*", "args": [
+                { "op": "-", "args": ["y_high", "y_low"] },
+                { "op": "-", "args": ["x", "x_low"] }] },
+              { "op": "-", "args": ["x_high", "x_low"] }
+            ]
+          }
+        ]
+      }
+    },
+    "annualized_growth_factor": {
+      "params": ["base_indicator", "grown_indicator", "year_span"],
+      "body": {
+        "op": "/",
+        "args": [
+          { "op": "-", "args": ["grown_indicator", "base_indicator"] },
+          { "op": "*", "args": ["base_indicator", "year_span"] }
+        ]
+      }
+    },
+    "median_life_years": {
+      "params": ["median_life_full_load", "load_factor", "hours_used_per_year"],
+      "body": {
+        "op": "min",
+        "args": [
+          { "op": "apply_expression_template", "args": [], "name": "median_life_cap_years", "bindings": {} },
+          {
+            "op": "/",
+            "args": [
+              { "op": "/", "args": ["median_life_full_load", "load_factor"] },
+              "hours_used_per_year"
+            ]
+          }
+        ]
+      }
+    },
+    "year_over_year_scrap_fraction": {
+      "params": ["percent_scrapped", "percent_scrapped_prior"],
+      "body": {
+        "op": "ifelse",
+        "args": [
+          { "op": ">=", "args": ["percent_scrapped_prior", 100.0] },
+          0.0,
+          {
+            "op": "/",
+            "args": [
+              { "op": "*", "args": [
+                100.0,
+                { "op": "/", "args": [
+                  { "op": "-", "args": ["percent_scrapped", "percent_scrapped_prior"] },
+                  100.0] }] },
+              { "op": "-", "args": [100.0, "percent_scrapped_prior"] }
+            ]
+          }
+        ]
+      }
+    },
+    "scrappage_sales_growth": {
+      "params": ["pop_growth_factor", "median_life_years"],
+      "body": {
+        "op": "/",
+        "args": [
+          "pop_growth_factor",
+          {
+            "op": "+",
+            "args": [
+              { "op": "*", "args": [
+                { "op": "*", "args": [-1.4306, "pop_growth_factor"] },
+                "median_life_years"] },
+              { "op": "*", "args": [-0.24, "pop_growth_factor"] },
+              1.0
+            ]
+          }
+        ]
+      }
+    },
+    "surviving_equipment": {
+      "params": ["sales_growth", "sales_index", "percent_scrapped"],
+      "body": {
+        "op": "*",
+        "args": [
+          {
+            "op": "+",
+            "args": [
+              { "op": "apply_expression_template", "args": [], "name": "initial_sales", "bindings": {} },
+              { "op": "*", "args": [
+                { "op": "apply_expression_template", "args": [], "name": "initial_sales", "bindings": {} },
+                "sales_growth",
+                "sales_index"] }
+            ]
+          },
+          { "op": "-", "args": [1.0, { "op": "/", "args": ["percent_scrapped", 100.0] }] }
+        ]
+      }
+    }
+  }
+}

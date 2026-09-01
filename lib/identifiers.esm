@@ -2,7 +2,7 @@
   "esm": "1.0.0",
   "metadata": {
     "name": "moves.identifiers",
-    "description": "Template library: the arithmetic that MOVES/NONROAD performs ON its identifiers, as opposed to the identifiers themselves. `polProcessID` is a packed pair, and every SCC fallback ladder is a decimal truncation, so both are arithmetic — not lookup tables, and not values to be written out by hand at each of the two dozen sites that need them. The symbolic NAMES for identifier values live in each consuming component's `enums` block, because esm-spec §9.3 makes an `enums` block file-local and does NOT merge it across an `expression_template_imports` edge (see docs/esm-conventions.md §6, finding F3): a library that spelled `enum(\"pollutant\", \"NOx\")` in a body would fail to load in the importer with `unknown_enum`. Templates therefore take identifier VALUES as parameters, and the call site supplies them as `enum` ops.",
+    "description": "Template library: the arithmetic that MOVES/NONROAD performs ON its identifiers, as opposed to the identifiers themselves. `polProcessID` is a packed pair, and every SCC fallback ladder is a decimal truncation, so both are arithmetic — not lookup tables, and not values to be written out by hand at each of the two dozen sites that need them. `pol_process_id` packs the pair; `pollutant_id_of` and `process_id_of` unpack it, which the output stage needs because MOVESOutput carries the two halves in separate columns (nonroad_loader.rs:2183, :2371) -- and because a port that wrote `polProcessID / 100` at the output and `pollutantID * 100 + processID` at the input would have two chances to disagree with itself. The symbolic NAMES for identifier values live in each consuming component's `enums` block, because esm-spec §9.3 makes an `enums` block file-local and does NOT merge it across an `expression_template_imports` edge (see docs/esm-conventions.md §6, finding F3): a library that spelled `enum(\"pollutant\", \"NOx\")` in a body would fail to load in the importer with `unknown_enum`. Templates therefore take identifier VALUES as parameters, and the call site supplies them as `enum` ops.",
     "authors": ["EarthSciML Authors and Contributors"],
     "tags": ["moves", "nonroad", "identifiers", "template-library"]
   },
@@ -14,6 +14,22 @@
         "args": [
           { "op": "*", "args": [100, "pollutant_id"] },
           "process_id"
+        ]
+      }
+    },
+    "pollutant_id_of": {
+      "params": ["pol_process_id"],
+      "body": { "op": "floor", "args": [{ "op": "/", "args": ["pol_process_id", 100] }] }
+    },
+    "process_id_of": {
+      "params": ["pol_process_id"],
+      "body": {
+        "op": "-",
+        "args": [
+          "pol_process_id",
+          { "op": "*", "args": [100,
+            { "op": "apply_expression_template", "args": [], "name": "pollutant_id_of",
+              "bindings": { "pol_process_id": "pol_process_id" } }] }
         ]
       }
     },

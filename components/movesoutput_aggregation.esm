@@ -1,0 +1,2377 @@
+{
+  "esm": "1.0.0",
+  "metadata": {
+    "name": "MOVESOutputAggregation",
+    "description": "Stage 7 of the nr-logging-county chain: aggregation to the MOVESOutput schema. Ports join J25 and docs/nonroad-logging-county.md §2.7 (emissions_to_dataframe, nonroad_loader.rs:2313-2392) — the pollutant gate, the short-tons-to-grams conversion, the group-by key and the labelling columns an output row carries.\n\nTHE OUTPUT IS A FLAT ROW RELATION, AND THAT IS THE ANSWER TO A RAGGED KEY SET. MOVESOutput's 144 rows are 36 (SCC, modelYearID) pairs times four pollutants, and the 36 are NOT a rectangle: the three SCCs span 3, 4 and 29 model years, because each equipment point's span is its own scrptime nyrlif. A shared [SCC x modelYear x pollutant] grid would carry 3 x 29 x 4 = 348 keys, 204 of which the snapshot does not have, and tolerance.toml's require_exact_key_set is not a number that can be relaxed. So the output is one ROW AXIS with the key as COLUMNS -- (SCC, modelYearID, polProcessID) -- exactly as docs/esm-conventions.md §2 has every other relation in this port. Raggedness then needs no axis machinery: a relation's key set is data. Adding the fixture's other two SCCs is adding rows, and nothing in these equations changes. The alternative the schema advertises, a `ragged` per-parent inner axis of model years, ignores its own member factor and cannot address a parent's members (docs/findings F14).\\n\\nTHE GATE IS A MASK, NOT A DELETION. out_pollutantIsSelected is a column, and out_isEmitted is the row-set membership the emitter applies: twelve of these fifteen rows reach MOVESOutput and the three CO2 rows do not. That is a different thing from a selected pollutant of a populated cohort whose value is zero, which IS emitted (§2.7, nonroad_loader.rs:2354-2361) -- the mask says whether a row exists, the value says what is in it, and collapsing the two is how a port ends up with the wrong key set.\\n\\nTHE GATE IS BY POLLUTANT, NOT BY WHAT WAS COMPUTED. The engine computes six pollutant slots and MOVESOutput carries only those whose pollutantID is in runspecpollutantprocess (:2192-2200, :2344-2352). This fixture selects 1, 2, 3 and 100; CO2 (90) is computed by the carbon balance and dropped. The input relation here carries CO2 rows for exactly that reason: a gate with nothing to exclude proves nothing.\n\nTWO SUPPRESSIONS, AND BOTH ARE LOAD-BEARING. J25's pollutant gate drops what the RunSpec did not select -- CO2 is computed by the carbon balance and never emitted. prccty.f's `modfrc <= 0` skip drops an age cohort no equipment point of the SCC populates, and it is NOT a conservative tidy-up that a relational port may leave out: 44 of this fixture's candidate cohorts have a grown fraction of exactly zero, so dropping the skip -- or relaxing it to `< 0` -- emits 188 rows where the snapshot has 144. Measured, in both precisions. out_cohortIsPopulated is that skip, and out_isEmitted is the two together.\n\nWHAT IS NOT A REASON TO SUPPRESS: magnitude. A selected pollutant of a populated cohort is emitted whatever it computes, and canonical clamps a negative SOx balance at zero and KEEPS the row (:2354-2361). SCC 2260007005's model year 2018 is 4.3e-06 grams of THC and is one of the 144. That cohort is also the single place where the arithmetic decides membership: its fraction is 5.96e-08 in float32 and exactly 0.0 in binary64 (§7.3), so the skip fires in one precision and not the other. Nothing written in the document distinguishes them -- it is the evaluation precision that must, which is why the fixture run will declare Float32 once `domain.element_type` is honoured.\n\nTHE PACKED PAIR IS UNPACKED HERE. pollutantID = polProcessID / 100 and processID is the remainder, from lib/identifiers.esm, which is also where the packing lives — one definition, so the two ends cannot drift. processID is 1 for every row of this fixture, which is also what nonroad_loader.rs:2371 hard-codes.\n\nLABELS THE PORT MUST FILL IN THAT moves.rs LEAVES NULL (§8.3). stateID, countyID, fuelTypeID and roadTypeID are unambiguous — county from the RunSpec, state as countyID/1000, road type 100, fuel type from nrscc — and the canonical snapshot carries them, so this file carries them too. hourID is 0 in every canonical row despite the RunSpec selecting hour 7, because NONROAD is a typical-day model; that is read off the data rather than off the code, and it is recorded as such.\n\nTHE ONE MAPPING THIS FILE DOES NOT CLAIM TO KNOW: nonroad fuelTypeID 23 and 24 to MOVES fuelTypeID 2. §8.3 records that only the gasoline mapping 1 -> 1 is verified by this fixture, so the mapping relation carries the verified row and no invented ones, and a diesel SCC reaching it would produce fuelTypeID 0 rather than a guess.",
+    "authors": [
+      "EarthSciML Authors and Contributors"
+    ],
+    "tags": [
+      "moves",
+      "nonroad",
+      "output",
+      "aggregation",
+      "component"
+    ]
+  },
+  "enums": {
+    "pollutant": {
+      "TotalGaseousHydrocarbons": 1,
+      "CarbonMonoxide": 2,
+      "OxidesOfNitrogen": 3,
+      "AtmosphericCO2": 90,
+      "PrimaryExhaustPM10Total": 100
+    },
+    "process": {
+      "RunningExhaust": 1
+    },
+    "month": {
+      "August": 8
+    },
+    "day_type": {
+      "Weekday": 5
+    },
+    "road_type": {
+      "Nonroad": 100
+    },
+    "nonroad_fuel_type": {
+      "Gasoline": 1
+    },
+    "moves_fuel_type": {
+      "Gasoline": 1
+    }
+  },
+  "index_sets": {
+    "input_tons_rows": {
+      "kind": "interval",
+      "size": 23
+    },
+    "output_rows": {
+      "kind": "interval",
+      "size": 23
+    },
+    "runspec_pollutant_process_rows": {
+      "kind": "interval",
+      "size": 4
+    },
+    "fuel_type_mapping_rows": {
+      "kind": "interval",
+      "size": 1
+    },
+    "output_run_rows": {
+      "kind": "interval",
+      "size": 1
+    },
+    "cohort_rows": {
+      "kind": "interval",
+      "size": 6
+    }
+  },
+  "coordinates": {
+    "output_scc": {
+      "source": "out_SCC",
+      "standard_name": "source_classification_code"
+    },
+    "output_model_year": {
+      "source": "out_modelYearID",
+      "standard_name": "model_year"
+    },
+    "output_pollutant": {
+      "source": "out_pollutantID",
+      "standard_name": "pollutant_identifier"
+    }
+  },
+  "models": {
+    "MOVESOutputAggregation": {
+      "expression_template_imports": [
+        {
+          "ref": "../lib/identifiers.esm",
+          "only": [
+            "pol_process_id",
+            "pollutant_id_of",
+            "process_id_of"
+          ]
+        },
+        {
+          "ref": "../lib/conversion.esm",
+          "only": [
+            "grams_per_short_ton"
+          ]
+        }
+      ],
+      "tolerance": {
+        "rel": 1e-12
+      },
+      "variables": {
+        "runCountyID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 26161.0,
+          "description": "The RunSpec's county, which every output row is labelled with."
+        },
+        "runYearID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 2020.0,
+          "description": "The RunSpec's calendar year."
+        },
+        "outputHourID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "description": "The hourID canonical stamps on a NONROAD output row: 0, a typical day, regardless of the RunSpec's hour selection (§8.3). A parameter and not an `enums` entry because the format's enums map to positive integers only."
+        },
+        "outputSCC": {
+          "type": "parameter",
+          "units": "1",
+          "default": 2260007005.0,
+          "description": "The SCC these rows belong to. One equipment point, one SCC here; the fixture's other two SCCs sum several equipment points into one row per (SCC, model year, pollutant), which is the same contraction with more input rows."
+        },
+        "tons_modelYearID": {
+          "type": "unknown",
+          "shape": [
+            "input_tons_rows"
+          ],
+          "description": "components/exhaust_rollup.esm's output as a relation: model year. Column 1. The two SCCs here carry different numbers of model years -- three and one -- which is the raggedness this relation absorbs by being a relation."
+        },
+        "tons_polProcessID": {
+          "type": "unknown",
+          "shape": [
+            "input_tons_rows"
+          ],
+          "description": "Column 2. Carries CO2 (9001) as well as the four selected processes, because the engine computes it and the gate is what drops it."
+        },
+        "tons_emissionShortTons": {
+          "type": "unknown",
+          "shape": [
+            "input_tons_rows"
+          ],
+          "units": "1",
+          "description": "Column 3: short tons, the unit the engine accumulates in."
+        },
+        "rpp_polProcessID": {
+          "type": "unknown",
+          "shape": [
+            "runspec_pollutant_process_rows"
+          ],
+          "description": "runspecpollutantprocess.polProcessID: (1,1) (2,1) (3,1) (100,1)."
+        },
+        "rpp_pollutantID": {
+          "type": "unknown",
+          "shape": [
+            "runspec_pollutant_process_rows"
+          ],
+          "description": "Its pollutant half, which is what the gate keys on (nonroad_loader.rs:2192-2200)."
+        },
+        "ftm_nonroadFuelTypeID": {
+          "type": "unknown",
+          "shape": [
+            "fuel_type_mapping_rows"
+          ],
+          "description": "nrscc.fuelTypeID, in the NONROAD namespace. Column 1 of the mapping this fixture verifies."
+        },
+        "ftm_movesFuelTypeID": {
+          "type": "unknown",
+          "shape": [
+            "fuel_type_mapping_rows"
+          ],
+          "description": "MOVESOutput.fuelTypeID, in the onroad namespace. Column 2. Only the gasoline row is here; see this file's description."
+        },
+        "run_sccFuelTypeID": {
+          "type": "unknown",
+          "shape": [
+            "output_run_rows"
+          ],
+          "description": "The nonroad fuel type of the SCC these rows belong to, as a one-row relation so the mapping below is a join."
+        },
+        "out_SCC": {
+          "type": "unknown",
+          "shape": [
+            "output_rows"
+          ],
+          "description": "MOVESOutput.SCC. Key column 1 of the output relation. One SCC here; the fixture's other two are more rows, not another axis."
+        },
+        "out_modelYearID": {
+          "type": "unknown",
+          "shape": [
+            "output_rows"
+          ],
+          "description": "MOVESOutput.modelYearID. Key column 2. Which model years exist is per-SCC, set by that equipment point's nyrlif, which is why this is a column and not an axis."
+        },
+        "out_polProcessID": {
+          "type": "unknown",
+          "shape": [
+            "output_rows"
+          ],
+          "description": "The packed pollutant-process key. Key column 3, and the only one MOVESOutput does not carry -- it carries the two halves below."
+        },
+        "out_pollutantID": {
+          "type": "unknown",
+          "shape": [
+            "output_rows"
+          ],
+          "description": "MOVESOutput.pollutantID: the packed pair's first half."
+        },
+        "out_processID": {
+          "type": "unknown",
+          "shape": [
+            "output_rows"
+          ],
+          "description": "MOVESOutput.processID: its second half. 1 on every row of this fixture."
+        },
+        "out_pollutantIsSelected": {
+          "type": "unknown",
+          "shape": [
+            "output_rows"
+          ],
+          "description": "J25: is this row's pollutant in runspecpollutantprocess? The gate is on the POLLUTANT, so selecting (1,1) selects pollutant 1 for every process.",
+          "units": "1"
+        },
+        "out_isEmitted": {
+          "type": "unknown",
+          "shape": [
+            "output_rows"
+          ],
+          "description": "Whether this row reaches MOVESOutput at all: the pollutant is selected AND the cohort is populated. Two different suppressions with two different reasons, and neither is about magnitude -- a selected pollutant of a populated cohort is emitted however small it is, and SCC 2260007005's model year 2018 (4.3e-06 grams) is exactly that case.",
+          "units": "1"
+        },
+        "out_emissionQuant": {
+          "type": "unknown",
+          "shape": [
+            "output_rows"
+          ],
+          "description": "MOVESOutput.emissionQuant in grams: the summed short tons of every equipment point and technology at this (SCC, model year, pollutant), converted back.",
+          "units": "g"
+        },
+        "out_yearID": {
+          "type": "unknown",
+          "shape": [
+            "output_rows"
+          ],
+          "description": "MOVESOutput.yearID, on every row."
+        },
+        "out_monthID": {
+          "type": "unknown",
+          "shape": [
+            "output_rows"
+          ],
+          "description": "MOVESOutput.monthID = 8, from runspecmonth and not from the RunSpec XML's zero-based key 7."
+        },
+        "out_dayID": {
+          "type": "unknown",
+          "shape": [
+            "output_rows"
+          ],
+          "description": "MOVESOutput.dayID = 5, weekday. Not offset."
+        },
+        "out_hourID": {
+          "type": "unknown",
+          "shape": [
+            "output_rows"
+          ],
+          "description": "MOVESOutput.hourID = 0: a typical day, whatever hour the RunSpec selected (§8.3)."
+        },
+        "out_stateID": {
+          "type": "unknown",
+          "shape": [
+            "output_rows"
+          ],
+          "description": "MOVESOutput.stateID = countyID / 1000, derived rather than declared."
+        },
+        "out_countyID": {
+          "type": "unknown",
+          "shape": [
+            "output_rows"
+          ],
+          "description": "MOVESOutput.countyID."
+        },
+        "out_roadTypeID": {
+          "type": "unknown",
+          "shape": [
+            "output_rows"
+          ],
+          "description": "MOVESOutput.roadTypeID = 100, the nonroad road type."
+        },
+        "out_fuelTypeID": {
+          "type": "unknown",
+          "shape": [
+            "output_rows"
+          ],
+          "description": "MOVESOutput.fuelTypeID, mapped from the SCC's nonroad fuel type. Zero would mean the mapping had no row, which is the honest answer for diesel here."
+        },
+        "emittedRowCount": {
+          "type": "unknown",
+          "units": "1",
+          "description": "How many rows this SCC contributes to MOVESOutput: the sum of the membership mask. Twelve for SCC 2260007005, which is the row count docs/nonroad-logging-county.md §6.1 tabulates, and the quantity that becomes 144 when all three SCCs are present."
+        },
+        "tons_SCC": {
+          "type": "unknown",
+          "shape": [
+            "input_tons_rows"
+          ],
+          "description": "The SCC of the equipment point this contribution came from. Key column 0, and the one that makes the group-by a group-by: rows 16-23 are the TWO equipment points of SCC 2265007015 (docs/nonroad-logging-county.md §6.2), which the output detail collapses into one row per pollutant."
+        },
+        "cohort_SCC": {
+          "type": "unknown",
+          "shape": [
+            "cohort_rows"
+          ],
+          "description": "The SCC of this equipment point. Column 1."
+        },
+        "cohort_modelYearID": {
+          "type": "unknown",
+          "shape": [
+            "cohort_rows"
+          ],
+          "description": "The model year this age slot is. Column 2."
+        },
+        "cohort_modelYearFraction": {
+          "type": "unknown",
+          "shape": [
+            "cohort_rows"
+          ],
+          "description": "modfrc after agedist's fold, for THIS equipment point at THIS age slot. Column 3. It is per POINT, not per SCC, which is why the membership test below is an OR over the points and not a lookup.",
+          "units": "1"
+        },
+        "out_cohortIsPopulated": {
+          "type": "unknown",
+          "shape": [
+            "output_rows"
+          ],
+          "units": "1",
+          "description": "prccty.f's `modfrc <= 0` skip, as a membership test: does ANY equipment point of this SCC hold a positive fraction at this model year? This is what makes the output key set ragged, and removing it is not a conservative choice -- 44 of the fixture's candidate cohorts are exactly zero, so a chain that emitted them would produce 188 rows against the snapshot's 144."
+        }
+      },
+      "equations": [
+        {
+          "_comment": "The grown model-year fractions of every (SCC, equipment point) this output covers, from components/age_distribution.esm. Row 6 is the one the skip removes: the hp-9.0 point of SCC 2265007015 has nyrlif 5, so age slot 4 reaches model year 2016, and its fraction is exactly 0 because age 5's survival factor is zero (docs/nonroad-logging-county.md §6.2).",
+          "lhs": "cohort_SCC",
+          "rhs": {
+            "op": "makearray",
+            "args": [],
+            "regions": [
+              [
+                [
+                  1,
+                  3
+                ]
+              ],
+              [
+                [
+                  4,
+                  6
+                ]
+              ]
+            ],
+            "values": [
+              2260007005,
+              2265007015
+            ]
+          }
+        },
+        {
+          "lhs": "cohort_modelYearID",
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              2020,
+              2019,
+              2018,
+              2020,
+              2020,
+              2016
+            ]
+          }
+        },
+        {
+          "lhs": "cohort_modelYearFraction",
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              3.7072685,
+              0.9905483,
+              5.8885583e-08,
+              3.9099162,
+              2.1914759,
+              0.0
+            ]
+          }
+        },
+        {
+          "_comment": "The roll-up emits one contribution per (SCC, equipment point, model year, pollutant); the output stage sums the equipment points away. Rows 1-15 are SCC 2260007005's single point, rows 16-23 the two points of SCC 2265007015 at model year 2020.",
+          "lhs": "tons_SCC",
+          "rhs": {
+            "op": "makearray",
+            "args": [],
+            "regions": [
+              [
+                [
+                  1,
+                  15
+                ]
+              ],
+              [
+                [
+                  16,
+                  23
+                ]
+              ]
+            ],
+            "values": [
+              2260007005,
+              2265007015
+            ]
+          }
+        },
+        {
+          "_comment": "The roll-up's output for one SCC: three model years x five pollutant processes. The four selected ones carry components/exhaust_rollup.esm's asserted short tons; the CO2 rows are synthetic and exist only so the gate has something real to drop.",
+          "lhs": "tons_modelYearID",
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              2020,
+              2019,
+              2018,
+              2020,
+              2019,
+              2018,
+              2020,
+              2019,
+              2018,
+              2020,
+              2019,
+              2018,
+              2020,
+              2019,
+              2018,
+              2020,
+              2020,
+              2020,
+              2020,
+              2020,
+              2020,
+              2020,
+              2020
+            ]
+          }
+        },
+        {
+          "lhs": "tons_polProcessID",
+          "rhs": {
+            "op": "makearray",
+            "args": [],
+            "regions": [
+              [
+                [
+                  1,
+                  3
+                ]
+              ],
+              [
+                [
+                  4,
+                  6
+                ]
+              ],
+              [
+                [
+                  7,
+                  9
+                ]
+              ],
+              [
+                [
+                  10,
+                  12
+                ]
+              ],
+              [
+                [
+                  13,
+                  15
+                ]
+              ],
+              [
+                [
+                  16,
+                  17
+                ]
+              ],
+              [
+                [
+                  18,
+                  19
+                ]
+              ],
+              [
+                [
+                  20,
+                  21
+                ]
+              ],
+              [
+                [
+                  22,
+                  23
+                ]
+              ]
+            ],
+            "values": [
+              {
+                "op": "apply_expression_template",
+                "args": [],
+                "name": "pol_process_id",
+                "bindings": {
+                  "pollutant_id": {
+                    "op": "enum",
+                    "args": [
+                      "pollutant",
+                      "TotalGaseousHydrocarbons"
+                    ]
+                  },
+                  "process_id": {
+                    "op": "enum",
+                    "args": [
+                      "process",
+                      "RunningExhaust"
+                    ]
+                  }
+                }
+              },
+              {
+                "op": "apply_expression_template",
+                "args": [],
+                "name": "pol_process_id",
+                "bindings": {
+                  "pollutant_id": {
+                    "op": "enum",
+                    "args": [
+                      "pollutant",
+                      "CarbonMonoxide"
+                    ]
+                  },
+                  "process_id": {
+                    "op": "enum",
+                    "args": [
+                      "process",
+                      "RunningExhaust"
+                    ]
+                  }
+                }
+              },
+              {
+                "op": "apply_expression_template",
+                "args": [],
+                "name": "pol_process_id",
+                "bindings": {
+                  "pollutant_id": {
+                    "op": "enum",
+                    "args": [
+                      "pollutant",
+                      "OxidesOfNitrogen"
+                    ]
+                  },
+                  "process_id": {
+                    "op": "enum",
+                    "args": [
+                      "process",
+                      "RunningExhaust"
+                    ]
+                  }
+                }
+              },
+              {
+                "op": "apply_expression_template",
+                "args": [],
+                "name": "pol_process_id",
+                "bindings": {
+                  "pollutant_id": {
+                    "op": "enum",
+                    "args": [
+                      "pollutant",
+                      "PrimaryExhaustPM10Total"
+                    ]
+                  },
+                  "process_id": {
+                    "op": "enum",
+                    "args": [
+                      "process",
+                      "RunningExhaust"
+                    ]
+                  }
+                }
+              },
+              {
+                "op": "apply_expression_template",
+                "args": [],
+                "name": "pol_process_id",
+                "bindings": {
+                  "pollutant_id": {
+                    "op": "enum",
+                    "args": [
+                      "pollutant",
+                      "AtmosphericCO2"
+                    ]
+                  },
+                  "process_id": {
+                    "op": "enum",
+                    "args": [
+                      "process",
+                      "RunningExhaust"
+                    ]
+                  }
+                }
+              },
+              {
+                "op": "apply_expression_template",
+                "args": [],
+                "name": "pol_process_id",
+                "bindings": {
+                  "pollutant_id": {
+                    "op": "enum",
+                    "args": [
+                      "pollutant",
+                      "TotalGaseousHydrocarbons"
+                    ]
+                  },
+                  "process_id": {
+                    "op": "enum",
+                    "args": [
+                      "process",
+                      "RunningExhaust"
+                    ]
+                  }
+                }
+              },
+              {
+                "op": "apply_expression_template",
+                "args": [],
+                "name": "pol_process_id",
+                "bindings": {
+                  "pollutant_id": {
+                    "op": "enum",
+                    "args": [
+                      "pollutant",
+                      "CarbonMonoxide"
+                    ]
+                  },
+                  "process_id": {
+                    "op": "enum",
+                    "args": [
+                      "process",
+                      "RunningExhaust"
+                    ]
+                  }
+                }
+              },
+              {
+                "op": "apply_expression_template",
+                "args": [],
+                "name": "pol_process_id",
+                "bindings": {
+                  "pollutant_id": {
+                    "op": "enum",
+                    "args": [
+                      "pollutant",
+                      "OxidesOfNitrogen"
+                    ]
+                  },
+                  "process_id": {
+                    "op": "enum",
+                    "args": [
+                      "process",
+                      "RunningExhaust"
+                    ]
+                  }
+                }
+              },
+              {
+                "op": "apply_expression_template",
+                "args": [],
+                "name": "pol_process_id",
+                "bindings": {
+                  "pollutant_id": {
+                    "op": "enum",
+                    "args": [
+                      "pollutant",
+                      "PrimaryExhaustPM10Total"
+                    ]
+                  },
+                  "process_id": {
+                    "op": "enum",
+                    "args": [
+                      "process",
+                      "RunningExhaust"
+                    ]
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "lhs": "tons_emissionShortTons",
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              0.0002966754576533878,
+              7.926897397107474e-05,
+              4.712339364065902e-12,
+              0.0013284385718605276,
+              0.0003549466592481428,
+              2.1100678244290792e-11,
+              7.63172908104975e-06,
+              2.039128341336591e-06,
+              1.2122100577168035e-13,
+              4.867846063464378e-05,
+              1.3006440301872745e-05,
+              7.731998731717298e-13,
+              0.001,
+              0.001,
+              0.001,
+              4.1242041740261357e-07,
+              1.1673715973389361e-07,
+              1.2948692984461246e-05,
+              7.140496175125166e-06,
+              1.4890662726014719e-07,
+              4.8433167376338636e-08,
+              2.3311211955072827e-08,
+              3.0136841310591372e-09
+            ]
+          }
+        },
+        {
+          "lhs": "rpp_polProcessID",
+          "rhs": {
+            "op": "makearray",
+            "args": [],
+            "regions": [
+              [
+                [
+                  1,
+                  1
+                ]
+              ],
+              [
+                [
+                  2,
+                  2
+                ]
+              ],
+              [
+                [
+                  3,
+                  3
+                ]
+              ],
+              [
+                [
+                  4,
+                  4
+                ]
+              ]
+            ],
+            "values": [
+              {
+                "op": "apply_expression_template",
+                "args": [],
+                "name": "pol_process_id",
+                "bindings": {
+                  "pollutant_id": {
+                    "op": "enum",
+                    "args": [
+                      "pollutant",
+                      "TotalGaseousHydrocarbons"
+                    ]
+                  },
+                  "process_id": {
+                    "op": "enum",
+                    "args": [
+                      "process",
+                      "RunningExhaust"
+                    ]
+                  }
+                }
+              },
+              {
+                "op": "apply_expression_template",
+                "args": [],
+                "name": "pol_process_id",
+                "bindings": {
+                  "pollutant_id": {
+                    "op": "enum",
+                    "args": [
+                      "pollutant",
+                      "CarbonMonoxide"
+                    ]
+                  },
+                  "process_id": {
+                    "op": "enum",
+                    "args": [
+                      "process",
+                      "RunningExhaust"
+                    ]
+                  }
+                }
+              },
+              {
+                "op": "apply_expression_template",
+                "args": [],
+                "name": "pol_process_id",
+                "bindings": {
+                  "pollutant_id": {
+                    "op": "enum",
+                    "args": [
+                      "pollutant",
+                      "OxidesOfNitrogen"
+                    ]
+                  },
+                  "process_id": {
+                    "op": "enum",
+                    "args": [
+                      "process",
+                      "RunningExhaust"
+                    ]
+                  }
+                }
+              },
+              {
+                "op": "apply_expression_template",
+                "args": [],
+                "name": "pol_process_id",
+                "bindings": {
+                  "pollutant_id": {
+                    "op": "enum",
+                    "args": [
+                      "pollutant",
+                      "PrimaryExhaustPM10Total"
+                    ]
+                  },
+                  "process_id": {
+                    "op": "enum",
+                    "args": [
+                      "process",
+                      "RunningExhaust"
+                    ]
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "lhs": "rpp_pollutantID",
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "output_idx": [
+              "k"
+            ],
+            "ranges": {
+              "k": {
+                "from": "runspec_pollutant_process_rows"
+              }
+            },
+            "expr": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "pollutant_id_of",
+              "bindings": {
+                "pol_process_id": {
+                  "op": "index",
+                  "args": [
+                    "rpp_polProcessID",
+                    "k"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "lhs": "run_sccFuelTypeID",
+          "rhs": {
+            "op": "makearray",
+            "args": [],
+            "regions": [
+              [
+                [
+                  1,
+                  1
+                ]
+              ]
+            ],
+            "values": [
+              {
+                "op": "enum",
+                "args": [
+                  "nonroad_fuel_type",
+                  "Gasoline"
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "lhs": "ftm_nonroadFuelTypeID",
+          "rhs": {
+            "op": "makearray",
+            "args": [],
+            "regions": [
+              [
+                [
+                  1,
+                  1
+                ]
+              ]
+            ],
+            "values": [
+              {
+                "op": "enum",
+                "args": [
+                  "nonroad_fuel_type",
+                  "Gasoline"
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "lhs": "ftm_movesFuelTypeID",
+          "rhs": {
+            "op": "makearray",
+            "args": [],
+            "regions": [
+              [
+                [
+                  1,
+                  1
+                ]
+              ]
+            ],
+            "values": [
+              {
+                "op": "enum",
+                "args": [
+                  "moves_fuel_type",
+                  "Gasoline"
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "_comment": "The output relation's three key columns. Fifteen rows: five pollutant processes over three model years, laid out in the same blocks as the input relation. The CO2 block is here because the engine computes it and the gate is what keeps it out of MOVESOutput.",
+          "lhs": "out_SCC",
+          "rhs": {
+            "op": "makearray",
+            "args": [],
+            "regions": [
+              [
+                [
+                  1,
+                  15
+                ]
+              ],
+              [
+                [
+                  16,
+                  23
+                ]
+              ]
+            ],
+            "values": [
+              "outputSCC",
+              2265007015
+            ]
+          }
+        },
+        {
+          "lhs": "out_modelYearID",
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              2020,
+              2019,
+              2018,
+              2020,
+              2019,
+              2018,
+              2020,
+              2019,
+              2018,
+              2020,
+              2019,
+              2018,
+              2020,
+              2019,
+              2018,
+              2020,
+              2020,
+              2020,
+              2020,
+              2016,
+              2016,
+              2016,
+              2016
+            ]
+          }
+        },
+        {
+          "lhs": "out_polProcessID",
+          "rhs": {
+            "op": "makearray",
+            "args": [],
+            "regions": [
+              [
+                [
+                  1,
+                  3
+                ]
+              ],
+              [
+                [
+                  4,
+                  6
+                ]
+              ],
+              [
+                [
+                  7,
+                  9
+                ]
+              ],
+              [
+                [
+                  10,
+                  12
+                ]
+              ],
+              [
+                [
+                  13,
+                  15
+                ]
+              ],
+              [
+                [
+                  16,
+                  16
+                ]
+              ],
+              [
+                [
+                  17,
+                  17
+                ]
+              ],
+              [
+                [
+                  18,
+                  18
+                ]
+              ],
+              [
+                [
+                  19,
+                  19
+                ]
+              ],
+              [
+                [
+                  20,
+                  20
+                ]
+              ],
+              [
+                [
+                  21,
+                  21
+                ]
+              ],
+              [
+                [
+                  22,
+                  22
+                ]
+              ],
+              [
+                [
+                  23,
+                  23
+                ]
+              ]
+            ],
+            "values": [
+              {
+                "op": "apply_expression_template",
+                "args": [],
+                "name": "pol_process_id",
+                "bindings": {
+                  "pollutant_id": {
+                    "op": "enum",
+                    "args": [
+                      "pollutant",
+                      "TotalGaseousHydrocarbons"
+                    ]
+                  },
+                  "process_id": {
+                    "op": "enum",
+                    "args": [
+                      "process",
+                      "RunningExhaust"
+                    ]
+                  }
+                }
+              },
+              {
+                "op": "apply_expression_template",
+                "args": [],
+                "name": "pol_process_id",
+                "bindings": {
+                  "pollutant_id": {
+                    "op": "enum",
+                    "args": [
+                      "pollutant",
+                      "CarbonMonoxide"
+                    ]
+                  },
+                  "process_id": {
+                    "op": "enum",
+                    "args": [
+                      "process",
+                      "RunningExhaust"
+                    ]
+                  }
+                }
+              },
+              {
+                "op": "apply_expression_template",
+                "args": [],
+                "name": "pol_process_id",
+                "bindings": {
+                  "pollutant_id": {
+                    "op": "enum",
+                    "args": [
+                      "pollutant",
+                      "OxidesOfNitrogen"
+                    ]
+                  },
+                  "process_id": {
+                    "op": "enum",
+                    "args": [
+                      "process",
+                      "RunningExhaust"
+                    ]
+                  }
+                }
+              },
+              {
+                "op": "apply_expression_template",
+                "args": [],
+                "name": "pol_process_id",
+                "bindings": {
+                  "pollutant_id": {
+                    "op": "enum",
+                    "args": [
+                      "pollutant",
+                      "PrimaryExhaustPM10Total"
+                    ]
+                  },
+                  "process_id": {
+                    "op": "enum",
+                    "args": [
+                      "process",
+                      "RunningExhaust"
+                    ]
+                  }
+                }
+              },
+              {
+                "op": "apply_expression_template",
+                "args": [],
+                "name": "pol_process_id",
+                "bindings": {
+                  "pollutant_id": {
+                    "op": "enum",
+                    "args": [
+                      "pollutant",
+                      "AtmosphericCO2"
+                    ]
+                  },
+                  "process_id": {
+                    "op": "enum",
+                    "args": [
+                      "process",
+                      "RunningExhaust"
+                    ]
+                  }
+                }
+              },
+              {
+                "op": "apply_expression_template",
+                "args": [],
+                "name": "pol_process_id",
+                "bindings": {
+                  "pollutant_id": {
+                    "op": "enum",
+                    "args": [
+                      "pollutant",
+                      "TotalGaseousHydrocarbons"
+                    ]
+                  },
+                  "process_id": {
+                    "op": "enum",
+                    "args": [
+                      "process",
+                      "RunningExhaust"
+                    ]
+                  }
+                }
+              },
+              {
+                "op": "apply_expression_template",
+                "args": [],
+                "name": "pol_process_id",
+                "bindings": {
+                  "pollutant_id": {
+                    "op": "enum",
+                    "args": [
+                      "pollutant",
+                      "CarbonMonoxide"
+                    ]
+                  },
+                  "process_id": {
+                    "op": "enum",
+                    "args": [
+                      "process",
+                      "RunningExhaust"
+                    ]
+                  }
+                }
+              },
+              {
+                "op": "apply_expression_template",
+                "args": [],
+                "name": "pol_process_id",
+                "bindings": {
+                  "pollutant_id": {
+                    "op": "enum",
+                    "args": [
+                      "pollutant",
+                      "OxidesOfNitrogen"
+                    ]
+                  },
+                  "process_id": {
+                    "op": "enum",
+                    "args": [
+                      "process",
+                      "RunningExhaust"
+                    ]
+                  }
+                }
+              },
+              {
+                "op": "apply_expression_template",
+                "args": [],
+                "name": "pol_process_id",
+                "bindings": {
+                  "pollutant_id": {
+                    "op": "enum",
+                    "args": [
+                      "pollutant",
+                      "PrimaryExhaustPM10Total"
+                    ]
+                  },
+                  "process_id": {
+                    "op": "enum",
+                    "args": [
+                      "process",
+                      "RunningExhaust"
+                    ]
+                  }
+                }
+              },
+              {
+                "op": "apply_expression_template",
+                "args": [],
+                "name": "pol_process_id",
+                "bindings": {
+                  "pollutant_id": {
+                    "op": "enum",
+                    "args": [
+                      "pollutant",
+                      "TotalGaseousHydrocarbons"
+                    ]
+                  },
+                  "process_id": {
+                    "op": "enum",
+                    "args": [
+                      "process",
+                      "RunningExhaust"
+                    ]
+                  }
+                }
+              },
+              {
+                "op": "apply_expression_template",
+                "args": [],
+                "name": "pol_process_id",
+                "bindings": {
+                  "pollutant_id": {
+                    "op": "enum",
+                    "args": [
+                      "pollutant",
+                      "CarbonMonoxide"
+                    ]
+                  },
+                  "process_id": {
+                    "op": "enum",
+                    "args": [
+                      "process",
+                      "RunningExhaust"
+                    ]
+                  }
+                }
+              },
+              {
+                "op": "apply_expression_template",
+                "args": [],
+                "name": "pol_process_id",
+                "bindings": {
+                  "pollutant_id": {
+                    "op": "enum",
+                    "args": [
+                      "pollutant",
+                      "OxidesOfNitrogen"
+                    ]
+                  },
+                  "process_id": {
+                    "op": "enum",
+                    "args": [
+                      "process",
+                      "RunningExhaust"
+                    ]
+                  }
+                }
+              },
+              {
+                "op": "apply_expression_template",
+                "args": [],
+                "name": "pol_process_id",
+                "bindings": {
+                  "pollutant_id": {
+                    "op": "enum",
+                    "args": [
+                      "pollutant",
+                      "PrimaryExhaustPM10Total"
+                    ]
+                  },
+                  "process_id": {
+                    "op": "enum",
+                    "args": [
+                      "process",
+                      "RunningExhaust"
+                    ]
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "lhs": "out_pollutantID",
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "output_idx": [
+              "o"
+            ],
+            "ranges": {
+              "o": {
+                "from": "output_rows"
+              }
+            },
+            "expr": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "pollutant_id_of",
+              "bindings": {
+                "pol_process_id": {
+                  "op": "index",
+                  "args": [
+                    "out_polProcessID",
+                    "o"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "lhs": "out_processID",
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "output_idx": [
+              "o"
+            ],
+            "ranges": {
+              "o": {
+                "from": "output_rows"
+              }
+            },
+            "expr": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "process_id_of",
+              "bindings": {
+                "pol_process_id": {
+                  "op": "index",
+                  "args": [
+                    "out_polProcessID",
+                    "o"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "_comment": "J25, a semi-join on the pollutant half of the key, evaluated per output ROW rather than per pollutant axis position -- which is what lets two rows of the same relation belong to different SCCs and different pollutants.",
+          "lhs": "out_pollutantIsSelected",
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "semiring": "bool_and_or",
+            "output_idx": [
+              "o"
+            ],
+            "ranges": {
+              "o": {
+                "from": "output_rows"
+              },
+              "k": {
+                "from": "runspec_pollutant_process_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "out_pollutantID",
+                    "rpp_pollutantID"
+                  ]
+                ]
+              }
+            ],
+            "expr": 1.0
+          }
+        },
+        {
+          "_comment": "The skip, spelled as a semi-join with a genuine range predicate: a cohort row exists for this (SCC, model year) AND its fraction is strictly positive. `bool_and_or` makes it an OR over the SCC's equipment points, which is what the engine's per-point age loop amounts to once the points are summed.",
+          "lhs": "out_cohortIsPopulated",
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "semiring": "bool_and_or",
+            "output_idx": [
+              "o"
+            ],
+            "ranges": {
+              "o": {
+                "from": "output_rows"
+              },
+              "h": {
+                "from": "cohort_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "out_SCC",
+                    "cohort_SCC"
+                  ],
+                  [
+                    "out_modelYearID",
+                    "cohort_modelYearID"
+                  ]
+                ]
+              }
+            ],
+            "filter": {
+              "op": ">",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "cohort_modelYearFraction",
+                    "h"
+                  ]
+                },
+                0.0
+              ]
+            },
+            "expr": 1.0
+          }
+        },
+        {
+          "_comment": "Both suppressions, multiplied: J25's pollutant gate and prccty.f's cohort skip.",
+          "lhs": "out_isEmitted",
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "output_idx": [
+              "o"
+            ],
+            "ranges": {
+              "o": {
+                "from": "output_rows"
+              }
+            },
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "out_pollutantIsSelected",
+                    "o"
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "out_cohortIsPopulated",
+                    "o"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "_comment": "The group-by: SUM(emissionQuant) over everything the output detail does not distinguish -- the technologies and equipment points. Three ON columns, which is the whole key. SCC 2265007015's two equipment points differ in horsepower, hours, median life, population and technology mix and land on the same output row; that summation is the only place in the chain where it happens, and it is one join clause.",
+          "lhs": "out_emissionQuant",
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "o"
+            ],
+            "ranges": {
+              "o": {
+                "from": "output_rows"
+              },
+              "s": {
+                "from": "input_tons_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "out_SCC",
+                    "tons_SCC"
+                  ],
+                  [
+                    "out_modelYearID",
+                    "tons_modelYearID"
+                  ],
+                  [
+                    "out_polProcessID",
+                    "tons_polProcessID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "tons_emissionShortTons",
+                    "s"
+                  ]
+                },
+                {
+                  "op": "apply_expression_template",
+                  "args": [],
+                  "name": "grams_per_short_ton",
+                  "bindings": {}
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "out_pollutantIsSelected",
+                    "o"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "emittedRowCount",
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [],
+            "ranges": {
+              "o": {
+                "from": "output_rows"
+              }
+            },
+            "expr": {
+              "op": "index",
+              "args": [
+                "out_isEmitted",
+                "o"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "out_yearID",
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "output_idx": [
+              "o"
+            ],
+            "ranges": {
+              "o": {
+                "from": "output_rows"
+              }
+            },
+            "expr": "runYearID"
+          }
+        },
+        {
+          "lhs": "out_monthID",
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "output_idx": [
+              "o"
+            ],
+            "ranges": {
+              "o": {
+                "from": "output_rows"
+              }
+            },
+            "expr": {
+              "op": "enum",
+              "args": [
+                "month",
+                "August"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "out_dayID",
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "output_idx": [
+              "o"
+            ],
+            "ranges": {
+              "o": {
+                "from": "output_rows"
+              }
+            },
+            "expr": {
+              "op": "enum",
+              "args": [
+                "day_type",
+                "Weekday"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "out_hourID",
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "output_idx": [
+              "o"
+            ],
+            "ranges": {
+              "o": {
+                "from": "output_rows"
+              }
+            },
+            "expr": "outputHourID"
+          }
+        },
+        {
+          "lhs": "out_countyID",
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "output_idx": [
+              "o"
+            ],
+            "ranges": {
+              "o": {
+                "from": "output_rows"
+              }
+            },
+            "expr": "runCountyID"
+          }
+        },
+        {
+          "lhs": "out_stateID",
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "output_idx": [
+              "o"
+            ],
+            "ranges": {
+              "o": {
+                "from": "output_rows"
+              }
+            },
+            "expr": {
+              "op": "floor",
+              "args": [
+                {
+                  "op": "/",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "out_countyID",
+                        "o"
+                      ]
+                    },
+                    1000
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "out_roadTypeID",
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "output_idx": [
+              "o"
+            ],
+            "ranges": {
+              "o": {
+                "from": "output_rows"
+              }
+            },
+            "expr": {
+              "op": "enum",
+              "args": [
+                "road_type",
+                "Nonroad"
+              ]
+            }
+          }
+        },
+        {
+          "_comment": "The nonroad-to-onroad fuel type mapping, as a join so an unmapped fuel type reads 0 instead of a guess (§8.3).",
+          "lhs": "out_fuelTypeID",
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "o"
+            ],
+            "ranges": {
+              "o": {
+                "from": "output_rows"
+              },
+              "n": {
+                "from": "output_run_rows"
+              },
+              "f": {
+                "from": "fuel_type_mapping_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "run_sccFuelTypeID",
+                    "ftm_nonroadFuelTypeID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "ftm_movesFuelTypeID",
+                "f"
+              ]
+            }
+          }
+        }
+      ],
+      "tests": [
+        {
+          "id": "the_twelve_rows_of_the_worked_example",
+          "description": "docs/nonroad-logging-county.md §6.1's results table, in grams, all twelve rows of the output relation. The snapshot's own figures are 269.139, 71.9116, 4.27496e-06, 1205.140, 322.0020, 1.91422e-05, 6.923380, 1.849860, 1.09970e-07, 44.16030, 11.79920 and 7.01435e-07; these are the binary64 chain's values for the same twelve cells and they agree to at most 4.0e-06 relative, which is the six-significant-figure storage precision of the snapshot's emissionQuant strings rather than a modelling difference.",
+          "time_span": {
+            "start": 0.0,
+            "end": 0.0
+          },
+          "assertions": [
+            {
+              "variable": "out_emissionQuant",
+              "time": 0.0,
+              "expected": 269.13952383074087,
+              "coords": {
+                "output_rows": 1
+              }
+            },
+            {
+              "variable": "out_emissionQuant",
+              "time": 0.0,
+              "expected": 71.91162382583023,
+              "coords": {
+                "output_rows": 2
+              }
+            },
+            {
+              "variable": "out_emissionQuant",
+              "time": 0.0,
+              "expected": 4.274963566603166e-06,
+              "coords": {
+                "output_rows": 3
+              }
+            },
+            {
+              "variable": "out_emissionQuant",
+              "time": 0.0,
+              "expected": 1205.139540347985,
+              "coords": {
+                "output_rows": 4
+              }
+            },
+            {
+              "variable": "out_emissionQuant",
+              "time": 0.0,
+              "expected": 322.0022836097461,
+              "coords": {
+                "output_rows": 5
+              }
+            },
+            {
+              "variable": "out_emissionQuant",
+              "time": 0.0,
+              "expected": 1.9142218706236983e-05,
+              "coords": {
+                "output_rows": 6
+              }
+            },
+            {
+              "variable": "out_emissionQuant",
+              "time": 0.0,
+              "expected": 6.923390114994544,
+              "coords": {
+                "output_rows": 7
+              }
+            },
+            {
+              "variable": "out_emissionQuant",
+              "time": 0.0,
+              "expected": 1.84986663594629,
+              "coords": {
+                "output_rows": 8
+              }
+            },
+            {
+              "variable": "out_emissionQuant",
+              "time": 0.0,
+              "expected": 1.0996987762226846e-07,
+              "coords": {
+                "output_rows": 9
+              }
+            },
+            {
+              "variable": "out_emissionQuant",
+              "time": 0.0,
+              "expected": 44.16036911057205,
+              "coords": {
+                "output_rows": 10
+              }
+            },
+            {
+              "variable": "out_emissionQuant",
+              "time": 0.0,
+              "expected": 11.79924749174484,
+              "coords": {
+                "output_rows": 11
+              }
+            },
+            {
+              "variable": "out_emissionQuant",
+              "time": 0.0,
+              "expected": 7.014353237622865e-07,
+              "coords": {
+                "output_rows": 12
+              }
+            }
+          ]
+        },
+        {
+          "id": "the_key_is_three_columns_over_one_row_axis",
+          "description": "The shape that makes a RAGGED key set expressible: SCC, model year and pollutant process are COLUMNS, so which (SCC, modelYear) pairs exist is data. The fixture's three SCCs span 3, 4 and 29 model years; on a shared rectangular axis that is 348 keys against the snapshot's 144. Here it is 12 rows plus 16 plus 116, concatenated, and this file's equations do not change. Two SCCs are present now, with three model years and one: the relation absorbs the difference by carrying both keys as columns, and the second SCC's rows begin at position 16 without disturbing the first's.",
+          "time_span": {
+            "start": 0.0,
+            "end": 0.0
+          },
+          "assertions": [
+            {
+              "variable": "out_SCC",
+              "time": 0.0,
+              "expected": 2260007005.0,
+              "coords": {
+                "output_rows": 1
+              }
+            },
+            {
+              "variable": "out_modelYearID",
+              "time": 0.0,
+              "expected": 2020.0,
+              "coords": {
+                "output_rows": 1
+              }
+            },
+            {
+              "variable": "out_polProcessID",
+              "time": 0.0,
+              "expected": 101.0,
+              "coords": {
+                "output_rows": 1
+              }
+            },
+            {
+              "variable": "out_modelYearID",
+              "time": 0.0,
+              "expected": 2018.0,
+              "coords": {
+                "output_rows": 3
+              }
+            },
+            {
+              "variable": "out_polProcessID",
+              "time": 0.0,
+              "expected": 10001.0,
+              "coords": {
+                "output_rows": 10
+              }
+            },
+            {
+              "variable": "out_modelYearID",
+              "time": 0.0,
+              "expected": 2019.0,
+              "coords": {
+                "output_rows": 11
+              }
+            },
+            {
+              "variable": "out_polProcessID",
+              "time": 0.0,
+              "expected": 9001.0,
+              "coords": {
+                "output_rows": 13
+              }
+            },
+            {
+              "variable": "out_SCC",
+              "time": 0.0,
+              "expected": 2265007015.0,
+              "coords": {
+                "output_rows": 16
+              }
+            },
+            {
+              "variable": "out_modelYearID",
+              "time": 0.0,
+              "expected": 2020.0,
+              "coords": {
+                "output_rows": 16
+              }
+            }
+          ]
+        },
+        {
+          "id": "the_pollutant_gate_drops_carbon_dioxide",
+          "description": "J25. The input relation carries 1.0e-03 short tons of CO2 in every model year — 907 grams, more than three times the THC of the whole SCC — and no CO2 row is emitted, because pollutant 90 is not in this RunSpec's selection. A port that emitted what it computed rather than what was selected would add three rows here and twelve across the fixture. Sixteen of these nineteen rows are emitted: SCC 2260007005's twelve and SCC 2265007015's four.",
+          "time_span": {
+            "start": 0.0,
+            "end": 0.0
+          },
+          "assertions": [
+            {
+              "variable": "out_pollutantIsSelected",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "output_rows": 1
+              }
+            },
+            {
+              "variable": "out_pollutantIsSelected",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "output_rows": 13
+              }
+            },
+            {
+              "variable": "out_isEmitted",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "output_rows": 15
+              }
+            },
+            {
+              "variable": "out_emissionQuant",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "output_rows": 13
+              }
+            },
+            {
+              "variable": "emittedRowCount",
+              "time": 0.0,
+              "expected": 16.0
+            }
+          ]
+        },
+        {
+          "id": "the_packed_pair_is_unpacked_into_two_columns",
+          "description": "nonroad_loader.rs:2183 and :2371. 101 becomes pollutant 1 process 1, and 10001 becomes pollutant 100 process 1 — the four-digit pollutant is where a naive `polProcessID mod 100` would give 1 instead of 100 and silently relabel every PM10 row as THC.",
+          "time_span": {
+            "start": 0.0,
+            "end": 0.0
+          },
+          "assertions": [
+            {
+              "variable": "out_pollutantID",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "output_rows": 1
+              }
+            },
+            {
+              "variable": "out_processID",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "output_rows": 1
+              }
+            },
+            {
+              "variable": "out_pollutantID",
+              "time": 0.0,
+              "expected": 2.0,
+              "coords": {
+                "output_rows": 4
+              }
+            },
+            {
+              "variable": "out_pollutantID",
+              "time": 0.0,
+              "expected": 3.0,
+              "coords": {
+                "output_rows": 7
+              }
+            },
+            {
+              "variable": "out_pollutantID",
+              "time": 0.0,
+              "expected": 100.0,
+              "coords": {
+                "output_rows": 10
+              }
+            },
+            {
+              "variable": "out_processID",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "output_rows": 10
+              }
+            },
+            {
+              "variable": "out_pollutantID",
+              "time": 0.0,
+              "expected": 90.0,
+              "coords": {
+                "output_rows": 13
+              }
+            }
+          ]
+        },
+        {
+          "id": "every_row_carries_the_runs_labels",
+          "description": "docs/nonroad-logging-county.md §2.7 and §8.3: stateID 26 derived from countyID 26161, roadTypeID 100, fuelTypeID 1 through the verified nonroad-to-onroad mapping, monthID 8 from runspecmonth rather than the XML's zero-based key 7, dayID 5 unoffset, and hourID 0 despite the RunSpec selecting hour 7. They are columns of the output relation, not run-level scalars, because that is what a MOVESOutput row is.",
+          "time_span": {
+            "start": 0.0,
+            "end": 0.0
+          },
+          "assertions": [
+            {
+              "variable": "out_stateID",
+              "time": 0.0,
+              "expected": 26.0,
+              "coords": {
+                "output_rows": 1
+              }
+            },
+            {
+              "variable": "out_countyID",
+              "time": 0.0,
+              "expected": 26161.0,
+              "coords": {
+                "output_rows": 1
+              }
+            },
+            {
+              "variable": "out_yearID",
+              "time": 0.0,
+              "expected": 2020.0,
+              "coords": {
+                "output_rows": 12
+              }
+            },
+            {
+              "variable": "out_monthID",
+              "time": 0.0,
+              "expected": 8.0,
+              "coords": {
+                "output_rows": 1
+              }
+            },
+            {
+              "variable": "out_dayID",
+              "time": 0.0,
+              "expected": 5.0,
+              "coords": {
+                "output_rows": 1
+              }
+            },
+            {
+              "variable": "out_hourID",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "output_rows": 1
+              }
+            },
+            {
+              "variable": "out_hourID",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "output_rows": 15
+              }
+            },
+            {
+              "variable": "out_roadTypeID",
+              "time": 0.0,
+              "expected": 100.0,
+              "coords": {
+                "output_rows": 1
+              }
+            },
+            {
+              "variable": "out_fuelTypeID",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "output_rows": 1
+              }
+            },
+            {
+              "variable": "out_stateID",
+              "time": 0.0,
+              "expected": 26.0,
+              "reduce": "min"
+            }
+          ]
+        },
+        {
+          "id": "the_smallest_row_is_still_a_row",
+          "description": "§2.7 and §7.3. Model year 2018's THC is 4.3e-06 grams, 1.6e-08 of the same pollutant's 2020 row, and it is emitted -- because its cohort is populated and its pollutant is selected, which are the only two questions asked. Magnitude is not one of them. The maximum over the relation is the 2020 CO row, unmoved by the presence of a cell twelve orders of magnitude below it.",
+          "time_span": {
+            "start": 0.0,
+            "end": 0.0
+          },
+          "assertions": [
+            {
+              "variable": "out_emissionQuant",
+              "time": 0.0,
+              "expected": 4.274963566603166e-06,
+              "coords": {
+                "output_rows": 3
+              }
+            },
+            {
+              "variable": "out_isEmitted",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "output_rows": 3
+              }
+            },
+            {
+              "variable": "out_emissionQuant",
+              "time": 0.0,
+              "expected": 1205.139540347985,
+              "reduce": "max"
+            }
+          ]
+        },
+        {
+          "id": "two_equipment_points_sum_into_one_output_row",
+          "description": "docs/nonroad-logging-county.md §6.2's model-year-2020 rows: THC 0.4800438, CO 18.22461, NOx 0.1790237, PM10 0.02388155 grams. SCC 2265007015 has TWO equipment points -- hpAvg 5.5 with a two-technology mix and hpAvg 9.0 with one, different hours, median lives and populations -- and the output detail deselects hpClass and sourceUseType, so both land on one row. The two contributions are carried here as separate input rows (0.3741416 and 0.1059022 grams of THC) and the group-by is what adds them. Their sum agrees with the specification's published figure to 5.4e-08 relative, which is a tighter check than §6.1's 2e-06 because §6.2 prints seven significant figures.",
+          "time_span": {
+            "start": 0.0,
+            "end": 0.0
+          },
+          "assertions": [
+            {
+              "variable": "out_emissionQuant",
+              "time": 0.0,
+              "expected": 0.4800438144375836,
+              "coords": {
+                "output_rows": 16
+              }
+            },
+            {
+              "variable": "out_emissionQuant",
+              "time": 0.0,
+              "expected": 18.22461098509079,
+              "coords": {
+                "output_rows": 17
+              }
+            },
+            {
+              "variable": "out_emissionQuant",
+              "time": 0.0,
+              "expected": 0.17902370078542792,
+              "coords": {
+                "output_rows": 18
+              }
+            },
+            {
+              "variable": "out_emissionQuant",
+              "time": 0.0,
+              "expected": 0.023881550747594796,
+              "coords": {
+                "output_rows": 19
+              }
+            },
+            {
+              "variable": "out_isEmitted",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "output_rows": 19
+              }
+            },
+            {
+              "variable": "out_SCC",
+              "time": 0.0,
+              "expected": 2265007015.0,
+              "coords": {
+                "output_rows": 19
+              }
+            }
+          ]
+        },
+        {
+          "id": "an_unpopulated_cohort_is_not_a_row",
+          "description": "prccty.f's `modfrc <= 0` skip, and the reason it cannot be dropped. SCC 2265007015's hp-9.0 equipment point has nyrlif 5, so its age loop reaches model year 2016 -- and that slot's grown fraction is exactly 0, because age 5's survival factor is zero (docs/nonroad-logging-county.md §6.2). Those four candidate rows are present in this relation and none is emitted. Across the fixture 44 cohorts are exactly zero like this one: emitting them, or relaxing the test to `< 0`, gives 188 rows against the snapshot's 144, in float32 and binary64 alike. The membership is an OR over the SCC's equipment points -- model year 2020 stays because the hp-5.5 point populates it even though only one point reaches 2016.",
+          "time_span": {
+            "start": 0.0,
+            "end": 0.0
+          },
+          "assertions": [
+            {
+              "variable": "out_cohortIsPopulated",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "output_rows": 20
+              }
+            },
+            {
+              "variable": "out_pollutantIsSelected",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "output_rows": 20
+              }
+            },
+            {
+              "variable": "out_isEmitted",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "output_rows": 20
+              }
+            },
+            {
+              "variable": "out_emissionQuant",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "output_rows": 23
+              }
+            },
+            {
+              "variable": "out_cohortIsPopulated",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "output_rows": 16
+              }
+            },
+            {
+              "variable": "out_cohortIsPopulated",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "output_rows": 3
+              }
+            },
+            {
+              "variable": "emittedRowCount",
+              "time": 0.0,
+              "expected": 16.0
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

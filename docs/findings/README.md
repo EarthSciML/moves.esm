@@ -1,10 +1,10 @@
 # Findings: conventions the format or the toolchain could not express
 
-Nine things PLAN.md §3 Phase 1 assumed, or that an author would reasonably
-assume, that do not hold at the pinned toolchain (`esm-version.lock`:
+Fourteen things PLAN.md §3 Phase 1 and Phase 2 assumed, or that an author would
+reasonably assume, that do not hold at the pinned toolchain (`esm-version.lock`:
 EarthSciAST `b680f5301`, EarthSciIO `8e1df2280`, `--features esio,parallel`).
 
-F1–F6 and F9 each have a minimal `.esm` repro in this directory; F7 and F8 are
+F1–F6 and F9–F14 each have a minimal `.esm` repro in this directory; F7 and F8 are
 CLI behaviours rather than documents, and are checked by command against the
 ordinary files of the repo. **Every repro is expected to fail**, and each one's inline test asserts the *intended* behaviour, so a repro
 that starts passing means the defect is fixed. `run-tests.sh` runs them as a
@@ -27,6 +27,11 @@ three of them do not load.
 | **F7** | `esm round-trip` resolves a relative `ref` against the CWD | load | no |
 | **F8** | A layered template library does not round-trip to a self-contained form | re-load | no |
 | **F9** | A relational document evaluates but cannot be written to a file | emit | no |
+| **F10** | The evaluable-core op `true` panics at evaluation | evaluation (panic) | no |
+| **F11** | A relation cannot be joined to itself: two ranges over one index set | build | no |
+| **F12** | A recurrence over an index axis has no spelling | evaluation | no |
+| **F13** | `enums` merge first-wins across a mount; a colliding value is applied | — | **yes** |
+| **F14** | A `ragged` index set ignores its member factor | evaluation | **yes** |
 
 ---
 
@@ -187,6 +192,193 @@ PLAN.md §1.2's "components carry no clock" holds. It is recorded because it mak
 the `D(clock) ~ 0` crutch PLAN.md §1.2 describes look necessary for the wrong
 reason, and because it is a trap for anyone factoring a small pure-arithmetic
 helper out of a calculator.
+
+## F10 — the evaluable-core op `true` panics at evaluation
+
+`F10_true_op_panics_at_eval.esm`. Found while authoring Phase 2's first stage.
+
+```
+$ ./esm validate docs/findings/F10_true_op_panics_at_eval.esm
+✓ Validation passed
+$ ./esm test docs/findings/F10_true_op_panics_at_eval.esm
+thread 'main' panicked at src/simulate_array/eval.rs:340:18:
+internal error: entered unreachable code: operator 'true' reached eval_op
+without an evaluation rule; every entry point must gate with
+check_evaluable() first
+```
+
+`true` is in the **closed** evaluable-core operator set — `esm-schema.json`'s
+`op` description names it in the same breath as `ifelse` and `Pre`, and
+esm-spec §4.2 says every binding's evaluator implements each member of that set
+directly. The panic message is addressed to the implementor rather than the
+author: it says an entry point failed to gate, which means `check_evaluable()`
+does not list `true` even though the schema does. Exit code 101, no diagnostic.
+
+**Impact: small, because the workaround is one character.** The natural body of
+a semi-join under the `bool_and_or` semiring is `true` — *does a matching row
+exist* — and the MOVES port needs semi-joins everywhere a most-specific-match
+key is precomputed (the two SCC fallback ladders, state-default precedence, the
+`getind.f` year rule, the RunSpec sector and fuel selections). Spelled with a
+**numeric** body instead, `"semiring": "bool_and_or"` with `"expr": 1.0`, the
+same aggregate evaluates correctly and yields 1 on a match and 0 on none. That
+is the form every Phase 2 component uses. When this goes green they can say
+`true` and read as what they are.
+
+**Fix shape.** Add `true` to `check_evaluable()`'s accepted set and give
+`eval_op` the one-line rule, or — if the intent is that `true` is structural
+and never evaluated — remove it from the schema's evaluable-core enumeration so
+`validate` rejects it. Either is fine; the present state, where the schema
+promises an evaluator and the evaluator calls `unreachable!()`, is not.
+
+## F11 — a relation cannot be joined to itself
+
+`F11_a_relation_cannot_be_joined_to_itself.esm`. Found authoring Phase 2's
+population stage.
+
+```
+Compile failed: Unsupported feature 'value-equality join over data-derived
+columns': join key column 'r_priorID' does not resolve to a loop index of this
+aggregate ({"b", "a"}): it names neither a range symbol, nor an index set one
+of those ranges draws from, nor a declared 1-D data column over such an index
+set (RFC semiring-faq-unified-ir §5.3)
+```
+
+Every clause of that message is in fact satisfied — `r_priorID` is a declared
+1-D data column over `row_ax`, and `row_ax` is the index set both ranges draw
+from. What fails is the resolution *strategy*: a key column is matched to a
+loop symbol by its **axis**, so two symbols over one axis are ambiguous and
+neither is chosen. A build error, not a silent zero, which is the right failure
+mode.
+
+**Impact.** Three joins in `docs/nonroad-logging-county.md` §3 are naturally
+self-joins: J6 pairs `nrstatesurrogate`'s county row with the *state* row of
+the same table; the growth series needs its own indicator at the previous year;
+`scrptime`'s age walk needs the previous age's cumulative scrappage percent.
+Each is worked around by materializing a **second relation over a second index
+set** — `surrogate_target_rows` in `components/geographic_allocation.esm`,
+`growth_factor_rows` beside `growth_query_rows` in
+`components/growth_index.esm`, and in `components/age_distribution.esm` a
+second contraction over the 197-point scrappage curve rather than a read of the
+neighbouring row. The workarounds are legible enough that this is a cost, not a
+blocker.
+
+**Fix shape.** Resolve a key column to the range symbol whose body indexes it,
+falling back to the axis rule only where that is unambiguous; or admit an
+explicit `[symbol, column]` spelling in the pair, since the pair list is already
+where the author says what joins to what.
+
+## F12 — a recurrence over an index axis has no spelling
+
+`F12_no_spelling_for_a_recurrence_over_an_index_axis.esm`. **The one that
+stops a Phase 2 stage being computed rather than merely slowing it down.**
+
+`s[1] = 1`, `s[k] = 2·s[k−1]`. Validates; then:
+
+```
+assertion evaluation failed: array state 's_value' has no cells in var_map
+```
+
+What exists is the **prefix (cumulative) reduction** of esm-spec §4.3.1 — an
+`aggregate` whose `filter` compares monotonically against the output index,
+folded ascending, bit-identical across bindings (CONFORMANCE_SPEC §495). That
+covers every fold whose *terms* are independent of the result. It does not
+cover one whose next term is a function of the previous *answer*. And the
+closed semiring registry has no product-as-⊕ entry, so even a cumulative
+**product** — a survival curve — has no prefix spelling. `Pre` (§5.1) is
+defined against events on the time axis and needs a clock, which a MOVES
+calculator does not have.
+
+**Impact: `agedist.f`.** `docs/nonroad-logging-county.md` §2.2(e) grows a
+51-slot age distribution from 1990 to 2020 by folding 30 years; each year's
+vector is the previous year's shifted one slot and scrapped, **clamped at
+zero**, with the newest slot written last as an unclamped residual. The clamp
+is inside the fold, so the recurrence is not linear and there is no closed form
+to substitute: `m0[y] = tpf(y) − Σₐ max(m0[y−a], 0)·R[a]`.
+
+`components/age_distribution.esm` therefore computes everything `scrptime.f`
+produces and carries `agedist.f`'s **result** as a data column, with the same
+status as a `data_sources` column — the verified §6.1 step 3 values, checked
+against the cumulative growth ratio `components/growth_index.esm` derives
+independently from the index series. That cross-check is what keeps the carried
+column honest.
+
+Not used, deliberately: thirty near-identical equations, one per projected
+year. It would run, and it would be the mechanically generated, unfactored
+`.esm` CLAUDE.md forbids — and still wrong for any run with a different year
+span.
+
+**Fix shape.** Extend §4.3.1's prefix reduction to a fold whose body may read
+the accumulator (`acc[i] = f(acc[i−1], body[i])`), which the ascending
+left-fold order already licenses and which all three executing bindings already
+maintain internally; or admit `Pre` on an index axis. Until then, no NONROAD
+port can compute its own age distribution.
+
+## F13 — `enums` merge first-wins across a mount, silently
+
+`F13_enums_collide_across_a_mount.esm`, with `F13_enum_leaf_one.esm` and
+`F13_enum_leaf_two.esm`. **The silent one of Phase 2.**
+
+Two leaves each declare `probe.Symbol` — one says 1, the other 2 — and each
+reads it back. Both pass alone. Mounted together, leaf two reads **1**: the
+first declaration wins and the second file's reading of its own symbol changes
+underneath it. `esm validate` is clean, and the only thing that notices is leaf
+two's own inline test, which runs under the mount and fails.
+
+Where the winner merely *lacks* a symbol, it is at least loud. Measured on two
+real components — `geographic_allocation.esm` declares `nonroad_fuel_type`
+without CNG or LPG, `fuel_properties.esm` declares the same name with them:
+
+```
+[unknown_enum_symbol] symbol `CompressedNaturalGas` is not declared under enum
+`nonroad_fuel_type`
+```
+
+esm-spec §9.3 says an `enums` block is file-local and "never merged across
+files", and names one inheritance path — a §4.7 subsystem ref, inheriting the
+*referenced* file's block. This edge does neither: it merges, and the wrong
+way. Third of a family with F2 (index sets do not merge here) and F3 (enums do
+not cross a template import).
+
+**Impact.** `runs/nr_logging_county_run.esm` restates twenty enums and
+sixty-two symbols for ten leaves; `runs/micro_exhaust_run.esm` restates seven
+for two. None are used by the assemblies' own equations. Because a value
+collision is silent, `tools/check-conventions.py` now compares an assembly's
+enums against every leaf it mounts, symbol by symbol **[checked]** — a missing
+symbol or a disagreeing value is a violation.
+
+**Fix shape.** Resolve each leaf's `enum` ops against its own block, per §9.3;
+or, if a merged registry is intended, make a conflicting redeclaration a load
+error the way §4.7 already treats a conflicting index set.
+
+## F14 — a `ragged` index set ignores its member factor
+
+`F14_ragged_index_set_ignores_its_member_factor.esm`.
+
+A `kind: "ragged"` set declares `offsets` (per-parent length) and `values` (the
+flattened CSR member array). It evaluates — and reads only `offsets`,
+enumerating positions `1..offsets[i]` instead of parent *i*'s members. With
+lengths `[1, 2, 3]` over the flat layout `[1 | 2, 3 | 4, 5, 6]`, the per-parent
+sums come out `10, 30, 60` where the members give `10, 50, 150`. Three probes
+pin it: changing `offsets` to `[1, 3, 6]` gives `10, 60, 210`; `[0, 1, 3]`
+gives `0, 10, 60`; and **reversing `values` changes nothing**.
+
+**Why this project cares.** The `nr-logging-county` key set is *ragged*: 36
+`(SCC, modelYearID)` pairs over three SCCs whose model-year counts are 3, 4 and
+29, each set by that equipment point's `nyrlif`. A rectangular
+`[SCC × modelYear]` axis would emit 3 × 29 × 4 = **348** keys where the
+snapshot has 144, and `tolerance.toml`'s `require_exact_key_set` is not
+negotiable. A ragged inner axis is exactly the shape the schema advertises.
+
+**Workaround, and a good one.** Keep the output a **flat row relation** whose
+parent is a key *column* — `(SCC, modelYearID, polProcessID)` over one row axis
+— and join on it. Raggedness then needs no axis machinery, because a relation's
+key set is data (conventions §2). `components/movesoutput_aggregation.esm` is
+written that way, so this costs the port only the axis it cannot use.
+
+**Fix shape.** Read `values`: `member(i, k) = values[offset(i) + k]` with
+`offset` the exclusive prefix sum of `offsets`. The RFC's own MPAS example has
+the same requirement — cell *i*'s edges are not the first `nEdgesOnCell[i]`
+entries of `edgesOnCell`.
 
 ## F7 — `esm round-trip` resolves refs against the working directory
 

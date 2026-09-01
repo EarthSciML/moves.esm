@@ -1,0 +1,65 @@
+{
+  "esm": "1.0.0",
+  "metadata": {
+    "name": "F14RaggedIndexSetIgnoresItsMemberFactor",
+    "description": "REPRO, EXPECTED TO FAIL. A `kind: \"ragged\"` index set evaluates, but it ignores its `values` factor -- the flattened CSR member array -- and enumerates the positions 1..offsets[i] instead. So a per-parent inner axis cannot address its own members unless every parent's members happen to be the FIRST offsets[i] positions of the flat array, which is impossible for more than one parent.\n\nWhat the schema says: `offsets` is `the keyed factor giving |set(i)| for each parent tuple` and `values` is `the keyed factor giving the member at (i, k) for k in 1...|set(i)| -- the flattened CSR member array (e.g. edgesOnCell)`. With lengths [1, 2, 3] over the flat layout [1 | 2, 3 | 4, 5, 6], parent 2's members are 2 and 3 and parent 3's are 4, 5 and 6.\n\nWhat happens: parent 2 sums positions 1..2 and parent 3 positions 1..3, giving 30 and 60 instead of 50 and 150. Three probes pin it down. Changing `offsets` from [1,2,3] to [1,3,6] changes the answers to 10, 60, 210 -- consistent with `k` running 1..offsets[i] and being used as the position directly. Setting offsets to [0,1,3] gives 0, 10, 60, so a zero length correctly yields an empty reduction. And REVERSING the `values` array from [1,2,3,4,5,6] to [6,5,4,3,2,1] changes NOTHING, which is what says the member factor is never read.\n\nWHY THIS PROJECT CARES. The nr-logging-county output key set is RAGGED, not rectangular: 36 (SCC, modelYearID) pairs over three SCCs whose model-year counts are 3, 4 and 29, because each equipment point's span is its own scrptime `nyrlif`. A rectangular [SCC x modelYear] axis would emit 3 x 29 x 4 = 348 keys where the snapshot has 144, and tolerance.toml's require_exact_key_set is not negotiable. A ragged inner axis of model years per SCC is exactly the shape the schema advertises for this.\n\nWORKAROUND, and it is a good one: keep the output as a FLAT ROW RELATION with the parent as a key COLUMN -- (SCC, modelYearID, polProcessID) over one row axis -- and join on it. Raggedness then needs no axis machinery at all, because a relation's key set is data (docs/esm-conventions.md §2, tables stay tables). components/movesoutput_aggregation.esm is written that way, so this finding costs the port nothing beyond the axis it cannot use.\n\n**Fix shape.** Read the `values` factor: member(i, k) = values[offset(i) + k], with offset(i) the exclusive prefix sum of `offsets`. The RFC's own example (edgesOnCell) has the same shape and the same requirement -- MPAS cell 2's edges are not the first nEdgesOnCell[2] entries of edgesOnCell.",
+    "authors": ["EarthSciML Authors and Contributors"],
+    "tags": ["finding", "expected-to-fail", "index-sets", "ragged"]
+  },
+
+  "index_sets": {
+    "parent_rows": { "kind": "interval", "size": 3 },
+    "flat_member_rows": { "kind": "interval", "size": 6 },
+    "members_of_parent": { "kind": "ragged", "of": ["parent_rows"], "offsets": "parentMemberCount", "values": "parentMember" }
+  },
+
+  "models": {
+    "F14RaggedIndexSetIgnoresItsMemberFactor": {
+      "tolerance": { "rel": 1e-12 },
+      "variables": {
+        "parentMemberCount": {
+          "type": "unknown", "shape": ["parent_rows"], "units": "1",
+          "description": "|set(i)|: one member for the first parent, two for the second, three for the third."
+        },
+        "parentMember": {
+          "type": "unknown", "shape": ["flat_member_rows"],
+          "description": "The flattened CSR member array: [1 | 2, 3 | 4, 5, 6]. Never read by the evaluator, which is the finding."
+        },
+        "flatValue": {
+          "type": "unknown", "shape": ["flat_member_rows"], "units": "1",
+          "description": "A payload over the flat member axis, distinct per position so a mis-enumeration cannot coincide with the right answer."
+        },
+        "perParentTotal": {
+          "type": "unknown", "shape": ["parent_rows"], "units": "1",
+          "description": "The sum of each parent's OWN members' payloads."
+        }
+      },
+      "equations": [
+        { "lhs": "parentMemberCount", "rhs": { "op": "const", "args": [], "value": [1, 2, 3] } },
+        { "lhs": "parentMember", "rhs": { "op": "const", "args": [], "value": [1, 2, 3, 4, 5, 6] } },
+        { "lhs": "flatValue", "rhs": { "op": "const", "args": [], "value": [10, 20, 30, 40, 50, 60] } },
+        {
+          "lhs": "perParentTotal",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["i"],
+            "ranges": { "i": { "from": "parent_rows" },
+                        "j": { "from": "members_of_parent", "of": ["i"] } },
+            "expr": { "op": "index", "args": ["flatValue", "j"] }
+          }
+        }
+      ],
+      "tests": [
+        {
+          "id": "a_ragged_axis_enumerates_its_parents_members",
+          "description": "INTENDED behaviour, per the schema's own description of `offsets` and `values`: parent 1 holds member 1 (10), parent 2 holds members 2 and 3 (50), parent 3 holds members 4, 5 and 6 (150). Observed: 10, 30, 60 -- the first offsets[i] positions rather than this parent's members. When this goes green, an output relation may carry a per-SCC model-year axis instead of a flat key column.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "perParentTotal", "time": 0.0, "expected": 10.0, "coords": { "parent_rows": 1 } },
+            { "variable": "perParentTotal", "time": 0.0, "expected": 50.0, "coords": { "parent_rows": 2 } },
+            { "variable": "perParentTotal", "time": 0.0, "expected": 150.0, "coords": { "parent_rows": 3 } }
+          ]
+        }
+      ]
+    }
+  }
+}

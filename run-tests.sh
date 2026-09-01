@@ -231,13 +231,24 @@ else
   fail "join_leaf (control) — the shared leaf fixture is itself broken"
 fi
 
+# The same positive control for F13, whose two leaves declare the SAME enum
+# name with different values. Each must pass on its own, or the collision the
+# repro records would be indistinguishable from a broken fixture.
+if "$ESM" test docs/findings/F13_enum_leaf_one.esm docs/findings/F13_enum_leaf_two.esm \
+     >/dev/null 2>&1; then
+  pass "F13 enum leaves (control) pass standalone, so F13 is about the mount"
+else
+  fail "F13 enum leaves (control) — a leaf fixture is itself broken"
+fi
+
 # F9 is excluded for a different reason from the other two: its inline test
 # PASSES by design. The defect it records is that a document which evaluates
 # correctly still cannot be WRITTEN OUT, so its tripwire is the simulate
 # command below, not an assertion.
 mapfile -t REPROS < <(find docs/findings -name '*.esm' -not -name 'join_leaf.esm' \
   -not -name 'F3_lib_with_enum.esm' \
-  -not -name 'F9_no_emit_path_for_a_relational_document.esm' 2>/dev/null | sort)
+  -not -name 'F9_no_emit_path_for_a_relational_document.esm' \
+  -not -name 'F13_enum_leaf_*.esm' 2>/dev/null | sort)
 
 if [[ ${#REPROS[@]} -eq 0 ]]; then
   say "  none recorded"

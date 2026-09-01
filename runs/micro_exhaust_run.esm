@@ -2,9 +2,18 @@
   "esm": "1.0.0",
   "metadata": {
     "name": "MicroExhaustRun",
-    "description": "The run-level assembly for the Phase 1 spine: two calculators, each in its own file, mounted here by reference (esm-spec §4.7) and combined by a third join. This is the shape every later phase takes -- one .esm per calculator or generator, a run document that mounts them and does the roll-up, and nothing duplicated between them.\n\nMOUNT FORM. Each leaf is a TOP-LEVEL `models` entry that is a `{ref}`, and the roll-up reaches into it by scoped reference (`Rates.emissionRate`) -- including as a `join.on` KEY COLUMN, which resolves across the mount. The other spelling PLAN.md §3 assumed, a nested `subsystems: {Rates: {ref}}`, does NOT work for a leaf carrying a data-column join: the mount renames the columns and leaves the join clause naming the old bare names, and the build fails. See docs/findings/README.md, finding F1.\n\nINDEX SETS. §4.7 says a mounted file's index_sets merge into the mounting document's registry. At a top-level `models` `{ref}` edge they do not (finding F2), so this document restates them. They must agree with the leaves' own declarations exactly; run-tests.sh checks that agreement mechanically, standing in for the merge the loader does not perform.",
+    "description": "The run-level assembly for the Phase 1 spine: two calculators, each in its own file, mounted here by reference (esm-spec §4.7) and combined by a third join. This is the shape every later phase takes -- one .esm per calculator or generator, a run document that mounts them and does the roll-up, and nothing duplicated between them.\n\nMOUNT FORM. Each leaf is a TOP-LEVEL `models` entry that is a `{ref}`, and the roll-up reaches into it by scoped reference (`Rates.emissionRate`) -- including as a `join.on` KEY COLUMN, which resolves across the mount. The other spelling PLAN.md §3 assumed, a nested `subsystems: {Rates: {ref}}`, does NOT work for a leaf carrying a data-column join: the mount renames the columns and leaves the join clause naming the old bare names, and the build fails. See docs/findings/README.md, finding F1.\n\nENUMS. They do not cross the mount either, and worse than the index sets do not: declarations MERGE first-wins into one registry and a colliding value is applied silently (docs/findings F13). So this document restates the union of both leaves' blocks -- none of which its own equations use -- and tools/check-conventions.py compares every symbol against the leaf that owns it.\n\nINDEX SETS. §4.7 says a mounted file's index_sets merge into the mounting document's registry. At a top-level `models` `{ref}` edge they do not (finding F2), so this document restates them. They must agree with the leaves' own declarations exactly; run-tests.sh checks that agreement mechanically, standing in for the merge the loader does not perform.",
     "authors": ["EarthSciML Authors and Contributors"],
     "tags": ["moves", "nonroad", "assembly", "run"]
+  },
+
+  "enums": {
+    "day_type": { "Weekend": 2, "Weekday": 5 },
+    "engine_fuel_kind": { "Gasoline2Stroke": 1, "Gasoline4Stroke": 2 },
+    "engine_technology": { "G2H5": 121, "G2H52": 125 },
+    "month": { "January": 1, "February": 2, "March": 3, "April": 4, "May": 5, "June": 6, "July": 7, "August": 8, "September": 9, "October": 10, "November": 11, "December": 12 },
+    "pollutant": { "TotalGaseousHydrocarbons": 1, "CarbonMonoxide": 2, "OxidesOfNitrogen": 3, "SulfurDioxide": 31, "AtmosphericCO2": 90, "BrakeSpecificFuelConsumption": 99, "PrimaryExhaustPM10Total": 100 },
+    "process": { "RunningExhaust": 1 }
   },
 
   "index_sets": {
@@ -12,7 +21,8 @@
     "deterioration_rows": { "kind": "interval", "size": 8 },
     "time_rows": { "kind": "interval", "size": 24 },
     "zone_month_hour_rows": { "kind": "interval", "size": 27 },
-    "adjustment_rows": { "kind": "interval", "size": 4 }
+    "adjustment_rows": { "kind": "interval", "size": 8 },
+    "micro_run_fuel_kind_rows": { "kind": "interval", "size": 1 }
   },
 
   "models": {
@@ -23,6 +33,10 @@
       "tolerance": { "rel": 1e-12 },
 
       "variables": {
+        "run_engineFuelKindID": {
+          "type": "unknown", "shape": ["micro_run_fuel_kind_rows"],
+          "description": "The engine fuel kind this micro run pins its adjustments to. components/exhaust_adjustment.esm keys its relation by (polProcessID, engineFuelKind) because emsadj.f gives two-stroke and four-stroke gasoline different coefficients, so a roll-up must say which one it means; joining on polProcessID alone would sum both and, for THC, land 17% high."
+        },
         "adjustedEmissionRate": {
           "type": "unknown", "shape": ["rate_rows"],
           "description": "The deteriorated zero-hour rate with the run's temperature and oxygenate adjustments applied, one value per nremissionrate row. Native units g/hp-hr."
@@ -35,6 +49,12 @@
 
       "equations": [
         {
+          "_comment": "Four-stroke, which is what this spine document has always used: its expected values are the four-stroke adjustments of docs/nonroad-logging-county.md §6.0. The rates beside them are a two-stroke chain saw's, which is a deliberate simplification of a document whose subject is the CONVENTIONS -- components/exhaust_emission_factors.esm and the nr-logging-county run pair each SCC with its own stroke count.",
+          "lhs": "run_engineFuelKindID",
+          "rhs": { "op": "makearray", "args": [], "regions": [[[1, 1]]],
+            "values": [{ "op": "enum", "args": ["engine_fuel_kind", "Gasoline4Stroke"] }] }
+        },
+        {
           "_comment": "The third join, at the run level and across the mount: rate rows to adjustment rows on polProcessID. Single key pair this time -- the two relations agree on one column. The BSFC row still has no partner on either side and still reads 0.",
           "lhs": "adjustedEmissionRate",
           "rhs": {
@@ -44,10 +64,12 @@
             "output_idx": ["r"],
             "ranges": {
               "r": { "from": "rate_rows" },
-              "p": { "from": "adjustment_rows" }
+              "p": { "from": "adjustment_rows" },
+              "k": { "from": "micro_run_fuel_kind_rows" }
             },
             "join": [
-              { "on": [["Rates.rate_polProcessID", "Adjust.adj_polProcessID"]] }
+              { "on": [["Rates.rate_polProcessID", "Adjust.adj_polProcessID"]] },
+              { "on": [["Adjust.adj_engineFuelKindID", "run_engineFuelKindID"]] }
             ],
             "expr": {
               "op": "*",
@@ -83,7 +105,7 @@
         },
         {
           "id": "the_unmatched_row_survives_the_whole_chain",
-          "description": "PLAN.md §1.6.1 again, one level up: the BSFC carrier row is unmatched by BOTH joins and is still one of the five rows this run emits. Two joins in series never delete a key.",
+          "description": "The same identity fill, one level up: the BSFC carrier row is unmatched by BOTH joins and is still one of the five rows this relation carries. Two joins in series never delete a key -- which is a different question from which keys an OUTPUT relation contains, and this document has no output relation.",
           "time_span": { "start": 0.0, "end": 0.0 },
           "assertions": [
             { "variable": "adjustedEmissionRate", "time": 0.0, "expected": 0.0, "coords": { "rate_rows": 5 } },

@@ -1,0 +1,58 @@
+{
+  "esm": "1.0.0",
+  "metadata": {
+    "name": "F12NoSpellingForARecurrenceOverAnIndexAxis",
+    "description": "REPRO, EXPECTED TO FAIL. There is no way to write a RECURRENCE over an index axis -- a fold whose body reads the result at an earlier position of the same axis.\n\nThis document asks for the simplest one there is: s[1] = 1, s[k] = 2*s[k-1]. It VALIDATES, and then the variable never materializes:\n\n    assertion evaluation failed: array state 's_value' has no cells in var_map\n\nWHAT IS AVAILABLE, AND WHY IT IS NOT ENOUGH. esm-spec §4.3.1 makes a cumulative (prefix) reduction the canonical spelling of a running total: an `aggregate` whose `filter` is a monotone comparison against the output index, folded ascending, which CONFORMANCE_SPEC §495 promises bit-identically across bindings. That covers every fold whose TERMS are independent of the result -- a running sum, a running maximum. It does not cover a fold whose next term is a function of the previous ANSWER, and the closed semiring registry (sum_product, max_product, min_sum, max_sum, bool_and_or) has no product-as-addition entry either, so even the linear special case -- a cumulative PRODUCT, which is what a survival curve is -- has no prefix-scan spelling. The remaining lever, `Pre` (§5.1), is defined against EVENTS on the time axis and needs a clock, which a MOVES calculator does not have (PLAN.md §1.2).\n\nWHAT IT COSTS THIS PORT. agedist.f (docs/nonroad-logging-county.md §2.2(e)) grows a 51-slot age distribution from 1990 to 2020 by folding 30 years, and each year's vector is the previous year's shifted one slot, multiplied by that slot's survival fraction and clamped at zero, with the newest slot written LAST as an unclamped residual, totpopfrc - frcsum. The clamp is not decoration: a negative residual is how a model year disappears, and it is what produces SCC 2265007010's gappy model-year set. Because the clamp sits inside the fold, the recurrence is not even linear, so there is no closed form to substitute -- m0[y] = tpf(y) - SUM_a max(m0[y-a], 0) * R[a] is a nonlinear convolution in its own history.\n\nSo components/age_distribution.esm computes everything scrptime.f produces -- median life, the stepped scrappage curve, the year-over-year scrapped fraction, nyrlif, the sales curve, the 1990 model-year fractions -- and carries agedist.f's RESULT as a data column, with the same status as a data_sources column: verified values from docs/nonroad-logging-county.md §6.1 step 3, checked against the independently computed sum G(2020)/G(1990) that components/growth_index.esm derives from the index series. That check is what keeps the carried column honest.\n\nTHE SPELLING DELIBERATELY NOT USED: thirty near-identical equations, one per projected year. It would run, and it would be exactly the mechanically generated, unfactored .esm that CLAUDE.md forbids -- and it would still be wrong for any run whose year span differs from this fixture's.\n\n**Fix shape.** Either extend §4.3.1's prefix reduction to a fold with an accumulator the body may read (`acc[i] = f(acc[i-1], body[i])`, which the ascending left-fold order already licenses), or admit `Pre` on an index axis as it is admitted on the time axis. The first is the smaller change and matches what the bindings already do internally: CONFORMANCE_SPEC §495 says all three executing bindings evaluate a prefix scan with a running accumulator rather than the O(N^2) triangle, so the accumulator exists -- it is simply not addressable from the body.",
+    "authors": ["EarthSciML Authors and Contributors"],
+    "tags": ["finding", "expected-to-fail", "aggregate", "recurrence"]
+  },
+
+  "index_sets": { "step_rows": { "kind": "interval", "size": 4 } },
+
+  "models": {
+    "F12NoSpellingForARecurrenceOverAnIndexAxis": {
+      "tolerance": { "rel": 1e-12 },
+      "variables": {
+        "s_stepID": { "type": "unknown", "shape": ["step_rows"], "description": "1-based position along the axis the recurrence runs over." },
+        "s_value": { "type": "unknown", "shape": ["step_rows"], "units": "1", "description": "The recurrence: 1 at the first step, twice the previous value at every later one. The shape of agedist.f's year fold, with everything but the self-reference removed." }
+      },
+      "equations": [
+        {
+          "lhs": "s_stepID",
+          "rhs": { "op": "aggregate", "args": [], "output_idx": ["k"],
+            "ranges": { "k": { "from": "step_rows" } },
+            "expr": "k" }
+        },
+        {
+          "lhs": "s_value",
+          "rhs": {
+            "op": "aggregate", "args": [], "output_idx": ["k"],
+            "ranges": { "k": { "from": "step_rows" } },
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                { "op": "<=", "args": ["k", 1] },
+                1.0,
+                { "op": "*", "args": [
+                  { "op": "index", "args": ["s_value", { "op": "-", "args": ["k", 1] }] },
+                  2.0] }
+              ]
+            }
+          }
+        }
+      ],
+      "tests": [
+        {
+          "id": "a_recurrence_over_an_index_axis_evaluates",
+          "description": "INTENDED behaviour: [1, 2, 4, 8]. When this goes green, components/age_distribution.esm can compute agedist.f's fold instead of carrying its result as data, and the nr-logging-county chain becomes end-to-end computable from the snapshot tables alone.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "s_value", "time": 0.0, "expected": 1.0, "coords": { "step_rows": 1 } },
+            { "variable": "s_value", "time": 0.0, "expected": 4.0, "coords": { "step_rows": 3 } },
+            { "variable": "s_value", "time": 0.0, "expected": 8.0, "coords": { "step_rows": 4 } }
+          ]
+        }
+      ]
+    }
+  }
+}
