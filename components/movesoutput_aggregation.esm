@@ -44,11 +44,11 @@
   "index_sets": {
     "input_tons_rows": {
       "kind": "interval",
-      "size": 15
+      "size": 23
     },
     "output_rows": {
       "kind": "interval",
-      "size": 15
+      "size": 19
     },
     "runspec_pollutant_process_rows": {
       "kind": "interval",
@@ -128,7 +128,7 @@
           "shape": [
             "input_tons_rows"
           ],
-          "description": "components/exhaust_rollup.esm's output as a relation: model year. Column 1."
+          "description": "components/exhaust_rollup.esm's output as a relation: model year. Column 1. The two SCCs here carry different numbers of model years -- three and one -- which is the raggedness this relation absorbs by being a relation."
         },
         "tons_polProcessID": {
           "type": "unknown",
@@ -299,9 +299,42 @@
           "type": "unknown",
           "units": "1",
           "description": "How many rows this SCC contributes to MOVESOutput: the sum of the membership mask. Twelve for SCC 2260007005, which is the row count docs/nonroad-logging-county.md §6.1 tabulates, and the quantity that becomes 144 when all three SCCs are present."
+        },
+        "tons_SCC": {
+          "type": "unknown",
+          "shape": [
+            "input_tons_rows"
+          ],
+          "description": "The SCC of the equipment point this contribution came from. Key column 0, and the one that makes the group-by a group-by: rows 16-23 are the TWO equipment points of SCC 2265007015 (docs/nonroad-logging-county.md §6.2), which the output detail collapses into one row per pollutant."
         }
       },
       "equations": [
+        {
+          "_comment": "The roll-up emits one contribution per (SCC, equipment point, model year, pollutant); the output stage sums the equipment points away. Rows 1-15 are SCC 2260007005's single point, rows 16-23 the two points of SCC 2265007015 at model year 2020.",
+          "lhs": "tons_SCC",
+          "rhs": {
+            "op": "makearray",
+            "args": [],
+            "regions": [
+              [
+                [
+                  1,
+                  15
+                ]
+              ],
+              [
+                [
+                  16,
+                  23
+                ]
+              ]
+            ],
+            "values": [
+              2260007005,
+              2265007015
+            ]
+          }
+        },
         {
           "_comment": "The roll-up's output for one SCC: three model years x five pollutant processes. The four selected ones carry components/exhaust_rollup.esm's asserted short tons; the CO2 rows are synthetic and exist only so the gate has something real to drop.",
           "lhs": "tons_modelYearID",
@@ -323,7 +356,15 @@
               2018,
               2020,
               2019,
-              2018
+              2018,
+              2020,
+              2020,
+              2020,
+              2020,
+              2020,
+              2020,
+              2020,
+              2020
             ]
           }
         },
@@ -361,6 +402,30 @@
                 [
                   13,
                   15
+                ]
+              ],
+              [
+                [
+                  16,
+                  17
+                ]
+              ],
+              [
+                [
+                  18,
+                  19
+                ]
+              ],
+              [
+                [
+                  20,
+                  21
+                ]
+              ],
+              [
+                [
+                  22,
+                  23
                 ]
               ]
             ],
@@ -469,6 +534,90 @@
                     ]
                   }
                 }
+              },
+              {
+                "op": "apply_expression_template",
+                "args": [],
+                "name": "pol_process_id",
+                "bindings": {
+                  "pollutant_id": {
+                    "op": "enum",
+                    "args": [
+                      "pollutant",
+                      "TotalGaseousHydrocarbons"
+                    ]
+                  },
+                  "process_id": {
+                    "op": "enum",
+                    "args": [
+                      "process",
+                      "RunningExhaust"
+                    ]
+                  }
+                }
+              },
+              {
+                "op": "apply_expression_template",
+                "args": [],
+                "name": "pol_process_id",
+                "bindings": {
+                  "pollutant_id": {
+                    "op": "enum",
+                    "args": [
+                      "pollutant",
+                      "CarbonMonoxide"
+                    ]
+                  },
+                  "process_id": {
+                    "op": "enum",
+                    "args": [
+                      "process",
+                      "RunningExhaust"
+                    ]
+                  }
+                }
+              },
+              {
+                "op": "apply_expression_template",
+                "args": [],
+                "name": "pol_process_id",
+                "bindings": {
+                  "pollutant_id": {
+                    "op": "enum",
+                    "args": [
+                      "pollutant",
+                      "OxidesOfNitrogen"
+                    ]
+                  },
+                  "process_id": {
+                    "op": "enum",
+                    "args": [
+                      "process",
+                      "RunningExhaust"
+                    ]
+                  }
+                }
+              },
+              {
+                "op": "apply_expression_template",
+                "args": [],
+                "name": "pol_process_id",
+                "bindings": {
+                  "pollutant_id": {
+                    "op": "enum",
+                    "args": [
+                      "pollutant",
+                      "PrimaryExhaustPM10Total"
+                    ]
+                  },
+                  "process_id": {
+                    "op": "enum",
+                    "args": [
+                      "process",
+                      "RunningExhaust"
+                    ]
+                  }
+                }
               }
             ]
           }
@@ -493,7 +642,15 @@
               7.731998731717298e-13,
               0.001,
               0.001,
-              0.001
+              0.001,
+              4.1242041740261357e-07,
+              1.1673715973389361e-07,
+              1.2948692984461246e-05,
+              7.140496175125166e-06,
+              1.4890662726014719e-07,
+              4.8433167376338636e-08,
+              2.3311211955072827e-08,
+              3.0136841310591372e-09
             ]
           }
         },
@@ -721,17 +878,26 @@
           "_comment": "The output relation's three key columns. Fifteen rows: five pollutant processes over three model years, laid out in the same blocks as the input relation. The CO2 block is here because the engine computes it and the gate is what keeps it out of MOVESOutput.",
           "lhs": "out_SCC",
           "rhs": {
-            "op": "aggregate",
+            "op": "makearray",
             "args": [],
-            "output_idx": [
-              "o"
+            "regions": [
+              [
+                [
+                  1,
+                  15
+                ]
+              ],
+              [
+                [
+                  16,
+                  19
+                ]
+              ]
             ],
-            "ranges": {
-              "o": {
-                "from": "output_rows"
-              }
-            },
-            "expr": "outputSCC"
+            "values": [
+              "outputSCC",
+              2265007015
+            ]
           }
         },
         {
@@ -754,7 +920,11 @@
               2018,
               2020,
               2019,
-              2018
+              2018,
+              2020,
+              2020,
+              2020,
+              2020
             ]
           }
         },
@@ -792,6 +962,30 @@
                 [
                   13,
                   15
+                ]
+              ],
+              [
+                [
+                  16,
+                  16
+                ]
+              ],
+              [
+                [
+                  17,
+                  17
+                ]
+              ],
+              [
+                [
+                  18,
+                  18
+                ]
+              ],
+              [
+                [
+                  19,
+                  19
                 ]
               ]
             ],
@@ -890,6 +1084,90 @@
                     "args": [
                       "pollutant",
                       "AtmosphericCO2"
+                    ]
+                  },
+                  "process_id": {
+                    "op": "enum",
+                    "args": [
+                      "process",
+                      "RunningExhaust"
+                    ]
+                  }
+                }
+              },
+              {
+                "op": "apply_expression_template",
+                "args": [],
+                "name": "pol_process_id",
+                "bindings": {
+                  "pollutant_id": {
+                    "op": "enum",
+                    "args": [
+                      "pollutant",
+                      "TotalGaseousHydrocarbons"
+                    ]
+                  },
+                  "process_id": {
+                    "op": "enum",
+                    "args": [
+                      "process",
+                      "RunningExhaust"
+                    ]
+                  }
+                }
+              },
+              {
+                "op": "apply_expression_template",
+                "args": [],
+                "name": "pol_process_id",
+                "bindings": {
+                  "pollutant_id": {
+                    "op": "enum",
+                    "args": [
+                      "pollutant",
+                      "CarbonMonoxide"
+                    ]
+                  },
+                  "process_id": {
+                    "op": "enum",
+                    "args": [
+                      "process",
+                      "RunningExhaust"
+                    ]
+                  }
+                }
+              },
+              {
+                "op": "apply_expression_template",
+                "args": [],
+                "name": "pol_process_id",
+                "bindings": {
+                  "pollutant_id": {
+                    "op": "enum",
+                    "args": [
+                      "pollutant",
+                      "OxidesOfNitrogen"
+                    ]
+                  },
+                  "process_id": {
+                    "op": "enum",
+                    "args": [
+                      "process",
+                      "RunningExhaust"
+                    ]
+                  }
+                }
+              },
+              {
+                "op": "apply_expression_template",
+                "args": [],
+                "name": "pol_process_id",
+                "bindings": {
+                  "pollutant_id": {
+                    "op": "enum",
+                    "args": [
+                      "pollutant",
+                      "PrimaryExhaustPM10Total"
                     ]
                   },
                   "process_id": {
@@ -1017,7 +1295,7 @@
           }
         },
         {
-          "_comment": "The group-by: SUM(emissionQuant) over everything the output detail does not distinguish -- the technologies and equipment points the roll-up already summed. Joined on the two keys the input relation shares with the output one; when the fixture's other SCCs arrive, out_SCC joins here as a third.",
+          "_comment": "The group-by: SUM(emissionQuant) over everything the output detail does not distinguish -- the technologies and equipment points. Three ON columns, which is the whole key. SCC 2265007015's two equipment points differ in horsepower, hours, median life, population and technology mix and land on the same output row; that summation is the only place in the chain where it happens, and it is one join clause.",
           "lhs": "out_emissionQuant",
           "rhs": {
             "op": "aggregate",
@@ -1037,6 +1315,10 @@
             "join": [
               {
                 "on": [
+                  [
+                    "out_SCC",
+                    "tons_SCC"
+                  ],
                   [
                     "out_modelYearID",
                     "tons_modelYearID"
@@ -1393,7 +1675,7 @@
         },
         {
           "id": "the_key_is_three_columns_over_one_row_axis",
-          "description": "The shape that makes a RAGGED key set expressible: SCC, model year and pollutant process are COLUMNS, so which (SCC, modelYear) pairs exist is data. The fixture's three SCCs span 3, 4 and 29 model years; on a shared rectangular axis that is 348 keys against the snapshot's 144. Here it is 12 rows plus 16 plus 116, concatenated, and this file's equations do not change.",
+          "description": "The shape that makes a RAGGED key set expressible: SCC, model year and pollutant process are COLUMNS, so which (SCC, modelYear) pairs exist is data. The fixture's three SCCs span 3, 4 and 29 model years; on a shared rectangular axis that is 348 keys against the snapshot's 144. Here it is 12 rows plus 16 plus 116, concatenated, and this file's equations do not change. Two SCCs are present now, with three model years and one: the relation absorbs the difference by carrying both keys as columns, and the second SCC's rows begin at position 16 without disturbing the first's.",
           "time_span": {
             "start": 0.0,
             "end": 0.0
@@ -1454,12 +1736,28 @@
               "coords": {
                 "output_rows": 13
               }
+            },
+            {
+              "variable": "out_SCC",
+              "time": 0.0,
+              "expected": 2265007015.0,
+              "coords": {
+                "output_rows": 16
+              }
+            },
+            {
+              "variable": "out_modelYearID",
+              "time": 0.0,
+              "expected": 2020.0,
+              "coords": {
+                "output_rows": 16
+              }
             }
           ]
         },
         {
           "id": "the_pollutant_gate_drops_carbon_dioxide",
-          "description": "J25. The input relation carries 1.0e-03 short tons of CO2 in every model year — 907 grams, more than three times the THC of the whole SCC — and no CO2 row is emitted, because pollutant 90 is not in this RunSpec's selection. A port that emitted what it computed rather than what was selected would add three rows here and twelve across the fixture.",
+          "description": "J25. The input relation carries 1.0e-03 short tons of CO2 in every model year — 907 grams, more than three times the THC of the whole SCC — and no CO2 row is emitted, because pollutant 90 is not in this RunSpec's selection. A port that emitted what it computed rather than what was selected would add three rows here and twelve across the fixture. Sixteen of these nineteen rows are emitted: SCC 2260007005's twelve and SCC 2265007015's four.",
           "time_span": {
             "start": 0.0,
             "end": 0.0
@@ -1500,7 +1798,7 @@
             {
               "variable": "emittedRowCount",
               "time": 0.0,
-              "expected": 12.0
+              "expected": 16.0
             }
           ]
         },
@@ -1687,6 +1985,64 @@
               "time": 0.0,
               "expected": 1205.139540347985,
               "reduce": "max"
+            }
+          ]
+        },
+        {
+          "id": "two_equipment_points_sum_into_one_output_row",
+          "description": "docs/nonroad-logging-county.md §6.2's model-year-2020 rows: THC 0.4800438, CO 18.22461, NOx 0.1790237, PM10 0.02388155 grams. SCC 2265007015 has TWO equipment points -- hpAvg 5.5 with a two-technology mix and hpAvg 9.0 with one, different hours, median lives and populations -- and the output detail deselects hpClass and sourceUseType, so both land on one row. The two contributions are carried here as separate input rows (0.3741416 and 0.1059022 grams of THC) and the group-by is what adds them. Their sum agrees with the specification's published figure to 5.4e-08 relative, which is a tighter check than §6.1's 2e-06 because §6.2 prints seven significant figures.",
+          "time_span": {
+            "start": 0.0,
+            "end": 0.0
+          },
+          "assertions": [
+            {
+              "variable": "out_emissionQuant",
+              "time": 0.0,
+              "expected": 0.4800438144375836,
+              "coords": {
+                "output_rows": 16
+              }
+            },
+            {
+              "variable": "out_emissionQuant",
+              "time": 0.0,
+              "expected": 18.22461098509079,
+              "coords": {
+                "output_rows": 17
+              }
+            },
+            {
+              "variable": "out_emissionQuant",
+              "time": 0.0,
+              "expected": 0.17902370078542792,
+              "coords": {
+                "output_rows": 18
+              }
+            },
+            {
+              "variable": "out_emissionQuant",
+              "time": 0.0,
+              "expected": 0.023881550747594796,
+              "coords": {
+                "output_rows": 19
+              }
+            },
+            {
+              "variable": "out_isEmitted",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "output_rows": 19
+              }
+            },
+            {
+              "variable": "out_SCC",
+              "time": 0.0,
+              "expected": 2265007015.0,
+              "coords": {
+                "output_rows": 19
+              }
             }
           ]
         }
