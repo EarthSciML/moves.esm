@@ -37,7 +37,8 @@
         { "ref": "../lib/identifiers.esm", "only": ["scc_zero_tail"] },
         { "ref": "../lib/keys.esm", "only": ["scc_lookup_ladder_key", "state_default_precedence"] },
         { "ref": "../lib/conversion.esm",
-          "only": ["annual_activity_hours", "temporal_scale", "default_month_fraction", "default_day_fraction"] }
+          "only": ["annual_activity_hours", "temporal_scale", "days_per_week",
+                   "default_month_fraction", "default_day_fraction"] }
       ],
 
       "tolerance": { "rel": 1e-12 },
@@ -206,6 +207,10 @@
           "type": "unknown", "shape": ["activity_point_rows"], "units": "1",
           "description": "acttmp: the activity level converted to annual hours by its unit code (modyr.rs:78-88). This is the `activity_adjustment` factor of the §2.6(b) roll-up."
         },
+        "act_monthDayFactor": {
+          "type": "unknown", "shape": ["activity_point_rows"], "units": "1",
+          "description": "tpltmp = mthf x 7 x dayFraction: the half of the temporal scale the engine applies OUTSIDE emstmp (geography/common.rs:1000-1010). Exposed separately from act_temporalScale because the roll-up reproduces the engine's factorization, in which the other half rides inside emstmp."
+        },
         "act_temporalScale": {
           "type": "unknown", "shape": ["activity_point_rows"], "units": "1",
           "description": "mthf x 7 x dayFraction / daysInMonth: the whole temporal scaling of an annual quantity down to one typical day of the run's month and day type."
@@ -214,6 +219,10 @@
         "daysInRunMonth": {
           "type": "unknown", "units": "1",
           "description": "ndays for the run's month, read from the days-per-month table rather than written as 31."
+        },
+        "adjustmentTime": {
+          "type": "unknown", "units": "1",
+          "description": "adjtime = 1/ndays: the other half of the temporal scale, which the engine applies INSIDE emstmp (geography/common.rs:987-990)."
         }
       },
 
@@ -610,6 +619,21 @@
           }
         },
         {
+          "lhs": "act_monthDayFactor",
+          "rhs": {
+            "op": "aggregate", "args": [], "output_idx": ["e"],
+            "ranges": { "e": { "from": "activity_point_rows" } },
+            "expr": { "op": "*", "args": [
+              { "op": "index", "args": ["act_monthFraction", "e"] },
+              { "op": "apply_expression_template", "args": [], "name": "days_per_week", "bindings": {} },
+              { "op": "index", "args": ["act_dayFraction", "e"] }] }
+          }
+        },
+        {
+          "lhs": "adjustmentTime",
+          "rhs": { "op": "/", "args": [1.0, "daysInRunMonth"] }
+        },
+        {
           "lhs": "act_temporalScale",
           "rhs": {
             "op": "aggregate", "args": [], "output_idx": ["e"],
@@ -675,6 +699,16 @@
             { "variable": "daysInRunMonth", "time": 0.0, "expected": 31.0 },
             { "variable": "act_temporalScale", "time": 0.0, "expected": 0.0031362057347645166, "coords": { "activity_point_rows": 1 } },
             { "variable": "act_temporalScale", "time": 0.0, "expected": 0.0031362057347645166, "coords": { "activity_point_rows": 6 } }
+          ]
+        },
+        {
+          "id": "the_two_halves_multiply_to_the_combined_scale",
+          "description": "executor.rs:1513-1519. tpltmp = 0.09722238 and adjtime = 1/31 enter the engine's product at different places, and lib/conversion.esm's temporal_scale is the one place they are combined. This asserts the two spellings agree, which is the check that neither half has been applied twice — the failure mode that costs a factor of 31 in one direction and 2.6 in the other.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "act_monthDayFactor", "time": 0.0, "expected": 0.09722237777770001, "coords": { "activity_point_rows": 1 } },
+            { "variable": "adjustmentTime", "time": 0.0, "expected": 0.03225806451612903 },
+            { "variable": "act_temporalScale", "time": 0.0, "expected": 0.0031362057347645166, "coords": { "activity_point_rows": 1 } }
           ]
         },
         {

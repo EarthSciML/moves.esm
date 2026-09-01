@@ -1,0 +1,429 @@
+{
+  "esm": "1.0.0",
+  "metadata": {
+    "name": "ExhaustRollup",
+    "description": "Stage 6 of the nr-logging-county chain: unit conversion (unitcf.f) and the exhaust roll-up (clcems.f), for one equipment point. Ports docs/nonroad-logging-county.md §2.6 — the ten-factor product that turns a zero-hour emission factor into short tons of one pollutant from one model year of one technology.\n\nTHE WHOLE STAGE IS ONE CONTRACTION. §9 of the specification writes the fixture as a single scalar formula summed to (SCC, model year, pollutant), and that is what `emissionShortTons` is here: a `sum_product` aggregate over four relations — the emission factors, the deterioration coefficients, the adjustments and the tech mix — grouped by model year and pollutant process, with FOUR `join.on` clauses and no filter. Summing over the technology axis is the roll-up. This equipment point has a single technology, so the sum has one term; §6.2's would have three and nothing in these equations would change.\n\nTHE FACTORIZATION IS THE ENGINE'S, NOT AN ALGEBRAICALLY EQUIVALENT ONE. emstmp is EF x cvttmp x DF x adjems x adjtime (exhaust.rs:1079-1083) and the population, activity and temporal factors multiply it afterwards (:1201-1208). The two temporal halves therefore enter in different places, which is why components/activity_temporal.esm exposes both — and why lib/conversion.esm's `temporal_scale`, the one place they are combined, is what that component asserts them against.\n\nWHAT J14 IS DOING HERE. components/deteriorated_emission_rate.esm ports the same join at the grain of the rate relation; this file needs it at the grain of (model year, technology, pollutant process), because the deterioration age is a function of the model year. The ARITHMETIC is not duplicated — both files apply lib/emission_factors.esm's `deterioration_age` and `deterioration_factor` — only the join clause is, which is what happens when the same relation is read at two grains.\n\nBSFC IS NOT ROLLED UP. polProcessID 9901 carries fuel consumption, not emissions; it feeds the CO2 carbon balance and the SOx rewrite (§2.6(c)), neither of which this RunSpec selects, and it never reaches an output row. It is present in stage 4's output relation and absent from this one.\n\nEvery input is the §6.1 worked example's, and every expected value is one the specification prints.",
+    "authors": ["EarthSciML Authors and Contributors"],
+    "tags": ["moves", "nonroad", "roll-up", "unit-conversion", "component"]
+  },
+
+  "enums": {
+    "pollutant": {
+      "TotalGaseousHydrocarbons": 1,
+      "CarbonMonoxide": 2,
+      "OxidesOfNitrogen": 3,
+      "PrimaryExhaustPM10Total": 100
+    },
+    "process": { "RunningExhaust": 1 },
+    "engine_technology": { "G2H52": 125 }
+  },
+
+  "index_sets": {
+    "rollup_model_year_rows": { "kind": "interval", "size": 3 },
+    "rollup_pollutant_process_rows": { "kind": "interval", "size": 4 },
+    "rollup_factor_rows": { "kind": "interval", "size": 4 },
+    "rollup_deterioration_rows": { "kind": "interval", "size": 4 },
+    "rollup_adjustment_rows": { "kind": "interval", "size": 4 },
+    "rollup_mix_rows": { "kind": "interval", "size": 3 }
+  },
+
+  "coordinates": {
+    "rollup_model_year": {
+      "source": "ry_modelYearID",
+      "standard_name": "model_year"
+    },
+    "rollup_pol_process": {
+      "source": "pp_polProcessID",
+      "standard_name": "pollutant_process_identifier"
+    }
+  },
+
+  "models": {
+    "ExhaustRollup": {
+      "expression_template_imports": [
+        { "ref": "../lib/identifiers.esm", "only": ["pol_process_id"] },
+        { "ref": "../lib/emission_factors.esm", "only": ["deterioration_age", "deterioration_factor"] },
+        { "ref": "../lib/conversion.esm", "only": ["unit_conversion", "emission_unit_g_per_hp_hr", "short_tons_per_gram"] }
+      ],
+
+      "tolerance": { "rel": 1e-12 },
+
+      "variables": {
+        "hpAvg": {
+          "type": "parameter", "units": "1", "default": 6.81,
+          "description": "nrsourceusetype.hpAvg, in horsepower — from components/activity_temporal.esm."
+        },
+        "loadFactor": {
+          "type": "parameter", "units": "1", "default": 0.7,
+          "description": "nrsourceusetype.loadFactor."
+        },
+        "hoursUsedPerYear": {
+          "type": "parameter", "units": "1", "default": 303.0,
+          "description": "acttmp, the annual activity in hours — components/activity_temporal.esm's act_annualHours."
+        },
+        "medianLifeFullLoad": {
+          "type": "parameter", "units": "h", "default": 191.0,
+          "description": "nrsourceusetype.medianLifeFullLoad: the denominator of the deterioration age."
+        },
+        "countyPopulation": {
+          "type": "parameter", "units": "1", "default": 0.2697502760384973,
+          "description": "The equipment population allocated to the county — components/equipment_population.esm's eqp_countyPopulation, itself round1dp(83.279224) x allocFrac."
+        },
+        "monthDayFactor": {
+          "type": "parameter", "units": "1", "default": 0.09722237777770001,
+          "description": "tpltmp = mthf x 7 x dayFraction — components/activity_temporal.esm's act_monthDayFactor. Applied OUTSIDE emstmp, as the engine applies it."
+        },
+        "adjustmentTime": {
+          "type": "parameter", "units": "1", "default": 0.03225806451612903,
+          "description": "adjtime = 1/ndays for August — components/activity_temporal.esm's adjustmentTime. Applied INSIDE emstmp."
+        },
+        "fuelDensity": {
+          "type": "parameter", "units": "1", "default": 2829.0,
+          "description": "Gasoline density from components/fuel_properties.esm, read only by the g/gallon branch of unitcf.f."
+        },
+        "brakeSpecificFuelConsumption": {
+          "type": "parameter", "units": "1", "default": 0.608,
+          "description": "The BSFC carrier for this technology (stage 4's polProcessID 9901 rate), read only by the g/gallon branch here and by the CO2 and SOx branches this RunSpec does not select."
+        },
+        "activityIsVolumetric": {
+          "type": "parameter", "units": "1", "default": 0.0,
+          "description": "Whether the activity unit is a gallons unit, which makes the g/gallon conversion the identity. Zero for every row of this fixture."
+        },
+
+        "ry_modelYearID": {
+          "type": "unknown", "shape": ["rollup_model_year_rows"],
+          "description": "The model years this equipment point spans: nyrlif = 3 of them, from components/age_distribution.esm. Column 1."
+        },
+        "ry_ageIndex": {
+          "type": "unknown", "shape": ["rollup_model_year_rows"],
+          "description": "Column 2: the 0-based age slot, which is what the deterioration age counts in."
+        },
+        "ry_modelYearFraction": {
+          "type": "unknown", "shape": ["rollup_model_year_rows"], "units": "1",
+          "description": "Column 3: modfrc after agedist's fold — components/age_distribution.esm's carried column (docs/findings F12). Sums to the cumulative growth ratio, not to 1."
+        },
+        "ry_deteriorationAge": {
+          "type": "unknown", "shape": ["rollup_model_year_rows"], "units": "1",
+          "description": "detage: the fraction of median life this model year has consumed. All three exceed the emissionCap of 1 for this equipment point, which is why the cap must apply to the argument."
+        },
+
+        "pp_polProcessID": {
+          "type": "unknown", "shape": ["rollup_pollutant_process_rows"],
+          "description": "The four pollutant processes this RunSpec selects. The BSFC carrier is deliberately not among them."
+        },
+
+        "emf_engTechID": {
+          "type": "unknown", "shape": ["rollup_factor_rows"],
+          "description": "The emission-factor relation from stage 4, as rows: technology. Column 1."
+        },
+        "emf_polProcessID": {
+          "type": "unknown", "shape": ["rollup_factor_rows"],
+          "description": "Column 2."
+        },
+        "emf_emissionFactor": {
+          "type": "unknown", "shape": ["rollup_factor_rows"], "units": "1",
+          "description": "Column 3: the zero-hour factor in g/hp-hr, components/exhaust_emission_factors.esm's output for the mix year these model years read."
+        },
+
+        "det_engTechID": {
+          "type": "unknown", "shape": ["rollup_deterioration_rows"],
+          "description": "nrdeterioration, as rows: technology. Column 1, half of J14's composite key."
+        },
+        "det_polProcessID": {
+          "type": "unknown", "shape": ["rollup_deterioration_rows"],
+          "description": "Column 2, the other half."
+        },
+        "det_coefficientA": {
+          "type": "unknown", "shape": ["rollup_deterioration_rows"], "units": "1",
+          "description": "Column 3: DFCoefficient. Zero for NOx on this technology, which switches deterioration off with no special case."
+        },
+        "det_ageExponentB": {
+          "type": "unknown", "shape": ["rollup_deterioration_rows"], "units": "1",
+          "description": "Column 4: DFAgeExponent."
+        },
+        "det_ageCap": {
+          "type": "unknown", "shape": ["rollup_deterioration_rows"], "units": "1",
+          "description": "Column 5: emissionCap, a cap on the fraction of median life — applied to the AGE, before the power."
+        },
+
+        "adj_polProcessID": {
+          "type": "unknown", "shape": ["rollup_adjustment_rows"],
+          "description": "The adjustment relation from stage 5, restricted to this equipment point's engine fuel kind (two-stroke gasoline). Column 1."
+        },
+        "adj_adjustment": {
+          "type": "unknown", "shape": ["rollup_adjustment_rows"], "units": "1",
+          "description": "Column 2: adjems, the product of the temperature and oxygenate corrections — components/exhaust_adjustment.esm's two-stroke rows."
+        },
+
+        "mix_modelYearID": {
+          "type": "unknown", "shape": ["rollup_mix_rows"],
+          "description": "The tech mix from stage 4, as rows: model year. Column 1."
+        },
+        "mix_engTechID": {
+          "type": "unknown", "shape": ["rollup_mix_rows"],
+          "description": "Column 2."
+        },
+        "mix_techFraction": {
+          "type": "unknown", "shape": ["rollup_mix_rows"], "units": "1",
+          "description": "Column 3: tchfrc. One technology at 1.00 for every model year of this point, because mix year 2008 is what all three read."
+        },
+
+        "unitConversionFactor": {
+          "type": "unknown", "units": "1",
+          "description": "cvttmp: hpAvg x loadFactor for a g/hp-hr rate (unitcf.f). The whole of unitcf.f is in lib/conversion.esm, including the branches this fixture never takes."
+        },
+        "emstmp": {
+          "type": "unknown", "shape": ["rollup_model_year_rows", "rollup_pollutant_process_rows"], "units": "1",
+          "description": "The engine's intermediate: EF x cvttmp x DF x adjems x adjtime, before any population or activity factor. §6.1 step 5 prints these four numbers, which is why they are a variable and not an inlined subexpression."
+        },
+        "emissionShortTons": {
+          "type": "unknown", "shape": ["rollup_model_year_rows", "rollup_pollutant_process_rows"], "units": "1",
+          "description": "The stage's output: short tons of each pollutant from each model year, summed over technologies. Short tons because CVTTON is where the engine accumulates; components/movesoutput_aggregation.esm converts back."
+        }
+      },
+
+      "equations": [
+        {
+          "lhs": "ry_modelYearID",
+          "rhs": { "op": "const", "args": [], "value": [2020, 2019, 2018] }
+        },
+        {
+          "lhs": "ry_ageIndex",
+          "rhs": { "op": "const", "args": [], "value": [0, 1, 2] }
+        },
+        {
+          "_comment": "docs/nonroad-logging-county.md §6.1 step 3. The third entry is 5.89e-08, the residual of 30 rounds of shift-and-scrap in float32, and it is the only reason model year 2018 of this SCC is an output row at all (§7.3).",
+          "lhs": "ry_modelYearFraction",
+          "rhs": { "op": "const", "args": [], "value": [3.7072685, 0.9905483, 5.8885583e-08] }
+        },
+        {
+          "lhs": "ry_deteriorationAge",
+          "rhs": { "op": "aggregate", "args": [], "output_idx": ["y"],
+            "ranges": { "y": { "from": "rollup_model_year_rows" } },
+            "expr": { "op": "apply_expression_template", "args": [], "name": "deterioration_age",
+              "bindings": {
+                "age_index": { "op": "index", "args": ["ry_ageIndex", "y"] },
+                "hours_used_per_year": "hoursUsedPerYear",
+                "load_factor": "loadFactor",
+                "median_life_full_load": "medianLifeFullLoad"
+              } } }
+        },
+        {
+          "lhs": "pp_polProcessID",
+          "rhs": { "op": "makearray", "args": [],
+            "regions": [[[1, 1]], [[2, 2]], [[3, 3]], [[4, 4]]],
+            "values": [
+              { "op": "apply_expression_template", "args": [], "name": "pol_process_id",
+                "bindings": { "pollutant_id": { "op": "enum", "args": ["pollutant", "TotalGaseousHydrocarbons"] },
+                              "process_id": { "op": "enum", "args": ["process", "RunningExhaust"] } } },
+              { "op": "apply_expression_template", "args": [], "name": "pol_process_id",
+                "bindings": { "pollutant_id": { "op": "enum", "args": ["pollutant", "CarbonMonoxide"] },
+                              "process_id": { "op": "enum", "args": ["process", "RunningExhaust"] } } },
+              { "op": "apply_expression_template", "args": [], "name": "pol_process_id",
+                "bindings": { "pollutant_id": { "op": "enum", "args": ["pollutant", "OxidesOfNitrogen"] },
+                              "process_id": { "op": "enum", "args": ["process", "RunningExhaust"] } } },
+              { "op": "apply_expression_template", "args": [], "name": "pol_process_id",
+                "bindings": { "pollutant_id": { "op": "enum", "args": ["pollutant", "PrimaryExhaustPM10Total"] },
+                              "process_id": { "op": "enum", "args": ["process", "RunningExhaust"] } } }
+            ] }
+        },
+        {
+          "lhs": "emf_engTechID",
+          "rhs": { "op": "aggregate", "args": [], "output_idx": ["e"],
+            "ranges": { "e": { "from": "rollup_factor_rows" } },
+            "expr": { "op": "enum", "args": ["engine_technology", "G2H52"] } }
+        },
+        {
+          "lhs": "emf_polProcessID",
+          "rhs": { "op": "aggregate", "args": [], "output_idx": ["e"],
+            "ranges": { "e": { "from": "rollup_factor_rows" } },
+            "expr": { "op": "index", "args": ["pp_polProcessID", "e"] } }
+        },
+        {
+          "lhs": "emf_emissionFactor",
+          "rhs": { "op": "const", "args": [], "value": [47.98, 283.4, 0.910, 7.70] }
+        },
+        {
+          "lhs": "det_engTechID",
+          "rhs": { "op": "aggregate", "args": [], "output_idx": ["d"],
+            "ranges": { "d": { "from": "rollup_deterioration_rows" } },
+            "expr": { "op": "enum", "args": ["engine_technology", "G2H52"] } }
+        },
+        {
+          "lhs": "det_polProcessID",
+          "rhs": { "op": "aggregate", "args": [], "output_idx": ["d"],
+            "ranges": { "d": { "from": "rollup_deterioration_rows" } },
+            "expr": { "op": "index", "args": ["pp_polProcessID", "d"] } }
+        },
+        {
+          "lhs": "det_coefficientA",
+          "rhs": { "op": "const", "args": [], "value": [0.266, 0.231, 0.000, 0.266] }
+        },
+        {
+          "lhs": "det_ageExponentB",
+          "rhs": { "op": "const", "args": [], "value": [1.0, 1.0, 1.0, 1.0] }
+        },
+        {
+          "lhs": "det_ageCap",
+          "rhs": { "op": "const", "args": [], "value": [1.0, 1.0, 1.0, 1.0] }
+        },
+        {
+          "lhs": "adj_polProcessID",
+          "rhs": { "op": "aggregate", "args": [], "output_idx": ["a"],
+            "ranges": { "a": { "from": "rollup_adjustment_rows" } },
+            "expr": { "op": "index", "args": ["pp_polProcessID", "a"] } }
+        },
+        {
+          "_comment": "docs/nonroad-logging-county.md §6.0's two-stroke row. PM has no gasoline exhaust adjustment at all, which is 1.0 and not an omission.",
+          "lhs": "adj_adjustment",
+          "rhs": { "op": "const", "args": [], "value": [0.978082, 0.762555, 1.679458, 1.0] }
+        },
+        {
+          "lhs": "mix_modelYearID",
+          "rhs": { "op": "aggregate", "args": [], "output_idx": ["m"],
+            "ranges": { "m": { "from": "rollup_mix_rows" } },
+            "expr": { "op": "index", "args": ["ry_modelYearID", "m"] } }
+        },
+        {
+          "lhs": "mix_engTechID",
+          "rhs": { "op": "aggregate", "args": [], "output_idx": ["m"],
+            "ranges": { "m": { "from": "rollup_mix_rows" } },
+            "expr": { "op": "enum", "args": ["engine_technology", "G2H52"] } }
+        },
+        {
+          "lhs": "mix_techFraction",
+          "rhs": { "op": "const", "args": [], "value": [1.0, 1.0, 1.0] }
+        },
+
+        {
+          "_comment": "unitcf.f. Every exhaust rate in this fixture is g/hp-hr, so cvttmp is hpAvg x loadFactor = 4.767; the g/gallon and pass-through branches are in the template and unexercised here.",
+          "lhs": "unitConversionFactor",
+          "rhs": { "op": "apply_expression_template", "args": [], "name": "unit_conversion",
+            "bindings": {
+              "unit_code": { "op": "apply_expression_template", "args": [], "name": "emission_unit_g_per_hp_hr", "bindings": {} },
+              "hp_avg": "hpAvg",
+              "load_factor": "loadFactor",
+              "activity_is_volumetric": { "op": ">", "args": ["activityIsVolumetric", 0.5] },
+              "fuel_density": "fuelDensity",
+              "bsfc": "brakeSpecificFuelConsumption"
+            } }
+        },
+        {
+          "_comment": "exhaust.rs:1079-1083. Three `join.on` clauses -- the factor to its deterioration coefficients on the composite (polProcessID, engTechID), and both to the adjustment on polProcessID -- and no filter, because every restriction here is an equality.",
+          "lhs": "emstmp",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["y", "p"],
+            "ranges": { "y": { "from": "rollup_model_year_rows" }, "p": { "from": "rollup_pollutant_process_rows" },
+                        "e": { "from": "rollup_factor_rows" }, "d": { "from": "rollup_deterioration_rows" },
+                        "a": { "from": "rollup_adjustment_rows" } },
+            "join": [
+              { "on": [["pp_polProcessID", "emf_polProcessID"]] },
+              { "on": [["emf_polProcessID", "det_polProcessID"], ["emf_engTechID", "det_engTechID"]] },
+              { "on": [["emf_polProcessID", "adj_polProcessID"]] }
+            ],
+            "expr": {
+              "op": "*",
+              "args": [
+                { "op": "index", "args": ["emf_emissionFactor", "e"] },
+                "unitConversionFactor",
+                { "op": "apply_expression_template", "args": [], "name": "deterioration_factor",
+                  "bindings": {
+                    "coefficient_a": { "op": "index", "args": ["det_coefficientA", "d"] },
+                    "age_exponent_b": { "op": "index", "args": ["det_ageExponentB", "d"] },
+                    "age_cap": { "op": "index", "args": ["det_ageCap", "d"] },
+                    "det_age": { "op": "index", "args": ["ry_deteriorationAge", "y"] }
+                  } },
+                { "op": "index", "args": ["adj_adjustment", "a"] },
+                "adjustmentTime"
+              ]
+            }
+          }
+        },
+        {
+          "_comment": "exhaust.rs:1201-1208 and :1227. The same contraction with the mix relation joined in and the six population, activity and temporal factors appended, summed over technologies -- which is the roll-up. CVTTON is the last factor because it is where the engine accumulates.",
+          "lhs": "emissionShortTons",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["y", "p"],
+            "ranges": { "y": { "from": "rollup_model_year_rows" }, "p": { "from": "rollup_pollutant_process_rows" },
+                        "e": { "from": "rollup_factor_rows" }, "d": { "from": "rollup_deterioration_rows" },
+                        "a": { "from": "rollup_adjustment_rows" }, "m": { "from": "rollup_mix_rows" } },
+            "join": [
+              { "on": [["pp_polProcessID", "emf_polProcessID"]] },
+              { "on": [["emf_polProcessID", "det_polProcessID"], ["emf_engTechID", "det_engTechID"]] },
+              { "on": [["emf_polProcessID", "adj_polProcessID"]] },
+              { "on": [["ry_modelYearID", "mix_modelYearID"], ["emf_engTechID", "mix_engTechID"]] }
+            ],
+            "expr": {
+              "op": "*",
+              "args": [
+                { "op": "index", "args": ["emf_emissionFactor", "e"] },
+                "unitConversionFactor",
+                { "op": "apply_expression_template", "args": [], "name": "deterioration_factor",
+                  "bindings": {
+                    "coefficient_a": { "op": "index", "args": ["det_coefficientA", "d"] },
+                    "age_exponent_b": { "op": "index", "args": ["det_ageExponentB", "d"] },
+                    "age_cap": { "op": "index", "args": ["det_ageCap", "d"] },
+                    "det_age": { "op": "index", "args": ["ry_deteriorationAge", "y"] }
+                  } },
+                { "op": "index", "args": ["adj_adjustment", "a"] },
+                "adjustmentTime",
+                "hoursUsedPerYear",
+                "monthDayFactor",
+                "countyPopulation",
+                { "op": "index", "args": ["ry_modelYearFraction", "y"] },
+                { "op": "index", "args": ["mix_techFraction", "m"] },
+                { "op": "apply_expression_template", "args": [], "name": "short_tons_per_gram", "bindings": {} }
+              ]
+            }
+          }
+        }
+      ],
+
+      "tests": [
+        {
+          "id": "the_unit_conversion_is_hp_times_load",
+          "description": "unitcf.f's g/hp-hr branch: 6.81 x 0.7 = 4.7669997 in the float32 reference, 4.767 here. Taking the g/gallon branch instead would divide by a fuel density and give 0.0009, a factor of 5000.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "unitConversionFactor", "time": 0.0, "expected": 4.767 }
+          ]
+        },
+        {
+          "id": "the_deterioration_age_exceeds_the_cap_in_every_model_year",
+          "description": "docs/nonroad-logging-county.md §6.1 step 4: detage = [1.1104711, 2.2209423, 3.3314135], all above the emissionCap of 1, so min(age, cap) is 1 for all three and the deterioration factors are the same in every model year. This is the case where capping the PRODUCT instead of the argument happens to agree, because B = 1 — and §6.2's B = 0.5 is where it does not.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "ry_deteriorationAge", "time": 0.0, "expected": 1.1104712041884817, "coords": { "rollup_model_year_rows": 1 } },
+            { "variable": "ry_deteriorationAge", "time": 0.0, "expected": 2.2209424083769635, "coords": { "rollup_model_year_rows": 2 } },
+            { "variable": "ry_deteriorationAge", "time": 0.0, "expected": 3.3314136125654452, "coords": { "rollup_model_year_rows": 3 } }
+          ]
+        },
+        {
+          "id": "emstmp_matches_the_worked_example",
+          "description": "docs/nonroad-logging-county.md §6.1 step 5's table, to seven figures: THC 9.135927, CO 40.90840, NOx 0.2350141, PM 1.499022. This is the engine's own intermediate, so a mismatch localises to the emission factor, the deterioration, the adjustment or the unit conversion, before any population or activity factor can hide it.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "emstmp", "time": 0.0, "expected": 9.135928118930188, "coords": { "rollup_model_year_rows": 1, "rollup_pollutant_process_rows": 1 } },
+            { "variable": "emstmp", "time": 0.0, "expected": 40.90840340798061, "coords": { "rollup_model_year_rows": 1, "rollup_pollutant_process_rows": 2 } },
+            { "variable": "emstmp", "time": 0.0, "expected": 0.2350141425890322, "coords": { "rollup_model_year_rows": 1, "rollup_pollutant_process_rows": 3 } },
+            { "variable": "emstmp", "time": 0.0, "expected": 1.499021593548387, "coords": { "rollup_model_year_rows": 1, "rollup_pollutant_process_rows": 4 } },
+            { "variable": "emstmp", "time": 0.0, "expected": 9.135928118930188, "coords": { "rollup_model_year_rows": 3, "rollup_pollutant_process_rows": 1 } }
+          ]
+        },
+        {
+          "id": "the_roll_up_is_the_worked_examples_twelve_rows_in_short_tons",
+          "description": "docs/nonroad-logging-county.md §6.1's results table, in the short tons the engine accumulates. Converted back to grams (components/movesoutput_aggregation.esm does that) these are 269.1395, 71.91162, 4.274964e-06 for THC and 1205.140, 6.923390, 44.16037 for the 2020 CO, NOx and PM10 rows — the specification's twelve values, agreeing with the snapshot to 2.0e-06 relative, which is the storage precision of its own six-significant-figure emissionQuant strings. The model year 2018 row is 5.9e-08 of the 2020 one because that is what its grown model-year fraction is, and it is emitted rather than skipped (PLAN.md §1.6.1).",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "emissionShortTons", "time": 0.0, "expected": 2.966754576533878e-04, "coords": { "rollup_model_year_rows": 1, "rollup_pollutant_process_rows": 1 } },
+            { "variable": "emissionShortTons", "time": 0.0, "expected": 7.926897397107474e-05, "coords": { "rollup_model_year_rows": 2, "rollup_pollutant_process_rows": 1 } },
+            { "variable": "emissionShortTons", "time": 0.0, "expected": 4.712339364065902e-12, "coords": { "rollup_model_year_rows": 3, "rollup_pollutant_process_rows": 1 } },
+            { "variable": "emissionShortTons", "time": 0.0, "expected": 1.3284385718605276e-03, "coords": { "rollup_model_year_rows": 1, "rollup_pollutant_process_rows": 2 } },
+            { "variable": "emissionShortTons", "time": 0.0, "expected": 7.63172908104975e-06, "coords": { "rollup_model_year_rows": 1, "rollup_pollutant_process_rows": 3 } },
+            { "variable": "emissionShortTons", "time": 0.0, "expected": 4.867846063464378e-05, "coords": { "rollup_model_year_rows": 1, "rollup_pollutant_process_rows": 4 } }
+          ]
+        }
+      ]
+    }
+  }
+}
