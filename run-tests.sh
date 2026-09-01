@@ -305,6 +305,22 @@ fi
 
 SNAPSHOTS="${SNAPSHOTS:-../moves.rs/characterization/snapshots}"
 
+# --- data_sources catalogs ------------------------------------------------
+#
+# Nothing consumes these yet -- the CLI cannot load a data source (F9's
+# neighbour, see build-esm.sh) -- so without this stage a catalog naming a file
+# that does not exist, or a column that is not in it, would look correct right
+# up until ingest lands and then fail all at once, where the failures are
+# hardest to attribute.
+
+head2 "data_sources catalogs"
+if out=$("$PYTHON" tools/check-sources.py 2>&1); then
+  sed 's/^/  /' <<<"$out"
+else
+  fail "data_sources catalogs"
+  sed 's/^/       /' <<<"$out"
+fi
+
 head2 "fixtures"
 mapfile -t FIXTURES < <(find fixtures -name '*.esm' 2>/dev/null | sort)
 
