@@ -52,6 +52,22 @@ else
   say "built at: unrecorded (no esm-version.lock)"
 fi
 
+PYTHON="${PYTHON:-python3}"
+
+# The comparator is checked by its own falsification suite before it is trusted
+# to judge anything. This is not ceremony: two of its three gates are ones a
+# passing-by-default bug would hide completely -- measured on this very
+# snapshot, dropping four rows leaves the per-pollutant sums agreeing to
+# 1.2e-8, well inside the 1e-2 gate, so only the key-set check sees it.
+
+head2 "comparator self-test"
+if out=$("$PYTHON" compare-output.py --self-test 2>&1); then
+  pass "compare-output.py"
+else
+  fail "compare-output.py self-test"
+  sed 's/^/       /' <<<"$out"
+fi
+
 # --- collect documents ----------------------------------------------------
 
 mapfile -t DOCS < <(find . -name '*.esm' -not -path './.moves/*' -not -path './target/*' | sort)
@@ -59,7 +75,11 @@ mapfile -t DOCS < <(find . -name '*.esm' -not -path './.moves/*' -not -path './t
 if [[ ${#DOCS[@]} -eq 0 ]]; then
   head2 "No .esm documents yet"
   say "  Nothing to run. This is expected before the first component lands."
-  exit 0
+  # NOT `exit 0`: the comparator self-test above has already run and may have
+  # failed. A hardcoded success here discarded that -- the harness reported
+  # green with a sabotaged gate, which is the exact failure mode the self-test
+  # exists to prevent, reproduced one level up.
+  exit $FAILED
 fi
 
 # --- 1. validate ----------------------------------------------------------
@@ -114,8 +134,20 @@ else
       fail "fixture $name — no snapshot at $SNAPSHOTS/$name"
       continue
     fi
-    if out=$(./compare-fixture.sh "$name" 2>&1); then
+    # The .esm run writes its rows here; the comparator judges them. Producing
+    # this CSV needs the CLI to wire a data provider, which it does not yet
+    # (see build-esm.sh). Until then the fixture is reported as blocked rather
+    # than passed -- a fixture stage that silently compares nothing is exactly
+    # the failure this repo already hit once.
+    actual="${ACTUAL_DIR:-.}/$name.actual.csv"
+    if [[ ! -f "$actual" ]]; then
+      skip "$name" "no emitted rows at $actual"
+      continue
+    fi
+    if out=$("$PYTHON" compare-output.py --fixture "$name" --actual "$actual" \
+               --snapshots "$SNAPSHOTS" 2>&1); then
       pass "$name"
+      sed 's/^/       /' <<<"$out" | tail -n +2
     else
       fail "fixture $name"
       sed 's/^/       /' <<<"$out"
