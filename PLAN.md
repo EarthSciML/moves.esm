@@ -323,6 +323,28 @@ Only **one** cohort is borderline, and nothing written in-document can identify
 it: in f32 its `modfrc` is 5.96 × 10⁻⁸ and in binary64 exactly `0.0`, which is
 indistinguishable from the 44 legitimate zeros.
 
+### 1.6.1a Measured against the .esm, not the oracle **[Phase 2, done]**
+
+The first end-to-end comparison has run. `fixtures/nr-logging-county.esm` reads
+seventeen snapshot tables through `data_sources` and emits twelve MOVESOutput
+rows -- SCC `2260007005`, §6.1's worked example -- through
+`simulate --format csv`. Against the snapshot:
+
+```
+rows: 12 actual / 144 expected
+key set: 12 shared, 132 missing, 0 extra
+worst cell: rel=4.025e-06 over 12 cells (tolerance 2e-05)
+```
+
+So the per-cell gate this plan sets is met by every row the port produces, at
+one fifth of its tolerance. The 132 missing keys are the other two SCCs and are
+recorded in `tolerance.toml` under `[shortfall."nr-logging-county"]`; §1.6.1's
+four-row binary64 question is NOT among them and has not yet been reached,
+because MY2018's grown model-year fraction is carried rather than computed
+(finding F12) and therefore keeps its float32 value of 5.9e-08. When the
+remaining SCCs land the four rows become live and §1.6.2 becomes the blocker it
+is described as being.
+
 ### 1.6.2 `element_type: "Float32"` is declared, documented, and ignored
 
 So the four rows are recoverable only by evaluating in f32 — and the one

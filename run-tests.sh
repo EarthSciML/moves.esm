@@ -383,6 +383,83 @@ else
       sed 's/^/       /' <<<"$out"
       continue
     fi
+
+    # --- emit -------------------------------------------------------------
+    #
+    # The emitted fields are EVERY variable whose name begins `out_`, read from
+    # the document itself rather than listed here, so the output schema is the
+    # document's business and adding a column to it does not need a change to
+    # this script. `simulate --format csv` writes one row per index tuple with a
+    # leading `i1` ordinal, which compare-output.py ignores; every named field
+    # must share one shape, which is exactly the constraint that keeps the
+    # output a single relation.
+    #
+    # It runs from $RUNDIR, because `simulate` resolves a relative `ref` against
+    # the process working directory rather than the referencing file's (finding
+    # F7, the same defect the round-trip stage works around).
+    mapfile -t FIELDS < <("$PYTHON" - "$run" <<'PYEOF'
+import json, sys
+doc = json.load(open(sys.argv[1]))
+for model in doc.get("models", {}).values():
+    for name in (model.get("variables") or {}):
+        if name.startswith("out_"):
+            print(name)
+PYEOF
+)
+    if [[ ${#FIELDS[@]} -eq 0 ]]; then
+      fail "fixture $name — the document declares no out_* fields to emit"
+      continue
+    fi
+    obs=()
+    for f in "${FIELDS[@]}"; do obs+=(--observed "$f"); done
+
+    raw="$RUNDIR/$name.emitted.csv"
+    actual="${ACTUAL_DIR:-$RUNDIR}/$name.actual.csv"
+    if ! out=$( cd "$RUNDIR" && "$OLDPWD/$ESM" simulate "$name.esm" --time 0 \
+                  --format csv "${obs[@]}" --output "$name.emitted.csv" 2>&1 ); then
+      fail "fixture $name — emit"
+      sed 's/^/       /' <<<"$out" | tail -5
+      continue
+    fi
+
+    # The document names its output relation's columns `out_<MOVESOutput
+    # column>`, per the relation-prefix convention (docs/esm-conventions.md §2);
+    # the comparator keys on MOVESOutput's own names. Rewrite the HEADER LINE
+    # only -- a column that is not `out_`-prefixed keeps its name and will be
+    # reported by the comparator as unrecognised rather than silently matched.
+    sed '1s/out_//g' "$raw" > "$actual"
+
+    # --- compare ----------------------------------------------------------
+    #
+    # The comparator's verdict is unconditional: it fails on a partial key set
+    # and nothing here can tell it not to. What tolerance.toml records is what
+    # that failure is EXPECTED to be today -- how many rows this fixture emits
+    # and how many keys it therefore does not -- and this stage is green only
+    # while the failure matches the record exactly, in both directions. A
+    # shortfall that grows is a regression; a shortfall that shrinks is progress
+    # that has to be written down. Same polarity as the tripwire stage above,
+    # and for the same reason: a fixture that quietly compares 12 rows out of
+    # 144 and reports "ok" is the failure this repository already hit once.
+    if out=$("$PYTHON" compare-output.py --fixture "$name" --actual "$actual" \
+               --snapshots "$SNAPSHOTS" 2>&1); then
+      pass "$name — compared against the snapshot MOVESOutput, complete"
+      sed 's/^/       /' <<<"$out"
+      if "$PYTHON" tools/shortfall.py --fixture "$name" --has-record; then
+        fail "$name — the comparison now PASSES; delete its [shortfall] record"
+        say "       tolerance.toml records an expected shortfall that no longer"
+        say "       exists. Remove the record: an unexplained one is an excuse."
+      fi
+    elif verdict=$("$PYTHON" tools/shortfall.py --fixture "$name" \
+                     --tolerance tolerance.toml --report <<<"$out"); then
+      pass "$name — $verdict"
+      sed 's/^/       /' <<<"$out"
+    else
+      fail "fixture $name — comparison against the snapshot MOVESOutput"
+      sed 's/^/       /' <<<"$out"
+      say "       This is NOT the shortfall tolerance.toml records:"
+      "$PYTHON" tools/shortfall.py --fixture "$name" --tolerance tolerance.toml \
+        --report --explain <<<"$out" | sed 's/^/       /'
+    fi
   done
 fi
 

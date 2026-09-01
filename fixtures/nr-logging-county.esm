@@ -26,6 +26,9 @@
           "meanBaseRate"
         ]
       },
+      "extent": {
+        "metaparameter": "n_nremissionrate"
+      },
       "metadata": {
         "tags": [
           "emission-factors"
@@ -44,6 +47,9 @@
           "DFCoefficient",
           "DFAgeExponent"
         ]
+      },
+      "extent": {
+        "metaparameter": "n_nrdeterioration"
       },
       "metadata": {
         "tags": [
@@ -210,12 +216,20 @@
       "source": {
         "url_template": "file://${MOVES_SNAPSHOTS}/nr-logging-county/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__nrgrowthpatternfinder.parquet"
       },
+      "reader_options": {
+        "float_columns": [
+          "SCC"
+        ]
+      },
+      "extent": {
+        "metaparameter": "n_nrgrowthpatternfinder"
+      },
       "metadata": {
         "tags": [
           "population",
           "growth"
         ],
-        "note": "4,189 rows, no decimal columns. J8, and the harder half of it is not the join: the SCC walks the equipment chain [SCC, SCC[0..7]+000, SCC[0..4]+000000] and a stateID 26 row beats a stateID 0 one, both of which components/growth_index.esm precomputes into effective key columns.",
+        "note": "4,189 rows, and no decimal column -- SCC is in float_columns because it is a numeric KEY stored as utf8, not a measurement. J8, and the harder half of it is not the join: the SCC walks the equipment chain [SCC, SCC[0..7]+000, SCC[0..4]+000000] and a stateID 26 row beats a stateID 0 one, both of which components/growth_index.esm precomputes into effective key columns.",
         "esio_format": "parquet"
       }
     },
@@ -224,12 +238,20 @@
       "source": {
         "url_template": "file://${MOVES_SNAPSHOTS}/nr-logging-county/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__nrgrowthindex.parquet"
       },
+      "reader_options": {
+        "float_columns": [
+          "growthIndex"
+        ]
+      },
+      "extent": {
+        "metaparameter": "n_nrgrowthindex"
+      },
       "metadata": {
         "tags": [
           "population",
           "growth"
         ],
-        "note": "50,955 rows. J9. growthIndex is int64 in this snapshot, so no float_columns entry -- but the document still models the truncation toward zero explicitly (nonroad_loader.rs:1516), because it is canonical's %20d packet write and not a decode artefact, and because the year-over-year changes sit near zero so the truncation decides the SIGN of the growth factor.",
+        "note": "50,955 rows. J9. growthIndex is int64 in this snapshot and is nonetheless listed in float_columns, because 43 of its rows are NULL (pattern 1169 has no index at all) and the runtime refuses an integer column with a missing value rather than substituting one -- read as float64 those rows arrive as NaN, and the (pattern, year) join never reaches them. Pattern 2176, the one this fixture reads, has no nulls. The document still models the truncation toward zero explicitly (nonroad_loader.rs:1516), because it is canonical's %20d packet write and not a decode artefact, and because the year-over-year changes sit near zero so the truncation decides the SIGN of the growth factor.",
         "esio_format": "parquet"
       }
     },
@@ -243,6 +265,9 @@
           "SCC",
           "NREngTechFraction"
         ]
+      },
+      "extent": {
+        "metaparameter": "n_nrengtechfraction"
       },
       "metadata": {
         "tags": [
@@ -563,7 +588,12 @@
     "n_regioncounty": { "type": "integer", "default": 0, "description": "Rows in regioncounty. Runtime-discovered; see n_nrscc." },
     "n_nrfuelsupply": { "type": "integer", "default": 0, "description": "Rows in nrfuelsupply. Runtime-discovered; see n_nrscc." },
     "n_fuelformulation": { "type": "integer", "default": 0, "description": "Rows in fuelformulation. Runtime-discovered; see n_nrscc." },
-    "n_nrfuelsubtype": { "type": "integer", "default": 0, "description": "Rows in nrfuelsubtype. Runtime-discovered; see n_nrscc." }
+    "n_nrfuelsubtype": { "type": "integer", "default": 0, "description": "Rows in nrfuelsubtype. Runtime-discovered; see n_nrscc." },
+    "n_nrgrowthpatternfinder": { "type": "integer", "default": 0, "description": "Rows in nrgrowthpatternfinder. Runtime-discovered; see n_nrscc." },
+    "n_nrgrowthindex": { "type": "integer", "default": 0, "description": "Rows in nrgrowthindex. Runtime-discovered; see n_nrscc." },
+    "n_nrengtechfraction": { "type": "integer", "default": 0, "description": "Rows in nrengtechfraction. Runtime-discovered; see n_nrscc." },
+    "n_nremissionrate": { "type": "integer", "default": 0, "description": "Rows in nremissionrate. Runtime-discovered; see n_nrscc." },
+    "n_nrdeterioration": { "type": "integer", "default": 0, "description": "Rows in nrdeterioration. Runtime-discovered; see n_nrscc." }
   },
 
   "index_sets": {
@@ -575,6 +605,7 @@
 
     "run_rows": { "kind": "interval", "size": 1 },
     "surrogate_target_rows": { "kind": "interval", "size": 2 },
+    "fuel_type_mapping_rows": { "kind": "interval", "size": 1 },
 
     "runspecmonth_rows": { "kind": "interval", "size": "n_runspecmonth" },
     "runspecpollutantprocess_rows": { "kind": "interval", "size": "n_runspecpollutantprocess" },
@@ -592,14 +623,29 @@
     "allocation_runspec_state_rows": { "kind": "interval", "size": 1 },
     "days_per_month_rows": { "kind": "interval", "size": 12 },
     "fuel_scope_rows": { "kind": "interval", "size": 1 },
-    "adjustment_rows": { "kind": "interval", "size": 8 }
+    "adjustment_rows": { "kind": "interval", "size": 8 },
+
+    "nrgrowthpatternfinder_rows": { "kind": "interval", "size": "n_nrgrowthpatternfinder" },
+    "nrgrowthindex_rows": { "kind": "interval", "size": "n_nrgrowthindex" },
+    "nrengtechfraction_rows": { "kind": "interval", "size": "n_nrengtechfraction" },
+    "nremissionrate_rows": { "kind": "interval", "size": "n_nremissionrate" },
+    "nrdeterioration_rows": { "kind": "interval", "size": "n_nrdeterioration" },
+
+    "growth_state_scope_rows": { "kind": "interval", "size": 2 },
+    "growth_span_rows": { "kind": "interval", "size": 2 },
+    "exhaust_process_group_rows": { "kind": "interval", "size": 1 },
+    "engine_tech_rows": { "kind": "interval", "size": 100 },
+    "age_rows": { "kind": "interval", "size": 3 },
+    "output_rows": { "kind": "interval", "size": 12 }
   },
 
   "enums": {
     "engine_fuel_kind": { "Gasoline2Stroke": 1, "Gasoline4Stroke": 2 },
     "moves_fuel_type": { "Gasoline": 1 },
+    "nonroad_fuel_type": { "Gasoline": 1, "NonroadDiesel": 23, "MarineDiesel": 24 },
     "pollutant": { "TotalGaseousHydrocarbons": 1, "CarbonMonoxide": 2, "OxidesOfNitrogen": 3, "PrimaryExhaustPM10Total": 100 },
     "process": { "RunningExhaust": 1 },
+    "process_group": { "Exhaust": 1, "Evaporative": 2 },
     "region_code": { "OnroadFuelRegion": 1, "NonroadFuelRegion": 2 }
   },
 
@@ -607,9 +653,10 @@
     "NrLoggingCounty": {
       "expression_template_imports": [
         { "ref": "../lib/population.esm", "only": ["pop_file_rounding"] },
-        { "ref": "../lib/identifiers.esm", "only": ["scc_zero_tail", "pol_process_id"] },
-        { "ref": "../lib/keys.esm", "only": ["latest_at_or_before_key", "scc_lookup_ladder_key", "state_default_precedence"] },
-        { "ref": "../lib/conversion.esm", "only": ["days_per_week", "default_month_fraction", "default_day_fraction"] },
+        { "ref": "../lib/identifiers.esm", "only": ["scc_zero_tail", "pol_process_id", "pollutant_id_of", "process_id_of", "null_output_column"] },
+        { "ref": "../lib/keys.esm", "only": ["latest_at_or_before_key", "scc_lookup_ladder_key", "scc_equipment_chain_key", "state_default_precedence"] },
+        { "ref": "../lib/conversion.esm", "only": ["days_per_week", "default_month_fraction", "default_day_fraction", "unit_conversion", "emission_unit_g_per_hp_hr"] },
+        { "ref": "../lib/emission_factors.esm", "only": ["deterioration_age", "deterioration_factor"] },
         { "ref": "../lib/adjustments.esm", "only": ["exhaust_temperature_adjustment", "oxygenate_adjustment"] }
       ],
 
@@ -1016,7 +1063,259 @@
         "pp_adjustment": {
           "type": "unknown", "units": "1", "shape": ["runspecpollutantprocess_rows"],
           "description": "The adjustment this run's engine fuel kind selects, one per selected pollutant process: 0.978082, 0.762555, 1.679458, 1.0. Joined on the composite (polProcessID, engineFuelKindID), so a port that had wired the four-stroke row here would show 0.838, 0.772, 1.438 instead."
-        }
+        },
+        "pp_ordinal": { "type": "unknown", "units": "1", "shape": ["runspecpollutantprocess_rows"], "description": "This pollutant process's 1-based position, which is what the output relation joins on." },
+
+        "sut_hpAvg": {
+          "type": "parameter", "units": "1", "default": 0.0, "shape": ["nrsourceusetype_rows"],
+          "description": "nrsourceusetype.hpAvg, in HORSEPOWER -- a unit the registry has no name for, so the variable is unitless and the native unit lives here (conventions §11).",
+          "update": { "kind": "data", "source": "nr_logging_county_nrsourceusetype", "from": { "file_variable": "hpAvg" } }
+        },
+        "sut_hoursUsedPerYear": {
+          "type": "parameter", "units": "1", "default": 0.0, "shape": ["nrsourceusetype_rows"],
+          "description": "nrsourceusetype.hoursUsedPerYear: acttmp, the annual activity of one unit of equipment.",
+          "update": { "kind": "data", "source": "nr_logging_county_nrsourceusetype", "from": { "file_variable": "hoursUsedPerYear" } }
+        },
+        "sut_loadFactor": {
+          "type": "parameter", "units": "1", "default": 0.0, "shape": ["nrsourceusetype_rows"],
+          "description": "nrsourceusetype.loadFactor.",
+          "update": { "kind": "data", "source": "nr_logging_county_nrsourceusetype", "from": { "file_variable": "loadFactor" } }
+        },
+        "sut_medianLifeFullLoad": {
+          "type": "parameter", "units": "1", "default": 0.0, "shape": ["nrsourceusetype_rows"],
+          "description": "nrsourceusetype.medianLifeFullLoad, in full-load HOURS. Both the deterioration age and scrptime's equipment life divide by it.",
+          "update": { "kind": "data", "source": "nr_logging_county_nrsourceusetype", "from": { "file_variable": "medianLifeFullLoad" } }
+        },
+
+        "gpf_SCC": {
+          "type": "parameter", "units": "1", "default": 0.0, "shape": ["nrgrowthpatternfinder_rows"],
+          "description": "nrgrowthpatternfinder.SCC, over all 4,189 rows.",
+          "update": { "kind": "data", "source": "nr_logging_county_nrgrowthpatternfinder", "from": { "file_variable": "SCC" } }
+        },
+        "gpf_stateID": {
+          "type": "parameter", "units": "1", "default": 0.0, "shape": ["nrgrowthpatternfinder_rows"],
+          "description": "nrgrowthpatternfinder.stateID. The table also carries a stateID 99 row for this exact SCC, which is neither this state nor the national default and must not win -- which is why the ladder's presence tests are scoped to {this state, 0}.",
+          "update": { "kind": "data", "source": "nr_logging_county_nrgrowthpatternfinder", "from": { "file_variable": "stateID" } }
+        },
+        "gpf_growthPatternID": {
+          "type": "parameter", "units": "1", "default": 0.0, "shape": ["nrgrowthpatternfinder_rows"],
+          "description": "nrgrowthpatternfinder.growthPatternID: 2176 for Michigan logging.",
+          "update": { "kind": "data", "source": "nr_logging_county_nrgrowthpatternfinder", "from": { "file_variable": "growthPatternID" } }
+        },
+        "gi_growthPatternID": {
+          "type": "parameter", "units": "1", "default": 0.0, "shape": ["nrgrowthindex_rows"],
+          "description": "nrgrowthindex.growthPatternID, over all 50,955 rows.",
+          "update": { "kind": "data", "source": "nr_logging_county_nrgrowthindex", "from": { "file_variable": "growthPatternID" } }
+        },
+        "gi_yearID": {
+          "type": "parameter", "units": "1", "default": 0.0, "shape": ["nrgrowthindex_rows"],
+          "description": "nrgrowthindex.yearID.",
+          "update": { "kind": "data", "source": "nr_logging_county_nrgrowthindex", "from": { "file_variable": "yearID" } }
+        },
+        "gi_growthIndex": {
+          "type": "parameter", "units": "1", "default": 0.0, "shape": ["nrgrowthindex_rows"],
+          "description": "nrgrowthindex.growthIndex. int64 in this snapshot -- canonical's /GROWTH/ packet is written %20d -- so both years this fixture reads are exact table rows and no interpolation is involved in the ratio below.",
+          "update": { "kind": "data", "source": "nr_logging_county_nrgrowthindex", "from": { "file_variable": "growthIndex" } }
+        },
+
+        "mix_SCC": {
+          "type": "parameter", "units": "1", "default": 0.0, "shape": ["nrengtechfraction_rows"],
+          "description": "nrengtechfraction.SCC, over all 9,554 rows -- the .TECH file.",
+          "update": { "kind": "data", "source": "nr_logging_county_nrengtechfraction", "from": { "file_variable": "SCC" } }
+        },
+        "mix_hpMin": {
+          "type": "parameter", "units": "1", "default": 0.0, "shape": ["nrengtechfraction_rows"],
+          "description": "nrengtechfraction.hpMin: the bin's lower edge, in horsepower.",
+          "update": { "kind": "data", "source": "nr_logging_county_nrengtechfraction", "from": { "file_variable": "hpMin" } }
+        },
+        "mix_hpMax": {
+          "type": "parameter", "units": "1", "default": 0.0, "shape": ["nrengtechfraction_rows"],
+          "description": "nrengtechfraction.hpMax.",
+          "update": { "kind": "data", "source": "nr_logging_county_nrengtechfraction", "from": { "file_variable": "hpMax" } }
+        },
+        "mix_modelYearID": {
+          "type": "parameter", "units": "1", "default": 0.0, "shape": ["nrengtechfraction_rows"],
+          "description": "nrengtechfraction.modelYearID: the year the mix CHANGES, not the model year of the equipment. The rule is the latest such year at or before the cohort's model year.",
+          "update": { "kind": "data", "source": "nr_logging_county_nrengtechfraction", "from": { "file_variable": "modelYearID" } }
+        },
+        "mix_processGroupID": {
+          "type": "parameter", "units": "1", "default": 0.0, "shape": ["nrengtechfraction_rows"],
+          "description": "nrengtechfraction.processGroupID. Filtered to 1: the evap rows bin hp differently and would otherwise join in with a full fraction and no exhaust rate.",
+          "update": { "kind": "data", "source": "nr_logging_county_nrengtechfraction", "from": { "file_variable": "processGroupID" } }
+        },
+        "mix_engTechID": {
+          "type": "parameter", "units": "1", "default": 0.0, "shape": ["nrengtechfraction_rows"],
+          "description": "nrengtechfraction.engTechID: what the mix and the rate table are joined on.",
+          "update": { "kind": "data", "source": "nr_logging_county_nrengtechfraction", "from": { "file_variable": "engTechID" } }
+        },
+        "mix_fraction": {
+          "type": "parameter", "units": "1", "default": 0.0, "shape": ["nrengtechfraction_rows"],
+          "description": "nrengtechfraction.NREngTechFraction, decimal text. Six techs share this bin and five carry 0.00.",
+          "update": { "kind": "data", "source": "nr_logging_county_nrengtechfraction", "from": { "file_variable": "NREngTechFraction" } }
+        },
+
+        "emr_SCC": {
+          "type": "parameter", "units": "1", "default": 0.0, "shape": ["nremissionrate_rows"],
+          "description": "nremissionrate.SCC, over all 55,471 rows.",
+          "update": { "kind": "data", "source": "nr_logging_county_nremissionrate", "from": { "file_variable": "SCC" } }
+        },
+        "emr_hpMin": {
+          "type": "parameter", "units": "1", "default": 0.0, "shape": ["nremissionrate_rows"],
+          "description": "nremissionrate.hpMin. The rate table's SCC fallback and hp bin are walked INDEPENDENTLY of the mix table's (§2.4), even though they agree here.",
+          "update": { "kind": "data", "source": "nr_logging_county_nremissionrate", "from": { "file_variable": "hpMin" } }
+        },
+        "emr_hpMax": {
+          "type": "parameter", "units": "1", "default": 0.0, "shape": ["nremissionrate_rows"],
+          "description": "nremissionrate.hpMax.",
+          "update": { "kind": "data", "source": "nr_logging_county_nremissionrate", "from": { "file_variable": "hpMax" } }
+        },
+        "emr_engTechID": {
+          "type": "parameter", "units": "1", "default": 0.0, "shape": ["nremissionrate_rows"],
+          "description": "nremissionrate.engTechID.",
+          "update": { "kind": "data", "source": "nr_logging_county_nremissionrate", "from": { "file_variable": "engTechID" } }
+        },
+        "emr_polProcessID": {
+          "type": "parameter", "units": "1", "default": 0.0, "shape": ["nremissionrate_rows"],
+          "description": "nremissionrate.polProcessID. The bin also carries 9901 (BSFC), which this chain does not read -- the join to the RunSpec's pollutant axis is what excludes it.",
+          "update": { "kind": "data", "source": "nr_logging_county_nremissionrate", "from": { "file_variable": "polProcessID" } }
+        },
+        "emr_meanBaseRate": {
+          "type": "parameter", "units": "1", "default": 0.0, "shape": ["nremissionrate_rows"],
+          "description": "nremissionrate.meanBaseRate, decimal text, in g/hp-hr -- which the unit registry cannot spell, so this is unitless and the unit is here (conventions §11).",
+          "update": { "kind": "data", "source": "nr_logging_county_nremissionrate", "from": { "file_variable": "meanBaseRate" } }
+        },
+
+        "det_polProcessID": {
+          "type": "parameter", "units": "1", "default": 0.0, "shape": ["nrdeterioration_rows"],
+          "description": "nrdeterioration.polProcessID: half of J14's composite key.",
+          "update": { "kind": "data", "source": "nr_logging_county_nrdeterioration", "from": { "file_variable": "polProcessID" } }
+        },
+        "det_engTechID": {
+          "type": "parameter", "units": "1", "default": 0.0, "shape": ["nrdeterioration_rows"],
+          "description": "nrdeterioration.engTechID: the other half. A single-key join on polProcessID alone would sum every technology's coefficient.",
+          "update": { "kind": "data", "source": "nr_logging_county_nrdeterioration", "from": { "file_variable": "engTechID" } }
+        },
+        "det_coefficientA": {
+          "type": "parameter", "units": "1", "default": 0.0, "shape": ["nrdeterioration_rows"],
+          "description": "nrdeterioration.DFCoefficient, decimal text.",
+          "update": { "kind": "data", "source": "nr_logging_county_nrdeterioration", "from": { "file_variable": "DFCoefficient" } }
+        },
+        "det_ageExponentB": {
+          "type": "parameter", "units": "1", "default": 0.0, "shape": ["nrdeterioration_rows"],
+          "description": "nrdeterioration.DFAgeExponent, decimal text.",
+          "update": { "kind": "data", "source": "nr_logging_county_nrdeterioration", "from": { "file_variable": "DFAgeExponent" } }
+        },
+        "det_ageCap": {
+          "type": "parameter", "units": "1", "default": 0.0, "shape": ["nrdeterioration_rows"],
+          "description": "nrdeterioration.emissionCap -- int64 in the file, and the cap is applied INSIDE the power, not to the multiplier (§4.1).",
+          "update": { "kind": "data", "source": "nr_logging_county_nrdeterioration", "from": { "file_variable": "emissionCap" } }
+        },
+
+        "epg_processGroupID": { "type": "unknown", "shape": ["exhaust_process_group_rows"], "description": "processGroupID 1, exhaust, as a one-row relation so the tech-mix restriction is a join and not a filter." },
+        "growth_scope_stateID": { "type": "unknown", "shape": ["growth_state_scope_rows"], "description": "The two stateIDs a growth-pattern row may carry to be visible: this run's, and the national default 0." },
+        "gs_yearID": { "type": "unknown", "shape": ["growth_span_rows"], "description": "The two ends of the growth span the age distribution is grown over: the base population year and the episode year." },
+        "gs_isEnd": { "type": "unknown", "units": "1", "shape": ["growth_span_rows"], "description": "0 for the base year, 1 for the episode year: which end of the span this row is." },
+
+        "run_hpAvg": { "type": "unknown", "shape": ["run_rows"], "description": "This equipment point's average horsepower, 6.81. Selects the hp bin in BOTH the mix and the rate table." },
+        "run_hoursUsedPerYear": { "type": "unknown", "units": "1", "shape": ["run_rows"], "description": "acttmp: 303 hours a year." },
+        "run_loadFactor": { "type": "unknown", "units": "1", "shape": ["run_rows"], "description": "0.7." },
+        "run_medianLifeFullLoad": { "type": "unknown", "units": "1", "shape": ["run_rows"], "description": "191 full-load hours." },
+        "run_unitConversion": { "type": "unknown", "units": "1", "shape": ["run_rows"], "description": "cvttmp from unitcf.f's g/hp-hr branch: hpAvg x loadFactor = 4.767. The other branches divide by fuel density and are not reached by an hours-based activity." },
+
+        "run_sccZero3": { "type": "unknown", "shape": ["run_rows"], "description": "The SCC with three digits zeroed: rung 2 of the EQUIPMENT chain (§4.5), which is a different ladder from the month/day lookup's zero-2/4/6 one." },
+        "run_sccZero6": { "type": "unknown", "shape": ["run_rows"], "description": "Rung 3, six digits zeroed." },
+        "run_growthExactIsPresent": { "type": "unknown", "units": "1", "shape": ["run_rows"], "description": "Is there a growth-pattern row for this exact SCC in a state this run can see? For 2260007005 the table has a stateID 99 row and nothing at 26 or 0, so this is 0 and the answer changes if the state scope is dropped." },
+        "run_growthZero3IsPresent": { "type": "unknown", "units": "1", "shape": ["run_rows"], "description": "Rung 2." },
+        "run_growthEffectiveSCC": { "type": "unknown", "shape": ["run_rows"], "description": "The rung the equipment chain stops on for growth: 2260007000." },
+        "run_growthStateRowIsPresent": { "type": "unknown", "units": "1", "shape": ["run_rows"], "description": "§4.6 again: a state row beats the national default." },
+        "run_growthEffectiveStateID": { "type": "unknown", "shape": ["run_rows"], "description": "26." },
+        "run_growthPatternID": { "type": "unknown", "shape": ["run_rows"], "description": "J8: 2176." },
+        "run_baseGrowthIndex": { "type": "unknown", "units": "1", "shape": ["run_rows"], "description": "G(1990) = 321, an exact row of nrgrowthindex." },
+        "run_endGrowthIndex": { "type": "unknown", "units": "1", "shape": ["run_rows"], "description": "G(2020) = 1508." },
+        "run_cumulativeGrowthRatio": { "type": "unknown", "units": "1", "shape": ["run_rows"], "description": "G(2020)/G(1990) = 4.697819. The independent check on the carried age distribution below." },
+
+        "age_ordinal": { "type": "unknown", "units": "1", "shape": ["age_rows"], "description": "This cohort's 1-based position, which is what the output relation joins on." },
+        "age_ageIndex": { "type": "unknown", "units": "1", "shape": ["age_rows"], "description": "idxyr: 0 for the newest model year." },
+        "age_modelYearID": { "type": "unknown", "shape": ["age_rows"], "description": "runYearID - ageIndex: 2020, 2019, 2018. Which model years exist is set by this equipment point's scrptime nyrlif = 3 (§6.1 step 2)." },
+        "age_grownModelYearFraction": {
+          "type": "unknown", "units": "1", "shape": ["age_rows"],
+          "description": "modfrc after agedist.f's thirty-year fold. CARRIED AS DATA, not computed: the fold is a recurrence whose next term is a function of the previous ANSWER, clamped inside the loop, and the format has no spelling for one (docs/findings F12). The three values are §6.1 step 3's, and the cross-check below is what keeps them honest -- they must sum to the cumulative growth ratio this document derives from nrgrowthindex by a completely different route."
+        },
+        "age_isPopulated": {
+          "type": "unknown", "units": "1", "shape": ["age_rows"],
+          "description": "prccty.f's `modfrc <= 0` skip as a membership test. All three cohorts of this SCC are populated -- the third only just, at 5.9e-08 -- so the skip removes nothing HERE; it is the rule that decides the row set for the other two SCCs, where it drops 44 exactly-zero cohorts, and it is written as the reference writes it."
+        },
+        "age_grownModelYearFractionTotal": { "type": "unknown", "units": "1", "shape": ["run_rows"], "description": "The carried column's sum, for the cross-check." },
+        "age_detAge": { "type": "unknown", "units": "1", "shape": ["age_rows"], "description": "detage = (idxyr+1) x acttmp x ldfctr / mdlfhrs: 1.11, 2.22, 3.33 full-load-life fractions. All three exceed this technology's emissionCap of 1." },
+        "age_mixYearAtOrBeforeCount": { "type": "unknown", "units": "1", "shape": ["age_rows"], "description": "Is there a mix year at or before this cohort's model year, in the bin the chain selected?" },
+        "age_latestMixYearAtOrBefore": { "type": "unknown", "shape": ["age_rows"], "description": "The latest one: 2008 for all three cohorts here, out of ten distinct mix years in the bin." },
+        "age_earliestMixYear": { "type": "unknown", "shape": ["age_rows"], "description": "The fallback for a cohort older than every mix year." },
+        "age_mixYearID": { "type": "unknown", "shape": ["age_rows"], "description": "The mix year the cohort uses, reduced to a key so the tech-mix lookup is a plain equi-join." },
+
+        "run_mixExactIsPresent": { "type": "unknown", "units": "1", "shape": ["run_rows"], "description": "Does nrengtechfraction have exhaust rows for this exact SCC in this hp bin?" },
+        "run_mixZero3IsPresent": { "type": "unknown", "units": "1", "shape": ["run_rows"], "description": "Rung 2 of the equipment chain." },
+        "run_mixEffectiveSCC": { "type": "unknown", "shape": ["run_rows"], "description": "2260007005: this SCC has its own .TECH rows. §6.2's SCCs fall back to 2265000000, which is what makes the walk load-bearing." },
+        "run_rateExactIsPresent": { "type": "unknown", "units": "1", "shape": ["run_rows"], "description": "The same question of nremissionrate, asked independently (§2.4)." },
+        "run_rateZero3IsPresent": { "type": "unknown", "units": "1", "shape": ["run_rows"], "description": "Rung 2." },
+        "run_rateEffectiveSCC": { "type": "unknown", "shape": ["run_rows"], "description": "2260007005." },
+
+        "tech_engTechID": {
+          "type": "unknown", "shape": ["engine_tech_rows"],
+          "description": "The EXHAUST engine-technology code space, 100 through 199, enumerated arithmetically. §5.5 puts every exhaust engTechID this model uses in that window -- 121-126 for two-stroke handheld, 127-144 for four-stroke non-handheld -- and the joins below select the codes the tables actually carry, so the window is a superset and not a transcription. It exists because a technology is the grain at which the mix, the rates and the deterioration coefficients meet, and without an axis for it the three tables can only meet in one contraction over 9,554 x 55,471 x 424 rows. `tech_fractionTotal` is the check that the window really is a superset: a mix that summed to less than 1 would mean a code fell outside it."
+        },
+        "tech_fraction": {
+          "type": "unknown", "units": "1", "shape": ["age_rows", "engine_tech_rows"],
+          "description": "J11: this cohort's share of each technology, from the .TECH row set the equipment chain and the hp bin selected at the cohort's mix year. Zero for every code the mix does not carry."
+        },
+        "tech_fractionTotal": {
+          "type": "unknown", "units": "1", "shape": ["age_rows"],
+          "description": "The mix must sum to 1 for every cohort. This is what proves the 100-199 window covers the codes the data uses, and it is also the check that the hp bin and the processGroup filter did not admit a second bin's rows -- two bins would sum to 2."
+        },
+        "tech_meanBaseRate": {
+          "type": "unknown", "units": "1", "shape": ["runspecpollutantprocess_rows", "engine_tech_rows"],
+          "description": "J12: the zero-hour emission factor for each (pollutant process, technology), in g/hp-hr, out of 55,471 rows. Carried unitless -- horsepower has no name in the registry (conventions §11)."
+        },
+        "tech_deteriorationFactor": {
+          "type": "unknown", "units": "1", "shape": ["age_rows", "runspecpollutantprocess_rows", "engine_tech_rows"],
+          "description": "J14: 1 + A x min(detage, cap)^B, on the COMPOSITE (polProcessID, engTechID). A single-key join on polProcessID alone would sum every technology's coefficient -- for THC at tech 125 that is 2.5x too large, which §6.1's printed 269.14 g would catch immediately."
+        },
+        "cell_emissionQuant": {
+          "type": "unknown", "units": "1", "shape": ["age_rows", "runspecpollutantprocess_rows"],
+          "description": "GRAMS, carried unitless: the chain multiplies an emission factor in g/hp-hr, and the unit registry has no name for horsepower, so no factor in this product carries a unit and the result cannot declare one either (conventions §11). clcems.f's whole product for one (model year, pollutant process) cell, summed over the technologies the mix carries: the base rate, the deterioration factor at this cohort's age, the adjustment, the unit conversion, adjtime, the annual hours, the month-day factor, the allocated population, the grown model-year fraction and the technology's share. Grams, because the short-ton conversion and its inverse cancel exactly (§6.1 step 5)."
+        },
+
+        "out_ageOrdinal": { "type": "unknown", "units": "1", "shape": ["output_rows"], "description": "Which cohort this output row belongs to. The output is a FLAT row relation with key COLUMNS, not a grid: the fixture's key set is ragged across SCCs and a `ragged` axis is not usable (docs/findings F14)." },
+        "out_ppOrdinal": { "type": "unknown", "units": "1", "shape": ["output_rows"], "description": "Which selected pollutant process." },
+        "out_SCC": { "type": "unknown", "shape": ["output_rows"], "description": "MOVESOutput.SCC." },
+        "out_modelYearID": { "type": "unknown", "shape": ["output_rows"], "description": "MOVESOutput.modelYearID." },
+        "out_polProcessID": { "type": "unknown", "shape": ["output_rows"], "description": "The packed key, which MOVESOutput does not carry -- it carries the two halves." },
+        "out_pollutantID": { "type": "unknown", "shape": ["output_rows"], "description": "MOVESOutput.pollutantID." },
+        "out_processID": { "type": "unknown", "shape": ["output_rows"], "description": "MOVESOutput.processID: 1 on every row of this fixture." },
+        "out_yearID": { "type": "unknown", "shape": ["output_rows"], "description": "MOVESOutput.yearID." },
+        "out_monthID": { "type": "unknown", "shape": ["output_rows"], "description": "MOVESOutput.monthID, from runspecmonth." },
+        "out_dayID": { "type": "unknown", "shape": ["output_rows"], "description": "MOVESOutput.dayID = 5, unoffset." },
+        "out_countyID": { "type": "unknown", "shape": ["output_rows"], "description": "MOVESOutput.countyID." },
+        "scc_fuelTypeID": {
+          "type": "parameter", "units": "1", "default": 0.0, "shape": ["nrscc_rows"],
+          "description": "nrscc.fuelTypeID, in the NONROAD namespace, where gasoline is 1 and diesel is 23/24 (§5.4). MOVESOutput labels rows in the ONROAD namespace, so it is mapped rather than copied.",
+          "update": { "kind": "data", "source": "nr_logging_county_nrscc", "from": { "file_variable": "fuelTypeID" } }
+        },
+        "ftm_nonroadFuelTypeID": { "type": "unknown", "shape": ["fuel_type_mapping_rows"], "description": "The nonroad fuel type this fixture's SCC can carry. One row, gasoline; the diesel SCCs of §5.4 produce no output at all." },
+        "ftm_movesFuelTypeID": { "type": "unknown", "shape": ["fuel_type_mapping_rows"], "description": "Its MOVESOutput label. A zero here would mean the mapping had no row and would look like a legal fuel type." },
+        "run_nonroadFuelTypeID": { "type": "unknown", "shape": ["run_rows"], "description": "This SCC's nonroad fuel type, read from nrscc." },
+        "run_outputFuelTypeID": { "type": "unknown", "shape": ["run_rows"], "description": "The mapped onroad label MOVESOutput carries." },
+        "out_hourID": { "type": "unknown", "shape": ["output_rows"], "description": "MOVESOutput.hourID = 0: a NONROAD row is a TYPICAL DAY, whatever hour the RunSpec selected (§8.3)." },
+        "out_stateID": { "type": "unknown", "shape": ["output_rows"], "description": "MOVESOutput.stateID, derived as countyID/1000 rather than declared twice." },
+        "out_fuelTypeID": { "type": "unknown", "shape": ["output_rows"], "description": "MOVESOutput.fuelTypeID, mapped out of the nonroad namespace." },
+        "out_zoneID": { "type": "unknown", "shape": ["output_rows"], "description": "NULL on a NONROAD row, emitted as NaN. Eight of MOVESOutput's columns are like this and the distinction matters: 0 is a legal value for most of them." },
+        "out_linkID": { "type": "unknown", "shape": ["output_rows"], "description": "NULL." },
+        "out_sourceTypeID": { "type": "unknown", "shape": ["output_rows"], "description": "NULL: NONROAD aggregates its equipment points away before writing, so the source type that produced the row is not in the output." },
+        "out_regClassID": { "type": "unknown", "shape": ["output_rows"], "description": "NULL." },
+        "out_fuelSubTypeID": { "type": "unknown", "shape": ["output_rows"], "description": "NULL." },
+        "out_engTechID": { "type": "unknown", "shape": ["output_rows"], "description": "NULL: the technologies are summed over, so no single one labels the row." },
+        "out_sectorID": { "type": "unknown", "shape": ["output_rows"], "description": "NULL." },
+        "out_hpID": { "type": "unknown", "shape": ["output_rows"], "description": "NULL." },
+        "out_emissionQuant": { "type": "unknown", "units": "1", "shape": ["output_rows"], "description": "MOVESOutput.emissionQuant, in GRAMS but carried unitless for the reason cell_emissionQuant gives: the cell above, flattened onto the output relation. This is the column compare-output.py diffs against the snapshot." }
       },
 
       "equations": [
@@ -1629,8 +1928,674 @@
           "rhs": {
             "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["q"],
             "ranges": { "q": { "from": "runspecpollutantprocess_rows" }, "p": { "from": "adjustment_rows" }, "r": { "from": "run_rows" } },
-            "join": [{ "on": [["rpp_polProcessID", "adj_polProcessID"], ["run_engineFuelKindID", "adj_engineFuelKindID"]] }],
+            "join": [{ "on": [["rpp_polProcessID", "adj_polProcessID"]] }, { "on": [["run_engineFuelKindID", "adj_engineFuelKindID"]] }],
             "expr": { "op": "index", "args": ["adj_adjustment", "p"] }
+          }
+        },
+        { "lhs": "pp_ordinal", "rhs": { "op": "aggregate", "args": [], "output_idx": ["q"], "ranges": { "q": { "from": "runspecpollutantprocess_rows" } }, "expr": "q" } },
+
+        {
+          "lhs": "epg_processGroupID",
+          "rhs": { "op": "makearray", "args": [], "regions": [[[1, 1]]], "values": [{ "op": "enum", "args": ["process_group", "Exhaust"] }] }
+        },
+        {
+          "lhs": "growth_scope_stateID",
+          "rhs": { "op": "makearray", "args": [], "regions": [[[1, 1]], [[2, 2]]], "values": ["runStateID", "nationalDefaultStateID"] }
+        },
+        { "lhs": "gs_yearID", "rhs": { "op": "makearray", "args": [], "regions": [[[1, 1]], [[2, 2]]], "values": ["runBaseYearID", "runYearID"] } },
+        { "lhs": "gs_isEnd", "rhs": { "op": "const", "args": [], "value": [0.0, 1.0] } },
+
+        {
+          "_comment": "The equipment point's four activity columns, selected out of 1,183 rows by the run's SCC.",
+          "lhs": "run_hpAvg",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["r"],
+            "ranges": { "r": { "from": "run_rows" }, "u": { "from": "nrsourceusetype_rows" } },
+            "join": [{ "on": [["sut_SCC", "run_SCC"]] }],
+            "expr": { "op": "index", "args": ["sut_hpAvg", "u"] }
+          }
+        },
+        {
+          "lhs": "run_hoursUsedPerYear",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["r"],
+            "ranges": { "r": { "from": "run_rows" }, "u": { "from": "nrsourceusetype_rows" } },
+            "join": [{ "on": [["sut_SCC", "run_SCC"]] }],
+            "expr": { "op": "index", "args": ["sut_hoursUsedPerYear", "u"] }
+          }
+        },
+        {
+          "lhs": "run_loadFactor",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["r"],
+            "ranges": { "r": { "from": "run_rows" }, "u": { "from": "nrsourceusetype_rows" } },
+            "join": [{ "on": [["sut_SCC", "run_SCC"]] }],
+            "expr": { "op": "index", "args": ["sut_loadFactor", "u"] }
+          }
+        },
+        {
+          "lhs": "run_medianLifeFullLoad",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["r"],
+            "ranges": { "r": { "from": "run_rows" }, "u": { "from": "nrsourceusetype_rows" } },
+            "join": [{ "on": [["sut_SCC", "run_SCC"]] }],
+            "expr": { "op": "index", "args": ["sut_medianLifeFullLoad", "u"] }
+          }
+        },
+        {
+          "lhs": "run_unitConversion",
+          "rhs": {
+            "op": "aggregate", "args": [], "output_idx": ["r"], "ranges": { "r": { "from": "run_rows" } },
+            "expr": {
+              "op": "apply_expression_template", "args": [], "name": "unit_conversion",
+              "bindings": {
+                "unit_code": { "op": "apply_expression_template", "args": [], "name": "emission_unit_g_per_hp_hr", "bindings": {} },
+                "hp_avg": { "op": "index", "args": ["run_hpAvg", "r"] },
+                "load_factor": { "op": "index", "args": ["run_loadFactor", "r"] },
+                "activity_is_volumetric": { "op": ">", "args": [0.0, 0.5] },
+                "fuel_density": { "op": "index", "args": ["run_medianLifeFullLoad", "r"] },
+                "bsfc": 0.0
+              }
+            }
+          }
+        },
+
+        {
+          "lhs": "run_sccZero3",
+          "rhs": {
+            "op": "aggregate", "args": [], "output_idx": ["r"], "ranges": { "r": { "from": "run_rows" } },
+            "expr": { "op": "apply_expression_template", "args": [], "name": "scc_zero_tail", "bindings": { "scc": { "op": "index", "args": ["run_SCC", "r"] }, "tail_scale": 1000 } }
+          }
+        },
+        {
+          "lhs": "run_sccZero6",
+          "rhs": {
+            "op": "aggregate", "args": [], "output_idx": ["r"], "ranges": { "r": { "from": "run_rows" } },
+            "expr": { "op": "apply_expression_template", "args": [], "name": "scc_zero_tail", "bindings": { "scc": { "op": "index", "args": ["run_SCC", "r"] }, "tail_scale": 1000000 } }
+          }
+        },
+        {
+          "_comment": "J8's ladder, scoped to the states this run can see. The exact SCC HAS a row -- at stateID 99 -- and it must not win, which is what the scope join enforces.",
+          "lhs": "run_growthExactIsPresent",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "bool_and_or", "output_idx": ["r"],
+            "ranges": { "r": { "from": "run_rows" }, "g": { "from": "nrgrowthpatternfinder_rows" }, "c": { "from": "growth_state_scope_rows" } },
+            "join": [{ "on": [["run_SCC", "gpf_SCC"]] }, { "on": [["gpf_stateID", "growth_scope_stateID"]] }],
+            "expr": 1.0
+          }
+        },
+        {
+          "lhs": "run_growthZero3IsPresent",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "bool_and_or", "output_idx": ["r"],
+            "ranges": { "r": { "from": "run_rows" }, "g": { "from": "nrgrowthpatternfinder_rows" }, "c": { "from": "growth_state_scope_rows" } },
+            "join": [{ "on": [["run_sccZero3", "gpf_SCC"]] }, { "on": [["gpf_stateID", "growth_scope_stateID"]] }],
+            "expr": 1.0
+          }
+        },
+        {
+          "lhs": "run_growthEffectiveSCC",
+          "rhs": {
+            "op": "aggregate", "args": [], "output_idx": ["r"], "ranges": { "r": { "from": "run_rows" } },
+            "expr": {
+              "op": "apply_expression_template", "args": [], "name": "scc_equipment_chain_key",
+              "bindings": {
+                "scc": { "op": "index", "args": ["run_SCC", "r"] },
+                "has_exact": { "op": ">", "args": [{ "op": "index", "args": ["run_growthExactIsPresent", "r"] }, 0.0] },
+                "has_zero3": { "op": ">", "args": [{ "op": "index", "args": ["run_growthZero3IsPresent", "r"] }, 0.0] }
+              }
+            }
+          }
+        },
+        {
+          "lhs": "run_growthStateRowIsPresent",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "bool_and_or", "output_idx": ["r"],
+            "ranges": { "r": { "from": "run_rows" }, "g": { "from": "nrgrowthpatternfinder_rows" }, "k": { "from": "allocation_runspec_state_rows" } },
+            "join": [{ "on": [["run_growthEffectiveSCC", "gpf_SCC"]] }, { "on": [["gpf_stateID", "alloc_runspec_stateID"]] }],
+            "expr": 1.0
+          }
+        },
+        {
+          "lhs": "run_growthEffectiveStateID",
+          "rhs": {
+            "op": "aggregate", "args": [], "output_idx": ["r"], "ranges": { "r": { "from": "run_rows" } },
+            "expr": {
+              "op": "apply_expression_template", "args": [], "name": "state_default_precedence",
+              "bindings": {
+                "has_state_row": { "op": ">", "args": [{ "op": "index", "args": ["run_growthStateRowIsPresent", "r"] }, 0.0] },
+                "state_id": "runStateID",
+                "default_state_id": "nationalDefaultStateID"
+              }
+            }
+          }
+        },
+        {
+          "lhs": "run_growthPatternID",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["r"],
+            "ranges": { "r": { "from": "run_rows" }, "g": { "from": "nrgrowthpatternfinder_rows" } },
+            "join": [{ "on": [["run_growthEffectiveSCC", "gpf_SCC"], ["run_growthEffectiveStateID", "gpf_stateID"]] }],
+            "expr": { "op": "index", "args": ["gpf_growthPatternID", "g"] }
+          }
+        },
+        {
+          "_comment": "J9, at the two ends of the span. Both years are exact rows of nrgrowthindex for this pattern, so the ratio needs none of getgrw's interpolation.",
+          "lhs": "run_baseGrowthIndex",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["r"],
+            "ranges": { "r": { "from": "run_rows" }, "i": { "from": "nrgrowthindex_rows" }, "y": { "from": "growth_span_rows" } },
+            "join": [{ "on": [["gi_growthPatternID", "run_growthPatternID"]] }, { "on": [["gi_yearID", "gs_yearID"]] }],
+            "expr": { "op": "*", "args": [{ "op": "index", "args": ["gi_growthIndex", "i"] }, { "op": "-", "args": [1.0, { "op": "index", "args": ["gs_isEnd", "y"] }] }] }
+          }
+        },
+        {
+          "lhs": "run_endGrowthIndex",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["r"],
+            "ranges": { "r": { "from": "run_rows" }, "i": { "from": "nrgrowthindex_rows" }, "y": { "from": "growth_span_rows" } },
+            "join": [{ "on": [["gi_growthPatternID", "run_growthPatternID"]] }, { "on": [["gi_yearID", "gs_yearID"]] }],
+            "expr": { "op": "*", "args": [{ "op": "index", "args": ["gi_growthIndex", "i"] }, { "op": "index", "args": ["gs_isEnd", "y"] }] }
+          }
+        },
+        {
+          "lhs": "run_cumulativeGrowthRatio",
+          "rhs": {
+            "op": "aggregate", "args": [], "output_idx": ["r"], "ranges": { "r": { "from": "run_rows" } },
+            "expr": { "op": "/", "args": [{ "op": "index", "args": ["run_endGrowthIndex", "r"] }, { "op": "index", "args": ["run_baseGrowthIndex", "r"] }] }
+          }
+        },
+
+        { "lhs": "age_ordinal", "rhs": { "op": "aggregate", "args": [], "output_idx": ["g"], "ranges": { "g": { "from": "age_rows" } }, "expr": "g" } },
+        {
+          "lhs": "age_ageIndex",
+          "rhs": { "op": "aggregate", "args": [], "output_idx": ["g"], "ranges": { "g": { "from": "age_rows" } }, "expr": { "op": "-", "args": ["g", 1] } }
+        },
+        {
+          "lhs": "age_modelYearID",
+          "rhs": {
+            "op": "aggregate", "args": [], "output_idx": ["g"], "ranges": { "g": { "from": "age_rows" } },
+            "expr": { "op": "-", "args": ["runYearID", { "op": "index", "args": ["age_ageIndex", "g"] }] }
+          }
+        },
+        {
+          "_comment": "F12. agedist.f's result, carried. The values are docs/nonroad-logging-county.md §6.1 step 3's, which that document read out of the snapshot and reproduced in float32; the cross-check below is what makes them a number this repository is testing rather than a number it is asserting.",
+          "lhs": "age_grownModelYearFraction",
+          "rhs": { "op": "const", "args": [], "value": [3.7072685, 0.9905483, 5.8885583e-08] }
+        },
+        {
+          "lhs": "age_isPopulated",
+          "rhs": {
+            "op": "aggregate", "args": [], "output_idx": ["g"], "ranges": { "g": { "from": "age_rows" } },
+            "expr": { "op": "ifelse", "args": [{ "op": ">", "args": [{ "op": "index", "args": ["age_grownModelYearFraction", "g"] }, 0.0] }, 1.0, 0.0] }
+          }
+        },
+        {
+          "lhs": "age_grownModelYearFractionTotal",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["r"],
+            "ranges": { "r": { "from": "run_rows" }, "g": { "from": "age_rows" } },
+            "expr": { "op": "index", "args": ["age_grownModelYearFraction", "g"] }
+          }
+        },
+        {
+          "lhs": "age_detAge",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["g"],
+            "ranges": { "g": { "from": "age_rows" }, "r": { "from": "run_rows" } },
+            "expr": {
+              "op": "apply_expression_template", "args": [], "name": "deterioration_age",
+              "bindings": {
+                "age_index": { "op": "index", "args": ["age_ageIndex", "g"] },
+                "hours_used_per_year": { "op": "index", "args": ["run_hoursUsedPerYear", "r"] },
+                "load_factor": { "op": "index", "args": ["run_loadFactor", "r"] },
+                "median_life_full_load": { "op": "index", "args": ["run_medianLifeFullLoad", "r"] }
+              }
+            }
+          }
+        },
+
+        {
+          "_comment": "The equipment chain for the .TECH file, with the hp bin as a genuine range filter alongside it.",
+          "lhs": "run_mixExactIsPresent",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "bool_and_or", "output_idx": ["r"],
+            "ranges": { "r": { "from": "run_rows" }, "m": { "from": "nrengtechfraction_rows" }, "x": { "from": "exhaust_process_group_rows" } },
+            "join": [{ "on": [["run_SCC", "mix_SCC"]] }, { "on": [["mix_processGroupID", "epg_processGroupID"]] }],
+            "filter": {
+              "op": "and",
+              "args": [
+                { "op": "<=", "args": [{ "op": "index", "args": ["mix_hpMin", "m"] }, { "op": "index", "args": ["run_hpAvg", "r"] }] },
+                { "op": ">=", "args": [{ "op": "index", "args": ["mix_hpMax", "m"] }, { "op": "index", "args": ["run_hpAvg", "r"] }] }
+              ]
+            },
+            "expr": 1.0
+          }
+        },
+        {
+          "lhs": "run_mixZero3IsPresent",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "bool_and_or", "output_idx": ["r"],
+            "ranges": { "r": { "from": "run_rows" }, "m": { "from": "nrengtechfraction_rows" }, "x": { "from": "exhaust_process_group_rows" } },
+            "join": [{ "on": [["run_sccZero3", "mix_SCC"]] }, { "on": [["mix_processGroupID", "epg_processGroupID"]] }],
+            "filter": {
+              "op": "and",
+              "args": [
+                { "op": "<=", "args": [{ "op": "index", "args": ["mix_hpMin", "m"] }, { "op": "index", "args": ["run_hpAvg", "r"] }] },
+                { "op": ">=", "args": [{ "op": "index", "args": ["mix_hpMax", "m"] }, { "op": "index", "args": ["run_hpAvg", "r"] }] }
+              ]
+            },
+            "expr": 1.0
+          }
+        },
+        {
+          "lhs": "run_mixEffectiveSCC",
+          "rhs": {
+            "op": "aggregate", "args": [], "output_idx": ["r"], "ranges": { "r": { "from": "run_rows" } },
+            "expr": {
+              "op": "apply_expression_template", "args": [], "name": "scc_equipment_chain_key",
+              "bindings": {
+                "scc": { "op": "index", "args": ["run_SCC", "r"] },
+                "has_exact": { "op": ">", "args": [{ "op": "index", "args": ["run_mixExactIsPresent", "r"] }, 0.0] },
+                "has_zero3": { "op": ">", "args": [{ "op": "index", "args": ["run_mixZero3IsPresent", "r"] }, 0.0] }
+              }
+            }
+          }
+        },
+        {
+          "_comment": "The same walk over nremissionrate, done independently (§2.4): the two tables agree for this SCC and need not in general.",
+          "lhs": "run_rateExactIsPresent",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "bool_and_or", "output_idx": ["r"],
+            "ranges": { "r": { "from": "run_rows" }, "e": { "from": "nremissionrate_rows" } },
+            "join": [{ "on": [["run_SCC", "emr_SCC"]] }],
+            "filter": {
+              "op": "and",
+              "args": [
+                { "op": "<=", "args": [{ "op": "index", "args": ["emr_hpMin", "e"] }, { "op": "index", "args": ["run_hpAvg", "r"] }] },
+                { "op": ">=", "args": [{ "op": "index", "args": ["emr_hpMax", "e"] }, { "op": "index", "args": ["run_hpAvg", "r"] }] }
+              ]
+            },
+            "expr": 1.0
+          }
+        },
+        {
+          "lhs": "run_rateZero3IsPresent",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "bool_and_or", "output_idx": ["r"],
+            "ranges": { "r": { "from": "run_rows" }, "e": { "from": "nremissionrate_rows" } },
+            "join": [{ "on": [["run_sccZero3", "emr_SCC"]] }],
+            "filter": {
+              "op": "and",
+              "args": [
+                { "op": "<=", "args": [{ "op": "index", "args": ["emr_hpMin", "e"] }, { "op": "index", "args": ["run_hpAvg", "r"] }] },
+                { "op": ">=", "args": [{ "op": "index", "args": ["emr_hpMax", "e"] }, { "op": "index", "args": ["run_hpAvg", "r"] }] }
+              ]
+            },
+            "expr": 1.0
+          }
+        },
+        {
+          "lhs": "run_rateEffectiveSCC",
+          "rhs": {
+            "op": "aggregate", "args": [], "output_idx": ["r"], "ranges": { "r": { "from": "run_rows" } },
+            "expr": {
+              "op": "apply_expression_template", "args": [], "name": "scc_equipment_chain_key",
+              "bindings": {
+                "scc": { "op": "index", "args": ["run_SCC", "r"] },
+                "has_exact": { "op": ">", "args": [{ "op": "index", "args": ["run_rateExactIsPresent", "r"] }, 0.0] },
+                "has_zero3": { "op": ">", "args": [{ "op": "index", "args": ["run_rateZero3IsPresent", "r"] }, 0.0] }
+              }
+            }
+          }
+        },
+
+        {
+          "_comment": "The mix-year rule, per cohort: the LATEST mix year at or before this cohort's model year, within the bin the chain selected. Ten distinct mix years live in this bin and all three cohorts resolve to 2008.",
+          "lhs": "age_mixYearAtOrBeforeCount",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["g"],
+            "ranges": { "g": { "from": "age_rows" }, "m": { "from": "nrengtechfraction_rows" }, "r": { "from": "run_rows" }, "x": { "from": "exhaust_process_group_rows" } },
+            "join": [{ "on": [["run_mixEffectiveSCC", "mix_SCC"]] }, { "on": [["mix_processGroupID", "epg_processGroupID"]] }],
+            "filter": {
+              "op": "and",
+              "args": [
+                { "op": "<=", "args": [{ "op": "index", "args": ["mix_hpMin", "m"] }, { "op": "index", "args": ["run_hpAvg", "r"] }] },
+                { "op": ">=", "args": [{ "op": "index", "args": ["mix_hpMax", "m"] }, { "op": "index", "args": ["run_hpAvg", "r"] }] },
+                { "op": "<=", "args": [{ "op": "index", "args": ["mix_modelYearID", "m"] }, { "op": "index", "args": ["age_modelYearID", "g"] }] }
+              ]
+            },
+            "expr": 1.0
+          }
+        },
+        {
+          "lhs": "age_latestMixYearAtOrBefore",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "max_product", "output_idx": ["g"],
+            "ranges": { "g": { "from": "age_rows" }, "m": { "from": "nrengtechfraction_rows" }, "r": { "from": "run_rows" }, "x": { "from": "exhaust_process_group_rows" } },
+            "join": [{ "on": [["run_mixEffectiveSCC", "mix_SCC"]] }, { "on": [["mix_processGroupID", "epg_processGroupID"]] }],
+            "filter": {
+              "op": "and",
+              "args": [
+                { "op": "<=", "args": [{ "op": "index", "args": ["mix_hpMin", "m"] }, { "op": "index", "args": ["run_hpAvg", "r"] }] },
+                { "op": ">=", "args": [{ "op": "index", "args": ["mix_hpMax", "m"] }, { "op": "index", "args": ["run_hpAvg", "r"] }] },
+                { "op": "<=", "args": [{ "op": "index", "args": ["mix_modelYearID", "m"] }, { "op": "index", "args": ["age_modelYearID", "g"] }] }
+              ]
+            },
+            "expr": { "op": "index", "args": ["mix_modelYearID", "m"] }
+          }
+        },
+        {
+          "lhs": "age_earliestMixYear",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "min_sum", "output_idx": ["g"],
+            "ranges": { "g": { "from": "age_rows" }, "m": { "from": "nrengtechfraction_rows" }, "r": { "from": "run_rows" }, "x": { "from": "exhaust_process_group_rows" } },
+            "join": [{ "on": [["run_mixEffectiveSCC", "mix_SCC"]] }, { "on": [["mix_processGroupID", "epg_processGroupID"]] }],
+            "filter": {
+              "op": "and",
+              "args": [
+                { "op": "<=", "args": [{ "op": "index", "args": ["mix_hpMin", "m"] }, { "op": "index", "args": ["run_hpAvg", "r"] }] },
+                { "op": ">=", "args": [{ "op": "index", "args": ["mix_hpMax", "m"] }, { "op": "index", "args": ["run_hpAvg", "r"] }] }
+              ]
+            },
+            "expr": { "op": "index", "args": ["mix_modelYearID", "m"] }
+          }
+        },
+        {
+          "lhs": "age_mixYearID",
+          "rhs": {
+            "op": "aggregate", "args": [], "output_idx": ["g"], "ranges": { "g": { "from": "age_rows" } },
+            "expr": {
+              "op": "apply_expression_template", "args": [], "name": "latest_at_or_before_key",
+              "bindings": {
+                "has_at_or_before": { "op": ">", "args": [{ "op": "index", "args": ["age_mixYearAtOrBeforeCount", "g"] }, 0.0] },
+                "latest_at_or_before": { "op": "index", "args": ["age_latestMixYearAtOrBefore", "g"] },
+                "earliest_after": { "op": "index", "args": ["age_earliestMixYear", "g"] }
+              }
+            }
+          }
+        },
+
+        {
+          "_comment": "The technology code space, enumerated. Nothing is read here; it is the axis at which the next three equations meet.",
+          "lhs": "tech_engTechID",
+          "rhs": {
+            "op": "aggregate", "args": [], "output_idx": ["c"], "ranges": { "c": { "from": "engine_tech_rows" } },
+            "expr": { "op": "+", "args": [99, "c"] }
+          }
+        },
+        {
+          "_comment": "J11. The .TECH rows the equipment chain, the hp bin, the exhaust process group and the cohort's mix year select, laid out per technology.",
+          "lhs": "tech_fraction",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["g", "c"],
+            "ranges": { "g": { "from": "age_rows" }, "c": { "from": "engine_tech_rows" }, "m": { "from": "nrengtechfraction_rows" }, "r": { "from": "run_rows" }, "x": { "from": "exhaust_process_group_rows" } },
+            "join": [
+              { "on": [["run_mixEffectiveSCC", "mix_SCC"]] },
+              { "on": [["age_mixYearID", "mix_modelYearID"]] },
+              { "on": [["mix_processGroupID", "epg_processGroupID"]] },
+              { "on": [["tech_engTechID", "mix_engTechID"]] }
+            ],
+            "filter": {
+              "op": "and",
+              "args": [
+                { "op": "<=", "args": [{ "op": "index", "args": ["mix_hpMin", "m"] }, { "op": "index", "args": ["run_hpAvg", "r"] }] },
+                { "op": ">=", "args": [{ "op": "index", "args": ["mix_hpMax", "m"] }, { "op": "index", "args": ["run_hpAvg", "r"] }] }
+              ]
+            },
+            "expr": { "op": "index", "args": ["mix_fraction", "m"] }
+          }
+        },
+        {
+          "lhs": "tech_fractionTotal",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["g"],
+            "ranges": { "g": { "from": "age_rows" }, "c": { "from": "engine_tech_rows" } },
+            "expr": { "op": "index", "args": ["tech_fraction", "g", "c"] }
+          }
+        },
+        {
+          "_comment": "J12. The rate table's own equipment chain and hp bin, per technology and selected pollutant process. The bin also carries polProcessID 9901, BSFC, which the join to the RunSpec's pollutant axis excludes.",
+          "lhs": "tech_meanBaseRate",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["q", "c"],
+            "ranges": { "q": { "from": "runspecpollutantprocess_rows" }, "c": { "from": "engine_tech_rows" }, "e": { "from": "nremissionrate_rows" }, "r": { "from": "run_rows" } },
+            "join": [
+              { "on": [["run_rateEffectiveSCC", "emr_SCC"]] },
+              { "on": [["rpp_polProcessID", "emr_polProcessID"]] },
+              { "on": [["tech_engTechID", "emr_engTechID"]] }
+            ],
+            "filter": {
+              "op": "and",
+              "args": [
+                { "op": "<=", "args": [{ "op": "index", "args": ["emr_hpMin", "e"] }, { "op": "index", "args": ["run_hpAvg", "r"] }] },
+                { "op": ">=", "args": [{ "op": "index", "args": ["emr_hpMax", "e"] }, { "op": "index", "args": ["run_hpAvg", "r"] }] }
+              ]
+            },
+            "expr": { "op": "index", "args": ["emr_meanBaseRate", "e"] }
+          }
+        },
+        {
+          "_comment": "J14, on the composite key, with the cap applied INSIDE the power (§4.1). A technology with no deterioration row contributes 0 here rather than 1; it is only reachable through a mix fraction, and a technology the mix does not carry has fraction 0.",
+          "lhs": "tech_deteriorationFactor",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["g", "q", "c"],
+            "ranges": { "g": { "from": "age_rows" }, "q": { "from": "runspecpollutantprocess_rows" }, "c": { "from": "engine_tech_rows" }, "d": { "from": "nrdeterioration_rows" } },
+            "join": [
+              { "on": [["rpp_polProcessID", "det_polProcessID"]] },
+              { "on": [["tech_engTechID", "det_engTechID"]] }
+            ],
+            "expr": {
+              "op": "apply_expression_template", "args": [], "name": "deterioration_factor",
+              "bindings": {
+                "coefficient_a": { "op": "index", "args": ["det_coefficientA", "d"] },
+                "age_exponent_b": { "op": "index", "args": ["det_ageExponentB", "d"] },
+                "age_cap": { "op": "index", "args": ["det_ageCap", "d"] },
+                "det_age": { "op": "index", "args": ["age_detAge", "g"] }
+              }
+            }
+          }
+        },
+        {
+          "_comment": "clcems.f's product, contracted over the technologies the mix carries. Everything else in it is a run-level or per-cohort factor this document has already derived from the tables.",
+          "lhs": "cell_emissionQuant",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["g", "q"],
+            "ranges": { "g": { "from": "age_rows" }, "q": { "from": "runspecpollutantprocess_rows" }, "c": { "from": "engine_tech_rows" }, "r": { "from": "run_rows" } },
+            "expr": {
+              "op": "*",
+              "args": [
+                { "op": "index", "args": ["tech_meanBaseRate", "q", "c"] },
+                { "op": "index", "args": ["run_unitConversion", "r"] },
+                { "op": "index", "args": ["tech_deteriorationFactor", "g", "q", "c"] },
+                { "op": "index", "args": ["pp_adjustment", "q"] },
+                { "op": "index", "args": ["run_adjustmentTime", "r"] },
+                { "op": "index", "args": ["run_hoursUsedPerYear", "r"] },
+                { "op": "index", "args": ["run_monthDayFactor", "r"] },
+                { "op": "index", "args": ["run_countyPopulation", "r"] },
+                { "op": "index", "args": ["age_grownModelYearFraction", "g"] },
+                { "op": "index", "args": ["age_isPopulated", "g"] },
+                { "op": "index", "args": ["tech_fraction", "g", "c"] }
+              ]
+            }
+          }
+        },
+        {
+          "_comment": "The output relation: twelve rows over ONE axis, with the MOVES key as three columns. `esm simulate --format csv` writes one row per index tuple, so every emitted field has to share this shape -- which is also the shape MOVESOutput itself has.",
+          "lhs": "out_ageOrdinal",
+          "rhs": {
+            "op": "aggregate", "args": [], "output_idx": ["o"], "ranges": { "o": { "from": "output_rows" } },
+            "expr": { "op": "+", "args": [{ "op": "floor", "args": [{ "op": "/", "args": [{ "op": "-", "args": ["o", 1] }, 4] }] }, 1] }
+          }
+        },
+        {
+          "lhs": "out_ppOrdinal",
+          "rhs": {
+            "op": "aggregate", "args": [], "output_idx": ["o"], "ranges": { "o": { "from": "output_rows" } },
+            "expr": {
+              "op": "+",
+              "args": [
+                { "op": "-", "args": [
+                  { "op": "-", "args": ["o", 1] },
+                  { "op": "*", "args": [4, { "op": "floor", "args": [{ "op": "/", "args": [{ "op": "-", "args": ["o", 1] }, 4] }] }] }] },
+                1]
+            }
+          }
+        },
+        {
+          "lhs": "out_SCC",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["o"],
+            "ranges": { "o": { "from": "output_rows" }, "r": { "from": "run_rows" } },
+            "expr": { "op": "index", "args": ["run_SCC", "r"] }
+          }
+        },
+        {
+          "lhs": "out_modelYearID",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["o"],
+            "ranges": { "o": { "from": "output_rows" }, "g": { "from": "age_rows" } },
+            "join": [{ "on": [["out_ageOrdinal", "age_ordinal"]] }],
+            "expr": { "op": "index", "args": ["age_modelYearID", "g"] }
+          }
+        },
+        {
+          "lhs": "out_polProcessID",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["o"],
+            "ranges": { "o": { "from": "output_rows" }, "q": { "from": "runspecpollutantprocess_rows" } },
+            "join": [{ "on": [["out_ppOrdinal", "pp_ordinal"]] }],
+            "expr": { "op": "index", "args": ["rpp_polProcessID", "q"] }
+          }
+        },
+        {
+          "lhs": "out_pollutantID",
+          "rhs": {
+            "op": "aggregate", "args": [], "output_idx": ["o"], "ranges": { "o": { "from": "output_rows" } },
+            "expr": { "op": "apply_expression_template", "args": [], "name": "pollutant_id_of", "bindings": { "pol_process_id": { "op": "index", "args": ["out_polProcessID", "o"] } } }
+          }
+        },
+        {
+          "lhs": "out_processID",
+          "rhs": {
+            "op": "aggregate", "args": [], "output_idx": ["o"], "ranges": { "o": { "from": "output_rows" } },
+            "expr": { "op": "apply_expression_template", "args": [], "name": "process_id_of", "bindings": { "pol_process_id": { "op": "index", "args": ["out_polProcessID", "o"] } } }
+          }
+        },
+        {
+          "lhs": "out_yearID",
+          "rhs": { "op": "aggregate", "args": [], "output_idx": ["o"], "ranges": { "o": { "from": "output_rows" } }, "expr": "runYearID" }
+        },
+        {
+          "lhs": "out_monthID",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["o"],
+            "ranges": { "o": { "from": "output_rows" }, "r": { "from": "run_rows" } },
+            "expr": { "op": "index", "args": ["run_monthID", "r"] }
+          }
+        },
+        {
+          "lhs": "out_dayID",
+          "rhs": { "op": "aggregate", "args": [], "output_idx": ["o"], "ranges": { "o": { "from": "output_rows" } }, "expr": "runDayID" }
+        },
+        {
+          "lhs": "out_countyID",
+          "rhs": { "op": "aggregate", "args": [], "output_idx": ["o"], "ranges": { "o": { "from": "output_rows" } }, "expr": "runCountyID" }
+        },
+        {
+          "_comment": "§5.4's two fuel-type namespaces. nrscc speaks NONROAD (gasoline 1, diesel 23 and 24); MOVESOutput speaks onroad. The mapping is a one-row relation joined on, not an identity assumed.",
+          "lhs": "ftm_nonroadFuelTypeID",
+          "rhs": { "op": "makearray", "args": [], "regions": [[[1, 1]]], "values": [{ "op": "enum", "args": ["nonroad_fuel_type", "Gasoline"] }] }
+        },
+        {
+          "lhs": "ftm_movesFuelTypeID",
+          "rhs": { "op": "makearray", "args": [], "regions": [[[1, 1]]], "values": [{ "op": "enum", "args": ["moves_fuel_type", "Gasoline"] }] }
+        },
+        {
+          "lhs": "run_nonroadFuelTypeID",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["r"],
+            "ranges": { "r": { "from": "run_rows" }, "s": { "from": "nrscc_rows" } },
+            "join": [{ "on": [["scc_SCC", "run_SCC"]] }],
+            "expr": { "op": "index", "args": ["scc_fuelTypeID", "s"] }
+          }
+        },
+        {
+          "lhs": "run_outputFuelTypeID",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["r"],
+            "ranges": { "r": { "from": "run_rows" }, "f": { "from": "fuel_type_mapping_rows" } },
+            "join": [{ "on": [["run_nonroadFuelTypeID", "ftm_nonroadFuelTypeID"]] }],
+            "expr": { "op": "index", "args": ["ftm_movesFuelTypeID", "f"] }
+          }
+        },
+        {
+          "lhs": "out_hourID",
+          "rhs": { "op": "aggregate", "args": [], "output_idx": ["o"], "ranges": { "o": { "from": "output_rows" } }, "expr": 0.0 }
+        },
+        {
+          "lhs": "out_stateID",
+          "rhs": {
+            "op": "aggregate", "args": [], "output_idx": ["o"], "ranges": { "o": { "from": "output_rows" } },
+            "expr": { "op": "floor", "args": [{ "op": "/", "args": ["runCountyID", 1000] }] }
+          }
+        },
+        {
+          "lhs": "out_fuelTypeID",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["o"],
+            "ranges": { "o": { "from": "output_rows" }, "r": { "from": "run_rows" } },
+            "expr": { "op": "index", "args": ["run_outputFuelTypeID", "r"] }
+          }
+        },
+        {
+          "_comment": "The eight columns MOVESOutput leaves NULL on a NONROAD row, emitted as NaN through one template so the claim is made in one place (lib/identifiers.esm).",
+          "lhs": "out_zoneID",
+          "rhs": { "op": "aggregate", "args": [], "output_idx": ["o"], "ranges": { "o": { "from": "output_rows" } },
+                   "expr": { "op": "apply_expression_template", "args": [], "name": "null_output_column", "bindings": {} } }
+        },
+        {
+          "lhs": "out_linkID",
+          "rhs": { "op": "aggregate", "args": [], "output_idx": ["o"], "ranges": { "o": { "from": "output_rows" } },
+                   "expr": { "op": "apply_expression_template", "args": [], "name": "null_output_column", "bindings": {} } }
+        },
+        {
+          "lhs": "out_sourceTypeID",
+          "rhs": { "op": "aggregate", "args": [], "output_idx": ["o"], "ranges": { "o": { "from": "output_rows" } },
+                   "expr": { "op": "apply_expression_template", "args": [], "name": "null_output_column", "bindings": {} } }
+        },
+        {
+          "lhs": "out_regClassID",
+          "rhs": { "op": "aggregate", "args": [], "output_idx": ["o"], "ranges": { "o": { "from": "output_rows" } },
+                   "expr": { "op": "apply_expression_template", "args": [], "name": "null_output_column", "bindings": {} } }
+        },
+        {
+          "lhs": "out_fuelSubTypeID",
+          "rhs": { "op": "aggregate", "args": [], "output_idx": ["o"], "ranges": { "o": { "from": "output_rows" } },
+                   "expr": { "op": "apply_expression_template", "args": [], "name": "null_output_column", "bindings": {} } }
+        },
+        {
+          "lhs": "out_engTechID",
+          "rhs": { "op": "aggregate", "args": [], "output_idx": ["o"], "ranges": { "o": { "from": "output_rows" } },
+                   "expr": { "op": "apply_expression_template", "args": [], "name": "null_output_column", "bindings": {} } }
+        },
+        {
+          "lhs": "out_sectorID",
+          "rhs": { "op": "aggregate", "args": [], "output_idx": ["o"], "ranges": { "o": { "from": "output_rows" } },
+                   "expr": { "op": "apply_expression_template", "args": [], "name": "null_output_column", "bindings": {} } }
+        },
+        {
+          "lhs": "out_hpID",
+          "rhs": { "op": "aggregate", "args": [], "output_idx": ["o"], "ranges": { "o": { "from": "output_rows" } },
+                   "expr": { "op": "apply_expression_template", "args": [], "name": "null_output_column", "bindings": {} } }
+        },
+        {
+          "lhs": "out_emissionQuant",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["o"],
+            "ranges": { "o": { "from": "output_rows" }, "g": { "from": "age_rows" }, "q": { "from": "runspecpollutantprocess_rows" } },
+            "join": [{ "on": [["out_ageOrdinal", "age_ordinal"]] }, { "on": [["out_ppOrdinal", "pp_ordinal"]] }],
+            "expr": { "op": "index", "args": ["cell_emissionQuant", "g", "q"] }
           }
         }
       ],
@@ -1728,6 +2693,112 @@
             { "variable": "pp_adjustment", "time": 0.0, "expected": 0.762555, "coords": { "runspecpollutantprocess_rows": 2 } },
             { "variable": "pp_adjustment", "time": 0.0, "expected": 1.679458, "coords": { "runspecpollutantprocess_rows": 3 } },
             { "variable": "pp_adjustment", "time": 0.0, "expected": 1.0, "coords": { "runspecpollutantprocess_rows": 4 } }
+          ]
+        },
+        {
+          "id": "the_equipment_chain_is_walked_three_times_independently",
+          "description": "§2.4 and §4.5. Growth, the tech mix and the emission rates each walk the [SCC, SCC/1000x1000, SCC/1e6x1e6] chain against their OWN table, and they do not have to agree: here the mix and rate tables both hold rows for the exact SCC while nrgrowthpatternfinder does not -- it has a stateID 99 row for 2260007005 that this run cannot see, so growth falls to 2260007000. A walk that ignored the state scope would take pattern 1018 instead of 2176 and the cross-check below would be off by a factor of three.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "run_growthExactIsPresent", "time": 0.0, "expected": 0.0, "coords": { "run_rows": 1 } },
+            { "variable": "run_growthEffectiveSCC", "time": 0.0, "expected": 2260007000.0, "coords": { "run_rows": 1 } },
+            { "variable": "run_growthEffectiveStateID", "time": 0.0, "expected": 26.0, "coords": { "run_rows": 1 } },
+            { "variable": "run_growthPatternID", "time": 0.0, "expected": 2176.0, "coords": { "run_rows": 1 } },
+            { "variable": "run_mixEffectiveSCC", "time": 0.0, "expected": 2260007005.0, "coords": { "run_rows": 1 } },
+            { "variable": "run_rateEffectiveSCC", "time": 0.0, "expected": 2260007005.0, "coords": { "run_rows": 1 } }
+          ]
+        },
+        {
+          "id": "the_carried_age_distribution_sums_to_the_growth_ratio",
+          "description": "The check that keeps F12's carried column honest. agedist.f's thirty-year fold is a recurrence with no spelling, so `age_grownModelYearFraction` is data -- and a carried column nobody is testing is not a number, it is an assertion. Its sum must be the cumulative growth G(2020)/G(1990), which this document derives from nrgrowthindex through a completely different route: the pattern finder's ladder, then two exact rows of a 50,955-row table. 4.6978169 against 4.6978193, agreeing to 5.2e-07 -- which is where two float32-printed fractions summed in binary64 should land, and far tighter than any modelling error would be.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "tolerance": { "rel": 1e-6 },
+          "assertions": [
+            { "variable": "run_baseGrowthIndex", "time": 0.0, "expected": 321.0, "coords": { "run_rows": 1 } },
+            { "variable": "run_endGrowthIndex", "time": 0.0, "expected": 1508.0, "coords": { "run_rows": 1 } },
+            { "variable": "run_cumulativeGrowthRatio", "time": 0.0, "expected": 4.697819314641745, "coords": { "run_rows": 1 } },
+            { "variable": "age_grownModelYearFractionTotal", "time": 0.0, "expected": 4.697819314641745, "coords": { "run_rows": 1 } }
+          ]
+        },
+        {
+          "id": "the_activity_point_and_its_deterioration_ages",
+          "description": "§6.1's inputs, out of 1,183 nrsourceusetype rows: hpAvg 6.81, 303 hours a year, load factor 0.7, median life 191 full-load hours; cvttmp = 6.81 x 0.7 = 4.767 from unitcf.f's g/hp-hr branch; and detage = (idxyr+1) x 303 x 0.7 / 191 for the three cohorts. All three detages exceed this technology's emissionCap of 1, so §4.1's cap-inside-the-power rule makes every deterioration factor 1 + A here -- which is why §6.2's B = 0.5, cap = 2 point is the one that tests the rule properly, in components/deteriorated_emission_rate.esm.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "run_hpAvg", "time": 0.0, "expected": 6.81, "coords": { "run_rows": 1 } },
+            { "variable": "run_hoursUsedPerYear", "time": 0.0, "expected": 303.0, "coords": { "run_rows": 1 } },
+            { "variable": "run_loadFactor", "time": 0.0, "expected": 0.7, "coords": { "run_rows": 1 } },
+            { "variable": "run_medianLifeFullLoad", "time": 0.0, "expected": 191.0, "coords": { "run_rows": 1 } },
+            { "variable": "run_unitConversion", "time": 0.0, "expected": 4.766999999999999, "coords": { "run_rows": 1 } },
+            { "variable": "age_detAge", "time": 0.0, "expected": 1.1104712041884817, "coords": { "age_rows": 1 } },
+            { "variable": "age_detAge", "time": 0.0, "expected": 2.2209424083769633, "coords": { "age_rows": 2 } },
+            { "variable": "age_detAge", "time": 0.0, "expected": 3.331413612565445, "coords": { "age_rows": 3 } }
+          ]
+        },
+        {
+          "id": "every_cohort_takes_the_2008_technology_mix",
+          "description": "§6.1: the bin carries ten distinct mix years (1900, 1996, 1997, 2002-2008) and the latest at or before every one of 2020, 2019 and 2018 is 2008, where engTechID 125 holds the whole fraction and the other five techs hold 0.00. Taking the LARGEST mix year rather than the latest at or before would give the same answer here and the wrong one for a 1990s cohort; taking the first row would give 1900.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "age_mixYearID", "time": 0.0, "expected": 2008.0, "coords": { "age_rows": 1 } },
+            { "variable": "age_mixYearID", "time": 0.0, "expected": 2008.0, "coords": { "age_rows": 3 } },
+            { "variable": "age_modelYearID", "time": 0.0, "expected": 2020.0, "coords": { "age_rows": 1 } },
+            { "variable": "age_modelYearID", "time": 0.0, "expected": 2018.0, "coords": { "age_rows": 3 } },
+            { "variable": "age_isPopulated", "time": 0.0, "expected": 1.0, "coords": { "age_rows": 3 } }
+          ]
+        },
+        {
+          "id": "the_technology_mix_sums_to_one_for_every_cohort",
+          "description": "The check that the 100-199 engine-technology window is a SUPERSET of the codes the data carries, and that the hp bin and the exhaust process group each admitted exactly one row set. A code outside the window would make this less than 1; a second hp bin joining in would make it 2; the evap rows, which bin hp differently, would do the same. Six technologies share this bin at mix year 2008 and engTechID 125 holds the whole fraction.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "tech_fractionTotal", "time": 0.0, "expected": 1.0, "coords": { "age_rows": 1 } },
+            { "variable": "tech_fractionTotal", "time": 0.0, "expected": 1.0, "coords": { "age_rows": 2 } },
+            { "variable": "tech_fractionTotal", "time": 0.0, "expected": 1.0, "coords": { "age_rows": 3 } },
+            { "variable": "tech_fraction", "time": 0.0, "expected": 1.0, "coords": { "age_rows": 1, "engine_tech_rows": 26 } },
+            { "variable": "tech_fraction", "time": 0.0, "expected": 0.0, "coords": { "age_rows": 1, "engine_tech_rows": 22 } },
+            { "variable": "tech_meanBaseRate", "time": 0.0, "expected": 47.98, "coords": { "runspecpollutantprocess_rows": 1, "engine_tech_rows": 26 } },
+            { "variable": "tech_meanBaseRate", "time": 0.0, "expected": 283.4, "coords": { "runspecpollutantprocess_rows": 2, "engine_tech_rows": 26 } },
+            { "variable": "tech_meanBaseRate", "time": 0.0, "expected": 0.91, "coords": { "runspecpollutantprocess_rows": 3, "engine_tech_rows": 26 } },
+            { "variable": "tech_meanBaseRate", "time": 0.0, "expected": 7.7, "coords": { "runspecpollutantprocess_rows": 4, "engine_tech_rows": 26 } },
+            { "variable": "tech_deteriorationFactor", "time": 0.0, "expected": 1.266, "coords": { "age_rows": 1, "runspecpollutantprocess_rows": 1, "engine_tech_rows": 26 } },
+            { "variable": "tech_deteriorationFactor", "time": 0.0, "expected": 1.231, "coords": { "age_rows": 1, "runspecpollutantprocess_rows": 2, "engine_tech_rows": 26 } },
+            { "variable": "tech_deteriorationFactor", "time": 0.0, "expected": 1.0, "coords": { "age_rows": 1, "runspecpollutantprocess_rows": 3, "engine_tech_rows": 26 } }
+          ]
+        },
+        {
+          "id": "the_twelve_rows_of_the_worked_example_end_to_end",
+          "description": "docs/nonroad-logging-county.md §6.1's results table, recomputed here from seventeen snapshot tables and no transcribed input except agedist.f's three grown fractions (F12). Every value below is this document's binary64 answer; the specification's independently written float32 reproduction prints 269.1395, 1205.139, 6.923390, 44.16037, 71.91162, 322.0022, 1.849867, 11.79925, 4.274964e-06, 1.914222e-05, 1.099699e-07 and 7.014354e-07 for the same twelve cells, and the snapshot's own MOVESOutput agrees with these to 4.0e-06 relative -- which is where its six-significant-figure storage puts it. Asserting the printed digits at this model's rel 1e-12 would fail for the wrong reason; asserting nothing would leave the emitted column untested between fixture runs.\n\nThe three-order spread across model years is the age distribution: MY2018's grown fraction is 5.9e-08 against MY2020's 3.7, and it is the cohort that the `modfrc <= 0` skip drops when this chain is run in binary64 instead of float32 (PLAN.md §1.6.1). It survives here because the fraction is carried, not computed.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "out_emissionQuant", "time": 0.0, "expected": 269.1395238307408, "coords": { "output_rows": 1 } },
+            { "variable": "out_emissionQuant", "time": 0.0, "expected": 1205.1395403479848, "coords": { "output_rows": 2 } },
+            { "variable": "out_emissionQuant", "time": 0.0, "expected": 6.923390114994543, "coords": { "output_rows": 3 } },
+            { "variable": "out_emissionQuant", "time": 0.0, "expected": 44.16036911057204, "coords": { "output_rows": 4 } },
+            { "variable": "out_emissionQuant", "time": 0.0, "expected": 71.9116238258302, "coords": { "output_rows": 5 } },
+            { "variable": "out_emissionQuant", "time": 0.0, "expected": 322.00228360974603, "coords": { "output_rows": 6 } },
+            { "variable": "out_emissionQuant", "time": 0.0, "expected": 1.84986663594629, "coords": { "output_rows": 7 } },
+            { "variable": "out_emissionQuant", "time": 0.0, "expected": 11.799247491744838, "coords": { "output_rows": 8 } },
+            { "variable": "out_emissionQuant", "time": 0.0, "expected": 4.2749635666031645e-06, "coords": { "output_rows": 9 } },
+            { "variable": "out_emissionQuant", "time": 0.0, "expected": 1.914221870623698e-05, "coords": { "output_rows": 10 } },
+            { "variable": "out_emissionQuant", "time": 0.0, "expected": 1.0996987762226844e-07, "coords": { "output_rows": 11 } },
+            { "variable": "out_emissionQuant", "time": 0.0, "expected": 7.014353237622864e-07, "coords": { "output_rows": 12 } }
+          ]
+        },
+        {
+          "id": "the_output_relation_carries_the_moves_key_as_columns",
+          "description": "Twelve rows over one axis, three model years crossed with four pollutant processes, and the key spelled as columns rather than as axes -- because the fixture's key set is ragged across SCCs (3, 4 and 29 model years) and a `ragged` axis reads only its offsets (docs/findings F14). The packed polProcessID is unpacked into the two columns MOVESOutput actually carries.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "out_modelYearID", "time": 0.0, "expected": 2020.0, "coords": { "output_rows": 1 } },
+            { "variable": "out_pollutantID", "time": 0.0, "expected": 1.0, "coords": { "output_rows": 1 } },
+            { "variable": "out_processID", "time": 0.0, "expected": 1.0, "coords": { "output_rows": 1 } },
+            { "variable": "out_pollutantID", "time": 0.0, "expected": 100.0, "coords": { "output_rows": 4 } },
+            { "variable": "out_modelYearID", "time": 0.0, "expected": 2019.0, "coords": { "output_rows": 5 } },
+            { "variable": "out_pollutantID", "time": 0.0, "expected": 2.0, "coords": { "output_rows": 10 } },
+            { "variable": "out_modelYearID", "time": 0.0, "expected": 2018.0, "coords": { "output_rows": 12 } },
+            { "variable": "out_SCC", "time": 0.0, "expected": 2260007005.0, "coords": { "output_rows": 1 } },
+            { "variable": "out_countyID", "time": 0.0, "expected": 26161.0, "coords": { "output_rows": 7 } }
           ]
         }
       ]

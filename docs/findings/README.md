@@ -1,6 +1,6 @@
 # Findings: conventions the format or the toolchain could not express
 
-Seventeen things PLAN.md §3 Phase 1 and Phase 2 assumed, or that an author would
+Eighteen things PLAN.md §3 Phase 1 and Phase 2 assumed, or that an author would
 reasonably assume, that did not hold. Four are now fixed upstream and are listed
 at the bottom, with their sections kept above so the workarounds they forced can
 be traced; the rest still hold at the pinned toolchain (`esm-version.lock`:
@@ -32,6 +32,7 @@ three of them do not load.
 | **F14** | A `ragged` index set ignores its member factor | evaluation | **yes** |
 | **F15** | A `url_template` is neither environment-expanded nor relative | ingest | no |
 | **F16** | A SCALAR variable is not materialized in a document that ingests data | assertion | no |
+| **F17** | A `join.on` between two LARGE data relations is not driven | — | **yes** |
 
 ---
 
@@ -583,6 +584,57 @@ every one-row relation in it would be a scalar if this were fixed.
 **Fix shape.** Whatever `prepare` does for a data-fed document, it drops the
 scalar observeds that the `const` path keeps. The two paths should agree, and
 the `const` one is right.
+
+
+## F17 — a `join.on` between two large relations is not driven
+
+No repro file; `fixtures/nr-logging-county.esm` is the repro, and its history is
+the measurement. **Silent, in the way that matters least often and costs most:
+the answer is right and the run does not end.**
+
+The first form of the fixture's roll-up was one contraction over three data
+relations — `nrengtechfraction` (9,554 rows), `nremissionrate` (55,471) and
+`nrdeterioration` (424) — under `join.on` clauses that reduce it to about 72
+surviving tuples: the mix rows the equipment chain and the cohort's mix year
+select, then one rate row and one deterioration row per (pollutant process,
+technology). It did not finish in twenty-five minutes of wall clock. That
+number is on a shared machine and is not the measurement; the measurement is a
+bisection run back to back, one clause apart, on the same document, the same
+data and the same load:
+
+| contraction | time |
+|---|---|
+| mix only (`age_rows` × `pol` × mix, joined to two small relations) | **3 s** |
+| … plus the join to `nremissionrate` on (SCC, polProcessID, engTechID) | **> 120 s**, killed |
+
+Splitting the composite `on` list into one clause per relation *pair* — which
+is the right spelling anyway, since its three key pairs related three different
+relations and not one composite key — changed nothing. What the two cases
+differ in is the SIZE OF BOTH SIDES: in the fast one every key column on the
+left of a clause lives on a 1-, 3- or 4-row relation, and in the slow one
+`mix_engTechID` is a column of a 9,554-row table probing a 55,471-row one.
+
+**The fix is in the document and it is a better document.** Give the technology
+its own axis — `engine_tech_rows`, the exhaust code space 100–199 that §5.5
+enumerates — and each of the three tables joins to it separately: the mix
+becomes `tech_fraction[cohort, tech]`, the rates `tech_meanBaseRate[pollutant,
+tech]`, the coefficients `tech_deteriorationFactor[cohort, pollutant, tech]`,
+and the roll-up contracts over 100 technologies instead of over a product of
+three tables. **4 seconds**, same answer. `tech_fractionTotal` is the assertion
+that keeps the window honest: the mix must sum to 1 for every cohort, so a code
+outside 100–199 would show up as a number less than 1 rather than as a missing
+row.
+
+**Why this is worth recording rather than filing under "we wrote it better".**
+The scaling gate in `gates/` asserts that a `join.on` contraction costs
+O(matches) and not O(N·M), and it passes — because its driven side is small.
+The gate's claim is therefore narrower than it reads, and this is the case it
+does not cover. Every larger NONROAD fixture joins big tables to big tables.
+
+**Fix shape.** Build the hash index on whichever side of a clause is smaller
+rather than on a fixed one, and choose a join ORDER over the clause set instead
+of taking them as written. A second gate document, contracting two large
+relations, would pin it.
 
 
 ---

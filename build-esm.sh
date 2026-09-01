@@ -34,7 +34,7 @@
 # of them wrong the binary reads NOTHING and says so only by returning each
 # data-fed parameter's `default`, which is a plausible number. That is why
 # run-tests.sh's fixture stage asserts a row COUNT and a key SET and not only a
-# tolerance -- see fixtures/README.md.
+# tolerance -- see docs/esm-conventions.md §11 and §13.
 
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")"
