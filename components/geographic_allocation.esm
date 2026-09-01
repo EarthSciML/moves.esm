@@ -114,9 +114,9 @@
           "type": "unknown", "shape": ["surrogate_target_rows"], "units": "1",
           "description": "Column 3: 1 on the county row of the pair, 0 on the state row. An indicator column, so the numerator and the denominator of the ratio are two contractions over the same relation rather than two filters."
         },
-        "tgt_hasYearAtOrBefore": {
+        "tgt_yearAtOrBeforeCount": {
           "type": "unknown", "shape": ["surrogate_target_rows"], "units": "1",
-          "description": "Whether this (surrogate, FIPS) has any row at or before the episode year — the `vallow` half of getind.f."
+          "description": "How many rows this (surrogate, FIPS) has at or before the episode year — the `vallow` half of getind.f, counted rather than flagged because a count is a number the array runtime carries and a truth value is not."
         },
         "tgt_latestYearAtOrBefore": {
           "type": "unknown", "shape": ["surrogate_target_rows"],
@@ -314,13 +314,13 @@
 
         {
           "_comment": "getind.f, first half: is there a row at or before the episode year? The (surrogateID, countyID) equality is a composite `join.on`; the year comparison is a genuine range predicate and stays in `filter`.",
-          "lhs": "tgt_hasYearAtOrBefore",
+          "lhs": "tgt_yearAtOrBeforeCount",
           "rhs": {
-            "op": "aggregate", "args": [], "semiring": "bool_and_or", "output_idx": ["g"],
+            "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["g"],
             "ranges": { "g": { "from": "surrogate_target_rows" }, "z": { "from": "surrogate_rows" } },
             "join": [ { "on": [["tgt_surrogateID", "sur_surrogateID"], ["tgt_countyID", "sur_countyID"]] } ],
             "filter": { "op": "<=", "args": [{ "op": "index", "args": ["sur_surrogateYearID", "z"] }, "runYearID"] },
-            "expr": { "op": "true", "args": [] }
+            "expr": 1.0
           }
         },
         {
@@ -352,7 +352,7 @@
             "expr": {
               "op": "apply_expression_template", "args": [], "name": "latest_at_or_before_key",
               "bindings": {
-                "has_at_or_before": { "op": "index", "args": ["tgt_hasYearAtOrBefore", "g"] },
+                "has_at_or_before": { "op": ">", "args": [{ "op": "index", "args": ["tgt_yearAtOrBeforeCount", "g"] }, 0.0] },
                 "latest_at_or_before": { "op": "index", "args": ["tgt_latestYearAtOrBefore", "g"] },
                 "earliest_after": { "op": "index", "args": ["tgt_earliestYearAfter", "g"] }
               }

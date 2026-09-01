@@ -1,10 +1,10 @@
 # Findings: conventions the format or the toolchain could not express
 
-Nine things PLAN.md §3 Phase 1 assumed, or that an author would reasonably
-assume, that do not hold at the pinned toolchain (`esm-version.lock`:
+Ten things PLAN.md §3 Phase 1 and Phase 2 assumed, or that an author would
+reasonably assume, that do not hold at the pinned toolchain (`esm-version.lock`:
 EarthSciAST `b680f5301`, EarthSciIO `8e1df2280`, `--features esio,parallel`).
 
-F1–F6 and F9 each have a minimal `.esm` repro in this directory; F7 and F8 are
+F1–F6, F9 and F10 each have a minimal `.esm` repro in this directory; F7 and F8 are
 CLI behaviours rather than documents, and are checked by command against the
 ordinary files of the repo. **Every repro is expected to fail**, and each one's inline test asserts the *intended* behaviour, so a repro
 that starts passing means the defect is fixed. `run-tests.sh` runs them as a
@@ -27,6 +27,7 @@ three of them do not load.
 | **F7** | `esm round-trip` resolves a relative `ref` against the CWD | load | no |
 | **F8** | A layered template library does not round-trip to a self-contained form | re-load | no |
 | **F9** | A relational document evaluates but cannot be written to a file | emit | no |
+| **F10** | The evaluable-core op `true` panics at evaluation | evaluation (panic) | no |
 
 ---
 
@@ -187,6 +188,43 @@ PLAN.md §1.2's "components carry no clock" holds. It is recorded because it mak
 the `D(clock) ~ 0` crutch PLAN.md §1.2 describes look necessary for the wrong
 reason, and because it is a trap for anyone factoring a small pure-arithmetic
 helper out of a calculator.
+
+## F10 — the evaluable-core op `true` panics at evaluation
+
+`F10_true_op_panics_at_eval.esm`. Found while authoring Phase 2's first stage.
+
+```
+$ ./esm validate docs/findings/F10_true_op_panics_at_eval.esm
+✓ Validation passed
+$ ./esm test docs/findings/F10_true_op_panics_at_eval.esm
+thread 'main' panicked at src/simulate_array/eval.rs:340:18:
+internal error: entered unreachable code: operator 'true' reached eval_op
+without an evaluation rule; every entry point must gate with
+check_evaluable() first
+```
+
+`true` is in the **closed** evaluable-core operator set — `esm-schema.json`'s
+`op` description names it in the same breath as `ifelse` and `Pre`, and
+esm-spec §4.2 says every binding's evaluator implements each member of that set
+directly. The panic message is addressed to the implementor rather than the
+author: it says an entry point failed to gate, which means `check_evaluable()`
+does not list `true` even though the schema does. Exit code 101, no diagnostic.
+
+**Impact: small, because the workaround is one character.** The natural body of
+a semi-join under the `bool_and_or` semiring is `true` — *does a matching row
+exist* — and the MOVES port needs semi-joins everywhere a most-specific-match
+key is precomputed (the two SCC fallback ladders, state-default precedence, the
+`getind.f` year rule, the RunSpec sector and fuel selections). Spelled with a
+**numeric** body instead, `"semiring": "bool_and_or"` with `"expr": 1.0`, the
+same aggregate evaluates correctly and yields 1 on a match and 0 on none. That
+is the form every Phase 2 component uses. When this goes green they can say
+`true` and read as what they are.
+
+**Fix shape.** Add `true` to `check_evaluable()`'s accepted set and give
+`eval_op` the one-line rule, or — if the intent is that `true` is structural
+and never evaluated — remove it from the schema's evaluable-core enumeration so
+`validate` rejects it. Either is fine; the present state, where the schema
+promises an evaluator and the evaluator calls `unreachable!()`, is not.
 
 ## F7 — `esm round-trip` resolves refs against the working directory
 
