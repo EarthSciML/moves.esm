@@ -1,16 +1,18 @@
 # Authoring conventions for MOVES `.esm` documents
 
-The representation spine (PLAN.md §3, Phase 1). Every later phase inherits
-these decisions, so this document is the reference and `lib/`, `components/`,
-`runs/` and `gates/` are the worked proof of each one. Where a rule can be
+The representation spine (PLAN.md §3, Phase 1), as amended by the first
+vertical slice (Phase 2). Every later phase inherits these decisions, so this
+document is the reference and `lib/`, `components/`, `runs/` and `gates/` are
+the worked proof of each one. Phase 2 changed four of them and added three;
+each is marked **[Phase 2]** where it appears. Where a rule can be
 checked by a machine it is, in `tools/check-conventions.py`, run by
 `./run-tests.sh` — the rules below that a review would otherwise have to
 eyeball are marked **[checked]**.
 
 Two companions: `docs/nonroad-logging-county.md` is the verified port
 specification these conventions were fitted to, and `docs/findings/README.md`
-records eight things the format or the toolchain will not do, each watched by
-`run-tests.sh`.
+records fourteen things the format or the toolchain will not do, each watched
+by `run-tests.sh`.
 
 ---
 
@@ -51,6 +53,19 @@ the other way:
 * **Prefix every column with its relation.** `rate_polProcessID`,
   `det_polProcessID`. Two relations in one component regularly carry the same
   field name, and a join names both sides.
+* **An output relation carries its key as COLUMNS, never as axes** **[Phase 2]**.
+  This is the same rule, and it is what makes a *ragged* key set expressible.
+  `nr-logging-county`'s 144 rows are 36 `(SCC, modelYearID)` pairs × 4
+  pollutants, and the 36 are not a rectangle: the three SCCs span 3, 4 and 29
+  model years, each set by that equipment point's `nyrlif`. A shared
+  `[SCC × modelYear × pollutant]` grid carries 348 keys against the snapshot's
+  144 — a `require_exact_key_set` failure, and the mirror of the binary64
+  `modfrc ≤ 0` case that emits four too few. `components/movesoutput_aggregation.esm`
+  is one `output_rows` axis with `out_SCC`, `out_modelYearID` and
+  `out_polProcessID` beside the value, so adding the other two SCCs is adding
+  rows. The `ragged` index-set kind the schema advertises for exactly this
+  ignores its own member factor and cannot address a parent's members
+  (finding F14).
 * **A component always has at least one array.** This falls out of the rule, and
   it is load-bearing for a reason unrelated to legibility: a component with only
   scalar variables has no assertable state under `esm test` (finding F6).
@@ -95,6 +110,23 @@ values, in the order the pairs are listed". The author writes the pair list; the
 gate builds the skolem tuple. Several pairs over *different* symbol pairs are
 several gates, which compose by conjunction.
 
+**A semi-join is `bool_and_or` with a numeric body** **[Phase 2]**. *Does a
+matching row exist* is the shape every precomputed key needs — the two SCC
+ladders, state-default precedence, the `getind.f` year rule, the RunSpec sector
+and fuel selections. Spell it `"semiring": "bool_and_or"` with `"expr": 1.0`,
+giving 1 on a match and 0 on none, and bind it at the call site as an explicit
+`> 0` comparison. The honest body, `true`, is in the schema's evaluable-core set
+and panics at evaluation (finding F10).
+
+**A relation cannot be joined to itself** **[Phase 2]**. Two `ranges` over one
+index set leave every key column unresolvable, because resolution is by axis
+(finding F11) — a build error, not a silent zero. Three joins here want a
+self-join: `nrstatesurrogate`'s county row against its state row, the growth
+series against its own previous year, the age walk against the previous age.
+Each materializes a **second relation over a second index set** instead
+(`surrogate_target_rows`, `growth_factor_rows` beside `growth_query_rows`), or
+evaluates the same lookup twice at two arguments.
+
 **An unmatched row contributes the additive identity, and is still emitted.**
 This is not merely a semantic footnote — it is the modelling rule PLAN.md §1.6.1
 settles. The BSFC carrier row in `components/deteriorated_emission_rate.esm` has
@@ -130,6 +162,25 @@ No magic integer appears in an expression. `pollutant.OxidesOfNitrogen → 3`,
 
 There is no bare `301` anywhere in the components' equations, at either end of
 the join.
+
+**An `enums` value must be a POSITIVE integer** **[Phase 2]**
+(`esm-schema.json`: "symbol-to-positive-integer mappings"). Three identifiers in
+this chain are zero — the national-default `stateID`, the default scrappage
+curve's `NREquipTypeID`, and the `hourID` a NONROAD output row carries — and
+none can be an enum. Each is a named `parameter` with the reason in its
+description; `nationalDefaultStateID` is the one that appears most.
+
+**An assembly restates the UNION of its leaves' enums** **[Phase 2] [checked]**.
+`enums` merge across a top-level `models` `{ref}` mount into one registry, first
+declaration wins, and a colliding value is applied **silently** — two leaves
+declaring `probe.Symbol` as 1 and 2 both read 1 (finding F13). Where the winner
+merely lacks a symbol it is loud instead, which is how it surfaces in practice:
+`geographic_allocation.esm` and `fuel_properties.esm` both declare
+`nonroad_fuel_type` and only one has CNG. So an assembly declares every symbol
+every leaf it mounts declares, and `tools/check-conventions.py` compares them
+symbol by symbol — the same conflict check it performs for index sets, for the
+same reason and with more at stake, since a wrong pollutant identifier relabels
+data rather than failing.
 
 **An `enums` block is file-local and does not cross a template import**
 (esm-spec §9.3; finding F3). So each component declares the enums it uses, and a
@@ -191,7 +242,8 @@ template-library files grouped by the stage of the chain that reaches for them:
 | `lib/keys.esm` | `scc_equipment_chain_key`, `scc_lookup_ladder_key`, `state_default_precedence` (§4.5, §4.6) |
 | `lib/emission_factors.esm` | `deterioration_age`, `deterioration_factor` (§4.1), `carbon_balance_ef` (§4.8) |
 | `lib/adjustments.esm` | `exhaust_temperature_adjustment` (§4.2), `oxygenate_adjustment` (§4.3), `im_blend` |
-| `lib/conversion.esm` | `unit_conversion` (§4.4), `temporal_scale` (§4.7) |
+| `lib/conversion.esm` | `unit_conversion` (§4.4), `temporal_scale` (§4.7), `annual_activity_hours`, the unit codes, `CVTTON` and its inverse |
+| `lib/population.esm` **[Phase 2]** | `pop_file_rounding`, `truncate_toward_zero`, `linear_series_interpolation`, `annualized_growth_factor`, `median_life_years`, `year_over_year_scrap_fraction`, `scrappage_sales_growth`, `surviving_equipment` |
 
 A component imports the two or three it uses, with `only` naming them, so the
 import edge documents the dependency.
@@ -212,6 +264,18 @@ import edge documents the dependency.
 * **`temporal_scale` carries both halves.** The `7×` and the `1/ndays` enter the
   engine's product at different places; combining them wrongly double-applies
   the monthly factor, a ≈2.6× error for a 31-day month.
+* **The file-format rules are templates too** **[Phase 2]**. `pop_file_rounding`
+  is the `.POP` file's `%17.1f` and `truncate_toward_zero` the `/GROWTH/`
+  packet's `%20d`. Neither is a precision artefact to be tidied away: the first
+  turns 0.463484 into 0.5, a 7.9% change the snapshot cannot be matched
+  without, and the second decides the SIGN of a near-zero growth factor and
+  with it whether a model year exists. They live in `lib/` under their own
+  names so that a reader meets them as rules rather than as stray arithmetic.
+* **Two namespaces that look alike get different prefixes** **[Phase 2]**. An
+  EMISSION-rate unit (`emission_unit_g_per_hp_hr`) is what `unitcf.f` selects
+  on; an ACTIVITY unit (`activity_unit_hours_per_year`) is what `modyr.f`
+  selects on; the `g/gallon` branch reads both. Phase 1 named the first pair
+  `activity_unit_*`, which was wrong and is renamed.
 * **`lib/` holds template-library files and nothing else** (§9.7.1) **[checked]**.
 
 ## 7. Discrete time is an index-set axis, and `t` is never a loop symbol
@@ -308,6 +372,24 @@ parquet, and the assertions are that document's own worked longhand.
   here declare `rel: 1e-12` at model level, which is a real gate on hand-checked
   arithmetic; `tolerance.toml`'s much looser numbers are for the fixture
   comparison against a `real*4` oracle and are a different question.
+* **An expected value is the binary64 value of the specification's own
+  expression, and the description says how far it sits from the printed one**
+  **[Phase 2]**. `docs/nonroad-logging-county.md` prints float32 figures;
+  binary64 lands within ~4 × 10⁻⁶ of them, which is the snapshot's own
+  six-significant-figure storage precision. Asserting the printed digits at
+  `rel: 1e-12` would fail for the wrong reason, and rounding the assertion to
+  the printed precision would stop catching real drift. Where the spec's prose
+  and its cited code disagree, the code wins and the component says so: two
+  instances so far, `nyrlif` 38 against the code's 39 for §6.3's 750-hour point,
+  and two of §6.2's four printed deterioration factors, which are ~2 × 10⁻⁵ off
+  the arithmetic in both precisions.
+* **A quantity the format cannot compute enters as data, with an independent
+  cross-check** **[Phase 2]**. `agedist.f`'s thirty-year fold is a recurrence
+  and has no spelling (finding F12), so
+  `components/age_distribution.esm` carries its result as a column — and
+  asserts that the column sums to `G(2020)/G(1990)`, which
+  `components/growth_index.esm` derives from the index series by a different
+  route. A carried column without such a check is a number nobody is testing.
 * **A test names *what breaks if this is wrong*, not what it computes.** The
   composite-join test says a single-key join would give 131.86 instead of 60.74;
   the window test says the count would be 16 or 24 instead of 13. A description
@@ -321,9 +403,11 @@ parquet, and the assertions are that document's own worked longhand.
 
 ## 13. What `./run-tests.sh` guarantees
 
-Seven stages, in order: schema `validate`; the conventions above **[checked]**;
-every inline test; `parse → emit → parse` fidelity; the join-gate scaling ratio;
-the known-limitation tripwire; the fixture comparison. It must stay green at every commit, and it must stay
+Nine stages, in order: the comparator's own falsification suite; schema
+`validate`; the conventions above **[checked]**; every inline test;
+`parse → emit → parse` fidelity; the join-gate scaling ratio; the
+known-limitation tripwire; every `data_sources` catalog against the Parquet
+files it names (`tools/check-sources.py`); the fixture comparison. It must stay green at every commit, and it must stay
 *honest* — an empty fixture stage that says why it is empty is worth more than a
 green one that read nothing.
 
@@ -361,3 +445,25 @@ has drifted.
 Note the templates are gone from the rendering — expanded, as §9.6.4 specifies.
 That is the right trade: the *source* stays factored and the *rendering* stays
 checkable against the arithmetic.
+
+## 15. What Phase 2 could not compute, and how the document says so **[Phase 2]**
+
+Three things in the chain are not in the documents because the format or the
+toolchain cannot hold them. Each is a finding with a repro, and each has a
+visible place in the `.esm` rather than a silent substitution.
+
+| | What | Where it shows |
+|---|---|---|
+| **F12** | `agedist.f`'s 30-year fold is a recurrence — no spelling | `components/age_distribution.esm`'s `age_grownModelYearFraction` is a data column, cross-checked against the growth stage's cumulative ratio |
+| **F9** | a relational document cannot be written to a file | nothing emits rows; the chain is proved by inline assertions only |
+| **—** | no `PrepareProvider` in the CLI | every relation is a transcription of the snapshot; `sources/` declares the real tables and is checked against them |
+
+The rule the three share: **say it in the document, at the point where a reader
+would otherwise assume the number was computed.** A carried column's
+description names the finding, the assembly's description names both blockers,
+and the source catalog says what it will prove once ingest lands. A workaround
+that is not written down is indistinguishable from a bug.
+
+The corresponding rule for the *fixture* is PLAN.md §1.6.1's and it has not
+changed: emit every key the joins produce, emit the zero, and do not reproduce
+Fortran control flow that suppresses rows.
