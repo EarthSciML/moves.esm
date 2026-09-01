@@ -1,0 +1,62 @@
+{
+  "esm": "1.0.0",
+  "metadata": {
+    "name": "moves.adjustments",
+    "description": "Template library: the multiplicative adjustments applied to a zero-hour emission factor. `exhaust_temperature_adjustment` is docs/nonroad-logging-county.md §4.2 — an EXPONENTIAL of a piecewise-selected coefficient, exp((T <= 75 ? a_cold : a_hot) * (T - 75)), NOT the quadratic an earlier draft of PLAN.md called it; it is instantiated six ways (three pollutants x two gasoline stroke counts) and the 2-stroke instantiations carry both coefficients 0, so no branch is needed to switch it off. `oxygenate_adjustment` is §4.3, with the sign kept inside the coefficient exactly as exhaust.rs:606-625 keeps it (NOx uses c = -0.115, so `1 - c*oxy` grows), which is what lets one template serve all six instantiations. `im_blend` is the onroad inspection/maintenance blend PLAN.md §3 names; it is not exercised by the NONROAD slice but is the same shape and belongs beside the others.",
+    "authors": ["EarthSciML Authors and Contributors"],
+    "tags": ["moves", "nonroad", "onroad", "adjustments", "template-library"]
+  },
+  "expression_templates": {
+    "exhaust_temperature_reference": {
+      "params": [],
+      "body": 75.0
+    },
+    "exhaust_temperature_adjustment": {
+      "params": ["a_cold", "a_hot", "temperature"],
+      "body": {
+        "op": "exp",
+        "args": [
+          {
+            "op": "*",
+            "args": [
+              {
+                "op": "ifelse",
+                "args": [
+                  { "op": "<=", "args": ["temperature",
+                    { "op": "apply_expression_template", "args": [], "name": "exhaust_temperature_reference", "bindings": {} }] },
+                  "a_cold",
+                  "a_hot"
+                ]
+              },
+              { "op": "-", "args": ["temperature",
+                { "op": "apply_expression_template", "args": [], "name": "exhaust_temperature_reference", "bindings": {} }] }
+            ]
+          }
+        ]
+      }
+    },
+    "oxygenate_adjustment": {
+      "params": ["coefficient", "oxygen_weight_percent"],
+      "body": {
+        "op": "-",
+        "args": [1.0, { "op": "*", "args": ["coefficient", "oxygen_weight_percent"] }]
+      }
+    },
+    "im_blend": {
+      "params": ["rate_im", "fraction_im", "rate_base"],
+      "body": {
+        "op": "max",
+        "args": [
+          {
+            "op": "+",
+            "args": [
+              { "op": "*", "args": ["rate_im", "fraction_im"] },
+              { "op": "*", "args": ["rate_base", { "op": "-", "args": [1.0, "fraction_im"] }] }
+            ]
+          },
+          0.0
+        ]
+      }
+    }
+  }
+}

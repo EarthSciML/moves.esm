@@ -1,0 +1,78 @@
+{
+  "esm": "1.0.0",
+  "metadata": {
+    "name": "moves.emission_factors",
+    "description": "Template library: the NONROAD zero-hour emission factor and its age adjustment — docs/nonroad-logging-county.md §4.1 (`deterioration_factor`, the single most-reused expression in the chain, applied to every (pollutant, tech, model year) cell) and §4.8 (`carbon_balance_ef`). Two things this encoding gets right that a careless one does not: the age CAP applies to the age ARGUMENT, before the power (capping the product instead is wrong wherever B != 1, i.e. every 4-stroke tech here), and `det_age` is a FRACTION OF MEDIAN LIFE CONSUMED, not a number of years. With coefficient A = 0 the factor collapses to 1, which is how NOx deterioration is switched off for 2-stroke techs — no special case is needed anywhere.",
+    "authors": ["EarthSciML Authors and Contributors"],
+    "tags": ["moves", "nonroad", "emission-factors", "template-library"]
+  },
+  "expression_templates": {
+    "grams_per_pound": {
+      "params": [],
+      "body": 453.6
+    },
+    "co2_mass_per_carbon_mass": {
+      "params": [],
+      "body": { "op": "/", "args": [44.0, 12.0] }
+    },
+    "deterioration_age": {
+      "params": ["age_index", "hours_used_per_year", "load_factor", "median_life_full_load"],
+      "body": {
+        "op": "/",
+        "args": [
+          {
+            "op": "*",
+            "args": [
+              { "op": "+", "args": ["age_index", 1] },
+              "hours_used_per_year",
+              "load_factor"
+            ]
+          },
+          "median_life_full_load"
+        ]
+      }
+    },
+    "deterioration_factor": {
+      "params": ["coefficient_a", "age_exponent_b", "age_cap", "det_age"],
+      "body": {
+        "op": "+",
+        "args": [
+          1.0,
+          {
+            "op": "*",
+            "args": [
+              "coefficient_a",
+              {
+                "op": "^",
+                "args": [
+                  { "op": "min", "args": ["det_age", "age_cap"] },
+                  "age_exponent_b"
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "carbon_balance_ef": {
+      "params": ["hp_avg", "load_factor", "bsfc", "thc_mass", "carbon_mass_fraction"],
+      "body": {
+        "op": "*",
+        "args": [
+          "hp_avg",
+          "load_factor",
+          {
+            "op": "-",
+            "args": [
+              { "op": "*", "args": ["bsfc",
+                { "op": "apply_expression_template", "args": [], "name": "grams_per_pound", "bindings": {} }] },
+              { "op": "/", "args": ["thc_mass", { "op": "*", "args": ["hp_avg", "load_factor"] }] }
+            ]
+          },
+          "carbon_mass_fraction",
+          { "op": "apply_expression_template", "args": [], "name": "co2_mass_per_carbon_mass", "bindings": {} }
+        ]
+      }
+    }
+  }
+}

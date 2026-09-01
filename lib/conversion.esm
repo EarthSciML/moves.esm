@@ -1,0 +1,67 @@
+{
+  "esm": "1.0.0",
+  "metadata": {
+    "name": "moves.conversion",
+    "description": "Template library: the two conversions that stand between an emission FACTOR and an emission MASS — docs/nonroad-logging-county.md §4.4 (`unit_conversion`, unitcf.f) and §4.7 (`temporal_scale`). `unit_conversion` selects on an activity-unit code; only the g/hp-hr branch fires in nr-logging-county, but the other NONROAD sectors use g/gallon and g/day, so the whole shape belongs here rather than being inlined at the one site that needs it today. The codes are zero-parameter constant-fragment templates (esm-spec §9.6.1) rather than an `enums` block, because an `enums` block is file-local and does not cross an import edge (docs/esm-conventions.md §6, finding F3). `temporal_scale` carries a trap worth naming: the 7x and the 1/ndays enter the engine's product SEPARATELY (adjustment_time = 1/ndays inside emstmp, tpltmp2 = mthf*dayf outside), and combining them wrongly double-applies the monthly factor — a ~2.6x error for a 31-day month, spelled out at moves.rs executor.rs:1513-1519. They are one template here so that they are applied once, together, in one place.",
+    "authors": ["EarthSciML Authors and Contributors"],
+    "tags": ["moves", "nonroad", "units", "temporal", "template-library"]
+  },
+  "expression_templates": {
+    "activity_unit_g_per_hp_hr": { "params": [], "body": 1 },
+    "activity_unit_g_per_gallon": { "params": [], "body": 2 },
+    "days_per_week": { "params": [], "body": 7.0 },
+    "unit_conversion": {
+      "params": ["unit_code", "hp_avg", "load_factor", "activity_is_volumetric", "fuel_density", "bsfc"],
+      "body": {
+        "op": "ifelse",
+        "args": [
+          { "op": "==", "args": ["unit_code",
+            { "op": "apply_expression_template", "args": [], "name": "activity_unit_g_per_hp_hr", "bindings": {} }] },
+          { "op": "*", "args": ["hp_avg", "load_factor"] },
+          {
+            "op": "ifelse",
+            "args": [
+              { "op": "==", "args": ["unit_code",
+                { "op": "apply_expression_template", "args": [], "name": "activity_unit_g_per_gallon", "bindings": {} }] },
+              {
+                "op": "ifelse",
+                "args": [
+                  "activity_is_volumetric",
+                  1.0,
+                  {
+                    "op": "ifelse",
+                    "args": [
+                      { "op": "==", "args": ["fuel_density", 0.0] },
+                      0.0,
+                      { "op": "/", "args": [
+                        { "op": "*", "args": ["bsfc", "load_factor", "hp_avg"] },
+                        "fuel_density"] }
+                    ]
+                  }
+                ]
+              },
+              1.0
+            ]
+          }
+        ]
+      }
+    },
+    "temporal_scale": {
+      "params": ["month_fraction", "day_fraction", "days_in_month"],
+      "body": {
+        "op": "/",
+        "args": [
+          {
+            "op": "*",
+            "args": [
+              "month_fraction",
+              { "op": "apply_expression_template", "args": [], "name": "days_per_week", "bindings": {} },
+              "day_fraction"
+            ]
+          },
+          "days_in_month"
+        ]
+      }
+    }
+  }
+}
