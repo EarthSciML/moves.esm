@@ -1,0 +1,784 @@
+{
+  "esm": "1.0.0",
+  "metadata": {
+    "name": "ExhaustEmissionFactors",
+    "description": "Stage 4 of the nr-logging-county chain: the tech mix and the zero-hour emission factors it selects. Ports joins J11, J12 and J13 of docs/nonroad-logging-county.md §3 and the two-separate-files model of §2.4 (emfclc.f, build_entries_from_mix at nonroad_loader.rs:374-507). Its output feeds components/deteriorated_emission_rate.esm, which applies J14's (A, B, cap).\n\nTWO SEARCHES, NOT ONE. The tech mix defines WHICH techs exist for an equipment point, and each tech's rates are then looked up INDEPENDENTLY -- same SCC chain, own hp binning. Mixes and rates key at different SCC levels for the same equipment, so a port that resolved the chain once and reused it would silently read another SCC's rates. Both searches are here, with their own presence columns and their own effective key.\n\nTHE HP TEST IS A RANGE PREDICATE. hpMin <= hpAvg <= hpMax, both bounds inclusive (hp_pick, nonroad_loader.rs:357-362). It is a `filter` in every aggregate below and never a `join.on`, which is the docs/esm-conventions.md §3 distinction: the SCC and the tech are ON clauses, the horsepower is a predicate. The chain-stop rule is what the presence columns encode -- for this equipment point the family root 2260000000 ALSO has a covering bin (6-25 hp, techs 127-135), so `the first chain element with a covering bin wins` is doing real work, not defaulting.\n\nprocessGroupID = 1 IS EXHAUST. The snapshot's own evap row for this SCC (processGroupID 2, engTechID 1001, hp bin 6-11, fraction 1.0) is carried here unfiltered so the join has something to exclude: admit it and the equipment point acquires a tech with a full mix fraction and no exhaust rate at all.\n\nTHE MIX YEAR IS A SELECTION. ExhaustTechEntry::fractions_for_year (inputs.rs:196-207) takes the exact year, else the LATEST year at or below it, else the earliest -- the same shape as getind.f's surrogate year, so it is the same lib/keys.esm template. The requested year is min(modelYear, techYear) (executor.rs:1449).\n\nRMISS IS NOT ZERO. A tech with a non-zero mix fraction and no rate row gets -9.0, not 0 (exhaust.rs:807-823), so the missing factor propagates visibly; a tech whose fraction is zero is left at zero silently. The synthetic mix row at 1998 exists to make that distinction testable, since every real tech of this bin has rates.\n\nAll rate and mix rows are the snapshot's for SCC 2260007005 and hpAvg 6.81, except the marked synthetic one. The zero-fraction mix rows of the same bin are omitted: they contribute nothing to any product and there are 39 of them.",
+    "authors": ["EarthSciML Authors and Contributors"],
+    "tags": ["moves", "nonroad", "emission-factors", "tech-mix", "component"]
+  },
+
+  "enums": {
+    "pollutant": {
+      "TotalGaseousHydrocarbons": 1,
+      "CarbonMonoxide": 2,
+      "OxidesOfNitrogen": 3,
+      "PrimaryExhaustPM10Total": 100,
+      "BrakeSpecificFuelConsumption": 99
+    },
+    "process": { "RunningExhaust": 1 },
+    "process_group": { "Exhaust": 1, "Evaporative": 2 },
+    "engine_technology": {
+      "G2H5": 121, "G2H51": 123, "G2H5C1": 124, "G2H52": 125,
+      "SyntheticRatelessTech": 199, "EvapHandheld": 1001, "G4NonHandheld134": 134
+    }
+  },
+
+  "index_sets": {
+    "equipment_hp_point_rows": { "kind": "interval", "size": 1 },
+    "tech_mix_rows": { "kind": "interval", "size": 23 },
+    "emission_rate_rows": { "kind": "interval", "size": 25 },
+    "engine_tech_rows": { "kind": "interval", "size": 5 },
+    "mix_model_year_rows": { "kind": "interval", "size": 6 },
+    "pollutant_process_rows": { "kind": "interval", "size": 5 },
+    "exhaust_process_group_rows": { "kind": "interval", "size": 1 }
+  },
+
+  "coordinates": {
+    "factor_pol_process": {
+      "source": "pp_polProcessID",
+      "standard_name": "pollutant_process_identifier"
+    },
+    "factor_model_year": {
+      "source": "my_modelYearID",
+      "standard_name": "model_year"
+    }
+  },
+
+  "models": {
+    "ExhaustEmissionFactors": {
+      "expression_template_imports": [
+        { "ref": "../lib/identifiers.esm", "only": ["scc_zero_tail", "pol_process_id"] },
+        { "ref": "../lib/keys.esm", "only": ["scc_equipment_chain_key", "latest_at_or_before_key"] },
+        { "ref": "../lib/emission_factors.esm", "only": ["missing_value_flag"] }
+      ],
+
+      "tolerance": { "rel": 1e-12 },
+
+      "variables": {
+        "hpAvg": {
+          "type": "parameter", "units": "1", "default": 6.81,
+          "description": "nrsourceusetype.hpAvg for the equipment point, in horsepower — a unit the registry has no name for. Overriding it is how the tests move the point between hp bins."
+        },
+        "techYearID": {
+          "type": "parameter", "units": "1", "default": 2020.0,
+          "description": "options.tech_year, the cap on the mix year a model year may request (executor.rs:1449). Equal to the episode year here."
+        },
+
+        "pt_SCC": {
+          "type": "unknown", "shape": ["equipment_hp_point_rows"],
+          "description": "The equipment point's SCC, as a one-row relation rather than a scalar so that every chain lookup below is a column-to-column `join.on` instead of an equality against a constant."
+        },
+        "pt_hpAvg": {
+          "type": "unknown", "shape": ["equipment_hp_point_rows"], "units": "1",
+          "description": "Its average horsepower, the value the bin predicates test."
+        },
+        "pt_sccEquipmentRoot": {
+          "type": "unknown", "shape": ["equipment_hp_point_rows"],
+          "description": "SCC[0..7] ++ \"000\": the equipment chain's second rung (nonroad_loader.rs:816-824)."
+        },
+        "pt_sccFamilyRoot": {
+          "type": "unknown", "shape": ["equipment_hp_point_rows"],
+          "description": "SCC[0..4] ++ \"000000\": its third."
+        },
+
+        "mix_SCC": {
+          "type": "unknown", "shape": ["tech_mix_rows"],
+          "description": "nrengtechfraction.SCC. Column 1."
+        },
+        "mix_hpMin": {
+          "type": "unknown", "shape": ["tech_mix_rows"], "units": "1",
+          "description": "nrengtechfraction.hpMin. Column 2, inclusive."
+        },
+        "mix_hpMax": {
+          "type": "unknown", "shape": ["tech_mix_rows"], "units": "1",
+          "description": "nrengtechfraction.hpMax. Column 3, inclusive. The evap rows bin differently from the exhaust ones, which is why the processGroup join cannot be skipped on the grounds that the hp bin would exclude them."
+        },
+        "mix_modelYearID": {
+          "type": "unknown", "shape": ["tech_mix_rows"],
+          "description": "nrengtechfraction.modelYearID. Column 4: the year this mix applies FROM, 1900 meaning `all earlier`."
+        },
+        "mix_processGroupID": {
+          "type": "unknown", "shape": ["tech_mix_rows"],
+          "description": "nrengtechfraction.processGroupID. Column 5: 1 exhaust, 2 evap (nonroad_loader.rs:352-354)."
+        },
+        "mix_engTechID": {
+          "type": "unknown", "shape": ["tech_mix_rows"],
+          "description": "nrengtechfraction.engTechID. Column 6."
+        },
+        "mix_fraction": {
+          "type": "unknown", "shape": ["tech_mix_rows"], "units": "1",
+          "description": "nrengtechfraction.NREngTechFraction. Column 7: the share of this model year's equipment carrying this technology."
+        },
+
+        "emr_SCC": {
+          "type": "unknown", "shape": ["emission_rate_rows"],
+          "description": "nremissionrate.SCC. Column 1."
+        },
+        "emr_hpMin": {
+          "type": "unknown", "shape": ["emission_rate_rows"], "units": "1",
+          "description": "nremissionrate.hpMin. Column 2."
+        },
+        "emr_hpMax": {
+          "type": "unknown", "shape": ["emission_rate_rows"], "units": "1",
+          "description": "nremissionrate.hpMax. Column 3."
+        },
+        "emr_engTechID": {
+          "type": "unknown", "shape": ["emission_rate_rows"],
+          "description": "nremissionrate.engTechID. Column 4."
+        },
+        "emr_polProcessID": {
+          "type": "unknown", "shape": ["emission_rate_rows"],
+          "description": "nremissionrate.polProcessID. Column 5. 9901 is the BSFC carrier of J13, in the same relation and read by the same join."
+        },
+        "emr_meanBaseRate": {
+          "type": "unknown", "shape": ["emission_rate_rows"], "units": "1",
+          "description": "nremissionrate.meanBaseRate. Column 6. Native units g/hp-hr for the four pollutants and pounds of fuel per hp-hour for the BSFC carrier, neither of which the unit registry can spell."
+        },
+
+        "tech_engTechID": {
+          "type": "unknown", "shape": ["engine_tech_rows"],
+          "description": "The equipment point's technology list. In the engine this is the DISTINCT engTechID set of the chosen mix bin, truncated at MXTECH = 32; the format cannot materialize a distinct set as an axis (docs/findings F5), so it is declared and the mix join is what gives each entry its fraction."
+        },
+        "my_modelYearID": {
+          "type": "unknown", "shape": ["mix_model_year_rows"],
+          "description": "The model years this component reports a mix for. Rows 1-3 are the fixture's for this SCC; rows 4-6 are probes of the mix-year rule."
+        },
+        "my_requestedMixYear": {
+          "type": "unknown", "shape": ["mix_model_year_rows"],
+          "description": "min(modelYearID, techYearID): a model year later than the tech year still reads the tech year's mix (executor.rs:1449)."
+        },
+        "pp_polProcessID": {
+          "type": "unknown", "shape": ["pollutant_process_rows"],
+          "description": "The pollutant processes this run selects, plus the BSFC carrier. Built from the packed pair, never written as an integer."
+        },
+        "pg_processGroupID": {
+          "type": "unknown", "shape": ["exhaust_process_group_rows"],
+          "description": "The process group the exhaust path reads: 1."
+        },
+
+        "mix_exactBinIsPresent": {
+          "type": "unknown", "shape": ["equipment_hp_point_rows"], "units": "1",
+          "description": "Semi-join: does nrengtechfraction have an exhaust bin covering this hp at the exact SCC?"
+        },
+        "mix_equipmentRootBinIsPresent": {
+          "type": "unknown", "shape": ["equipment_hp_point_rows"], "units": "1",
+          "description": "The same at the chain's second rung."
+        },
+        "pt_mixEffectiveSCC": {
+          "type": "unknown", "shape": ["equipment_hp_point_rows"],
+          "description": "The mix table's effective SCC key for this point."
+        },
+        "emr_exactBinIsPresent": {
+          "type": "unknown", "shape": ["equipment_hp_point_rows"], "units": "1",
+          "description": "The same question against nremissionrate — asked separately, because the two tables key at different levels for the same equipment."
+        },
+        "emr_equipmentRootBinIsPresent": {
+          "type": "unknown", "shape": ["equipment_hp_point_rows"], "units": "1",
+          "description": "Second rung."
+        },
+        "emr_familyRootBinIsPresent": {
+          "type": "unknown", "shape": ["equipment_hp_point_rows"], "units": "1",
+          "description": "Third rung. It is 1 for this point — 2260000000 has a 6-25 hp bin — which is what makes `first rung wins` a decision rather than a default."
+        },
+        "pt_rateEffectiveSCC": {
+          "type": "unknown", "shape": ["equipment_hp_point_rows"],
+          "description": "The rate table's effective SCC key."
+        },
+
+        "my_mixYearAtOrBeforeIsPresent": {
+          "type": "unknown", "shape": ["mix_model_year_rows"], "units": "1",
+          "description": "Is there a tabulated mix year at or below the requested one?"
+        },
+        "my_latestMixYearAtOrBefore": {
+          "type": "unknown", "shape": ["mix_model_year_rows"],
+          "description": "The latest such year."
+        },
+        "my_earliestMixYear": {
+          "type": "unknown", "shape": ["mix_model_year_rows"],
+          "description": "The bin's earliest tabulated year, the fallback for a model year below all of them."
+        },
+        "my_effectiveMixYear": {
+          "type": "unknown", "shape": ["mix_model_year_rows"],
+          "description": "Which mix year this model year reads. Precomputing it keeps J11 a plain equi-join."
+        },
+
+        "techFraction": {
+          "type": "unknown", "shape": ["mix_model_year_rows", "engine_tech_rows"], "units": "1",
+          "description": "J11's output: the share of this model year's equipment carrying each technology. Rows of the mix relation that the hp, process-group or year keys exclude contribute the additive identity, so an unused tech reads 0 rather than being absent."
+        },
+        "zeroHourRate": {
+          "type": "unknown", "shape": ["engine_tech_rows", "pollutant_process_rows"], "units": "1",
+          "description": "J12 and J13's output: the zero-hour emission factor per (technology, pollutant process), and the BSFC carrier in the same array because it is the same relation and the same join."
+        },
+        "rateIsPresent": {
+          "type": "unknown", "shape": ["engine_tech_rows", "pollutant_process_rows"], "units": "1",
+          "description": "Whether the join found a rate at all — the difference between a rate of zero and no rate, which zeroHourRate alone cannot express."
+        },
+        "emissionFactor": {
+          "type": "unknown", "shape": ["mix_model_year_rows", "engine_tech_rows", "pollutant_process_rows"], "units": "1",
+          "description": "The stage's output: the rate where one exists, RMISS = -9 where a tech with a non-zero mix fraction has none, and 0 where the tech is not used in that model year (exhaust.rs:807-823)."
+        }
+      },
+
+      "equations": [
+        {
+          "lhs": "pt_SCC",
+          "rhs": { "op": "const", "args": [], "value": [2260007005] }
+        },
+        {
+          "lhs": "pt_hpAvg",
+          "rhs": { "op": "makearray", "args": [], "regions": [[[1, 1]]], "values": ["hpAvg"] }
+        },
+        {
+          "lhs": "pt_sccEquipmentRoot",
+          "rhs": { "op": "aggregate", "args": [], "output_idx": ["q"],
+            "ranges": { "q": { "from": "equipment_hp_point_rows" } },
+            "expr": { "op": "apply_expression_template", "args": [], "name": "scc_zero_tail",
+              "bindings": { "scc": { "op": "index", "args": ["pt_SCC", "q"] }, "tail_scale": 1000 } } }
+        },
+        {
+          "lhs": "pt_sccFamilyRoot",
+          "rhs": { "op": "aggregate", "args": [], "output_idx": ["q"],
+            "ranges": { "q": { "from": "equipment_hp_point_rows" } },
+            "expr": { "op": "apply_expression_template", "args": [], "name": "scc_zero_tail",
+              "bindings": { "scc": { "op": "index", "args": ["pt_SCC", "q"] }, "tail_scale": 1000000 } } }
+        },
+
+        {
+          "_comment": "nrengtechfraction: the 21 non-zero exhaust rows of SCC 2260007005's only bin, the snapshot's own evap row (processGroupID 2, hp bin 6-11, engTechID 1001), and one synthetic exhaust row at 1998 whose technology has no rate anywhere -- the RMISS probe.",
+          "lhs": "mix_SCC",
+          "rhs": { "op": "const", "args": [],
+            "value": [2260007005, 2260007005, 2260007005, 2260007005, 2260007005, 2260007005,
+                      2260007005, 2260007005, 2260007005, 2260007005, 2260007005, 2260007005,
+                      2260007005, 2260007005, 2260007005, 2260007005, 2260007005, 2260007005,
+                      2260007005, 2260007005, 2260007005,
+                      2260007005,
+                      2260007005] }
+        },
+        {
+          "lhs": "mix_hpMin",
+          "rhs": { "op": "const", "args": [],
+            "value": [6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6,
+                      6,
+                      6] }
+        },
+        {
+          "lhs": "mix_hpMax",
+          "rhs": { "op": "const", "args": [],
+            "value": [9999, 9999, 9999, 9999, 9999, 9999, 9999, 9999, 9999, 9999, 9999,
+                      9999, 9999, 9999, 9999, 9999, 9999, 9999, 9999, 9999, 9999,
+                      11,
+                      9999] }
+        },
+        {
+          "lhs": "mix_modelYearID",
+          "rhs": { "op": "const", "args": [],
+            "value": [1900, 1996, 1996, 1996, 1997, 1997, 2002, 2002, 2003, 2003,
+                      2004, 2004, 2004, 2005, 2005, 2005, 2006, 2006, 2006, 2007, 2008,
+                      1900,
+                      1998] }
+        },
+        {
+          "lhs": "mix_processGroupID",
+          "rhs": { "op": "makearray", "args": [],
+            "regions": [[[1, 21]], [[22, 22]], [[23, 23]]],
+            "values": [
+              { "op": "enum", "args": ["process_group", "Exhaust"] },
+              { "op": "enum", "args": ["process_group", "Evaporative"] },
+              { "op": "enum", "args": ["process_group", "Exhaust"] }
+            ] }
+        },
+        {
+          "lhs": "mix_engTechID",
+          "rhs": { "op": "makearray", "args": [],
+            "regions": [[[1, 2]], [[3, 3]], [[4, 4]], [[5, 5]], [[6, 6]], [[7, 7]], [[8, 8]],
+                        [[9, 9]], [[10, 10]], [[11, 11]], [[12, 12]], [[13, 13]], [[14, 14]],
+                        [[15, 15]], [[16, 16]], [[17, 17]], [[18, 18]], [[19, 19]], [[20, 21]],
+                        [[22, 22]], [[23, 23]]],
+            "values": [
+              { "op": "enum", "args": ["engine_technology", "G2H5"] },
+              { "op": "enum", "args": ["engine_technology", "G2H51"] },
+              { "op": "enum", "args": ["engine_technology", "G2H5C1"] },
+              { "op": "enum", "args": ["engine_technology", "G2H51"] },
+              { "op": "enum", "args": ["engine_technology", "G2H5C1"] },
+              { "op": "enum", "args": ["engine_technology", "G2H51"] },
+              { "op": "enum", "args": ["engine_technology", "G2H5C1"] },
+              { "op": "enum", "args": ["engine_technology", "G2H51"] },
+              { "op": "enum", "args": ["engine_technology", "G2H5C1"] },
+              { "op": "enum", "args": ["engine_technology", "G2H51"] },
+              { "op": "enum", "args": ["engine_technology", "G2H5C1"] },
+              { "op": "enum", "args": ["engine_technology", "G2H52"] },
+              { "op": "enum", "args": ["engine_technology", "G2H51"] },
+              { "op": "enum", "args": ["engine_technology", "G2H5C1"] },
+              { "op": "enum", "args": ["engine_technology", "G2H52"] },
+              { "op": "enum", "args": ["engine_technology", "G2H51"] },
+              { "op": "enum", "args": ["engine_technology", "G2H5C1"] },
+              { "op": "enum", "args": ["engine_technology", "G2H52"] },
+              { "op": "enum", "args": ["engine_technology", "G2H52"] },
+              { "op": "enum", "args": ["engine_technology", "EvapHandheld"] },
+              { "op": "enum", "args": ["engine_technology", "SyntheticRatelessTech"] }
+            ] }
+        },
+        {
+          "lhs": "mix_fraction",
+          "rhs": { "op": "const", "args": [],
+            "value": [1.0, 0.5, 0.495, 0.005, 0.99, 0.01, 0.99, 0.01, 0.99, 0.01,
+                      0.7425, 0.0075, 0.25, 0.495, 0.005, 0.5, 0.2475, 0.0025, 0.75, 1.0, 1.0,
+                      1.0,
+                      1.0] }
+        },
+
+        {
+          "_comment": "nremissionrate: the four technologies of SCC 2260007005's 6-9999 hp bin that any mix year uses, five pollutant processes each, all modelYearID 1900. The last five rows are the family root's technology 134 in its 6-25 hp bin -- real rows, real coverage of 6.81 hp, and the reason the chain-stop test is not vacuous.",
+          "lhs": "emr_SCC",
+          "rhs": { "op": "const", "args": [],
+            "value": [2260007005, 2260007005, 2260007005, 2260007005, 2260007005,
+                      2260007005, 2260007005, 2260007005, 2260007005, 2260007005,
+                      2260007005, 2260007005, 2260007005, 2260007005, 2260007005,
+                      2260007005, 2260007005, 2260007005, 2260007005, 2260007005,
+                      2260000000, 2260000000, 2260000000, 2260000000, 2260000000] }
+        },
+        {
+          "lhs": "emr_hpMin",
+          "rhs": { "op": "const", "args": [],
+            "value": [6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6,
+                      6, 6, 6, 6, 6] }
+        },
+        {
+          "lhs": "emr_hpMax",
+          "rhs": { "op": "const", "args": [],
+            "value": [9999, 9999, 9999, 9999, 9999, 9999, 9999, 9999, 9999, 9999,
+                      9999, 9999, 9999, 9999, 9999, 9999, 9999, 9999, 9999, 9999,
+                      25, 25, 25, 25, 25] }
+        },
+        {
+          "lhs": "emr_engTechID",
+          "rhs": { "op": "makearray", "args": [],
+            "regions": [[[1, 5]], [[6, 10]], [[11, 15]], [[16, 20]], [[21, 25]]],
+            "values": [
+              { "op": "enum", "args": ["engine_technology", "G2H5"] },
+              { "op": "enum", "args": ["engine_technology", "G2H51"] },
+              { "op": "enum", "args": ["engine_technology", "G2H5C1"] },
+              { "op": "enum", "args": ["engine_technology", "G2H52"] },
+              { "op": "enum", "args": ["engine_technology", "G4NonHandheld134"] }
+            ] }
+        },
+        {
+          "_comment": "The rate relation is laid out as five technology blocks of the same five pollutant processes, in the order pp_polProcessID declares them, so this column is that relation read cyclically: row r takes pollutant-process ((r-1) mod 5) + 1. Writing the packed pairs out twenty-five times would say the same thing five times over, and would let the two orders drift apart.",
+          "lhs": "emr_polProcessID",
+          "rhs": { "op": "aggregate", "args": [], "output_idx": ["r"],
+            "ranges": { "r": { "from": "emission_rate_rows" } },
+            "expr": { "op": "index", "args": ["pp_polProcessID",
+              { "op": "-", "args": ["r", { "op": "*", "args": [5, { "op": "floor", "args": [{ "op": "/", "args": [{ "op": "-", "args": ["r", 1] }, 5] }] }] }] }] } }
+        },
+        {
+          "lhs": "emr_meanBaseRate",
+          "rhs": { "op": "const", "args": [],
+            "value": [159.58, 519.0, 0.969, 7.70, 0.921,
+                      120.06, 351.0, 1.817, 7.70, 0.870,
+                      120.06, 351.0, 1.817, 7.70, 0.870,
+                      47.98, 283.4, 0.910, 7.70, 0.608,
+                      3.17, 321.9, 1.007, 0.060, 0.735] }
+        },
+
+        {
+          "lhs": "tech_engTechID",
+          "rhs": { "op": "makearray", "args": [],
+            "regions": [[[1, 1]], [[2, 2]], [[3, 3]], [[4, 4]], [[5, 5]]],
+            "values": [
+              { "op": "enum", "args": ["engine_technology", "G2H5"] },
+              { "op": "enum", "args": ["engine_technology", "G2H51"] },
+              { "op": "enum", "args": ["engine_technology", "G2H5C1"] },
+              { "op": "enum", "args": ["engine_technology", "G2H52"] },
+              { "op": "enum", "args": ["engine_technology", "SyntheticRatelessTech"] }
+            ] }
+        },
+        {
+          "lhs": "my_modelYearID",
+          "rhs": { "op": "const", "args": [], "value": [2020, 2019, 2018, 2005, 1998, 1995] }
+        },
+        {
+          "lhs": "my_requestedMixYear",
+          "rhs": { "op": "aggregate", "args": [], "output_idx": ["y"],
+            "ranges": { "y": { "from": "mix_model_year_rows" } },
+            "expr": { "op": "min", "args": [{ "op": "index", "args": ["my_modelYearID", "y"] }, "techYearID"] } }
+        },
+        {
+          "lhs": "pp_polProcessID",
+          "rhs": { "op": "makearray", "args": [],
+            "regions": [[[1, 1]], [[2, 2]], [[3, 3]], [[4, 4]], [[5, 5]]],
+            "values": [
+              { "op": "apply_expression_template", "args": [], "name": "pol_process_id",
+                "bindings": { "pollutant_id": { "op": "enum", "args": ["pollutant", "TotalGaseousHydrocarbons"] },
+                              "process_id": { "op": "enum", "args": ["process", "RunningExhaust"] } } },
+              { "op": "apply_expression_template", "args": [], "name": "pol_process_id",
+                "bindings": { "pollutant_id": { "op": "enum", "args": ["pollutant", "CarbonMonoxide"] },
+                              "process_id": { "op": "enum", "args": ["process", "RunningExhaust"] } } },
+              { "op": "apply_expression_template", "args": [], "name": "pol_process_id",
+                "bindings": { "pollutant_id": { "op": "enum", "args": ["pollutant", "OxidesOfNitrogen"] },
+                              "process_id": { "op": "enum", "args": ["process", "RunningExhaust"] } } },
+              { "op": "apply_expression_template", "args": [], "name": "pol_process_id",
+                "bindings": { "pollutant_id": { "op": "enum", "args": ["pollutant", "PrimaryExhaustPM10Total"] },
+                              "process_id": { "op": "enum", "args": ["process", "RunningExhaust"] } } },
+              { "op": "apply_expression_template", "args": [], "name": "pol_process_id",
+                "bindings": { "pollutant_id": { "op": "enum", "args": ["pollutant", "BrakeSpecificFuelConsumption"] },
+                              "process_id": { "op": "enum", "args": ["process", "RunningExhaust"] } } }
+            ] }
+        },
+        {
+          "lhs": "pg_processGroupID",
+          "rhs": { "op": "makearray", "args": [], "regions": [[[1, 1]]],
+            "values": [{ "op": "enum", "args": ["process_group", "Exhaust"] }] }
+        },
+
+        {
+          "_comment": "The mix chain's presence questions. The SCC and the process group are `join.on` clauses; the two hp bounds are a `filter`, because hpMin <= hpAvg <= hpMax is a range predicate and both bounds are inclusive.",
+          "lhs": "mix_exactBinIsPresent",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "bool_and_or", "output_idx": ["q"],
+            "ranges": { "q": { "from": "equipment_hp_point_rows" }, "m": { "from": "tech_mix_rows" },
+                        "g": { "from": "exhaust_process_group_rows" } },
+            "join": [
+              { "on": [["pt_SCC", "mix_SCC"]] },
+              { "on": [["mix_processGroupID", "pg_processGroupID"]] }
+            ],
+            "filter": { "op": "and", "args": [
+              { "op": "<=", "args": [{ "op": "index", "args": ["mix_hpMin", "m"] },
+                                     { "op": "index", "args": ["pt_hpAvg", "q"] }] },
+              { "op": ">=", "args": [{ "op": "index", "args": ["mix_hpMax", "m"] },
+                                     { "op": "index", "args": ["pt_hpAvg", "q"] }] } ] },
+            "expr": 1.0
+          }
+        },
+        {
+          "lhs": "mix_equipmentRootBinIsPresent",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "bool_and_or", "output_idx": ["q"],
+            "ranges": { "q": { "from": "equipment_hp_point_rows" }, "m": { "from": "tech_mix_rows" },
+                        "g": { "from": "exhaust_process_group_rows" } },
+            "join": [
+              { "on": [["pt_sccEquipmentRoot", "mix_SCC"]] },
+              { "on": [["mix_processGroupID", "pg_processGroupID"]] }
+            ],
+            "filter": { "op": "and", "args": [
+              { "op": "<=", "args": [{ "op": "index", "args": ["mix_hpMin", "m"] },
+                                     { "op": "index", "args": ["pt_hpAvg", "q"] }] },
+              { "op": ">=", "args": [{ "op": "index", "args": ["mix_hpMax", "m"] },
+                                     { "op": "index", "args": ["pt_hpAvg", "q"] }] } ] },
+            "expr": 1.0
+          }
+        },
+        {
+          "lhs": "pt_mixEffectiveSCC",
+          "rhs": { "op": "aggregate", "args": [], "output_idx": ["q"],
+            "ranges": { "q": { "from": "equipment_hp_point_rows" } },
+            "expr": { "op": "apply_expression_template", "args": [], "name": "scc_equipment_chain_key",
+              "bindings": {
+                "scc": { "op": "index", "args": ["pt_SCC", "q"] },
+                "has_exact": { "op": ">", "args": [{ "op": "index", "args": ["mix_exactBinIsPresent", "q"] }, 0.0] },
+                "has_zero3": { "op": ">", "args": [{ "op": "index", "args": ["mix_equipmentRootBinIsPresent", "q"] }, 0.0] }
+              } } }
+        },
+
+        {
+          "_comment": "The rate chain's presence questions: the same shape asked of a different table, which is §2.4's `each tech's rates are looked up independently, walking the same chain but with its OWN hp binning`.",
+          "lhs": "emr_exactBinIsPresent",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "bool_and_or", "output_idx": ["q"],
+            "ranges": { "q": { "from": "equipment_hp_point_rows" }, "r": { "from": "emission_rate_rows" } },
+            "join": [ { "on": [["pt_SCC", "emr_SCC"]] } ],
+            "filter": { "op": "and", "args": [
+              { "op": "<=", "args": [{ "op": "index", "args": ["emr_hpMin", "r"] },
+                                     { "op": "index", "args": ["pt_hpAvg", "q"] }] },
+              { "op": ">=", "args": [{ "op": "index", "args": ["emr_hpMax", "r"] },
+                                     { "op": "index", "args": ["pt_hpAvg", "q"] }] } ] },
+            "expr": 1.0
+          }
+        },
+        {
+          "lhs": "emr_equipmentRootBinIsPresent",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "bool_and_or", "output_idx": ["q"],
+            "ranges": { "q": { "from": "equipment_hp_point_rows" }, "r": { "from": "emission_rate_rows" } },
+            "join": [ { "on": [["pt_sccEquipmentRoot", "emr_SCC"]] } ],
+            "filter": { "op": "and", "args": [
+              { "op": "<=", "args": [{ "op": "index", "args": ["emr_hpMin", "r"] },
+                                     { "op": "index", "args": ["pt_hpAvg", "q"] }] },
+              { "op": ">=", "args": [{ "op": "index", "args": ["emr_hpMax", "r"] },
+                                     { "op": "index", "args": ["pt_hpAvg", "q"] }] } ] },
+            "expr": 1.0
+          }
+        },
+        {
+          "lhs": "emr_familyRootBinIsPresent",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "bool_and_or", "output_idx": ["q"],
+            "ranges": { "q": { "from": "equipment_hp_point_rows" }, "r": { "from": "emission_rate_rows" } },
+            "join": [ { "on": [["pt_sccFamilyRoot", "emr_SCC"]] } ],
+            "filter": { "op": "and", "args": [
+              { "op": "<=", "args": [{ "op": "index", "args": ["emr_hpMin", "r"] },
+                                     { "op": "index", "args": ["pt_hpAvg", "q"] }] },
+              { "op": ">=", "args": [{ "op": "index", "args": ["emr_hpMax", "r"] },
+                                     { "op": "index", "args": ["pt_hpAvg", "q"] }] } ] },
+            "expr": 1.0
+          }
+        },
+        {
+          "lhs": "pt_rateEffectiveSCC",
+          "rhs": { "op": "aggregate", "args": [], "output_idx": ["q"],
+            "ranges": { "q": { "from": "equipment_hp_point_rows" } },
+            "expr": { "op": "apply_expression_template", "args": [], "name": "scc_equipment_chain_key",
+              "bindings": {
+                "scc": { "op": "index", "args": ["pt_SCC", "q"] },
+                "has_exact": { "op": ">", "args": [{ "op": "index", "args": ["emr_exactBinIsPresent", "q"] }, 0.0] },
+                "has_zero3": { "op": ">", "args": [{ "op": "index", "args": ["emr_equipmentRootBinIsPresent", "q"] }, 0.0] }
+              } } }
+        },
+
+        {
+          "_comment": "fractions_for_year: exact, else the latest tabulated mix year at or below the requested one, else the earliest. Same template as the surrogate year of stage 1, because it is the same rule.",
+          "lhs": "my_mixYearAtOrBeforeIsPresent",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "bool_and_or", "output_idx": ["y"],
+            "ranges": { "y": { "from": "mix_model_year_rows" }, "m": { "from": "tech_mix_rows" },
+                        "q": { "from": "equipment_hp_point_rows" }, "g": { "from": "exhaust_process_group_rows" } },
+            "join": [
+              { "on": [["pt_mixEffectiveSCC", "mix_SCC"]] },
+              { "on": [["mix_processGroupID", "pg_processGroupID"]] }
+            ],
+            "filter": { "op": "and", "args": [
+              { "op": "<=", "args": [{ "op": "index", "args": ["mix_hpMin", "m"] },
+                                     { "op": "index", "args": ["pt_hpAvg", "q"] }] },
+              { "op": ">=", "args": [{ "op": "index", "args": ["mix_hpMax", "m"] },
+                                     { "op": "index", "args": ["pt_hpAvg", "q"] }] },
+              { "op": "<=", "args": [{ "op": "index", "args": ["mix_modelYearID", "m"] },
+                                     { "op": "index", "args": ["my_requestedMixYear", "y"] }] } ] },
+            "expr": 1.0
+          }
+        },
+        {
+          "lhs": "my_latestMixYearAtOrBefore",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "max_product", "output_idx": ["y"],
+            "ranges": { "y": { "from": "mix_model_year_rows" }, "m": { "from": "tech_mix_rows" },
+                        "q": { "from": "equipment_hp_point_rows" }, "g": { "from": "exhaust_process_group_rows" } },
+            "join": [
+              { "on": [["pt_mixEffectiveSCC", "mix_SCC"]] },
+              { "on": [["mix_processGroupID", "pg_processGroupID"]] }
+            ],
+            "filter": { "op": "and", "args": [
+              { "op": "<=", "args": [{ "op": "index", "args": ["mix_hpMin", "m"] },
+                                     { "op": "index", "args": ["pt_hpAvg", "q"] }] },
+              { "op": ">=", "args": [{ "op": "index", "args": ["mix_hpMax", "m"] },
+                                     { "op": "index", "args": ["pt_hpAvg", "q"] }] },
+              { "op": "<=", "args": [{ "op": "index", "args": ["mix_modelYearID", "m"] },
+                                     { "op": "index", "args": ["my_requestedMixYear", "y"] }] } ] },
+            "expr": { "op": "index", "args": ["mix_modelYearID", "m"] }
+          }
+        },
+        {
+          "lhs": "my_earliestMixYear",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "min_sum", "output_idx": ["y"],
+            "ranges": { "y": { "from": "mix_model_year_rows" }, "m": { "from": "tech_mix_rows" },
+                        "q": { "from": "equipment_hp_point_rows" }, "g": { "from": "exhaust_process_group_rows" } },
+            "join": [
+              { "on": [["pt_mixEffectiveSCC", "mix_SCC"]] },
+              { "on": [["mix_processGroupID", "pg_processGroupID"]] }
+            ],
+            "filter": { "op": "and", "args": [
+              { "op": "<=", "args": [{ "op": "index", "args": ["mix_hpMin", "m"] },
+                                     { "op": "index", "args": ["pt_hpAvg", "q"] }] },
+              { "op": ">=", "args": [{ "op": "index", "args": ["mix_hpMax", "m"] },
+                                     { "op": "index", "args": ["pt_hpAvg", "q"] }] } ] },
+            "expr": { "op": "index", "args": ["mix_modelYearID", "m"] }
+          }
+        },
+        {
+          "lhs": "my_effectiveMixYear",
+          "rhs": { "op": "aggregate", "args": [], "output_idx": ["y"],
+            "ranges": { "y": { "from": "mix_model_year_rows" } },
+            "expr": { "op": "apply_expression_template", "args": [], "name": "latest_at_or_before_key",
+              "bindings": {
+                "has_at_or_before": { "op": ">", "args": [{ "op": "index", "args": ["my_mixYearAtOrBeforeIsPresent", "y"] }, 0.0] },
+                "latest_at_or_before": { "op": "index", "args": ["my_latestMixYearAtOrBefore", "y"] },
+                "earliest_after": { "op": "index", "args": ["my_earliestMixYear", "y"] }
+              } } }
+        },
+        {
+          "_comment": "J11. Three ON clauses -- the SCC chain key, the effective mix year, the technology -- and one range predicate, the hp bin.",
+          "lhs": "techFraction",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["y", "c"],
+            "ranges": { "y": { "from": "mix_model_year_rows" }, "c": { "from": "engine_tech_rows" },
+                        "m": { "from": "tech_mix_rows" }, "q": { "from": "equipment_hp_point_rows" },
+                        "g": { "from": "exhaust_process_group_rows" } },
+            "join": [
+              { "on": [["pt_mixEffectiveSCC", "mix_SCC"]] },
+              { "on": [["my_effectiveMixYear", "mix_modelYearID"]] },
+              { "on": [["tech_engTechID", "mix_engTechID"]] },
+              { "on": [["mix_processGroupID", "pg_processGroupID"]] }
+            ],
+            "filter": { "op": "and", "args": [
+              { "op": "<=", "args": [{ "op": "index", "args": ["mix_hpMin", "m"] },
+                                     { "op": "index", "args": ["pt_hpAvg", "q"] }] },
+              { "op": ">=", "args": [{ "op": "index", "args": ["mix_hpMax", "m"] },
+                                     { "op": "index", "args": ["pt_hpAvg", "q"] }] } ] },
+            "expr": { "op": "index", "args": ["mix_fraction", "m"] }
+          }
+        },
+        {
+          "_comment": "J12 and J13 in one contraction: the BSFC carrier is just another polProcessID of the same relation.",
+          "lhs": "zeroHourRate",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["c", "p"],
+            "ranges": { "c": { "from": "engine_tech_rows" }, "p": { "from": "pollutant_process_rows" },
+                        "r": { "from": "emission_rate_rows" }, "q": { "from": "equipment_hp_point_rows" } },
+            "join": [
+              { "on": [["pt_rateEffectiveSCC", "emr_SCC"]] },
+              { "on": [["tech_engTechID", "emr_engTechID"]] },
+              { "on": [["pp_polProcessID", "emr_polProcessID"]] }
+            ],
+            "filter": { "op": "and", "args": [
+              { "op": "<=", "args": [{ "op": "index", "args": ["emr_hpMin", "r"] },
+                                     { "op": "index", "args": ["pt_hpAvg", "q"] }] },
+              { "op": ">=", "args": [{ "op": "index", "args": ["emr_hpMax", "r"] },
+                                     { "op": "index", "args": ["pt_hpAvg", "q"] }] } ] },
+            "expr": { "op": "index", "args": ["emr_meanBaseRate", "r"] }
+          }
+        },
+        {
+          "lhs": "rateIsPresent",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "bool_and_or", "output_idx": ["c", "p"],
+            "ranges": { "c": { "from": "engine_tech_rows" }, "p": { "from": "pollutant_process_rows" },
+                        "r": { "from": "emission_rate_rows" }, "q": { "from": "equipment_hp_point_rows" } },
+            "join": [
+              { "on": [["pt_rateEffectiveSCC", "emr_SCC"]] },
+              { "on": [["tech_engTechID", "emr_engTechID"]] },
+              { "on": [["pp_polProcessID", "emr_polProcessID"]] }
+            ],
+            "filter": { "op": "and", "args": [
+              { "op": "<=", "args": [{ "op": "index", "args": ["emr_hpMin", "r"] },
+                                     { "op": "index", "args": ["pt_hpAvg", "q"] }] },
+              { "op": ">=", "args": [{ "op": "index", "args": ["emr_hpMax", "r"] },
+                                     { "op": "index", "args": ["pt_hpAvg", "q"] }] } ] },
+            "expr": 1.0
+          }
+        },
+        {
+          "_comment": "exhaust.rs:807-823. Three outcomes, not two: a rate, or RMISS where the technology is in use and has none, or a plain zero where the technology is not in use at all.",
+          "lhs": "emissionFactor",
+          "rhs": {
+            "op": "aggregate", "args": [], "output_idx": ["y", "c", "p"],
+            "ranges": { "y": { "from": "mix_model_year_rows" }, "c": { "from": "engine_tech_rows" },
+                        "p": { "from": "pollutant_process_rows" } },
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                { "op": ">", "args": [{ "op": "index", "args": ["rateIsPresent", "c", "p"] }, 0.0] },
+                { "op": "index", "args": ["zeroHourRate", "c", "p"] },
+                {
+                  "op": "ifelse",
+                  "args": [
+                    { "op": ">", "args": [{ "op": "index", "args": ["techFraction", "y", "c"] }, 0.0] },
+                    { "op": "apply_expression_template", "args": [], "name": "missing_value_flag", "bindings": {} },
+                    0.0
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      ],
+
+      "tests": [
+        {
+          "id": "the_chain_stops_at_the_first_covering_bin",
+          "description": "nonroad_loader.rs:412-419. SCC 2260007005 has a 6-9999 hp bin, and the family root 2260000000 has a real 6-25 hp bin that ALSO covers 6.81 — both presence columns are 1. The chain key must be the exact SCC; taking the family root would swap technologies 121-126 for 127-135 and every emission factor with them.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "emr_exactBinIsPresent", "time": 0.0, "expected": 1.0, "coords": { "equipment_hp_point_rows": 1 } },
+            { "variable": "emr_equipmentRootBinIsPresent", "time": 0.0, "expected": 0.0, "coords": { "equipment_hp_point_rows": 1 } },
+            { "variable": "emr_familyRootBinIsPresent", "time": 0.0, "expected": 1.0, "coords": { "equipment_hp_point_rows": 1 } },
+            { "variable": "pt_rateEffectiveSCC", "time": 0.0, "expected": 2260007005.0, "coords": { "equipment_hp_point_rows": 1 } },
+            { "variable": "pt_mixEffectiveSCC", "time": 0.0, "expected": 2260007005.0, "coords": { "equipment_hp_point_rows": 1 } }
+          ]
+        },
+        {
+          "id": "the_mix_year_is_the_latest_at_or_below_the_model_year",
+          "description": "docs/nonroad-logging-county.md §6.1: the bin's mix years are 1900, 1996, 1997 and 2002-2008, so model years 2020, 2019 and 2018 all read 2008 — a single technology, 125, at fraction 1.00. Model year 2005 reads its own year's three-way mix and 1995 falls back to 1900's single technology 121. Reading the exact year only, or the earliest, would put the wrong technology mix on every model year of this SCC.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "my_effectiveMixYear", "time": 0.0, "expected": 2008.0, "coords": { "mix_model_year_rows": 1 } },
+            { "variable": "my_effectiveMixYear", "time": 0.0, "expected": 2008.0, "coords": { "mix_model_year_rows": 3 } },
+            { "variable": "my_effectiveMixYear", "time": 0.0, "expected": 2005.0, "coords": { "mix_model_year_rows": 4 } },
+            { "variable": "my_effectiveMixYear", "time": 0.0, "expected": 1900.0, "coords": { "mix_model_year_rows": 6 } },
+            { "variable": "techFraction", "time": 0.0, "expected": 1.0, "coords": { "mix_model_year_rows": 1, "engine_tech_rows": 4 } },
+            { "variable": "techFraction", "time": 0.0, "expected": 0.0, "coords": { "mix_model_year_rows": 1, "engine_tech_rows": 2 } },
+            { "variable": "techFraction", "time": 0.0, "expected": 0.495, "coords": { "mix_model_year_rows": 4, "engine_tech_rows": 2 } },
+            { "variable": "techFraction", "time": 0.0, "expected": 0.005, "coords": { "mix_model_year_rows": 4, "engine_tech_rows": 3 } },
+            { "variable": "techFraction", "time": 0.0, "expected": 0.5, "coords": { "mix_model_year_rows": 4, "engine_tech_rows": 4 } },
+            { "variable": "techFraction", "time": 0.0, "expected": 1.0, "coords": { "mix_model_year_rows": 6, "engine_tech_rows": 1 } }
+          ]
+        },
+        {
+          "id": "the_evap_process_group_is_excluded",
+          "description": "The snapshot's own evap row for this SCC carries engTechID 1001 at fraction 1.00 in a 6-11 hp bin that covers 6.81. Without the processGroupID join it would join into every model year's mix — a technology with a full fraction and no exhaust rate, which is RMISS on every pollutant. The check is that model year 2020's fractions still sum to exactly 1.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "techFraction", "time": 0.0, "expected": 1.0, "coords": { "mix_model_year_rows": 1, "engine_tech_rows": 4 } },
+            { "variable": "techFraction", "time": 0.0, "expected": 0.0, "coords": { "mix_model_year_rows": 1, "engine_tech_rows": 5 } }
+          ]
+        },
+        {
+          "id": "the_zero_hour_rates_are_the_worked_example",
+          "description": "docs/nonroad-logging-county.md §6.1: technology 125's rates are THC 47.98, CO 283.4, NOx 0.910, PM10 7.70 g/hp-hr, with the BSFC carrier at 0.608 in the same relation — read by the same join, on polProcessID 9901, which is J13.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "zeroHourRate", "time": 0.0, "expected": 47.98, "coords": { "engine_tech_rows": 4, "pollutant_process_rows": 1 } },
+            { "variable": "zeroHourRate", "time": 0.0, "expected": 283.4, "coords": { "engine_tech_rows": 4, "pollutant_process_rows": 2 } },
+            { "variable": "zeroHourRate", "time": 0.0, "expected": 0.910, "coords": { "engine_tech_rows": 4, "pollutant_process_rows": 3 } },
+            { "variable": "zeroHourRate", "time": 0.0, "expected": 7.70, "coords": { "engine_tech_rows": 4, "pollutant_process_rows": 4 } },
+            { "variable": "zeroHourRate", "time": 0.0, "expected": 0.608, "coords": { "engine_tech_rows": 4, "pollutant_process_rows": 5 } },
+            { "variable": "zeroHourRate", "time": 0.0, "expected": 159.58, "coords": { "engine_tech_rows": 1, "pollutant_process_rows": 1 } }
+          ]
+        },
+        {
+          "id": "a_used_technology_with_no_rate_reads_rmiss",
+          "description": "exhaust.rs:807-823 and consts.rs:339. The synthetic 1998 mix row puts technology 199 at fraction 1.00 on model year 1998, and no rate row anywhere carries it: the factor is -9, not 0. In every other model year the same technology is unused and reads 0. Collapsing the two would let a missing rate leave the chain as a silent zero.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "my_effectiveMixYear", "time": 0.0, "expected": 1998.0, "coords": { "mix_model_year_rows": 5 } },
+            { "variable": "techFraction", "time": 0.0, "expected": 1.0, "coords": { "mix_model_year_rows": 5, "engine_tech_rows": 5 } },
+            { "variable": "emissionFactor", "time": 0.0, "expected": -9.0, "coords": { "mix_model_year_rows": 5, "engine_tech_rows": 5, "pollutant_process_rows": 1 } },
+            { "variable": "emissionFactor", "time": 0.0, "expected": 0.0, "coords": { "mix_model_year_rows": 1, "engine_tech_rows": 5, "pollutant_process_rows": 1 } },
+            { "variable": "emissionFactor", "time": 0.0, "expected": 47.98, "coords": { "mix_model_year_rows": 1, "engine_tech_rows": 4, "pollutant_process_rows": 1 } }
+          ]
+        },
+        {
+          "id": "an_hp_outside_every_bin_finds_nothing",
+          "description": "hp_pick's bounds are inclusive, so 6.0 is inside the 6-9999 bin and 5.99 is outside it. At 3.0 hp neither the exact SCC's 6-9999 bin nor the family root's 6-25 covers the point, no rung of the chain matches, and both the mix and the rates come back empty — which is what an equipment point in an hp range the tables do not cover looks like.",
+          "parameter_overrides": { "hpAvg": 3.0 },
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "emr_exactBinIsPresent", "time": 0.0, "expected": 0.0, "coords": { "equipment_hp_point_rows": 1 } },
+            { "variable": "emr_familyRootBinIsPresent", "time": 0.0, "expected": 0.0, "coords": { "equipment_hp_point_rows": 1 } },
+            { "variable": "zeroHourRate", "time": 0.0, "expected": 0.0, "coords": { "engine_tech_rows": 4, "pollutant_process_rows": 1 } },
+            { "variable": "techFraction", "time": 0.0, "expected": 0.0, "coords": { "mix_model_year_rows": 1, "engine_tech_rows": 4 } }
+          ]
+        },
+        {
+          "id": "the_lower_hp_bound_is_inclusive",
+          "description": "hp_pick, nonroad_loader.rs:357-362: the test is hpMin <= hp <= hpMax on both sides. At exactly 6.0 hp the 6-9999 bin still applies and the fixture's rates still come back, which is the boundary a strict inequality would drop.",
+          "parameter_overrides": { "hpAvg": 6.0 },
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "emr_exactBinIsPresent", "time": 0.0, "expected": 1.0, "coords": { "equipment_hp_point_rows": 1 } },
+            { "variable": "zeroHourRate", "time": 0.0, "expected": 47.98, "coords": { "engine_tech_rows": 4, "pollutant_process_rows": 1 } }
+          ]
+        }
+      ]
+    }
+  }
+}
