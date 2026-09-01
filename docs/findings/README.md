@@ -1,10 +1,10 @@
 # Findings: conventions the format or the toolchain could not express
 
-Ten things PLAN.md §3 Phase 1 and Phase 2 assumed, or that an author would
+Twelve things PLAN.md §3 Phase 1 and Phase 2 assumed, or that an author would
 reasonably assume, that do not hold at the pinned toolchain (`esm-version.lock`:
 EarthSciAST `b680f5301`, EarthSciIO `8e1df2280`, `--features esio,parallel`).
 
-F1–F6, F9 and F10 each have a minimal `.esm` repro in this directory; F7 and F8 are
+F1–F6 and F9–F12 each have a minimal `.esm` repro in this directory; F7 and F8 are
 CLI behaviours rather than documents, and are checked by command against the
 ordinary files of the repo. **Every repro is expected to fail**, and each one's inline test asserts the *intended* behaviour, so a repro
 that starts passing means the defect is fixed. `run-tests.sh` runs them as a
@@ -28,6 +28,8 @@ three of them do not load.
 | **F8** | A layered template library does not round-trip to a self-contained form | re-load | no |
 | **F9** | A relational document evaluates but cannot be written to a file | emit | no |
 | **F10** | The evaluable-core op `true` panics at evaluation | evaluation (panic) | no |
+| **F11** | A relation cannot be joined to itself: two ranges over one index set | build | no |
+| **F12** | A recurrence over an index axis has no spelling | evaluation | no |
 
 ---
 
@@ -225,6 +227,89 @@ is the form every Phase 2 component uses. When this goes green they can say
 and never evaluated — remove it from the schema's evaluable-core enumeration so
 `validate` rejects it. Either is fine; the present state, where the schema
 promises an evaluator and the evaluator calls `unreachable!()`, is not.
+
+## F11 — a relation cannot be joined to itself
+
+`F11_a_relation_cannot_be_joined_to_itself.esm`. Found authoring Phase 2's
+population stage.
+
+```
+Compile failed: Unsupported feature 'value-equality join over data-derived
+columns': join key column 'r_priorID' does not resolve to a loop index of this
+aggregate ({"b", "a"}): it names neither a range symbol, nor an index set one
+of those ranges draws from, nor a declared 1-D data column over such an index
+set (RFC semiring-faq-unified-ir §5.3)
+```
+
+Every clause of that message is in fact satisfied — `r_priorID` is a declared
+1-D data column over `row_ax`, and `row_ax` is the index set both ranges draw
+from. What fails is the resolution *strategy*: a key column is matched to a
+loop symbol by its **axis**, so two symbols over one axis are ambiguous and
+neither is chosen. A build error, not a silent zero, which is the right failure
+mode.
+
+**Impact.** Three joins in `docs/nonroad-logging-county.md` §3 are naturally
+self-joins: J6 pairs `nrstatesurrogate`'s county row with the *state* row of
+the same table; the growth series needs its own indicator at the previous year;
+`scrptime`'s age walk needs the previous age's cumulative scrappage percent.
+Each is worked around by materializing a **second relation over a second index
+set** — `surrogate_target_rows` in `components/geographic_allocation.esm`,
+`growth_factor_rows` beside `growth_query_rows` in
+`components/growth_index.esm`, and in `components/age_distribution.esm` a
+second contraction over the 197-point scrappage curve rather than a read of the
+neighbouring row. The workarounds are legible enough that this is a cost, not a
+blocker.
+
+**Fix shape.** Resolve a key column to the range symbol whose body indexes it,
+falling back to the axis rule only where that is unambiguous; or admit an
+explicit `[symbol, column]` spelling in the pair, since the pair list is already
+where the author says what joins to what.
+
+## F12 — a recurrence over an index axis has no spelling
+
+`F12_no_spelling_for_a_recurrence_over_an_index_axis.esm`. **The one that
+stops a Phase 2 stage being computed rather than merely slowing it down.**
+
+`s[1] = 1`, `s[k] = 2·s[k−1]`. Validates; then:
+
+```
+assertion evaluation failed: array state 's_value' has no cells in var_map
+```
+
+What exists is the **prefix (cumulative) reduction** of esm-spec §4.3.1 — an
+`aggregate` whose `filter` compares monotonically against the output index,
+folded ascending, bit-identical across bindings (CONFORMANCE_SPEC §495). That
+covers every fold whose *terms* are independent of the result. It does not
+cover one whose next term is a function of the previous *answer*. And the
+closed semiring registry has no product-as-⊕ entry, so even a cumulative
+**product** — a survival curve — has no prefix spelling. `Pre` (§5.1) is
+defined against events on the time axis and needs a clock, which a MOVES
+calculator does not have.
+
+**Impact: `agedist.f`.** `docs/nonroad-logging-county.md` §2.2(e) grows a
+51-slot age distribution from 1990 to 2020 by folding 30 years; each year's
+vector is the previous year's shifted one slot and scrapped, **clamped at
+zero**, with the newest slot written last as an unclamped residual. The clamp
+is inside the fold, so the recurrence is not linear and there is no closed form
+to substitute: `m0[y] = tpf(y) − Σₐ max(m0[y−a], 0)·R[a]`.
+
+`components/age_distribution.esm` therefore computes everything `scrptime.f`
+produces and carries `agedist.f`'s **result** as a data column, with the same
+status as a `data_sources` column — the verified §6.1 step 3 values, checked
+against the cumulative growth ratio `components/growth_index.esm` derives
+independently from the index series. That cross-check is what keeps the carried
+column honest.
+
+Not used, deliberately: thirty near-identical equations, one per projected
+year. It would run, and it would be the mechanically generated, unfactored
+`.esm` CLAUDE.md forbids — and still wrong for any run with a different year
+span.
+
+**Fix shape.** Extend §4.3.1's prefix reduction to a fold whose body may read
+the accumulator (`acc[i] = f(acc[i−1], body[i])`), which the ascending
+left-fold order already licenses and which all three executing bindings already
+maintain internally; or admit `Pre` on an index axis. Until then, no NONROAD
+port can compute its own age distribution.
 
 ## F7 — `esm round-trip` resolves refs against the working directory
 
