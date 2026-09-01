@@ -1,0 +1,536 @@
+{
+  "esm": "1.0.0",
+  "metadata": {
+    "name": "GeographicAllocation",
+    "description": "Stage 1 of the nr-logging-county chain (PLAN.md §3 Phase 2): geography and allocation. Ports joins J1, J2, J3, J6 and J7 of docs/nonroad-logging-county.md §3 — the SCC selection that decides WHICH equipment runs, and the state-to-county surrogate ratio that decides HOW MUCH of the state's population is this county's.\n\nTwo hops and a ratio (§2.1). J1 walks nrscc -> nrequipmenttype for the sector and the spatial surrogate; J2 and J3 are semi-joins against the RunSpec's sector and fuel selections. J6/J7 are the port of alocty.f + getind.f: allocFrac = quant(county 26161) / quant(state row 26000) for the SCC's surrogate, with the state row's FIPS derived arithmetically as floor(countyID/1000)*1000 (nonroad_loader.rs:1043) rather than written down.\n\nTHE YEAR RULE IS A SELECTION, NOT AN INTERPOLATION. getind.f takes each FIPS's quantity at the LATEST surrogateYearID <= the episode year, and only if there is none does it fall back to the EARLIEST year above it (nonroad_loader.rs:1052-1072). That is the same most-specific-match shape the tech mix uses for its model year, so it is one template — `latest_at_or_before_key` in lib/keys.esm — precomputed into an effective-key column and then joined on, exactly as docs/esm-conventions.md §3 prescribes for a non-equi-join.\n\nWHY DIESEL PRODUCES NO ROWS (§5.4). The RunSpec selects MOVES onroad fuelTypeID {1, 2}; nrscc.fuelTypeID lives in the NONROAD namespace where diesel is 23/24. `2` therefore matches NOTHING and the two diesel logging SCCs drop out. The intersection is non-empty (three gasoline SCCs), so the restriction applies — this file models the selection rather than hard-coding its result, because with an EMPTY intersection canonical NONROAD would run the entire inventory instead (nonroad_loader.rs:1145-1163).\n\nData: the nrscc / nrequipmenttype / nrstatesurrogate values are the snapshot's, from docs/nonroad-logging-county.md §5.3 and §6.0. Four rows are marked synthetic decoys and exist to make the joins load-bearing; each one's comment says what goes wrong without it.",
+    "authors": ["EarthSciML Authors and Contributors"],
+    "tags": ["moves", "nonroad", "geography", "allocation", "component"]
+  },
+
+  "enums": {
+    "sector": { "Logging": 7, "Construction": 2 },
+    "fuel_type": { "Gasoline": 1, "DieselFuel": 2 },
+    "nonroad_fuel_type": { "Gasoline": 1, "NonroadDiesel": 23, "MarineDiesel": 24 },
+    "surrogate": { "TimberProductOutput": 8, "Population": 9 },
+    "equipment_type": { "ChainSaws": 71, "Shredders": 72, "FellerBuncher": 73, "SyntheticDecoy": 99 }
+  },
+
+  "index_sets": {
+    "scc_rows": { "kind": "interval", "size": 6 },
+    "equipment_type_rows": { "kind": "interval", "size": 4 },
+    "runspec_sector_rows": { "kind": "interval", "size": 1 },
+    "runspec_fuel_rows": { "kind": "interval", "size": 2 },
+    "surrogate_rows": { "kind": "interval", "size": 6 },
+    "surrogate_target_rows": { "kind": "interval", "size": 4 },
+    "allocation_rows": { "kind": "interval", "size": 2 }
+  },
+
+  "coordinates": {
+    "allocation_scc": {
+      "source": "scc_SCC",
+      "standard_name": "source_classification_code"
+    }
+  },
+
+  "models": {
+    "GeographicAllocation": {
+      "expression_template_imports": [
+        { "ref": "../lib/keys.esm", "only": ["latest_at_or_before_key"] }
+      ],
+
+      "tolerance": { "rel": 1e-12 },
+
+      "variables": {
+        "runCountyID": {
+          "type": "parameter", "units": "1", "default": 26161.0,
+          "description": "The RunSpec's county FIPS. Washtenaw County, Michigan."
+        },
+        "runYearID": {
+          "type": "parameter", "units": "1", "default": 2020.0,
+          "description": "The RunSpec's calendar year, which getind.f compares surrogateYearID against."
+        },
+
+        "scc_SCC": {
+          "type": "unknown", "shape": ["scc_rows"],
+          "description": "nrscc.SCC. Column 1 of the relation."
+        },
+        "scc_NREquipTypeID": {
+          "type": "unknown", "shape": ["scc_rows"],
+          "description": "nrscc.NREquipTypeID. Column 2, the J1 key."
+        },
+        "scc_fuelTypeID": {
+          "type": "unknown", "shape": ["scc_rows"],
+          "description": "nrscc.fuelTypeID, in the NONROAD fuel namespace (1 gasoline, 23 nonroad diesel, 24 marine diesel). Column 3, the J3 key."
+        },
+
+        "eqt_NREquipTypeID": {
+          "type": "unknown", "shape": ["equipment_type_rows"],
+          "description": "nrequipmenttype.NREquipTypeID. Column 1."
+        },
+        "eqt_sectorID": {
+          "type": "unknown", "shape": ["equipment_type_rows"],
+          "description": "nrequipmenttype.sectorID. Column 2, the J2 key."
+        },
+        "eqt_surrogateID": {
+          "type": "unknown", "shape": ["equipment_type_rows"],
+          "description": "nrequipmenttype.surrogateID. Column 3: which .ALO spatial surrogate allocates this equipment type."
+        },
+
+        "runspec_sectorID": {
+          "type": "unknown", "shape": ["runspec_sector_rows"],
+          "description": "runspecsector.sectorID: the RunSpec's offroad sector selection."
+        },
+        "runspec_fuelTypeID": {
+          "type": "unknown", "shape": ["runspec_fuel_rows"],
+          "description": "runspecfueltype.fuelTypeID, in the MOVES ONROAD namespace (1 gasoline, 2 diesel fuel). A different namespace from scc_fuelTypeID, which is the whole of §5.4."
+        },
+
+        "sur_surrogateID": {
+          "type": "unknown", "shape": ["surrogate_rows"],
+          "description": "nrstatesurrogate.surrogateID. Column 1."
+        },
+        "sur_countyID": {
+          "type": "unknown", "shape": ["surrogate_rows"],
+          "description": "nrstatesurrogate.countyID. Column 2. A state row carries the state FIPS, county_fips/1000*1000."
+        },
+        "sur_surrogateYearID": {
+          "type": "unknown", "shape": ["surrogate_rows"],
+          "description": "nrstatesurrogate.surrogateYearID. Column 3, the year getind.f selects on."
+        },
+        "sur_surrogatequant": {
+          "type": "unknown", "shape": ["surrogate_rows"], "units": "1",
+          "description": "nrstatesurrogate.surrogatequant. Column 4. Surrogate 8 is 2002 Timber Product Output in cubic feet; the units are the surrogate's own and cancel in the ratio."
+        },
+
+        "tgt_surrogateID": {
+          "type": "unknown", "shape": ["surrogate_target_rows"],
+          "description": "The (surrogate, FIPS) pairs J6 needs: for each surrogate the run uses, the county row and the state row. Column 1."
+        },
+        "tgt_countyID": {
+          "type": "unknown", "shape": ["surrogate_target_rows"],
+          "description": "Column 2: runCountyID on a county row, floor(runCountyID/1000)*1000 on a state row (nonroad_loader.rs:1043)."
+        },
+        "tgt_isCounty": {
+          "type": "unknown", "shape": ["surrogate_target_rows"], "units": "1",
+          "description": "Column 3: 1 on the county row of the pair, 0 on the state row. An indicator column, so the numerator and the denominator of the ratio are two contractions over the same relation rather than two filters."
+        },
+        "tgt_hasYearAtOrBefore": {
+          "type": "unknown", "shape": ["surrogate_target_rows"], "units": "1",
+          "description": "Whether this (surrogate, FIPS) has any row at or before the episode year — the `vallow` half of getind.f."
+        },
+        "tgt_latestYearAtOrBefore": {
+          "type": "unknown", "shape": ["surrogate_target_rows"],
+          "description": "The latest such surrogateYearID."
+        },
+        "tgt_earliestYearAfter": {
+          "type": "unknown", "shape": ["surrogate_target_rows"],
+          "description": "The earliest surrogateYearID above the episode year — the `valhi` fallback, used only when there is no row at or before."
+        },
+        "tgt_effectiveYearID": {
+          "type": "unknown", "shape": ["surrogate_target_rows"],
+          "description": "The precomputed effective key: which surrogateYearID this pair reads. Computing it turns getind.f's precedence rule into a plain equi-join (docs/esm-conventions.md §3)."
+        },
+        "tgt_quant": {
+          "type": "unknown", "shape": ["surrogate_target_rows"], "units": "1",
+          "description": "The surrogate quantity at the effective year. NO INTERPOLATION: getind.f selects a row, it does not blend two."
+        },
+
+        "alloc_surrogateID": {
+          "type": "unknown", "shape": ["allocation_rows"],
+          "description": "One row per surrogate the run allocates through. Column 1."
+        },
+        "alloc_countyQuant": {
+          "type": "unknown", "shape": ["allocation_rows"], "units": "1",
+          "description": "The county's surrogate quantity: the numerator of alocty.f's ratio."
+        },
+        "alloc_stateQuant": {
+          "type": "unknown", "shape": ["allocation_rows"], "units": "1",
+          "description": "The state's surrogate quantity: the denominator."
+        },
+        "alloc_allocationFraction": {
+          "type": "unknown", "shape": ["allocation_rows"], "units": "1",
+          "description": "allocFrac. Zero when the state quantity is non-positive (nonroad_loader.rs:1076) — a guard, not a division that happens not to fire."
+        },
+
+        "scc_sectorID": {
+          "type": "unknown", "shape": ["scc_rows"],
+          "description": "J1: the sector this SCC's equipment type belongs to."
+        },
+        "scc_surrogateID": {
+          "type": "unknown", "shape": ["scc_rows"],
+          "description": "J1: the spatial surrogate this SCC's equipment type allocates through."
+        },
+        "scc_sectorIsSelected": {
+          "type": "unknown", "shape": ["scc_rows"], "units": "1",
+          "description": "J2: 1 if the sector is in the RunSpec's selection."
+        },
+        "scc_fuelIsSelected": {
+          "type": "unknown", "shape": ["scc_rows"], "units": "1",
+          "description": "J3: 1 if nrscc.fuelTypeID is in the RunSpec's fuel selection. Zero for every diesel SCC, because 23 and 24 are not 2."
+        },
+        "scc_allocationFraction": {
+          "type": "unknown", "shape": ["scc_rows"], "units": "1",
+          "description": "The stage's output: the fraction of the state population that runs in this county, per SCC, zero for an SCC the RunSpec does not select. Stage 2 multiplies the state population by this."
+        }
+      },
+
+      "equations": [
+        {
+          "_comment": "nrscc, the five logging SCCs of docs/nonroad-logging-county.md §5.3, plus one synthetic decoy (2265002000, a Construction-sector equipment type) whose only job is to make J2 load-bearing: without the sector semi-join it would allocate like the others.",
+          "lhs": "scc_SCC",
+          "rhs": { "op": "const", "args": [],
+            "value": [2260007005, 2265007010, 2265007015, 2270007010, 2270007015, 2265002000] }
+        },
+        {
+          "lhs": "scc_NREquipTypeID",
+          "rhs": { "op": "makearray", "args": [],
+            "regions": [[[1, 1]], [[2, 2]], [[3, 3]], [[4, 4]], [[5, 5]], [[6, 6]]],
+            "values": [
+              { "op": "enum", "args": ["equipment_type", "ChainSaws"] },
+              { "op": "enum", "args": ["equipment_type", "Shredders"] },
+              { "op": "enum", "args": ["equipment_type", "FellerBuncher"] },
+              { "op": "enum", "args": ["equipment_type", "Shredders"] },
+              { "op": "enum", "args": ["equipment_type", "FellerBuncher"] },
+              { "op": "enum", "args": ["equipment_type", "SyntheticDecoy"] }
+            ] }
+        },
+        {
+          "lhs": "scc_fuelTypeID",
+          "rhs": { "op": "makearray", "args": [],
+            "regions": [[[1, 3]], [[4, 5]], [[6, 6]]],
+            "values": [
+              { "op": "enum", "args": ["nonroad_fuel_type", "Gasoline"] },
+              { "op": "enum", "args": ["nonroad_fuel_type", "NonroadDiesel"] },
+              { "op": "enum", "args": ["nonroad_fuel_type", "Gasoline"] }
+            ] }
+        },
+
+        {
+          "lhs": "eqt_NREquipTypeID",
+          "rhs": { "op": "makearray", "args": [],
+            "regions": [[[1, 1]], [[2, 2]], [[3, 3]], [[4, 4]]],
+            "values": [
+              { "op": "enum", "args": ["equipment_type", "ChainSaws"] },
+              { "op": "enum", "args": ["equipment_type", "Shredders"] },
+              { "op": "enum", "args": ["equipment_type", "FellerBuncher"] },
+              { "op": "enum", "args": ["equipment_type", "SyntheticDecoy"] }
+            ] }
+        },
+        {
+          "lhs": "eqt_sectorID",
+          "rhs": { "op": "makearray", "args": [],
+            "regions": [[[1, 3]], [[4, 4]]],
+            "values": [
+              { "op": "enum", "args": ["sector", "Logging"] },
+              { "op": "enum", "args": ["sector", "Construction"] }
+            ] }
+        },
+        {
+          "_comment": "All three logging equipment types allocate through surrogate 8 (2002 Timber Product Output). The decoy uses surrogate 9, which has a county row and NO STATE ROW -- the nonroad_loader.rs:1076 guard case.",
+          "lhs": "eqt_surrogateID",
+          "rhs": { "op": "makearray", "args": [],
+            "regions": [[[1, 3]], [[4, 4]]],
+            "values": [
+              { "op": "enum", "args": ["surrogate", "TimberProductOutput"] },
+              { "op": "enum", "args": ["surrogate", "Population"] }
+            ] }
+        },
+
+        {
+          "lhs": "runspec_sectorID",
+          "rhs": { "op": "makearray", "args": [],
+            "regions": [[[1, 1]]],
+            "values": [{ "op": "enum", "args": ["sector", "Logging"] }] }
+        },
+        {
+          "lhs": "runspec_fuelTypeID",
+          "rhs": { "op": "makearray", "args": [],
+            "regions": [[[1, 1]], [[2, 2]]],
+            "values": [
+              { "op": "enum", "args": ["fuel_type", "Gasoline"] },
+              { "op": "enum", "args": ["fuel_type", "DieselFuel"] }
+            ] }
+        },
+
+        {
+          "_comment": "nrstatesurrogate. Rows 1-2 are the snapshot's real pair for surrogate 8 (§6.0). Rows 3-4 are synthetic 2030 decoys carrying an absurd quantity: they are ABOVE the episode year and must lose to 2002, which is what the `latest at or before` half of the rule means. Row 5 is a synthetic 1997 decoy: it is below 2020 and must lose to 2002, which is what LATEST means. Row 6 is the decoy surrogate's county row, with no state partner.",
+          "lhs": "sur_surrogateID",
+          "rhs": { "op": "makearray", "args": [],
+            "regions": [[[1, 5]], [[6, 6]]],
+            "values": [
+              { "op": "enum", "args": ["surrogate", "TimberProductOutput"] },
+              { "op": "enum", "args": ["surrogate", "Population"] }
+            ] }
+        },
+        {
+          "lhs": "sur_countyID",
+          "rhs": { "op": "const", "args": [],
+            "value": [26161, 26000, 26161, 26000, 26161, 26161] }
+        },
+        {
+          "lhs": "sur_surrogateYearID",
+          "rhs": { "op": "const", "args": [], "value": [2002, 2002, 2030, 2030, 1997, 2002] }
+        },
+        {
+          "lhs": "sur_surrogatequant",
+          "rhs": { "op": "const", "args": [],
+            "value": [1512186.0, 466969286.0, 9.9e9, 9.9e9, 500000.0, 77000.0] }
+        },
+
+        {
+          "lhs": "alloc_surrogateID",
+          "rhs": { "op": "makearray", "args": [],
+            "regions": [[[1, 1]], [[2, 2]]],
+            "values": [
+              { "op": "enum", "args": ["surrogate", "TimberProductOutput"] },
+              { "op": "enum", "args": ["surrogate", "Population"] }
+            ] }
+        },
+        {
+          "lhs": "tgt_surrogateID",
+          "rhs": { "op": "makearray", "args": [],
+            "regions": [[[1, 2]], [[3, 4]]],
+            "values": [
+              { "op": "enum", "args": ["surrogate", "TimberProductOutput"] },
+              { "op": "enum", "args": ["surrogate", "Population"] }
+            ] }
+        },
+        {
+          "_comment": "The state row's FIPS is arithmetic on the county's, not a second input: county_fips/1000*1000 (nonroad_loader.rs:1043).",
+          "lhs": "tgt_countyID",
+          "rhs": { "op": "makearray", "args": [],
+            "regions": [[[1, 1]], [[2, 2]], [[3, 3]], [[4, 4]]],
+            "values": [
+              "runCountyID",
+              { "op": "*", "args": [{ "op": "floor", "args": [{ "op": "/", "args": ["runCountyID", 1000] }] }, 1000] },
+              "runCountyID",
+              { "op": "*", "args": [{ "op": "floor", "args": [{ "op": "/", "args": ["runCountyID", 1000] }] }, 1000] }
+            ] }
+        },
+        {
+          "lhs": "tgt_isCounty",
+          "rhs": { "op": "const", "args": [], "value": [1.0, 0.0, 1.0, 0.0] }
+        },
+
+        {
+          "_comment": "getind.f, first half: is there a row at or before the episode year? The (surrogateID, countyID) equality is a composite `join.on`; the year comparison is a genuine range predicate and stays in `filter`.",
+          "lhs": "tgt_hasYearAtOrBefore",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "bool_and_or", "output_idx": ["g"],
+            "ranges": { "g": { "from": "surrogate_target_rows" }, "z": { "from": "surrogate_rows" } },
+            "join": [ { "on": [["tgt_surrogateID", "sur_surrogateID"], ["tgt_countyID", "sur_countyID"]] } ],
+            "filter": { "op": "<=", "args": [{ "op": "index", "args": ["sur_surrogateYearID", "z"] }, "runYearID"] },
+            "expr": { "op": "true", "args": [] }
+          }
+        },
+        {
+          "lhs": "tgt_latestYearAtOrBefore",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "max_product", "output_idx": ["g"],
+            "ranges": { "g": { "from": "surrogate_target_rows" }, "z": { "from": "surrogate_rows" } },
+            "join": [ { "on": [["tgt_surrogateID", "sur_surrogateID"], ["tgt_countyID", "sur_countyID"]] } ],
+            "filter": { "op": "<=", "args": [{ "op": "index", "args": ["sur_surrogateYearID", "z"] }, "runYearID"] },
+            "expr": { "op": "index", "args": ["sur_surrogateYearID", "z"] }
+          }
+        },
+        {
+          "lhs": "tgt_earliestYearAfter",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "min_sum", "output_idx": ["g"],
+            "ranges": { "g": { "from": "surrogate_target_rows" }, "z": { "from": "surrogate_rows" } },
+            "join": [ { "on": [["tgt_surrogateID", "sur_surrogateID"], ["tgt_countyID", "sur_countyID"]] } ],
+            "filter": { "op": ">", "args": [{ "op": "index", "args": ["sur_surrogateYearID", "z"] }, "runYearID"] },
+            "expr": { "op": "index", "args": ["sur_surrogateYearID", "z"] }
+          }
+        },
+        {
+          "_comment": "`vallow` else `valhi`, from lib/keys.esm. The same template serves the tech mix's `latest mix year <= model year, else the earliest` rule in components/tech_mix.esm -- one shape, two call sites.",
+          "lhs": "tgt_effectiveYearID",
+          "rhs": {
+            "op": "aggregate", "args": [], "output_idx": ["g"],
+            "ranges": { "g": { "from": "surrogate_target_rows" } },
+            "expr": {
+              "op": "apply_expression_template", "args": [], "name": "latest_at_or_before_key",
+              "bindings": {
+                "has_at_or_before": { "op": "index", "args": ["tgt_hasYearAtOrBefore", "g"] },
+                "latest_at_or_before": { "op": "index", "args": ["tgt_latestYearAtOrBefore", "g"] },
+                "earliest_after": { "op": "index", "args": ["tgt_earliestYearAfter", "g"] }
+              }
+            }
+          }
+        },
+        {
+          "_comment": "J6, now a plain three-column equi-join because the year precedence has been reduced to a key.",
+          "lhs": "tgt_quant",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["g"],
+            "ranges": { "g": { "from": "surrogate_target_rows" }, "z": { "from": "surrogate_rows" } },
+            "join": [ { "on": [["tgt_surrogateID", "sur_surrogateID"],
+                               ["tgt_countyID", "sur_countyID"],
+                               ["tgt_effectiveYearID", "sur_surrogateYearID"]] } ],
+            "expr": { "op": "index", "args": ["sur_surrogatequant", "z"] }
+          }
+        },
+
+        {
+          "lhs": "alloc_countyQuant",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["a"],
+            "ranges": { "a": { "from": "allocation_rows" }, "g": { "from": "surrogate_target_rows" } },
+            "join": [ { "on": [["alloc_surrogateID", "tgt_surrogateID"]] } ],
+            "expr": { "op": "*", "args": [{ "op": "index", "args": ["tgt_quant", "g"] },
+                                          { "op": "index", "args": ["tgt_isCounty", "g"] }] }
+          }
+        },
+        {
+          "lhs": "alloc_stateQuant",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["a"],
+            "ranges": { "a": { "from": "allocation_rows" }, "g": { "from": "surrogate_target_rows" } },
+            "join": [ { "on": [["alloc_surrogateID", "tgt_surrogateID"]] } ],
+            "expr": { "op": "*", "args": [{ "op": "index", "args": ["tgt_quant", "g"] },
+                                          { "op": "-", "args": [1.0, { "op": "index", "args": ["tgt_isCounty", "g"] }] }] }
+          }
+        },
+        {
+          "_comment": "alocty.f. A non-positive state quantity gives fraction 0 rather than a division (nonroad_loader.rs:1076).",
+          "lhs": "alloc_allocationFraction",
+          "rhs": {
+            "op": "aggregate", "args": [], "output_idx": ["a"],
+            "ranges": { "a": { "from": "allocation_rows" } },
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                { "op": ">", "args": [{ "op": "index", "args": ["alloc_stateQuant", "a"] }, 0.0] },
+                { "op": "/", "args": [{ "op": "index", "args": ["alloc_countyQuant", "a"] },
+                                      { "op": "index", "args": ["alloc_stateQuant", "a"] }] },
+                0.0
+              ]
+            }
+          }
+        },
+
+        {
+          "_comment": "J1, twice: an SCC's sector and its surrogate both come from nrequipmenttype on NREquipTypeID.",
+          "lhs": "scc_sectorID",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["s"],
+            "ranges": { "s": { "from": "scc_rows" }, "e": { "from": "equipment_type_rows" } },
+            "join": [ { "on": [["scc_NREquipTypeID", "eqt_NREquipTypeID"]] } ],
+            "expr": { "op": "index", "args": ["eqt_sectorID", "e"] }
+          }
+        },
+        {
+          "lhs": "scc_surrogateID",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["s"],
+            "ranges": { "s": { "from": "scc_rows" }, "e": { "from": "equipment_type_rows" } },
+            "join": [ { "on": [["scc_NREquipTypeID", "eqt_NREquipTypeID"]] } ],
+            "expr": { "op": "index", "args": ["eqt_surrogateID", "e"] }
+          }
+        },
+        {
+          "_comment": "J2 and J3, the two RunSpec semi-joins. A semi-join is a counting contraction here: the RunSpec tables hold distinct keys, so the count is 0 or 1 and no min() guard is needed.",
+          "lhs": "scc_sectorIsSelected",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["s"],
+            "ranges": { "s": { "from": "scc_rows" }, "k": { "from": "runspec_sector_rows" } },
+            "join": [ { "on": [["scc_sectorID", "runspec_sectorID"]] } ],
+            "expr": 1.0
+          }
+        },
+        {
+          "lhs": "scc_fuelIsSelected",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["s"],
+            "ranges": { "s": { "from": "scc_rows" }, "k": { "from": "runspec_fuel_rows" } },
+            "join": [ { "on": [["scc_fuelTypeID", "runspec_fuelTypeID"]] } ],
+            "expr": 1.0
+          }
+        },
+        {
+          "_comment": "J7. The selection is a factor rather than a row filter, for the reason PLAN.md §1.6.1 gives: a relational document emits every key its joins produce and lets the value be whatever it computes.",
+          "lhs": "scc_allocationFraction",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["s"],
+            "ranges": { "s": { "from": "scc_rows" }, "a": { "from": "allocation_rows" } },
+            "join": [ { "on": [["scc_surrogateID", "alloc_surrogateID"]] } ],
+            "expr": {
+              "op": "*",
+              "args": [
+                { "op": "index", "args": ["alloc_allocationFraction", "a"] },
+                { "op": "index", "args": ["scc_sectorIsSelected", "s"] },
+                { "op": "index", "args": ["scc_fuelIsSelected", "s"] }
+              ]
+            }
+          }
+        }
+      ],
+
+      "tests": [
+        {
+          "id": "allocation_fraction_matches_the_fixture",
+          "description": "docs/nonroad-logging-county.md §6.0: 1512186 / 466969286. If this number is wrong every one of the fixture's 144 rows is wrong by the same factor, so it is the one number in this file worth checking to the last digit.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "alloc_countyQuant", "time": 0.0, "expected": 1512186.0, "coords": { "allocation_rows": 1 } },
+            { "variable": "alloc_stateQuant", "time": 0.0, "expected": 466969286.0, "coords": { "allocation_rows": 1 } },
+            { "variable": "alloc_allocationFraction", "time": 0.0, "expected": 0.0032382986319147338, "coords": { "allocation_rows": 1 } }
+          ]
+        },
+        {
+          "id": "getind_selects_the_latest_year_at_or_before",
+          "description": "The 2030 decoys carry 9.9e9 and the 1997 decoy 5.0e5. Selecting the wrong row is not a small error: taking 2030 would make the county quantity 6500x too large, and taking 1997 would make it 3x too small. The effective year must be 2002 on both the county and the state row.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "tgt_effectiveYearID", "time": 0.0, "expected": 2002.0, "coords": { "surrogate_target_rows": 1 } },
+            { "variable": "tgt_effectiveYearID", "time": 0.0, "expected": 2002.0, "coords": { "surrogate_target_rows": 2 } },
+            { "variable": "tgt_latestYearAtOrBefore", "time": 0.0, "expected": 2002.0, "coords": { "surrogate_target_rows": 1 } },
+            { "variable": "tgt_quant", "time": 0.0, "expected": 1512186.0, "coords": { "surrogate_target_rows": 1 } }
+          ]
+        },
+        {
+          "id": "the_state_fips_is_derived_not_written",
+          "description": "nonroad_loader.rs:1043. A state row's FIPS is floor(countyID/1000)*1000 = 26000, computed here so that changing runCountyID moves both rows of the pair together.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "tgt_countyID", "time": 0.0, "expected": 26161.0, "coords": { "surrogate_target_rows": 1 } },
+            { "variable": "tgt_countyID", "time": 0.0, "expected": 26000.0, "coords": { "surrogate_target_rows": 2 } }
+          ]
+        },
+        {
+          "id": "a_missing_state_row_gives_fraction_zero",
+          "description": "nonroad_loader.rs:1076: quant(state) <= 0 is a guard, not a division by zero. Surrogate 9 has a county row and no state row, so its fraction is 0 and not an infinity that would poison every product downstream.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "alloc_stateQuant", "time": 0.0, "expected": 0.0, "coords": { "allocation_rows": 2 } },
+            { "variable": "alloc_allocationFraction", "time": 0.0, "expected": 0.0, "coords": { "allocation_rows": 2 } }
+          ]
+        },
+        {
+          "id": "diesel_scc_rows_survive_with_fraction_zero",
+          "description": "docs/nonroad-logging-county.md §5.4: the RunSpec selects onroad fuelTypeID {1, 2} and nonroad diesel is 23, so `2` matches nothing and the two diesel logging SCCs allocate zero. Their ROWS remain -- suppressing them is the Fortran control flow PLAN.md §1.6.1 forbids reproducing. The Construction decoy is dropped by the sector semi-join instead, so the two selections are checked independently.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "scc_allocationFraction", "time": 0.0, "expected": 0.0032382986319147338, "coords": { "scc_rows": 1 } },
+            { "variable": "scc_allocationFraction", "time": 0.0, "expected": 0.0032382986319147338, "coords": { "scc_rows": 3 } },
+            { "variable": "scc_fuelIsSelected", "time": 0.0, "expected": 0.0, "coords": { "scc_rows": 4 } },
+            { "variable": "scc_allocationFraction", "time": 0.0, "expected": 0.0, "coords": { "scc_rows": 4 } },
+            { "variable": "scc_sectorIsSelected", "time": 0.0, "expected": 0.0, "coords": { "scc_rows": 6 } },
+            { "variable": "scc_allocationFraction", "time": 0.0, "expected": 0.0, "coords": { "scc_rows": 6 } }
+          ]
+        },
+        {
+          "id": "the_two_hop_join_carries_sector_and_surrogate",
+          "description": "J1 is the hop that makes the other two joins possible: an SCC does not carry its own sector or surrogate. All three logging types land on sector 7 and surrogate 8 (§5.3).",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "scc_sectorID", "time": 0.0, "expected": 7.0, "coords": { "scc_rows": 2 } },
+            { "variable": "scc_surrogateID", "time": 0.0, "expected": 8.0, "coords": { "scc_rows": 2 } },
+            { "variable": "scc_surrogateID", "time": 0.0, "expected": 9.0, "coords": { "scc_rows": 6 } }
+          ]
+        }
+      ]
+    }
+  }
+}
