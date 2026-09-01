@@ -1,6 +1,6 @@
 # Findings: conventions the format or the toolchain could not express
 
-Sixteen things PLAN.md §3 Phase 1 and Phase 2 assumed, or that an author would
+Seventeen things PLAN.md §3 Phase 1 and Phase 2 assumed, or that an author would
 reasonably assume, that did not hold. Four are now fixed upstream and are listed
 at the bottom, with their sections kept above so the workarounds they forced can
 be traced; the rest still hold at the pinned toolchain (`esm-version.lock`:
@@ -31,6 +31,7 @@ three of them do not load.
 | **F13** | `enums` merge first-wins across a mount; a colliding value is applied | — | **yes** |
 | **F14** | A `ragged` index set ignores its member factor | evaluation | **yes** |
 | **F15** | A `url_template` is neither environment-expanded nor relative | ingest | no |
+| **F16** | A SCALAR variable is not materialized in a document that ingests data | assertion | no |
 
 ---
 
@@ -530,6 +531,58 @@ already called a template and already carries `{date:…}`-style substitutions �
 or resolve a relative path against the referencing document's directory, per
 §4.7's rule for every other reference in the format. Either removes the
 materialization step; the first also lets one catalog serve several machines.
+
+
+## F16 — a scalar has no state in a document that ingests
+
+No repro file, for a reason given below; the measurement is a pair of documents
+that differ in one thing.
+
+```jsonc
+// control: col = const [10, 20, 30];  total = Σ col[i]
+{"lhs": "total", "rhs": {"op": "aggregate", "output_idx": [], "ranges": {"i": {"from": "rows"}},
+                         "expr": {"op": "index", "args": ["col", "i"]}}}
+```
+
+```
+$ ./esm test scalar_const.esm      # col from a const array
+  TOTAL   1 pass
+
+$ ./esm test scalar_data.esm       # col from `update.kind: data`, everything else identical
+  assertion evaluation failed: scalar state 'total' not found
+```
+
+Both documents declare one array variable and one scalar; F6 says the array is
+what puts the model on the runtime that materializes state-free observeds, and
+in the `const` document it does. Bind that same column to a `data_sources`
+entry and the scalar stops existing — the array reads correctly, and every
+scalar derived from it is gone. It is loud (an ERROR naming the variable), and
+it is not confined to assertions: an expression that READS such a scalar
+evaluates to `NaN`, which is how it first surfaced here — four adjustment
+factors came out NaN because the two scalars they multiply had no value, while
+every array in the same document was right.
+
+**Impact, and the convention it forces.** `fixtures/nr-logging-county.esm`
+carries **every** run-level quantity as a one-row relation over `run_rows`
+rather than as a scalar: the ambient temperature, the oxygen weight percent,
+the fuel year, the days in the month, `adjtime`. That is a better shape anyway
+— tables stay tables (conventions §2), and a second SCC turns `run_rows` into a
+two-row relation with no equation change — but it is not a free choice here,
+and a component moved from the `const` level to the fixture level has to be
+rewritten for it. Note the asymmetry with F6: F6 says a scalar needs an array
+in the document to be assertable, and this says an *ingested* array is not
+enough.
+
+**Why no repro file.** A repro needs a real data source, a data source needs an
+absolute path (F15), and an absolute path checked into `docs/findings/` would
+make the repro fail on any other machine — for the wrong reason, which is
+exactly what the tripwire's positive controls exist to prevent. It is recorded
+here with its measurement instead, and the fixture is the standing evidence:
+every one-row relation in it would be a scalar if this were fixed.
+
+**Fix shape.** Whatever `prepare` does for a data-fed document, it drops the
+scalar observeds that the `const` path keeps. The two paths should agree, and
+the `const` one is right.
 
 
 ---
