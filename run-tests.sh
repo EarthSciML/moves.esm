@@ -46,15 +46,11 @@ fi
 
 say "CLI:      $ESM ($("$ESM" --version 2>/dev/null || echo 'version unknown'))"
 if [[ -f esm-version.lock ]]; then
-  say "built at: $(cat esm-version.lock)"
+  say "built at: $(sed -n 's/^commit *= *//p' esm-version.lock) \
+($(sed -n 's/^subject *= *//p' esm-version.lock))"
 else
   say "built at: unrecorded (no esm-version.lock)"
 fi
-
-# Which subcommands this binary actually has. `test` is newer than some
-# builds; report it as skipped rather than failing confusingly.
-CLI_HELP="$("$ESM" --help 2>&1 || true)"
-has_cmd() { grep -qE "^[[:space:]]+$1([[:space:]]|$)" <<<"$CLI_HELP"; }
 
 # --- collect documents ----------------------------------------------------
 
@@ -80,20 +76,18 @@ done
 
 # --- 2. inline tests ------------------------------------------------------
 
+# `esm test` searches a directory recursively and prints its own per-test
+# table naming the model and the assertion, so one invocation over the repo
+# reports more precisely than a per-file loop could, and the table is the
+# report. The solver tolerances are left at their defaults: they govern how
+# accurately each test is integrated, not the tolerance its assertions are
+# judged against, which each test declares for itself (§6.6.4).
+
 head2 "test (${#DOCS[@]} documents)"
-if ! has_cmd test; then
-  for doc in "${DOCS[@]}"; do
-    skip "$doc" "this CLI build has no 'test' subcommand"
-  done
+if "$ESM" test . 2>&1 | sed 's/^/  /'; then
+  :
 else
-  for doc in "${DOCS[@]}"; do
-    if out=$("$ESM" test "$doc" 2>&1); then
-      pass "$doc"
-    else
-      fail "test $doc"
-      sed 's/^/       /' <<<"$out"
-    fi
-  done
+  fail "inline tests (see the table above for which)"
 fi
 
 # --- 3. fixtures ----------------------------------------------------------
