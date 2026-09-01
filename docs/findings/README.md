@@ -1,11 +1,12 @@
 # Findings: conventions the format or the toolchain could not express
 
-Six things PLAN.md §3 Phase 1 assumed, or that an author would reasonably
+Eight things PLAN.md §3 Phase 1 assumed, or that an author would reasonably
 assume, that do not hold at the pinned toolchain (`esm-version.lock`:
 EarthSciAST `b680f5301`, EarthSciIO `8e1df2280`, `--features esio,parallel`).
 
-Each has a minimal `.esm` repro in this directory. **Every repro is expected to
-fail**, and each one's inline test asserts the *intended* behaviour, so a repro
+F1–F6 each have a minimal `.esm` repro in this directory; F7 and F8 are CLI
+behaviours rather than documents, and are checked by command against the
+ordinary files of the repo. **Every repro is expected to fail**, and each one's inline test asserts the *intended* behaviour, so a repro
 that starts passing means the defect is fixed. `run-tests.sh` runs them as a
 **tripwire stage**: it fails if any repro goes green, with a message naming the
 convention that then becomes available. That is the opposite of the usual
@@ -23,6 +24,8 @@ three of them do not load.
 | **F4** | An `aggregate` range symbol named `t` makes `join.on` match nothing | — | **yes** |
 | **F5** | `skolem` / `distinct` / `rank` value invention does not evaluate | — | **yes** |
 | **F6** | A component with only scalar variables has no assertable state | assertion | no |
+| **F7** | `esm round-trip` resolves a relative `ref` against the CWD | load | no |
+| **F8** | A layered template library does not round-trip to a self-contained form | re-load | no |
 
 ---
 
@@ -183,3 +186,66 @@ PLAN.md §1.2's "components carry no clock" holds. It is recorded because it mak
 the `D(clock) ~ 0` crutch PLAN.md §1.2 describes look necessary for the wrong
 reason, and because it is a trap for anyone factoring a small pure-arithmetic
 helper out of a calculator.
+
+## F7 — `esm round-trip` resolves refs against the working directory
+
+No repro file; the whole repo is the repro.
+
+```
+$ ./esm validate components/deteriorated_emission_rate.esm
+✓ Validation passed
+$ ./esm round-trip components/deteriorated_emission_rate.esm
+Round 1: Load failed: [template_import_unresolved] template-library file not
+found or unreadable: .../.moves/lib/emission_factors.esm
+                             ^^^^^^ — the CWD's parent, not the file's
+$ (cd components && ../esm round-trip deteriorated_emission_rate.esm)
+✓ Round-trip fidelity maintained
+```
+
+esm-spec §4.7 fixes the rule for both mechanisms: *"Relative path … Resolved
+relative to the directory of the referencing file"*, and §9.7.2 says
+`expression_template_imports` reuses "§4.7's reference formats and
+resolution-timing rule, verbatim". `validate` and `test` implement it;
+`round-trip` resolves against the process working directory instead. It affects
+every document here with a relative `ref` — both components, the assembly, and
+`lib/keys.esm`.
+
+**Impact.** Cosmetic but load-bearing for the harness: `run-tests.sh`'s
+round-trip stage `cd`s into each document's directory. Remove that when this is
+fixed.
+
+## F8 — a layered template library does not round-trip
+
+No repro file; `lib/keys.esm` is the repro.
+
+```
+$ (cd lib && ../esm round-trip keys.esm)
+Error: [apply_expression_template_unknown_template]
+  document.expression_templates.scc_equipment_chain_key: body references
+  undeclared template 'scc_zero_tail' (esm-spec §9.7.3)
+```
+
+`lib/keys.esm` imports `scc_zero_tail` from `lib/identifiers.esm` and invokes it
+from inside two template bodies. On emit, the import EDGE is consumed —
+correctly, §9.7.6 says `expression_template_imports` "is a call site … and does
+**not** survive `parse → emit`" — but the imported DECLARATION is dropped too,
+so the emitted document references a template it does not declare and cannot be
+re-loaded.
+
+§9.7.6 states the intended split in the same paragraph: *"The import EDGE is
+expanded away; the DECLARATIONS survive"*, and §9.6.4 rule 5 is explicit about
+this exact case: *"a library that imports round-trips to its self-contained
+form, which is import-free and round-trips to itself."* The emitted form is
+import-free but not self-contained.
+
+```
+$ (cd lib && ../esm convert keys.esm --to compact-json) | jq '.expression_templates | keys'
+["scc_equipment_chain_key", "scc_lookup_ladder_key", "state_default_precedence"]   # scc_zero_tail is gone
+```
+
+**Impact.** Nothing at authoring time — `validate` and `test` both handle
+`lib/keys.esm` correctly, and cross-file layering is the convention
+(docs/esm-conventions.md §6). It matters for any tool that reads an emitted
+document rather than the source, which is what §9.6.4's Option B round-trip
+model exists to make safe. `run-tests.sh` excludes `lib/keys.esm` from its
+round-trip stage and watches this by command instead.

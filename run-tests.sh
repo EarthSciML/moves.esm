@@ -9,11 +9,12 @@
 #   2. conventions — the authoring rules of docs/esm-conventions.md, checked
 #                    structurally rather than by eye
 #   3. test        — every .esm document's inline `tests` section passes
-#   4. join gate   — a `join.on` contraction still costs O(matches), not O(N·M)
-#   5. limitations — the known upstream defects in docs/findings/ still fail
-#   6. fixtures    — end-to-end comparison against the moves.rs snapshots
+#   4. round-trip  — parse → emit → parse is faithful
+#   5. join gate   — a `join.on` contraction still costs O(matches), not O(N·M)
+#   6. limitations — the known upstream defects in docs/findings/ still fail
+#   7. fixtures    — end-to-end comparison against the moves.rs snapshots
 #
-# Stage 5 has the opposite polarity to the rest and that is deliberate: each
+# Stage 6 has the opposite polarity to the rest and that is deliberate: each
 # file under docs/findings/ is a repro whose inline test asserts the behaviour
 # we WANT, and which fails today. If one goes green, an upstream defect has been
 # fixed and a workaround somewhere in this tree is now dead weight — so the
@@ -120,7 +121,31 @@ else
   fail "inline tests (see the table above for which)"
 fi
 
-# --- 4. the join.on scaling gate ------------------------------------------
+# --- 4. round-trip --------------------------------------------------------
+#
+# parse → emit → parse must be faithful, which is the check that this repo is
+# using the format rather than a dialect of it that happens to load.
+#
+# Each document is round-tripped FROM ITS OWN DIRECTORY, because `esm
+# round-trip` resolves a relative `ref` against the process working directory
+# instead of the referencing file's directory (finding F7) — unlike `validate`
+# and `test`, which get it right. lib/keys.esm is excluded: a layered template
+# library does not currently round-trip to a self-contained form (finding F8).
+# Both are watched by the tripwire stage.
+
+head2 "round-trip"
+for doc in "${DOCS[@]}"; do
+  rel="${doc#./}"
+  [[ "$rel" == "lib/keys.esm" ]] && continue
+  if out=$( cd "$(dirname "$doc")" && "$OLDPWD/$ESM" round-trip "$(basename "$doc")" 2>&1 ); then
+    pass "$rel"
+  else
+    fail "round-trip $rel"
+    sed 's/^/       /' <<<"$out"
+  fi
+done
+
+# --- 5. the join.on scaling gate ------------------------------------------
 #
 # PLAN.md §3 Phase 1: a checked-in assertion that a `join.on` contraction costs
 # O(matches) and not O(N·M), so a regression in the equi-join gate — or a join
@@ -167,7 +192,7 @@ else
   fail "join.on scaling gate — the driven document's own assertions failed"
 fi
 
-# --- 5. known limitations (tripwire) --------------------------------------
+# --- 6. known limitations (tripwire) --------------------------------------
 #
 # Each file here reproduces an upstream defect and asserts the behaviour we
 # want, so it FAILS today. A repro that starts passing is good news that has to
@@ -204,7 +229,28 @@ else
   done
 fi
 
-# --- 6. fixtures ----------------------------------------------------------
+# Two limitations that are CLI behaviours rather than documents, so they are
+# checked by command rather than by a repro file.
+
+# F7: `esm round-trip` resolves a relative ref against the process working
+# directory, not the referencing file's directory (esm-spec §4.7, §9.7.2).
+if "$ESM" round-trip components/deteriorated_emission_rate.esm >/dev/null 2>&1; then
+  fail "F7_round_trip_ref_resolution NOW PASSES — the defect it records is fixed"
+  say "       Simplify the round-trip stage above: it no longer needs to cd."
+else
+  pass "F7_round_trip_ref_resolution still fails, as recorded"
+fi
+
+# F8: a layered template library does not round-trip to a self-contained form —
+# the import edge is consumed but the imported DECLARATION does not survive.
+if ( cd lib && "$OLDPWD/$ESM" round-trip keys.esm ) >/dev/null 2>&1; then
+  fail "F8_layered_library_round_trip NOW PASSES — the defect it records is fixed"
+  say "       Remove the lib/keys.esm exclusion from the round-trip stage."
+else
+  pass "F8_layered_library_round_trip still fails, as recorded"
+fi
+
+# --- 7. fixtures ----------------------------------------------------------
 #
 # Each fixture assembly under fixtures/ reads a moves.rs snapshot through
 # `data_sources` and is compared against that snapshot's expected MOVESOutput

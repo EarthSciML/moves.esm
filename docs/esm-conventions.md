@@ -9,8 +9,8 @@ eyeball are marked **[checked]**.
 
 Two companions: `docs/nonroad-logging-county.md` is the verified port
 specification these conventions were fitted to, and `docs/findings/README.md`
-records six things the format or the toolchain will not do, each with a repro
-that `run-tests.sh` watches.
+records eight things the format or the toolchain will not do, each watched by
+`run-tests.sh`.
 
 ---
 
@@ -321,9 +321,9 @@ parquet, and the assertions are that document's own worked longhand.
 
 ## 13. What `./run-tests.sh` guarantees
 
-Six stages, in order: schema `validate`; the conventions above **[checked]**;
-every inline test; the join-gate scaling ratio; the known-limitation tripwire;
-the fixture comparison. It must stay green at every commit, and it must stay
+Seven stages, in order: schema `validate`; the conventions above **[checked]**;
+every inline test; `parse → emit → parse` fidelity; the join-gate scaling ratio;
+the known-limitation tripwire; the fixture comparison. It must stay green at every commit, and it must stay
 *honest* — an empty fixture stage that says why it is empty is worth more than a
 green one that read nothing.
 
