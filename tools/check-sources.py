@@ -60,6 +60,10 @@ def fail(doc: str, source: str, detail: str) -> None:
 
 def resolve(url: str) -> pathlib.Path | None:
     """Resolve a `url_template`. Only `${MOVES_SNAPSHOTS}` is substituted."""
+    # The runtime requires an explicit scheme (a bare path fails with
+    # "bad url ... missing scheme"); strip it to reach the file on disk.
+    if url.startswith("file://"):
+        url = url[len("file://"):]
     if "${MOVES_SNAPSHOTS}" in url:
         url = url.replace("${MOVES_SNAPSHOTS}", str(SNAPSHOTS))
     if "{" in url:  # a runtime substitution this checker cannot resolve
@@ -71,7 +75,15 @@ def check_source(doc_name: str, name: str, entry: dict) -> None:
     import pyarrow.parquet as pq
 
     ro = entry.get("reader_options") or {}
-    if ro.get("format") != "parquet":
+    # The format is declared in `metadata.esio_format`, NOT in `reader_options`
+    # -- the runtime rejects a `format` key there as an unknown reader option
+    # (esm-spec §8.9.1), which is how this was found. Flag the old spelling
+    # rather than silently skipping a source that would fail at load.
+    if "format" in ro:
+        fail(doc_name, name, "reader_options carries a 'format' key; the runtime rejects "
+                             "that as an unknown reader option. Declare the format as "
+                             "metadata.esio_format instead")
+    if (entry.get("metadata") or {}).get("esio_format") != "parquet":
         return  # only parquet is checkable here
 
     url = (entry.get("source") or {}).get("url_template", "")
