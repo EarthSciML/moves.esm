@@ -154,7 +154,7 @@ the size of `emissionratebyage` — through gather-shaped access ran in 5.8 s in
 a debug build. Cost proportional to matches, not to pairs, is what the gate
 has to deliver.
 
-### 1.4 Bulk data comes through `data_sources` — which needs a Parquet reader
+### 1.4 Bulk data comes through `data_sources` — which needed a Parquet reader — **done**
 
 A variable's `default` must be a scalar number; array literals are rejected at
 load. Array data reaches a document three ways: an inline `const`-op array (fine
@@ -191,6 +191,28 @@ column is `int64` and `SCC` is a string — but so are `emissionQuant`,
 option is not an edge case for us; **every fixture must declare its float
 columns**, or the emission quantities arrive as strings. The reader parses
 decimal text under that option and refuses the unparseable.
+
+**Landed in all three bindings**, with a cross-language conformance corpus case
+(EarthSciIO `7a4ce2a`). Writing the second and third implementations is what
+found the first one's bugs, which is the argument for having done it that way:
+
+- Rust refused a `uint64` past `int64::MAX` under `float_columns` — the range
+  check sat in the decode rather than the integer coercion, the same shape as an
+  earlier `Binary` bug.
+- **Parquet2.jl reads a narrow fixed-length decimal as UNSIGNED.** A
+  `decimal128(9,2)` cell holding `-2.50` decoded as `42949670.46` — silently, no
+  error. Verified independently by arithmetic: the unscaled value is −250, and
+  read unsigned over 4 bytes that is 2³²−250 = 4294967046, ÷100 = 42949670.46
+  exactly. Compensated for in the Julia track rather than tolerated.
+- Julia's `Provider` applied the `variables` projection *after* the decode, so a
+  column the document never named could still fail the read; and an empty
+  `variables` read no columns instead of every column, against the spec and both
+  other tracks.
+
+`spec/conformance.md` now draws the distinction that makes this reviewable: a
+backend *gap* is a permitted divergence, recorded so a corpus case does not
+encode a difference it cannot fix; a backend defect producing a *wrong number*
+is never one, and gets compensated for in the track.
 
 ### 1.5 CLI gaps
 
