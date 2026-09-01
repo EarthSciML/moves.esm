@@ -2,11 +2,18 @@
   "esm": "1.0.0",
   "metadata": {
     "name": "nr-logging-county snapshot tables",
-    "description": "A SOURCE-CATALOG FILE (esm-spec §2): data_sources only, no component, not mountable as a subsystem. It declares the nr-logging-county snapshot tables that the Phase 1 components stand in for with inline literals, so that the ingest configuration is written, reviewed and version-controlled now rather than invented under time pressure in Phase 2.\n\nNOTHING CONSUMES IT YET, AND THAT IS DELIBERATE. No CLI subcommand can load a data source at the pinned toolchain: `src/bin/esm.rs` supplies no PrepareProvider, so a parameter with `update.kind: \"data\"` silently keeps its default and an aggregate over it silently sums to zero (build-esm.sh, KNOWN BLOCKER; PLAN.md §1.5). Wiring a component to one of these entries today would make a green test that compared nothing. So the entries are declared and validated, and the components read `const` arrays until the provider lands.\n\nWHAT THIS FILE ALREADY PROVES: that `float_columns` is mandatory, and on EVERY table rather than only on MOVESOutput. Checked directly against the snapshot parquet with pyarrow: `zonemonthhour.temperature`, every float column of `nrsourceusetype` (`hpAvg`, `loadFactor`, `hoursUsedPerYear`, `medianLifeFullLoad`), `nremissionrate.meanBaseRate`, `nrdeterioration.DFCoefficient` and `MOVESOutput.emissionQuant` are all physically `string` in the file, holding 12-place decimal text for byte-reproducibility, even though the sidecar .meta.json calls them float64. Without `float_columns` they arrive as strings and no arithmetic on them means anything.\n\nWHAT IT WILL PROVE ONCE THE PROVIDER IS WIRED: that components/exhaust_adjustment.esm computes the fixture's tamb (73.576927 degF) from the real 930,816-row zonemonthhour rather than from a synthetic column chosen to land on it; that components/deteriorated_emission_rate.esm selects its five rows out of the real 55,471-row nremissionrate by (SCC, hp bin, modelYearID, engTechID) rather than transcribing them; and that the roll-up can be diffed row by row against the 144-row MOVESOutput at the tolerances in tolerance.toml.",
-    "authors": ["EarthSciML Authors and Contributors"],
-    "tags": ["moves", "nonroad", "nr-logging-county", "source-catalog", "not-yet-consumed"]
+    "description": "A SOURCE-CATALOG FILE (esm-spec §2): data_sources only, no component, not mountable as a subsystem. It declares every snapshot table the nr-logging-county chain reads -- twenty-six entries covering all seven stages of PLAN.md §3 Phase 2 -- so that the ingest configuration is written, reviewed and version-controlled before it can be run, rather than invented under time pressure on the day it can.\n\nNOTHING CONSUMES IT YET, AND THAT IS DELIBERATE. No CLI subcommand can load a data source at the pinned toolchain: `src/bin/esm.rs` supplies no PrepareProvider, so a parameter with `update.kind: \"data\"` silently keeps its default and an aggregate over it silently sums to zero (build-esm.sh, KNOWN BLOCKER; PLAN.md §1.5). Wiring a component to one of these entries today would make a green test that compared nothing. So the entries are declared and CHECKED -- tools/check-sources.py opens every file named here with pyarrow and verifies that it exists, that every `float_columns` entry is really a column, that none of them is already a float, and that no projected decimal-text column was left out -- while the components read `const` arrays transcribed from these same tables.\n\nWHAT IT ALREADY PROVES: that `float_columns` is mandatory, and on almost every table rather than only on MOVESOutput. Checked directly against the parquet: `surrogatequant`, `population`, `fractionLifeused`, `percentageScrapped`, `NREngTechFraction`, `monthFraction`, `dayFraction`, `marketShare`, all seventeen `fuelformulation` property columns, `zonemonthhour.temperature`, `nrsourceusetype`'s four activity columns, `nremissionrate.meanBaseRate`, `nrdeterioration.DFCoefficient` and `MOVESOutput.emissionQuant` are all physically `string` in the file, holding decimal text for byte-reproducibility, even where the sidecar .meta.json calls them float64. Without `float_columns` they arrive as strings and no arithmetic on them means anything. Two traps the catalog also records: `nrscrappagecurve.fractionLifeused` is spelled with a lowercase u, and `nrdayallocation.scc` is lowercase throughout.\n\nWHAT IT WILL PROVE ONCE THE PROVIDER IS WIRED: that each stage selects its own rows out of the real tables -- 55,471 emission rates, 62,699 population rows, 930,816 hourly temperatures -- rather than transcribing the handful its tests use; and that the roll-up can be diffed row by row against the 144-row MOVESOutput at the tolerances in tolerance.toml. Wiring it is a change of source for each relation's columns, not a change of shape: every component's joins already key on the columns these tables carry.",
+    "authors": [
+      "EarthSciML Authors and Contributors"
+    ],
+    "tags": [
+      "moves",
+      "nonroad",
+      "nr-logging-county",
+      "source-catalog",
+      "not-yet-consumed"
+    ]
   },
-
   "data_sources": {
     "nr_logging_county_nremissionrate": {
       "kind": "static",
@@ -15,14 +22,17 @@
       },
       "reader_options": {
         "format": "parquet",
-        "float_columns": ["meanBaseRate"]
+        "float_columns": [
+          "meanBaseRate"
+        ]
       },
       "metadata": {
-        "tags": ["emission-factors"],
+        "tags": [
+          "emission-factors"
+        ],
         "note": "55,471 rows. Join J12 selects on (SCC via the equipment-chain fallback, engTechID, hpMin <= hpAvg <= hpMax, polProcessID in {101, 201, 301, 10001}); J13 takes polProcessID 9901 from the same table. SCC is utf8 in the file and becomes an integer key column in the document."
       }
     },
-
     "nr_logging_county_nrdeterioration": {
       "kind": "static",
       "source": {
@@ -30,14 +40,18 @@
       },
       "reader_options": {
         "format": "parquet",
-        "float_columns": ["DFCoefficient", "DFAgeExponent"]
+        "float_columns": [
+          "DFCoefficient",
+          "DFAgeExponent"
+        ]
       },
       "metadata": {
-        "tags": ["emission-factors"],
+        "tags": [
+          "emission-factors"
+        ],
         "note": "424 rows. Join J14 on the composite key (polProcessID, engTechID). emissionCap is int64 in the file and needs no float_columns entry."
       }
     },
-
     "nr_logging_county_zonemonthhour": {
       "kind": "static",
       "source": {
@@ -45,14 +59,21 @@
       },
       "reader_options": {
         "format": "parquet",
-        "float_columns": ["temperature", "relHumidity", "heatIndex", "specificHumidity", "molWaterFraction"]
+        "float_columns": [
+          "temperature",
+          "relHumidity",
+          "heatIndex",
+          "specificHumidity",
+          "molWaterFraction"
+        ]
       },
       "metadata": {
-        "tags": ["meteorology"],
+        "tags": [
+          "meteorology"
+        ],
         "note": "930,816 rows for the whole zone set. Joins J17/J18 restrict to zone 261610, monthID 8, hourID in [6, 18] -- 13 rows -- and average temperature over them. The most important entry here for the scaling gate: an unfiltered contraction against this table is the first place a non-driving join.on would stop being merely slow."
       }
     },
-
     "nr_logging_county_nrsourceusetype": {
       "kind": "static",
       "source": {
@@ -60,14 +81,407 @@
       },
       "reader_options": {
         "format": "parquet",
-        "float_columns": ["medianLifeFullLoad", "hoursUsedPerYear", "loadFactor", "hpAvg"]
+        "float_columns": [
+          "medianLifeFullLoad",
+          "hoursUsedPerYear",
+          "loadFactor",
+          "hpAvg"
+        ]
       },
       "metadata": {
-        "tags": ["activity"],
+        "tags": [
+          "activity"
+        ],
         "note": "1,183 rows. Supplies hpAvg, loadFactor, hoursUsedPerYear and medianLifeFullLoad, which components/deteriorated_emission_rate.esm currently carries as parameter defaults. hpAvg is in horsepower, which the unit registry has no name for -- `hp` is not a recognised unit -- so it stays unitless in the document and the native unit lives in the variable description."
       }
     },
-
+    "nr_logging_county_nrscc": {
+      "kind": "static",
+      "source": {
+        "url_template": "${MOVES_SNAPSHOTS}/nr-logging-county/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__nrscc.parquet"
+      },
+      "reader_options": {
+        "format": "parquet"
+      },
+      "metadata": {
+        "tags": [
+          "geography",
+          "selection"
+        ],
+        "note": "214 rows, and no decimal column at all: SCC is a string key and NREquipTypeID and fuelTypeID are int64. Joins J1 (to nrequipmenttype) and J3 (to runspecfueltype) read it; components/geographic_allocation.esm transcribes six rows of it. Its fuelTypeID is the NONROAD namespace, where diesel is 23 and 24 -- the reason a RunSpec selecting onroad fuel 2 matches nothing (docs/nonroad-logging-county.md §5.4)."
+      }
+    },
+    "nr_logging_county_nrequipmenttype": {
+      "kind": "static",
+      "source": {
+        "url_template": "${MOVES_SNAPSHOTS}/nr-logging-county/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__nrequipmenttype.parquet"
+      },
+      "reader_options": {
+        "format": "parquet"
+      },
+      "metadata": {
+        "tags": [
+          "geography",
+          "selection"
+        ],
+        "note": "88 rows. The second hop of J1: equipment type to sectorID and surrogateID, which is the DB form of NONROAD's ALLOCATE.XRF. No decimal columns."
+      }
+    },
+    "nr_logging_county_nrstatesurrogate": {
+      "kind": "static",
+      "source": {
+        "url_template": "${MOVES_SNAPSHOTS}/nr-logging-county/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__nrstatesurrogate.parquet"
+      },
+      "reader_options": {
+        "format": "parquet",
+        "float_columns": [
+          "surrogatequant"
+        ]
+      },
+      "metadata": {
+        "tags": [
+          "geography",
+          "allocation"
+        ],
+        "note": "62,821 rows, the .ALO files. J6 takes the county row and the state row of one surrogate at the latest surrogateYearID <= the episode year and divides. surrogatequant is decimal text: without float_columns the allocation fraction is a division of two strings."
+      }
+    },
+    "nr_logging_county_nrbaseyearequippopulation": {
+      "kind": "static",
+      "source": {
+        "url_template": "${MOVES_SNAPSHOTS}/nr-logging-county/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__nrbaseyearequippopulation.parquet"
+      },
+      "reader_options": {
+        "format": "parquet",
+        "float_columns": [
+          "population"
+        ]
+      },
+      "metadata": {
+        "tags": [
+          "population"
+        ],
+        "note": "62,699 rows. J4/J5: the 1990 state population per source type. The value read here is NOT the value the engine uses -- nonroad_loader.rs:1226 rounds each row to one decimal first, because canonical writes the .POP file with %17.1f, and 0.463484 becoming 0.5 is a 7.9% change the snapshot cannot be matched without (components/equipment_population.esm)."
+      }
+    },
+    "nr_logging_county_nrscrappagecurve": {
+      "kind": "static",
+      "source": {
+        "url_template": "${MOVES_SNAPSHOTS}/nr-logging-county/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__nrscrappagecurve.parquet"
+      },
+      "reader_options": {
+        "format": "parquet",
+        "float_columns": [
+          "fractionLifeused",
+          "percentageScrapped"
+        ]
+      },
+      "metadata": {
+        "tags": [
+          "population",
+          "scrappage"
+        ],
+        "note": "197 rows, all NREquipTypeID 0 -- the default curve, the only one canonical writes, and a hard error if absent. NOTE THE CASING: the column is `fractionLifeused`, lowercase u, where docs/nonroad-logging-county.md §1.2 and every Fortran listing write fractionLifeUsed. Both columns are decimal text. components/age_distribution.esm carries all 197 points, because which breakpoint a life fraction lands on IS the computation."
+      }
+    },
+    "nr_logging_county_nrgrowthpatternfinder": {
+      "kind": "static",
+      "source": {
+        "url_template": "${MOVES_SNAPSHOTS}/nr-logging-county/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__nrgrowthpatternfinder.parquet"
+      },
+      "reader_options": {
+        "format": "parquet"
+      },
+      "metadata": {
+        "tags": [
+          "population",
+          "growth"
+        ],
+        "note": "4,189 rows, no decimal columns. J8, and the harder half of it is not the join: the SCC walks the equipment chain [SCC, SCC[0..7]+000, SCC[0..4]+000000] and a stateID 26 row beats a stateID 0 one, both of which components/growth_index.esm precomputes into effective key columns."
+      }
+    },
+    "nr_logging_county_nrgrowthindex": {
+      "kind": "static",
+      "source": {
+        "url_template": "${MOVES_SNAPSHOTS}/nr-logging-county/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__nrgrowthindex.parquet"
+      },
+      "reader_options": {
+        "format": "parquet"
+      },
+      "metadata": {
+        "tags": [
+          "population",
+          "growth"
+        ],
+        "note": "50,955 rows. J9. growthIndex is int64 in this snapshot, so no float_columns entry -- but the document still models the truncation toward zero explicitly (nonroad_loader.rs:1516), because it is canonical's %20d packet write and not a decode artefact, and because the year-over-year changes sit near zero so the truncation decides the SIGN of the growth factor."
+      }
+    },
+    "nr_logging_county_nrengtechfraction": {
+      "kind": "static",
+      "source": {
+        "url_template": "${MOVES_SNAPSHOTS}/nr-logging-county/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__nrengtechfraction.parquet"
+      },
+      "reader_options": {
+        "format": "parquet",
+        "float_columns": [
+          "NREngTechFraction"
+        ]
+      },
+      "metadata": {
+        "tags": [
+          "emission-factors",
+          "tech-mix"
+        ],
+        "note": "9,554 rows, the .TECH file. J11: the technology mix per (SCC chain rung, hp bin, model year), filtered to processGroupID = 1 -- the evap rows bin hp differently and would otherwise join in with a full fraction and no exhaust rate."
+      }
+    },
+    "nr_logging_county_nrmonthallocation": {
+      "kind": "static",
+      "source": {
+        "url_template": "${MOVES_SNAPSHOTS}/nr-logging-county/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__nrmonthallocation.parquet"
+      },
+      "reader_options": {
+        "format": "parquet",
+        "float_columns": [
+          "monthFraction"
+        ]
+      },
+      "metadata": {
+        "tags": [
+          "activity",
+          "temporal"
+        ],
+        "note": "46,428 rows. J15, walked with scc_lookup's zero-2/4/6 ladder -- NOT the equipment chain the growth and rate tables use. The two rungs both exist for these SCCs and carry 0.0833333 and 0.117764, so stopping at the wrong one is a 41% error."
+      }
+    },
+    "nr_logging_county_nrdayallocation": {
+      "kind": "static",
+      "source": {
+        "url_template": "${MOVES_SNAPSHOTS}/nr-logging-county/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__nrdayallocation.parquet"
+      },
+      "reader_options": {
+        "format": "parquet",
+        "float_columns": [
+          "dayFraction"
+        ]
+      },
+      "metadata": {
+        "tags": [
+          "activity",
+          "temporal"
+        ],
+        "note": "210 rows. J16. NOTE THE CASING: the SCC column is `scc`, lowercase, alone among these tables. Searched independently of the month table, with its own ladder walk."
+      }
+    },
+    "nr_logging_county_nrfuelsupply": {
+      "kind": "static",
+      "source": {
+        "url_template": "${MOVES_SNAPSHOTS}/nr-logging-county/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__nrfuelsupply.parquet"
+      },
+      "reader_options": {
+        "format": "parquet",
+        "float_columns": [
+          "marketShare",
+          "marketShareCV"
+        ]
+      },
+      "metadata": {
+        "tags": [
+          "fuel"
+        ],
+        "note": "7,880 rows. J21, scoped to the county's nonroad fuel region, the run's fuel year and monthGroupID 8. The fuel-year filter is load-bearing: a county capture carries every year from 1990 to 2060 and an unfiltered oxygen sum reaches ~140 wt%. marketShareCV is declared though unread -- it is decimal text, and a column that decodes as a string when a later stage reaches for it is the failure this catalog exists to prevent."
+      }
+    },
+    "nr_logging_county_fuelformulation": {
+      "kind": "static",
+      "source": {
+        "url_template": "${MOVES_SNAPSHOTS}/nr-logging-county/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__fuelformulation.parquet"
+      },
+      "reader_options": {
+        "format": "parquet",
+        "float_columns": [
+          "RVP",
+          "sulfurLevel",
+          "ETOHVolume",
+          "MTBEVolume",
+          "ETBEVolume",
+          "TAMEVolume",
+          "aromaticContent",
+          "olefinContent",
+          "benzeneContent",
+          "e200",
+          "e300",
+          "volToWtPercentOxy",
+          "BioDieselEsterVolume",
+          "CetaneIndex",
+          "PAHContent",
+          "T50",
+          "T90"
+        ]
+      },
+      "metadata": {
+        "tags": [
+          "fuel"
+        ],
+        "note": "2,158 rows, and every one of its seventeen property columns is decimal text. The exhaust chain reads five -- sulfurLevel and the four oxygenate volumes -- plus volToWtPercentOxy; the rest are declared because they are the same kind of column and the evap and onroad phases will want them."
+      }
+    },
+    "nr_logging_county_nrfuelsubtype": {
+      "kind": "static",
+      "source": {
+        "url_template": "${MOVES_SNAPSHOTS}/nr-logging-county/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__nrfuelsubtype.parquet"
+      },
+      "reader_options": {
+        "format": "parquet",
+        "float_columns": [
+          "fuelSubtypePetroleumFraction",
+          "fuelSubtypeFossilFraction",
+          "carbonContent",
+          "oxidationFraction",
+          "energyContent"
+        ]
+      },
+      "metadata": {
+        "tags": [
+          "fuel"
+        ],
+        "note": "17 rows. J23: subtype to fuel type, which is what separates the gasoline supply rows from the diesel ones and identifies subtype 11 for the RFG test. The four *CV columns are strings of something other than decimal text and are left alone."
+      }
+    },
+    "nr_logging_county_regioncounty": {
+      "kind": "static",
+      "source": {
+        "url_template": "${MOVES_SNAPSHOTS}/nr-logging-county/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__regioncounty.parquet"
+      },
+      "reader_options": {
+        "format": "parquet"
+      },
+      "metadata": {
+        "tags": [
+          "fuel",
+          "geography"
+        ],
+        "note": "2 rows -- and they are the same region twice, under regionCodeID 1 and 2. J20 takes code 2, the nonroad one; without that filter every supply row joins twice and the oxygen content doubles."
+      }
+    },
+    "nr_logging_county_year": {
+      "kind": "static",
+      "source": {
+        "url_template": "${MOVES_SNAPSHOTS}/nr-logging-county/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__year.parquet"
+      },
+      "reader_options": {
+        "format": "parquet"
+      },
+      "metadata": {
+        "tags": [
+          "fuel",
+          "scope"
+        ],
+        "note": "63 rows. J19: calendar year to fuel year, which the region and supply scopes then both key on."
+      }
+    },
+    "nr_logging_county_zone": {
+      "kind": "static",
+      "source": {
+        "url_template": "${MOVES_SNAPSHOTS}/nr-logging-county/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__zone.parquet"
+      },
+      "reader_options": {
+        "format": "parquet",
+        "float_columns": [
+          "startAllocFactor",
+          "idleAllocFactor",
+          "SHPAllocFactor"
+        ]
+      },
+      "metadata": {
+        "tags": [
+          "meteorology",
+          "geography"
+        ],
+        "note": "3,232 rows. J17 scopes zonemonthhour to the run's county through this. Its three allocation factors are onroad quantities the nonroad path never reads; they are declared because they are decimal text and a later phase will read them."
+      }
+    },
+    "nr_logging_county_nrsulfuradjustment": {
+      "kind": "static",
+      "source": {
+        "url_template": "${MOVES_SNAPSHOTS}/nr-logging-county/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__nrsulfuradjustment.parquet"
+      },
+      "reader_options": {
+        "format": "parquet",
+        "float_columns": [
+          "PMBaseSulfur",
+          "sulfatePMConversionFactor"
+        ]
+      },
+      "metadata": {
+        "tags": [
+          "fuel",
+          "not-exercised"
+        ],
+        "note": "133 rows. J24. Loaded and wired by moves.rs and inert for this fixture: only diesel PM and the SOx EF rewrite consume it, and this RunSpec is gasoline-only with SOx unselected. Declared so the entry exists before the phase that needs it -- and with §8.1's warning attached, that the loader filters rows to fuelTypeID in {23, 24} yet keys the result by engTechID alone, which nobody has checked for overlap with the gasoline tech space."
+      }
+    },
+    "nr_logging_county_runspecsector": {
+      "kind": "static",
+      "source": {
+        "url_template": "${MOVES_SNAPSHOTS}/nr-logging-county/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecsector.parquet"
+      },
+      "reader_options": {
+        "format": "parquet"
+      },
+      "metadata": {
+        "tags": [
+          "runspec"
+        ],
+        "note": "1 row: sectorID 7, Logging. J2's right-hand side."
+      }
+    },
+    "nr_logging_county_runspecfueltype": {
+      "kind": "static",
+      "source": {
+        "url_template": "${MOVES_SNAPSHOTS}/nr-logging-county/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecfueltype.parquet"
+      },
+      "reader_options": {
+        "format": "parquet"
+      },
+      "metadata": {
+        "tags": [
+          "runspec"
+        ],
+        "note": "2 rows: onroad fuel types 1 and 2. J3's right-hand side, and the reason the diesel logging SCCs produce nothing (§5.4)."
+      }
+    },
+    "nr_logging_county_runspecmonth": {
+      "kind": "static",
+      "source": {
+        "url_template": "${MOVES_SNAPSHOTS}/nr-logging-county/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecmonth.parquet"
+      },
+      "reader_options": {
+        "format": "parquet"
+      },
+      "metadata": {
+        "tags": [
+          "runspec"
+        ],
+        "note": "1 row: monthID 8. Declared but not read by the moves.rs loader -- the month reaches the calculator through the master-loop position -- and nonetheless the right place for an .esm port to read it from, because the RunSpec XML's month key is a ZERO-BASED index (7) and this table carries the resolved ID (§0)."
+      }
+    },
+    "nr_logging_county_runspecpollutantprocess": {
+      "kind": "static",
+      "source": {
+        "url_template": "${MOVES_SNAPSHOTS}/nr-logging-county/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecpollutantprocess.parquet"
+      },
+      "reader_options": {
+        "format": "parquet"
+      },
+      "metadata": {
+        "tags": [
+          "runspec",
+          "output"
+        ],
+        "note": "4 rows: 101, 201, 301, 10001. J25, the output gate -- keyed on pollutantID = polProcessID/100, which is why CO2 is computed and never emitted."
+      }
+    },
     "nr_logging_county_movesoutput": {
       "kind": "static",
       "source": {
@@ -75,10 +489,17 @@
       },
       "reader_options": {
         "format": "parquet",
-        "float_columns": ["emissionQuant", "emissionQuantMean", "emissionQuantSigma"]
+        "float_columns": [
+          "emissionQuant",
+          "emissionQuantMean",
+          "emissionQuantSigma"
+        ]
       },
       "metadata": {
-        "tags": ["oracle", "expected-output"],
+        "tags": [
+          "oracle",
+          "expected-output"
+        ],
         "note": "The 144-row expected output: the other half of the comparison, shipped in the same snapshot, so no canonical MOVES, MariaDB or JVM is needed to develop against it. Compared under tolerance.toml, whose structural checks stay exact -- see PLAN.md §1.6.1 for why the document must emit every key its joins produce, zeros included, rather than reproducing the Fortran's row suppression."
       }
     }
