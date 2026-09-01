@@ -27,7 +27,7 @@ snapshots is a string of decimal text despite the sidecar metadata calling it
 float64, so `float_columns` is mandatory rather than an optimization, and
 forgetting one column is both easy and silent.
 
-    tools/check-sources.py             # all sources/*.esm
+    tools/check-sources.py             # every .esm that declares data_sources
     SNAPSHOTS=... tools/check-sources.py
 """
 
@@ -165,7 +165,15 @@ def check_source(doc_name: str, name: str, entry: dict) -> None:
 
 
 def main() -> int:
-    docs = sorted((HERE / "sources").glob("*.esm"))
+    # Every document that declares `data_sources`, wherever it lives. The
+    # catalog used to be a file of its own with no model attached, because
+    # nothing could consume it; it is now the fixture's own declaration block,
+    # and the checks below are what stop a wrong column name from reaching the
+    # runtime as a silent default.
+    docs = [p for p in sorted(HERE.rglob("*.esm"))
+            if not any(part in {".moves", "target", ".fixtures-run"}
+                       for part in p.relative_to(HERE).parts)
+            and '"data_sources"' in p.read_text(encoding="utf-8")]
     if not docs:
         print("  no data_sources catalogs to check")
         return 0

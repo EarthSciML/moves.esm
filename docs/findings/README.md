@@ -1,6 +1,6 @@
 # Findings: conventions the format or the toolchain could not express
 
-Fifteen things PLAN.md §3 Phase 1 and Phase 2 assumed, or that an author would
+Sixteen things PLAN.md §3 Phase 1 and Phase 2 assumed, or that an author would
 reasonably assume, that did not hold. Four are now fixed upstream and are listed
 at the bottom, with their sections kept above so the workarounds they forced can
 be traced; the rest still hold at the pinned toolchain (`esm-version.lock`:
@@ -30,6 +30,7 @@ three of them do not load.
 | **F12** | A recurrence over an index axis has no spelling | evaluation | no |
 | **F13** | `enums` merge first-wins across a mount; a colliding value is applied | — | **yes** |
 | **F14** | A `ragged` index set ignores its member factor | evaluation | **yes** |
+| **F15** | A `url_template` is neither environment-expanded nor relative | ingest | no |
 
 ---
 
@@ -490,6 +491,46 @@ existing path rather than a new mode on the solver.
 the document had to still evaluate, and to still fail to emit. It is the
 direction that fired — `simulate` began writing the file — which is how the
 fixture stage came to exist.
+
+## F15 — a `url_template` has no portable form
+
+No repro file; `fixtures/nr-logging-county.esm` is the repro, and
+`run-tests.sh`'s fixture stage checks it by command in the direction that
+matters — the checked-in document must **fail** to ingest.
+
+A `data_sources` entry names its input with `source.url_template`. The runtime
+requires an explicit scheme (a bare path is `bad url … missing scheme`), and
+then takes the URL literally: nothing expands an environment variable, and
+nothing resolves the path against the referencing document's directory the way
+esm-spec §4.7 does for a `ref`. All three portable spellings fail, and the
+error message shows why — the first path segment is consumed as the URL
+**host**:
+
+```
+file://${MOVES_SNAPSHOTS}/…/nrscc.parquet   io error at /…/nrscc.parquet
+file://../../../moves.rs/…/nrscc.parquet    io error at /../../moves.rs/…/nrscc.parquet
+file://./probe.parquet                      io error at /probe.parquet
+```
+
+Only `file:///absolute/path` reads. So a document whose data lives outside its
+own repository — which is every fixture here, since the snapshots are a sibling
+checkout — **cannot name its own inputs**.
+
+**Impact.** `run-tests.sh` materializes each fixture into an untracked
+`.fixtures-run/` copy with one `sed` over the snapshot path. That is a
+substitution of a *path*, not a generation of model logic, and it is the reason
+`fixtures/` is excluded from the ordinary `esm test` stage: the checked-in
+document deliberately does not ingest, so its inline assertions mean nothing
+until it is materialized. The cost is that the file the repository reviews and
+the file the toolchain runs are not byte-identical, which is exactly what the
+round-trip stage exists to avoid elsewhere.
+
+**Fix shape.** Expand `${VAR}` from the process environment — `url_template` is
+already called a template and already carries `{date:…}`-style substitutions —
+or resolve a relative path against the referencing document's directory, per
+§4.7's rule for every other reference in the format. Either removes the
+materialization step; the first also lets one catalog serve several machines.
+
 
 ---
 

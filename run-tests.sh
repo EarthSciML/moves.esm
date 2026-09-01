@@ -80,6 +80,7 @@ fi
 
 mapfile -t DOCS < <(find . -name '*.esm' \
   -not -path './.moves/*' -not -path './target/*' -not -path './docs/findings/*' \
+  -not -path './.fixtures-run/*' \
   | sort)
 
 if [[ ${#DOCS[@]} -eq 0 ]]; then
@@ -130,9 +131,13 @@ fi
 # accurately each test is integrated, not the tolerance its assertions are
 # judged against, which each test declares for itself (§6.6.4).
 
+# fixtures/ is excluded here and run by stage 7 instead: a fixture's
+# `url_template` carries a ${MOVES_SNAPSHOTS} placeholder the RUNTIME does not
+# substitute, so the checked-in file deliberately cannot ingest and its inline
+# tests only mean anything against the materialized copy.
 mapfile -t TEST_TARGETS < <(find . -maxdepth 1 -mindepth 1 -type d \
   -not -name '.*' -not -name 'target' -not -name 'gates' -not -name 'docs' \
-  -not -name 'tools' | sort)
+  -not -name 'tools' -not -name 'fixtures' | sort)
 
 head2 "test (${TEST_TARGETS[*]})"
 if "$ESM" test "${TEST_TARGETS[@]}" 2>&1 | sed 's/^/  /'; then
@@ -283,25 +288,49 @@ fi
 
 # --- 7. fixtures ----------------------------------------------------------
 #
-# Each fixture assembly under fixtures/ reads a moves.rs snapshot through
-# `data_sources` and is compared against that snapshot's expected MOVESOutput
-# at the tolerances in tolerance.toml.
+# Each fixture under fixtures/ declares the moves.rs snapshot tables it reads as
+# `data_sources` and computes MOVESOutput rows from them. It is the only place
+# in this repository where a number comes off disk rather than out of a `const`
+# array, and it is the level at which this port is compared against the
+# reference at all.
 #
-# NOTE (PLAN.md §1.5, build-esm.sh KNOWN BLOCKER): no CLI subcommand wires a
-# PrepareProvider yet, so a `data_sources` entry loads nothing and a comparison
-# built on one would pass having read nothing. Until that is fixed upstream,
-# this stage must stay empty rather than green — sources/nr_logging_county.esm
-# declares the ingest configuration and is deliberately consumed by no component.
+# THE MATERIALIZATION STEP, AND WHY IT IS NOT A GENERATED DOCUMENT. A
+# `url_template` is neither environment-expanded nor resolved relative to the
+# referencing file: `file://${MOVES_SNAPSHOTS}/...` is looked up literally and
+# `file://../x` eats `..` as the URL host (both measured; see
+# docs/findings/README.md F15). So a checked-in fixture cannot name its own
+# inputs, and this stage rewrites ONLY the snapshot path into an untracked copy
+# under .fixtures-run/. No model logic is generated -- CLAUDE.md's rule is about
+# expressions, and the copy differs from the source by one absolute path per
+# data source. .fixtures-run/ sits at the repository root so that each fixture's
+# relative `../lib/...` template imports resolve exactly as they do from
+# fixtures/.
 
-SNAPSHOTS="${SNAPSHOTS:-../moves.rs/characterization/snapshots}"
+# Located by searching UPWARD, not by a fixed `../`, which is right from the
+# canonical checkout and one level too deep from a git worktree under .moves/.
+# The failure was silent and had already been fixed twice elsewhere in this
+# repository (run-oracle.sh, tools/check-sources.py) before it was noticed here:
+# the stage reported "skip -- no snapshots" and the suite went green having
+# compared nothing, which is the same shape as the bug the fixture exists to
+# catch, one level up.
+if [[ -z "${SNAPSHOTS:-}" ]]; then
+  d="$PWD"
+  while [[ "$d" != / ]]; do
+    if [[ -d "$d/moves.rs/characterization/snapshots" ]]; then
+      SNAPSHOTS="$d/moves.rs/characterization/snapshots"; break
+    fi
+    d="$(dirname "$d")"
+  done
+  SNAPSHOTS="${SNAPSHOTS:-../moves.rs/characterization/snapshots}"
+fi
+RUNDIR=".fixtures-run"
 
 # --- data_sources catalogs ------------------------------------------------
 #
-# Nothing consumes these yet -- the CLI cannot load a data source (F9's
-# neighbour, see build-esm.sh) -- so without this stage a catalog naming a file
-# that does not exist, or a column that is not in it, would look correct right
-# up until ingest lands and then fail all at once, where the failures are
-# hardest to attribute.
+# Checked against the Parquet directly, with pyarrow, because the runtime's own
+# report of a wrong column name is a `default` -- a plausible number with no
+# diagnostic attached. This stage is what makes a misspelled `fractionLifeused`
+# or a forgotten `float_columns` entry fail where it can be attributed.
 
 head2 "data_sources catalogs"
 if out=$("$PYTHON" tools/check-sources.py 2>&1); then
@@ -315,35 +344,44 @@ head2 "fixtures"
 mapfile -t FIXTURES < <(find fixtures -name '*.esm' 2>/dev/null | sort)
 
 if [[ ${#FIXTURES[@]} -eq 0 ]]; then
-  say "  none yet — data_sources ingest is not wired (build-esm.sh, KNOWN BLOCKER)"
+  say "  none"
 elif [[ ! -d "$SNAPSHOTS" ]]; then
   for f in "${FIXTURES[@]}"; do
     skip "$f" "no snapshots at $SNAPSHOTS (set SNAPSHOTS=...)"
   done
 else
+  SNAP_ABS="$(cd "$SNAPSHOTS" && pwd)"
+  mkdir -p "$RUNDIR"
   for f in "${FIXTURES[@]}"; do
     name=$(basename "$f" .esm)
     if [[ ! -d "$SNAPSHOTS/$name" ]]; then
       fail "fixture $name — no snapshot at $SNAPSHOTS/$name"
       continue
     fi
-    # The .esm run writes its rows here; the comparator judges them. Producing
-    # this CSV needs the CLI to wire a data provider, which it does not yet
-    # (see build-esm.sh). Until then the fixture is reported as blocked rather
-    # than passed -- a fixture stage that silently compares nothing is exactly
-    # the failure this repo already hit once.
-    actual="${ACTUAL_DIR:-.}/$name.actual.csv"
-    if [[ ! -f "$actual" ]]; then
-      skip "$name" "no emitted rows at $actual"
+
+    # F15 tripwire, in the direction that matters: the CHECKED-IN document must
+    # NOT be able to ingest. If it can, `url_template` has grown a portable
+    # form and the substitution below is dead weight.
+    if "$ESM" test "$f" >/dev/null 2>&1; then
+      fail "$name — the checked-in fixture INGESTED without substitution"
+      say "       url_template now resolves \${MOVES_SNAPSHOTS} or a relative path"
+      say "       (docs/findings/README.md F15). Drop the materialization step."
       continue
     fi
-    if out=$("$PYTHON" compare-output.py --fixture "$name" --actual "$actual" \
-               --snapshots "$SNAPSHOTS" 2>&1); then
-      pass "$name"
-      sed 's/^/       /' <<<"$out" | tail -n +2
+
+    run="$RUNDIR/$name.esm"
+    sed "s|\${MOVES_SNAPSHOTS}|$SNAP_ABS|g" "$f" > "$run"
+
+    # The fixture's own inline assertions, against the real tables. Every one
+    # names a value out of docs/nonroad-logging-county.md §6, so a source that
+    # silently delivered its `default` fails here rather than at the comparison.
+    if out=$("$ESM" test "$run" 2>&1); then
+      pass "$name — inline assertions against the snapshot parquet"
+      sed -n 's/^ *TOTAL */       assertions: /p' <<<"$out"
     else
-      fail "fixture $name"
+      fail "fixture $name — inline assertions"
       sed 's/^/       /' <<<"$out"
+      continue
     fi
   done
 fi

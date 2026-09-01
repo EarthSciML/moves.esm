@@ -1,0 +1,909 @@
+{
+  "esm": "1.0.0",
+  "metadata": {
+    "name": "nr-logging-county snapshot tables",
+    "description": "A SOURCE-CATALOG FILE (esm-spec §2): data_sources only, no component, not mountable as a subsystem. It declares every snapshot table the nr-logging-county chain reads -- twenty-six entries covering all seven stages of PLAN.md §3 Phase 2 -- so that the ingest configuration is written, reviewed and version-controlled before it can be run, rather than invented under time pressure on the day it can.\n\nNOTHING CONSUMES IT YET, AND THAT IS DELIBERATE. No CLI subcommand can load a data source at the pinned toolchain: `src/bin/esm.rs` supplies no PrepareProvider, so a parameter with `update.kind: \"data\"` silently keeps its default and an aggregate over it silently sums to zero (build-esm.sh, KNOWN BLOCKER; PLAN.md §1.5). Wiring a component to one of these entries today would make a green test that compared nothing. THE SHAPE IS THE RUNTIME'S, NOT THE SCHEMA'S GUESS: the format is `metadata.esio_format`, because a `format` key inside `reader_options` is rejected as an unknown reader option (esm-spec §8.9.1 working as specified), and `url_template` carries an explicit `file://` scheme, because a bare absolute path fails with a missing-scheme error. Both were found by building the in-flight provider and running the real ingest. So the entries are declared and CHECKED -- tools/check-sources.py opens every file named here with pyarrow and verifies that it exists, that every `float_columns` entry is really a column, that none of them is already a float, and that no projected decimal-text column was left out -- while the components read `const` arrays transcribed from these same tables.\n\nWHAT IT ALREADY PROVES: that `float_columns` is mandatory, and on almost every table rather than only on MOVESOutput. Checked directly against the parquet: `surrogatequant`, `population`, `fractionLifeused`, `percentageScrapped`, `NREngTechFraction`, `monthFraction`, `dayFraction`, `marketShare`, all seventeen `fuelformulation` property columns, `zonemonthhour.temperature`, `nrsourceusetype`'s four activity columns, `nremissionrate.meanBaseRate`, `nrdeterioration.DFCoefficient` and `MOVESOutput.emissionQuant` are all physically `string` in the file, holding decimal text for byte-reproducibility, even where the sidecar .meta.json calls them float64. Without `float_columns` they arrive as strings and no arithmetic on them means anything. Two traps the catalog also records: `nrscrappagecurve.fractionLifeused` is spelled with a lowercase u, and `nrdayallocation.scc` is lowercase throughout.\n\nWHAT IT WILL PROVE ONCE THE PROVIDER IS WIRED: that each stage selects its own rows out of the real tables -- 55,471 emission rates, 62,699 population rows, 930,816 hourly temperatures -- rather than transcribing the handful its tests use; and that the roll-up can be diffed row by row against the 144-row MOVESOutput at the tolerances in tolerance.toml. Wiring it is a change of source for each relation's columns, not a change of shape: every component's joins already key on the columns these tables carry.",
+    "authors": [
+      "EarthSciML Authors and Contributors"
+    ],
+    "tags": [
+      "moves",
+      "nonroad",
+      "nr-logging-county",
+      "source-catalog",
+      "not-yet-consumed"
+    ]
+  },
+  "data_sources": {
+    "nr_logging_county_nremissionrate": {
+      "kind": "static",
+      "source": {
+        "url_template": "file://${MOVES_SNAPSHOTS}/nr-logging-county/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__nremissionrate.parquet"
+      },
+      "reader_options": {
+        "float_columns": [
+          "SCC",
+          "meanBaseRate"
+        ]
+      },
+      "metadata": {
+        "tags": [
+          "emission-factors"
+        ],
+        "note": "55,471 rows. Join J12 selects on (SCC via the equipment-chain fallback, engTechID, hpMin <= hpAvg <= hpMax, polProcessID in {101, 201, 301, 10001}); J13 takes polProcessID 9901 from the same table. SCC is utf8 in the file and becomes an integer key column in the document.",
+        "esio_format": "parquet"
+      }
+    },
+    "nr_logging_county_nrdeterioration": {
+      "kind": "static",
+      "source": {
+        "url_template": "file://${MOVES_SNAPSHOTS}/nr-logging-county/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__nrdeterioration.parquet"
+      },
+      "reader_options": {
+        "float_columns": [
+          "DFCoefficient",
+          "DFAgeExponent"
+        ]
+      },
+      "metadata": {
+        "tags": [
+          "emission-factors"
+        ],
+        "note": "424 rows. Join J14 on the composite key (polProcessID, engTechID). emissionCap is int64 in the file and needs no float_columns entry.",
+        "esio_format": "parquet"
+      }
+    },
+    "nr_logging_county_zonemonthhour": {
+      "kind": "static",
+      "source": {
+        "url_template": "file://${MOVES_SNAPSHOTS}/nr-logging-county/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__zonemonthhour.parquet"
+      },
+      "reader_options": {
+        "float_columns": [
+          "temperature",
+          "relHumidity",
+          "heatIndex",
+          "specificHumidity",
+          "molWaterFraction"
+        ]
+      },
+      "metadata": {
+        "tags": [
+          "meteorology"
+        ],
+        "note": "930,816 rows for the whole zone set. Joins J17/J18 restrict to zone 261610, monthID 8, hourID in [6, 18] -- 13 rows -- and average temperature over them. The most important entry here for the scaling gate: an unfiltered contraction against this table is the first place a non-driving join.on would stop being merely slow.",
+        "esio_format": "parquet"
+      }
+    },
+    "nr_logging_county_nrsourceusetype": {
+      "kind": "static",
+      "source": {
+        "url_template": "file://${MOVES_SNAPSHOTS}/nr-logging-county/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__nrsourceusetype.parquet"
+      },
+      "reader_options": {
+        "float_columns": [
+          "SCC",
+          "medianLifeFullLoad",
+          "hoursUsedPerYear",
+          "loadFactor",
+          "hpAvg"
+        ]
+      },
+      "extent": {
+        "metaparameter": "n_nrsourceusetype"
+      },
+      "metadata": {
+        "tags": [
+          "activity"
+        ],
+        "note": "1,183 rows. Supplies hpAvg, loadFactor, hoursUsedPerYear and medianLifeFullLoad, which components/deteriorated_emission_rate.esm currently carries as parameter defaults. hpAvg is in horsepower, which the unit registry has no name for -- `hp` is not a recognised unit -- so it stays unitless in the document and the native unit lives in the variable description.",
+        "esio_format": "parquet"
+      }
+    },
+    "nr_logging_county_nrscc": {
+      "kind": "static",
+      "source": {
+        "url_template": "file://${MOVES_SNAPSHOTS}/nr-logging-county/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__nrscc.parquet"
+      },
+      "reader_options": {
+        "float_columns": [
+          "SCC"
+        ]
+      },
+      "extent": {
+        "metaparameter": "n_nrscc"
+      },
+      "metadata": {
+        "tags": [
+          "geography",
+          "selection"
+        ],
+        "note": "214 rows, and no decimal column at all: SCC is a string key and NREquipTypeID and fuelTypeID are int64. Joins J1 (to nrequipmenttype) and J3 (to runspecfueltype) read it; components/geographic_allocation.esm transcribes six rows of it. Its fuelTypeID is the NONROAD namespace, where diesel is 23 and 24 -- the reason a RunSpec selecting onroad fuel 2 matches nothing (docs/nonroad-logging-county.md §5.4).",
+        "esio_format": "parquet"
+      }
+    },
+    "nr_logging_county_nrequipmenttype": {
+      "kind": "static",
+      "source": {
+        "url_template": "file://${MOVES_SNAPSHOTS}/nr-logging-county/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__nrequipmenttype.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_nrequipmenttype"
+      },
+      "metadata": {
+        "tags": [
+          "geography",
+          "selection"
+        ],
+        "note": "88 rows. The second hop of J1: equipment type to sectorID and surrogateID, which is the DB form of NONROAD's ALLOCATE.XRF. No decimal columns.",
+        "esio_format": "parquet"
+      }
+    },
+    "nr_logging_county_nrstatesurrogate": {
+      "kind": "static",
+      "source": {
+        "url_template": "file://${MOVES_SNAPSHOTS}/nr-logging-county/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__nrstatesurrogate.parquet"
+      },
+      "reader_options": {
+        "float_columns": [
+          "surrogatequant"
+        ]
+      },
+      "extent": {
+        "metaparameter": "n_nrstatesurrogate"
+      },
+      "metadata": {
+        "tags": [
+          "geography",
+          "allocation"
+        ],
+        "note": "62,821 rows, the .ALO files. J6 takes the county row and the state row of one surrogate at the latest surrogateYearID <= the episode year and divides. surrogatequant is decimal text: without float_columns the allocation fraction is a division of two strings.",
+        "esio_format": "parquet"
+      }
+    },
+    "nr_logging_county_nrbaseyearequippopulation": {
+      "kind": "static",
+      "source": {
+        "url_template": "file://${MOVES_SNAPSHOTS}/nr-logging-county/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__nrbaseyearequippopulation.parquet"
+      },
+      "reader_options": {
+        "float_columns": [
+          "population"
+        ]
+      },
+      "extent": {
+        "metaparameter": "n_nrbaseyearequippopulation"
+      },
+      "metadata": {
+        "tags": [
+          "population"
+        ],
+        "note": "62,699 rows. J4/J5: the 1990 state population per source type. The value read here is NOT the value the engine uses -- nonroad_loader.rs:1226 rounds each row to one decimal first, because canonical writes the .POP file with %17.1f, and 0.463484 becoming 0.5 is a 7.9% change the snapshot cannot be matched without (components/equipment_population.esm).",
+        "esio_format": "parquet"
+      }
+    },
+    "nr_logging_county_nrscrappagecurve": {
+      "kind": "static",
+      "source": {
+        "url_template": "file://${MOVES_SNAPSHOTS}/nr-logging-county/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__nrscrappagecurve.parquet"
+      },
+      "reader_options": {
+        "float_columns": [
+          "fractionLifeused",
+          "percentageScrapped"
+        ]
+      },
+      "metadata": {
+        "tags": [
+          "population",
+          "scrappage"
+        ],
+        "note": "197 rows, all NREquipTypeID 0 -- the default curve, the only one canonical writes, and a hard error if absent. NOTE THE CASING: the column is `fractionLifeused`, lowercase u, where docs/nonroad-logging-county.md §1.2 and every Fortran listing write fractionLifeUsed. Both columns are decimal text. components/age_distribution.esm carries all 197 points, because which breakpoint a life fraction lands on IS the computation.",
+        "esio_format": "parquet"
+      }
+    },
+    "nr_logging_county_nrgrowthpatternfinder": {
+      "kind": "static",
+      "source": {
+        "url_template": "file://${MOVES_SNAPSHOTS}/nr-logging-county/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__nrgrowthpatternfinder.parquet"
+      },
+      "metadata": {
+        "tags": [
+          "population",
+          "growth"
+        ],
+        "note": "4,189 rows, no decimal columns. J8, and the harder half of it is not the join: the SCC walks the equipment chain [SCC, SCC[0..7]+000, SCC[0..4]+000000] and a stateID 26 row beats a stateID 0 one, both of which components/growth_index.esm precomputes into effective key columns.",
+        "esio_format": "parquet"
+      }
+    },
+    "nr_logging_county_nrgrowthindex": {
+      "kind": "static",
+      "source": {
+        "url_template": "file://${MOVES_SNAPSHOTS}/nr-logging-county/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__nrgrowthindex.parquet"
+      },
+      "metadata": {
+        "tags": [
+          "population",
+          "growth"
+        ],
+        "note": "50,955 rows. J9. growthIndex is int64 in this snapshot, so no float_columns entry -- but the document still models the truncation toward zero explicitly (nonroad_loader.rs:1516), because it is canonical's %20d packet write and not a decode artefact, and because the year-over-year changes sit near zero so the truncation decides the SIGN of the growth factor.",
+        "esio_format": "parquet"
+      }
+    },
+    "nr_logging_county_nrengtechfraction": {
+      "kind": "static",
+      "source": {
+        "url_template": "file://${MOVES_SNAPSHOTS}/nr-logging-county/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__nrengtechfraction.parquet"
+      },
+      "reader_options": {
+        "float_columns": [
+          "SCC",
+          "NREngTechFraction"
+        ]
+      },
+      "metadata": {
+        "tags": [
+          "emission-factors",
+          "tech-mix"
+        ],
+        "note": "9,554 rows, the .TECH file. J11: the technology mix per (SCC chain rung, hp bin, model year), filtered to processGroupID = 1 -- the evap rows bin hp differently and would otherwise join in with a full fraction and no exhaust rate.",
+        "esio_format": "parquet"
+      }
+    },
+    "nr_logging_county_nrmonthallocation": {
+      "kind": "static",
+      "source": {
+        "url_template": "file://${MOVES_SNAPSHOTS}/nr-logging-county/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__nrmonthallocation.parquet"
+      },
+      "reader_options": {
+        "float_columns": [
+          "SCC",
+          "monthFraction"
+        ]
+      },
+      "metadata": {
+        "tags": [
+          "activity",
+          "temporal"
+        ],
+        "note": "46,428 rows. J15, walked with scc_lookup's zero-2/4/6 ladder -- NOT the equipment chain the growth and rate tables use. The two rungs both exist for these SCCs and carry 0.0833333 and 0.117764, so stopping at the wrong one is a 41% error.",
+        "esio_format": "parquet"
+      }
+    },
+    "nr_logging_county_nrdayallocation": {
+      "kind": "static",
+      "source": {
+        "url_template": "file://${MOVES_SNAPSHOTS}/nr-logging-county/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__nrdayallocation.parquet"
+      },
+      "reader_options": {
+        "float_columns": [
+          "scc",
+          "dayFraction"
+        ]
+      },
+      "metadata": {
+        "tags": [
+          "activity",
+          "temporal"
+        ],
+        "note": "210 rows. J16. NOTE THE CASING: the SCC column is `scc`, lowercase, alone among these tables. Searched independently of the month table, with its own ladder walk.",
+        "esio_format": "parquet"
+      }
+    },
+    "nr_logging_county_nrfuelsupply": {
+      "kind": "static",
+      "source": {
+        "url_template": "file://${MOVES_SNAPSHOTS}/nr-logging-county/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__nrfuelsupply.parquet"
+      },
+      "reader_options": {
+        "float_columns": [
+          "marketShare",
+          "marketShareCV"
+        ]
+      },
+      "metadata": {
+        "tags": [
+          "fuel"
+        ],
+        "note": "7,880 rows. J21, scoped to the county's nonroad fuel region, the run's fuel year and monthGroupID 8. The fuel-year filter is load-bearing: a county capture carries every year from 1990 to 2060 and an unfiltered oxygen sum reaches ~140 wt%. marketShareCV is declared though unread -- it is decimal text, and a column that decodes as a string when a later stage reaches for it is the failure this catalog exists to prevent.",
+        "esio_format": "parquet"
+      }
+    },
+    "nr_logging_county_fuelformulation": {
+      "kind": "static",
+      "source": {
+        "url_template": "file://${MOVES_SNAPSHOTS}/nr-logging-county/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__fuelformulation.parquet"
+      },
+      "reader_options": {
+        "float_columns": [
+          "RVP",
+          "sulfurLevel",
+          "ETOHVolume",
+          "MTBEVolume",
+          "ETBEVolume",
+          "TAMEVolume",
+          "aromaticContent",
+          "olefinContent",
+          "benzeneContent",
+          "e200",
+          "e300",
+          "volToWtPercentOxy",
+          "BioDieselEsterVolume",
+          "CetaneIndex",
+          "PAHContent",
+          "T50",
+          "T90"
+        ]
+      },
+      "metadata": {
+        "tags": [
+          "fuel"
+        ],
+        "note": "2,158 rows, and every one of its seventeen property columns is decimal text. The exhaust chain reads five -- sulfurLevel and the four oxygenate volumes -- plus volToWtPercentOxy; the rest are declared because they are the same kind of column and the evap and onroad phases will want them.",
+        "esio_format": "parquet"
+      }
+    },
+    "nr_logging_county_nrfuelsubtype": {
+      "kind": "static",
+      "source": {
+        "url_template": "file://${MOVES_SNAPSHOTS}/nr-logging-county/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__nrfuelsubtype.parquet"
+      },
+      "reader_options": {
+        "float_columns": [
+          "fuelSubtypePetroleumFraction",
+          "fuelSubtypeFossilFraction",
+          "carbonContent",
+          "oxidationFraction",
+          "energyContent"
+        ]
+      },
+      "metadata": {
+        "tags": [
+          "fuel"
+        ],
+        "note": "17 rows. J23: subtype to fuel type, which is what separates the gasoline supply rows from the diesel ones and identifies subtype 11 for the RFG test. The four *CV columns are strings of something other than decimal text and are left alone.",
+        "esio_format": "parquet"
+      }
+    },
+    "nr_logging_county_regioncounty": {
+      "kind": "static",
+      "source": {
+        "url_template": "file://${MOVES_SNAPSHOTS}/nr-logging-county/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__regioncounty.parquet"
+      },
+      "metadata": {
+        "tags": [
+          "fuel",
+          "geography"
+        ],
+        "note": "2 rows -- and they are the same region twice, under regionCodeID 1 and 2. J20 takes code 2, the nonroad one; without that filter every supply row joins twice and the oxygen content doubles.",
+        "esio_format": "parquet"
+      }
+    },
+    "nr_logging_county_year": {
+      "kind": "static",
+      "source": {
+        "url_template": "file://${MOVES_SNAPSHOTS}/nr-logging-county/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__year.parquet"
+      },
+      "metadata": {
+        "tags": [
+          "fuel",
+          "scope"
+        ],
+        "note": "63 rows. J19: calendar year to fuel year, which the region and supply scopes then both key on.",
+        "esio_format": "parquet"
+      }
+    },
+    "nr_logging_county_zone": {
+      "kind": "static",
+      "source": {
+        "url_template": "file://${MOVES_SNAPSHOTS}/nr-logging-county/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__zone.parquet"
+      },
+      "reader_options": {
+        "float_columns": [
+          "startAllocFactor",
+          "idleAllocFactor",
+          "SHPAllocFactor"
+        ]
+      },
+      "metadata": {
+        "tags": [
+          "meteorology",
+          "geography"
+        ],
+        "note": "3,232 rows. J17 scopes zonemonthhour to the run's county through this. Its three allocation factors are onroad quantities the nonroad path never reads; they are declared because they are decimal text and a later phase will read them.",
+        "esio_format": "parquet"
+      }
+    },
+    "nr_logging_county_nrsulfuradjustment": {
+      "kind": "static",
+      "source": {
+        "url_template": "file://${MOVES_SNAPSHOTS}/nr-logging-county/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__nrsulfuradjustment.parquet"
+      },
+      "reader_options": {
+        "float_columns": [
+          "PMBaseSulfur",
+          "sulfatePMConversionFactor"
+        ]
+      },
+      "metadata": {
+        "tags": [
+          "fuel",
+          "not-exercised"
+        ],
+        "note": "133 rows. J24. Loaded and wired by moves.rs and inert for this fixture: only diesel PM and the SOx EF rewrite consume it, and this RunSpec is gasoline-only with SOx unselected. Declared so the entry exists before the phase that needs it -- and with §8.1's warning attached, that the loader filters rows to fuelTypeID in {23, 24} yet keys the result by engTechID alone, which nobody has checked for overlap with the gasoline tech space.",
+        "esio_format": "parquet"
+      }
+    },
+    "nr_logging_county_runspecsector": {
+      "kind": "static",
+      "source": {
+        "url_template": "file://${MOVES_SNAPSHOTS}/nr-logging-county/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecsector.parquet"
+      },
+      "metadata": {
+        "tags": [
+          "runspec"
+        ],
+        "note": "1 row: sectorID 7, Logging. J2's right-hand side.",
+        "esio_format": "parquet"
+      }
+    },
+    "nr_logging_county_runspecfueltype": {
+      "kind": "static",
+      "source": {
+        "url_template": "file://${MOVES_SNAPSHOTS}/nr-logging-county/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecfueltype.parquet"
+      },
+      "metadata": {
+        "tags": [
+          "runspec"
+        ],
+        "note": "2 rows: onroad fuel types 1 and 2. J3's right-hand side, and the reason the diesel logging SCCs produce nothing (§5.4).",
+        "esio_format": "parquet"
+      }
+    },
+    "nr_logging_county_runspecmonth": {
+      "kind": "static",
+      "source": {
+        "url_template": "file://${MOVES_SNAPSHOTS}/nr-logging-county/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecmonth.parquet"
+      },
+      "metadata": {
+        "tags": [
+          "runspec"
+        ],
+        "note": "1 row: monthID 8. Declared but not read by the moves.rs loader -- the month reaches the calculator through the master-loop position -- and nonetheless the right place for an .esm port to read it from, because the RunSpec XML's month key is a ZERO-BASED index (7) and this table carries the resolved ID (§0).",
+        "esio_format": "parquet"
+      }
+    },
+    "nr_logging_county_runspecpollutantprocess": {
+      "kind": "static",
+      "source": {
+        "url_template": "file://${MOVES_SNAPSHOTS}/nr-logging-county/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecpollutantprocess.parquet"
+      },
+      "metadata": {
+        "tags": [
+          "runspec",
+          "output"
+        ],
+        "note": "4 rows: 101, 201, 301, 10001. J25, the output gate -- keyed on pollutantID = polProcessID/100, which is why CO2 is computed and never emitted.",
+        "esio_format": "parquet"
+      }
+    },
+    "nr_logging_county_movesoutput": {
+      "kind": "static",
+      "source": {
+        "url_template": "file://${MOVES_SNAPSHOTS}/nr-logging-county/tables/db__out_nr_logging_county__movesoutput.parquet"
+      },
+      "reader_options": {
+        "float_columns": [
+          "emissionQuant",
+          "emissionQuantMean",
+          "emissionQuantSigma"
+        ]
+      },
+      "metadata": {
+        "tags": [
+          "oracle",
+          "expected-output"
+        ],
+        "note": "The 144-row expected output: the other half of the comparison, shipped in the same snapshot, so no canonical MOVES, MariaDB or JVM is needed to develop against it. Compared under tolerance.toml, whose structural checks stay exact: require_exact_key_set and require_exact_row_count. Matching them means reproducing the reference's row suppression rather than emitting around it -- PLAN.md §1.6.1 measures the alternative at 188 rows against this table's 144.",
+        "esio_format": "parquet"
+      }
+    }
+  },
+
+  "metaparameters": {
+    "n_nrscc": {
+      "type": "integer",
+      "default": 0,
+      "description": "Rows in nrscc, discovered by the source's own `extent` (esm-spec §8.9.4). The default is 0 because the count is not knowable until the table is read, and a fixture that hardcoded 214 here would be asserting the snapshot's shape rather than measuring it -- the next snapshot has a different number of rows. A zero that survives to evaluation means the source was never sampled, which is a build error and not a small answer."
+    },
+    "n_nrequipmenttype": { "type": "integer", "default": 0, "description": "Rows in nrequipmenttype. Runtime-discovered; see n_nrscc." },
+    "n_nrsourceusetype": { "type": "integer", "default": 0, "description": "Rows in nrsourceusetype. Runtime-discovered; see n_nrscc." },
+    "n_nrbaseyearequippopulation": { "type": "integer", "default": 0, "description": "Rows in nrbaseyearequippopulation. Runtime-discovered; see n_nrscc." },
+    "n_nrstatesurrogate": { "type": "integer", "default": 0, "description": "Rows in nrstatesurrogate. Runtime-discovered; see n_nrscc." }
+  },
+
+  "index_sets": {
+    "nrscc_rows": { "kind": "interval", "size": "n_nrscc" },
+    "nrequipmenttype_rows": { "kind": "interval", "size": "n_nrequipmenttype" },
+    "nrsourceusetype_rows": { "kind": "interval", "size": "n_nrsourceusetype" },
+    "nrbaseyearequippopulation_rows": { "kind": "interval", "size": "n_nrbaseyearequippopulation" },
+    "nrstatesurrogate_rows": { "kind": "interval", "size": "n_nrstatesurrogate" },
+
+    "run_rows": { "kind": "interval", "size": 1 },
+    "surrogate_target_rows": { "kind": "interval", "size": 2 }
+  },
+
+  "models": {
+    "NrLoggingCounty": {
+      "expression_template_imports": [
+        { "ref": "../lib/population.esm", "only": ["pop_file_rounding"] },
+        { "ref": "../lib/keys.esm", "only": ["latest_at_or_before_key"] }
+      ],
+
+      "tolerance": { "rel": 1e-12 },
+
+      "variables": {
+        "runCountyID": {
+          "type": "parameter", "default": 26161.0,
+          "description": "The RunSpec's county FIPS. Not in any snapshot table -- it comes from the RunSpec XML -- so it is a parameter here, and it is the only geographic literal in this document: the state FIPS below is arithmetic on it and the surrogate is looked up through it."
+        },
+        "runStateID": {
+          "type": "parameter", "default": 26.0,
+          "description": "The RunSpec's state, Michigan. countyID / 1000 gives the same number; it is declared separately because nrbaseyearequippopulation keys on stateID and nrstatesurrogate on a state-level countyID, and conflating the two is how a state population becomes a county one."
+        },
+        "runYearID": {
+          "type": "parameter", "default": 2020.0,
+          "description": "The episode year. getind.f's surrogate-year precedence is relative to it."
+        },
+        "runBaseYearID": {
+          "type": "parameter", "default": 1990.0,
+          "description": "NONROAD's base population year. Every real nrbaseyearequippopulation row carries it, so the join looks vacuous -- it is not: the table is the only place the base year is asserted, and reading a future base year's rows would grow the population twice."
+        },
+        "runSCC": {
+          "type": "parameter", "default": 2260007005.0,
+          "description": "The SCC this fixture computes: docs/nonroad-logging-county.md §6.1's two-stroke chain saws, one equipment point, one active engine technology, three model years, twelve MOVESOutput rows. It is a KEY, so every use of it below is a `join.on` and never a filter."
+        },
+
+        "run_SCC": {
+          "type": "unknown", "shape": ["run_rows"],
+          "description": "The run's SCC as a one-row RELATION, which is what a `join.on` needs on the other side of a table column. The scalar parameter above is the single source of truth for its value."
+        },
+        "run_stateID": { "type": "unknown", "shape": ["run_rows"], "description": "The run's state, as a relation." },
+        "run_baseYearID": { "type": "unknown", "shape": ["run_rows"], "description": "The base population year, as a relation." },
+
+        "scc_SCC": {
+          "type": "parameter", "units": "1", "default": 0.0, "shape": ["nrscc_rows"],
+          "description": "nrscc.SCC. utf8 in the file and a numeric key here: `float_columns` decodes the decimal text, and every SCC in these tables is below 2^53 so the decode is exact and joins on it are exact.",
+          "update": { "kind": "data", "source": "nr_logging_county_nrscc", "from": { "file_variable": "SCC" } }
+        },
+        "scc_NREquipTypeID": {
+          "type": "parameter", "units": "1", "default": 0.0, "shape": ["nrscc_rows"],
+          "description": "nrscc.NREquipTypeID: the first hop of J1, from SCC to equipment type.",
+          "update": { "kind": "data", "source": "nr_logging_county_nrscc", "from": { "file_variable": "NREquipTypeID" } }
+        },
+        "eqt_NREquipTypeID": {
+          "type": "parameter", "units": "1", "default": 0.0, "shape": ["nrequipmenttype_rows"],
+          "description": "nrequipmenttype.NREquipTypeID: J1's right-hand side.",
+          "update": { "kind": "data", "source": "nr_logging_county_nrequipmenttype", "from": { "file_variable": "NREquipTypeID" } }
+        },
+        "eqt_surrogateID": {
+          "type": "parameter", "units": "1", "default": 0.0, "shape": ["nrequipmenttype_rows"],
+          "description": "nrequipmenttype.surrogateID: the DB form of NONROAD's ALLOCATE.XRF. Surrogate 8, Timber Product Output, for all three logging equipment types.",
+          "update": { "kind": "data", "source": "nr_logging_county_nrequipmenttype", "from": { "file_variable": "surrogateID" } }
+        },
+        "sut_SCC": {
+          "type": "parameter", "units": "1", "default": 0.0, "shape": ["nrsourceusetype_rows"],
+          "description": "nrsourceusetype.SCC. One row per EQUIPMENT POINT -- an (SCC, hpAvg) pair -- which is the grain the whole chain runs at.",
+          "update": { "kind": "data", "source": "nr_logging_county_nrsourceusetype", "from": { "file_variable": "SCC" } }
+        },
+        "sut_sourceTypeID": {
+          "type": "parameter", "units": "1", "default": 0.0, "shape": ["nrsourceusetype_rows"],
+          "description": "nrsourceusetype.sourceTypeID: J4's key into the base-year population.",
+          "update": { "kind": "data", "source": "nr_logging_county_nrsourceusetype", "from": { "file_variable": "sourceTypeID" } }
+        },
+        "pop_sourceTypeID": {
+          "type": "parameter", "units": "1", "default": 0.0, "shape": ["nrbaseyearequippopulation_rows"],
+          "description": "nrbaseyearequippopulation.sourceTypeID, over all 62,699 rows of the table.",
+          "update": { "kind": "data", "source": "nr_logging_county_nrbaseyearequippopulation", "from": { "file_variable": "sourceTypeID" } }
+        },
+        "pop_stateID": {
+          "type": "parameter", "units": "1", "default": 0.0, "shape": ["nrbaseyearequippopulation_rows"],
+          "description": "nrbaseyearequippopulation.stateID: J5's key. Every state is in this table, so without the join the population is the national one.",
+          "update": { "kind": "data", "source": "nr_logging_county_nrbaseyearequippopulation", "from": { "file_variable": "stateID" } }
+        },
+        "pop_NRBaseYearID": {
+          "type": "parameter", "units": "1", "default": 0.0, "shape": ["nrbaseyearequippopulation_rows"],
+          "description": "nrbaseyearequippopulation.NRBaseYearID.",
+          "update": { "kind": "data", "source": "nr_logging_county_nrbaseyearequippopulation", "from": { "file_variable": "NRBaseYearID" } }
+        },
+        "pop_population": {
+          "type": "parameter", "units": "1", "default": 0.0, "shape": ["nrbaseyearequippopulation_rows"],
+          "description": "nrbaseyearequippopulation.population, decimal text in the file, at the full precision the table stores. The engine never sees this number -- see run_statePopulation.",
+          "update": { "kind": "data", "source": "nr_logging_county_nrbaseyearequippopulation", "from": { "file_variable": "population" } }
+        },
+        "sur_surrogateID": {
+          "type": "parameter", "units": "1", "default": 0.0, "shape": ["nrstatesurrogate_rows"],
+          "description": "nrstatesurrogate.surrogateID, over all 62,821 rows -- the .ALO files.",
+          "update": { "kind": "data", "source": "nr_logging_county_nrstatesurrogate", "from": { "file_variable": "surrogateID" } }
+        },
+        "sur_countyID": {
+          "type": "parameter", "units": "1", "default": 0.0, "shape": ["nrstatesurrogate_rows"],
+          "description": "nrstatesurrogate.countyID. A state row carries the state FIPS in this same column, which is why the county and state quantities below are two rows of ONE relation and not two tables.",
+          "update": { "kind": "data", "source": "nr_logging_county_nrstatesurrogate", "from": { "file_variable": "countyID" } }
+        },
+        "sur_surrogateYearID": {
+          "type": "parameter", "units": "1", "default": 0.0, "shape": ["nrstatesurrogate_rows"],
+          "description": "nrstatesurrogate.surrogateYearID: what getind.f's `latest at or before, else earliest after` rule ranks on.",
+          "update": { "kind": "data", "source": "nr_logging_county_nrstatesurrogate", "from": { "file_variable": "surrogateYearID" } }
+        },
+        "sur_surrogatequant": {
+          "type": "parameter", "units": "1", "default": 0.0, "shape": ["nrstatesurrogate_rows"],
+          "description": "nrstatesurrogate.surrogatequant, decimal text. Without float_columns the allocation fraction below would be a division of two strings.",
+          "update": { "kind": "data", "source": "nr_logging_county_nrstatesurrogate", "from": { "file_variable": "surrogatequant" } }
+        },
+
+        "run_surrogateID": {
+          "type": "unknown", "shape": ["run_rows"],
+          "description": "J1 twice over: this SCC's equipment type, and that type's allocation surrogate. Read out of nrscc and nrequipmenttype rather than declared, so a snapshot that reassigned chain saws to another surrogate would move this fixture's answer instead of being ignored."
+        },
+        "tgt_isCounty": {
+          "type": "unknown", "units": "1", "shape": ["surrogate_target_rows"],
+          "description": "Which of the two lookups this row is: 1 for the county, 0 for the state. The pair is one relation because alocty.f divides one row of nrstatesurrogate by another row of the same table, and F11 says a relation cannot be joined to itself."
+        },
+        "tgt_countyID": {
+          "type": "unknown", "shape": ["surrogate_target_rows"],
+          "description": "The FIPS each lookup keys on. The state row's is ARITHMETIC on the county's -- floor(county/1000) x 1000 (nonroad_loader.rs:1043) -- and not a second input."
+        },
+        "tgt_surrogateID": {
+          "type": "unknown", "shape": ["surrogate_target_rows"],
+          "description": "The surrogate both lookups key on, carried from run_surrogateID onto both rows."
+        },
+        "tgt_yearAtOrBeforeCount": {
+          "type": "unknown", "units": "1", "shape": ["surrogate_target_rows"],
+          "description": "getind.f, first half: does this (surrogate, FIPS) have a row at or before the episode year? A counting semi-join. The (surrogateID, countyID) equality is a composite `join.on`; the year comparison is a genuine range predicate and stays in `filter`."
+        },
+        "tgt_latestYearAtOrBefore": { "type": "unknown", "shape": ["surrogate_target_rows"], "description": "The latest such year, under the max semiring." },
+        "tgt_earliestYearAfter": { "type": "unknown", "shape": ["surrogate_target_rows"], "description": "getind.f's fallback: the earliest year AFTER the episode year, used only when nothing at or before exists." },
+        "tgt_effectiveYearID": { "type": "unknown", "shape": ["surrogate_target_rows"], "description": "`vallow` else `valhi`, reduced to a key so that the lookup below is a plain three-column equi-join." },
+        "tgt_quant": {
+          "type": "unknown", "units": "1", "shape": ["surrogate_target_rows"],
+          "description": "J6: the surrogate quantity for each lookup. County 26161 gets 1,512,186 and state 26000 gets 466,969,286, both at surrogateYearID 2002."
+        },
+
+        "run_allocationCountyQuant": { "type": "unknown", "units": "1", "shape": ["run_rows"], "description": "The county row's quantity, selected out of the pair by its own membership column." },
+        "run_allocationStateQuant": { "type": "unknown", "units": "1", "shape": ["run_rows"], "description": "The state row's." },
+        "run_allocationFraction": {
+          "type": "unknown", "units": "1", "shape": ["run_rows"],
+          "description": "alocty.f. A non-positive state quantity gives 0 rather than a division (nonroad_loader.rs:1076), which is the guard the decoy surrogate in components/geographic_allocation.esm exercises."
+        },
+        "run_rawStatePopulation": {
+          "type": "unknown", "units": "1", "shape": ["run_rows"],
+          "description": "What the state population would be without the .POP quantization. Computed only so a test can show the two apart; nothing downstream reads it."
+        },
+        "run_statePopulation": {
+          "type": "unknown", "units": "1", "shape": ["run_rows"],
+          "description": "The state population as the engine sees it: canonical writes the .POP file with %17.1f, so each row is rounded to one decimal BEFORE summing (nonroad_loader.rs:1226). Rounding the sum instead would differ wherever a source type has rows in more than one populated state."
+        },
+        "run_countyPopulation": {
+          "type": "unknown", "units": "1", "shape": ["run_rows"],
+          "description": "The `population` factor of the §2.6(b) roll-up product: the grown-on-state, allocated-afterwards quantity of §2.1."
+        }
+      },
+
+      "equations": [
+        {
+          "_comment": "The run scope as one-row relations, so that every use of it downstream is an equi-join on a key column rather than an equality filter (docs/esm-conventions.md §3).",
+          "lhs": "run_SCC",
+          "rhs": { "op": "makearray", "args": [], "regions": [[[1, 1]]], "values": ["runSCC"] }
+        },
+        { "lhs": "run_stateID", "rhs": { "op": "makearray", "args": [], "regions": [[[1, 1]]], "values": ["runStateID"] } },
+        { "lhs": "run_baseYearID", "rhs": { "op": "makearray", "args": [], "regions": [[[1, 1]]], "values": ["runBaseYearID"] } },
+
+        {
+          "_comment": "J1, both hops in one contraction: nrscc gives this SCC its equipment type and nrequipmenttype gives that type its surrogate.",
+          "lhs": "run_surrogateID",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["r"],
+            "ranges": { "r": { "from": "run_rows" }, "s": { "from": "nrscc_rows" }, "e": { "from": "nrequipmenttype_rows" } },
+            "join": [
+              { "on": [["scc_SCC", "run_SCC"]] },
+              { "on": [["scc_NREquipTypeID", "eqt_NREquipTypeID"]] }
+            ],
+            "expr": { "op": "index", "args": ["eqt_surrogateID", "e"] }
+          }
+        },
+
+        { "lhs": "tgt_isCounty", "rhs": { "op": "const", "args": [], "value": [1.0, 0.0] } },
+        {
+          "lhs": "tgt_countyID",
+          "rhs": {
+            "op": "aggregate", "args": [], "output_idx": ["g"],
+            "ranges": { "g": { "from": "surrogate_target_rows" } },
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                { "op": ">", "args": [{ "op": "index", "args": ["tgt_isCounty", "g"] }, 0.5] },
+                "runCountyID",
+                { "op": "*", "args": [{ "op": "floor", "args": [{ "op": "/", "args": ["runCountyID", 1000] }] }, 1000] }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "tgt_surrogateID",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["g"],
+            "ranges": { "g": { "from": "surrogate_target_rows" }, "r": { "from": "run_rows" } },
+            "expr": { "op": "index", "args": ["run_surrogateID", "r"] }
+          }
+        },
+        {
+          "lhs": "tgt_yearAtOrBeforeCount",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["g"],
+            "ranges": { "g": { "from": "surrogate_target_rows" }, "z": { "from": "nrstatesurrogate_rows" } },
+            "join": [{ "on": [["tgt_surrogateID", "sur_surrogateID"], ["tgt_countyID", "sur_countyID"]] }],
+            "filter": { "op": "<=", "args": [{ "op": "index", "args": ["sur_surrogateYearID", "z"] }, "runYearID"] },
+            "expr": 1.0
+          }
+        },
+        {
+          "lhs": "tgt_latestYearAtOrBefore",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "max_product", "output_idx": ["g"],
+            "ranges": { "g": { "from": "surrogate_target_rows" }, "z": { "from": "nrstatesurrogate_rows" } },
+            "join": [{ "on": [["tgt_surrogateID", "sur_surrogateID"], ["tgt_countyID", "sur_countyID"]] }],
+            "filter": { "op": "<=", "args": [{ "op": "index", "args": ["sur_surrogateYearID", "z"] }, "runYearID"] },
+            "expr": { "op": "index", "args": ["sur_surrogateYearID", "z"] }
+          }
+        },
+        {
+          "lhs": "tgt_earliestYearAfter",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "min_sum", "output_idx": ["g"],
+            "ranges": { "g": { "from": "surrogate_target_rows" }, "z": { "from": "nrstatesurrogate_rows" } },
+            "join": [{ "on": [["tgt_surrogateID", "sur_surrogateID"], ["tgt_countyID", "sur_countyID"]] }],
+            "filter": { "op": ">", "args": [{ "op": "index", "args": ["sur_surrogateYearID", "z"] }, "runYearID"] },
+            "expr": { "op": "index", "args": ["sur_surrogateYearID", "z"] }
+          }
+        },
+        {
+          "lhs": "tgt_effectiveYearID",
+          "rhs": {
+            "op": "aggregate", "args": [], "output_idx": ["g"],
+            "ranges": { "g": { "from": "surrogate_target_rows" } },
+            "expr": {
+              "op": "apply_expression_template", "args": [], "name": "latest_at_or_before_key",
+              "bindings": {
+                "has_at_or_before": { "op": ">", "args": [{ "op": "index", "args": ["tgt_yearAtOrBeforeCount", "g"] }, 0.0] },
+                "latest_at_or_before": { "op": "index", "args": ["tgt_latestYearAtOrBefore", "g"] },
+                "earliest_after": { "op": "index", "args": ["tgt_earliestYearAfter", "g"] }
+              }
+            }
+          }
+        },
+        {
+          "_comment": "J6, a plain three-column equi-join now that the year precedence has been reduced to a key.",
+          "lhs": "tgt_quant",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["g"],
+            "ranges": { "g": { "from": "surrogate_target_rows" }, "z": { "from": "nrstatesurrogate_rows" } },
+            "join": [{ "on": [["tgt_surrogateID", "sur_surrogateID"], ["tgt_countyID", "sur_countyID"], ["tgt_effectiveYearID", "sur_surrogateYearID"]] }],
+            "expr": { "op": "index", "args": ["sur_surrogatequant", "z"] }
+          }
+        },
+        {
+          "lhs": "run_allocationCountyQuant",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["r"],
+            "ranges": { "r": { "from": "run_rows" }, "g": { "from": "surrogate_target_rows" } },
+            "expr": { "op": "*", "args": [{ "op": "index", "args": ["tgt_quant", "g"] }, { "op": "index", "args": ["tgt_isCounty", "g"] }] }
+          }
+        },
+        {
+          "lhs": "run_allocationStateQuant",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["r"],
+            "ranges": { "r": { "from": "run_rows" }, "g": { "from": "surrogate_target_rows" } },
+            "expr": { "op": "*", "args": [{ "op": "index", "args": ["tgt_quant", "g"] }, { "op": "-", "args": [1.0, { "op": "index", "args": ["tgt_isCounty", "g"] }] }] }
+          }
+        },
+        {
+          "lhs": "run_allocationFraction",
+          "rhs": {
+            "op": "aggregate", "args": [], "output_idx": ["r"],
+            "ranges": { "r": { "from": "run_rows" } },
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                { "op": ">", "args": [{ "op": "index", "args": ["run_allocationStateQuant", "r"] }, 0.0] },
+                { "op": "/", "args": [{ "op": "index", "args": ["run_allocationCountyQuant", "r"] }, { "op": "index", "args": ["run_allocationStateQuant", "r"] }] },
+                0.0
+              ]
+            }
+          }
+        },
+        {
+          "_comment": "J4 and J5 over the whole 62,699-row table, as four `join.on` clauses that compose by conjunction. Without the rounding this is the number the .POP file would have carried had canonical written it at full precision.",
+          "lhs": "run_rawStatePopulation",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["r"],
+            "ranges": { "r": { "from": "run_rows" }, "u": { "from": "nrsourceusetype_rows" }, "p": { "from": "nrbaseyearequippopulation_rows" } },
+            "join": [
+              { "on": [["sut_SCC", "run_SCC"]] },
+              { "on": [["sut_sourceTypeID", "pop_sourceTypeID"]] },
+              { "on": [["pop_stateID", "run_stateID"]] },
+              { "on": [["pop_NRBaseYearID", "run_baseYearID"]] }
+            ],
+            "expr": { "op": "index", "args": ["pop_population", "p"] }
+          }
+        },
+        {
+          "lhs": "run_statePopulation",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["r"],
+            "ranges": { "r": { "from": "run_rows" }, "u": { "from": "nrsourceusetype_rows" }, "p": { "from": "nrbaseyearequippopulation_rows" } },
+            "join": [
+              { "on": [["sut_SCC", "run_SCC"]] },
+              { "on": [["sut_sourceTypeID", "pop_sourceTypeID"]] },
+              { "on": [["pop_stateID", "run_stateID"]] },
+              { "on": [["pop_NRBaseYearID", "run_baseYearID"]] }
+            ],
+            "expr": {
+              "op": "apply_expression_template", "args": [], "name": "pop_file_rounding",
+              "bindings": { "population": { "op": "index", "args": ["pop_population", "p"] } }
+            }
+          }
+        },
+        {
+          "lhs": "run_countyPopulation",
+          "rhs": {
+            "op": "aggregate", "args": [], "output_idx": ["r"],
+            "ranges": { "r": { "from": "run_rows" } },
+            "expr": { "op": "*", "args": [{ "op": "index", "args": ["run_statePopulation", "r"] }, { "op": "index", "args": ["run_allocationFraction", "r"] }] }
+          }
+        }
+      ],
+
+      "tests": [
+        {
+          "id": "the_surrogate_is_read_and_not_declared",
+          "description": "docs/nonroad-logging-county.md §6.0: SCC 2260007005 is equipment type 71 (chain saws), which allocates through surrogate 8, 2002 Timber Product Output. Both hops come out of nrscc and nrequipmenttype. If J1's second hop were dropped the surrogate would be the equipment type ID, 71, and the allocation fraction would be a different county's share of a different quantity -- a plausible number, which is why this is asserted rather than eyeballed.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "run_surrogateID", "time": 0.0, "expected": 8.0, "coords": { "run_rows": 1 } }
+          ]
+        },
+        {
+          "id": "getind_picks_2002_out_of_62821_rows",
+          "description": "§6.0 and §2.1: county 26161 quant 1,512,186 and state 26000 quant 466,969,286, both at surrogateYearID 2002, giving allocFrac 0.0032382986. The year rule matters over the real table in a way it cannot over a transcription -- surrogate 8 carries several years, and taking the largest year rather than the latest AT OR BEFORE 2020, or summing the years instead of selecting one, both give a number of the right order of magnitude.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "tgt_effectiveYearID", "time": 0.0, "expected": 2002.0, "coords": { "surrogate_target_rows": 1 } },
+            { "variable": "tgt_effectiveYearID", "time": 0.0, "expected": 2002.0, "coords": { "surrogate_target_rows": 2 } },
+            { "variable": "tgt_quant", "time": 0.0, "expected": 1512186.0, "coords": { "surrogate_target_rows": 1 } },
+            { "variable": "tgt_quant", "time": 0.0, "expected": 466969286.0, "coords": { "surrogate_target_rows": 2 } },
+            { "variable": "run_allocationFraction", "time": 0.0, "expected": 0.0032382986319147338, "coords": { "run_rows": 1 } }
+          ]
+        },
+        {
+          "id": "the_pop_file_rounding_survives_the_real_table",
+          "description": "§6.1 step 1 and §7.4 rank 4. The table holds 83.279223744292 for source type 1059 in Michigan; the engine sees 83.3, because canonical writes the .POP file with %17.1f. Both numbers are asserted so that the quantization cannot be silently dropped -- it is a 0.02% change here and a 7.9% one on SCC 2265007015's second point. Reading these out of 62,699 rows rather than 13 also proves J5: Michigan alone is 83.28, Michigan plus Ohio would be 117.1, and the national total is larger again.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "run_rawStatePopulation", "time": 0.0, "expected": 83.279223744292, "coords": { "run_rows": 1 } },
+            { "variable": "run_statePopulation", "time": 0.0, "expected": 83.3, "coords": { "run_rows": 1 } }
+          ]
+        },
+        {
+          "id": "population_and_geography_meet_at_the_worked_example",
+          "description": "§6.1 step 1: round1dp(83.279224) x 0.0032382986 = 0.26975028. This is the number components/exhaust_rollup.esm carries as a parameter default, arrived at here from two tables neither of which contains it. The float32 reference prints 0.269750297; the difference is in the 8th significant figure and is the reference rounding allocFrac to f32 first.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "run_countyPopulation", "time": 0.0, "expected": 0.2697502760384973, "coords": { "run_rows": 1 } }
+          ]
+        }
+      ]
+    }
+  }
+}
