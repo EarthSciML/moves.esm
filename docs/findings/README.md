@@ -1,10 +1,12 @@
 # Findings: conventions the format or the toolchain could not express
 
-Fourteen things PLAN.md §3 Phase 1 and Phase 2 assumed, or that an author would
-reasonably assume, that do not hold at the pinned toolchain (`esm-version.lock`:
-EarthSciAST `b680f5301`, EarthSciIO `8e1df2280`, `--features esio,parallel`).
+Fifteen things PLAN.md §3 Phase 1 and Phase 2 assumed, or that an author would
+reasonably assume, that did not hold. Four are now fixed upstream and are listed
+at the bottom, with their sections kept above so the workarounds they forced can
+be traced; the rest still hold at the pinned toolchain (`esm-version.lock`:
+EarthSciAST `8a7810647`, EarthSciIO `d109951d4`, `--features esio,parallel`).
 
-F1–F6 and F9–F14 each have a minimal `.esm` repro in this directory; F7 and F8 are
+F2, F3, F5, F6 and F11–F14 each have a minimal `.esm` repro in this directory; F7 and F8 are
 CLI behaviours rather than documents, and are checked by command against the
 ordinary files of the repo. **Every repro is expected to fail**, and each one's inline test asserts the *intended* behaviour, so a repro
 that starts passing means the defect is fixed. `run-tests.sh` runs them as a
@@ -24,7 +26,6 @@ three of them do not load.
 | **F6** | A component with only scalar variables has no assertable state | assertion | no |
 | **F7** | `esm round-trip` resolves a relative `ref` against the CWD | load | no |
 | **F8** | A layered template library does not round-trip to a self-contained form | re-load | no |
-| **F9** | A relational document evaluates but cannot be written to a file | emit | no |
 | **F11** | A relation cannot be joined to itself: two ranges over one index set | build | no |
 | **F12** | A recurrence over an index axis has no spelling | evaluation | no |
 | **F13** | `enums` merge first-wins across a mount; a colliding value is applied | — | **yes** |
@@ -445,9 +446,11 @@ round-trip stage and watches this by command instead.
 
 ## F9 — a relational document evaluates, but cannot be written to a file
 
-`F9_no_emit_path_for_a_relational_document.esm`.
+**Fixed upstream — see the list at the bottom. Kept for the record.**
 
-**Blocks the Phase 2 exit criterion, independently of the data provider.**
+`F9_no_emit_path_for_a_relational_document.esm`, now removed.
+
+**Blocked the Phase 2 exit criterion, independently of the data provider.**
 
 A MOVES calculator is a *relational* document: it computes rows from rows and
 integrates nothing. Both `components/*.esm` already have this shape — 0 of 11
@@ -482,9 +485,11 @@ subcommand) an `--output` writing the same `derive_output_plan` shape
 a solve is exactly what `esm test` already does, so it is a new sink on an
 existing path rather than a new mode on the solver.
 
-**Polarity.** Unlike F1–F6, this repro's assertion passes. Its tripwire in
-`run-tests.sh` is therefore the `simulate` command, checked in both directions:
-the document must still evaluate, and must still fail to emit.
+**Polarity.** Unlike F1–F6, this repro's assertion passed. Its tripwire in
+`run-tests.sh` was therefore the `simulate` command, checked in both directions:
+the document had to still evaluate, and to still fail to emit. It is the
+direction that fired — `simulate` began writing the file — which is how the
+fixture stage came to exist.
 
 ---
 
@@ -496,4 +501,15 @@ traced.
 
 - **F1** — EarthSciAST `a5e8a7d94` — `rename_free_symbol` now rewrites `join.on`, `overlap.src_env`/`tgt_env` and a resolved `on_gate`'s columns after `map_children`, so a nested §4.7 mount carries a leaf's key columns. **The nested mount is available again**; this port's assemblies still use the top-level `{ref}` form the workaround forced, which works and is not worth churning, but a new assembly may use either.
 - **F4** — EarthSciAST `ee067f5b6` — rejected at load with a named diagnostic, `reserved_index_symbol`, rather than made to work: an index symbol is the author's free choice (§4.3.1), while making the binder win would invert name-first precedence at nine sites and still leave the node unable to name the independent variable at all. The convention in `docs/esm-conventions.md` §7 stands, now enforced by the toolchain.
+- **F9** — EarthSciAST `8274f0918` — `simulate` treats a document with nothing to
+  integrate as a single evaluation at `t = 0` (`Compile::Always` became
+  `Compile::Auto`) instead of handing it to the ODE solver, and `--format csv`
+  writes the row set itself: a leading `i1` ordinal column, then one column per
+  `--observed` field, with a request whose fields do not share one shape REFUSED
+  rather than padded or truncated. **This is the commit that opened the fixture
+  stage** — together with EarthSciAST `72568e8bc`/`8dd7789ef`, which wire the
+  `data_sources` ingest bridge into the binary and sample a source's `extent`
+  before the document closes its metaparameters. `fixtures/` uses all three.
+  The `.esm` repro is gone; its tripwire in `run-tests.sh` was the `simulate`
+  command and is gone with it.
 - **F10** — EarthSciAST `a1a592ecf` — `true` evaluates to 1.0, matching Python, Julia and Rust's own value-invention path; Rust's dense path was the outlier. The other nine core-but-unevaluable ops are now refused at build instead of reaching `unreachable!()`. Confirmed a class, not a case: `rank` panicked the same way.
