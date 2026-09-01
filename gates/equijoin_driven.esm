@@ -1,0 +1,76 @@
+{
+  "esm": "1.0.0",
+  "metadata": {
+    "name": "EquijoinDrivenGate",
+    "description": "The scaling gate PLAN.md §3 Phase 1 asks for: a checked-in test that a `join.on` contraction costs O(matches) rather than O(N x M), so that a regression in the equi-join gate -- or a join that quietly falls back to the unfiltered filter path -- is caught the day it appears rather than at the first fixture-scale run.\n\nThe gate is a pair of documents, not one. This one contracts two 100,000-row relations under a `join.on`: 1.0e10 candidate pairs, 50,000 of which match. Its sibling gates/equijoin_undriven_control.esm computes the SAME answer over 4.0e6 pairs with the equality written as a `filter`, which is the ungated path. run-tests.sh times both and fails unless this one -- 2,500 times the candidate pairs -- finishes in well under the control's time. That is a ratio between two runs on one machine, so it needs no absolute threshold and no machine calibration.\n\nMeasured on the reference machine at the pinned toolchain, whole-process wall clock as run-tests.sh measures it: driven ~0.27 s at 1.0e10 pairs; ungated ~3.5 s at 4.0e6 -- a factor of 13, against a required 4. Ungated cost is quadratic in N (0.47 s at 1.0e6 candidate pairs, 4.09 s at 9.0e6, single aggregate), so a fallback here would need minutes and the ratio test cannot be passed by accident.\n\nThe assertions check the pair SET, not just its size: matchedKeySum is the sum of the left key over every admitted pair, so a gate that admitted the wrong pairs in the right number would still fail.",
+    "authors": ["EarthSciML Authors and Contributors"],
+    "tags": ["moves", "join", "scaling", "gate", "regression"]
+  },
+
+  "index_sets": {
+    "driven_left": { "kind": "interval", "size": 100000 },
+    "driven_right": { "kind": "interval", "size": 100000 }
+  },
+
+  "models": {
+    "EquijoinDrivenGate": {
+      "tolerance": { "rel": 1e-12 },
+
+      "variables": {
+        "left_key": {
+          "type": "unknown", "shape": ["driven_left"], "units": "1",
+          "description": "Left key column: key(i) = i. A genuine 1-D data column over one of the node's ranges, which is the polymorphic key case CONFORMANCE_SPEC §5.5.8 requires a binding to admit and the one every MOVES join uses."
+        },
+        "right_key": {
+          "type": "unknown", "shape": ["driven_right"], "units": "1",
+          "description": "Right key column: key(j) = 2j. Half the left keys match, so the match count is linear in N while the candidate-pair count is quadratic -- which is the whole point of the measurement."
+        },
+        "matchedPairCount": {
+          "type": "unknown", "units": "1",
+          "description": "How many (i, j) pairs the gate admits. 50,000 out of 1.0e10 candidates. A dropped or ignored join clause reads 1.0e10 instead."
+        },
+        "matchedKeySum": {
+          "type": "unknown", "units": "1",
+          "description": "Sum of the left key over the admitted pairs: 2 + 4 + ... + 100000. Pins WHICH pairs were admitted, not merely how many."
+        }
+      },
+
+      "equations": [
+        { "lhs": "left_key",
+          "rhs": { "op": "aggregate", "args": [], "output_idx": ["i"],
+            "ranges": { "i": { "from": "driven_left" } }, "expr": "i" } },
+        { "lhs": "right_key",
+          "rhs": { "op": "aggregate", "args": [], "output_idx": ["j"],
+            "ranges": { "j": { "from": "driven_right" } },
+            "expr": { "op": "*", "args": [2, "j"] } } },
+        {
+          "_comment": "The driven contraction. Both gated symbols are contracted, so §5.5.8's first binding case applies: enumeration comes from the sorted candidate pair list, never from the product of the ranges.",
+          "lhs": "matchedPairCount",
+          "rhs": { "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": [],
+            "ranges": { "l": { "from": "driven_left" }, "r": { "from": "driven_right" } },
+            "join": [ { "on": [["left_key", "right_key"]] } ],
+            "expr": 1.0 }
+        },
+        {
+          "lhs": "matchedKeySum",
+          "rhs": { "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": [],
+            "ranges": { "l": { "from": "driven_left" }, "r": { "from": "driven_right" } },
+            "join": [ { "on": [["left_key", "right_key"]] } ],
+            "expr": { "op": "index", "args": ["left_key", "l"] } }
+        }
+      ],
+
+      "tests": [
+        {
+          "id": "the_gate_admits_exactly_the_matching_pairs",
+          "description": "50,000 matches out of 1.0e10 candidate pairs, and the admitted left keys are exactly the even numbers up to 100,000 (sum 50000*50001).",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "matchedPairCount", "time": 0.0, "expected": 50000.0 },
+            { "variable": "matchedKeySum", "time": 0.0, "expected": 2500050000.0 }
+          ]
+        }
+      ]
+    }
+  }
+}

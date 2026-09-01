@@ -1,0 +1,81 @@
+{
+  "esm": "1.0.0",
+  "metadata": {
+    "name": "EquijoinUndrivenControl",
+    "description": "The calibration half of the scaling gate. Same computation as gates/equijoin_driven.esm, same answer shape, but the key equality is written as an equality `filter` instead of a `join.on` -- the ungated path, whose cost is the full product of the ranges.\n\nTHIS IS THE ONLY EQUALITY FILTER IN THE REPOSITORY, and it is here deliberately, as the thing the convention forbids, so that the convention has something to be measured against. run-tests.sh enforces that: it scans every .esm for an `==` inside an aggregate `filter` and fails on any file but this one. A `filter` in model code carries a genuine predicate -- a range test, a null guard -- never an ON clause in disguise (docs/esm-conventions.md §3).\n\nThe control runs at 2,000 x 2,000 = 4.0e6 candidate pairs, 2,500 times FEWER than its driven sibling, and still takes about thirteen times longer (~3.5 s against ~0.27 s). Ungated cost is quadratic in N -- measured 0.47 s at 1.0e6 candidate pairs and 4.09 s at 9.0e6 for a single aggregate -- so if the driven path ever stopped driving it would need minutes at 1.0e10 and the ratio test in run-tests.sh could not pass by luck.",
+    "authors": ["EarthSciML Authors and Contributors"],
+    "tags": ["moves", "join", "scaling", "gate", "control"]
+  },
+
+  "index_sets": {
+    "control_left": { "kind": "interval", "size": 2000 },
+    "control_right": { "kind": "interval", "size": 2000 }
+  },
+
+  "models": {
+    "EquijoinUndrivenControl": {
+      "tolerance": { "rel": 1e-12 },
+
+      "variables": {
+        "left_key": {
+          "type": "unknown", "shape": ["control_left"], "units": "1",
+          "description": "Left key column: key(i) = i."
+        },
+        "right_key": {
+          "type": "unknown", "shape": ["control_right"], "units": "1",
+          "description": "Right key column: key(j) = 2j."
+        },
+        "matchedPairCount": {
+          "type": "unknown", "units": "1",
+          "description": "1,000 admitted out of 4.0e6 candidates -- the same relation as the driven gate, computed the slow way."
+        },
+        "matchedKeySum": {
+          "type": "unknown", "units": "1",
+          "description": "Sum of the left key over the admitted pairs: 2 + 4 + ... + 2000."
+        }
+      },
+
+      "equations": [
+        { "lhs": "left_key",
+          "rhs": { "op": "aggregate", "args": [], "output_idx": ["i"],
+            "ranges": { "i": { "from": "control_left" } }, "expr": "i" } },
+        { "lhs": "right_key",
+          "rhs": { "op": "aggregate", "args": [], "output_idx": ["j"],
+            "ranges": { "j": { "from": "control_right" } },
+            "expr": { "op": "*", "args": [2, "j"] } } },
+        {
+          "_comment": "DELIBERATELY UNGATED. The equality is a `filter`, so every one of the 4.0e6 combinations is enumerated and tested. Never write this in model code.",
+          "lhs": "matchedPairCount",
+          "rhs": { "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": [],
+            "ranges": { "l": { "from": "control_left" }, "r": { "from": "control_right" } },
+            "filter": { "op": "==", "args": [
+              { "op": "index", "args": ["left_key", "l"] },
+              { "op": "index", "args": ["right_key", "r"] } ] },
+            "expr": 1.0 }
+        },
+        {
+          "_comment": "DELIBERATELY UNGATED, as above.",
+          "lhs": "matchedKeySum",
+          "rhs": { "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": [],
+            "ranges": { "l": { "from": "control_left" }, "r": { "from": "control_right" } },
+            "filter": { "op": "==", "args": [
+              { "op": "index", "args": ["left_key", "l"] },
+              { "op": "index", "args": ["right_key", "r"] } ] },
+            "expr": { "op": "index", "args": ["left_key", "l"] } }
+        }
+      ],
+
+      "tests": [
+        {
+          "id": "the_ungated_path_computes_the_same_relation",
+          "description": "1,000 matches out of 4.0e6 candidate pairs, left keys 2..2000 summing to 1000*1001. Equal semantics to the driven gate is what makes the timing comparison meaningful: the two documents differ in HOW the equality is applied, not in what it means.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "matchedPairCount", "time": 0.0, "expected": 1000.0 },
+            { "variable": "matchedKeySum", "time": 0.0, "expected": 1001000.0 }
+          ]
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,47 @@
+{
+  "esm": "1.0.0",
+  "metadata": {
+    "name": "F5SkolemDistinctDoesNotMaterialize",
+    "description": "FINDING F5 (expected to FAIL at the pinned toolchain, silently). The value-invention primitives -- a `distinct` `aggregate` under `bool_and_or` carrying a `skolem` `key`, exposed as a `kind: \"derived\"` index set via `from_faq` -- validate, but the derived set materializes EMPTY. A contraction over it returns 0 rather than the 3 distinct (polProcessID, engTechID) pairs the four input rows carry.\n\nThis is consistent with how EarthSciAST frames its own fixture: `tests/valid/aggregate/skolem_distinct_rank.esm` says in its description that it 'validates against the schema with no evaluator', and it carries no inline tests. So the construct is schema-level today, not evaluable.\n\nWhat that costs, and what this repo does instead. PLAN.md §3 Phase 1 asks for '`skolem` for canonical composite keys where a join is on a tuple'. The convention is still met, in the spelling CONFORMANCE_SPEC §5.5.8 actually mandates: a `join.on` clause listing SEVERAL key pairs over the same two loop symbols is ONE composite key, and the section states that 'the canonical composite key is the §5.5.1 rule-4 skolem tuple of the per-pair values, in the order the pairs are listed'. The skolem tuple is what the gate builds internally; the author writes the pair list. components/deteriorated_emission_rate.esm's J14 is exactly that, and its test shows the second key column changing the answer.\n\nWhat is NOT available is an explicit, author-visible composite-key AXIS -- a derived index set whose members are the distinct tuples, which one would want for a rollup grouped by a composite key. When this starts passing, that becomes expressible and docs/esm-conventions.md §4 should be revisited.\n\nAlso worth noting for whoever fixes it: the failure is a silent zero, not a diagnostic. `member_factor` must be declared as a shaped PARAMETER with no equation or the document fails equation-count balance, which is itself a hint that the buffer is not wired.",
+    "authors": ["EarthSciML Authors and Contributors"]
+  },
+  "index_sets": {
+    "f5_rows": { "kind": "interval", "size": 4 },
+    "f5_composite_keys": { "kind": "derived", "from_faq": "f5_key_set", "member_factor": "compositeKeyMember" }
+  },
+  "models": {
+    "CompositeKeyAxis": {
+      "variables": {
+        "polProcessID": { "type": "unknown", "shape": ["f5_rows"] },
+        "engTechID": { "type": "unknown", "shape": ["f5_rows"] },
+        "compositeKeyMember": { "type": "parameter", "shape": ["f5_composite_keys"],
+          "description": "The member buffer the derived set writes its surviving keys into (CONFORMANCE_SPEC §5.5, Hook 1). Declared as a parameter because it has no defining equation." },
+        "keyExists": { "type": "unknown", "shape": ["f5_composite_keys"] },
+        "distinctKeyCount": { "type": "unknown" }
+      },
+      "equations": [
+        { "lhs": "polProcessID", "rhs": { "op": "const", "args": [], "value": [101, 201, 101, 101] } },
+        { "lhs": "engTechID", "rhs": { "op": "const", "args": [], "value": [121, 121, 122, 121] } },
+        { "_comment": "Three distinct pairs: (101,121) twice, (201,121), (101,122).",
+          "lhs": "keyExists",
+          "rhs": { "op": "aggregate", "id": "f5_key_set", "args": [],
+            "semiring": "bool_and_or", "distinct": true, "output_idx": ["e"],
+            "ranges": { "n": { "from": "f5_rows" } },
+            "key": { "op": "skolem", "label": "pol_process_eng_tech", "args": [
+              { "op": "index", "args": ["polProcessID", "n"] },
+              { "op": "index", "args": ["engTechID", "n"] } ] },
+            "filter": { "op": "true", "args": [] },
+            "expr": { "op": "true", "args": [] } } },
+        { "lhs": "distinctKeyCount",
+          "rhs": { "op": "aggregate", "args": [], "output_idx": [],
+            "ranges": { "e": { "from": "f5_composite_keys" } }, "expr": 1.0 } }
+      ],
+      "tests": [
+        { "id": "the_derived_axis_should_have_three_members",
+          "description": "Should be 3. Reads 0 -- the derived set materializes empty.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [ { "variable": "distinctKeyCount", "time": 0.0, "expected": 3.0 } ] }
+      ]
+    }
+  }
+}

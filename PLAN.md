@@ -359,7 +359,25 @@ authoring (Phase 1, and the arithmetic of Phase 2) can also start against small
 `const`-array inline tests before the gate lands — what waits on it is running
 anything at fixture scale.
 
-### Phase 1 — The representation spine
+### Phase 1 — The representation spine — **done**
+
+> **Status: landed.** The conventions below are written up, with their worked
+> proof, in [`docs/esm-conventions.md`](docs/esm-conventions.md); `run-tests.sh`
+> now checks the checkable ones mechanically
+> (`tools/check-conventions.py`). Delivered: five template libraries in `lib/`,
+> two micro-components in `components/`, a run-level assembly in `runs/`, the
+> scaling gate in `gates/`, a source catalog in `sources/`, and six recorded
+> upstream limitations with repros in
+> [`docs/findings/`](docs/findings/README.md).
+>
+> **Three of the bullets below did not survive contact and are amended in the
+> conventions doc, not here.** (1) The `subsystems` mount form breaks a leaf's
+> `join.on`, so leaves mount as top-level `models` `{ref}` entries and index
+> sets do *not* merge across the edge — finding F1/F2. (2) The explicit
+> `skolem` value-invention ops do not evaluate; the canonical composite key is
+> the multi-pair `join.on`, which §5.5.8 defines as that skolem tuple — finding
+> F5. (3) A new rule the plan could not have known to ask for: an `aggregate`
+> loop symbol named `t` makes a `join.on` match nothing, silently — finding F4.
 
 Deliverable: `lib/` template libraries plus a written convention doc, proven on
 one micro-component. No MOVES science yet. This phase exists because every

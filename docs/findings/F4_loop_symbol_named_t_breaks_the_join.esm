@@ -1,0 +1,51 @@
+{
+  "esm": "1.0.0",
+  "metadata": {
+    "name": "F4LoopSymbolNamedTBreaksTheJoin",
+    "description": "FINDING F4 (expected to FAIL at the pinned toolchain) -- and the dangerous one, because it fails SILENTLY with a plausible number.\n\nAn `aggregate` whose range symbol is named `t` has its `join.on` key resolution broken: the gate admits NOTHING and the sum_product reduction returns 0. No error, no warning, and the document validates. The two aggregates below are identical except for the name of the first loop symbol: `matchedWithSymbolK` is 2, and `matchedWithSymbolT` is 0.\n\nCause: `t` is the independent variable, and the namespacing/scoping walkers special-case it by name (`flatten.rs::namespace_expr_scoped`, `scope_template_body`: `if name == \"t\" || name == VAR_PLACEHOLDER || bound.contains(name)`). A range symbol that shadows it is therefore not treated as a binder consistently, and the key column no longer resolves to a loop index.\n\nThe same collision surfaces differently -- as a build error rather than a zero -- when the key column is a `const` array:\n  E_TREEWALK_CONSTARRAY_OOB: const array 'left_key' index 0 out of range 1..3\nwhich is a misleading diagnostic for the actual mistake.\n\nThis cost a real bug during Phase 1: the first draft of components/exhaust_adjustment.esm named its time-key loop symbol `t` -- the natural choice for a time axis, in a project whose whole point is that MOVES time is a discrete key rather than the continuous t -- and the daytime hour count came out 0. The convention (docs/esm-conventions.md §7) is now that `t` is never a loop symbol.\n\nA binding SHOULD reject a range symbol named `t` at load with a named diagnostic, the way §5.5.8 requires an unresolvable key column to be a build error rather than a silent no-op. Until it does, this file is the tripwire.",
+    "authors": ["EarthSciML Authors and Contributors"]
+  },
+  "index_sets": {
+    "f4_left": { "kind": "interval", "size": 3 },
+    "f4_right": { "kind": "interval", "size": 2 }
+  },
+  "models": {
+    "SymbolCollision": {
+      "variables": {
+        "left_key": { "type": "unknown", "shape": ["f4_left"] },
+        "right_key": { "type": "unknown", "shape": ["f4_right"] },
+        "matchedWithSymbolK": { "type": "unknown" },
+        "matchedWithSymbolT": { "type": "unknown" }
+      },
+      "equations": [
+        { "lhs": "left_key",
+          "rhs": { "op": "aggregate", "args": [], "output_idx": ["i"],
+            "ranges": { "i": { "from": "f4_left" } }, "expr": "i" } },
+        { "lhs": "right_key",
+          "rhs": { "op": "aggregate", "args": [], "output_idx": ["j"],
+            "ranges": { "j": { "from": "f4_right" } }, "expr": "j" } },
+        { "_comment": "Loop symbol `k`. Correct: 2 matches.",
+          "lhs": "matchedWithSymbolK",
+          "rhs": { "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": [],
+            "ranges": { "k": { "from": "f4_left" }, "r": { "from": "f4_right" } },
+            "join": [ { "on": [["left_key", "right_key"]] } ],
+            "expr": 1.0 } },
+        { "_comment": "Loop symbol `t`. Same node, same data, same join. Returns 0.",
+          "lhs": "matchedWithSymbolT",
+          "rhs": { "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": [],
+            "ranges": { "t": { "from": "f4_left" }, "r": { "from": "f4_right" } },
+            "join": [ { "on": [["left_key", "right_key"]] } ],
+            "expr": 1.0 } }
+      ],
+      "tests": [
+        { "id": "the_loop_symbol_name_must_not_change_the_answer",
+          "description": "Both assertions are 2. The first passes and the second does not, which is the whole finding: renaming a bound index changed a result.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "matchedWithSymbolK", "time": 0.0, "expected": 2.0 },
+            { "variable": "matchedWithSymbolT", "time": 0.0, "expected": 2.0 }
+          ] }
+      ]
+    }
+  }
+}
