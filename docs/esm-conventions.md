@@ -79,8 +79,8 @@ Three reasons this is a rule and not a preference:
 
 1. **Cost.** A `join.on` gate *drives enumeration* — cost `O(matches)`, not
    `O(∏ranges)` (CONFORMANCE_SPEC §5.5.8). The same equality in a `filter` is a
-   full nested loop. Measured in `gates/`: 1.0×10¹⁰ candidate pairs gated in
-   365 ms against 4.0×10⁶ ungated in 4,571 ms.
+   full nested loop. Measured by `gates/` on the reference machine: 1.0×10¹⁰
+   candidate pairs gated in ~0.27 s against 4.0×10⁶ ungated in ~3.5 s.
 2. **Legibility.** The `.esm` should read like the SQL it ports. A reader
    looking for the joins finds them in one field.
 3. **Checkability.** `tools/check-conventions.py` rejects an `==` anywhere
@@ -331,3 +331,33 @@ The tripwire runs with the opposite polarity to everything else: it fails when a
 `docs/findings/` repro starts **passing**, because that means an upstream defect
 is fixed and a workaround in this tree is now dead weight. Read
 `docs/findings/README.md` when it fires.
+
+## 14. Reading a component back
+
+`esm pretty` renders a document's equations, and it is the quickest way to check
+that a component still reads like the relational step it ports. Run it from the
+document's own directory (finding F7):
+
+```
+$ (cd components && ../esm pretty deteriorated_emission_rate.esm)
+
+  Eq 3: rate_polProcessID = makearray([1:1] = 100·1 + 1, [2:2] = 100·2 + 1, …)
+  Eq 4: rate_meanBaseRate = [47.98, 283.4, 0.91, 7.7, 0.608]
+  …
+  Eq 10: detAge = (ageIndex + 1)·hoursUsedPerYear·loadFactor/medianLifeFullLoad
+  Eq 11: emissionRate =
+           Σ[r] (rate_meanBaseRate[r]·(1 + det_coefficientA[d]
+                  · min(detAge, det_ageCap[d])^det_ageExponentB[d]))
+           where {d∈deterioration_rows, r∈rate_rows}
+           join(rate_polProcessID=det_polProcessID, rate_engTechID=det_engTechID)
+```
+
+That last line is the whole convention in one place: a `SUM` over a `GROUP BY`
+of a product, `FROM` two relations, `ON` two key columns. Compare it against
+J14 in `docs/nonroad-logging-county.md` §3, and against the step table in the
+`moves.rs` calculator. If the rendering does not read that way, the component
+has drifted.
+
+Note the templates are gone from the rendering — expanded, as §9.6.4 specifies.
+That is the right trade: the *source* stays factored and the *rendering* stays
+checkable against the arithmetic.
