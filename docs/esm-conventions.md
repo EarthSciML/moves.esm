@@ -389,6 +389,46 @@ Two things that hold regardless, and that Phase 2 should not re-derive:
   native unit in their `description`; an emission factor in g/hp-hr is
   unspellable and does the same.
 
+### 11.1 What wiring a relation to its table will take **[Phase 2]**
+
+Twenty-six tables are declared and checked against the real Parquet
+(`tools/check-sources.py`); every relational column in `components/` is a
+transcription of one of them. The conversion, once a provider exists, is
+per COLUMN and mechanical. The spelling is EarthSciAST's own
+`tests/valid/data_sources_ingest_and_select.esm`:
+
+```jsonc
+"emr_meanBaseRate": {
+  "type": "parameter",            // not "unknown": a data-fed column is an input
+  "units": "1", "default": 0.0,
+  "shape": ["emission_rate_rows"],
+  "update": { "kind": "data",
+              "source": "nr_logging_county_nremissionrate",
+              "from": { "file_variable": "meanBaseRate" } }
+}
+```
+
+Three things change with it, and nothing else does:
+
+1. **The row axes stop being literals.** `{"kind": "interval", "size": 25}`
+   becomes a size folded from a metaparameter, and the source declares
+   `extent: {"metaparameter": "N_NREMISSIONRATE"}` so the loader can set it.
+2. **The `const` and `makearray` equations go away**, one per column. What is
+   left is the joins, the filters and the templates — untouched, because they
+   key on the column NAMES these tables carry, which is why the transcriptions
+   were made column-by-column in the source table's own order (§2).
+3. **The inline tests keep working**, on whatever the real tables hold. Where
+   an assertion names a value the transcription pinned (`47.98`), it will name
+   the same value read from 55,471 rows — which is the point of the exercise
+   and the first moment the joins are proved against data rather than against a
+   handful of rows chosen to exercise them.
+
+What does **not** follow from wiring: the fixture comparison also needs a way
+to write computed rows to a file (finding F9), and the four-row precision
+question needs `domain.element_type` honoured (§10). Ingest alone gets a
+document that reads real data and still cannot be diffed against
+`MOVESOutput`.
+
 ## 12. Testing
 
 Inline `tests` sections, small `const`-array inputs, hand-computable expected
