@@ -23,7 +23,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 # docs/findings/ holds deliberate repros of upstream defects; three of them do
 # not even load. They are exercised by run-tests.sh's tripwire stage instead.
-EXCLUDED_DIRS = {".moves", "target", "docs/findings"}
+EXCLUDED_DIRS = {".moves", "target", "docs/findings", ".fixtures-run"}
 
 # The one file allowed to spell a join as an equality `filter`: the ungated
 # calibration half of the scaling gate, which exists precisely to be the thing

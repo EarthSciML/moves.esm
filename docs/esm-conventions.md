@@ -381,68 +381,92 @@ the same expressions — a mechanical change, and the reason each test's
 description records how far its number sits from the specification's printed
 one.
 
-## 11. Data comes from `data_sources` — but not yet
+## 11. Data comes from `data_sources`
 
-`sources/nr_logging_county.esm` is a source-catalog file (esm-spec §2:
-`data_sources` only, no component, not mountable) declaring the snapshot tables
-with their `reader_options`. **Nothing consumes it**, because no CLI subcommand
-wires a `PrepareProvider` at this toolchain: a data-fed parameter silently keeps
-its default and an aggregate over it silently sums to zero (`build-esm.sh`,
-KNOWN BLOCKER). A component wired to it today would produce a green test that
-compared nothing.
-
-Two things that hold regardless, and that Phase 2 should not re-derive:
-
-* **`float_columns` is mandatory, on every table.** Verified against the
-  snapshot parquet: `zonemonthhour.temperature`, `nrsourceusetype.hpAvg`,
-  `nremissionrate.meanBaseRate`, `nrdeterioration.DFCoefficient` and
-  `MOVESOutput.emissionQuant` are all physically `string` — 12-place decimal
-  text for byte-reproducibility — even though the sidecar `.meta.json` calls
-  them `float64`.
-* **`hp` is not a unit the registry knows.** `W`, `kW`, `degF`, `g`, `h`, `yr`
-  and `1` are. Horsepower-based quantities carry no `units` and record the
-  native unit in their `description`; an emission factor in g/hp-hr is
-  unspellable and does the same.
-
-### 11.1 What wiring a relation to its table will take **[Phase 2]**
-
-Twenty-six tables are declared and checked against the real Parquet
-(`tools/check-sources.py`); every relational column in `components/` is a
-transcription of one of them. The conversion, once a provider exists, is
-per COLUMN and mechanical. The spelling is EarthSciAST's own
-`tests/valid/data_sources_ingest_and_select.esm`:
+`fixtures/nr-logging-county.esm` declares all twenty-six snapshot tables and
+**consumes seventeen of them**. It is the only document in this repository whose
+numbers come off disk; `components/` stay on `const` arrays, deliberately, and
+§12 says why. The conversion, per column, is esm-spec §8.5's:
 
 ```jsonc
 "emr_meanBaseRate": {
   "type": "parameter",            // not "unknown": a data-fed column is an input
   "units": "1", "default": 0.0,
-  "shape": ["emission_rate_rows"],
+  "shape": ["nremissionrate_rows"],
   "update": { "kind": "data",
               "source": "nr_logging_county_nremissionrate",
               "from": { "file_variable": "meanBaseRate" } }
 }
 ```
 
-Three things change with it, and nothing else does:
+Seven things about ingest that were paid for once and should not be re-derived.
 
-1. **The row axes stop being literals.** `{"kind": "interval", "size": 25}`
-   becomes a size folded from a metaparameter, and the source declares
-   `extent: {"metaparameter": "N_NREMISSIONRATE"}` so the loader can set it.
-2. **The `const` and `makearray` equations go away**, one per column. What is
-   left is the joins, the filters and the templates — untouched, because they
-   key on the column NAMES these tables carry, which is why the transcriptions
-   were made column-by-column in the source table's own order (§2).
-3. **The inline tests keep working**, on whatever the real tables hold. Where
-   an assertion names a value the transcription pinned (`47.98`), it will name
-   the same value read from 55,471 rows — which is the point of the exercise
-   and the first moment the joins are proved against data rather than against a
-   handful of rows chosen to exercise them.
+* **The format is `metadata.esio_format`, not a `format` key in
+  `reader_options`** — that is rejected as an unknown reader option (§8.9.1,
+  working as specified). `tools/check-sources.py` flags the old spelling.
+* **A `url_template` needs an absolute `file:///…`.** It is neither
+  environment-expanded nor resolved relative to the referencing document, and
+  the first path segment of a relative URL is eaten as the URL *host* (finding
+  **F15**). So the checked-in fixture carries a `${MOVES_SNAPSHOTS}` placeholder
+  it cannot itself ingest, and `run-tests.sh` materializes a resolved copy under
+  `.fixtures-run/`. That copy is a path substitution and nothing else.
+* **`float_columns` is mandatory, on almost every table** — the emission
+  quantities are 12-place decimal TEXT despite the sidecar `.meta.json` calling
+  them float64. It is also how a numeric KEY stored as utf8 becomes a key:
+  `SCC` is listed in six tables' `float_columns`, and every SCC is below 2^53 so
+  the decode is exact and a join on one is still exact.
+* **An integer column with a NULL is refused,** by name, and listing it in
+  `float_columns` is the fix — the nulls arrive as NaN and no join reaches them.
+  `nrgrowthindex.growthIndex` is int64 with 43 null rows out of 50,955.
+* **A row axis is sized by `extent` discovery, never by a literal.**
+  `"metaparameters": {"n_nremissionrate": {"type": "integer", "default": 0}}`,
+  `"index_sets": {"nremissionrate_rows": {"kind": "interval", "size":
+  "n_nremissionrate"}}`, and `"extent": {"metaparameter": "n_nremissionrate"}`
+  on the source. A fixture that wrote `55471` would be asserting the snapshot's
+  shape rather than measuring it. The default is `0`, and a 0 that survives to
+  evaluation is a build error rather than a small answer.
+* **Every observable is a relation, including a one-row one.** In a document
+  that ingests, a SCALAR variable is not materialized: the assertion errors and
+  an expression that reads one evaluates to `NaN` (finding **F16**). So the
+  fixture's run-level quantities — the ambient temperature, the oxygen weight
+  percent, `adjtime` — are columns over a one-row `run_rows`. That is the better
+  shape anyway: a second SCC widens `run_rows` and no equation changes.
+* **`hp` is not a unit the registry knows.** `W`, `kW`, `degF`, `g`, `h`, `yr`
+  and `1` are. So an emission factor in g/hp-hr carries no `units` and names the
+  unit in its `description` — and because no factor in the roll-up product
+  carries a unit, neither can the product: `out_emissionQuant` is grams,
+  declared unitless, and says so.
 
-What does **not** follow from wiring: the fixture comparison also needs a way
-to write computed rows to a file (finding F9), and the four-row precision
-question needs `domain.element_type` honoured (§10). Ingest alone gets a
-document that reads real data and still cannot be diffed against
-`MOVESOutput`.
+### 11.1 Joining big tables to big tables
+
+The one thing that does not follow from the per-column conversion. A `join.on`
+whose key columns are large on BOTH sides is not driven: the fixture's roll-up
+over `nrengtechfraction` × `nremissionrate` × `nrdeterioration` did not finish
+in twenty-five minutes, and the same contraction with the technology given its
+own axis takes four seconds (finding **F17**).
+
+The rule that follows is a modelling one, and it is the same shape as
+"tables stay tables": **give the thing the tables meet at an axis.** The mix,
+the rates and the deterioration coefficients all key on `engTechID`, so
+`engine_tech_rows` enumerates §5.5's exhaust code space and each table joins to
+it separately. The check that keeps an enumerated window honest is a total:
+`tech_fractionTotal` must be 1 for every cohort, so a code outside the window
+shows up as a number rather than as a missing row.
+
+### 11.2 What the fixture still does not cover **[Phase 3]**
+
+Twelve of the snapshot's 144 rows: SCC `2260007005`, the §6.1 worked example,
+whose twelve cells agree with `MOVESOutput` to 4.0 × 10⁻⁶. The shortfall is
+recorded in `tolerance.toml` under `[shortfall."nr-logging-county"]` and
+`run-tests.sh` is green only while the comparison fails *exactly* that way — the
+tripwire polarity again.
+
+What the other two SCCs need is not more `.esm` of the same kind. Each equipment
+point has its own `agedist.f` result, and that fold is a recurrence the format
+cannot express (finding **F12**), so the grown model-year fractions enter as
+data. One SCC's three values are checkable against the cumulative growth ratio
+the document derives independently from `nrgrowthindex`; thirty-six cohorts'
+would be transcribing the reference's answer, which is not a fidelity test.
 
 ## 12. Testing
 
@@ -493,15 +517,30 @@ parquet, and the assertions are that document's own worked longhand.
 Nine stages, in order: the comparator's own falsification suite; schema
 `validate`; the conventions above **[checked]**; every inline test;
 `parse → emit → parse` fidelity; the join-gate scaling ratio; the
-known-limitation tripwire; every `data_sources` catalog against the Parquet
-files it names (`tools/check-sources.py`); the fixture comparison. It must stay green at every commit, and it must stay
-*honest* — an empty fixture stage that says why it is empty is worth more than a
-green one that read nothing.
+known-limitation tripwire; every `data_sources` declaration against the Parquet
+files it names (`tools/check-sources.py`); the fixture run. It must stay green at every commit, and it must stay
+*honest* — a fixture stage that says what it did not compare is worth more than
+a green one that read nothing.
 
-The tripwire runs with the opposite polarity to everything else: it fails when a
-`docs/findings/` repro starts **passing**, because that means an upstream defect
-is fixed and a workaround in this tree is now dead weight. Read
-`docs/findings/README.md` when it fires.
+**Two stages run with the opposite polarity to everything else, and for the same
+reason.** The tripwire fails when a `docs/findings/` repro starts **passing**,
+because that means an upstream defect is fixed and a workaround in this tree is
+now dead weight; read `docs/findings/README.md` when it fires. And the fixture
+comparison is *expected to fail today*: `compare-output.py`'s verdict is
+unconditional and nothing can tell it to pass, so `tools/shortfall.py` judges
+its report against the `[shortfall]` record in `tolerance.toml` and the stage is
+green only while the failure is exactly the one written down — a shortfall that
+grows is a regression, one that shrinks is progress that has to be recorded, and
+one that disappears means the record itself must go.
+
+The fixture stage has four steps and each is load-bearing. It **materializes**
+`.fixtures-run/<name>.esm` with the snapshot path substituted (F15), having
+first checked that the CHECKED-IN document still cannot ingest; it runs the
+fixture's **inline assertions** against the real tables, which is where a column
+that arrived as its `default` fails somewhere it can be attributed; it
+**emits** every `out_*` variable through `simulate --format csv`, reading the
+field list out of the document so the output schema stays the document's
+business; and it **compares**.
 
 ## 14. Reading a component back
 
@@ -535,15 +574,16 @@ checkable against the arithmetic.
 
 ## 15. What Phase 2 could not compute, and how the document says so **[Phase 2]**
 
-Three things in the chain are not in the documents because the format or the
-toolchain cannot hold them. Each is a finding with a repro, and each has a
+Four things in the chain are not in the documents, or are not in them the
+obvious way, because the format or the toolchain cannot hold them. Each is a finding with a repro, and each has a
 visible place in the `.esm` rather than a silent substitution.
 
 | | What | Where it shows |
 |---|---|---|
 | **F12** | `agedist.f`'s 30-year fold is a recurrence — no spelling | `components/age_distribution.esm`'s `age_grownModelYearFraction` is a data column, cross-checked against the growth stage's cumulative ratio |
-| **F9** | a relational document cannot be written to a file | nothing emits rows; the chain is proved by inline assertions only |
-| **—** | no `PrepareProvider` in the CLI | every relation is a transcription of the snapshot; `sources/` declares the real tables and is checked against them |
+| **F15** | a `url_template` has no relative or environment form | the checked-in fixture cannot ingest; `run-tests.sh` materializes `.fixtures-run/` and asserts that the checked-in one still cannot |
+| **F16** | a scalar has no state in a document that ingests | every run-level quantity is a one-row relation over `run_rows` |
+| **F17** | a `join.on` between two large relations is not driven | `engine_tech_rows` gives the technology an axis, and `tech_fractionTotal` proves the window is a superset |
 
 The rule the three share: **say it in the document, at the point where a reader
 would otherwise assume the number was computed.** A carried column's

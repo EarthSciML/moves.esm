@@ -26,13 +26,15 @@
 #   3. parallel
 #      Performance only; safe to drop.
 #
-# KNOWN BLOCKER (as of EarthSciAST b680f5301): even with 1 and 2, the `esm`
-# binary never constructs an esio provider. `PrepareProvider` is supplied by
-# the CALLER through `PrepareOptions`, and `src/bin/esm.rs` supplies none --
-# `esio_provider` has no in-crate caller outside the library's own tests. So
-# no CLI subcommand can load a `data_sources` entry yet, and a data-fed
-# parameter stays at its default. Until that is wired upstream, the fixture
-# stage of run-tests.sh cannot be trusted to have read anything.
+# THE BLOCKER THIS HEADER USED TO CARRY IS GONE (EarthSciAST 72568e8bc,
+# 8dd7789ef, 8274f0918). `src/bin/esm.rs` now builds a provider per consumed
+# `data_sources` entry, samples a source's `extent` BEFORE closing the
+# document's metaparameters, and `simulate --format csv` writes a relational
+# document's rows. So 1 and 2 above are no longer merely prudent: with either
+# of them wrong the binary reads NOTHING and says so only by returning each
+# data-fed parameter's `default`, which is a plausible number. That is why
+# run-tests.sh's fixture stage asserts a row COUNT and a key SET and not only a
+# tolerance -- see docs/esm-conventions.md §11 and §13.
 
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")"
@@ -93,7 +95,7 @@ features  = esio,parallel
 # The EarthSciIO tree patched in over the crates.io 0.1.2 (same version
 # number, different content -- the registry copy has no parquet reader).
 esio_repo   = EarthSciIO
-esio_commit = $(git -C ../EarthSciIO rev-parse HEAD 2>/dev/null || echo 'not a git checkout')
+esio_commit = $(git -C "$AST/../EarthSciIO" rev-parse HEAD 2>/dev/null || echo 'not a git checkout')
 EOF
 
 echo "wrote esm-version.lock"

@@ -33,24 +33,34 @@ The binary itself, `./esm`, is deliberately untracked.
 | `lib/` | Expression-template libraries. The reusable shapes — the deterioration curve, the exhaust temperature adjustment, unit conversion — each defined exactly once and imported by reference. |
 | `components/` | One `.esm` per calculator. Tables stay tables; joins are `join.on`; literals come from `enums`. |
 | `runs/` | Run-level assemblies that mount components. |
-| `sources/` | `data_sources` catalogs describing the snapshot Parquet tables. |
+| `fixtures/` | The documents that read the snapshot Parquet and are compared against its `MOVESOutput`. One per snapshot; each declares the tables it reads as `data_sources`. |
 | `gates/` | Performance gates, currently the `join.on` scaling assertion. |
 | `docs/` | The port specification, the conventions doc, and the findings. |
-| `tools/` | `check-conventions.py`, which enforces mechanically what a review would otherwise have to eyeball. |
+| `tools/` | `check-conventions.py`, which enforces mechanically what a review would otherwise have to eyeball; `check-sources.py`, which opens every declared Parquet file and checks the columns; `shortfall.py`, which judges a fixture's failure against what `tolerance.toml` says to expect. |
 
 ## Testing
 
 `./run-tests.sh` runs everything and is the only thing you need. In order: a
 self-test of the comparator, `esm validate` on every document, the conventions
 check, `esm test` (the inline §6.6 tests), a round-trip check, the scaling gate,
-the known-limitations tripwire, and the fixture comparisons.
+the known-limitations tripwire, the `data_sources` declarations against the
+Parquet, and the fixture run — materialize, assert, emit, compare.
 
-Two stages are worth explaining because their polarity is unusual.
+Three stages are worth explaining because their polarity is unusual.
 
 **The known-limitations tripwire fails when a test starts passing.** Each file
 in `docs/findings/` reproduces an upstream defect and asserts the behaviour we
 want, so it fails today. A repro going green is good news that has to be acted
 on — a limitation quietly fixed leaves a workaround in the tree for no reason.
+
+**The fixture comparison is expected to fail, at a recorded size.** The port
+computes twelve of `nr-logging-county`'s 144 rows today, and those twelve agree
+with the snapshot to 4.0 × 10⁻⁶. `compare-output.py` fails on that, as it
+should — a comparator that can be told to pass is not a comparator — so
+`tolerance.toml` records the shortfall with its reason and `tools/shortfall.py`
+checks that the failure is still exactly that one. It fires if the shortfall
+grows, if it shrinks, or if a row this port does emit drifts. See §11.2 of the
+conventions for what the other 132 rows need, which is not more `.esm`.
 
 **The comparator is tested before it is trusted.** `compare-output.py` judges
 whether output matches the reference, so a bug in it that passes everything
@@ -149,6 +159,7 @@ instance exists and has not been found.
 
 ## Status
 
+<<<<<<< HEAD
 **Phases 0, 1 and 2 are complete.** Eleven components cover all seven NONROAD
 stages of `nr-logging-county`, with 590 inline assertions whose numbers each
 trace to a named line of the port specification.
@@ -168,3 +179,18 @@ upstream.
 See `PLAN.md` for the plan of record and `docs/findings/README.md` for what the
 toolchain still cannot do — twelve open findings, and three retired because
 they were fixed.
+=======
+Phases 0 and 1 are complete, and the first end-to-end fidelity comparison runs:
+both blockers that stood in front of it are fixed upstream — the CLI now builds
+a data provider per consumed `data_sources` entry and samples a source's extent
+before closing metaparameters, and `simulate --format csv` writes the rows of a
+document that has nothing to integrate. `fixtures/nr-logging-county.esm` reads
+seventeen snapshot tables and reproduces the twelve `MOVESOutput` rows of SCC
+2260007005 to 4.0 × 10⁻⁶.
+
+The remaining 132 rows are two more SCCs, and the blocker is not authoring
+effort: each equipment point needs its own `agedist.f` result, and that
+thirty-year fold is a recurrence with no spelling in the format
+(`docs/findings/README.md` F12). See `PLAN.md` for the plan of record and the
+findings file for what else the toolchain cannot yet do.
+>>>>>>> phase2/wire

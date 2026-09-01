@@ -1,10 +1,12 @@
 # Findings: conventions the format or the toolchain could not express
 
-Fourteen things PLAN.md §3 Phase 1 and Phase 2 assumed, or that an author would
-reasonably assume, that do not hold at the pinned toolchain (`esm-version.lock`:
-EarthSciAST `b680f5301`, EarthSciIO `8e1df2280`, `--features esio,parallel`).
+Eighteen things PLAN.md §3 Phase 1 and Phase 2 assumed, or that an author would
+reasonably assume, that did not hold. Four are now fixed upstream and are listed
+at the bottom, with their sections kept above so the workarounds they forced can
+be traced; the rest still hold at the pinned toolchain (`esm-version.lock`:
+EarthSciAST `8a7810647`, EarthSciIO `d109951d4`, `--features esio,parallel`).
 
-F1–F6 and F9–F14 each have a minimal `.esm` repro in this directory; F7 and F8 are
+F2, F3, F5, F6 and F11–F14 each have a minimal `.esm` repro in this directory; F7 and F8 are
 CLI behaviours rather than documents, and are checked by command against the
 ordinary files of the repo. **Every repro is expected to fail**, and each one's inline test asserts the *intended* behaviour, so a repro
 that starts passing means the defect is fixed. `run-tests.sh` runs them as a
@@ -28,6 +30,9 @@ three of them do not load.
 | **F12** | A recurrence over an index axis has no spelling | evaluation | no |
 | **F13** | `enums` merge first-wins across a mount; a colliding value is applied | — | **yes** |
 | **F14** | A `ragged` index set ignores its member factor | evaluation | **yes** |
+| **F15** | A `url_template` is neither environment-expanded nor relative | ingest | no |
+| **F16** | A SCALAR variable is not materialized in a document that ingests data | assertion | no |
+| **F17** | A `join.on` between two LARGE data relations is not driven | — | **yes** |
 
 ---
 
@@ -444,9 +449,11 @@ round-trip stage and watches this by command instead.
 
 ## F9 — a relational document evaluates, but cannot be written to a file
 
-`F9_no_emit_path_for_a_relational_document.esm`.
+**Fixed upstream — see the list at the bottom. Kept for the record.**
 
-**Blocks the Phase 2 exit criterion, independently of the data provider.**
+`F9_no_emit_path_for_a_relational_document.esm`, now removed.
+
+**Blocked the Phase 2 exit criterion, independently of the data provider.**
 
 A MOVES calculator is a *relational* document: it computes rows from rows and
 integrates nothing. Both `components/*.esm` already have this shape — 0 of 11
@@ -481,9 +488,154 @@ subcommand) an `--output` writing the same `derive_output_plan` shape
 a solve is exactly what `esm test` already does, so it is a new sink on an
 existing path rather than a new mode on the solver.
 
-**Polarity.** Unlike F1–F6, this repro's assertion passes. Its tripwire in
-`run-tests.sh` is therefore the `simulate` command, checked in both directions:
-the document must still evaluate, and must still fail to emit.
+**Polarity.** Unlike F1–F6, this repro's assertion passed. Its tripwire in
+`run-tests.sh` was therefore the `simulate` command, checked in both directions:
+the document had to still evaluate, and to still fail to emit. It is the
+direction that fired — `simulate` began writing the file — which is how the
+fixture stage came to exist.
+
+## F15 — a `url_template` has no portable form
+
+No repro file; `fixtures/nr-logging-county.esm` is the repro, and
+`run-tests.sh`'s fixture stage checks it by command in the direction that
+matters — the checked-in document must **fail** to ingest.
+
+A `data_sources` entry names its input with `source.url_template`. The runtime
+requires an explicit scheme (a bare path is `bad url … missing scheme`), and
+then takes the URL literally: nothing expands an environment variable, and
+nothing resolves the path against the referencing document's directory the way
+esm-spec §4.7 does for a `ref`. All three portable spellings fail, and the
+error message shows why — the first path segment is consumed as the URL
+**host**:
+
+```
+file://${MOVES_SNAPSHOTS}/…/nrscc.parquet   io error at /…/nrscc.parquet
+file://../../../moves.rs/…/nrscc.parquet    io error at /../../moves.rs/…/nrscc.parquet
+file://./probe.parquet                      io error at /probe.parquet
+```
+
+Only `file:///absolute/path` reads. So a document whose data lives outside its
+own repository — which is every fixture here, since the snapshots are a sibling
+checkout — **cannot name its own inputs**.
+
+**Impact.** `run-tests.sh` materializes each fixture into an untracked
+`.fixtures-run/` copy with one `sed` over the snapshot path. That is a
+substitution of a *path*, not a generation of model logic, and it is the reason
+`fixtures/` is excluded from the ordinary `esm test` stage: the checked-in
+document deliberately does not ingest, so its inline assertions mean nothing
+until it is materialized. The cost is that the file the repository reviews and
+the file the toolchain runs are not byte-identical, which is exactly what the
+round-trip stage exists to avoid elsewhere.
+
+**Fix shape.** Expand `${VAR}` from the process environment — `url_template` is
+already called a template and already carries `{date:…}`-style substitutions —
+or resolve a relative path against the referencing document's directory, per
+§4.7's rule for every other reference in the format. Either removes the
+materialization step; the first also lets one catalog serve several machines.
+
+
+## F16 — a scalar has no state in a document that ingests
+
+No repro file, for a reason given below; the measurement is a pair of documents
+that differ in one thing.
+
+```jsonc
+// control: col = const [10, 20, 30];  total = Σ col[i]
+{"lhs": "total", "rhs": {"op": "aggregate", "output_idx": [], "ranges": {"i": {"from": "rows"}},
+                         "expr": {"op": "index", "args": ["col", "i"]}}}
+```
+
+```
+$ ./esm test scalar_const.esm      # col from a const array
+  TOTAL   1 pass
+
+$ ./esm test scalar_data.esm       # col from `update.kind: data`, everything else identical
+  assertion evaluation failed: scalar state 'total' not found
+```
+
+Both documents declare one array variable and one scalar; F6 says the array is
+what puts the model on the runtime that materializes state-free observeds, and
+in the `const` document it does. Bind that same column to a `data_sources`
+entry and the scalar stops existing — the array reads correctly, and every
+scalar derived from it is gone. It is loud (an ERROR naming the variable), and
+it is not confined to assertions: an expression that READS such a scalar
+evaluates to `NaN`, which is how it first surfaced here — four adjustment
+factors came out NaN because the two scalars they multiply had no value, while
+every array in the same document was right.
+
+**Impact, and the convention it forces.** `fixtures/nr-logging-county.esm`
+carries **every** run-level quantity as a one-row relation over `run_rows`
+rather than as a scalar: the ambient temperature, the oxygen weight percent,
+the fuel year, the days in the month, `adjtime`. That is a better shape anyway
+— tables stay tables (conventions §2), and a second SCC turns `run_rows` into a
+two-row relation with no equation change — but it is not a free choice here,
+and a component moved from the `const` level to the fixture level has to be
+rewritten for it. Note the asymmetry with F6: F6 says a scalar needs an array
+in the document to be assertable, and this says an *ingested* array is not
+enough.
+
+**Why no repro file.** A repro needs a real data source, a data source needs an
+absolute path (F15), and an absolute path checked into `docs/findings/` would
+make the repro fail on any other machine — for the wrong reason, which is
+exactly what the tripwire's positive controls exist to prevent. It is recorded
+here with its measurement instead, and the fixture is the standing evidence:
+every one-row relation in it would be a scalar if this were fixed.
+
+**Fix shape.** Whatever `prepare` does for a data-fed document, it drops the
+scalar observeds that the `const` path keeps. The two paths should agree, and
+the `const` one is right.
+
+
+## F17 — a `join.on` between two large relations is not driven
+
+No repro file; `fixtures/nr-logging-county.esm` is the repro, and its history is
+the measurement. **Silent, in the way that matters least often and costs most:
+the answer is right and the run does not end.**
+
+The first form of the fixture's roll-up was one contraction over three data
+relations — `nrengtechfraction` (9,554 rows), `nremissionrate` (55,471) and
+`nrdeterioration` (424) — under `join.on` clauses that reduce it to about 72
+surviving tuples: the mix rows the equipment chain and the cohort's mix year
+select, then one rate row and one deterioration row per (pollutant process,
+technology). It did not finish in twenty-five minutes of wall clock. That
+number is on a shared machine and is not the measurement; the measurement is a
+bisection run back to back, one clause apart, on the same document, the same
+data and the same load:
+
+| contraction | time |
+|---|---|
+| mix only (`age_rows` × `pol` × mix, joined to two small relations) | **3 s** |
+| … plus the join to `nremissionrate` on (SCC, polProcessID, engTechID) | **> 120 s**, killed |
+
+Splitting the composite `on` list into one clause per relation *pair* — which
+is the right spelling anyway, since its three key pairs related three different
+relations and not one composite key — changed nothing. What the two cases
+differ in is the SIZE OF BOTH SIDES: in the fast one every key column on the
+left of a clause lives on a 1-, 3- or 4-row relation, and in the slow one
+`mix_engTechID` is a column of a 9,554-row table probing a 55,471-row one.
+
+**The fix is in the document and it is a better document.** Give the technology
+its own axis — `engine_tech_rows`, the exhaust code space 100–199 that §5.5
+enumerates — and each of the three tables joins to it separately: the mix
+becomes `tech_fraction[cohort, tech]`, the rates `tech_meanBaseRate[pollutant,
+tech]`, the coefficients `tech_deteriorationFactor[cohort, pollutant, tech]`,
+and the roll-up contracts over 100 technologies instead of over a product of
+three tables. **4 seconds**, same answer. `tech_fractionTotal` is the assertion
+that keeps the window honest: the mix must sum to 1 for every cohort, so a code
+outside 100–199 would show up as a number less than 1 rather than as a missing
+row.
+
+**Why this is worth recording rather than filing under "we wrote it better".**
+The scaling gate in `gates/` asserts that a `join.on` contraction costs
+O(matches) and not O(N·M), and it passes — because its driven side is small.
+The gate's claim is therefore narrower than it reads, and this is the case it
+does not cover. Every larger NONROAD fixture joins big tables to big tables.
+
+**Fix shape.** Build the hash index on whichever side of a clause is smaller
+rather than on a fixed one, and choose a join ORDER over the clause set instead
+of taking them as written. A second gate document, contracting two large
+relations, would pin it.
+
 
 ---
 
@@ -495,9 +647,15 @@ traced.
 
 - **F1** — EarthSciAST `a5e8a7d94` — `rename_free_symbol` now rewrites `join.on`, `overlap.src_env`/`tgt_env` and a resolved `on_gate`'s columns after `map_children`, so a nested §4.7 mount carries a leaf's key columns. **The nested mount is available again**; this port's assemblies still use the top-level `{ref}` form the workaround forced, which works and is not worth churning, but a new assembly may use either.
 - **F4** — EarthSciAST `ee067f5b6` — rejected at load with a named diagnostic, `reserved_index_symbol`, rather than made to work: an index symbol is the author's free choice (§4.3.1), while making the binder win would invert name-first precedence at nine sites and still leave the node unable to name the independent variable at all. The convention in `docs/esm-conventions.md` §7 stands, now enforced by the toolchain.
-- **F9** — EarthSciAST `8274f0918` — `esm simulate` now branches on `is_dynamic()`:
-  a document with nothing to integrate is evaluated once and its materialized
-  fields written, with no solve. `--format csv` emits one row per index tuple,
-  which is the shape a row-by-row comparator reads. Note `i1` is an ordinal, not
-  a MOVES key — identity columns must be emitted as observeds in their own right.
+- **F9** — EarthSciAST `8274f0918` — `simulate` treats a document with nothing to
+  integrate as a single evaluation at `t = 0` (`Compile::Always` became
+  `Compile::Auto`) instead of handing it to the ODE solver, and `--format csv`
+  writes the row set itself: a leading `i1` ordinal column, then one column per
+  `--observed` field, with a request whose fields do not share one shape REFUSED
+  rather than padded or truncated. **This is the commit that opened the fixture
+  stage** — together with EarthSciAST `72568e8bc`/`8dd7789ef`, which wire the
+  `data_sources` ingest bridge into the binary and sample a source's `extent`
+  before the document closes its metaparameters. `fixtures/` uses all three.
+  The `.esm` repro is gone; its tripwire in `run-tests.sh` was the `simulate`
+  command and is gone with it.
 - **F10** — EarthSciAST `a1a592ecf` — `true` evaluates to 1.0, matching Python, Julia and Rust's own value-invention path; Rust's dense path was the outlier. The other nine core-but-unevaluable ops are now refused at build instead of reaching `unreachable!()`. Confirmed a class, not a case: `rank` panicked the same way.
