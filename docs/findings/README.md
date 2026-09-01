@@ -18,16 +18,13 @@ three of them do not load.
 
 | | Finding | Fails at | Silent? |
 |---|---|---|---|
-| **F1** | A nested §4.7 `subsystems` mount drops a leaf's `join.on` key columns | build | no |
 | **F2** | A top-level `models` `{ref}` does not merge the referenced file's `index_sets` | validate | no |
 | **F3** | An `enums` block does not cross an `expression_template_imports` edge | load | no |
-| **F4** | An `aggregate` range symbol named `t` makes `join.on` match nothing | — | **yes** |
 | **F5** | `skolem` / `distinct` / `rank` value invention does not evaluate | — | **yes** |
 | **F6** | A component with only scalar variables has no assertable state | assertion | no |
 | **F7** | `esm round-trip` resolves a relative `ref` against the CWD | load | no |
 | **F8** | A layered template library does not round-trip to a self-contained form | re-load | no |
 | **F9** | A relational document evaluates but cannot be written to a file | emit | no |
-| **F10** | The evaluable-core op `true` panics at evaluation | evaluation (panic) | no |
 | **F11** | A relation cannot be joined to itself: two ranges over one index set | build | no |
 | **F12** | A recurrence over an index axis has no spelling | evaluation | no |
 | **F13** | `enums` merge first-wins across a mount; a colliding value is applied | — | **yes** |
@@ -488,3 +485,15 @@ existing path rather than a new mode on the solver.
 **Polarity.** Unlike F1–F6, this repro's assertion passes. Its tripwire in
 `run-tests.sh` is therefore the `simulate` command, checked in both directions:
 the document must still evaluate, and must still fail to emit.
+
+---
+
+## Fixed upstream
+
+Retired from the tripwire; the repros are gone because the fixing commits carry
+their own regression tests. Kept here so the workarounds they forced can be
+traced.
+
+- **F1** — EarthSciAST `a5e8a7d94` — `rename_free_symbol` now rewrites `join.on`, `overlap.src_env`/`tgt_env` and a resolved `on_gate`'s columns after `map_children`, so a nested §4.7 mount carries a leaf's key columns. **The nested mount is available again**; this port's assemblies still use the top-level `{ref}` form the workaround forced, which works and is not worth churning, but a new assembly may use either.
+- **F4** — EarthSciAST `ee067f5b6` — rejected at load with a named diagnostic, `reserved_index_symbol`, rather than made to work: an index symbol is the author's free choice (§4.3.1), while making the binder win would invert name-first precedence at nine sites and still leave the node unable to name the independent variable at all. The convention in `docs/esm-conventions.md` §7 stands, now enforced by the toolchain.
+- **F10** — EarthSciAST `a1a592ecf` — `true` evaluates to 1.0, matching Python, Julia and Rust's own value-invention path; Rust's dense path was the outlier. The other nine core-but-unevaluable ops are now refused at build instead of reaching `unreachable!()`. Confirmed a class, not a case: `rank` panicked the same way.

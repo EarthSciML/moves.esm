@@ -46,9 +46,31 @@ if [[ ! -d "$AST/pkg/earthsci-ast-rs" ]]; then
 fi
 
 echo "building esm from $AST ..."
-( cd "$AST/pkg/earthsci-ast-rs" \
-  && cargo build --release --features esio,parallel --bin esm \
-       --config "patch.crates-io.earthsciio.path=\"$IO_REL\"" )
+(
+  cd "$AST/pkg/earthsci-ast-rs" || exit 2
+  PATCH="patch.crates-io.earthsciio.path=\"$IO_REL\""
+
+  # `--config patch...` is SILENTLY IGNORED when Cargo.lock already pins the
+  # registry copy: cargo prints "warning: patch ... was not used in the crate
+  # graph", builds the crates.io crate, and the binary then has no parquet
+  # reader. `cargo update` re-resolves so the patch wins. Cheap, and the
+  # alternative is a working binary that reads nothing.
+  cargo update -p earthsciio --config "$PATCH" >/dev/null 2>&1 || true
+
+  cargo build --release --features esio,parallel --bin esm --config "$PATCH" 2>&1 \
+    | tee /dev/stderr | grep -q "warning: patch .* was not used" && {
+        echo "error: the EarthSciIO path patch was not applied -- the binary would" >&2
+        echo "       link the crates.io crate, which has no parquet reader." >&2
+        exit 3
+      }
+
+  # Belt and braces: a registry-sourced earthsciio in the lock means the local
+  # checkout is NOT what got linked, whatever the build log said.
+  if grep -A2 '^name = "earthsciio"' Cargo.lock | grep -q '^source = "registry'; then
+    echo "error: Cargo.lock resolves earthsciio to the registry, not $IO_REL" >&2
+    exit 3
+  fi
+) || exit $?
 
 cp "$AST/pkg/earthsci-ast-rs/target/release/esm" ./esm
 echo "installed ./esm ($(./esm --version))"

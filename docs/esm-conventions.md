@@ -115,8 +115,10 @@ matching row exist* is the shape every precomputed key needs — the two SCC
 ladders, state-default precedence, the `getind.f` year rule, the RunSpec sector
 and fuel selections. Spell it `"semiring": "bool_and_or"` with `"expr": 1.0`,
 giving 1 on a match and 0 on none, and bind it at the call site as an explicit
-`> 0` comparison. The honest body, `true`, is in the schema's evaluable-core set
-and panics at evaluation (finding F10).
+`> 0` comparison. The body is `true`: a presence test carries no value. (It read
+`1.0` for as long as `true` panicked at evaluation — F10, now fixed upstream in
+EarthSciAST `a1a592ecf`, which also refused the other nine core-but-unevaluable
+ops at build rather than letting them reach `unreachable!()`.)
 
 **A relation cannot be joined to itself** **[Phase 2]**. Two `ranges` over one
 index set leave every key column unresolvable, because resolution is by axis
@@ -235,11 +237,17 @@ A scoped name resolves as a `join.on` key column, so the roll-up joins two
 mounted relations without either leaf knowing it was mounted.
 
 **This is not the form PLAN.md §3 assumed, and the difference is forced.** A
-nested `subsystems: {Rates: {ref}}` mount renames a leaf's variables but leaves
-its `join.on` clause naming the old bare names, so any leaf with a data-column
-join — every relational leaf — fails to build once mounted (finding F1). Revisit
-this section when F1 is fixed: the nested form is the one §4.7 documents, and it
-is the one that merges index sets.
+nested `subsystems: {Rates: {ref}}` mount used to rename a leaf's variables while
+leaving its `join.on` clause naming the old bare names, so any leaf with a
+data-column join — every relational leaf — failed to build once mounted (finding
+F1). **That is fixed** (EarthSciAST `a5e8a7d94`: the mount's rename now reaches
+`join.on`, `overlap.src_env`/`tgt_env` and a resolved `on_gate`'s columns), so
+the nested form §4.7 documents is available again, and it is the one that merges
+index sets.
+
+This port's assemblies still use the top-level `{ref}` form the defect forced.
+That is deliberate: they work, they are tested, and rewriting them buys nothing
+today. A *new* assembly may use either, and should prefer the nested form.
 
 **The cost of the working form: index sets do not merge across it** (finding
 F2), so an assembly restates the axes of every file it mounts. That redundancy
@@ -313,6 +321,13 @@ match nothing — silently, returning 0, with the document validating (finding
 F4). This cost a real bug during Phase 1, in precisely the component whose axis
 *is* a time axis. Use `k` for a time-key row symbol, `r`/`d`/`p`/`z` for other
 relations.
+
+**This is now enforced rather than merely advised**: EarthSciAST `ee067f5b6`
+rejects such a document at load with a named `reserved_index_symbol` diagnostic.
+Rejecting rather than making the binder win is the right call — an index symbol
+is the author's free choice (§4.3.1), while the alternative inverts name-first
+precedence at nine sites and would still leave the node unable to name the
+independent variable at all.
 
 ## 8. `coordinates` to label output rows back to their keys
 
