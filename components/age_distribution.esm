@@ -3,272 +3,934 @@
   "metadata": {
     "name": "AgeDistribution",
     "description": "Stage 2(c) of the nr-logging-county chain: scrappage, equipment life and the base-year age distribution. Ports join J10 and the arithmetic of docs/nonroad-logging-county.md §2.2(c) (scrptime.f, crates/moves-nonroad/src/driver/scrptime.rs:84-176) for one equipment point.\n\nWHAT THIS FILE COMPUTES: the median life in years, the cumulative scrappage percent at each age, the YEAR-OVER-YEAR scrapped fraction derived from it, the equipment life `nyrlif`, the sales curve the population growth factor implies, and the 1990 model-year fractions. Every one of those is checked against docs/nonroad-logging-county.md §6.1 step 2.\n\nWHAT IT DOES NOT COMPUTE, AND WHY: agedist.f's 30-year fold (§2.2(e)). Growing the 1990 distribution to 2020 is a RECURRENCE — each year's vector is the previous year's shifted, scrapped and topped up with an unclamped residual — and the format has no spelling for one (docs/findings/README.md, finding F12). The grown fractions therefore enter as a data column, `age_grownModelYearFraction`, exactly as a `data_sources` column would. Its values are the verified ones of §6.1 step 3.\n\nTHE STEP FUNCTION IS A STEP FUNCTION. find_scrappage_percent (output/find.rs:233-244) returns the percent of the last breakpoint AT OR BELOW the life fraction — it does not interpolate between breakpoints, which is why the whole 197-point default curve is carried here rather than a handful of points around the answer: which breakpoint a life fraction lands on is the computation. The curve is the snapshot's `nrscrappagecurve` for NREquipTypeID 0, the only curve canonical writes.\n\nA NOTE ON `nyrlif`, RECONCILED WITH THE CODE. §6.3's prose says the 750-hour equipment point's `nyrlif` is 38; the code, and this file, give 39 — the first age whose cumulative scrappage reaches 100% is age 39, since (39-1) x (1/18.75) = 2.027 and (38-1) x (1/18.75) = 1.973. The difference costs nothing downstream because that age's grown fraction is not positive and the model year is absent from the snapshot either way, but the number here follows scrptime.rs:110-135 rather than the prose.",
-    "authors": ["EarthSciML Authors and Contributors"],
-    "tags": ["moves", "nonroad", "population", "scrappage", "component"]
+    "authors": [
+      "EarthSciML Authors and Contributors"
+    ],
+    "tags": [
+      "moves",
+      "nonroad",
+      "population",
+      "scrappage",
+      "component"
+    ]
   },
-
   "enums": {
-    "scrappage": { "FullyScrappedPercent": 100 }
+    "scrappage": {
+      "FullyScrappedPercent": 100
+    }
   },
-
   "index_sets": {
-    "age_rows": { "kind": "interval", "size": 51 },
-    "scrappage_curve_rows": { "kind": "interval", "size": 197 }
+    "age_rows": {
+      "kind": "interval",
+      "size": 51
+    },
+    "scrappage_curve_rows": {
+      "kind": "interval",
+      "size": 197
+    }
   },
-
   "coordinates": {
     "age_model_year": {
       "source": "age_modelYearID",
       "standard_name": "model_year"
     }
   },
-
   "models": {
     "AgeDistribution": {
       "expression_template_imports": [
-        { "ref": "../lib/population.esm",
-          "only": ["max_equipment_ages", "median_life_years", "year_over_year_scrap_fraction",
-                   "scrappage_sales_growth", "surviving_equipment"] }
+        {
+          "ref": "../lib/population.esm",
+          "only": [
+            "max_equipment_ages",
+            "median_life_years",
+            "year_over_year_scrap_fraction",
+            "scrappage_sales_growth",
+            "surviving_equipment"
+          ]
+        }
       ],
-
-      "tolerance": { "rel": 1e-12 },
-
+      "tolerance": {
+        "rel": 1e-12
+      },
       "variables": {
         "hoursUsedPerYear": {
-          "type": "parameter", "units": "h/yr", "default": 303.0,
+          "type": "parameter",
+          "units": "h/yr",
+          "default": 303.0,
           "description": "nrsourceusetype.hoursUsedPerYear for sourceTypeID 1059 (SCC 2260007005), the §6.1 equipment point. Carried with its rate units here, unlike components/deteriorated_emission_rate.esm's plain `h`, because the median life below is only a number of YEARS if the annual usage is a rate."
         },
         "loadFactor": {
-          "type": "parameter", "units": "1", "default": 0.7,
+          "type": "parameter",
+          "units": "1",
+          "default": 0.7,
           "description": "nrsourceusetype.loadFactor."
         },
         "medianLifeFullLoad": {
-          "type": "parameter", "units": "h", "default": 191.0,
+          "type": "parameter",
+          "units": "h",
+          "default": 191.0,
           "description": "nrsourceusetype.medianLifeFullLoad, in full-load-equivalent hours."
         },
         "popGrowthFactor": {
-          "type": "parameter", "units": "1", "default": 0.40152301834544835,
+          "type": "parameter",
+          "units": "1",
+          "default": 0.40152301834544835,
           "description": "grwfac(1990, 1991) from components/growth_index.esm. NOT the growth over the whole projection: scrptime's sales curve is built from the FIRST year's rate (§2.2(c))."
         },
         "runYearID": {
-          "type": "parameter", "units": "1", "default": 2020.0,
+          "type": "parameter",
+          "units": "1",
+          "default": 2020.0,
           "description": "The episode year. Model year = runYearID - (age - 1)."
         },
-
         "curve_fractionLifeUsed": {
-          "type": "unknown", "shape": ["scrappage_curve_rows"], "units": "1",
+          "type": "unknown",
+          "shape": [
+            "scrappage_curve_rows"
+          ],
+          "units": "1",
           "description": "nrscrappagecurve.fractionLifeUsed for NREquipTypeID 0. Column 1: the breakpoint, in fractions of median life consumed."
         },
         "curve_percentageScrapped": {
-          "type": "unknown", "shape": ["scrappage_curve_rows"], "units": "1",
+          "type": "unknown",
+          "shape": [
+            "scrappage_curve_rows"
+          ],
+          "units": "1",
           "description": "nrscrappagecurve.percentageScrapped. Column 2: cumulative percent scrapped at that breakpoint, 0 at 0.0 and 100 at 2.0."
         },
-
         "age_ageID": {
-          "type": "unknown", "shape": ["age_rows"],
+          "type": "unknown",
+          "shape": [
+            "age_rows"
+          ],
           "description": "1-based equipment age in years, 1 to MXAGYR. Age 1 is the newest cohort."
         },
         "age_modelYearID": {
-          "type": "unknown", "shape": ["age_rows"],
+          "type": "unknown",
+          "shape": [
+            "age_rows"
+          ],
           "description": "The model year this age is, at the episode year: 2020 for age 1."
         },
         "age_fractionLifeUsed": {
-          "type": "unknown", "shape": ["age_rows"], "units": "1",
+          "type": "unknown",
+          "shape": [
+            "age_rows"
+          ],
+          "units": "1",
           "description": "(age - 1) / medianLifeYears: how much of the median life this cohort has consumed."
         },
         "age_priorFractionLifeUsed": {
-          "type": "unknown", "shape": ["age_rows"], "units": "1",
+          "type": "unknown",
+          "shape": [
+            "age_rows"
+          ],
+          "units": "1",
           "description": "The same for the age before it, floored at 0 so age 1's predecessor reads the curve's origin. It is computed rather than read from the neighbouring row because a relation cannot be joined to itself (docs/findings F11)."
         },
         "age_percentScrapped": {
-          "type": "unknown", "shape": ["age_rows"], "units": "1",
+          "type": "unknown",
+          "shape": [
+            "age_rows"
+          ],
+          "units": "1",
           "description": "Cumulative percent scrapped at this age: the curve's value at the last breakpoint AT OR BELOW age_fractionLifeUsed."
         },
         "age_priorPercentScrapped": {
-          "type": "unknown", "shape": ["age_rows"], "units": "1",
+          "type": "unknown",
+          "shape": [
+            "age_rows"
+          ],
+          "units": "1",
           "description": "The same at the previous age. scrptime.rs works with both at once, which is what makes the year-over-year fraction a difference of cumulatives rather than a curve of its own."
         },
         "age_yearScrapFraction": {
-          "type": "unknown", "shape": ["age_rows"], "units": "1",
+          "type": "unknown",
+          "shape": [
+            "age_rows"
+          ],
+          "units": "1",
           "description": "yryrfrcscrp: the fraction of the cohort SURVIVING at the previous age that is scrapped during this one. Once the previous age is fully scrapped the entry is 0 rather than a division by zero (scrptime.rs:126-131)."
         },
         "age_survivalFraction": {
-          "type": "unknown", "shape": ["age_rows"], "units": "1",
+          "type": "unknown",
+          "shape": [
+            "age_rows"
+          ],
+          "units": "1",
           "description": "1 - yryrfrcscrp: the factor agedist.f applies when it shifts a cohort one year older. §7.3 lives here — in float32 the age-3 entry of this equipment point is 5.96e-08 rather than 0, and those four output rows exist only because of it."
         },
         "age_survivingEquipment": {
-          "type": "unknown", "shape": ["age_rows"], "units": "1",
+          "type": "unknown",
+          "shape": [
+            "age_rows"
+          ],
+          "units": "1",
           "description": "The 1990 stock at this age: the sales of the year it was built, decayed by its cumulative scrappage. Ages beyond nyrlif carry 0."
         },
         "age_baseModelYearFraction": {
-          "type": "unknown", "shape": ["age_rows"], "units": "1",
+          "type": "unknown",
+          "shape": [
+            "age_rows"
+          ],
+          "units": "1",
           "description": "modfrc before growth: the share of the 1990 population at this age. Sums to 1."
         },
         "age_grownModelYearFraction": {
-          "type": "unknown", "shape": ["age_rows"], "units": "1",
+          "type": "unknown",
+          "shape": [
+            "age_rows"
+          ],
+          "units": "1",
           "description": "modfrc after agedist.f's 1990->2020 fold. NOT COMPUTED HERE: the fold is a recurrence and the format has no spelling for one (docs/findings F12), so these are the verified values of docs/nonroad-logging-county.md §6.1 step 3, entering as data exactly as a data_sources column would. They sum to G(2020)/G(1990) = 4.697819 rather than to 1, which is the check §2.2(e) gives for having folded the right number of years."
         },
-
         "medianLifeYears": {
-          "type": "unknown", "units": "yr",
+          "type": "unknown",
+          "units": "yr",
           "description": "min(25, (medianLifeFullLoad / loadFactor) / hoursUsedPerYear). The division order is scrptime.rs:102's and the cap is MXAGYR/2."
         },
         "medianLifePerYear": {
-          "type": "unknown", "units": "1",
+          "type": "unknown",
+          "units": "1",
           "description": "1 / medianLifeYears: the life fraction one year of use consumes."
         },
         "equipmentLifeYears": {
-          "type": "unknown", "units": "1",
+          "type": "unknown",
+          "units": "1",
           "description": "nyrlif: the first age at which cumulative scrappage reaches 100%, and so the number of model years this equipment point spans."
         },
         "salesGrowth": {
-          "type": "unknown", "units": "1",
+          "type": "unknown",
+          "units": "1",
           "description": "The sales trend scrptime.rs:139-143 infers from one year's population growth."
         },
         "survivingEquipmentTotal": {
-          "type": "unknown", "units": "1",
+          "type": "unknown",
+          "units": "1",
           "description": "The normalizing sum of age_survivingEquipment."
         },
         "grownModelYearFractionTotal": {
-          "type": "unknown", "units": "1",
+          "type": "unknown",
+          "units": "1",
           "description": "The sum of the grown fractions, which must equal the cumulative growth ratio."
         }
       },
-
       "equations": [
         {
           "_comment": "nrscrappagecurve, NREquipTypeID 0 (J10): all 197 points of the default curve, from the snapshot. The whole curve is here because the step lookup's answer IS which breakpoint the life fraction falls on.",
           "lhs": "curve_fractionLifeUsed",
-          "rhs": { "op": "const", "args": [], "value": [
-              0, 0.0294, 0.0588, 0.08705, 0.1153, 0.14235, 0.1694, 0.19535, 0.2213, 0.24615,
-              0.271, 0.29475, 0.3185, 0.3412, 0.3639, 0.3856, 0.4073, 0.42795, 0.4486, 0.4683,
-              0.488, 0.5067, 0.5254, 0.5432, 0.561, 0.5779, 0.5948, 0.6108, 0.6268, 0.6419,
-              0.657, 0.6713, 0.6856, 0.69905, 0.7125, 0.7252, 0.7379, 0.7498, 0.7617, 0.77285,
-              0.784, 0.79445, 0.8049, 0.81465, 0.8244, 0.83345, 0.8425, 0.85095, 0.8594, 0.8672,
-              0.875, 0.8822, 0.8894, 0.89605, 0.9027, 0.90875, 0.9148, 0.92035, 0.9259, 0.93095,
-              0.936, 0.94055, 0.9451, 0.9492, 0.9533, 0.957, 0.9607, 0.96395, 0.9672, 0.9701,
-              0.973, 0.9755, 0.978, 0.9802, 0.9824, 0.9843, 0.9862, 0.9878, 0.9894, 0.9907,
-              0.992, 0.9931, 0.9942, 0.99505, 0.9959, 0.9966, 0.9973, 0.9978, 0.9983, 0.99865,
-              0.999, 0.99925, 0.9995, 0.99965, 0.9998, 0.99985, 0.9999, 0.99995, 1, 1.00005,
-              1.0001, 1.00015, 1.0002, 1.00035, 1.0005, 1.00075, 1.001, 1.00135, 1.0017, 1.0022,
-              1.0027, 1.0034, 1.0041, 1.00495, 1.0058, 1.0069, 1.008, 1.0093, 1.0106, 1.0122,
-              1.0138, 1.0157, 1.0176, 1.0198, 1.022, 1.0245, 1.027, 1.0299, 1.0328, 1.03605,
-              1.0393, 1.043, 1.0467, 1.0508, 1.0549, 1.05945, 1.064, 1.06905, 1.0741, 1.07965,
-              1.0852, 1.09125, 1.0973, 1.10395, 1.1106, 1.1178, 1.125, 1.1328, 1.1406, 1.14905,
-              1.1575, 1.16655, 1.1756, 1.18535, 1.1951, 1.20555, 1.216, 1.22715, 1.2383, 1.2502,
-              1.2621, 1.2748, 1.2875, 1.30095, 1.3144, 1.3287, 1.343, 1.3581, 1.3732, 1.3892,
-              1.4052, 1.4221, 1.439, 1.4568, 1.4746, 1.4933, 1.512, 1.5317, 1.5514, 1.57205,
-              1.5927, 1.6144, 1.6361, 1.6588, 1.6815, 1.70525, 1.729, 1.75385, 1.7787, 1.80465,
-              1.8306, 1.85765, 1.8847, 1.91295, 1.9412, 1.9706, 2
-          ] }
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              0,
+              0.0294,
+              0.0588,
+              0.08705,
+              0.1153,
+              0.14235,
+              0.1694,
+              0.19535,
+              0.2213,
+              0.24615,
+              0.271,
+              0.29475,
+              0.3185,
+              0.3412,
+              0.3639,
+              0.3856,
+              0.4073,
+              0.42795,
+              0.4486,
+              0.4683,
+              0.488,
+              0.5067,
+              0.5254,
+              0.5432,
+              0.561,
+              0.5779,
+              0.5948,
+              0.6108,
+              0.6268,
+              0.6419,
+              0.657,
+              0.6713,
+              0.6856,
+              0.69905,
+              0.7125,
+              0.7252,
+              0.7379,
+              0.7498,
+              0.7617,
+              0.77285,
+              0.784,
+              0.79445,
+              0.8049,
+              0.81465,
+              0.8244,
+              0.83345,
+              0.8425,
+              0.85095,
+              0.8594,
+              0.8672,
+              0.875,
+              0.8822,
+              0.8894,
+              0.89605,
+              0.9027,
+              0.90875,
+              0.9148,
+              0.92035,
+              0.9259,
+              0.93095,
+              0.936,
+              0.94055,
+              0.9451,
+              0.9492,
+              0.9533,
+              0.957,
+              0.9607,
+              0.96395,
+              0.9672,
+              0.9701,
+              0.973,
+              0.9755,
+              0.978,
+              0.9802,
+              0.9824,
+              0.9843,
+              0.9862,
+              0.9878,
+              0.9894,
+              0.9907,
+              0.992,
+              0.9931,
+              0.9942,
+              0.99505,
+              0.9959,
+              0.9966,
+              0.9973,
+              0.9978,
+              0.9983,
+              0.99865,
+              0.999,
+              0.99925,
+              0.9995,
+              0.99965,
+              0.9998,
+              0.99985,
+              0.9999,
+              0.99995,
+              1,
+              1.00005,
+              1.0001,
+              1.00015,
+              1.0002,
+              1.00035,
+              1.0005,
+              1.00075,
+              1.001,
+              1.00135,
+              1.0017,
+              1.0022,
+              1.0027,
+              1.0034,
+              1.0041,
+              1.00495,
+              1.0058,
+              1.0069,
+              1.008,
+              1.0093,
+              1.0106,
+              1.0122,
+              1.0138,
+              1.0157,
+              1.0176,
+              1.0198,
+              1.022,
+              1.0245,
+              1.027,
+              1.0299,
+              1.0328,
+              1.03605,
+              1.0393,
+              1.043,
+              1.0467,
+              1.0508,
+              1.0549,
+              1.05945,
+              1.064,
+              1.06905,
+              1.0741,
+              1.07965,
+              1.0852,
+              1.09125,
+              1.0973,
+              1.10395,
+              1.1106,
+              1.1178,
+              1.125,
+              1.1328,
+              1.1406,
+              1.14905,
+              1.1575,
+              1.16655,
+              1.1756,
+              1.18535,
+              1.1951,
+              1.20555,
+              1.216,
+              1.22715,
+              1.2383,
+              1.2502,
+              1.2621,
+              1.2748,
+              1.2875,
+              1.30095,
+              1.3144,
+              1.3287,
+              1.343,
+              1.3581,
+              1.3732,
+              1.3892,
+              1.4052,
+              1.4221,
+              1.439,
+              1.4568,
+              1.4746,
+              1.4933,
+              1.512,
+              1.5317,
+              1.5514,
+              1.57205,
+              1.5927,
+              1.6144,
+              1.6361,
+              1.6588,
+              1.6815,
+              1.70525,
+              1.729,
+              1.75385,
+              1.7787,
+              1.80465,
+              1.8306,
+              1.85765,
+              1.8847,
+              1.91295,
+              1.9412,
+              1.9706,
+              2
+            ]
+          }
         },
         {
           "lhs": "curve_percentageScrapped",
-          "rhs": { "op": "const", "args": [], "value": [
-              0, 0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5,
-              5, 5.5, 6, 6.5, 7, 7.5, 8, 8.5, 9, 9.5,
-              10, 10.5, 11, 11.5, 12, 12.5, 13, 13.5, 14, 14.5,
-              15, 15.5, 16, 16.5, 17, 17.5, 18, 18.5, 19, 19.5,
-              20, 20.5, 21, 21.5, 22, 22.5, 23, 23.5, 24, 24.5,
-              25, 25.5, 26, 26.5, 27, 27.5, 28, 28.5, 29, 29.5,
-              30, 30.5, 31, 31.5, 32, 32.5, 33, 33.5, 34, 34.5,
-              35, 35.5, 36, 36.5, 37, 37.5, 38, 38.5, 39, 39.5,
-              40, 40.5, 41, 41.5, 42, 42.5, 43, 43.5, 44, 44.5,
-              45, 45.5, 46, 46.5, 47, 47.5, 48, 49, 50, 51,
-              52, 52.5, 53, 53.5, 54, 54.5, 55, 55.5, 56, 56.5,
-              57, 57.5, 58, 58.5, 59, 59.5, 60, 60.5, 61, 61.5,
-              62, 62.5, 63, 63.5, 64, 64.5, 65, 65.5, 66, 66.5,
-              67, 67.5, 68, 68.5, 69, 69.5, 70, 70.5, 71, 71.5,
-              72, 72.5, 73, 73.5, 74, 74.5, 75, 75.5, 76, 76.5,
-              77, 77.5, 78, 78.5, 79, 79.5, 80, 80.5, 81, 81.5,
-              82, 82.5, 83, 83.5, 84, 84.5, 85, 85.5, 86, 86.5,
-              87, 87.5, 88, 88.5, 89, 89.5, 90, 90.5, 91, 91.5,
-              92, 92.5, 93, 93.5, 94, 94.5, 95, 95.5, 96, 96.5,
-              97, 97.5, 98, 98.5, 99, 99.5, 100
-          ] }
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              0,
+              0.5,
+              1,
+              1.5,
+              2,
+              2.5,
+              3,
+              3.5,
+              4,
+              4.5,
+              5,
+              5.5,
+              6,
+              6.5,
+              7,
+              7.5,
+              8,
+              8.5,
+              9,
+              9.5,
+              10,
+              10.5,
+              11,
+              11.5,
+              12,
+              12.5,
+              13,
+              13.5,
+              14,
+              14.5,
+              15,
+              15.5,
+              16,
+              16.5,
+              17,
+              17.5,
+              18,
+              18.5,
+              19,
+              19.5,
+              20,
+              20.5,
+              21,
+              21.5,
+              22,
+              22.5,
+              23,
+              23.5,
+              24,
+              24.5,
+              25,
+              25.5,
+              26,
+              26.5,
+              27,
+              27.5,
+              28,
+              28.5,
+              29,
+              29.5,
+              30,
+              30.5,
+              31,
+              31.5,
+              32,
+              32.5,
+              33,
+              33.5,
+              34,
+              34.5,
+              35,
+              35.5,
+              36,
+              36.5,
+              37,
+              37.5,
+              38,
+              38.5,
+              39,
+              39.5,
+              40,
+              40.5,
+              41,
+              41.5,
+              42,
+              42.5,
+              43,
+              43.5,
+              44,
+              44.5,
+              45,
+              45.5,
+              46,
+              46.5,
+              47,
+              47.5,
+              48,
+              49,
+              50,
+              51,
+              52,
+              52.5,
+              53,
+              53.5,
+              54,
+              54.5,
+              55,
+              55.5,
+              56,
+              56.5,
+              57,
+              57.5,
+              58,
+              58.5,
+              59,
+              59.5,
+              60,
+              60.5,
+              61,
+              61.5,
+              62,
+              62.5,
+              63,
+              63.5,
+              64,
+              64.5,
+              65,
+              65.5,
+              66,
+              66.5,
+              67,
+              67.5,
+              68,
+              68.5,
+              69,
+              69.5,
+              70,
+              70.5,
+              71,
+              71.5,
+              72,
+              72.5,
+              73,
+              73.5,
+              74,
+              74.5,
+              75,
+              75.5,
+              76,
+              76.5,
+              77,
+              77.5,
+              78,
+              78.5,
+              79,
+              79.5,
+              80,
+              80.5,
+              81,
+              81.5,
+              82,
+              82.5,
+              83,
+              83.5,
+              84,
+              84.5,
+              85,
+              85.5,
+              86,
+              86.5,
+              87,
+              87.5,
+              88,
+              88.5,
+              89,
+              89.5,
+              90,
+              90.5,
+              91,
+              91.5,
+              92,
+              92.5,
+              93,
+              93.5,
+              94,
+              94.5,
+              95,
+              95.5,
+              96,
+              96.5,
+              97,
+              97.5,
+              98,
+              98.5,
+              99,
+              99.5,
+              100
+            ]
+          }
         },
-
         {
           "lhs": "age_ageID",
-          "rhs": { "op": "aggregate", "args": [], "output_idx": ["a"],
-            "ranges": { "a": { "from": "age_rows" } },
-            "expr": "a" }
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "output_idx": [
+              "a"
+            ],
+            "ranges": {
+              "a": {
+                "from": "age_rows"
+              }
+            },
+            "expr": "a"
+          }
         },
         {
           "lhs": "age_modelYearID",
-          "rhs": { "op": "aggregate", "args": [], "output_idx": ["a"],
-            "ranges": { "a": { "from": "age_rows" } },
-            "expr": { "op": "-", "args": ["runYearID",
-                       { "op": "-", "args": [{ "op": "index", "args": ["age_ageID", "a"] }, 1] }] } }
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "output_idx": [
+              "a"
+            ],
+            "ranges": {
+              "a": {
+                "from": "age_rows"
+              }
+            },
+            "expr": {
+              "op": "-",
+              "args": [
+                "runYearID",
+                {
+                  "op": "-",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "age_ageID",
+                        "a"
+                      ]
+                    },
+                    1
+                  ]
+                }
+              ]
+            }
+          }
         },
         {
           "lhs": "medianLifeYears",
-          "rhs": { "op": "apply_expression_template", "args": [], "name": "median_life_years",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "median_life_years",
             "bindings": {
               "median_life_full_load": "medianLifeFullLoad",
               "load_factor": "loadFactor",
               "hours_used_per_year": "hoursUsedPerYear"
-            } }
+            }
+          }
         },
         {
           "lhs": "medianLifePerYear",
-          "rhs": { "op": "/", "args": [1.0, "medianLifeYears"] }
+          "rhs": {
+            "op": "/",
+            "args": [
+              1.0,
+              "medianLifeYears"
+            ]
+          }
         },
         {
           "lhs": "age_fractionLifeUsed",
-          "rhs": { "op": "aggregate", "args": [], "output_idx": ["a"],
-            "ranges": { "a": { "from": "age_rows" } },
-            "expr": { "op": "*", "args": [
-              { "op": "-", "args": [{ "op": "index", "args": ["age_ageID", "a"] }, 1] },
-              "medianLifePerYear"] } }
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "output_idx": [
+              "a"
+            ],
+            "ranges": {
+              "a": {
+                "from": "age_rows"
+              }
+            },
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "-",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "age_ageID",
+                        "a"
+                      ]
+                    },
+                    1
+                  ]
+                },
+                "medianLifePerYear"
+              ]
+            }
+          }
         },
         {
           "lhs": "age_priorFractionLifeUsed",
-          "rhs": { "op": "aggregate", "args": [], "output_idx": ["a"],
-            "ranges": { "a": { "from": "age_rows" } },
-            "expr": { "op": "max", "args": [
-              { "op": "*", "args": [
-                { "op": "-", "args": [{ "op": "index", "args": ["age_ageID", "a"] }, 2] },
-                "medianLifePerYear"] },
-              0.0] } }
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "output_idx": [
+              "a"
+            ],
+            "ranges": {
+              "a": {
+                "from": "age_rows"
+              }
+            },
+            "expr": {
+              "op": "max",
+              "args": [
+                {
+                  "op": "*",
+                  "args": [
+                    {
+                      "op": "-",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "age_ageID",
+                            "a"
+                          ]
+                        },
+                        2
+                      ]
+                    },
+                    "medianLifePerYear"
+                  ]
+                },
+                0.0
+              ]
+            }
+          }
         },
         {
           "_comment": "find_scrappage_percent, twice. `max_product` over the curve rows admitted by a `filter` that is a genuine range predicate: the largest percent among breakpoints at or below the life fraction. The curve is monotone, so `the largest percent below` and `the percent of the last breakpoint below` are the same row -- and the curve's first breakpoint is 0.0, so the reduction is never empty for a non-negative life fraction.",
           "lhs": "age_percentScrapped",
           "rhs": {
-            "op": "aggregate", "args": [], "semiring": "max_product", "output_idx": ["a"],
-            "ranges": { "a": { "from": "age_rows" }, "c": { "from": "scrappage_curve_rows" } },
-            "filter": { "op": "<=", "args": [{ "op": "index", "args": ["curve_fractionLifeUsed", "c"] },
-                                             { "op": "index", "args": ["age_fractionLifeUsed", "a"] }] },
-            "expr": { "op": "index", "args": ["curve_percentageScrapped", "c"] }
+            "op": "aggregate",
+            "args": [],
+            "semiring": "max_product",
+            "output_idx": [
+              "a"
+            ],
+            "ranges": {
+              "a": {
+                "from": "age_rows"
+              },
+              "c": {
+                "from": "scrappage_curve_rows"
+              }
+            },
+            "filter": {
+              "op": "<=",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "curve_fractionLifeUsed",
+                    "c"
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "age_fractionLifeUsed",
+                    "a"
+                  ]
+                }
+              ]
+            },
+            "expr": {
+              "op": "index",
+              "args": [
+                "curve_percentageScrapped",
+                "c"
+              ]
+            }
           }
         },
         {
           "lhs": "age_priorPercentScrapped",
           "rhs": {
-            "op": "aggregate", "args": [], "semiring": "max_product", "output_idx": ["a"],
-            "ranges": { "a": { "from": "age_rows" }, "c": { "from": "scrappage_curve_rows" } },
-            "filter": { "op": "<=", "args": [{ "op": "index", "args": ["curve_fractionLifeUsed", "c"] },
-                                             { "op": "index", "args": ["age_priorFractionLifeUsed", "a"] }] },
-            "expr": { "op": "index", "args": ["curve_percentageScrapped", "c"] }
+            "op": "aggregate",
+            "args": [],
+            "semiring": "max_product",
+            "output_idx": [
+              "a"
+            ],
+            "ranges": {
+              "a": {
+                "from": "age_rows"
+              },
+              "c": {
+                "from": "scrappage_curve_rows"
+              }
+            },
+            "filter": {
+              "op": "<=",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "curve_fractionLifeUsed",
+                    "c"
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "age_priorFractionLifeUsed",
+                    "a"
+                  ]
+                }
+              ]
+            },
+            "expr": {
+              "op": "index",
+              "args": [
+                "curve_percentageScrapped",
+                "c"
+              ]
+            }
           }
         },
         {
           "lhs": "age_yearScrapFraction",
-          "rhs": { "op": "aggregate", "args": [], "output_idx": ["a"],
-            "ranges": { "a": { "from": "age_rows" } },
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "output_idx": [
+              "a"
+            ],
+            "ranges": {
+              "a": {
+                "from": "age_rows"
+              }
+            },
             "expr": {
-              "op": "apply_expression_template", "args": [], "name": "year_over_year_scrap_fraction",
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "year_over_year_scrap_fraction",
               "bindings": {
-                "percent_scrapped": { "op": "index", "args": ["age_percentScrapped", "a"] },
-                "percent_scrapped_prior": { "op": "index", "args": ["age_priorPercentScrapped", "a"] }
-              } } }
+                "percent_scrapped": {
+                  "op": "index",
+                  "args": [
+                    "age_percentScrapped",
+                    "a"
+                  ]
+                },
+                "percent_scrapped_prior": {
+                  "op": "index",
+                  "args": [
+                    "age_priorPercentScrapped",
+                    "a"
+                  ]
+                }
+              }
+            }
+          }
         },
         {
           "lhs": "age_survivalFraction",
-          "rhs": { "op": "aggregate", "args": [], "output_idx": ["a"],
-            "ranges": { "a": { "from": "age_rows" } },
-            "expr": { "op": "-", "args": [1.0, { "op": "index", "args": ["age_yearScrapFraction", "a"] }] } }
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "output_idx": [
+              "a"
+            ],
+            "ranges": {
+              "a": {
+                "from": "age_rows"
+              }
+            },
+            "expr": {
+              "op": "-",
+              "args": [
+                1.0,
+                {
+                  "op": "index",
+                  "args": [
+                    "age_yearScrapFraction",
+                    "a"
+                  ]
+                }
+              ]
+            }
+          }
         },
         {
           "_comment": "nyrlif. The first age whose cumulative scrappage has reached 100%, as a min-semiring contraction with the 100% test as its filter, capped at MXAGYR for totality -- the cap cannot bind, because the median life is itself capped at MXAGYR/2 and the curve reaches 100% at twice the median life.",
@@ -276,153 +938,578 @@
           "rhs": {
             "op": "min",
             "args": [
-              { "op": "apply_expression_template", "args": [], "name": "max_equipment_ages", "bindings": {} },
               {
-                "op": "aggregate", "args": [], "semiring": "min_sum", "output_idx": [],
-                "ranges": { "a": { "from": "age_rows" } },
-                "filter": { "op": ">=", "args": [{ "op": "index", "args": ["age_percentScrapped", "a"] },
-                                                 { "op": "enum", "args": ["scrappage", "FullyScrappedPercent"] }] },
-                "expr": { "op": "index", "args": ["age_ageID", "a"] }
+                "op": "apply_expression_template",
+                "args": [],
+                "name": "max_equipment_ages",
+                "bindings": {}
+              },
+              {
+                "op": "aggregate",
+                "args": [],
+                "semiring": "min_sum",
+                "output_idx": [],
+                "ranges": {
+                  "a": {
+                    "from": "age_rows"
+                  }
+                },
+                "filter": {
+                  "op": ">=",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "age_percentScrapped",
+                        "a"
+                      ]
+                    },
+                    {
+                      "op": "enum",
+                      "args": [
+                        "scrappage",
+                        "FullyScrappedPercent"
+                      ]
+                    }
+                  ]
+                },
+                "expr": {
+                  "op": "index",
+                  "args": [
+                    "age_ageID",
+                    "a"
+                  ]
+                }
               }
             ]
           }
         },
         {
           "lhs": "salesGrowth",
-          "rhs": { "op": "apply_expression_template", "args": [], "name": "scrappage_sales_growth",
-            "bindings": { "pop_growth_factor": "popGrowthFactor", "median_life_years": "medianLifeYears" } }
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "scrappage_sales_growth",
+            "bindings": {
+              "pop_growth_factor": "popGrowthFactor",
+              "median_life_years": "medianLifeYears"
+            }
+          }
         },
         {
           "_comment": "scrptime.rs:147-165. The cohort at age `a` was sold nyrlif - a sales-years after the curve's start, so the sales index is a subtraction rather than an array read. Ages beyond nyrlif have no cohort at all.",
           "lhs": "age_survivingEquipment",
-          "rhs": { "op": "aggregate", "args": [], "output_idx": ["a"],
-            "ranges": { "a": { "from": "age_rows" } },
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "output_idx": [
+              "a"
+            ],
+            "ranges": {
+              "a": {
+                "from": "age_rows"
+              }
+            },
             "expr": {
               "op": "ifelse",
               "args": [
-                { "op": "<=", "args": [{ "op": "index", "args": ["age_ageID", "a"] }, "equipmentLifeYears"] },
-                { "op": "apply_expression_template", "args": [], "name": "surviving_equipment",
+                {
+                  "op": "<=",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "age_ageID",
+                        "a"
+                      ]
+                    },
+                    "equipmentLifeYears"
+                  ]
+                },
+                {
+                  "op": "apply_expression_template",
+                  "args": [],
+                  "name": "surviving_equipment",
                   "bindings": {
                     "sales_growth": "salesGrowth",
-                    "sales_index": { "op": "-", "args": ["equipmentLifeYears",
-                                                         { "op": "index", "args": ["age_ageID", "a"] }] },
-                    "percent_scrapped": { "op": "index", "args": ["age_percentScrapped", "a"] } } },
+                    "sales_index": {
+                      "op": "-",
+                      "args": [
+                        "equipmentLifeYears",
+                        {
+                          "op": "index",
+                          "args": [
+                            "age_ageID",
+                            "a"
+                          ]
+                        }
+                      ]
+                    },
+                    "percent_scrapped": {
+                      "op": "index",
+                      "args": [
+                        "age_percentScrapped",
+                        "a"
+                      ]
+                    }
+                  }
+                },
                 0.0
-              ] } }
+              ]
+            }
+          }
         },
         {
           "lhs": "survivingEquipmentTotal",
-          "rhs": { "op": "aggregate", "args": [], "output_idx": [],
-            "ranges": { "a": { "from": "age_rows" } },
-            "expr": { "op": "index", "args": ["age_survivingEquipment", "a"] } }
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "output_idx": [],
+            "ranges": {
+              "a": {
+                "from": "age_rows"
+              }
+            },
+            "expr": {
+              "op": "index",
+              "args": [
+                "age_survivingEquipment",
+                "a"
+              ]
+            }
+          }
         },
         {
           "lhs": "age_baseModelYearFraction",
-          "rhs": { "op": "aggregate", "args": [], "output_idx": ["a"],
-            "ranges": { "a": { "from": "age_rows" } },
-            "expr": { "op": "/", "args": [{ "op": "index", "args": ["age_survivingEquipment", "a"] },
-                                          "survivingEquipmentTotal"] } }
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "output_idx": [
+              "a"
+            ],
+            "ranges": {
+              "a": {
+                "from": "age_rows"
+              }
+            },
+            "expr": {
+              "op": "/",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "age_survivingEquipment",
+                    "a"
+                  ]
+                },
+                "survivingEquipmentTotal"
+              ]
+            }
+          }
         },
         {
           "_comment": "The one column in this chain the format cannot compute: agedist.f's fold (finding F12). Values from docs/nonroad-logging-county.md §6.1 step 3, which read them out of the float32 reference run. The third entry is 5.89e-08 rather than 0 for the reason §7.3 gives, and it is what makes model year 2018 of this SCC an output row at all.",
           "lhs": "age_grownModelYearFraction",
-          "rhs": { "op": "makearray", "args": [],
-            "regions": [[[1, 1]], [[2, 2]], [[3, 3]], [[4, 51]]],
-            "values": [3.7072685, 0.9905483, 5.8885583e-08, 0.0] }
+          "rhs": {
+            "op": "makearray",
+            "args": [],
+            "regions": [
+              [
+                [
+                  1,
+                  1
+                ]
+              ],
+              [
+                [
+                  2,
+                  2
+                ]
+              ],
+              [
+                [
+                  3,
+                  3
+                ]
+              ],
+              [
+                [
+                  4,
+                  51
+                ]
+              ]
+            ],
+            "values": [
+              3.7072685,
+              0.9905483,
+              5.8885583e-08,
+              0.0
+            ]
+          }
         },
         {
           "lhs": "grownModelYearFractionTotal",
-          "rhs": { "op": "aggregate", "args": [], "output_idx": [],
-            "ranges": { "a": { "from": "age_rows" } },
-            "expr": { "op": "index", "args": ["age_grownModelYearFraction", "a"] } }
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "output_idx": [],
+            "ranges": {
+              "a": {
+                "from": "age_rows"
+              }
+            },
+            "expr": {
+              "op": "index",
+              "args": [
+                "age_grownModelYearFraction",
+                "a"
+              ]
+            }
+          }
         }
       ],
-
       "tests": [
         {
           "id": "median_life_divides_left_to_right_and_caps_at_25",
           "description": "docs/nonroad-logging-county.md §6.1 step 2: min(25, (191/0.7)/303) = 0.90051866 years, so one year of use consumes 1.1104711 median lives. Grouping the division the other way, 191/(0.7*303), gives the same number here only because multiplication is associative in exact arithmetic -- the cap is what actually differs between ports, and at 25 years it binds for the long-lived equipment of §6.3.",
-          "time_span": { "start": 0.0, "end": 0.0 },
+          "time_span": {
+            "start": 0.0,
+            "end": 0.0
+          },
           "assertions": [
-            { "variable": "medianLifeYears", "time": 0.0, "expected": 0.9005186232909006 },
-            { "variable": "medianLifePerYear", "time": 0.0, "expected": 1.1104712041884817 }
+            {
+              "variable": "medianLifeYears",
+              "time": 0.0,
+              "expected": 0.9005186232909006
+            },
+            {
+              "variable": "medianLifePerYear",
+              "time": 0.0,
+              "expected": 1.1104712041884817
+            }
           ]
         },
         {
           "id": "the_scrappage_curve_is_stepped_not_interpolated",
           "description": "docs/nonroad-logging-county.md §6.1 step 2's table. At age 2 the life fraction is 1.1104711 and the curve's last breakpoint at or below it carries 73.5%; interpolating between neighbouring breakpoints would give about 73.7% and change every model-year fraction. At age 3 the fraction is 2.2209 and the curve has already reached 100%.",
-          "time_span": { "start": 0.0, "end": 0.0 },
+          "time_span": {
+            "start": 0.0,
+            "end": 0.0
+          },
           "assertions": [
-            { "variable": "age_percentScrapped", "time": 0.0, "expected": 0.0, "coords": { "age_rows": 1 } },
-            { "variable": "age_percentScrapped", "time": 0.0, "expected": 73.5, "coords": { "age_rows": 2 } },
-            { "variable": "age_percentScrapped", "time": 0.0, "expected": 100.0, "coords": { "age_rows": 3 } },
-            { "variable": "age_priorPercentScrapped", "time": 0.0, "expected": 73.5, "coords": { "age_rows": 3 } },
-            { "variable": "age_priorPercentScrapped", "time": 0.0, "expected": 0.0, "coords": { "age_rows": 1 } }
+            {
+              "variable": "age_percentScrapped",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "age_rows": 1
+              }
+            },
+            {
+              "variable": "age_percentScrapped",
+              "time": 0.0,
+              "expected": 73.5,
+              "coords": {
+                "age_rows": 2
+              }
+            },
+            {
+              "variable": "age_percentScrapped",
+              "time": 0.0,
+              "expected": 100.0,
+              "coords": {
+                "age_rows": 3
+              }
+            },
+            {
+              "variable": "age_priorPercentScrapped",
+              "time": 0.0,
+              "expected": 73.5,
+              "coords": {
+                "age_rows": 3
+              }
+            },
+            {
+              "variable": "age_priorPercentScrapped",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "age_rows": 1
+              }
+            }
           ]
         },
         {
           "id": "the_year_over_year_fraction_is_conditional_not_a_difference",
           "description": "scrptime.rs:122-131. Age 2 scraps 73.5% of what age 1 had; age 3 scraps ALL of what age 2 had, which is 100 x 0.265/26.5 = exactly 1 in binary64. Age 4 has nothing left, and the guard makes it 0 rather than 0/0. docs/nonroad-logging-county.md §7.3: in float32 the age-3 entry is 0.99999994, so the survival factor is 5.96e-08 instead of 0, and those four snapshot rows exist only because of that one ulp.",
-          "time_span": { "start": 0.0, "end": 0.0 },
+          "time_span": {
+            "start": 0.0,
+            "end": 0.0
+          },
           "assertions": [
-            { "variable": "age_yearScrapFraction", "time": 0.0, "expected": 0.0, "coords": { "age_rows": 1 } },
-            { "variable": "age_yearScrapFraction", "time": 0.0, "expected": 0.735, "coords": { "age_rows": 2 } },
-            { "variable": "age_yearScrapFraction", "time": 0.0, "expected": 1.0, "coords": { "age_rows": 3 } },
-            { "variable": "age_yearScrapFraction", "time": 0.0, "expected": 0.0, "coords": { "age_rows": 4 } },
-            { "variable": "age_survivalFraction", "time": 0.0, "expected": 0.0, "coords": { "age_rows": 3 } }
+            {
+              "variable": "age_yearScrapFraction",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "age_rows": 1
+              }
+            },
+            {
+              "variable": "age_yearScrapFraction",
+              "time": 0.0,
+              "expected": 0.735,
+              "coords": {
+                "age_rows": 2
+              }
+            },
+            {
+              "variable": "age_yearScrapFraction",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "age_rows": 3
+              }
+            },
+            {
+              "variable": "age_yearScrapFraction",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "age_rows": 4
+              }
+            },
+            {
+              "variable": "age_survivalFraction",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "age_rows": 3
+              }
+            }
           ]
         },
         {
           "id": "equipment_life_is_three_model_years",
           "description": "docs/nonroad-logging-county.md §6.1 step 2: nyrlif = 3, so this equipment point spans model years 2020, 2019 and 2018 -- exactly the set the snapshot carries for SCC 2260007005. One year more or fewer is a different output key set, not a different number.",
-          "time_span": { "start": 0.0, "end": 0.0 },
+          "time_span": {
+            "start": 0.0,
+            "end": 0.0
+          },
           "assertions": [
-            { "variable": "equipmentLifeYears", "time": 0.0, "expected": 3.0 },
-            { "variable": "age_modelYearID", "time": 0.0, "expected": 2020.0, "coords": { "age_rows": 1 } },
-            { "variable": "age_modelYearID", "time": 0.0, "expected": 2018.0, "coords": { "age_rows": 3 } }
+            {
+              "variable": "equipmentLifeYears",
+              "time": 0.0,
+              "expected": 3.0
+            },
+            {
+              "variable": "age_modelYearID",
+              "time": 0.0,
+              "expected": 2020.0,
+              "coords": {
+                "age_rows": 1
+              }
+            },
+            {
+              "variable": "age_modelYearID",
+              "time": 0.0,
+              "expected": 2018.0,
+              "coords": {
+                "age_rows": 3
+              }
+            }
           ]
         },
         {
           "id": "the_base_age_distribution_matches_the_worked_example",
           "description": "docs/nonroad-logging-county.md §6.1 step 2: modfrc = [0.8506725, 0.1493275, 0.0] before growth, from a sales curve growing at 1.0392 per year. The third cohort was sold three years before the episode and is entirely scrapped, so it holds nothing until agedist's fold hands it a residual.",
-          "time_span": { "start": 0.0, "end": 0.0 },
+          "time_span": {
+            "start": 0.0,
+            "end": 0.0
+          },
           "assertions": [
-            { "variable": "salesGrowth", "time": 0.0, "expected": 1.0392468465289622 },
-            { "variable": "age_survivingEquipment", "time": 0.0, "expected": 3078.4936930579242, "coords": { "age_rows": 1 } },
-            { "variable": "age_survivingEquipment", "time": 0.0, "expected": 540.400414330175, "coords": { "age_rows": 2 } },
-            { "variable": "age_baseModelYearFraction", "time": 0.0, "expected": 0.8506724987539899, "coords": { "age_rows": 1 } },
-            { "variable": "age_baseModelYearFraction", "time": 0.0, "expected": 0.1493275012460101, "coords": { "age_rows": 2 } },
-            { "variable": "age_baseModelYearFraction", "time": 0.0, "expected": 0.0, "coords": { "age_rows": 3 } }
+            {
+              "variable": "salesGrowth",
+              "time": 0.0,
+              "expected": 1.0392468465289622
+            },
+            {
+              "variable": "age_survivingEquipment",
+              "time": 0.0,
+              "expected": 3078.4936930579242,
+              "coords": {
+                "age_rows": 1
+              }
+            },
+            {
+              "variable": "age_survivingEquipment",
+              "time": 0.0,
+              "expected": 540.400414330175,
+              "coords": {
+                "age_rows": 2
+              }
+            },
+            {
+              "variable": "age_baseModelYearFraction",
+              "time": 0.0,
+              "expected": 0.8506724987539899,
+              "coords": {
+                "age_rows": 1
+              }
+            },
+            {
+              "variable": "age_baseModelYearFraction",
+              "time": 0.0,
+              "expected": 0.1493275012460101,
+              "coords": {
+                "age_rows": 2
+              }
+            },
+            {
+              "variable": "age_baseModelYearFraction",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "age_rows": 3
+              }
+            }
           ]
         },
         {
           "id": "a_longer_lived_equipment_point_spans_more_model_years",
           "description": "docs/nonroad-logging-county.md §6.2 and §6.3, reached through parameter_overrides so the same equations are checked on three more points. The 400-hour/350-hour point of §6.2 gives nyrlif 5 as the spec says; the 750-hour/50-hour point of §6.3 gives 39, one more than the prose's 38 and exactly what scrptime.rs computes -- see this file's description.",
-          "parameter_overrides": { "medianLifeFullLoad": 400.0, "hoursUsedPerYear": 350.0 },
-          "time_span": { "start": 0.0, "end": 0.0 },
+          "parameter_overrides": {
+            "medianLifeFullLoad": 400.0,
+            "hoursUsedPerYear": 350.0
+          },
+          "time_span": {
+            "start": 0.0,
+            "end": 0.0
+          },
           "assertions": [
-            { "variable": "medianLifeYears", "time": 0.0, "expected": 1.6326530612244898 },
-            { "variable": "equipmentLifeYears", "time": 0.0, "expected": 5.0 }
+            {
+              "variable": "medianLifeYears",
+              "time": 0.0,
+              "expected": 1.6326530612244898
+            },
+            {
+              "variable": "equipmentLifeYears",
+              "time": 0.0,
+              "expected": 5.0
+            }
           ]
         },
         {
           "id": "the_median_life_cap_binds_for_long_lived_equipment",
           "description": "docs/nonroad-logging-county.md §6.3's third equipment point: 750 full-load hours at 50 hours a year and load factor 0.8 is 18.75 median-life years, under the 25-year cap, and gives nyrlif 39. Raising the median life to 3000 hours would give 75 years uncapped; the cap holds it at 25 and nyrlif at 51, which is MXAGYR and the reason MXAGYR is what it is.",
-          "parameter_overrides": { "medianLifeFullLoad": 750.0, "hoursUsedPerYear": 50.0, "loadFactor": 0.8 },
-          "time_span": { "start": 0.0, "end": 0.0 },
+          "parameter_overrides": {
+            "medianLifeFullLoad": 750.0,
+            "hoursUsedPerYear": 50.0,
+            "loadFactor": 0.8
+          },
+          "time_span": {
+            "start": 0.0,
+            "end": 0.0
+          },
           "assertions": [
-            { "variable": "medianLifeYears", "time": 0.0, "expected": 18.75 },
-            { "variable": "equipmentLifeYears", "time": 0.0, "expected": 39.0 }
+            {
+              "variable": "medianLifeYears",
+              "time": 0.0,
+              "expected": 18.75
+            },
+            {
+              "variable": "equipmentLifeYears",
+              "time": 0.0,
+              "expected": 39.0
+            }
           ]
         },
         {
           "id": "the_grown_fractions_sum_to_the_cumulative_growth_ratio",
           "description": "docs/nonroad-logging-county.md §2.2(e) and §6.1 step 3. agedist.f leaves the base population untouched and folds the growth into the fractions, so they sum to G(2020)/G(1990) = 4.697819 rather than to 1. That sum is the check on the fold, and it is the reason this file can carry the fold's RESULT as data without carrying it blindly: components/growth_index.esm computes the same 4.697819 from the index series.",
-          "time_span": { "start": 0.0, "end": 0.0 },
+          "time_span": {
+            "start": 0.0,
+            "end": 0.0
+          },
           "assertions": [
-            { "variable": "grownModelYearFractionTotal", "time": 0.0, "expected": 4.697816858885583 },
-            { "variable": "age_grownModelYearFraction", "time": 0.0, "expected": 3.7072685, "coords": { "age_rows": 1 } },
-            { "variable": "age_grownModelYearFraction", "time": 0.0, "expected": 5.8885583e-08, "coords": { "age_rows": 3 } }
+            {
+              "variable": "grownModelYearFractionTotal",
+              "time": 0.0,
+              "expected": 4.697816858885583
+            },
+            {
+              "variable": "age_grownModelYearFraction",
+              "time": 0.0,
+              "expected": 3.7072685,
+              "coords": {
+                "age_rows": 1
+              }
+            },
+            {
+              "variable": "age_grownModelYearFraction",
+              "time": 0.0,
+              "expected": 5.8885583e-08,
+              "coords": {
+                "age_rows": 3
+              }
+            }
+          ]
+        },
+        {
+          "id": "the_curve_breakpoint_tie_lands_on_the_documented_side",
+          "description": "docs/nonroad-logging-county.md §7.4 rank 3, the one exact tie in the whole fixture. The 2265007010 400-hour points have medianLifeYears exactly 10, so age 11's fraction of life used is exactly 1.000000 -- and the default curve has a breakpoint AT 1.000000 (50%) with the next at 1.000050 (51%). The step lookup must take the 50, which §7.4 verified selects identically in both precisions; landing one breakpoint later would move every model-year fraction of the fixture's largest SCC. Age 10 reads 26.5 and age 12 reads 73.0, so the curve is genuinely steep here and the tie is not academic. nyrlif is 21, the span §6.3 gives those points.",
+          "parameter_overrides": {
+            "hoursUsedPerYear": 50.0,
+            "loadFactor": 0.8,
+            "medianLifeFullLoad": 400.0
+          },
+          "time_span": {
+            "start": 0.0,
+            "end": 0.0
+          },
+          "assertions": [
+            {
+              "variable": "medianLifeYears",
+              "time": 0.0,
+              "expected": 10.0
+            },
+            {
+              "variable": "age_fractionLifeUsed",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "age_rows": 11
+              }
+            },
+            {
+              "variable": "age_percentScrapped",
+              "time": 0.0,
+              "expected": 26.5,
+              "coords": {
+                "age_rows": 10
+              }
+            },
+            {
+              "variable": "age_percentScrapped",
+              "time": 0.0,
+              "expected": 50.0,
+              "coords": {
+                "age_rows": 11
+              }
+            },
+            {
+              "variable": "age_percentScrapped",
+              "time": 0.0,
+              "expected": 73.0,
+              "coords": {
+                "age_rows": 12
+              }
+            },
+            {
+              "variable": "equipmentLifeYears",
+              "time": 0.0,
+              "expected": 21.0
+            }
           ]
         }
       ]
