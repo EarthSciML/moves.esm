@@ -2,7 +2,7 @@
   "esm": "1.0.0",
   "metadata": {
     "name": "ExhaustAdjustment",
-    "description": "One calculator, one file. Ports joins J17/J18 and the §2.5(b)/(c) adjustments of docs/nonroad-logging-county.md: the daytime mean ambient temperature for the run's county-month, and the per-pollutant multiplicative adjustment (temperature x oxygenate) that emsadj.f applies to a zero-hour gasoline exhaust factor.\n\nThis is the file that demonstrates DISCRETE TIME AS AN INDEX-SET AXIS. MOVES time is a discrete (yearID, monthID, dayID, hourID) key, not the domain's continuous t: the run's temporal scope is a row set with four key columns, and it joins to `zonemonthhour` on (monthID, hourID) like any other relation. Nothing here differentiates with respect to t, and the component carries no clock (PLAN.md §1.2).\n\nIt is also where the honest use of `filter` appears. The daytime window 6 <= hourID <= 18 (nonroad_loader.rs:1613-1615) is a genuine RANGE PREDICATE and belongs in `filter`; the (monthID, hourID) equality beside it is a `join.on`. The two are different things and this file keeps them apart, which is the rule a reviewer can grep for.\n\nThe hourly temperature column is synthetic -- the snapshot's own 24 values are not reproduced here, because no CLI subcommand can read a data source yet (build-esm.sh, KNOWN BLOCKER). It is chosen so that its daytime mean is the fixture's VERIFIED 73.576927 degF, so the adjustment factors this component computes are the ones docs/nonroad-logging-county.md §6.0 read out of the real run: THC 0.8384738, CO 0.7717785, NOx 1.4382362. sources/nr_logging_county.esm declares the real table, ready for the day ingest works.",
+    "description": "One calculator, one file. Ports joins J17/J18 and the §2.5(b)/(c) adjustments of docs/nonroad-logging-county.md: the daytime mean ambient temperature for the run's county-month, and the per-pollutant multiplicative adjustment (temperature x oxygenate) that emsadj.f applies to a zero-hour gasoline exhaust factor. The adjustment relation is keyed by (polProcessID, engineFuelKind), because two-stroke and four-stroke gasoline share a fuel and share nothing else: a consumer joins on both columns.\n\nThis is the file that demonstrates DISCRETE TIME AS AN INDEX-SET AXIS. MOVES time is a discrete (yearID, monthID, dayID, hourID) key, not the domain's continuous t: the run's temporal scope is a row set with four key columns, and it joins to `zonemonthhour` on (monthID, hourID) like any other relation. Nothing here differentiates with respect to t, and the component carries no clock (PLAN.md §1.2).\n\nIt is also where the honest use of `filter` appears. The daytime window 6 <= hourID <= 18 (nonroad_loader.rs:1613-1615) is a genuine RANGE PREDICATE and belongs in `filter`; the (monthID, hourID) equality beside it is a `join.on`. The two are different things and this file keeps them apart, which is the rule a reviewer can grep for.\n\nThe hourly temperature column is synthetic -- the snapshot's own 24 values are not reproduced here, because no CLI subcommand can read a data source yet (build-esm.sh, KNOWN BLOCKER). It is chosen so that its daytime mean is the fixture's VERIFIED 73.576927 degF, so the adjustment factors this component computes are the ones docs/nonroad-logging-county.md §6.0 read out of the real run: four-stroke THC 0.8384738, CO 0.7717785, NOx 1.4382362, and two-stroke 0.978082, 0.7625550, 1.6794580. sources/nr_logging_county.esm declares the real table, ready for the day ingest works.",
     "authors": ["EarthSciML Authors and Contributors"],
     "tags": ["moves", "nonroad", "adjustments", "temporal", "component"]
   },
@@ -19,13 +19,14 @@
       "January": 1, "February": 2, "March": 3, "April": 4, "May": 5, "June": 6,
       "July": 7, "August": 8, "September": 9, "October": 10, "November": 11, "December": 12
     },
-    "day_type": { "Weekend": 2, "Weekday": 5 }
+    "day_type": { "Weekend": 2, "Weekday": 5 },
+    "engine_fuel_kind": { "Gasoline2Stroke": 1, "Gasoline4Stroke": 2 }
   },
 
   "index_sets": {
     "time_rows": { "kind": "interval", "size": 24 },
     "zone_month_hour_rows": { "kind": "interval", "size": 27 },
-    "adjustment_rows": { "kind": "interval", "size": 4 }
+    "adjustment_rows": { "kind": "interval", "size": 8 }
   },
 
   "coordinates": {
@@ -110,17 +111,21 @@
           "type": "unknown", "shape": ["adjustment_rows"],
           "description": "Column 1: which pollutant process this adjustment row adjusts."
         },
+        "adj_engineFuelKindID": {
+          "type": "unknown", "shape": ["adjustment_rows"],
+          "description": "Column 2: which engine fuel kind these coefficients are for. Two-stroke and four-stroke gasoline burn the same fuel and share a fuelTypeID, and emsadj.f gives them different coefficients for every pollutant, so the fuel kind is part of the key rather than a property of the fuel."
+        },
         "adj_temperatureCoefficientCold": {
           "type": "unknown", "shape": ["adjustment_rows"], "units": "1/degF",
-          "description": "Column 2: a_cold, used when tamb <= 75 degF. Gasoline 4-stroke coefficients (docs/nonroad-logging-county.md §4.2)."
+          "description": "Column 3: a_cold, used when tamb <= 75 degF (docs/nonroad-logging-county.md §4.2). Zero on every two-stroke row: exp(0) = 1 is how the two-stroke temperature correction is switched off without a branch."
         },
         "adj_temperatureCoefficientHot": {
           "type": "unknown", "shape": ["adjustment_rows"], "units": "1/degF",
-          "description": "Column 3: a_hot, used when tamb > 75 degF."
+          "description": "Column 4: a_hot, used when tamb > 75 degF."
         },
         "adj_oxygenateCoefficient": {
           "type": "unknown", "shape": ["adjustment_rows"], "units": "1",
-          "description": "Column 4: c in 1 - c*oxy. The sign lives in the coefficient, as exhaust.rs:606-625 keeps it, so one template serves all six instantiations. The PM row is all zeros, which is how PM is switched off without a branch."
+          "description": "Column 5: c in 1 - c*oxy. The sign lives in the coefficient, as exhaust.rs:606-625 keeps it, so one template serves all six instantiations. The PM row is all zeros, which is how PM is switched off without a branch."
         },
         "adjustment": {
           "type": "unknown", "shape": ["adjustment_rows"], "units": "1",
@@ -221,10 +226,23 @@
         },
 
         {
+          "_comment": "Four pollutant processes for each of the two gasoline engine kinds: rows 1-4 are four-stroke, rows 5-8 two-stroke. A consumer joins on BOTH columns, because polProcessID alone no longer identifies a row.",
           "lhs": "adj_polProcessID",
           "rhs": { "op": "makearray", "args": [],
-            "regions": [[[1, 1]], [[2, 2]], [[3, 3]], [[4, 4]]],
+            "regions": [[[1, 1]], [[2, 2]], [[3, 3]], [[4, 4]], [[5, 5]], [[6, 6]], [[7, 7]], [[8, 8]]],
             "values": [
+              { "op": "apply_expression_template", "args": [], "name": "pol_process_id",
+                "bindings": { "pollutant_id": { "op": "enum", "args": ["pollutant", "TotalGaseousHydrocarbons"] },
+                              "process_id": { "op": "enum", "args": ["process", "RunningExhaust"] } } },
+              { "op": "apply_expression_template", "args": [], "name": "pol_process_id",
+                "bindings": { "pollutant_id": { "op": "enum", "args": ["pollutant", "CarbonMonoxide"] },
+                              "process_id": { "op": "enum", "args": ["process", "RunningExhaust"] } } },
+              { "op": "apply_expression_template", "args": [], "name": "pol_process_id",
+                "bindings": { "pollutant_id": { "op": "enum", "args": ["pollutant", "OxidesOfNitrogen"] },
+                              "process_id": { "op": "enum", "args": ["process", "RunningExhaust"] } } },
+              { "op": "apply_expression_template", "args": [], "name": "pol_process_id",
+                "bindings": { "pollutant_id": { "op": "enum", "args": ["pollutant", "PrimaryExhaustPM10Total"] },
+                              "process_id": { "op": "enum", "args": ["process", "RunningExhaust"] } } },
               { "op": "apply_expression_template", "args": [], "name": "pol_process_id",
                 "bindings": { "pollutant_id": { "op": "enum", "args": ["pollutant", "TotalGaseousHydrocarbons"] },
                               "process_id": { "op": "enum", "args": ["process", "RunningExhaust"] } } },
@@ -240,16 +258,27 @@
             ] }
         },
         {
+          "lhs": "adj_engineFuelKindID",
+          "rhs": { "op": "makearray", "args": [],
+            "regions": [[[1, 4]], [[5, 8]]],
+            "values": [
+              { "op": "enum", "args": ["engine_fuel_kind", "Gasoline4Stroke"] },
+              { "op": "enum", "args": ["engine_fuel_kind", "Gasoline2Stroke"] }
+            ] }
+        },
+        {
+          "_comment": "docs/nonroad-logging-county.md §4.2's table. Every two-stroke coefficient is 0.0 -- a documented no-op kept as data so a future update edits one place and not a branch.",
           "lhs": "adj_temperatureCoefficientCold",
-          "rhs": { "op": "const", "args": [], "value": [-0.00240, 0.0015784, -0.00892, 0.0] }
+          "rhs": { "op": "const", "args": [], "value": [-0.00240, 0.0015784, -0.00892, 0.0, 0.0, 0.0, 0.0, 0.0] }
         },
         {
           "lhs": "adj_temperatureCoefficientHot",
-          "rhs": { "op": "const", "args": [], "value": [0.00132, 0.00375, -0.00873, 0.0] }
+          "rhs": { "op": "const", "args": [], "value": [0.00132, 0.00375, -0.00873, 0.0, 0.0, 0.0, 0.0, 0.0] }
         },
         {
+          "_comment": "§4.3. The two-stroke coefficients are not a small perturbation of the four-stroke ones: THC differs by 7.5x and NOx by 1.6x with the same sign convention, so pairing an SCC with the wrong stroke count is a percent-level error on THC and CO and a 24% one on NOx.",
           "lhs": "adj_oxygenateCoefficient",
-          "rhs": { "op": "const", "args": [], "value": [0.045, 0.062, -0.115, 0.0] }
+          "rhs": { "op": "const", "args": [], "value": [0.045, 0.062, -0.115, 0.0, 0.006, 0.065, -0.186, 0.0] }
         },
         {
           "_comment": "adjems. Pointwise over the adjustment relation -- no join, no contraction -- with both shapes coming from lib/adjustments.esm by reference.",
@@ -309,6 +338,19 @@
             { "variable": "adjustment", "time": 0.0, "expected": 0.7717784993948426, "coords": { "adjustment_rows": 2 } },
             { "variable": "adjustment", "time": 0.0, "expected": 1.438236315378913,  "coords": { "adjustment_rows": 3 } },
             { "variable": "adjustment", "time": 0.0, "expected": 1.0, "coords": { "adjustment_rows": 4 } }
+          ]
+        },
+        {
+          "id": "the_two_stroke_rows_carry_their_own_coefficients",
+          "description": "docs/nonroad-logging-county.md §6.0's other row: gasoline 2-stroke THC 0.978082, CO 0.7625550, NOx 1.6794580, PM 1.0 at the same tamb and oxy. The temperature part is exactly 1 for all three because both coefficients are zero, so these numbers are the oxygenate correction alone -- which is why they differ from the four-stroke ones by up to 24% rather than by rounding.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "adjustment", "time": 0.0, "expected": 0.978082, "coords": { "adjustment_rows": 5 } },
+            { "variable": "adjustment", "time": 0.0, "expected": 0.762555, "coords": { "adjustment_rows": 6 } },
+            { "variable": "adjustment", "time": 0.0, "expected": 1.679458, "coords": { "adjustment_rows": 7 } },
+            { "variable": "adjustment", "time": 0.0, "expected": 1.0, "coords": { "adjustment_rows": 8 } },
+            { "variable": "adj_engineFuelKindID", "time": 0.0, "expected": 1.0, "coords": { "adjustment_rows": 5 } },
+            { "variable": "adj_polProcessID", "time": 0.0, "expected": 301.0, "coords": { "adjustment_rows": 7 } }
           ]
         },
         {

@@ -7,12 +7,17 @@
     "tags": ["moves", "nonroad", "assembly", "run"]
   },
 
+  "enums": {
+    "engine_fuel_kind": { "Gasoline2Stroke": 1, "Gasoline4Stroke": 2 }
+  },
+
   "index_sets": {
     "rate_rows": { "kind": "interval", "size": 5 },
     "deterioration_rows": { "kind": "interval", "size": 8 },
     "time_rows": { "kind": "interval", "size": 24 },
     "zone_month_hour_rows": { "kind": "interval", "size": 27 },
-    "adjustment_rows": { "kind": "interval", "size": 4 }
+    "adjustment_rows": { "kind": "interval", "size": 8 },
+    "micro_run_fuel_kind_rows": { "kind": "interval", "size": 1 }
   },
 
   "models": {
@@ -23,6 +28,10 @@
       "tolerance": { "rel": 1e-12 },
 
       "variables": {
+        "run_engineFuelKindID": {
+          "type": "unknown", "shape": ["micro_run_fuel_kind_rows"],
+          "description": "The engine fuel kind this micro run pins its adjustments to. components/exhaust_adjustment.esm keys its relation by (polProcessID, engineFuelKind) because emsadj.f gives two-stroke and four-stroke gasoline different coefficients, so a roll-up must say which one it means; joining on polProcessID alone would sum both and, for THC, land 17% high."
+        },
         "adjustedEmissionRate": {
           "type": "unknown", "shape": ["rate_rows"],
           "description": "The deteriorated zero-hour rate with the run's temperature and oxygenate adjustments applied, one value per nremissionrate row. Native units g/hp-hr."
@@ -35,6 +44,12 @@
 
       "equations": [
         {
+          "_comment": "Four-stroke, which is what this spine document has always used: its expected values are the four-stroke adjustments of docs/nonroad-logging-county.md §6.0. The rates beside them are a two-stroke chain saw's, which is a deliberate simplification of a document whose subject is the CONVENTIONS -- components/exhaust_emission_factors.esm and the nr-logging-county run pair each SCC with its own stroke count.",
+          "lhs": "run_engineFuelKindID",
+          "rhs": { "op": "makearray", "args": [], "regions": [[[1, 1]]],
+            "values": [{ "op": "enum", "args": ["engine_fuel_kind", "Gasoline4Stroke"] }] }
+        },
+        {
           "_comment": "The third join, at the run level and across the mount: rate rows to adjustment rows on polProcessID. Single key pair this time -- the two relations agree on one column. The BSFC row still has no partner on either side and still reads 0.",
           "lhs": "adjustedEmissionRate",
           "rhs": {
@@ -44,10 +59,12 @@
             "output_idx": ["r"],
             "ranges": {
               "r": { "from": "rate_rows" },
-              "p": { "from": "adjustment_rows" }
+              "p": { "from": "adjustment_rows" },
+              "k": { "from": "micro_run_fuel_kind_rows" }
             },
             "join": [
-              { "on": [["Rates.rate_polProcessID", "Adjust.adj_polProcessID"]] }
+              { "on": [["Rates.rate_polProcessID", "Adjust.adj_polProcessID"]] },
+              { "on": [["Adjust.adj_engineFuelKindID", "run_engineFuelKindID"]] }
             ],
             "expr": {
               "op": "*",

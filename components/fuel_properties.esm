@@ -1,0 +1,622 @@
+{
+  "esm": "1.0.0",
+  "metadata": {
+    "name": "FuelProperties",
+    "description": "Stage 5(a) of the nr-logging-county chain: the fuel half of emsadj.f. Ports joins J19 through J23 of docs/nonroad-logging-county.md §3 and the arithmetic of §2.5(c) and §2.5(d) — the market-share-weighted oxygen content that the oxygenate adjustment multiplies by, the in-use sulfur that the SOx correction divides by, and the RFG test that gates both. components/exhaust_adjustment.esm applies them; this file computes them.\n\nTHREE FILTERS, EACH LOAD-BEARING, EACH CHECKED HERE AGAINST REAL ROWS.\n\n(1) `regionCodeID = 2` selects the NONROAD fuel region (nonroad_loader.rs:1770). The snapshot's regioncounty has TWO rows for county 26161 — codes 1 and 2 — carrying the SAME regionID, so without the filter every supply row joins twice and the oxygen content doubles to 7.306 wt%.\n\n(2) `fuelYearID = year.fuelYearID(2020)` (nonroad_loader.rs:1789-1793). A county capture carries every fuel year from 1990 to 2060; the 1999 rows are here, they are real, and admitting them puts a second gasohol row into the sum and takes the oxygen content to 5.07 wt%. The spec's warning that an unfiltered sum reaches ~140 wt% is this at full scale.\n\n(3) `monthGroupID = 8`. The run's month, not the XML's zero-based key.\n\nTHERE IS NO FALLBACK. An empty supply join gives 0.0 oxygen and 0.0 sulfur, and that is load-bearing behaviour (nonroad_loader.rs:1720-1726), not an omission to be papered over with a default.\n\nWHAT IS DELIBERATELY NOT MODELLED. The base sulfur weight percents and sulfur-to-SOx conversion fractions exist in consts.rs for five engine fuel kinds, but docs/nonroad-logging-county.md §5.7 tabulates only three of them (SWTGS2, SWTGS4, SWTDSL; SFCGS2, SFCGS4, SFCDSL). The LPG and CNG constants are named in §2.5(d)'s sox_base array and never given a value, so this file carries the three kinds whose numbers are known rather than inventing two. The SOx correction is inert for this fixture in any case — pollutant 31 is not in the RunSpec selection — which is why it can be computed and asserted without being applied anywhere.",
+    "authors": ["EarthSciML Authors and Contributors"],
+    "tags": ["moves", "nonroad", "fuel", "adjustments", "component"]
+  },
+
+  "enums": {
+    "nonroad_fuel_type": { "Gasoline": 1, "CompressedNaturalGas": 3, "LiquefiedPetroleumGas": 4, "NonroadDiesel": 23, "MarineDiesel": 24 },
+    "fuel_subtype": {
+      "ConventionalGasoline": 10, "ReformulatedGasoline": 11, "GasoholE10": 12,
+      "NonroadDieselFuel": 23, "MarineDieselFuel": 24,
+      "CompressedNaturalGas": 30, "LiquefiedPetroleumGas": 40
+    },
+    "engine_fuel_kind": { "Gasoline2Stroke": 1, "Gasoline4Stroke": 2, "Diesel": 3 },
+    "region_code": { "OnroadFuelRegion": 1, "NonroadFuelRegion": 2 },
+    "month": { "August": 8 }
+  },
+
+  "index_sets": {
+    "fuel_supply_rows": { "kind": "interval", "size": 8 },
+    "fuel_formulation_rows": { "kind": "interval", "size": 8 },
+    "fuel_subtype_rows": { "kind": "interval", "size": 7 },
+    "region_county_rows": { "kind": "interval", "size": 2 },
+    "calendar_year_rows": { "kind": "interval", "size": 2 },
+    "fuel_runspec_rows": { "kind": "interval", "size": 1 },
+    "nonroad_region_code_rows": { "kind": "interval", "size": 1 },
+    "reformulated_subtype_rows": { "kind": "interval", "size": 1 },
+    "nonroad_fuel_type_rows": { "kind": "interval", "size": 5 },
+    "engine_fuel_kind_rows": { "kind": "interval", "size": 3 }
+  },
+
+  "coordinates": {
+    "fuel_type": {
+      "source": "nft_fuelTypeID",
+      "standard_name": "nonroad_fuel_type_identifier"
+    }
+  },
+
+  "models": {
+    "FuelProperties": {
+      "tolerance": { "rel": 1e-12 },
+
+      "variables": {
+        "runYearID": {
+          "type": "parameter", "units": "1", "default": 2020.0,
+          "description": "The RunSpec's calendar year, as a parameter so a test can move the run off the year the supply table covers."
+        },
+        "sulfurPartsPerMillionPerWeightPercent": {
+          "type": "parameter", "units": "1", "default": 10000.0,
+          "description": "The divisor that turns fuelformulation.sulfurLevel (ppm) into a weight percent (nonroad_loader.rs:1826)."
+        },
+
+        "sup_fuelRegionID": {
+          "type": "unknown", "shape": ["fuel_supply_rows"],
+          "description": "nrfuelsupply.fuelRegionID. Column 1."
+        },
+        "sup_fuelYearID": {
+          "type": "unknown", "shape": ["fuel_supply_rows"],
+          "description": "nrfuelsupply.fuelYearID. Column 2 — filter (2) of this file's description."
+        },
+        "sup_monthGroupID": {
+          "type": "unknown", "shape": ["fuel_supply_rows"],
+          "description": "nrfuelsupply.monthGroupID. Column 3."
+        },
+        "sup_fuelFormulationID": {
+          "type": "unknown", "shape": ["fuel_supply_rows"],
+          "description": "nrfuelsupply.fuelFormulationID. Column 4, the J22 key."
+        },
+        "sup_marketShare": {
+          "type": "unknown", "shape": ["fuel_supply_rows"], "units": "1",
+          "description": "nrfuelsupply.marketShare. Column 5: this formulation's share of its fuel type in this region-month."
+        },
+
+        "ffm_fuelFormulationID": {
+          "type": "unknown", "shape": ["fuel_formulation_rows"],
+          "description": "fuelformulation.fuelFormulationID. Column 1."
+        },
+        "ffm_fuelSubtypeID": {
+          "type": "unknown", "shape": ["fuel_formulation_rows"],
+          "description": "fuelformulation.fuelSubtypeID. Column 2, the J23 key."
+        },
+        "ffm_sulfurLevel": {
+          "type": "unknown", "shape": ["fuel_formulation_rows"], "units": "1",
+          "description": "fuelformulation.sulfurLevel, in parts per million."
+        },
+        "ffm_oxygenateVolume": {
+          "type": "unknown", "shape": ["fuel_formulation_rows"], "units": "1",
+          "description": "ETOHVolume + MTBEVolume + ETBEVolume + TAMEVolume: the total oxygenate volume percent. The four columns are summed here because every use of them in the chain is their sum (nonroad_loader.rs:1697-1868); the fixture's only non-zero contribution is 10% ethanol."
+        },
+        "ffm_volumeToWeightPercentOxygen": {
+          "type": "unknown", "shape": ["fuel_formulation_rows"], "units": "1",
+          "description": "fuelformulation.volToWtPercentOxy: the factor from oxygenate VOLUME percent to oxygen WEIGHT percent."
+        },
+
+        "fst_fuelSubtypeID": {
+          "type": "unknown", "shape": ["fuel_subtype_rows"],
+          "description": "nrfuelsubtype.fuelSubtypeID. Column 1."
+        },
+        "fst_fuelTypeID": {
+          "type": "unknown", "shape": ["fuel_subtype_rows"],
+          "description": "nrfuelsubtype.fuelTypeID. Column 2, in the NONROAD namespace where diesel is 23 and 24."
+        },
+
+        "rgc_regionID": {
+          "type": "unknown", "shape": ["region_county_rows"],
+          "description": "regioncounty.regionID. Column 1. Both rows of this county carry the same one, which is what makes the code filter matter."
+        },
+        "rgc_countyID": {
+          "type": "unknown", "shape": ["region_county_rows"],
+          "description": "regioncounty.countyID. Column 2."
+        },
+        "rgc_regionCodeID": {
+          "type": "unknown", "shape": ["region_county_rows"],
+          "description": "regioncounty.regionCodeID. Column 3: 1 onroad, 2 nonroad."
+        },
+        "rgc_fuelYearID": {
+          "type": "unknown", "shape": ["region_county_rows"],
+          "description": "regioncounty.fuelYearID. Column 4."
+        },
+
+        "cy_yearID": {
+          "type": "unknown", "shape": ["calendar_year_rows"],
+          "description": "year.yearID. Column 1."
+        },
+        "cy_fuelYearID": {
+          "type": "unknown", "shape": ["calendar_year_rows"],
+          "description": "year.fuelYearID. Column 2: J19's output, the fuel year a calendar year reads."
+        },
+
+        "runspec_yearID": {
+          "type": "unknown", "shape": ["fuel_runspec_rows"],
+          "description": "The RunSpec's calendar year."
+        },
+        "runspec_countyID": {
+          "type": "unknown", "shape": ["fuel_runspec_rows"],
+          "description": "The RunSpec's county."
+        },
+        "runspec_monthGroupID": {
+          "type": "unknown", "shape": ["fuel_runspec_rows"],
+          "description": "The RunSpec's month group, 8."
+        },
+        "runspec_fuelYearID": {
+          "type": "unknown", "shape": ["fuel_runspec_rows"],
+          "description": "The fuel year J19 resolved, as a column so the two scope joins below can key on it."
+        },
+        "nonroad_regionCodeID": {
+          "type": "unknown", "shape": ["nonroad_region_code_rows"],
+          "description": "The region code the nonroad path reads: 2."
+        },
+        "reformulated_fuelSubtypeID": {
+          "type": "unknown", "shape": ["reformulated_subtype_rows"],
+          "description": "The subtype the RFG test counts: 11."
+        },
+
+        "nft_fuelTypeID": {
+          "type": "unknown", "shape": ["nonroad_fuel_type_rows"],
+          "description": "The NONROAD fuel types. Column 1."
+        },
+        "nft_fuelDensity": {
+          "type": "unknown", "shape": ["nonroad_fuel_type_rows"], "units": "1",
+          "description": "Fuel density (docs/nonroad-logging-county.md §5.4), read by the g/gallon branch of unitcf.f. Grams per gallon in the engine's own units."
+        },
+        "nft_marketShareTotal": {
+          "type": "unknown", "shape": ["nonroad_fuel_type_rows"], "units": "1",
+          "description": "The total market share of this fuel type in the run's region-month. Zero where the join finds nothing, which is the case the RFG test must not divide by."
+        },
+        "nft_reformulatedShare": {
+          "type": "unknown", "shape": ["nonroad_fuel_type_rows"], "units": "1",
+          "description": "The share carried by reformulated-gasoline formulations."
+        },
+        "nft_isReformulated": {
+          "type": "unknown", "shape": ["nonroad_fuel_type_rows"], "units": "1",
+          "description": "The rfg flag: share > 0 and more than half of it reformulated (nonroad_loader.rs:1854). It gates the whole oxygenate correction."
+        },
+        "nft_oxygenWeightPercent": {
+          "type": "unknown", "shape": ["nonroad_fuel_type_rows"], "units": "1",
+          "description": "oxy: the market-share-weighted oxygen content, in weight percent."
+        },
+        "nft_sulfurWeightPercent": {
+          "type": "unknown", "shape": ["nonroad_fuel_type_rows"], "units": "1",
+          "description": "The market-share-weighted in-use sulfur content, in weight percent."
+        },
+
+        "efk_engineFuelKindID": {
+          "type": "unknown", "shape": ["engine_fuel_kind_rows"],
+          "description": "The engine's own fuel kinds, which are not the fuel-type namespace: two-stroke and four-stroke gasoline share nrfuelTypeID 1 and differ in every adjustment coefficient."
+        },
+        "efk_nonroadFuelTypeID": {
+          "type": "unknown", "shape": ["engine_fuel_kind_rows"],
+          "description": "The nrfuelTypeID this kind burns — the join back to the supply-derived properties."
+        },
+        "efk_baseSulfurWeightPercent": {
+          "type": "unknown", "shape": ["engine_fuel_kind_rows"], "units": "1",
+          "description": "SWTGS2 / SWTGS4 / SWTDSL (consts.rs): the sulfur content the base emission factors were measured at."
+        },
+        "efk_sulfurConversionFraction": {
+          "type": "unknown", "shape": ["engine_fuel_kind_rows"], "units": "1",
+          "description": "SFCGS2 / SFCGS4 / SFCDSL: the fraction of fuel sulfur converted to direct sulfate PM."
+        },
+        "efk_carbonMassFraction": {
+          "type": "unknown", "shape": ["engine_fuel_kind_rows"], "units": "1",
+          "description": "CMFGAS / CMFDSL: the fuel carbon mass fraction the CO2 carbon balance uses."
+        },
+        "efk_inUseSulfurWeightPercent": {
+          "type": "unknown", "shape": ["engine_fuel_kind_rows"], "units": "1",
+          "description": "The run's actual sulfur content for this kind's fuel."
+        },
+        "efk_oxygenWeightPercent": {
+          "type": "unknown", "shape": ["engine_fuel_kind_rows"], "units": "1",
+          "description": "The run's oxygen content for this kind's fuel: what the oxygenate adjustment multiplies."
+        },
+        "efk_soxCorrection": {
+          "type": "unknown", "shape": ["engine_fuel_kind_rows"], "units": "1",
+          "description": "soxcor = in-use sulfur / base sulfur (exhaust.rs:632-643). Computed and asserted, applied nowhere: SOx is not in this RunSpec's pollutant selection."
+        }
+      },
+
+      "equations": [
+        {
+          "_comment": "nrfuelsupply for region 270000000, month group 8. Rows 1-6 are the run's fuel year 2020; rows 7-8 are the same region's 1999 gasoline rows, which are real and which the fuel-year filter must exclude — admitting them adds a second gasohol row and takes the oxygen content from 3.653 to 5.07.",
+          "lhs": "sup_fuelRegionID",
+          "rhs": { "op": "const", "args": [],
+            "value": [270000000, 270000000, 270000000, 270000000, 270000000, 270000000,
+                      270000000, 270000000] }
+        },
+        {
+          "lhs": "sup_fuelYearID",
+          "rhs": { "op": "const", "args": [], "value": [2020, 2020, 2020, 2020, 2020, 2020, 1999, 1999] }
+        },
+        {
+          "lhs": "sup_monthGroupID",
+          "rhs": { "op": "aggregate", "args": [], "output_idx": ["s"],
+            "ranges": { "s": { "from": "fuel_supply_rows" } },
+            "expr": { "op": "enum", "args": ["month", "August"] } }
+        },
+        {
+          "lhs": "sup_fuelFormulationID",
+          "rhs": { "op": "const", "args": [], "value": [9114, 9414, 20009, 26014, 28001, 29001, 1410, 1414] }
+        },
+        {
+          "lhs": "sup_marketShare",
+          "rhs": { "op": "const", "args": [], "value": [1.0, 0.0, 1.0, 1.0, 1.0, 1.0, 0.6131, 0.386856] }
+        },
+
+        {
+          "_comment": "fuelformulation for those eight formulations. 9114 is Gasohol E10 at 10% ethanol; 9414 is conventional gasoline at zero market share; 1414 is the 1999 gasohol the year filter excludes.",
+          "lhs": "ffm_fuelFormulationID",
+          "rhs": { "op": "const", "args": [], "value": [9114, 9414, 20009, 26014, 28001, 29001, 1410, 1414] }
+        },
+        {
+          "lhs": "ffm_fuelSubtypeID",
+          "rhs": { "op": "makearray", "args": [],
+            "regions": [[[1, 1]], [[2, 2]], [[3, 3]], [[4, 4]], [[5, 5]], [[6, 6]], [[7, 7]], [[8, 8]]],
+            "values": [
+              { "op": "enum", "args": ["fuel_subtype", "GasoholE10"] },
+              { "op": "enum", "args": ["fuel_subtype", "ConventionalGasoline"] },
+              { "op": "enum", "args": ["fuel_subtype", "NonroadDieselFuel"] },
+              { "op": "enum", "args": ["fuel_subtype", "MarineDieselFuel"] },
+              { "op": "enum", "args": ["fuel_subtype", "CompressedNaturalGas"] },
+              { "op": "enum", "args": ["fuel_subtype", "LiquefiedPetroleumGas"] },
+              { "op": "enum", "args": ["fuel_subtype", "ConventionalGasoline"] },
+              { "op": "enum", "args": ["fuel_subtype", "GasoholE10"] }
+            ] }
+        },
+        {
+          "lhs": "ffm_sulfurLevel",
+          "rhs": { "op": "const", "args": [], "value": [7.15, 7.15, 6.0, 6.0, 7.6, 7.6, 329.72, 329.72] }
+        },
+        {
+          "lhs": "ffm_oxygenateVolume",
+          "rhs": { "op": "const", "args": [], "value": [10.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 10.0] }
+        },
+        {
+          "lhs": "ffm_volumeToWeightPercentOxygen",
+          "rhs": { "op": "const", "args": [], "value": [0.3653, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.3653] }
+        },
+
+        {
+          "lhs": "fst_fuelSubtypeID",
+          "rhs": { "op": "makearray", "args": [],
+            "regions": [[[1, 1]], [[2, 2]], [[3, 3]], [[4, 4]], [[5, 5]], [[6, 6]], [[7, 7]]],
+            "values": [
+              { "op": "enum", "args": ["fuel_subtype", "ConventionalGasoline"] },
+              { "op": "enum", "args": ["fuel_subtype", "ReformulatedGasoline"] },
+              { "op": "enum", "args": ["fuel_subtype", "GasoholE10"] },
+              { "op": "enum", "args": ["fuel_subtype", "NonroadDieselFuel"] },
+              { "op": "enum", "args": ["fuel_subtype", "MarineDieselFuel"] },
+              { "op": "enum", "args": ["fuel_subtype", "CompressedNaturalGas"] },
+              { "op": "enum", "args": ["fuel_subtype", "LiquefiedPetroleumGas"] }
+            ] }
+        },
+        {
+          "lhs": "fst_fuelTypeID",
+          "rhs": { "op": "makearray", "args": [],
+            "regions": [[[1, 3]], [[4, 4]], [[5, 5]], [[6, 6]], [[7, 7]]],
+            "values": [
+              { "op": "enum", "args": ["nonroad_fuel_type", "Gasoline"] },
+              { "op": "enum", "args": ["nonroad_fuel_type", "NonroadDiesel"] },
+              { "op": "enum", "args": ["nonroad_fuel_type", "MarineDiesel"] },
+              { "op": "enum", "args": ["nonroad_fuel_type", "CompressedNaturalGas"] },
+              { "op": "enum", "args": ["nonroad_fuel_type", "LiquefiedPetroleumGas"] }
+            ] }
+        },
+
+        {
+          "_comment": "regioncounty: the snapshot's two rows for county 26161, identical but for the region code.",
+          "lhs": "rgc_regionID",
+          "rhs": { "op": "const", "args": [], "value": [270000000, 270000000] }
+        },
+        {
+          "lhs": "rgc_countyID",
+          "rhs": { "op": "const", "args": [], "value": [26161, 26161] }
+        },
+        {
+          "lhs": "rgc_regionCodeID",
+          "rhs": { "op": "makearray", "args": [],
+            "regions": [[[1, 1]], [[2, 2]]],
+            "values": [
+              { "op": "enum", "args": ["region_code", "OnroadFuelRegion"] },
+              { "op": "enum", "args": ["region_code", "NonroadFuelRegion"] }
+            ] }
+        },
+        {
+          "lhs": "rgc_fuelYearID",
+          "rhs": { "op": "const", "args": [], "value": [2020, 2020] }
+        },
+
+        {
+          "_comment": "J19: the calendar year's fuel year. The 2019 row is here so the join has an alternative to reject.",
+          "lhs": "cy_yearID",
+          "rhs": { "op": "const", "args": [], "value": [2019, 2020] }
+        },
+        {
+          "lhs": "cy_fuelYearID",
+          "rhs": { "op": "const", "args": [], "value": [2019, 2020] }
+        },
+        {
+          "lhs": "runspec_yearID",
+          "rhs": { "op": "makearray", "args": [], "regions": [[[1, 1]]], "values": ["runYearID"] }
+        },
+        {
+          "lhs": "runspec_countyID",
+          "rhs": { "op": "const", "args": [], "value": [26161] }
+        },
+        {
+          "lhs": "runspec_monthGroupID",
+          "rhs": { "op": "aggregate", "args": [], "output_idx": ["u"],
+            "ranges": { "u": { "from": "fuel_runspec_rows" } },
+            "expr": { "op": "enum", "args": ["month", "August"] } }
+        },
+        {
+          "lhs": "nonroad_regionCodeID",
+          "rhs": { "op": "makearray", "args": [], "regions": [[[1, 1]]],
+            "values": [{ "op": "enum", "args": ["region_code", "NonroadFuelRegion"] }] }
+        },
+        {
+          "lhs": "reformulated_fuelSubtypeID",
+          "rhs": { "op": "makearray", "args": [], "regions": [[[1, 1]]],
+            "values": [{ "op": "enum", "args": ["fuel_subtype", "ReformulatedGasoline"] }] }
+        },
+        {
+          "lhs": "runspec_fuelYearID",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["u"],
+            "ranges": { "u": { "from": "fuel_runspec_rows" }, "n": { "from": "calendar_year_rows" } },
+            "join": [ { "on": [["runspec_yearID", "cy_yearID"]] } ],
+            "expr": { "op": "index", "args": ["cy_fuelYearID", "n"] }
+          }
+        },
+
+        {
+          "lhs": "nft_fuelTypeID",
+          "rhs": { "op": "makearray", "args": [],
+            "regions": [[[1, 1]], [[2, 2]], [[3, 3]], [[4, 4]], [[5, 5]]],
+            "values": [
+              { "op": "enum", "args": ["nonroad_fuel_type", "Gasoline"] },
+              { "op": "enum", "args": ["nonroad_fuel_type", "CompressedNaturalGas"] },
+              { "op": "enum", "args": ["nonroad_fuel_type", "LiquefiedPetroleumGas"] },
+              { "op": "enum", "args": ["nonroad_fuel_type", "NonroadDiesel"] },
+              { "op": "enum", "args": ["nonroad_fuel_type", "MarineDiesel"] }
+            ] }
+        },
+        {
+          "lhs": "nft_fuelDensity",
+          "rhs": { "op": "const", "args": [], "value": [2829.0, 500.0, 1923.0, 3198.0, 3198.0] }
+        },
+        {
+          "_comment": "J20, J21, J22 and J23 as one scoped contraction, repeated with four different bodies. Six ON clauses and no filter: every one of the three restrictions this file's description calls load-bearing is an EQUALITY, so all three belong in `join.on` (docs/esm-conventions.md §3).",
+          "lhs": "nft_marketShareTotal",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["f"],
+            "ranges": { "f": { "from": "nonroad_fuel_type_rows" }, "s": { "from": "fuel_supply_rows" },
+                        "m": { "from": "fuel_formulation_rows" }, "b": { "from": "fuel_subtype_rows" },
+                        "g": { "from": "region_county_rows" }, "u": { "from": "fuel_runspec_rows" },
+                        "d": { "from": "nonroad_region_code_rows" } },
+            "join": [
+              { "on": [["sup_fuelRegionID", "rgc_regionID"]] },
+              { "on": [["rgc_countyID", "runspec_countyID"]] },
+              { "on": [["rgc_regionCodeID", "nonroad_regionCodeID"]] },
+              { "on": [["rgc_fuelYearID", "runspec_fuelYearID"], ["sup_fuelYearID", "runspec_fuelYearID"]] },
+              { "on": [["sup_monthGroupID", "runspec_monthGroupID"]] },
+              { "on": [["sup_fuelFormulationID", "ffm_fuelFormulationID"]] },
+              { "on": [["ffm_fuelSubtypeID", "fst_fuelSubtypeID"]] },
+              { "on": [["fst_fuelTypeID", "nft_fuelTypeID"]] }
+            ],
+            "expr": { "op": "index", "args": ["sup_marketShare", "s"] }
+          }
+        },
+        {
+          "lhs": "nft_oxygenWeightPercent",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["f"],
+            "ranges": { "f": { "from": "nonroad_fuel_type_rows" }, "s": { "from": "fuel_supply_rows" },
+                        "m": { "from": "fuel_formulation_rows" }, "b": { "from": "fuel_subtype_rows" },
+                        "g": { "from": "region_county_rows" }, "u": { "from": "fuel_runspec_rows" },
+                        "d": { "from": "nonroad_region_code_rows" } },
+            "join": [
+              { "on": [["sup_fuelRegionID", "rgc_regionID"]] },
+              { "on": [["rgc_countyID", "runspec_countyID"]] },
+              { "on": [["rgc_regionCodeID", "nonroad_regionCodeID"]] },
+              { "on": [["rgc_fuelYearID", "runspec_fuelYearID"], ["sup_fuelYearID", "runspec_fuelYearID"]] },
+              { "on": [["sup_monthGroupID", "runspec_monthGroupID"]] },
+              { "on": [["sup_fuelFormulationID", "ffm_fuelFormulationID"]] },
+              { "on": [["ffm_fuelSubtypeID", "fst_fuelSubtypeID"]] },
+              { "on": [["fst_fuelTypeID", "nft_fuelTypeID"]] }
+            ],
+            "expr": { "op": "*", "args": [
+              { "op": "index", "args": ["sup_marketShare", "s"] },
+              { "op": "index", "args": ["ffm_oxygenateVolume", "m"] },
+              { "op": "index", "args": ["ffm_volumeToWeightPercentOxygen", "m"] }] }
+          }
+        },
+        {
+          "lhs": "nft_sulfurWeightPercent",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["f"],
+            "ranges": { "f": { "from": "nonroad_fuel_type_rows" }, "s": { "from": "fuel_supply_rows" },
+                        "m": { "from": "fuel_formulation_rows" }, "b": { "from": "fuel_subtype_rows" },
+                        "g": { "from": "region_county_rows" }, "u": { "from": "fuel_runspec_rows" },
+                        "d": { "from": "nonroad_region_code_rows" } },
+            "join": [
+              { "on": [["sup_fuelRegionID", "rgc_regionID"]] },
+              { "on": [["rgc_countyID", "runspec_countyID"]] },
+              { "on": [["rgc_regionCodeID", "nonroad_regionCodeID"]] },
+              { "on": [["rgc_fuelYearID", "runspec_fuelYearID"], ["sup_fuelYearID", "runspec_fuelYearID"]] },
+              { "on": [["sup_monthGroupID", "runspec_monthGroupID"]] },
+              { "on": [["sup_fuelFormulationID", "ffm_fuelFormulationID"]] },
+              { "on": [["ffm_fuelSubtypeID", "fst_fuelSubtypeID"]] },
+              { "on": [["fst_fuelTypeID", "nft_fuelTypeID"]] }
+            ],
+            "expr": { "op": "/", "args": [
+              { "op": "*", "args": [
+                { "op": "index", "args": ["sup_marketShare", "s"] },
+                { "op": "index", "args": ["ffm_sulfurLevel", "m"] }] },
+              "sulfurPartsPerMillionPerWeightPercent"] }
+          }
+        },
+        {
+          "lhs": "nft_reformulatedShare",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["f"],
+            "ranges": { "f": { "from": "nonroad_fuel_type_rows" }, "s": { "from": "fuel_supply_rows" },
+                        "m": { "from": "fuel_formulation_rows" }, "b": { "from": "fuel_subtype_rows" },
+                        "g": { "from": "region_county_rows" }, "u": { "from": "fuel_runspec_rows" },
+                        "d": { "from": "nonroad_region_code_rows" },
+                        "w": { "from": "reformulated_subtype_rows" } },
+            "join": [
+              { "on": [["sup_fuelRegionID", "rgc_regionID"]] },
+              { "on": [["rgc_countyID", "runspec_countyID"]] },
+              { "on": [["rgc_regionCodeID", "nonroad_regionCodeID"]] },
+              { "on": [["rgc_fuelYearID", "runspec_fuelYearID"], ["sup_fuelYearID", "runspec_fuelYearID"]] },
+              { "on": [["sup_monthGroupID", "runspec_monthGroupID"]] },
+              { "on": [["sup_fuelFormulationID", "ffm_fuelFormulationID"]] },
+              { "on": [["ffm_fuelSubtypeID", "fst_fuelSubtypeID"], ["ffm_fuelSubtypeID", "reformulated_fuelSubtypeID"]] },
+              { "on": [["fst_fuelTypeID", "nft_fuelTypeID"]] }
+            ],
+            "expr": { "op": "index", "args": ["sup_marketShare", "s"] }
+          }
+        },
+        {
+          "lhs": "nft_isReformulated",
+          "rhs": {
+            "op": "aggregate", "args": [], "output_idx": ["f"],
+            "ranges": { "f": { "from": "nonroad_fuel_type_rows" } },
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                { "op": "and", "args": [
+                  { "op": ">", "args": [{ "op": "index", "args": ["nft_marketShareTotal", "f"] }, 0.0] },
+                  { "op": ">", "args": [
+                    { "op": "/", "args": [{ "op": "index", "args": ["nft_reformulatedShare", "f"] },
+                                          { "op": "max", "args": [{ "op": "index", "args": ["nft_marketShareTotal", "f"] }, 1e-30] }] },
+                    0.5] } ] },
+                1.0,
+                0.0
+              ]
+            }
+          }
+        },
+
+        {
+          "lhs": "efk_engineFuelKindID",
+          "rhs": { "op": "makearray", "args": [],
+            "regions": [[[1, 1]], [[2, 2]], [[3, 3]]],
+            "values": [
+              { "op": "enum", "args": ["engine_fuel_kind", "Gasoline2Stroke"] },
+              { "op": "enum", "args": ["engine_fuel_kind", "Gasoline4Stroke"] },
+              { "op": "enum", "args": ["engine_fuel_kind", "Diesel"] }
+            ] }
+        },
+        {
+          "lhs": "efk_nonroadFuelTypeID",
+          "rhs": { "op": "makearray", "args": [],
+            "regions": [[[1, 2]], [[3, 3]]],
+            "values": [
+              { "op": "enum", "args": ["nonroad_fuel_type", "Gasoline"] },
+              { "op": "enum", "args": ["nonroad_fuel_type", "NonroadDiesel"] }
+            ] }
+        },
+        {
+          "lhs": "efk_baseSulfurWeightPercent",
+          "rhs": { "op": "const", "args": [], "value": [0.0339, 0.0339, 0.33] }
+        },
+        {
+          "lhs": "efk_sulfurConversionFraction",
+          "rhs": { "op": "const", "args": [], "value": [0.03, 0.03, 0.02247] }
+        },
+        {
+          "lhs": "efk_carbonMassFraction",
+          "rhs": { "op": "const", "args": [], "value": [0.87, 0.87, 0.87] }
+        },
+        {
+          "lhs": "efk_oxygenWeightPercent",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["k"],
+            "ranges": { "k": { "from": "engine_fuel_kind_rows" }, "f": { "from": "nonroad_fuel_type_rows" } },
+            "join": [ { "on": [["efk_nonroadFuelTypeID", "nft_fuelTypeID"]] } ],
+            "expr": { "op": "index", "args": ["nft_oxygenWeightPercent", "f"] }
+          }
+        },
+        {
+          "lhs": "efk_inUseSulfurWeightPercent",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["k"],
+            "ranges": { "k": { "from": "engine_fuel_kind_rows" }, "f": { "from": "nonroad_fuel_type_rows" } },
+            "join": [ { "on": [["efk_nonroadFuelTypeID", "nft_fuelTypeID"]] } ],
+            "expr": { "op": "index", "args": ["nft_sulfurWeightPercent", "f"] }
+          }
+        },
+        {
+          "lhs": "efk_soxCorrection",
+          "rhs": {
+            "op": "aggregate", "args": [], "output_idx": ["k"],
+            "ranges": { "k": { "from": "engine_fuel_kind_rows" } },
+            "expr": { "op": "/", "args": [{ "op": "index", "args": ["efk_inUseSulfurWeightPercent", "k"] },
+                                          { "op": "index", "args": ["efk_baseSulfurWeightPercent", "k"] }] }
+          }
+        }
+      ],
+
+      "tests": [
+        {
+          "id": "the_oxygen_content_matches_the_verified_run",
+          "description": "docs/nonroad-logging-county.md §6.0: one gasohol row, marketShare 1.0, ETOHVolume 10.0, volToWtPercentOxy 0.3653, so oxy = 3.653 wt%. That number multiplies every gasoline THC, CO and NOx factor in the fixture through the oxygenate adjustment; the diesel and gas types carry no oxygenate and read 0.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "runspec_fuelYearID", "time": 0.0, "expected": 2020.0, "coords": { "fuel_runspec_rows": 1 } },
+            { "variable": "nft_oxygenWeightPercent", "time": 0.0, "expected": 3.653, "coords": { "nonroad_fuel_type_rows": 1 } },
+            { "variable": "nft_oxygenWeightPercent", "time": 0.0, "expected": 0.0, "coords": { "nonroad_fuel_type_rows": 4 } },
+            { "variable": "efk_oxygenWeightPercent", "time": 0.0, "expected": 3.653, "coords": { "engine_fuel_kind_rows": 2 } }
+          ]
+        },
+        {
+          "id": "the_fuel_year_and_region_code_filters_are_both_active",
+          "description": "The 1999 gasoline rows are real rows of this region and month group: admit them and the gasoline market share is 2.0 instead of 1.0 and the oxygen content 5.07 instead of 3.653. The two regioncounty rows carry the SAME regionID, so dropping the regionCodeID = 2 clause doubles every supply row instead — share 2.0, oxygen 7.306. The market-share total being exactly 1.0 is what says neither happened.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "nft_marketShareTotal", "time": 0.0, "expected": 1.0, "coords": { "nonroad_fuel_type_rows": 1 } },
+            { "variable": "nft_marketShareTotal", "time": 0.0, "expected": 1.0, "coords": { "nonroad_fuel_type_rows": 4 } },
+            { "variable": "nft_marketShareTotal", "time": 0.0, "expected": 1.0, "coords": { "nonroad_fuel_type_rows": 2 } }
+          ]
+        },
+        {
+          "id": "the_run_is_not_reformulated",
+          "description": "nonroad_loader.rs:1854: rfg is share > 0 AND more than half the gasoline reformulated. Subtype 11 has no formulation in this supply, so the reformulated share is 0 and the flag is off — which is what lets the oxygenate correction apply at all, since it is gated on NOT rfg (§2.5(c)).",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "nft_reformulatedShare", "time": 0.0, "expected": 0.0, "coords": { "nonroad_fuel_type_rows": 1 } },
+            { "variable": "nft_isReformulated", "time": 0.0, "expected": 0.0, "coords": { "nonroad_fuel_type_rows": 1 } }
+          ]
+        },
+        {
+          "id": "the_sulfur_correction_is_computed_though_it_is_not_applied",
+          "description": "§2.5(d). The gasoline supply is 7.15 ppm sulfur at full market share, so the in-use content is 0.000715 wt% against a base of 0.0339, and soxcor is 0.0211 — a 47x REDUCTION in SOx, which is what modern fuel sulfur does. Nothing multiplies by it here because pollutant 31 is not selected, and a port that quietly applied it to PM instead would be wrong by that factor.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "nft_sulfurWeightPercent", "time": 0.0, "expected": 0.000715, "coords": { "nonroad_fuel_type_rows": 1 } },
+            { "variable": "efk_inUseSulfurWeightPercent", "time": 0.0, "expected": 0.000715, "coords": { "engine_fuel_kind_rows": 1 } },
+            { "variable": "efk_soxCorrection", "time": 0.0, "expected": 0.021091445427728613, "coords": { "engine_fuel_kind_rows": 2 } },
+            { "variable": "efk_soxCorrection", "time": 0.0, "expected": 0.0018181818181818182, "coords": { "engine_fuel_kind_rows": 3 } }
+          ]
+        },
+        {
+          "id": "an_empty_supply_join_gives_zero_not_a_default",
+          "description": "nonroad_loader.rs:1720-1726. Running 2019 resolves to fuel year 2019, which no regioncounty row of this county carries, so the scope join is empty: market share 0.0, oxygen 0.0, sulfur 0.0, and every gasoline adjustment would collapse to its temperature part alone. There is no fallback anywhere in this file because the engine has none, and a port that invented one would silently keep adjusting a run whose fuel supply it could not find.",
+          "parameter_overrides": { "runYearID": 2019.0 },
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "runspec_fuelYearID", "time": 0.0, "expected": 2019.0, "coords": { "fuel_runspec_rows": 1 } },
+            { "variable": "nft_marketShareTotal", "time": 0.0, "expected": 0.0, "coords": { "nonroad_fuel_type_rows": 1 } },
+            { "variable": "nft_oxygenWeightPercent", "time": 0.0, "expected": 0.0, "coords": { "nonroad_fuel_type_rows": 1 } },
+            { "variable": "nft_isReformulated", "time": 0.0, "expected": 0.0, "coords": { "nonroad_fuel_type_rows": 1 } },
+            { "variable": "efk_soxCorrection", "time": 0.0, "expected": 0.0, "coords": { "engine_fuel_kind_rows": 2 } }
+          ]
+        }
+      ]
+    }
+  }
+}
