@@ -120,12 +120,20 @@ ignored at the pinned toolchain and is being fixed upstream.
 
 ## A warning about zeros
 
-This toolchain's characteristic failure is returning `0` rather than raising.
-Four independent instances turned up in a single day, each on a document that
+This toolchain's characteristic failure is returning a plausible wrong value
+rather than raising. Six independent instances so far, each on a document that
 validates cleanly, with no error and no warning: a `data_sources` entry read by
 no provider; the same when the published `earthsciio` shadows the local
 checkout; an `aggregate` range symbol named `t`, which makes `join.on` match
-nothing; and `skolem`/`distinct` materializing empty.
+nothing; `skolem`/`distinct` materializing empty; an index set sized by `extent`
+discovery, which stayed at its placeholder; and `element_type: "Float32"`, which
+returns the binary64 answer.
+
+Four of the six returned `0`. One returned `NaN` — the same defect in a
+different shape, because an unbound *array* forcing reads as NaN where a scalar
+reads as zero. The last returns a number that is right to fifteen digits and
+wrong in the sixteenth, which is the hardest of all to see and changes how many
+rows exist.
 
 Zero is the worst possible sentinel here. It is a *legal* emission quantity, it
 flows through a sum without leaving a NaN to trace, and a per-pollutant
@@ -135,12 +143,28 @@ The defence is structural rather than vigilance, and is why the repo is shaped
 as it is: every inline test asserts a specific non-zero expected value rather
 than a bound, `run-oracle.sh` provides an independent implementation to
 attribute a disagreement to, and the exact key set catches the row-shaped
-version. Assume the next instance exists and has not been found.
+version. Five of the six were found by running something real and checking the
+number against an independent source, not by reading code. Assume the next
+instance exists and has not been found.
 
 ## Status
 
-Phases 0 and 1 are complete. See `PLAN.md` for the plan of record and
-`docs/findings/README.md` for what the toolchain cannot yet do — including the
-two open blockers on the first end-to-end fixture comparison: no CLI subcommand
-can load a `data_sources` entry, and a relational document cannot be written to
-a file.
+**Phases 0, 1 and 2 are complete.** Eleven components cover all seven NONROAD
+stages of `nr-logging-county`, with 590 inline assertions whose numbers each
+trace to a named line of the port specification.
+
+Both blockers on the first end-to-end fixture comparison are closed: the CLI
+now wires a data provider and `simulate --format csv` emits a relational
+document's rows. Verified against the real snapshot — 1,183 rows of a column
+sized by `extent` discovery, summing to 181564.4520000001, matching pyarrow
+exactly.
+
+One thing still stands between the chain and the 144th row:
+`domain.element_type: "Float32"` is accepted, documented, and ignored, so a
+document evaluates in binary64 and one age cohort's `modfrc` lands on the wrong
+side of the reference's skip. See "The binary64 rule" above. It is being fixed
+upstream.
+
+See `PLAN.md` for the plan of record and `docs/findings/README.md` for what the
+toolchain still cannot do — twelve open findings, and three retired because
+they were fixed.

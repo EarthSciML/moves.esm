@@ -24,7 +24,6 @@ three of them do not load.
 | **F6** | A component with only scalar variables has no assertable state | assertion | no |
 | **F7** | `esm round-trip` resolves a relative `ref` against the CWD | load | no |
 | **F8** | A layered template library does not round-trip to a self-contained form | re-load | no |
-| **F9** | A relational document evaluates but cannot be written to a file | emit | no |
 | **F11** | A relation cannot be joined to itself: two ranges over one index set | build | no |
 | **F12** | A recurrence over an index axis has no spelling | evaluation | no |
 | **F13** | `enums` merge first-wins across a mount; a colliding value is applied | — | **yes** |
@@ -496,4 +495,9 @@ traced.
 
 - **F1** — EarthSciAST `a5e8a7d94` — `rename_free_symbol` now rewrites `join.on`, `overlap.src_env`/`tgt_env` and a resolved `on_gate`'s columns after `map_children`, so a nested §4.7 mount carries a leaf's key columns. **The nested mount is available again**; this port's assemblies still use the top-level `{ref}` form the workaround forced, which works and is not worth churning, but a new assembly may use either.
 - **F4** — EarthSciAST `ee067f5b6` — rejected at load with a named diagnostic, `reserved_index_symbol`, rather than made to work: an index symbol is the author's free choice (§4.3.1), while making the binder win would invert name-first precedence at nine sites and still leave the node unable to name the independent variable at all. The convention in `docs/esm-conventions.md` §7 stands, now enforced by the toolchain.
+- **F9** — EarthSciAST `8274f0918` — `esm simulate` now branches on `is_dynamic()`:
+  a document with nothing to integrate is evaluated once and its materialized
+  fields written, with no solve. `--format csv` emits one row per index tuple,
+  which is the shape a row-by-row comparator reads. Note `i1` is an ordinal, not
+  a MOVES key — identity columns must be emitted as observeds in their own right.
 - **F10** — EarthSciAST `a1a592ecf` — `true` evaluates to 1.0, matching Python, Julia and Rust's own value-invention path; Rust's dense path was the outlier. The other nine core-but-unevaluable ops are now refused at build instead of reaching `unreachable!()`. Confirmed a class, not a case: `rank` panicked the same way.
