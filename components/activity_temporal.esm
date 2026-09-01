@@ -1,0 +1,693 @@
+{
+  "esm": "1.0.0",
+  "metadata": {
+    "name": "ActivityTemporal",
+    "description": "Stage 3 of the nr-logging-county chain: activity and its temporal allocation. Ports joins J15 and J16 of docs/nonroad-logging-county.md §3 and the arithmetic of §2.3 (daymthf.f, geography/common.rs:987-1010).\n\nTHE LADDER HERE IS NOT THE ONE STAGE 2 USED. Rates, mixes and growth walk the EQUIPMENT chain [SCC, SCC[0..7]+000, SCC[0..4]+000000]; month and day allocation walk `scc_lookup`'s ladder, which zeroes trailing digit groups of width 2, 4 and 6 (nonroad_loader.rs:839-852). The two ladders are different searches over the same key space and each table must be walked with its own — that is why lib/keys.esm carries two templates rather than one parameterized shape. This file's data makes the difference visible with REAL rows rather than decoys: nrmonthallocation holds both 2265007000 (0.0833333) and 2265000000 (0.117764), so stopping at the wrong rung inflates every emission of this fixture by 41%.\n\nTHE 7x AND THE 1/ndays ARE ONE TEMPORAL SCALE. In the engine they enter the product at different places — adjustment_time = 1/ndays inside emstmp, tpltmp2 = mthf*dayf outside — and applying the monthly factor at both is a ~2.6x error for a 31-day month (executor.rs:1513-1519). lib/conversion.esm's `temporal_scale` carries both halves so they are applied once, together.\n\nTHE DEFAULTS ARE NOT 1.0. An SCC whose ladder finds no allocation row falls back to defmth = 1/12 and defday = 1/7, not to a neutral factor (nonroad_loader.rs:2273-2288). The synthetic point at the end of the activity relation has no allocation row at any rung and is here to check exactly that.\n\nTHE MONTH IS 8. §0's warning: the RunSpec XML's month key=\"7\" is a ZERO-BASED index and the monthID is 8, which is why nrmonthallocation's month-7 rows are carried here — the join must not take them. dayID is not offset: id=\"5\" is dayID 5, and the dayID 2 rows carry a different fraction (0.083333 against 0.166667), so the day join is checked by value.\n\nAll allocation rows and equipment points are the snapshot's; the two synthetic rows are marked.",
+    "authors": ["EarthSciML Authors and Contributors"],
+    "tags": ["moves", "nonroad", "activity", "temporal", "component"]
+  },
+
+  "enums": {
+    "month": { "July": 7, "August": 8 },
+    "day_type": { "Weekend": 2, "Weekday": 5 },
+    "state": { "Michigan": 26 }
+  },
+
+  "index_sets": {
+    "activity_point_rows": { "kind": "interval", "size": 7 },
+    "month_allocation_rows": { "kind": "interval", "size": 9 },
+    "day_allocation_rows": { "kind": "interval", "size": 4 },
+    "runspec_month_rows": { "kind": "interval", "size": 1 },
+    "runspec_day_rows": { "kind": "interval", "size": 1 },
+    "allocation_state_scope_rows": { "kind": "interval", "size": 2 },
+    "allocation_runspec_state_rows": { "kind": "interval", "size": 1 },
+    "days_per_month_rows": { "kind": "interval", "size": 12 }
+  },
+
+  "coordinates": {
+    "activity_scc": {
+      "source": "act_SCC",
+      "standard_name": "source_classification_code"
+    }
+  },
+
+  "models": {
+    "ActivityTemporal": {
+      "expression_template_imports": [
+        { "ref": "../lib/identifiers.esm", "only": ["scc_zero_tail"] },
+        { "ref": "../lib/keys.esm", "only": ["scc_lookup_ladder_key", "state_default_precedence"] },
+        { "ref": "../lib/conversion.esm",
+          "only": ["annual_activity_hours", "temporal_scale", "default_month_fraction", "default_day_fraction"] }
+      ],
+
+      "tolerance": { "rel": 1e-12 },
+
+      "variables": {
+        "nationalDefaultStateID": {
+          "type": "parameter", "units": "1", "default": 0.0,
+          "description": "The stateID a national-default allocation row carries, 0 — a named parameter because an `enums` block maps to POSITIVE integers only (docs/esm-conventions.md §4)."
+        },
+
+        "act_SCC": {
+          "type": "unknown", "shape": ["activity_point_rows"],
+          "description": "nrsourceusetype.SCC, one row per equipment point. Column 1."
+        },
+        "act_hpAvg": {
+          "type": "unknown", "shape": ["activity_point_rows"],
+          "description": "nrsourceusetype.hpAvg. Column 2. Horsepower, which the unit registry has no name for, so the column is unitless and the unit lives here (docs/esm-conventions.md §11)."
+        },
+        "act_activityLevel": {
+          "type": "unknown", "shape": ["activity_point_rows"], "units": "1",
+          "description": "nrsourceusetype.hoursUsedPerYear. Column 3: the activity level in whatever unit its code names."
+        },
+        "act_activityUnitCode": {
+          "type": "unknown", "shape": ["activity_point_rows"],
+          "description": "Which unit that is. Every nonroad_loader.rs:1330-1358 activity row is HoursPerYear; the synthetic points exercise the other two branches."
+        },
+        "act_loadFactor": {
+          "type": "unknown", "shape": ["activity_point_rows"], "units": "1",
+          "description": "nrsourceusetype.loadFactor. Column 4."
+        },
+        "act_medianLifeFullLoad": {
+          "type": "unknown", "shape": ["activity_point_rows"], "units": "h",
+          "description": "nrsourceusetype.medianLifeFullLoad. Column 5, read only by the gallons branch of the activity-unit conversion."
+        },
+        "act_sccZero2": {
+          "type": "unknown", "shape": ["activity_point_rows"],
+          "description": "The lookup ladder's second rung: the SCC with its last two digits zeroed."
+        },
+        "act_sccZero4": {
+          "type": "unknown", "shape": ["activity_point_rows"],
+          "description": "Its third rung, four digits zeroed."
+        },
+
+        "mal_SCC": {
+          "type": "unknown", "shape": ["month_allocation_rows"],
+          "description": "nrmonthallocation.SCC. Column 1."
+        },
+        "mal_stateID": {
+          "type": "unknown", "shape": ["month_allocation_rows"],
+          "description": "nrmonthallocation.stateID. Column 2."
+        },
+        "mal_monthID": {
+          "type": "unknown", "shape": ["month_allocation_rows"],
+          "description": "nrmonthallocation.monthID. Column 3."
+        },
+        "mal_monthFraction": {
+          "type": "unknown", "shape": ["month_allocation_rows"], "units": "1",
+          "description": "nrmonthallocation.monthFraction. Column 4: the share of the year's activity that falls in this month."
+        },
+
+        "dal_SCC": {
+          "type": "unknown", "shape": ["day_allocation_rows"],
+          "description": "nrdayallocation.scc — lowercase in the parquet, and the casing inconsistency §3 warns about. Column 1."
+        },
+        "dal_dayID": {
+          "type": "unknown", "shape": ["day_allocation_rows"],
+          "description": "nrdayallocation.dayID. Column 2: 5 weekday, 2 weekend."
+        },
+        "dal_dayFraction": {
+          "type": "unknown", "shape": ["day_allocation_rows"], "units": "1",
+          "description": "nrdayallocation.dayFraction. Column 3: the share of a week's activity that falls on one day of this type."
+        },
+
+        "runspec_monthID": {
+          "type": "unknown", "shape": ["runspec_month_rows"],
+          "description": "runspecmonth.monthID = 8. NOT the RunSpec XML's month key, which is the zero-based index 7 (§0)."
+        },
+        "runspec_dayID": {
+          "type": "unknown", "shape": ["runspec_day_rows"],
+          "description": "The RunSpec's dayID = 5. This one is not offset."
+        },
+        "allocation_scope_stateID": {
+          "type": "unknown", "shape": ["allocation_state_scope_rows"],
+          "description": "The two states an allocation lookup may see: the run's, and the national default."
+        },
+        "allocation_runspec_stateID": {
+          "type": "unknown", "shape": ["allocation_runspec_state_rows"],
+          "description": "The run's state alone, for the precedence semi-join."
+        },
+        "dpm_monthID": {
+          "type": "unknown", "shape": ["days_per_month_rows"],
+          "description": "Month number, 1-12. Column 1 of the days-per-month table (nonroad_loader.rs:2202-2209)."
+        },
+        "dpm_daysInMonth": {
+          "type": "unknown", "shape": ["days_per_month_rows"], "units": "1",
+          "description": "Days in that month, non-leap. Column 2."
+        },
+
+        "act_monthExactIsPresent": {
+          "type": "unknown", "shape": ["activity_point_rows"], "units": "1",
+          "description": "Semi-join: does nrmonthallocation carry this exact SCC for the run month, at either state?"
+        },
+        "act_monthZero2IsPresent": {
+          "type": "unknown", "shape": ["activity_point_rows"], "units": "1",
+          "description": "The same for the ladder's second rung."
+        },
+        "act_monthZero4IsPresent": {
+          "type": "unknown", "shape": ["activity_point_rows"], "units": "1",
+          "description": "And its third."
+        },
+        "act_monthEffectiveSCC": {
+          "type": "unknown", "shape": ["activity_point_rows"],
+          "description": "The month table's effective key for this point. Distinct from the growth table's, which walks the other ladder over the same SCC."
+        },
+        "act_monthRunStateRowIsPresent": {
+          "type": "unknown", "shape": ["activity_point_rows"], "units": "1",
+          "description": "Semi-join for the state precedence, at the effective SCC."
+        },
+        "act_monthEffectiveStateID": {
+          "type": "unknown", "shape": ["activity_point_rows"],
+          "description": "26 where Michigan has a row, 0 where only the national default does."
+        },
+        "act_monthRowIsPresent": {
+          "type": "unknown", "shape": ["activity_point_rows"], "units": "1",
+          "description": "Whether the ladder found anything at all. Zero means defmth applies."
+        },
+        "act_matchedMonthFraction": {
+          "type": "unknown", "shape": ["activity_point_rows"], "units": "1",
+          "description": "The fraction the join produced, before the default is considered."
+        },
+        "act_monthFraction": {
+          "type": "unknown", "shape": ["activity_point_rows"], "units": "1",
+          "description": "mthf: the matched fraction, or defmth = 1/12 where the ladder found nothing."
+        },
+
+        "act_dayExactIsPresent": {
+          "type": "unknown", "shape": ["activity_point_rows"], "units": "1",
+          "description": "The same three presence questions against nrdayallocation, which keys at its own granularity — this is the independent second search §2.3 insists on."
+        },
+        "act_dayZero2IsPresent": {
+          "type": "unknown", "shape": ["activity_point_rows"], "units": "1",
+          "description": "Second rung."
+        },
+        "act_dayZero4IsPresent": {
+          "type": "unknown", "shape": ["activity_point_rows"], "units": "1",
+          "description": "Third rung."
+        },
+        "act_dayEffectiveSCC": {
+          "type": "unknown", "shape": ["activity_point_rows"],
+          "description": "The day table's effective key."
+        },
+        "act_dayRowIsPresent": {
+          "type": "unknown", "shape": ["activity_point_rows"], "units": "1",
+          "description": "Whether the day ladder found anything. nrdayallocation has no state column, so there is no precedence step here."
+        },
+        "act_matchedDayFraction": {
+          "type": "unknown", "shape": ["activity_point_rows"], "units": "1",
+          "description": "The matched day fraction."
+        },
+        "act_dayFraction": {
+          "type": "unknown", "shape": ["activity_point_rows"], "units": "1",
+          "description": "The day fraction, or defday = 1/7."
+        },
+
+        "act_annualHours": {
+          "type": "unknown", "shape": ["activity_point_rows"], "units": "1",
+          "description": "acttmp: the activity level converted to annual hours by its unit code (modyr.rs:78-88). This is the `activity_adjustment` factor of the §2.6(b) roll-up."
+        },
+        "act_temporalScale": {
+          "type": "unknown", "shape": ["activity_point_rows"], "units": "1",
+          "description": "mthf x 7 x dayFraction / daysInMonth: the whole temporal scaling of an annual quantity down to one typical day of the run's month and day type."
+        },
+
+        "daysInRunMonth": {
+          "type": "unknown", "units": "1",
+          "description": "ndays for the run's month, read from the days-per-month table rather than written as 31."
+        }
+      },
+
+      "equations": [
+        {
+          "_comment": "The fixture's six equipment points, from nrsourceusetype, plus one synthetic point: an SCC with no allocation row at any rung and an hours-per-DAY activity code, which is the only row in this file that reaches the defaults or the second activity-unit branch.",
+          "lhs": "act_SCC",
+          "rhs": { "op": "const", "args": [],
+            "value": [2260007005, 2265007010, 2265007010, 2265007010, 2265007015, 2265007015, 2267001010] }
+        },
+        {
+          "lhs": "act_hpAvg",
+          "rhs": { "op": "const", "args": [], "value": [6.81, 8.117, 12.62, 20.56, 5.5, 9.0, 40.0] }
+        },
+        {
+          "lhs": "act_activityLevel",
+          "rhs": { "op": "const", "args": [], "value": [303.0, 50.0, 50.0, 50.0, 350.0, 350.0, 2.0] }
+        },
+        {
+          "lhs": "act_activityUnitCode",
+          "rhs": { "op": "makearray", "args": [],
+            "regions": [[[1, 6]], [[7, 7]]],
+            "values": [
+              { "op": "apply_expression_template", "args": [], "name": "activity_unit_hours_per_year", "bindings": {} },
+              { "op": "apply_expression_template", "args": [], "name": "activity_unit_hours_per_day", "bindings": {} }
+            ] }
+        },
+        {
+          "lhs": "act_loadFactor",
+          "rhs": { "op": "const", "args": [], "value": [0.7, 0.8, 0.8, 0.8, 0.7, 0.7, 0.6] }
+        },
+        {
+          "lhs": "act_medianLifeFullLoad",
+          "rhs": { "op": "const", "args": [], "value": [191.0, 400.0, 400.0, 750.0, 200.0, 400.0, 500.0] }
+        },
+        {
+          "lhs": "act_sccZero2",
+          "rhs": { "op": "aggregate", "args": [], "output_idx": ["e"],
+            "ranges": { "e": { "from": "activity_point_rows" } },
+            "expr": { "op": "apply_expression_template", "args": [], "name": "scc_zero_tail",
+              "bindings": { "scc": { "op": "index", "args": ["act_SCC", "e"] }, "tail_scale": 100 } } }
+        },
+        {
+          "lhs": "act_sccZero4",
+          "rhs": { "op": "aggregate", "args": [], "output_idx": ["e"],
+            "ranges": { "e": { "from": "activity_point_rows" } },
+            "expr": { "op": "apply_expression_template", "args": [], "name": "scc_zero_tail",
+              "bindings": { "scc": { "op": "index", "args": ["act_SCC", "e"] }, "tail_scale": 10000 } } }
+        },
+
+        {
+          "_comment": "nrmonthallocation, the eight snapshot rows for these SCC keys at months 7 and 8, plus one synthetic national-default row carrying a different fraction so that state precedence is checked by value. The 2265000000 and 2260000000 rows are real and are what make the ladder's stopping rung matter: 0.117764 against 0.0833333.",
+          "lhs": "mal_SCC",
+          "rhs": { "op": "const", "args": [],
+            "value": [2260000000, 2260000000, 2260007000, 2260007000,
+                      2265000000, 2265000000, 2265007000, 2265007000,
+                      2265007000] }
+        },
+        {
+          "lhs": "mal_stateID",
+          "rhs": { "op": "makearray", "args": [],
+            "regions": [[[1, 8]], [[9, 9]]],
+            "values": [
+              { "op": "enum", "args": ["state", "Michigan"] },
+              "nationalDefaultStateID"
+            ] }
+        },
+        {
+          "lhs": "mal_monthID",
+          "rhs": { "op": "makearray", "args": [],
+            "regions": [[[1, 1]], [[2, 2]], [[3, 3]], [[4, 4]],
+                        [[5, 5]], [[6, 6]], [[7, 7]], [[8, 9]]],
+            "values": [
+              { "op": "enum", "args": ["month", "July"] },
+              { "op": "enum", "args": ["month", "August"] },
+              { "op": "enum", "args": ["month", "July"] },
+              { "op": "enum", "args": ["month", "August"] },
+              { "op": "enum", "args": ["month", "July"] },
+              { "op": "enum", "args": ["month", "August"] },
+              { "op": "enum", "args": ["month", "July"] },
+              { "op": "enum", "args": ["month", "August"] }
+            ] }
+        },
+        {
+          "lhs": "mal_monthFraction",
+          "rhs": { "op": "const", "args": [],
+            "value": [0.117764, 0.117764, 0.0833333, 0.0833333,
+                      0.117764, 0.117764, 0.0833333, 0.0833333,
+                      0.25] }
+        },
+
+        {
+          "_comment": "nrdayallocation, all four snapshot rows for these keys. The dayID 2 rows are real and carry half the weekday fraction, so a join that ignored dayID would halve the answer.",
+          "lhs": "dal_SCC",
+          "rhs": { "op": "const", "args": [],
+            "value": [2260007000, 2260007000, 2265007000, 2265007000] }
+        },
+        {
+          "lhs": "dal_dayID",
+          "rhs": { "op": "makearray", "args": [],
+            "regions": [[[1, 1]], [[2, 2]], [[3, 3]], [[4, 4]]],
+            "values": [
+              { "op": "enum", "args": ["day_type", "Weekend"] },
+              { "op": "enum", "args": ["day_type", "Weekday"] },
+              { "op": "enum", "args": ["day_type", "Weekend"] },
+              { "op": "enum", "args": ["day_type", "Weekday"] }
+            ] }
+        },
+        {
+          "lhs": "dal_dayFraction",
+          "rhs": { "op": "const", "args": [], "value": [0.083333, 0.166667, 0.083333, 0.166667] }
+        },
+
+        {
+          "lhs": "runspec_monthID",
+          "rhs": { "op": "makearray", "args": [], "regions": [[[1, 1]]],
+            "values": [{ "op": "enum", "args": ["month", "August"] }] }
+        },
+        {
+          "lhs": "runspec_dayID",
+          "rhs": { "op": "makearray", "args": [], "regions": [[[1, 1]]],
+            "values": [{ "op": "enum", "args": ["day_type", "Weekday"] }] }
+        },
+        {
+          "lhs": "allocation_scope_stateID",
+          "rhs": { "op": "makearray", "args": [], "regions": [[[1, 1]], [[2, 2]]],
+            "values": [{ "op": "enum", "args": ["state", "Michigan"] }, "nationalDefaultStateID"] }
+        },
+        {
+          "lhs": "allocation_runspec_stateID",
+          "rhs": { "op": "makearray", "args": [], "regions": [[[1, 1]]],
+            "values": [{ "op": "enum", "args": ["state", "Michigan"] }] }
+        },
+        {
+          "lhs": "dpm_monthID",
+          "rhs": { "op": "const", "args": [], "value": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] }
+        },
+        {
+          "lhs": "dpm_daysInMonth",
+          "rhs": { "op": "const", "args": [], "value": [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31] }
+        },
+
+        {
+          "_comment": "The month ladder's three presence questions. Each is scoped by the run month and the two visible states, because the ladder searches within that scope — a rung that exists only for another month is not a match.",
+          "lhs": "act_monthExactIsPresent",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "bool_and_or", "output_idx": ["e"],
+            "ranges": { "e": { "from": "activity_point_rows" }, "m": { "from": "month_allocation_rows" },
+                        "u": { "from": "runspec_month_rows" }, "c": { "from": "allocation_state_scope_rows" } },
+            "join": [
+              { "on": [["act_SCC", "mal_SCC"]] },
+              { "on": [["mal_monthID", "runspec_monthID"]] },
+              { "on": [["mal_stateID", "allocation_scope_stateID"]] }
+            ],
+            "expr": 1.0
+          }
+        },
+        {
+          "lhs": "act_monthZero2IsPresent",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "bool_and_or", "output_idx": ["e"],
+            "ranges": { "e": { "from": "activity_point_rows" }, "m": { "from": "month_allocation_rows" },
+                        "u": { "from": "runspec_month_rows" }, "c": { "from": "allocation_state_scope_rows" } },
+            "join": [
+              { "on": [["act_sccZero2", "mal_SCC"]] },
+              { "on": [["mal_monthID", "runspec_monthID"]] },
+              { "on": [["mal_stateID", "allocation_scope_stateID"]] }
+            ],
+            "expr": 1.0
+          }
+        },
+        {
+          "lhs": "act_monthZero4IsPresent",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "bool_and_or", "output_idx": ["e"],
+            "ranges": { "e": { "from": "activity_point_rows" }, "m": { "from": "month_allocation_rows" },
+                        "u": { "from": "runspec_month_rows" }, "c": { "from": "allocation_state_scope_rows" } },
+            "join": [
+              { "on": [["act_sccZero4", "mal_SCC"]] },
+              { "on": [["mal_monthID", "runspec_monthID"]] },
+              { "on": [["mal_stateID", "allocation_scope_stateID"]] }
+            ],
+            "expr": 1.0
+          }
+        },
+        {
+          "lhs": "act_monthEffectiveSCC",
+          "rhs": {
+            "op": "aggregate", "args": [], "output_idx": ["e"],
+            "ranges": { "e": { "from": "activity_point_rows" } },
+            "expr": {
+              "op": "apply_expression_template", "args": [], "name": "scc_lookup_ladder_key",
+              "bindings": {
+                "scc": { "op": "index", "args": ["act_SCC", "e"] },
+                "has_exact": { "op": ">", "args": [{ "op": "index", "args": ["act_monthExactIsPresent", "e"] }, 0.0] },
+                "has_zero2": { "op": ">", "args": [{ "op": "index", "args": ["act_monthZero2IsPresent", "e"] }, 0.0] },
+                "has_zero4": { "op": ">", "args": [{ "op": "index", "args": ["act_monthZero4IsPresent", "e"] }, 0.0] }
+              }
+            }
+          }
+        },
+        {
+          "lhs": "act_monthRunStateRowIsPresent",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "bool_and_or", "output_idx": ["e"],
+            "ranges": { "e": { "from": "activity_point_rows" }, "m": { "from": "month_allocation_rows" },
+                        "u": { "from": "runspec_month_rows" }, "r": { "from": "allocation_runspec_state_rows" } },
+            "join": [
+              { "on": [["act_monthEffectiveSCC", "mal_SCC"]] },
+              { "on": [["mal_monthID", "runspec_monthID"]] },
+              { "on": [["mal_stateID", "allocation_runspec_stateID"]] }
+            ],
+            "expr": 1.0
+          }
+        },
+        {
+          "lhs": "act_monthEffectiveStateID",
+          "rhs": {
+            "op": "aggregate", "args": [], "output_idx": ["e"],
+            "ranges": { "e": { "from": "activity_point_rows" } },
+            "expr": {
+              "op": "apply_expression_template", "args": [], "name": "state_default_precedence",
+              "bindings": {
+                "has_state_row": { "op": ">", "args": [{ "op": "index", "args": ["act_monthRunStateRowIsPresent", "e"] }, 0.0] },
+                "state_id": { "op": "enum", "args": ["state", "Michigan"] },
+                "default_state_id": "nationalDefaultStateID"
+              }
+            }
+          }
+        },
+        {
+          "lhs": "act_monthRowIsPresent",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "bool_and_or", "output_idx": ["e"],
+            "ranges": { "e": { "from": "activity_point_rows" }, "m": { "from": "month_allocation_rows" },
+                        "u": { "from": "runspec_month_rows" } },
+            "join": [
+              { "on": [["act_monthEffectiveSCC", "mal_SCC"], ["act_monthEffectiveStateID", "mal_stateID"]] },
+              { "on": [["mal_monthID", "runspec_monthID"]] }
+            ],
+            "expr": 1.0
+          }
+        },
+        {
+          "_comment": "J15, now a plain three-column equi-join.",
+          "lhs": "act_matchedMonthFraction",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["e"],
+            "ranges": { "e": { "from": "activity_point_rows" }, "m": { "from": "month_allocation_rows" },
+                        "u": { "from": "runspec_month_rows" } },
+            "join": [
+              { "on": [["act_monthEffectiveSCC", "mal_SCC"], ["act_monthEffectiveStateID", "mal_stateID"]] },
+              { "on": [["mal_monthID", "runspec_monthID"]] }
+            ],
+            "expr": { "op": "index", "args": ["mal_monthFraction", "m"] }
+          }
+        },
+        {
+          "lhs": "act_monthFraction",
+          "rhs": {
+            "op": "aggregate", "args": [], "output_idx": ["e"],
+            "ranges": { "e": { "from": "activity_point_rows" } },
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                { "op": ">", "args": [{ "op": "index", "args": ["act_monthRowIsPresent", "e"] }, 0.0] },
+                { "op": "index", "args": ["act_matchedMonthFraction", "e"] },
+                { "op": "apply_expression_template", "args": [], "name": "default_month_fraction", "bindings": {} }
+              ]
+            }
+          }
+        },
+
+        {
+          "_comment": "J16. The same ladder walked again over a DIFFERENT table, which is the point of §2.3's `two independent SCC fallback searches`: merging them would pin one dimension to the other's rung.",
+          "lhs": "act_dayExactIsPresent",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "bool_and_or", "output_idx": ["e"],
+            "ranges": { "e": { "from": "activity_point_rows" }, "d": { "from": "day_allocation_rows" },
+                        "w": { "from": "runspec_day_rows" } },
+            "join": [
+              { "on": [["act_SCC", "dal_SCC"]] },
+              { "on": [["dal_dayID", "runspec_dayID"]] }
+            ],
+            "expr": 1.0
+          }
+        },
+        {
+          "lhs": "act_dayZero2IsPresent",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "bool_and_or", "output_idx": ["e"],
+            "ranges": { "e": { "from": "activity_point_rows" }, "d": { "from": "day_allocation_rows" },
+                        "w": { "from": "runspec_day_rows" } },
+            "join": [
+              { "on": [["act_sccZero2", "dal_SCC"]] },
+              { "on": [["dal_dayID", "runspec_dayID"]] }
+            ],
+            "expr": 1.0
+          }
+        },
+        {
+          "lhs": "act_dayZero4IsPresent",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "bool_and_or", "output_idx": ["e"],
+            "ranges": { "e": { "from": "activity_point_rows" }, "d": { "from": "day_allocation_rows" },
+                        "w": { "from": "runspec_day_rows" } },
+            "join": [
+              { "on": [["act_sccZero4", "dal_SCC"]] },
+              { "on": [["dal_dayID", "runspec_dayID"]] }
+            ],
+            "expr": 1.0
+          }
+        },
+        {
+          "lhs": "act_dayEffectiveSCC",
+          "rhs": {
+            "op": "aggregate", "args": [], "output_idx": ["e"],
+            "ranges": { "e": { "from": "activity_point_rows" } },
+            "expr": {
+              "op": "apply_expression_template", "args": [], "name": "scc_lookup_ladder_key",
+              "bindings": {
+                "scc": { "op": "index", "args": ["act_SCC", "e"] },
+                "has_exact": { "op": ">", "args": [{ "op": "index", "args": ["act_dayExactIsPresent", "e"] }, 0.0] },
+                "has_zero2": { "op": ">", "args": [{ "op": "index", "args": ["act_dayZero2IsPresent", "e"] }, 0.0] },
+                "has_zero4": { "op": ">", "args": [{ "op": "index", "args": ["act_dayZero4IsPresent", "e"] }, 0.0] }
+              }
+            }
+          }
+        },
+        {
+          "lhs": "act_dayRowIsPresent",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "bool_and_or", "output_idx": ["e"],
+            "ranges": { "e": { "from": "activity_point_rows" }, "d": { "from": "day_allocation_rows" },
+                        "w": { "from": "runspec_day_rows" } },
+            "join": [
+              { "on": [["act_dayEffectiveSCC", "dal_SCC"]] },
+              { "on": [["dal_dayID", "runspec_dayID"]] }
+            ],
+            "expr": 1.0
+          }
+        },
+        {
+          "lhs": "act_matchedDayFraction",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["e"],
+            "ranges": { "e": { "from": "activity_point_rows" }, "d": { "from": "day_allocation_rows" },
+                        "w": { "from": "runspec_day_rows" } },
+            "join": [
+              { "on": [["act_dayEffectiveSCC", "dal_SCC"]] },
+              { "on": [["dal_dayID", "runspec_dayID"]] }
+            ],
+            "expr": { "op": "index", "args": ["dal_dayFraction", "d"] }
+          }
+        },
+        {
+          "lhs": "act_dayFraction",
+          "rhs": {
+            "op": "aggregate", "args": [], "output_idx": ["e"],
+            "ranges": { "e": { "from": "activity_point_rows" } },
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                { "op": ">", "args": [{ "op": "index", "args": ["act_dayRowIsPresent", "e"] }, 0.0] },
+                { "op": "index", "args": ["act_matchedDayFraction", "e"] },
+                { "op": "apply_expression_template", "args": [], "name": "default_day_fraction", "bindings": {} }
+              ]
+            }
+          }
+        },
+
+        {
+          "lhs": "daysInRunMonth",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": [],
+            "ranges": { "n": { "from": "days_per_month_rows" }, "u": { "from": "runspec_month_rows" } },
+            "join": [ { "on": [["dpm_monthID", "runspec_monthID"]] } ],
+            "expr": { "op": "index", "args": ["dpm_daysInMonth", "n"] }
+          }
+        },
+        {
+          "lhs": "act_annualHours",
+          "rhs": {
+            "op": "aggregate", "args": [], "output_idx": ["e"],
+            "ranges": { "e": { "from": "activity_point_rows" } },
+            "expr": {
+              "op": "apply_expression_template", "args": [], "name": "annual_activity_hours",
+              "bindings": {
+                "activity_level": { "op": "index", "args": ["act_activityLevel", "e"] },
+                "activity_unit_code": { "op": "index", "args": ["act_activityUnitCode", "e"] },
+                "median_life_full_load": { "op": "index", "args": ["act_medianLifeFullLoad", "e"] }
+              }
+            }
+          }
+        },
+        {
+          "lhs": "act_temporalScale",
+          "rhs": {
+            "op": "aggregate", "args": [], "output_idx": ["e"],
+            "ranges": { "e": { "from": "activity_point_rows" } },
+            "expr": {
+              "op": "apply_expression_template", "args": [], "name": "temporal_scale",
+              "bindings": {
+                "month_fraction": { "op": "index", "args": ["act_monthFraction", "e"] },
+                "day_fraction": { "op": "index", "args": ["act_dayFraction", "e"] },
+                "days_in_month": "daysInRunMonth"
+              }
+            }
+          }
+        }
+      ],
+
+      "tests": [
+        {
+          "id": "the_lookup_ladder_stops_at_the_right_rung",
+          "description": "docs/nonroad-logging-county.md §6.0: all three real SCCs match at the 8-digit rung, 2260007000 or 2265007000, with monthFraction 0.0833333. The 6-digit rows are REAL and carry 0.117764, so a ladder that walked one rung too far would inflate every emission of this fixture by 41%. The synthetic 2267001010 point has no row at any rung and falls to defmth.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "act_monthEffectiveSCC", "time": 0.0, "expected": 2260007000.0, "coords": { "activity_point_rows": 1 } },
+            { "variable": "act_monthEffectiveSCC", "time": 0.0, "expected": 2265007000.0, "coords": { "activity_point_rows": 2 } },
+            { "variable": "act_monthFraction", "time": 0.0, "expected": 0.0833333, "coords": { "activity_point_rows": 1 } },
+            { "variable": "act_monthFraction", "time": 0.0, "expected": 0.0833333, "coords": { "activity_point_rows": 5 } }
+          ]
+        },
+        {
+          "id": "the_day_search_is_independent_of_the_month_search",
+          "description": "§2.3: the two tables key at different granularities and each is searched with its own ladder. dayFraction is 0.166667 for dayID 5 and 0.083333 for dayID 2, so joining on the wrong dayID halves the answer; the weekend rows are real.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "act_dayEffectiveSCC", "time": 0.0, "expected": 2265007000.0, "coords": { "activity_point_rows": 3 } },
+            { "variable": "act_dayFraction", "time": 0.0, "expected": 0.166667, "coords": { "activity_point_rows": 1 } },
+            { "variable": "act_dayFraction", "time": 0.0, "expected": 0.166667, "coords": { "activity_point_rows": 6 } }
+          ]
+        },
+        {
+          "id": "a_state_row_beats_the_national_default_here_too",
+          "description": "§4.6 again, on the allocation table this time. Key 2265007000 has both a Michigan row (0.0833333) and a synthetic national-default row (0.25); reading the default would triple the month's activity.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "act_monthEffectiveStateID", "time": 0.0, "expected": 26.0, "coords": { "activity_point_rows": 2 } },
+            { "variable": "act_matchedMonthFraction", "time": 0.0, "expected": 0.0833333, "coords": { "activity_point_rows": 2 } }
+          ]
+        },
+        {
+          "id": "the_missing_row_falls_back_to_one_twelfth_not_to_one",
+          "description": "nonroad_loader.rs:2273-2288. defmth = 1/12 and defday = 1/7, not a neutral 1.0 — a port that defaulted to 1.0 would put a whole year of activity into one typical day, a factor of 84 on that SCC.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "act_monthRowIsPresent", "time": 0.0, "expected": 0.0, "coords": { "activity_point_rows": 7 } },
+            { "variable": "act_monthFraction", "time": 0.0, "expected": 0.08333333333333333, "coords": { "activity_point_rows": 7 } },
+            { "variable": "act_dayFraction", "time": 0.0, "expected": 0.14285714285714285, "coords": { "activity_point_rows": 7 } }
+          ]
+        },
+        {
+          "id": "the_temporal_scale_matches_the_worked_example",
+          "description": "docs/nonroad-logging-county.md §6.0: tpltmp = 0.0833333 x (7 x 0.166667) = 0.09722238 and the combined scale tpltmp/31 = 0.0031362057347645. August's 31 days come from the days-per-month table, joined on the run month, not written down. Applying the monthly factor at both places instead would be a 2.6x error (executor.rs:1513-1519).",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "daysInRunMonth", "time": 0.0, "expected": 31.0 },
+            { "variable": "act_temporalScale", "time": 0.0, "expected": 0.0031362057347645166, "coords": { "activity_point_rows": 1 } },
+            { "variable": "act_temporalScale", "time": 0.0, "expected": 0.0031362057347645166, "coords": { "activity_point_rows": 6 } }
+          ]
+        },
+        {
+          "id": "the_activity_unit_code_selects_the_conversion",
+          "description": "modyr.rs:78-88. Every real point is HoursPerYear and passes through at 303, 50 or 350 hours; the synthetic point is HoursPerDay and becomes 2 x 365 = 730. Reading the code as hours-per-year for a per-day row would understate that equipment by 365x.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "act_annualHours", "time": 0.0, "expected": 303.0, "coords": { "activity_point_rows": 1 } },
+            { "variable": "act_annualHours", "time": 0.0, "expected": 50.0, "coords": { "activity_point_rows": 2 } },
+            { "variable": "act_annualHours", "time": 0.0, "expected": 730.0, "coords": { "activity_point_rows": 7 } }
+          ]
+        }
+      ]
+    }
+  }
+}

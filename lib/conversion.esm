@@ -2,27 +2,55 @@
   "esm": "1.0.0",
   "metadata": {
     "name": "moves.conversion",
-    "description": "Template library: the two conversions that stand between an emission FACTOR and an emission MASS — docs/nonroad-logging-county.md §4.4 (`unit_conversion`, unitcf.f) and §4.7 (`temporal_scale`). `unit_conversion` selects on an activity-unit code; only the g/hp-hr branch fires in nr-logging-county, but the other NONROAD sectors use g/gallon and g/day, so the whole shape belongs here rather than being inlined at the one site that needs it today. The codes are zero-parameter constant-fragment templates (esm-spec §9.6.1) rather than an `enums` block, because an `enums` block is file-local and does not cross an import edge (docs/esm-conventions.md §6, finding F3). `temporal_scale` carries a trap worth naming: the 7x and the 1/ndays enter the engine's product SEPARATELY (adjustment_time = 1/ndays inside emstmp, tpltmp2 = mthf*dayf outside), and combining them wrongly double-applies the monthly factor — a ~2.6x error for a 31-day month, spelled out at moves.rs executor.rs:1513-1519. They are one template here so that they are applied once, together, in one place.",
+    "description": "Template library: the two conversions that stand between an emission FACTOR and an emission MASS — docs/nonroad-logging-county.md §4.4 (`unit_conversion`, unitcf.f) and §4.7 (`temporal_scale`). `unit_conversion` selects on an activity-unit code; only the g/hp-hr branch fires in nr-logging-county, but the other NONROAD sectors use g/gallon and g/day, so the whole shape belongs here rather than being inlined at the one site that needs it today. The codes are zero-parameter constant-fragment templates (esm-spec §9.6.1) rather than an `enums` block, because an `enums` block is file-local and does not cross an import edge (docs/esm-conventions.md §6, finding F3). `temporal_scale` carries a trap worth naming: the 7x and the 1/ndays enter the engine's product SEPARATELY (adjustment_time = 1/ndays inside emstmp, tpltmp2 = mthf*dayf outside), and combining them wrongly double-applies the monthly factor — a ~2.6x error for a 31-day month, spelled out at moves.rs executor.rs:1513-1519. They are one template here so that they are applied once, together, in one place. `annual_activity_hours` is modyr.rs:78-88's acttmp, which converts an activity level to annual hours according to its ACTIVITY-unit code: hours-per-year passes through, hours-per-day multiplies by 365, and either gallons code becomes 1/(2*uselif). Note the two code sets this file carries are different namespaces -- an EMISSION-rate unit (g/hp-hr, g/gallon) is what unitcf.f selects on, an ACTIVITY unit (hours or gallons, per year or per day) is what modyr.f selects on, and the g/gallon branch of unit_conversion reads BOTH. `default_month_fraction` and `default_day_fraction` are canonical's defmth = 1/12 and defday = 1/7 (nonroad_loader.rs:2273-2288): the fallbacks when an SCC's ladder finds no allocation row at all, and NOT a neutral 1.0.",
     "authors": ["EarthSciML Authors and Contributors"],
     "tags": ["moves", "nonroad", "units", "temporal", "template-library"]
   },
   "expression_templates": {
-    "activity_unit_g_per_hp_hr": { "params": [], "body": 1 },
-    "activity_unit_g_per_gallon": { "params": [], "body": 2 },
+    "emission_unit_g_per_hp_hr": { "params": [], "body": 1 },
+    "emission_unit_g_per_gallon": { "params": [], "body": 2 },
+    "activity_unit_hours_per_year": { "params": [], "body": 1 },
+    "activity_unit_hours_per_day": { "params": [], "body": 2 },
+    "activity_unit_gallons_per_year": { "params": [], "body": 3 },
+    "activity_unit_gallons_per_day": { "params": [], "body": 4 },
     "days_per_week": { "params": [], "body": 7.0 },
+    "days_per_year": { "params": [], "body": 365.0 },
+    "default_month_fraction": { "params": [], "body": { "op": "/", "args": [1.0, 12.0] } },
+    "default_day_fraction": { "params": [], "body": { "op": "/", "args": [1.0, 7.0] } },
+    "annual_activity_hours": {
+      "params": ["activity_level", "activity_unit_code", "median_life_full_load"],
+      "body": {
+        "op": "ifelse",
+        "args": [
+          { "op": "==", "args": ["activity_unit_code",
+            { "op": "apply_expression_template", "args": [], "name": "activity_unit_hours_per_year", "bindings": {} }] },
+          "activity_level",
+          {
+            "op": "ifelse",
+            "args": [
+              { "op": "==", "args": ["activity_unit_code",
+                { "op": "apply_expression_template", "args": [], "name": "activity_unit_hours_per_day", "bindings": {} }] },
+              { "op": "*", "args": ["activity_level",
+                { "op": "apply_expression_template", "args": [], "name": "days_per_year", "bindings": {} }] },
+              { "op": "/", "args": [1.0, { "op": "*", "args": [2.0, "median_life_full_load"] }] }
+            ]
+          }
+        ]
+      }
+    },
     "unit_conversion": {
       "params": ["unit_code", "hp_avg", "load_factor", "activity_is_volumetric", "fuel_density", "bsfc"],
       "body": {
         "op": "ifelse",
         "args": [
           { "op": "==", "args": ["unit_code",
-            { "op": "apply_expression_template", "args": [], "name": "activity_unit_g_per_hp_hr", "bindings": {} }] },
+            { "op": "apply_expression_template", "args": [], "name": "emission_unit_g_per_hp_hr", "bindings": {} }] },
           { "op": "*", "args": ["hp_avg", "load_factor"] },
           {
             "op": "ifelse",
             "args": [
               { "op": "==", "args": ["unit_code",
-                { "op": "apply_expression_template", "args": [], "name": "activity_unit_g_per_gallon", "bindings": {} }] },
+                { "op": "apply_expression_template", "args": [], "name": "emission_unit_g_per_gallon", "bindings": {} }] },
               {
                 "op": "ifelse",
                 "args": [
