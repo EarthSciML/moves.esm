@@ -40,9 +40,28 @@ import re
 import sys
 
 HERE = pathlib.Path(__file__).resolve().parent.parent
-SNAPSHOTS = pathlib.Path(
-    os.environ.get("SNAPSHOTS", HERE.parent / "moves.rs" / "characterization" / "snapshots")
-)
+
+
+def _find_snapshots() -> pathlib.Path:
+    """Locate the moves.rs snapshots by searching UPWARD, not by counting.
+
+    `HERE.parent / "moves.rs"` is right from the canonical checkout and wrong
+    from a git worktree under `.moves/`, where it resolves one level too deep.
+    The failure was silent -- the stage reported "skip: no snapshots" and went
+    green while checking nothing, which is the same shape as the bug this file
+    exists to catch, and as one already fixed in EarthSciIO's test helpers.
+    """
+    env = os.environ.get("SNAPSHOTS")
+    if env:
+        return pathlib.Path(env)
+    for parent in [HERE, *HERE.parents]:
+        cand = parent / "moves.rs" / "characterization" / "snapshots"
+        if cand.is_dir():
+            return cand
+    return HERE.parent / "moves.rs" / "characterization" / "snapshots"
+
+
+SNAPSHOTS = _find_snapshots()
 
 # A column whose values look like "12.340000000000" -- a decimal rendered as
 # text. Integer-looking text (an ID column stored as a string) is deliberately

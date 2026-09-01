@@ -29,16 +29,33 @@
 #
 # The surviving 140 cells still agree to 6.9e-6 and per-pollutant sums to
 # 2.6e-6. So the divergence is not a magnitude problem that a looser tolerance
-# could absorb; it is a STRUCTURAL one, and only the exact-key-set check sees
-# it. Hence the rule in tolerance.toml: the `.esm` must emit every key its
-# joins produce and let the value be whatever it computes, rather than
-# reproducing Fortran's row suppression.
+# could absorb; it is a STRUCTURAL one, and only the exact-key-set check sees it.
+#
+# The rule that follows is NOT "stop reproducing the skip" -- an earlier version
+# of this comment said that and it was wrong. Measured: `modfrc < 0` and no skip
+# at all both give 188 rows, in BOTH precisions, because 44 age cohorts have
+# modfrc exactly zero. The skip is load-bearing. Only ONE cohort is borderline,
+# and it is indistinguishable in-document from those 44. The four rows are
+# recovered by evaluating in f32, which is why `domain.element_type: "Float32"`
+# has to be honoured (PLAN.md 1.6.2). Keep the `modfrc <= 0` skip as written.
 
 set -uo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")"
 
 SPEC="docs/nonroad-logging-county.md"
-SNAPSHOTS="${SNAPSHOTS:-../moves.rs/characterization/snapshots}"
+# Locate the snapshots by searching UPWARD rather than by a fixed `../`, which
+# is right from the canonical checkout and one level too deep from a git
+# worktree under `.moves/`. Same fix as tools/check-sources.py.
+if [[ -z "${SNAPSHOTS:-}" ]]; then
+  d="$PWD"
+  while [[ "$d" != / ]]; do
+    if [[ -d "$d/moves.rs/characterization/snapshots" ]]; then
+      SNAPSHOTS="$d/moves.rs/characterization/snapshots"; break
+    fi
+    d="$(dirname "$d")"
+  done
+  SNAPSHOTS="${SNAPSHOTS:-../moves.rs/characterization/snapshots}"
+fi
 FIXTURE="nr-logging-county"
 PYTHON="${PYTHON:-python3}"
 
