@@ -300,17 +300,54 @@ distribution carries that 5.96 × 10⁻⁸ through 30 iterations, and a
 come out at worst **2.6 × 10⁻⁶** relative — three orders inside the 1 × 10⁻²
 NONROAD tolerance, and inside a per-cell 2 × 10⁻⁵ as well.
 
-**But it breaks the structural check, and that decides a modelling rule.** In
-the binary64 run the four keys are *absent*, not zero — the Fortran skip
-suppresses the row. Against `require_exact_key_set = true` that is a failure.
-The resolution is not to loosen the check: it is that **the `.esm` must not
-reproduce `modfrc <= 0` as row suppression.** A relational document emits every
-key combination its joins produce and lets the value be whatever it computes;
-the skip is Fortran control flow, not model semantics. Emit the row, emit the
-zero, and the key set matches exactly while the sums gate passes at 2.6 × 10⁻⁶.
+**But it breaks the structural check.** In the binary64 run the four keys are
+*absent*, not zero — the Fortran skip suppresses the row. Against
+`require_exact_key_set = true` that is a failure.
 
-That is the happier answer — the legible form and the passing form are the same
-form. Do not add a four-key allow-list.
+**An earlier version of this section prescribed the wrong fix**, and it is
+recorded here rather than quietly deleted because it was acted on: it said the
+`.esm` should not reproduce `modfrc <= 0` as row suppression, and should emit
+every key its joins produce. Measured, that is false:
+
+| skip predicate | float32 | float64 |
+|---|---|---|
+| `modfrc <= 0` (the reference) | **144** | 140 |
+| `modfrc < 0` | 188 | 188 |
+| no skip at all | 188 | 188 |
+
+The skip is load-bearing — it removes 44 keys, because 44 age cohorts have
+`modfrc` **exactly** zero. Dropping it, or relaxing it to `< 0`, over-emits by
+44. `docs/nonroad-logging-county.md` §7.3 already said both and rejected both.
+
+Only **one** cohort is borderline, and nothing written in-document can identify
+it: in f32 its `modfrc` is 5.96 × 10⁻⁸ and in binary64 exactly `0.0`, which is
+indistinguishable from the 44 legitimate zeros.
+
+### 1.6.2 `element_type: "Float32"` is declared, documented, and ignored
+
+So the four rows are recoverable only by evaluating in f32 — and the one
+mechanism the format offers for that does not work. A document declaring
+`domain.element_type: "Float32"` still computes in binary64. Verified twice:
+once with literals, and once with **every operand a runtime parameter**, so a
+build-time constant fold cannot explain it. `100 × ((100 − 73.5)/100) /
+(100 − 73.5)` returns `1`, not `0.99999994`. There is no cast or round-to-f32
+operator in the schema either.
+
+That is the same silent-wrong-behaviour class as the four zero-returning
+defects in §5 — a schema field that is accepted, documented, and does nothing.
+
+**Decision: fix it upstream.** The field is already specified, so honouring it
+is a bug fix rather than new surface; it keeps all model logic inside the
+`.esm` as CLAUDE.md requires; it fixes every NONROAD fixture at once rather
+than this one; and the independent oracle confirms a full-f32 evaluation
+reproduces all 144 rows at 4.897 × 10⁻⁶. The `.esm` therefore keeps the
+`modfrc <= 0` skip exactly as the reference writes it.
+
+Two routes considered and not taken: precomputing `yryrfrcscrp` in f32 outside
+the document and feeding it in as data (§7.3's suggestion — correct, but moves
+a computation out of the `.esm`), and recording 140/144 as a known divergence
+(cheapest, but weakens `require_exact_key_set`, which this plan says elsewhere
+not to weaken). Do not add a four-key allow-list.
 
 ---
 
