@@ -1,0 +1,315 @@
+{
+  "esm": "1.0.0",
+  "metadata": {
+    "name": "DeterioratedEmissionRate",
+    "description": "One calculator, one file (PLAN.md §3 Phase 1). Ports joins J12 and J14 of docs/nonroad-logging-county.md §3: the zero-hour exhaust emission factors of `nremissionrate` for one (SCC, hp bin, engine tech), deteriorated by the (A, B, cap) triple that `nrdeterioration` supplies per (polProcessID, engTechID). Everything here is the arithmetic of moves.rs crates/moves-nonroad/src/emissions/exhaust.rs:833-836 and crates/moves-nonroad/src/population/modyr.rs:308-317, and every number is read from docs/nonroad-logging-county.md §6.1, which took it from the nr-logging-county snapshot parquet.\n\nThis file is the Phase 1 proof, so it is written to demonstrate the conventions rather than to cover the science: tables stay tables (one column array per field over a row index set, in the column order the snapshot table has them); the join is a `join.on` naming its key columns, never an equality `filter`; the literals are `enums`; and the two shapes it needs come from lib/ by reference. See docs/esm-conventions.md.\n\nOne behaviour is deliberate and is the modelling rule PLAN.md §1.6.1 settles: the BSFC carrier row (polProcessID 9901) has no `nrdeterioration` partner, so §5.5.8 identity fill gives it emissionRate 0 -- and the row is STILL EMITTED. A relational document emits every key its joins produce and lets the value be whatever it computes. Suppressing it, as the Fortran control flow would, is what makes an output key set disagree with the snapshot's.",
+    "authors": ["EarthSciML Authors and Contributors"],
+    "tags": ["moves", "nonroad", "emission-factors", "component"]
+  },
+
+  "enums": {
+    "pollutant": {
+      "TotalGaseousHydrocarbons": 1,
+      "CarbonMonoxide": 2,
+      "OxidesOfNitrogen": 3,
+      "SulfurDioxide": 31,
+      "AtmosphericCO2": 90,
+      "PrimaryExhaustPM10Total": 100,
+      "BrakeSpecificFuelConsumption": 99
+    },
+    "process": {
+      "RunningExhaust": 1
+    },
+    "engine_technology": {
+      "G2H5": 121,
+      "G2H52": 125
+    }
+  },
+
+  "index_sets": {
+    "rate_rows": {
+      "kind": "interval",
+      "size": 5
+    },
+    "deterioration_rows": {
+      "kind": "interval",
+      "size": 8
+    }
+  },
+
+  "coordinates": {
+    "rate_scc": {
+      "source": "rate_SCC",
+      "standard_name": "source_classification_code"
+    },
+    "rate_pol_process": {
+      "source": "rate_polProcessID",
+      "standard_name": "pollutant_process_identifier"
+    }
+  },
+
+  "models": {
+    "DeterioratedEmissionRate": {
+      "expression_template_imports": [
+        { "ref": "../lib/emission_factors.esm",
+          "only": ["deterioration_age", "deterioration_factor"] },
+        { "ref": "../lib/identifiers.esm", "only": ["pol_process_id"] }
+      ],
+
+      "tolerance": { "rel": 1e-12 },
+
+      "variables": {
+        "hoursUsedPerYear": {
+          "type": "parameter", "units": "h", "default": 303.0,
+          "description": "nrsourceusetype.hoursUsedPerYear for sourceTypeID 1059 (SCC 2260007005)."
+        },
+        "loadFactor": {
+          "type": "parameter", "units": "1", "default": 0.7,
+          "description": "nrsourceusetype.loadFactor."
+        },
+        "medianLifeFullLoad": {
+          "type": "parameter", "units": "h", "default": 191.0,
+          "description": "nrsourceusetype.medianLifeFullLoad, in full-load-equivalent hours."
+        },
+        "ageIndex": {
+          "type": "parameter", "units": "1", "default": 0.0,
+          "description": "0-based equipment age slot (modyr.rs idxyr). Age slot 0 is the newest model year."
+        },
+
+        "rate_SCC": {
+          "type": "unknown", "shape": ["rate_rows"],
+          "description": "nremissionrate.SCC. Column 1 of the relation."
+        },
+        "rate_engTechID": {
+          "type": "unknown", "shape": ["rate_rows"],
+          "description": "nremissionrate.engTechID. Column 2."
+        },
+        "rate_polProcessID": {
+          "type": "unknown", "shape": ["rate_rows"],
+          "description": "nremissionrate.polProcessID = pollutantID*100 + processID. Column 3."
+        },
+        "rate_meanBaseRate": {
+          "type": "unknown", "shape": ["rate_rows"],
+          "description": "nremissionrate.meanBaseRate, the zero-hour emission factor. Native units g/hp-hr, which the unit registry cannot spell (hp is not a recognised unit), so the column is left unitful only in this description. Column 4."
+        },
+
+        "det_polProcessID": {
+          "type": "unknown", "shape": ["deterioration_rows"],
+          "description": "nrdeterioration.polProcessID. Column 1 of the relation."
+        },
+        "det_engTechID": {
+          "type": "unknown", "shape": ["deterioration_rows"],
+          "description": "nrdeterioration.engTechID. Column 2."
+        },
+        "det_coefficientA": {
+          "type": "unknown", "shape": ["deterioration_rows"], "units": "1",
+          "description": "nrdeterioration.DFCoefficient. Column 3."
+        },
+        "det_ageExponentB": {
+          "type": "unknown", "shape": ["deterioration_rows"], "units": "1",
+          "description": "nrdeterioration.DFAgeExponent. Column 4."
+        },
+        "det_ageCap": {
+          "type": "unknown", "shape": ["deterioration_rows"], "units": "1",
+          "description": "nrdeterioration.emissionCap, a cap on the FRACTION OF MEDIAN LIFE consumed. Column 5."
+        },
+
+        "detAge": {
+          "type": "unknown", "units": "1",
+          "description": "Fraction of median life consumed at ageIndex (modyr.rs:308-317). Not a number of years."
+        },
+        "emissionRate": {
+          "type": "unknown", "shape": ["rate_rows"],
+          "description": "Zero-hour rate times its deterioration factor, one value per nremissionrate row. A row with no nrdeterioration partner reads 0 by §5.5.8 identity fill and is still emitted."
+        }
+      },
+
+      "equations": [
+        {
+          "_comment": "nremissionrate, SCC 2260007005 / engTechID 125 / modelYearID 1900, hp bin 6-9999, from docs/nonroad-logging-county.md §6.1. The BSFC carrier row (polProcessID 9901) is a real row of the relation and is kept: J13 reads it, J14 has no partner for it.",
+          "lhs": "rate_SCC",
+          "rhs": { "op": "const", "args": [],
+            "value": [2260007005, 2260007005, 2260007005, 2260007005, 2260007005] }
+        },
+        {
+          "lhs": "rate_engTechID",
+          "rhs": { "op": "makearray", "args": [],
+            "regions": [[[1, 1]], [[2, 2]], [[3, 3]], [[4, 4]], [[5, 5]]],
+            "values": [
+              { "op": "enum", "args": ["engine_technology", "G2H52"] },
+              { "op": "enum", "args": ["engine_technology", "G2H52"] },
+              { "op": "enum", "args": ["engine_technology", "G2H52"] },
+              { "op": "enum", "args": ["engine_technology", "G2H52"] },
+              { "op": "enum", "args": ["engine_technology", "G2H52"] }
+            ] }
+        },
+        {
+          "_comment": "polProcessID is a PACKED PAIR, so it is built from the two enums it packs rather than written as the integer it happens to equal.",
+          "lhs": "rate_polProcessID",
+          "rhs": { "op": "makearray", "args": [],
+            "regions": [[[1, 1]], [[2, 2]], [[3, 3]], [[4, 4]], [[5, 5]]],
+            "values": [
+              { "op": "apply_expression_template", "args": [], "name": "pol_process_id",
+                "bindings": { "pollutant_id": { "op": "enum", "args": ["pollutant", "TotalGaseousHydrocarbons"] },
+                              "process_id": { "op": "enum", "args": ["process", "RunningExhaust"] } } },
+              { "op": "apply_expression_template", "args": [], "name": "pol_process_id",
+                "bindings": { "pollutant_id": { "op": "enum", "args": ["pollutant", "CarbonMonoxide"] },
+                              "process_id": { "op": "enum", "args": ["process", "RunningExhaust"] } } },
+              { "op": "apply_expression_template", "args": [], "name": "pol_process_id",
+                "bindings": { "pollutant_id": { "op": "enum", "args": ["pollutant", "OxidesOfNitrogen"] },
+                              "process_id": { "op": "enum", "args": ["process", "RunningExhaust"] } } },
+              { "op": "apply_expression_template", "args": [], "name": "pol_process_id",
+                "bindings": { "pollutant_id": { "op": "enum", "args": ["pollutant", "PrimaryExhaustPM10Total"] },
+                              "process_id": { "op": "enum", "args": ["process", "RunningExhaust"] } } },
+              { "op": "apply_expression_template", "args": [], "name": "pol_process_id",
+                "bindings": { "pollutant_id": { "op": "enum", "args": ["pollutant", "BrakeSpecificFuelConsumption"] },
+                              "process_id": { "op": "enum", "args": ["process", "RunningExhaust"] } } }
+            ] }
+        },
+        {
+          "lhs": "rate_meanBaseRate",
+          "rhs": { "op": "const", "args": [], "value": [47.98, 283.4, 0.910, 7.70, 0.608] }
+        },
+
+        {
+          "_comment": "nrdeterioration for the two 2-stroke handheld techs in this bin. Two techs x four pollutant processes: joining on polProcessID ALONE would pick up the wrong tech's coefficients, which is why the join below carries both key columns.",
+          "lhs": "det_polProcessID",
+          "rhs": { "op": "makearray", "args": [],
+            "regions": [[[1, 1]], [[2, 2]], [[3, 3]], [[4, 4]], [[5, 5]], [[6, 6]], [[7, 7]], [[8, 8]]],
+            "values": [
+              { "op": "apply_expression_template", "args": [], "name": "pol_process_id",
+                "bindings": { "pollutant_id": { "op": "enum", "args": ["pollutant", "TotalGaseousHydrocarbons"] },
+                              "process_id": { "op": "enum", "args": ["process", "RunningExhaust"] } } },
+              { "op": "apply_expression_template", "args": [], "name": "pol_process_id",
+                "bindings": { "pollutant_id": { "op": "enum", "args": ["pollutant", "CarbonMonoxide"] },
+                              "process_id": { "op": "enum", "args": ["process", "RunningExhaust"] } } },
+              { "op": "apply_expression_template", "args": [], "name": "pol_process_id",
+                "bindings": { "pollutant_id": { "op": "enum", "args": ["pollutant", "OxidesOfNitrogen"] },
+                              "process_id": { "op": "enum", "args": ["process", "RunningExhaust"] } } },
+              { "op": "apply_expression_template", "args": [], "name": "pol_process_id",
+                "bindings": { "pollutant_id": { "op": "enum", "args": ["pollutant", "PrimaryExhaustPM10Total"] },
+                              "process_id": { "op": "enum", "args": ["process", "RunningExhaust"] } } },
+              { "op": "apply_expression_template", "args": [], "name": "pol_process_id",
+                "bindings": { "pollutant_id": { "op": "enum", "args": ["pollutant", "TotalGaseousHydrocarbons"] },
+                              "process_id": { "op": "enum", "args": ["process", "RunningExhaust"] } } },
+              { "op": "apply_expression_template", "args": [], "name": "pol_process_id",
+                "bindings": { "pollutant_id": { "op": "enum", "args": ["pollutant", "CarbonMonoxide"] },
+                              "process_id": { "op": "enum", "args": ["process", "RunningExhaust"] } } },
+              { "op": "apply_expression_template", "args": [], "name": "pol_process_id",
+                "bindings": { "pollutant_id": { "op": "enum", "args": ["pollutant", "OxidesOfNitrogen"] },
+                              "process_id": { "op": "enum", "args": ["process", "RunningExhaust"] } } },
+              { "op": "apply_expression_template", "args": [], "name": "pol_process_id",
+                "bindings": { "pollutant_id": { "op": "enum", "args": ["pollutant", "PrimaryExhaustPM10Total"] },
+                              "process_id": { "op": "enum", "args": ["process", "RunningExhaust"] } } }
+            ] }
+        },
+        {
+          "lhs": "det_engTechID",
+          "rhs": { "op": "makearray", "args": [],
+            "regions": [[[1, 4]], [[5, 8]]],
+            "values": [
+              { "op": "enum", "args": ["engine_technology", "G2H52"] },
+              { "op": "enum", "args": ["engine_technology", "G2H5"] }
+            ] }
+        },
+        {
+          "lhs": "det_coefficientA",
+          "rhs": { "op": "const", "args": [], "value": [0.266, 0.231, 0.000, 0.266, 0.482, 0.399, 0.000, 0.482] }
+        },
+        {
+          "lhs": "det_ageExponentB",
+          "rhs": { "op": "const", "args": [], "value": [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0] }
+        },
+        {
+          "lhs": "det_ageCap",
+          "rhs": { "op": "const", "args": [], "value": [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0] }
+        },
+
+        {
+          "lhs": "detAge",
+          "rhs": { "op": "apply_expression_template", "args": [], "name": "deterioration_age",
+            "bindings": {
+              "age_index": "ageIndex",
+              "hours_used_per_year": "hoursUsedPerYear",
+              "load_factor": "loadFactor",
+              "median_life_full_load": "medianLifeFullLoad"
+            } }
+        },
+        {
+          "_comment": "J14. One `join.on` clause, TWO key pairs over the same two loop symbols -- one composite key, admitted iff both pairs agree, whose canonical form is the skolem tuple of the per-pair values in the order listed (CONFORMANCE_SPEC §5.5.8). There is no equality `filter` anywhere in this file.",
+          "lhs": "emissionRate",
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": ["r"],
+            "ranges": {
+              "r": { "from": "rate_rows" },
+              "d": { "from": "deterioration_rows" }
+            },
+            "join": [
+              { "on": [
+                ["rate_polProcessID", "det_polProcessID"],
+                ["rate_engTechID", "det_engTechID"]
+              ] }
+            ],
+            "expr": {
+              "op": "*",
+              "args": [
+                { "op": "index", "args": ["rate_meanBaseRate", "r"] },
+                { "op": "apply_expression_template", "args": [], "name": "deterioration_factor",
+                  "bindings": {
+                    "coefficient_a": { "op": "index", "args": ["det_coefficientA", "d"] },
+                    "age_exponent_b": { "op": "index", "args": ["det_ageExponentB", "d"] },
+                    "age_cap": { "op": "index", "args": ["det_ageCap", "d"] },
+                    "det_age": "detAge"
+                  } }
+              ]
+            }
+          }
+        }
+      ],
+
+      "tests": [
+        {
+          "id": "det_age_is_a_life_fraction",
+          "description": "modyr.rs:308-317 at age slot 0: (0+1)*303*0.7/191. Greater than 1, so every emissionCap = 1 in this table binds -- which is why the cap must apply to the ARGUMENT.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "detAge", "time": 0.0, "expected": 1.1104712041884817 }
+          ]
+        },
+        {
+          "id": "composite_join_picks_the_right_tech",
+          "description": "docs/nonroad-logging-county.md §6.1 step 4 and step 5: DF(THC) = DF(PM) = 1.266, DF(CO) = 1.231, DF(NOx) = 1.000, applied to meanBaseRate. The nrdeterioration rows for engTechID 121 carry deliberately different coefficients, so a join on polProcessID alone would match BOTH techs (many-to-many is defined, not an error) and sum them to 47.98*(1.266+1.482) = 131.86 instead of 60.74.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "emissionRate", "time": 0.0, "expected": 60.74268,  "coords": { "rate_rows": 1 } },
+            { "variable": "emissionRate", "time": 0.0, "expected": 348.8654,  "coords": { "rate_rows": 2 } },
+            { "variable": "emissionRate", "time": 0.0, "expected": 0.910,     "coords": { "rate_rows": 3 } },
+            { "variable": "emissionRate", "time": 0.0, "expected": 9.7482,    "coords": { "rate_rows": 4 } }
+          ]
+        },
+        {
+          "id": "unmatched_row_is_emitted_as_zero",
+          "description": "PLAN.md §1.6.1. The BSFC carrier row has no nrdeterioration partner. §5.5.8 identity fill makes it 0; nothing suppresses it, so the emitted key set still has five rows and the max over the column is unchanged.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "emissionRate", "time": 0.0, "expected": 0.0, "coords": { "rate_rows": 5 } },
+            { "variable": "emissionRate", "time": 0.0, "expected": 348.8654, "reduce": "max" }
+          ]
+        },
+        {
+          "id": "polprocess_ids_are_built_from_enums",
+          "description": "The packed pair, checked at both ends of the join: rate row 3 and deterioration row 3 must both read 301 = 100*3 + 1.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "rate_polProcessID", "time": 0.0, "expected": 301.0, "coords": { "rate_rows": 3 } },
+            { "variable": "det_polProcessID", "time": 0.0, "expected": 301.0, "coords": { "deterioration_rows": 3 } },
+            { "variable": "rate_polProcessID", "time": 0.0, "expected": 9901.0, "coords": { "rate_rows": 5 } }
+          ]
+        }
+      ]
+    }
+  }
+}
