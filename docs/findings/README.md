@@ -1,11 +1,11 @@
 # Findings: conventions the format or the toolchain could not express
 
-Eight things PLAN.md §3 Phase 1 assumed, or that an author would reasonably
+Nine things PLAN.md §3 Phase 1 assumed, or that an author would reasonably
 assume, that do not hold at the pinned toolchain (`esm-version.lock`:
 EarthSciAST `b680f5301`, EarthSciIO `8e1df2280`, `--features esio,parallel`).
 
-F1–F6 each have a minimal `.esm` repro in this directory; F7 and F8 are CLI
-behaviours rather than documents, and are checked by command against the
+F1–F6 and F9 each have a minimal `.esm` repro in this directory; F7 and F8 are
+CLI behaviours rather than documents, and are checked by command against the
 ordinary files of the repo. **Every repro is expected to fail**, and each one's inline test asserts the *intended* behaviour, so a repro
 that starts passing means the defect is fixed. `run-tests.sh` runs them as a
 **tripwire stage**: it fails if any repro goes green, with a message naming the
@@ -26,6 +26,7 @@ three of them do not load.
 | **F6** | A component with only scalar variables has no assertable state | assertion | no |
 | **F7** | `esm round-trip` resolves a relative `ref` against the CWD | load | no |
 | **F8** | A layered template library does not round-trip to a self-contained form | re-load | no |
+| **F9** | A relational document evaluates but cannot be written to a file | emit | no |
 
 ---
 
@@ -249,3 +250,49 @@ $ (cd lib && ../esm convert keys.esm --to compact-json) | jq '.expression_templa
 document rather than the source, which is what §9.6.4's Option B round-trip
 model exists to make safe. `run-tests.sh` excludes `lib/keys.esm` from its
 round-trip stage and watches this by command instead.
+
+
+---
+
+## F9 — a relational document evaluates, but cannot be written to a file
+
+`F9_no_emit_path_for_a_relational_document.esm`.
+
+**Blocks the Phase 2 exit criterion, independently of the data provider.**
+
+A MOVES calculator is a *relational* document: it computes rows from rows and
+integrates nothing. Both `components/*.esm` already have this shape — 0 of 11
+and 0 of 15 equations carry a `D()` — and every Phase 2 stage will too.
+
+`esm test` evaluates such a document correctly; this repro's own inline
+assertion **passes**. But `esm test` only asserts, and prints an actual value
+only on failure. The only subcommand that writes computed values to a file is
+`esm simulate --output`, and on a document with no ODE it fails:
+
+```
+Error: "solve failed: diffsol error: ODE solver error:
+        Exceeded maximum number of nonlinear solver failures (51) at time = 0"
+```
+
+Reproduced on both real components at `--time 0` and `--time 1` alike.
+`analyze` and `info` report structure, not values.
+
+So there is no route from a computed row set to `compare-output.py`, and the
+144-row comparison cannot run whatever happens with ingest.
+
+**On PLAN.md §1.5.** That table records the array-output gap as closed by
+`simulate --observed` plus `--format grid` (EarthSciAST `a784c5444`). The
+closure is real, and it was verified — but on a document that *simulates*. It
+does not reach one that has nothing to integrate. The gap was closed for
+gridded PDE output and the relational case was never on the other side of it.
+
+**Fix shape.** Either let `simulate` treat an ODE-free document as a single
+evaluation at `t = 0` rather than a solve, or give `esm test` (or a new
+subcommand) an `--output` writing the same `derive_output_plan` shape
+`--format grid` already produces. The second looks cleaner: evaluation without
+a solve is exactly what `esm test` already does, so it is a new sink on an
+existing path rather than a new mode on the solver.
+
+**Polarity.** Unlike F1–F6, this repro's assertion passes. Its tripwire in
+`run-tests.sh` is therefore the `simulate` command, checked in both directions:
+the document must still evaluate, and must still fail to emit.

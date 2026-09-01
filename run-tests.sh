@@ -231,8 +231,13 @@ else
   fail "join_leaf (control) — the shared leaf fixture is itself broken"
 fi
 
+# F9 is excluded for a different reason from the other two: its inline test
+# PASSES by design. The defect it records is that a document which evaluates
+# correctly still cannot be WRITTEN OUT, so its tripwire is the simulate
+# command below, not an assertion.
 mapfile -t REPROS < <(find docs/findings -name '*.esm' -not -name 'join_leaf.esm' \
-  -not -name 'F3_lib_with_enum.esm' 2>/dev/null | sort)
+  -not -name 'F3_lib_with_enum.esm' \
+  -not -name 'F9_no_emit_path_for_a_relational_document.esm' 2>/dev/null | sort)
 
 if [[ ${#REPROS[@]} -eq 0 ]]; then
   say "  none recorded"
@@ -268,6 +273,22 @@ if ( cd lib && "$OLDPWD/$ESM" round-trip keys.esm ) >/dev/null 2>&1; then
   say "       Remove the lib/keys.esm exclusion from the round-trip stage."
 else
   pass "F8_layered_library_round_trip still fails, as recorded"
+fi
+
+# F9: there is no route from a relational document's computed rows to a file.
+# `esm test` evaluates it (the repro's own assertion passes); `esm simulate` is
+# the only subcommand that writes values, and it insists on an ODE solve that a
+# document with no `D()` equation cannot do. This blocks the fixture stage below
+# independently of the data provider, so it is checked in both directions.
+F9=docs/findings/F9_no_emit_path_for_a_relational_document.esm
+if ! "$ESM" test "$F9" >/dev/null 2>&1; then
+  fail "F9 control — the repro should EVALUATE cleanly; only emitting it fails"
+elif "$ESM" simulate "$F9" --time 0 --observed matchedCount -o /dev/null >/dev/null 2>&1; then
+  fail "F9_no_emit_path_for_a_relational_document NOW PASSES — the defect is fixed"
+  say "       An .esm can now be written out, so the fixtures stage can emit"
+  say "       \$name.actual.csv and the 144-row comparison can finally run."
+else
+  pass "F9_no_emit_path_for_a_relational_document still fails, as recorded"
 fi
 
 # --- 7. fixtures ----------------------------------------------------------
