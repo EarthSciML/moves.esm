@@ -196,12 +196,29 @@ decimal text under that option and refuses the unparseable.
 
 | Gap | Status |
 |---|---|
-| No `esm test` subcommand | **Being added by another agent**; will evaluate observed fields without an ODE solve. This plan depends on it and does not duplicate it. |
+| No `esm test` subcommand | **Closed** (EarthSciAST `fb0544b8a`). Takes files *or directories searched recursively*, and prints a per-file table naming the model and the failing assertion. `--reltol`/`--abstol` are the *solver* tolerances — how accurately a test is integrated — not the §6.6.4 tolerance its assertions are judged against, which each test declares for itself. |
 | `simulate` reports only *scalar* observeds | **Closed** (EarthSciAST `a784c5444`). Confirmed real first: an array observed was absent from `simulate --output` entirely, while a scalar one in the same model appeared. Now `SolveOptions::output_observed` names the subset to emit, `simulate --observed <NAME>` selects it, and `--format grid` renders `derive_output_plan` — which the CLI had never called. Array observeds flatten to one row per cell under the same cell-key scheme an array *state* gets, so both land on one grid. |
 | Data sources off by default | `esio` is an opt-in Cargo feature — `esm simulate` silently loads no data unless built with it. |
+| **The CLI wires no provider at all** | **OPEN, and a blocker for the Phase 2 exit criterion.** Worse than the row above, and independent of it: `PrepareProvider` is supplied by the *caller* through `PrepareOptions`, and `src/bin/esm.rs` supplies none — `esio_provider` has no in-crate caller outside the library's own tests. So no CLI subcommand can load a `data_sources` entry, with or without the feature. |
+| **`earthsciio` resolves to the registry, not the sibling checkout** | **Closed here** by `build-esm.sh`. `Cargo.toml` pins `earthsciio = "0.1.2"` from crates.io; the local EarthSciIO tree is *also* 0.1.2, so cargo has no reason to prefer it and silently keeps the registry copy — which has no `parquet.rs`. Every MOVES snapshot table is parquet. |
 
 Also: the checked-in `target/release/esm` in EarthSciAST is stale (Aug 11,
-schema predating the `state`/`observed` → `unknown` rename). Build fresh.
+schema predating the `state`/`observed` → `unknown` rename). Build fresh — and
+build through `./build-esm.sh`, which encodes the feature and the patch and
+records both in `esm-version.lock`.
+
+**All three of these gaps fail the same way: silently.** Measured, on a
+document that validates cleanly and reads a real 1,183-row column of the
+`nr-logging-county` snapshot: the aggregate over it evaluates to `0`, no error,
+no warning. A fixture comparison written against that binary would report
+agreement having compared nothing. That is why `build-esm.sh` exists and why
+the fixture stage cannot be trusted until the provider is wired.
+
+Two smaller facts the same probe established, both of which Phase 2 inherits:
+`nrsourceusetype`'s `hpAvg`, `loadFactor`, and `hoursUsedPerYear` are **`string`
+columns of decimal text** (12 decimal places), so `float_columns` is mandatory
+rather than an optimization; and `hp` is **not a recognised unit** — `W` and
+`kW` are, so horsepower must be carried as one of those or as dimensionless.
 
 The rename itself has already landed on `main`: a variable's `type` now accepts
 only `unknown` or `parameter`, and a document written with `observed` is
