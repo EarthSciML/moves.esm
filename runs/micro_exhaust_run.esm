@@ -1,0 +1,143 @@
+{
+  "esm": "1.0.0",
+  "metadata": {
+    "name": "MicroExhaustRun",
+    "description": "The run-level assembly for the Phase 1 spine: two calculators, each in its own file, mounted here by reference (esm-spec §4.7) and combined by a third join. This is the shape every later phase takes -- one .esm per calculator or generator, a run document that mounts them and does the roll-up, and nothing duplicated between them.\n\nMOUNT FORM. Each leaf is a TOP-LEVEL `models` entry that is a `{ref}`, and the roll-up reaches into it by scoped reference (`Rates.emissionRate`) -- including as a `join.on` KEY COLUMN, which resolves across the mount. The other spelling PLAN.md §3 assumed, a nested `subsystems: {Rates: {ref}}`, does NOT work for a leaf carrying a data-column join: the mount renames the columns and leaves the join clause naming the old bare names, and the build fails. See docs/findings/README.md, finding F1.\n\nINDEX SETS. §4.7 says a mounted file's index_sets merge into the mounting document's registry. At a top-level `models` `{ref}` edge they do not (finding F2), so this document restates them. They must agree with the leaves' own declarations exactly; run-tests.sh checks that agreement mechanically, standing in for the merge the loader does not perform.",
+    "authors": ["EarthSciML Authors and Contributors"],
+    "tags": ["moves", "nonroad", "assembly", "run"]
+  },
+
+  "index_sets": {
+    "rate_rows": { "kind": "interval", "size": 5 },
+    "deterioration_rows": { "kind": "interval", "size": 8 },
+    "time_rows": { "kind": "interval", "size": 24 },
+    "zone_month_hour_rows": { "kind": "interval", "size": 27 },
+    "adjustment_rows": { "kind": "interval", "size": 4 }
+  },
+
+  "models": {
+    "Rates": { "ref": "../components/deteriorated_emission_rate.esm" },
+    "Adjust": { "ref": "../components/exhaust_adjustment.esm" },
+
+    "Rollup": {
+      "tolerance": { "rel": 1e-12 },
+
+      "variables": {
+        "adjustedEmissionRate": {
+          "type": "unknown", "shape": ["rate_rows"],
+          "description": "The deteriorated zero-hour rate with the run's temperature and oxygenate adjustments applied, one value per nremissionrate row. Native units g/hp-hr."
+        },
+        "totalAdjustedEmissionRate": {
+          "type": "unknown",
+          "description": "Sum over the rate relation. A single number for a run-level regression assertion; it is not a physically meaningful total, since it adds unlike pollutants."
+        }
+      },
+
+      "equations": [
+        {
+          "_comment": "The third join, at the run level and across the mount: rate rows to adjustment rows on polProcessID. Single key pair this time -- the two relations agree on one column. The BSFC row still has no partner on either side and still reads 0.",
+          "lhs": "adjustedEmissionRate",
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": ["r"],
+            "ranges": {
+              "r": { "from": "rate_rows" },
+              "p": { "from": "adjustment_rows" }
+            },
+            "join": [
+              { "on": [["Rates.rate_polProcessID", "Adjust.adj_polProcessID"]] }
+            ],
+            "expr": {
+              "op": "*",
+              "args": [
+                { "op": "index", "args": ["Rates.emissionRate", "r"] },
+                { "op": "index", "args": ["Adjust.adjustment", "p"] }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "totalAdjustedEmissionRate",
+          "rhs": {
+            "op": "aggregate", "args": [], "output_idx": [],
+            "ranges": { "r": { "from": "rate_rows" } },
+            "expr": { "op": "index", "args": ["adjustedEmissionRate", "r"] }
+          }
+        }
+      ],
+
+      "tests": [
+        {
+          "id": "mounted_leaves_compose",
+          "description": "Each row is the product of the two leaves' verified numbers: 60.74268 x 0.8384738 for THC, 348.8654 x 0.7717785 for CO, 0.910 x 1.4382363 for NOx, 9.7482 x 1 for PM. Nothing in this file recomputes either factor.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "adjustedEmissionRate", "time": 0.0, "expected": 50.93114681130912,  "coords": { "rate_rows": 1 } },
+            { "variable": "adjustedEmissionRate", "time": 0.0, "expected": 269.2468149027815,  "coords": { "rate_rows": 2 } },
+            { "variable": "adjustedEmissionRate", "time": 0.0, "expected": 1.3087950469948109, "coords": { "rate_rows": 3 } },
+            { "variable": "adjustedEmissionRate", "time": 0.0, "expected": 9.7482,             "coords": { "rate_rows": 4 } },
+            { "variable": "totalAdjustedEmissionRate", "time": 0.0, "expected": 331.23495676108547 }
+          ]
+        },
+        {
+          "id": "the_unmatched_row_survives_the_whole_chain",
+          "description": "PLAN.md §1.6.1 again, one level up: the BSFC carrier row is unmatched by BOTH joins and is still one of the five rows this run emits. Two joins in series never delete a key.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "adjustedEmissionRate", "time": 0.0, "expected": 0.0, "coords": { "rate_rows": 5 } },
+            { "variable": "adjustedEmissionRate", "time": 0.0, "expected": 269.2468149027815, "reduce": "max" }
+          ]
+        },
+        {
+          "id": "a_colder_run_moves_every_pollutant",
+          "description": "Reaching through the mount to a leaf's parameter: narrowing the temperature window to the coolest hours drops tamb to 65.076927 degF and every gasoline adjustment moves with it. The override key is bare (esm-spec §6.6.2 rule 3), so the same test text would run against the leaf on its own.",
+          "parameter_overrides": { "daytimeHourFirst": 1.0, "daytimeHourLast": 6.0 },
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "adjustedEmissionRate", "time": 0.0, "expected": 51.98081239304362, "coords": { "rate_rows": 1 } },
+            { "variable": "adjustedEmissionRate", "time": 0.0, "expected": 1.411886710468003, "coords": { "rate_rows": 3 } }
+          ]
+        }
+      ],
+
+      "analyses": [
+        {
+          "id": "adjusted_rate_by_pollutant_process",
+          "description": "The run's output relation, plotted against its own key column: adjusted emission rate for each polProcessID the rate table carries. The BSFC carrier appears at zero, which is the point -- an output row that a control-flow port would have deleted.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "plots": [
+            {
+              "id": "rate_by_pol_process",
+              "type": "scatter",
+              "description": "One point per nremissionrate row.",
+              "x": { "variable": "Rates.rate_polProcessID", "label": "polProcessID" },
+              "y": { "variable": "adjustedEmissionRate", "label": "adjusted emission rate (g/hp-hr)" }
+            }
+          ]
+        },
+        {
+          "id": "adjustment_over_the_temperature_branch",
+          "description": "A sweep of the daytime window's lower bound walks tamb from the cool hours to the warm ones and across the 75 degF branch point in emsadj.f, so the piecewise coefficient in exhaust_temperature_adjustment shows up as a kink rather than a discontinuity.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "parameter_sweep": {
+            "type": "cartesian",
+            "dimensions": [
+              { "parameter": "daytimeHourFirst", "values": [1.0, 4.0, 7.0, 10.0, 13.0, 16.0, 19.0] }
+            ]
+          },
+          "plots": [
+            {
+              "id": "adjustment_vs_window_start",
+              "type": "line",
+              "description": "Adjusted THC rate against the first hour of the averaging window.",
+              "x": { "variable": "daytimeHourFirst", "label": "first hourID in the window" },
+              "y": { "variable": "totalAdjustedEmissionRate", "label": "total adjusted rate (g/hp-hr)" }
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
