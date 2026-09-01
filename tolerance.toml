@@ -59,12 +59,35 @@ rel = 2e-5
 # `modfrc <= 0` skip changes sides (PLAN.md 1.6.1). They carry 2.4e-5 g out of
 # 5,146 g, so per-pollutant sums still agree to 2.6e-6.
 #
-# The structural risk is real but is a modelling question, not a tolerance one:
-# in Fortran the skip SUPPRESSES those rows, and a document that copies that
-# control flow would emit 140 keys against the snapshot's 144. The .esm must
-# instead emit every key its joins produce and let the value be whatever it
-# computes. Then the key set matches exactly. Do not weaken
-# `require_exact_key_set` to accommodate this.
+# The structural risk is real but is a PRECISION question, not a tolerance one,
+# and an earlier version of this comment got the resolution wrong. It said the
+# .esm should emit every key its joins produce rather than copying Fortran's
+# row suppression. Measured, that is false:
+#
+#     skip predicate        float32   float64
+#     modfrc <= 0  (ref)      144       140
+#     modfrc <  0             188       188
+#     no skip at all          188       188
+#
+# The skip is load-bearing: it removes 44 keys, because 44 age cohorts have
+# `modfrc` EXACTLY zero. Dropping it, or relaxing it to `< 0`, over-emits by 44.
+# `docs/nonroad-logging-county.md` §7.3 says the same and rejects both.
+#
+# The true statement is narrower. Only ONE cohort is borderline --- SCC
+# 2260007005 / modelYear 2018, where f32 leaves 5.96e-08 and binary64 leaves
+# exactly 0.0 --- and nothing written in-document can tell those two apart,
+# because 44 other cohorts are legitimately exactly 0. So the .esm must keep
+# the `modfrc <= 0` skip exactly as the reference writes it, and the four rows
+# are recovered by evaluating in f32, not by changing the predicate.
+#
+# That is why `domain.element_type: "Float32"` has to be honoured. It is
+# currently ignored --- a document declaring it computes in binary64 anyway,
+# verified with every operand a runtime parameter so constant folding cannot
+# explain it, and there is no cast operator either. Fixing that upstream is the
+# chosen route (PLAN.md 1.6.1); the independent oracle confirms a full-f32
+# evaluation reproduces all 144 rows at 4.897e-06.
+#
+# Do not weaken `require_exact_key_set` to accommodate any of this.
 
 # --- which columns mean what ------------------------------------------------
 #
