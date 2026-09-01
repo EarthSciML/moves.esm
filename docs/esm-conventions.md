@@ -128,12 +128,33 @@ Each materializes a **second relation over a second index set** instead
 evaluates the same lookup twice at two arguments.
 
 **An unmatched row contributes the additive identity, and is still emitted.**
-This is not merely a semantic footnote — it is the modelling rule PLAN.md §1.6.1
-settles. The BSFC carrier row in `components/deteriorated_emission_rate.esm` has
-no deterioration partner, reads 0, and stays in the output. A document that
-reproduced the Fortran's `modfrc <= 0` row suppression would emit 140 keys
-against the snapshot's 144 and fail `require_exact_key_set`. Emit every key the
-joins produce; emit the zero.
+The BSFC carrier row in `components/deteriorated_emission_rate.esm` has no
+deterioration partner, reads 0, and stays in its relation. That is a rule about
+what a JOIN does — a missing partner is a zero, not a deletion — and it holds
+everywhere.
+
+**It is not a rule about the output key set, and the two were conflated**
+**[Phase 2]**. An earlier draft of this section said a document must never
+reproduce the Fortran's `modfrc <= 0` row suppression. That is measured to be
+wrong, and expensively so:
+
+| skip predicate | float32 | binary64 |
+|---|---|---|
+| `modfrc <= 0` (the reference) | **144** | 140 |
+| `modfrc < 0` | 188 | 188 |
+| no skip at all | 188 | 188 |
+
+Forty-four of the fixture's candidate cohorts have a grown fraction of
+*exactly* zero, so dropping the skip over-emits by 44 in either precision.
+**Reproduce the reference's control flow.** `components/movesoutput_aggregation.esm`
+is the one file that decides membership, and it spells both suppressions as
+columns: `out_pollutantIsSelected` (J25) and `out_cohortIsPopulated`
+(`prccty.f`). Every other stage keeps its rows and lets an unselected key carry
+a zero, because an intermediate's row set is nobody's answer.
+
+The narrow claim that survives is about ONE cohort: SCC 2260007005 / MY2018,
+whose fraction is 5.96 × 10⁻⁸ in float32 and exactly 0.0 in binary64. Nothing
+written in a document distinguishes those; the evaluation precision does.
 
 **What is *not* an equi-join** — three cases `docs/nonroad-logging-county.md` §3
 names, and how each is spelled:
@@ -322,17 +343,28 @@ evaluator". Do not reach for it until F5's repro goes green.
 
 ## 10. Precision, and what the document must not do about it
 
-ESM evaluates in binary64; `moves.rs`'s NONROAD port is bit-exact `real*4`, and
-`domain.element_type` is document-wide, so per-expression single-precision
-rounding is not reproducible. This is measured, not projected (PLAN.md §1.6.1):
-in binary64 four cells of `nr-logging-county` compute to exactly zero, carrying
-2.4×10⁻⁵ g out of 5,146 g, so per-pollutant sums still agree to 2.6×10⁻⁶.
+`moves.rs`'s NONROAD port is bit-exact `real*4`. The toolchain evaluates in
+binary64 today: `domain.element_type: "Float32"` is currently **ignored**
+(verified twice, once with every operand a runtime parameter so constant folding
+cannot explain it), and there is no cast operator either. In binary64 four cells
+of `nr-logging-county` compute to exactly zero, carrying 2.4 × 10⁻⁵ g out of
+5,146 g, so per-pollutant sums still agree to 2.6 × 10⁻⁶ and only the key set
+notices.
 
-**The rule that follows is a modelling rule, not a tolerance one.** Do not
-reproduce Fortran control flow that suppresses rows. Emit every key the joins
-produce and let the value be whatever it computes. Then the emitted key set
-matches the snapshot exactly and `require_exact_key_set = true` stays. Do not
-add a per-key allow-list; that was considered and rejected.
+**Author for float32 semantics anyway** **[Phase 2]**. Honouring
+`element_type` is being fixed upstream, and evaluating the whole document in
+float32 reproduces all 144 rows at 4.9 × 10⁻⁶ — the independent oracle confirms
+it. So write the reference's arithmetic and the reference's control flow, and
+let the fixture run declare the element type. Do **not** design the document
+around binary64's four missing rows, and do not add a per-key allow-list; that
+was considered and rejected.
+
+**What this costs the inline tests.** Their expected values are the binary64
+values of the specification's expressions, asserted at `rel: 1e-12`. When a
+document declares `Float32` those assertions must move to the float32 values of
+the same expressions — a mechanical change, and the reason each test's
+description records how far its number sits from the specification's printed
+one.
 
 ## 11. Data comes from `data_sources` — but not yet
 
@@ -464,6 +496,8 @@ description names the finding, the assembly's description names both blockers,
 and the source catalog says what it will prove once ingest lands. A workaround
 that is not written down is indistinguishable from a bug.
 
-The corresponding rule for the *fixture* is PLAN.md §1.6.1's and it has not
-changed: emit every key the joins produce, emit the zero, and do not reproduce
-Fortran control flow that suppresses rows.
+The corresponding rule for the *fixture* is in §3 and §10, and it is the
+opposite of what an earlier draft of this document said: **reproduce the
+reference's row suppression**. The `modfrc <= 0` skip removes 44 exactly-zero
+cohorts, and a chain without it emits 188 rows against the snapshot's 144 in
+either precision.

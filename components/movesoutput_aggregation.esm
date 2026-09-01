@@ -2,7 +2,7 @@
   "esm": "1.0.0",
   "metadata": {
     "name": "MOVESOutputAggregation",
-    "description": "Stage 7 of the nr-logging-county chain: aggregation to the MOVESOutput schema. Ports join J25 and docs/nonroad-logging-county.md §2.7 (emissions_to_dataframe, nonroad_loader.rs:2313-2392) — the pollutant gate, the short-tons-to-grams conversion, the group-by key and the labelling columns an output row carries.\n\nTHE OUTPUT IS A FLAT ROW RELATION, AND THAT IS THE ANSWER TO A RAGGED KEY SET. MOVESOutput's 144 rows are 36 (SCC, modelYearID) pairs times four pollutants, and the 36 are NOT a rectangle: the three SCCs span 3, 4 and 29 model years, because each equipment point's span is its own scrptime nyrlif. A shared [SCC x modelYear x pollutant] grid would carry 3 x 29 x 4 = 348 keys, 204 of which the snapshot does not have, and tolerance.toml's require_exact_key_set is not a number that can be relaxed. So the output is one ROW AXIS with the key as COLUMNS -- (SCC, modelYearID, polProcessID) -- exactly as docs/esm-conventions.md §2 has every other relation in this port. Raggedness then needs no axis machinery: a relation's key set is data. Adding the fixture's other two SCCs is adding rows, and nothing in these equations changes. The alternative the schema advertises, a `ragged` per-parent inner axis of model years, ignores its own member factor and cannot address a parent's members (docs/findings F14).\\n\\nTHE GATE IS A MASK, NOT A DELETION. out_pollutantIsSelected is a column, and out_isEmitted is the row-set membership the emitter applies: twelve of these fifteen rows reach MOVESOutput and the three CO2 rows do not. That is a different thing from a selected pollutant whose value is zero, which IS emitted (PLAN.md §1.6.1) -- the mask says whether a row exists, the value says what is in it, and collapsing the two is how a port ends up with the wrong key set.\\n\\nTHE GATE IS BY POLLUTANT, NOT BY WHAT WAS COMPUTED. The engine computes six pollutant slots and MOVESOutput carries only those whose pollutantID is in runspecpollutantprocess (:2192-2200, :2344-2352). This fixture selects 1, 2, 3 and 100; CO2 (90) is computed by the carbon balance and dropped. The input relation here carries CO2 rows for exactly that reason: a gate with nothing to exclude proves nothing.\n\nEVERY SELECTED KEY IS EMITTED, INCLUDING ZEROS (:2354-2361, PLAN.md §1.6.1). Canonical clamps a negative SOx balance at zero and KEEPS the row; it does not drop it. Model year 2018 of this SCC is 4.3e-06 grams of THC — six orders of magnitude below its 2020 row and still one of the fixture's 144.\n\nTHE PACKED PAIR IS UNPACKED HERE. pollutantID = polProcessID / 100 and processID is the remainder, from lib/identifiers.esm, which is also where the packing lives — one definition, so the two ends cannot drift. processID is 1 for every row of this fixture, which is also what nonroad_loader.rs:2371 hard-codes.\n\nLABELS THE PORT MUST FILL IN THAT moves.rs LEAVES NULL (§8.3). stateID, countyID, fuelTypeID and roadTypeID are unambiguous — county from the RunSpec, state as countyID/1000, road type 100, fuel type from nrscc — and the canonical snapshot carries them, so this file carries them too. hourID is 0 in every canonical row despite the RunSpec selecting hour 7, because NONROAD is a typical-day model; that is read off the data rather than off the code, and it is recorded as such.\n\nTHE ONE MAPPING THIS FILE DOES NOT CLAIM TO KNOW: nonroad fuelTypeID 23 and 24 to MOVES fuelTypeID 2. §8.3 records that only the gasoline mapping 1 -> 1 is verified by this fixture, so the mapping relation carries the verified row and no invented ones, and a diesel SCC reaching it would produce fuelTypeID 0 rather than a guess.",
+    "description": "Stage 7 of the nr-logging-county chain: aggregation to the MOVESOutput schema. Ports join J25 and docs/nonroad-logging-county.md §2.7 (emissions_to_dataframe, nonroad_loader.rs:2313-2392) — the pollutant gate, the short-tons-to-grams conversion, the group-by key and the labelling columns an output row carries.\n\nTHE OUTPUT IS A FLAT ROW RELATION, AND THAT IS THE ANSWER TO A RAGGED KEY SET. MOVESOutput's 144 rows are 36 (SCC, modelYearID) pairs times four pollutants, and the 36 are NOT a rectangle: the three SCCs span 3, 4 and 29 model years, because each equipment point's span is its own scrptime nyrlif. A shared [SCC x modelYear x pollutant] grid would carry 3 x 29 x 4 = 348 keys, 204 of which the snapshot does not have, and tolerance.toml's require_exact_key_set is not a number that can be relaxed. So the output is one ROW AXIS with the key as COLUMNS -- (SCC, modelYearID, polProcessID) -- exactly as docs/esm-conventions.md §2 has every other relation in this port. Raggedness then needs no axis machinery: a relation's key set is data. Adding the fixture's other two SCCs is adding rows, and nothing in these equations changes. The alternative the schema advertises, a `ragged` per-parent inner axis of model years, ignores its own member factor and cannot address a parent's members (docs/findings F14).\\n\\nTHE GATE IS A MASK, NOT A DELETION. out_pollutantIsSelected is a column, and out_isEmitted is the row-set membership the emitter applies: twelve of these fifteen rows reach MOVESOutput and the three CO2 rows do not. That is a different thing from a selected pollutant whose value is zero, which IS emitted (PLAN.md §1.6.1) -- the mask says whether a row exists, the value says what is in it, and collapsing the two is how a port ends up with the wrong key set.\\n\\nTHE GATE IS BY POLLUTANT, NOT BY WHAT WAS COMPUTED. The engine computes six pollutant slots and MOVESOutput carries only those whose pollutantID is in runspecpollutantprocess (:2192-2200, :2344-2352). This fixture selects 1, 2, 3 and 100; CO2 (90) is computed by the carbon balance and dropped. The input relation here carries CO2 rows for exactly that reason: a gate with nothing to exclude proves nothing.\n\nTWO SUPPRESSIONS, AND BOTH ARE LOAD-BEARING. J25's pollutant gate drops what the RunSpec did not select -- CO2 is computed by the carbon balance and never emitted. prccty.f's `modfrc <= 0` skip drops an age cohort no equipment point of the SCC populates, and it is NOT a conservative tidy-up that a relational port may leave out: 44 of this fixture's candidate cohorts have a grown fraction of exactly zero, so dropping the skip -- or relaxing it to `< 0` -- emits 188 rows where the snapshot has 144. Measured, in both precisions. out_cohortIsPopulated is that skip, and out_isEmitted is the two together.\n\nWHAT IS NOT A REASON TO SUPPRESS: magnitude. A selected pollutant of a populated cohort is emitted whatever it computes, and canonical clamps a negative SOx balance at zero and KEEPS the row (:2354-2361). SCC 2260007005's model year 2018 is 4.3e-06 grams of THC and is one of the 144. That cohort is also the single place where the arithmetic decides membership: its fraction is 5.96e-08 in float32 and exactly 0.0 in binary64 (§7.3), so the skip fires in one precision and not the other. Nothing written in the document distinguishes them -- it is the evaluation precision that must, which is why the fixture run will declare Float32 once `domain.element_type` is honoured.\n\nTHE PACKED PAIR IS UNPACKED HERE. pollutantID = polProcessID / 100 and processID is the remainder, from lib/identifiers.esm, which is also where the packing lives — one definition, so the two ends cannot drift. processID is 1 for every row of this fixture, which is also what nonroad_loader.rs:2371 hard-codes.\n\nLABELS THE PORT MUST FILL IN THAT moves.rs LEAVES NULL (§8.3). stateID, countyID, fuelTypeID and roadTypeID are unambiguous — county from the RunSpec, state as countyID/1000, road type 100, fuel type from nrscc — and the canonical snapshot carries them, so this file carries them too. hourID is 0 in every canonical row despite the RunSpec selecting hour 7, because NONROAD is a typical-day model; that is read off the data rather than off the code, and it is recorded as such.\n\nTHE ONE MAPPING THIS FILE DOES NOT CLAIM TO KNOW: nonroad fuelTypeID 23 and 24 to MOVES fuelTypeID 2. §8.3 records that only the gasoline mapping 1 -> 1 is verified by this fixture, so the mapping relation carries the verified row and no invented ones, and a diesel SCC reaching it would produce fuelTypeID 0 rather than a guess.",
     "authors": [
       "EarthSciML Authors and Contributors"
     ],
@@ -48,7 +48,7 @@
     },
     "output_rows": {
       "kind": "interval",
-      "size": 19
+      "size": 23
     },
     "runspec_pollutant_process_rows": {
       "kind": "interval",
@@ -61,6 +61,10 @@
     "output_run_rows": {
       "kind": "interval",
       "size": 1
+    },
+    "cohort_rows": {
+      "kind": "interval",
+      "size": 6
     }
   },
   "coordinates": {
@@ -228,7 +232,7 @@
           "shape": [
             "output_rows"
           ],
-          "description": "Whether this row reaches MOVESOutput at all. A row-set membership test, not a value: a SELECTED pollutant with a zero quantity is still emitted (PLAN.md §1.6.1), an unselected one is not emitted whatever it computed.",
+          "description": "Whether this row reaches MOVESOutput at all: the pollutant is selected AND the cohort is populated. Two different suppressions with two different reasons, and neither is about magnitude -- a selected pollutant of a populated cohort is emitted however small it is, and SCC 2260007005's model year 2018 (4.3e-06 grams) is exactly that case.",
           "units": "1"
         },
         "out_emissionQuant": {
@@ -306,9 +310,95 @@
             "input_tons_rows"
           ],
           "description": "The SCC of the equipment point this contribution came from. Key column 0, and the one that makes the group-by a group-by: rows 16-23 are the TWO equipment points of SCC 2265007015 (docs/nonroad-logging-county.md §6.2), which the output detail collapses into one row per pollutant."
+        },
+        "cohort_SCC": {
+          "type": "unknown",
+          "shape": [
+            "cohort_rows"
+          ],
+          "description": "The SCC of this equipment point. Column 1."
+        },
+        "cohort_modelYearID": {
+          "type": "unknown",
+          "shape": [
+            "cohort_rows"
+          ],
+          "description": "The model year this age slot is. Column 2."
+        },
+        "cohort_modelYearFraction": {
+          "type": "unknown",
+          "shape": [
+            "cohort_rows"
+          ],
+          "description": "modfrc after agedist's fold, for THIS equipment point at THIS age slot. Column 3. It is per POINT, not per SCC, which is why the membership test below is an OR over the points and not a lookup.",
+          "units": "1"
+        },
+        "out_cohortIsPopulated": {
+          "type": "unknown",
+          "shape": [
+            "output_rows"
+          ],
+          "units": "1",
+          "description": "prccty.f's `modfrc <= 0` skip, as a membership test: does ANY equipment point of this SCC hold a positive fraction at this model year? This is what makes the output key set ragged, and removing it is not a conservative choice -- 44 of the fixture's candidate cohorts are exactly zero, so a chain that emitted them would produce 188 rows against the snapshot's 144."
         }
       },
       "equations": [
+        {
+          "_comment": "The grown model-year fractions of every (SCC, equipment point) this output covers, from components/age_distribution.esm. Row 6 is the one the skip removes: the hp-9.0 point of SCC 2265007015 has nyrlif 5, so age slot 4 reaches model year 2016, and its fraction is exactly 0 because age 5's survival factor is zero (docs/nonroad-logging-county.md §6.2).",
+          "lhs": "cohort_SCC",
+          "rhs": {
+            "op": "makearray",
+            "args": [],
+            "regions": [
+              [
+                [
+                  1,
+                  3
+                ]
+              ],
+              [
+                [
+                  4,
+                  6
+                ]
+              ]
+            ],
+            "values": [
+              2260007005,
+              2265007015
+            ]
+          }
+        },
+        {
+          "lhs": "cohort_modelYearID",
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              2020,
+              2019,
+              2018,
+              2020,
+              2020,
+              2016
+            ]
+          }
+        },
+        {
+          "lhs": "cohort_modelYearFraction",
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              3.7072685,
+              0.9905483,
+              5.8885583e-08,
+              3.9099162,
+              2.1914759,
+              0.0
+            ]
+          }
+        },
         {
           "_comment": "The roll-up emits one contribution per (SCC, equipment point, model year, pollutant); the output stage sums the equipment points away. Rows 1-15 are SCC 2260007005's single point, rows 16-23 the two points of SCC 2265007015 at model year 2020.",
           "lhs": "tons_SCC",
@@ -890,7 +980,7 @@
               [
                 [
                   16,
-                  19
+                  23
                 ]
               ]
             ],
@@ -924,7 +1014,11 @@
               2020,
               2020,
               2020,
-              2020
+              2020,
+              2016,
+              2016,
+              2016,
+              2016
             ]
           }
         },
@@ -986,6 +1080,30 @@
                 [
                   19,
                   19
+                ]
+              ],
+              [
+                [
+                  20,
+                  20
+                ]
+              ],
+              [
+                [
+                  21,
+                  21
+                ]
+              ],
+              [
+                [
+                  22,
+                  22
+                ]
+              ],
+              [
+                [
+                  23,
+                  23
                 ]
               ]
             ],
@@ -1178,6 +1296,90 @@
                     ]
                   }
                 }
+              },
+              {
+                "op": "apply_expression_template",
+                "args": [],
+                "name": "pol_process_id",
+                "bindings": {
+                  "pollutant_id": {
+                    "op": "enum",
+                    "args": [
+                      "pollutant",
+                      "TotalGaseousHydrocarbons"
+                    ]
+                  },
+                  "process_id": {
+                    "op": "enum",
+                    "args": [
+                      "process",
+                      "RunningExhaust"
+                    ]
+                  }
+                }
+              },
+              {
+                "op": "apply_expression_template",
+                "args": [],
+                "name": "pol_process_id",
+                "bindings": {
+                  "pollutant_id": {
+                    "op": "enum",
+                    "args": [
+                      "pollutant",
+                      "CarbonMonoxide"
+                    ]
+                  },
+                  "process_id": {
+                    "op": "enum",
+                    "args": [
+                      "process",
+                      "RunningExhaust"
+                    ]
+                  }
+                }
+              },
+              {
+                "op": "apply_expression_template",
+                "args": [],
+                "name": "pol_process_id",
+                "bindings": {
+                  "pollutant_id": {
+                    "op": "enum",
+                    "args": [
+                      "pollutant",
+                      "OxidesOfNitrogen"
+                    ]
+                  },
+                  "process_id": {
+                    "op": "enum",
+                    "args": [
+                      "process",
+                      "RunningExhaust"
+                    ]
+                  }
+                }
+              },
+              {
+                "op": "apply_expression_template",
+                "args": [],
+                "name": "pol_process_id",
+                "bindings": {
+                  "pollutant_id": {
+                    "op": "enum",
+                    "args": [
+                      "pollutant",
+                      "PrimaryExhaustPM10Total"
+                    ]
+                  },
+                  "process_id": {
+                    "op": "enum",
+                    "args": [
+                      "process",
+                      "RunningExhaust"
+                    ]
+                  }
+                }
               }
             ]
           }
@@ -1272,7 +1474,55 @@
           }
         },
         {
-          "_comment": "The row-set membership the emitter applies. Identical to the pollutant gate for this fixture; it is a separate column because the two are separate ideas, and the next sector to add a suppressed row will add its reason here rather than to the gate.",
+          "_comment": "The skip, spelled as a semi-join with a genuine range predicate: a cohort row exists for this (SCC, model year) AND its fraction is strictly positive. `bool_and_or` makes it an OR over the SCC's equipment points, which is what the engine's per-point age loop amounts to once the points are summed.",
+          "lhs": "out_cohortIsPopulated",
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "semiring": "bool_and_or",
+            "output_idx": [
+              "o"
+            ],
+            "ranges": {
+              "o": {
+                "from": "output_rows"
+              },
+              "h": {
+                "from": "cohort_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "out_SCC",
+                    "cohort_SCC"
+                  ],
+                  [
+                    "out_modelYearID",
+                    "cohort_modelYearID"
+                  ]
+                ]
+              }
+            ],
+            "filter": {
+              "op": ">",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "cohort_modelYearFraction",
+                    "h"
+                  ]
+                },
+                0.0
+              ]
+            },
+            "expr": 1.0
+          }
+        },
+        {
+          "_comment": "Both suppressions, multiplied: J25's pollutant gate and prccty.f's cohort skip.",
           "lhs": "out_isEmitted",
           "rhs": {
             "op": "aggregate",
@@ -1286,10 +1536,22 @@
               }
             },
             "expr": {
-              "op": "index",
+              "op": "*",
               "args": [
-                "out_pollutantIsSelected",
-                "o"
+                {
+                  "op": "index",
+                  "args": [
+                    "out_pollutantIsSelected",
+                    "o"
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "out_cohortIsPopulated",
+                    "o"
+                  ]
+                }
               ]
             }
           }
@@ -1958,7 +2220,7 @@
         },
         {
           "id": "the_smallest_row_is_still_a_row",
-          "description": "PLAN.md §1.6.1 and §2.7. Model year 2018's THC is 4.3e-06 grams, 1.6e-08 of the same pollutant's 2020 row, and it is emitted: the membership mask is about SELECTION, not about magnitude. The maximum over the relation is the 2020 CO row, unmoved by the presence of a cell twelve orders of magnitude below it.",
+          "description": "§2.7 and §7.3. Model year 2018's THC is 4.3e-06 grams, 1.6e-08 of the same pollutant's 2020 row, and it is emitted -- because its cohort is populated and its pollutant is selected, which are the only two questions asked. Magnitude is not one of them. The maximum over the relation is the 2020 CO row, unmoved by the presence of a cell twelve orders of magnitude below it.",
           "time_span": {
             "start": 0.0,
             "end": 0.0
@@ -2043,6 +2305,69 @@
               "coords": {
                 "output_rows": 19
               }
+            }
+          ]
+        },
+        {
+          "id": "an_unpopulated_cohort_is_not_a_row",
+          "description": "prccty.f's `modfrc <= 0` skip, and the reason it cannot be dropped. SCC 2265007015's hp-9.0 equipment point has nyrlif 5, so its age loop reaches model year 2016 -- and that slot's grown fraction is exactly 0, because age 5's survival factor is zero (docs/nonroad-logging-county.md §6.2). Those four candidate rows are present in this relation and none is emitted. Across the fixture 44 cohorts are exactly zero like this one: emitting them, or relaxing the test to `< 0`, gives 188 rows against the snapshot's 144, in float32 and binary64 alike. The membership is an OR over the SCC's equipment points -- model year 2020 stays because the hp-5.5 point populates it even though only one point reaches 2016.",
+          "time_span": {
+            "start": 0.0,
+            "end": 0.0
+          },
+          "assertions": [
+            {
+              "variable": "out_cohortIsPopulated",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "output_rows": 20
+              }
+            },
+            {
+              "variable": "out_pollutantIsSelected",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "output_rows": 20
+              }
+            },
+            {
+              "variable": "out_isEmitted",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "output_rows": 20
+              }
+            },
+            {
+              "variable": "out_emissionQuant",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "output_rows": 23
+              }
+            },
+            {
+              "variable": "out_cohortIsPopulated",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "output_rows": 16
+              }
+            },
+            {
+              "variable": "out_cohortIsPopulated",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "output_rows": 3
+              }
+            },
+            {
+              "variable": "emittedRowCount",
+              "time": 0.0,
+              "expected": 16.0
             }
           ]
         }

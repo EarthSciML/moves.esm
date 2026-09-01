@@ -102,9 +102,21 @@ across all four pollutants — 144 rows becomes 140. The surviving cells still
 agree to 6.9 × 10⁻⁶.
 
 So the divergence is structural, not a magnitude a looser tolerance could
-absorb. **A document must emit every key its joins produce and let the value be
-whatever it computes**, rather than reproducing Fortran's row suppression. Then
-the key set matches exactly.
+absorb — and the fix is *not* to drop the skip. Measured on the same oracle:
+
+| skip predicate | float32 | binary64 |
+|---|---|---|
+| `modfrc <= 0` (the reference) | **144** | 140 |
+| `modfrc < 0` | 188 | 188 |
+| no skip at all | 188 | 188 |
+
+Forty-four candidate cohorts have a grown fraction of *exactly* zero, so a
+document without the skip over-emits by 44 in either precision. **Reproduce the
+reference's control flow, and author for float32 semantics**: the remaining
+difference is one cohort — SCC 2260007005 / MY2018, 5.96 × 10⁻⁸ in float32 and
+exactly 0.0 in binary64 — which no expression can distinguish and which
+evaluating the document in float32 settles. `domain.element_type: "Float32"` is
+ignored at the pinned toolchain and is being fixed upstream.
 
 ## A warning about zeros
 
