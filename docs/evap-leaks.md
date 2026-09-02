@@ -1702,7 +1702,26 @@ not in this commit. Nothing in (1) or (2) blocks it; (1) changes the shape of
 L8 and (2) changes where the output axis comes from, and both are now measured
 rather than guessed.
 
-**Three things measured along the way that the author will need.**
+**The axes that are NOT declared, measured.** Three mechanisms were probed on
+the real tables because the design depends on them, and all three work:
+
+* **An index set can be sized by a metaparameter EXPRESSION over runtime-discovered
+  extents.** `{"kind": "interval", "size": {"op": "*", "args": ["n_agecategory",
+  "n_runspecday"]}}` gave an 82-row axis from a 41-row and a 2-row table
+  (`esm-spec` §9.7.6 admits a `MetaparameterExpression` in an interval `size`).
+  So the activity relation's axis — hour-day × age, 82 rows — and the cohort
+  relation's — model year × fuel, 41 × 4 = 164 — are **derived from the files**,
+  not declared. Only the output axis's 64 surviving cohorts is a literal.
+* **The aggregate's loop symbol is usable as a value inside `expr`, and so is a
+  metaparameter.** `expr: "r"` gives the ordinal, and
+  `floor((r − 1) / n_agecategory) + 1` gives the block index with a
+  **discovered** block length. That is what makes the ordinal decomposition of
+  §7.5(2) free of literals except the one.
+* **A two-axis variable can be filled by a join**, `output_idx: ["k", "g"]` over
+  a third relation. So giving the operating mode its own axis — the §11.1 remedy
+  (1) needs — costs nothing structurally.
+
+**Three more things measured along the way that the author will need.**
 
 * A **data-fed `parameter` is not an assertable array state** in a document that
   ingests: `array state 'yr_yearID' has no cells in var_map`. Only computed
