@@ -159,38 +159,26 @@ instance exists and has not been found.
 
 ## Status
 
-<<<<<<< HEAD
-**Phases 0, 1 and 2 are complete.** Eleven components cover all seven NONROAD
-stages of `nr-logging-county`, with 590 inline assertions whose numbers each
-trace to a named line of the port specification.
+**Phases 0, 1 and 2 are complete**, and the first end-to-end fidelity
+comparison runs. Eleven components cover all seven NONROAD stages of
+`nr-logging-county` with 590 inline assertions, each number tracing to a named
+line of the port specification.
 
-Both blockers on the first end-to-end fixture comparison are closed: the CLI
-now wires a data provider and `simulate --format csv` emits a relational
-document's rows. Verified against the real snapshot — 1,183 rows of a column
-sized by `extent` discovery, summing to 181564.4520000001, matching pyarrow
-exactly.
-
-One thing still stands between the chain and the 144th row:
-`domain.element_type: "Float32"` is accepted, documented, and ignored, so a
-document evaluates in binary64 and one age cohort's `modfrc` lands on the wrong
-side of the reference's skip. See "The binary64 rule" above. It is being fixed
-upstream.
-
-See `PLAN.md` for the plan of record and `docs/findings/README.md` for what the
-toolchain still cannot do — twelve open findings, and three retired because
-they were fixed.
-=======
-Phases 0 and 1 are complete, and the first end-to-end fidelity comparison runs:
-both blockers that stood in front of it are fixed upstream — the CLI now builds
-a data provider per consumed `data_sources` entry and samples a source's extent
-before closing metaparameters, and `simulate --format csv` writes the rows of a
-document that has nothing to integrate. `fixtures/nr-logging-county.esm` reads
-seventeen snapshot tables and reproduces the twelve `MOVESOutput` rows of SCC
-2260007005 to 4.0 × 10⁻⁶.
+Both blockers that stood in front of the comparison are fixed upstream: the CLI
+now builds a data provider per consumed `data_sources` entry and samples a
+source's extent before closing metaparameters, and `simulate --format csv`
+writes the rows of a document that has nothing to integrate.
+`fixtures/nr-logging-county.esm` reads seventeen snapshot tables and reproduces
+the twelve `MOVESOutput` rows of SCC 2260007005 to 4.0 × 10⁻⁶.
 
 The remaining 132 rows are two more SCCs, and the blocker is not authoring
 effort: each equipment point needs its own `agedist.f` result, and that
-thirty-year fold is a recurrence with no spelling in the format
-(`docs/findings/README.md` F12). See `PLAN.md` for the plan of record and the
-findings file for what else the toolchain cannot yet do.
->>>>>>> phase2/wire
+thirty-year fold is a recurrence with no spelling in the format (F12). Its
+closed form over the residual sequence is verified exact — 0 of 1,581 cells
+differ per equipment point — but solving that form is a deconvolution, so the
+recurrence survives the reduction.
+
+`domain.element_type: "Float32"` is now honoured, per operation, and a
+**per-variable** `element_type` overrides it — needed because a document-wide
+float precision destroys ten-digit join keys (F18). See `PLAN.md` for the plan
+of record and `docs/findings/README.md` for what the toolchain still cannot do.
