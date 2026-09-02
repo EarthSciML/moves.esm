@@ -186,20 +186,48 @@ flows through a sum without leaving a NaN to trace, and a per-pollutant
 tolerance absorbs it.
 
 The defence is structural rather than vigilance, and is why the repo is shaped
-as it is: every inline test asserts a specific non-zero expected value rather
-than a bound, `run-oracle.sh` provides an independent implementation to
-attribute a disagreement to, and the exact key set catches the row-shaped
-version. Five of the six were found by running something real and checking the
-number against an independent source, not by reading code. Assume the next
-instance exists and has not been found.
+as it is: every inline test asserts a specific expected value rather than a
+bound, `run-oracle.sh` provides an independent implementation to attribute a
+disagreement to, and the exact key set catches the row-shaped version. Five of
+the six were found by running something real and checking the number against an
+independent source, not by reading code. Assume the next instance exists and
+has not been found.
+
+**That defence is audited, not asserted.** A gate that cannot fail is worse
+than no gate, so every assertion in the repo has been perturbed and checked to
+go red:
+
+| what | result |
+|---|---|
+| all 457 distinct assertions in `components/` and `runs/`, perturbed by 10⁻³ | **886 of 886 evaluations fail, 0 pass** |
+| the fixture's 84 perturbable assertions, at ×(1+10⁻⁵) | **84 of 84 fail** |
+| the same, at ×(1+4 × 10⁻⁷) | 80 fail; the 4 survivors are the one test whose `rel: 1e-6` is older than the float32 work |
+| the F18 control, override dropped / domain forced to Float64 | 2 of 3 fail / 1 of 3 fails |
+
+The zero-valued ones are the case that matters most and the easiest to get
+wrong. 68 of the 457 assert *exactly* zero — an earlier version of this
+paragraph claimed none did — and a zero assertion whose tolerance hides a
+non-zero is decoration. Nudged to 10⁻³, all 68 go red.
 
 ## Status
 
 **Phases 0, 1 and 2 are complete, and Phase 3 has its specification and its
 first four components.** Fifteen components cover all seven NONROAD stages of
 `nr-logging-county` and four of the six onroad stages of `mixed-onroad`, with
-886 inline assertions whose numbers each trace to a named section of a port
-specification.
+**457 distinct inline assertions** whose numbers each trace to a named section
+of a port specification.
+
+`esm test` reports 886, and the difference is worth knowing rather than
+quoting: mounting a component into an assembly **re-runs that component's own
+tests in the assembly's context**, so 429 of the 886 are re-executions. The
+nonroad assembly declares 9 assertions of its own and runs 275 — its ten
+mounted components' 266, plus its 9. That is not redundancy: a mount is
+precisely where this toolchain has been caught changing behaviour — dropped
+`join.on` key columns (F1), unmerged `index_sets` (F2), `enums` colliding
+first-wins and applying the wrong value (F13) — so re-running a component's
+assertions under the mount is the only check that would catch it, and it is
+free. But 886 overstates how much independent checking exists, so the headline
+number is 457.
 
 Both blockers on the first end-to-end fixture comparison are closed: the CLI
 now wires a data provider and `simulate --format csv` emits a relational
