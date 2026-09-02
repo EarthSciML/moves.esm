@@ -59,8 +59,23 @@ echo "building esm from $AST ..."
   # alternative is a working binary that reads nothing.
   cargo update -p earthsciio --config "$PATCH" >/dev/null 2>&1 || true
 
-  cargo build --release --features esio,parallel --bin esm --config "$PATCH" 2>&1 \
-    | tee /dev/stderr | grep -q "warning: patch .* was not used" && {
+  # A cargo build killed mid-write -- by an OOM, or by a wrapper timeout --
+  # leaves a half-written rlib, and the NEXT build fails at link with
+  # "undefined hidden symbol: hashbrown::..." or "...serde_json..Value...".
+  # The message points at a dependency and has nothing to do with the code, and
+  # it has cost real time three times on this project. Detect it and self-heal
+  # once rather than making the next person diagnose it again.
+  build() { cargo build --release --features esio,parallel --bin esm --config "$PATCH" 2>&1; }
+  out="$(build)"; rc=$?
+  if [[ $rc -ne 0 ]] && grep -q "undefined hidden symbol" <<<"$out"; then
+    echo "note: stale build artifacts from an interrupted compile; cleaning and retrying" >&2
+    rm -rf target/release/incremental target/debug/incremental
+    cargo clean -p earthsci-ast >/dev/null 2>&1
+    out="$(build)"; rc=$?
+  fi
+  printf '%s\n' "$out"
+  [[ $rc -eq 0 ]] || exit $rc
+  grep -q "warning: patch .* was not used" <<<"$out" && {
         echo "error: the EarthSciIO path patch was not applied -- the binary would" >&2
         echo "       link the crates.io crate, which has no parquet reader." >&2
         exit 3
