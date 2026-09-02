@@ -564,6 +564,44 @@ else
   fi
 fi
 
+# --- independent oracles ----------------------------------------------------
+
+# The four reproductions that live inside the port specifications. Each one is
+# EXTRACTED from its §6.5 fence at run time and run against the snapshot, so a
+# specification whose code has quietly stopped working cannot keep looking
+# authoritative -- and each asserts, so a silent drift in the snapshot or in a
+# spec's arithmetic fails here rather than being discovered the next time
+# someone reads the document.
+#
+# They were not in this suite until now, which was a hole of the same shape as
+# the one the stage above closed: three scripts that assert, run by nobody.
+#
+# `run-oracle.sh --float64` is a second run of the same NONROAD reproduction in
+# binary64 rather than f32; it emits 140 of 144 rows and says so, which is the
+# measurement docs/nonroad-logging-county.md §7.3 and PLAN.md §1.6.1a rest on.
+# It is expected to SUCCEED as a script -- the row difference is its output, not
+# its exit code.
+head2 "independent oracles"
+if [[ ! -d "$SNAPSHOTS" ]]; then
+  skip "oracles" "no snapshots at $SNAPSHOTS (set SNAPSHOTS=...)"
+else
+  ORACLES=("./run-oracle.sh" "./run-oracle.sh --float64"
+           "./run-onroad-oracle.sh" "./run-leaks-oracle.sh")
+  for oracle in "${ORACLES[@]}"; do
+    if [[ ! -x "${oracle%% *}" ]]; then
+      fail "oracle ${oracle} — not executable"
+      continue
+    fi
+    if out=$(SNAPSHOTS="$SNAPSHOTS" $oracle 2>&1); then
+      pass "${oracle}"
+      sed 's/^/     /' <<<"$out" | grep -Ev '^\s*$' | tail -8
+    else
+      fail "oracle ${oracle}"
+      sed 's/^/       /' <<<"$out" | tail -12
+    fi
+  done
+fi
+
 # --- summary --------------------------------------------------------------
 
 head2 "summary"

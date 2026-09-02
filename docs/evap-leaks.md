@@ -1381,14 +1381,28 @@ for (regclass, fuel, my, opmode), rate in wmbr.items():
 
 # --------------------------------------------------------------------- compare
 def worst(computed, reference, label, absolute=False):
-    assert set(computed) >= set(reference), \
-        "%s: %d reference key(s) not computed" % (label, len(set(reference) - set(computed)))
+    """Compare two keyed relations, checking the ROW SET before any value.
+
+    Missing and extra keys are counted SEPARATELY and either one fails. They are
+    different defects -- a key the chain does not reach and a key it invents --
+    and a comparison that folds a missing row into a relative error (by reading
+    its value as 0) cannot fail on an over-emitting chain at all. This
+    fixture's whole claim is an exact key set, so the check that establishes it
+    has to be two-sided everywhere, not only at the output."""
+    missing = sorted(set(reference) - set(computed))
+    extra = sorted(set(computed) - set(reference))
+    assert not missing, "%s: %d key(s) in the reference and not computed, e.g. %s" % (
+        label, len(missing), missing[:3])
+    assert not extra, "%s: %d key(s) computed and not in the reference, e.g. %s" % (
+        label, len(extra), extra[:3])
     if absolute:
         w = max(abs(computed[k] - v) for k, v in reference.items())
-        print("%-26s %4d rows, worst ABSOLUTE error %.3e" % (label + ":", len(reference), w))
+        print("%-26s %4d rows, 0 missing, 0 extra, worst ABSOLUTE error %.3e"
+              % (label + ":", len(reference), w))
     else:
         w = max(abs(computed[k] - v) / abs(v) for k, v in reference.items() if v)
-        print("%-26s %4d rows, worst relative error %.3e" % (label + ":", len(reference), w))
+        print("%-26s %4d rows, 0 missing, 0 extra, worst relative error %.3e"
+              % (label + ":", len(reference), w))
     return w
 
 
@@ -1409,8 +1423,7 @@ worst(omd,
 
 out = OUT("movesoutput")
 expected = {(o["dayID"], o["fuelTypeID"], o["modelYearID"]): f(o["emissionQuant"]) for o in out}
-assert len(rows) == len(out), (len(rows), len(out))
-assert set(rows) == set(expected), "key set differs"
+assert len(expected) == len(out), "the reference's own key is not unique"
 for o in out:
     k = (o["dayID"], o["fuelTypeID"], o["modelYearID"])
     assert sccs[k] == o["SCC"], (sccs[k], o["SCC"])
