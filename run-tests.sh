@@ -533,6 +533,37 @@ PYEOF
   done
 fi
 
+# --- the two chains agree ---------------------------------------------------
+
+# runs/nr_logging_county_run.esm and fixtures/nr-logging-county.esm are separate
+# documents with separate equations that compute the same four model-year-2020
+# rows -- one from mounted component leaves, one from the snapshot Parquet.
+# Until this stage nothing compared them: each passed its own gate against its
+# own transcribed numbers, at tolerances far tighter than the gap between the
+# two. Agreement between independent routes is the check this repo relies on
+# most (it is why run-oracle.sh exists), so leaving this pair unchecked was a
+# hole.
+#
+# They evaluate in different precisions on purpose -- the fixture per-operation
+# binary32, the assembly binary64 -- so the bound is in ULPS of binary32 rather
+# than a relative fraction. Measured: three rows agree bit-exactly and one
+# differs by exactly one ulp, which is per-operation rounding versus a single
+# final cast. A relative bound loose enough to pass that row would be 1e-7,
+# four orders looser than what either document asserts internally.
+head2 "the two chains agree"
+CHAIN_CSV="${ACTUAL_DIR:-$RUNDIR}/nr-logging-county.actual.csv"
+if [[ ! -f "$CHAIN_CSV" ]]; then
+  skip "chain cross-check" "the fixture stage produced no $CHAIN_CSV"
+else
+  if out=$("$PYTHON" tools/cross-check-chain.py "$CHAIN_CSV" 2>&1); then
+    pass "runs/ assembly and fixtures/ agree within 1 ulp of binary32"
+    sed 's/^/     /' <<<"$out"
+  else
+    fail "the mounted assembly and the fixture disagree by more than their precision difference explains"
+    sed 's/^/       /' <<<"$out"
+  fi
+fi
+
 # --- summary --------------------------------------------------------------
 
 head2 "summary"

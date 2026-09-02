@@ -36,7 +36,7 @@ The binary itself, `./esm`, is deliberately untracked.
 | `fixtures/` | The documents that read the snapshot Parquet and are compared against its `MOVESOutput`. One per snapshot; each declares the tables it reads as `data_sources`. |
 | `gates/` | Performance gates, currently the `join.on` scaling assertion. |
 | `docs/` | The two port specifications, the conventions doc, and the findings. |
-| `tools/` | `check-conventions.py`, which enforces mechanically what a review would otherwise have to eyeball; `check-sources.py`, which opens every declared Parquet file and checks the columns; `shortfall.py`, which judges a fixture's failure against what `tolerance.toml` says to expect. |
+| `tools/` | `check-conventions.py`, which enforces mechanically what a review would otherwise have to eyeball; `check-sources.py`, which opens every declared Parquet file and checks the columns; `shortfall.py`, which judges a fixture's failure against what `tolerance.toml` says to expect; `cross-check-chain.py`, which compares the mounted assembly's rows against the fixture's in ulps. |
 
 ## Testing
 
@@ -44,7 +44,8 @@ The binary itself, `./esm`, is deliberately untracked.
 self-test of the comparator, `esm validate` on every document, the conventions
 check, `esm test` (the inline §6.6 tests), a round-trip check, the scaling gate,
 the known-limitations tripwire, the `data_sources` declarations against the
-Parquet, and the fixture run — materialize, assert, emit, compare.
+Parquet, the fixture run — materialize, assert, emit, compare — and a
+cross-check that the two independently authored chains agree.
 
 Three stages are worth explaining because their polarity is unusual.
 
@@ -61,6 +62,20 @@ should — a comparator that can be told to pass is not a comparator — so
 checks that the failure is still exactly that one. It fires if the shortfall
 grows, if it shrinks, or if a row this port does emit drifts. See §11.2 of the
 conventions for what the other 132 rows need, which is not more `.esm`.
+
+**The two chains are compared to each other, in ulps.**
+`runs/nr_logging_county_run.esm` and `fixtures/nr-logging-county.esm` are
+separate documents with separate equations that compute the same four
+model-year-2020 rows — one from mounted component leaves, one from the snapshot
+Parquet. Each passed its own gate against its own transcribed numbers, at
+tolerances far tighter than the gap between the two, and nothing compared them.
+Agreement between independent routes is the check this repo leans on hardest,
+so that was a hole. They evaluate in different precisions on purpose — the
+fixture per-operation binary32, the assembly binary64 — so the bound is **ulps
+of binary32**, not a relative fraction: three rows agree bit-exactly and one
+differs by exactly one ulp, which is per-operation rounding versus a single
+final cast. A relative bound loose enough to pass that row would be 10⁻⁷, four
+orders looser than what either document asserts internally.
 
 **The comparator is tested before it is trusted.** `compare-output.py` judges
 whether output matches the reference, so a bug in it that passes everything
