@@ -36,7 +36,7 @@ The binary itself, `./esm`, is deliberately untracked.
 | `fixtures/` | The documents that read the snapshot Parquet and are compared against its `MOVESOutput`. One per snapshot; each declares the tables it reads as `data_sources`. |
 | `gates/` | Performance gates, currently the `join.on` scaling assertion. |
 | `docs/` | The two port specifications, the conventions doc, and the findings. |
-| `tools/` | `check-conventions.py`, which enforces mechanically what a review would otherwise have to eyeball; `check-sources.py`, which opens every declared Parquet file and checks the columns; `shortfall.py`, which judges a fixture's failure against what `tolerance.toml` says to expect. |
+| `tools/` | `check-conventions.py`, which enforces mechanically what a review would otherwise have to eyeball; `check-sources.py`, which opens every declared Parquet file and checks the columns; `shortfall.py`, which judges a fixture's failure against what `tolerance.toml` says to expect; `cross-check-chain.py`, which compares the mounted assembly's rows against the fixture's in ulps. |
 
 ## Testing
 
@@ -44,7 +44,8 @@ The binary itself, `./esm`, is deliberately untracked.
 self-test of the comparator, `esm validate` on every document, the conventions
 check, `esm test` (the inline §6.6 tests), a round-trip check, the scaling gate,
 the known-limitations tripwire, the `data_sources` declarations against the
-Parquet, and the fixture run — materialize, assert, emit, compare.
+Parquet, the fixture run — materialize, assert, emit, compare — and a
+cross-check that the two independently authored chains agree.
 
 Three stages are worth explaining because their polarity is unusual.
 
@@ -61,6 +62,20 @@ should — a comparator that can be told to pass is not a comparator — so
 checks that the failure is still exactly that one. It fires if the shortfall
 grows, if it shrinks, or if a row this port does emit drifts. See §11.2 of the
 conventions for what the other 132 rows need, which is not more `.esm`.
+
+**The two chains are compared to each other, in ulps.**
+`runs/nr_logging_county_run.esm` and `fixtures/nr-logging-county.esm` are
+separate documents with separate equations that compute the same four
+model-year-2020 rows — one from mounted component leaves, one from the snapshot
+Parquet. Each passed its own gate against its own transcribed numbers, at
+tolerances far tighter than the gap between the two, and nothing compared them.
+Agreement between independent routes is the check this repo leans on hardest,
+so that was a hole. They evaluate in different precisions on purpose — the
+fixture per-operation binary32, the assembly binary64 — so the bound is **ulps
+of binary32**, not a relative fraction: three rows agree bit-exactly and one
+differs by exactly one ulp, which is per-operation rounding versus a single
+final cast. A relative bound loose enough to pass that row would be 10⁻⁷, four
+orders looser than what either document asserts internally.
 
 **The comparator is tested before it is trusted.** `compare-output.py` judges
 whether output matches the reference, so a bug in it that passes everything
@@ -171,20 +186,48 @@ flows through a sum without leaving a NaN to trace, and a per-pollutant
 tolerance absorbs it.
 
 The defence is structural rather than vigilance, and is why the repo is shaped
-as it is: every inline test asserts a specific non-zero expected value rather
-than a bound, `run-oracle.sh` provides an independent implementation to
-attribute a disagreement to, and the exact key set catches the row-shaped
-version. Five of the six were found by running something real and checking the
-number against an independent source, not by reading code. Assume the next
-instance exists and has not been found.
+as it is: every inline test asserts a specific expected value rather than a
+bound, `run-oracle.sh` provides an independent implementation to attribute a
+disagreement to, and the exact key set catches the row-shaped version. Five of
+the six were found by running something real and checking the number against an
+independent source, not by reading code. Assume the next instance exists and
+has not been found.
+
+**That defence is audited, not asserted.** A gate that cannot fail is worse
+than no gate, so every assertion in the repo has been perturbed and checked to
+go red:
+
+| what | result |
+|---|---|
+| all 457 distinct assertions in `components/` and `runs/`, perturbed by 10⁻³ | **886 of 886 evaluations fail, 0 pass** |
+| the fixture's 84 perturbable assertions, at ×(1+10⁻⁵) | **84 of 84 fail** |
+| the same, at ×(1+4 × 10⁻⁷) | 80 fail; the 4 survivors are the one test whose `rel: 1e-6` is older than the float32 work |
+| the F18 control, override dropped / domain forced to Float64 | 2 of 3 fail / 1 of 3 fails |
+
+The zero-valued ones are the case that matters most and the easiest to get
+wrong. 68 of the 457 assert *exactly* zero — an earlier version of this
+paragraph claimed none did — and a zero assertion whose tolerance hides a
+non-zero is decoration. Nudged to 10⁻³, all 68 go red.
 
 ## Status
 
 **Phases 0, 1 and 2 are complete, and Phase 3 has its specification and its
 first four components.** Fifteen components cover all seven NONROAD stages of
 `nr-logging-county` and four of the six onroad stages of `mixed-onroad`, with
-886 inline assertions whose numbers each trace to a named section of a port
-specification.
+**457 distinct inline assertions** whose numbers each trace to a named section
+of a port specification.
+
+`esm test` reports 886, and the difference is worth knowing rather than
+quoting: mounting a component into an assembly **re-runs that component's own
+tests in the assembly's context**, so 429 of the 886 are re-executions. The
+nonroad assembly declares 9 assertions of its own and runs 275 — its ten
+mounted components' 266, plus its 9. That is not redundancy: a mount is
+precisely where this toolchain has been caught changing behaviour — dropped
+`join.on` key columns (F1), unmerged `index_sets` (F2), `enums` colliding
+first-wins and applying the wrong value (F13) — so re-running a component's
+assertions under the mount is the only check that would catch it, and it is
+free. But 886 overstates how much independent checking exists, so the headline
+number is 457.
 
 Both blockers on the first end-to-end fixture comparison are closed: the CLI
 now wires a data provider and `simulate --format csv` emits a relational
