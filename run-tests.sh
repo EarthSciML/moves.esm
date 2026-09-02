@@ -260,9 +260,37 @@ else
   fail "F13 enum leaves (control) — a leaf fixture is itself broken"
 fi
 
+# F18's control, and the reason it is a control and not a repro. F18 was that a
+# document-wide element_type narrows INGESTED values, so a ten-digit SCC
+# collapses. Upstream resolved it with a PER-VARIABLE element_type -- an
+# explicit override, deliberately not an automatic exemption -- so the thing the
+# old repro asserted will never be true, and "still fails, as recorded" would be
+# false reassurance about a defect that is in fact resolved.
+#
+# It is two-sided on purpose. Asserting only the overridden key would still pass
+# if element_type were ignored altogether, which is the original defect; so the
+# same document also asserts an UN-overridden column at the exact binary32 value
+# of 0.34. Sabotage-checked both ways: dropping the override collapses both keys
+# to 2260001024 (2 fail), and setting the domain to Float64 reads 0.34 instead
+# of 0.3400000035762787 (1 fail).
+F18_CONTROL=docs/findings/F18_control_float32_key_override.esm
+if [[ ! -d "$SNAPSHOTS" ]]; then
+  skip "F18 key-override control" "needs the snapshots; none at $SNAPSHOTS"
+else
+  f18_run="$(mktemp --suffix=.esm)"
+  sed "s|\${MOVES_SNAPSHOTS}|$(cd "$SNAPSHOTS" && pwd)|g" "$F18_CONTROL" > "$f18_run"
+  if "$ESM" validate "$f18_run" >/dev/null 2>&1 && "$ESM" test "$f18_run" >/dev/null 2>&1; then
+    pass "F18 key-override control passes: an overridden key stays exact, and Float32 is still live"
+  else
+    fail "F18 key-override control — either a per-variable element_type override no longer keeps an ingested ten-digit key exact, or the document is no longer evaluating in Float32. Both are load-bearing for fixtures/nr-logging-county.esm"
+  fi
+  rm -f "$f18_run"
+fi
+
 mapfile -t REPROS < <(find docs/findings -name '*.esm' -not -name 'join_leaf.esm' \
   -not -name 'F3_lib_with_enum.esm' \
   -not -name 'F13_enum_leaf_*.esm' \
+  -not -name 'F18_control_float32_key_override.esm' \
   -not -name 'F19_an_infinite_actual_passes_any_assertion.esm' 2>/dev/null | sort)
 
 if [[ ${#REPROS[@]} -eq 0 ]]; then
