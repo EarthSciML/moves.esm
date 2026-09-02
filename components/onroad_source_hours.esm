@@ -1,0 +1,386 @@
+{
+  "esm": "1.0.0",
+  "metadata": {
+    "name": "OnroadSourceHours",
+    "description": "Stages S4-S9 of the mixed-onroad chain: national VMT allocated over road type and age, scaled to one hour of one day type, divided by average speed, and allocated to the zone. Ports docs/mixed-onroad.md §2.1 steps S4 through S9, joins J6-J17, and the arithmetic of crates/moves-calculators/src/generators/totalactivitygenerator/vmt.rs:88-194, activity.rs:147-205 and allocation.rs:201.\n\nThis is the stage with an INDEPENDENT REFERENCE, and that is why it is one component. Canonical MOVES captures `annualvmtbyageroadway`, `vmtbyageroadwayhour`, `shobyageroadwayhour` and `sho` as tables, so every one of the four multiplicative steps can be checked against a stored value rather than only at the end. The tests below check all four, which is what makes a wrong factor attributable to a step instead of showing up as a wrong emission.\n\nTHREE THINGS THAT ARE EASY TO GET WRONG, and each has a test.\n\n(1) `averageSpeed` is the ARITHMETIC mean of the speed-bin distribution, sum(avgSpeedFraction x avgBinSpeed), not the harmonic mean (activity.rs:147-150). The harmonic mean is the intuitive choice — SHO is VMT/speed, and the mean of a set of times is the harmonic mean of the speeds — and it is wrong. On this fixture's own distribution the two differ by 34% on the weekend day type and 95% on the weekday one, and since SHO divides by this number the error goes straight to the output. The test computes the mean from all sixteen bins and its description carries both values.\n\n(2) `weeksPerMonth` is a DIVISOR (vmt.rs:194), and it is the only place `monthofanyyear` is read in the entire generator. Omitting it multiplies every row by 4.43 for a 31-day month. Its job is to fix SHO's basis: `dayVMTFraction` is a share of the MONTH's VMT, so before the division the quantity covers every real day of that day type in the month; after it, one average week — that is, the day type's `noOfRealDays` days. The output stage divides `noOfRealDays` out again (S16), and applying it in both places is the ~4.3x over-emit crates/moves-calculators/src/calculators/baseratecalculator/mod.rs:1536-1542 records. A missing `monthofanyyear` row silently substitutes 1.0 upstream, which is exactly the shape of failure this repository's README warns about.\n\n(3) `SHOAllocFactor` is PURELY SPATIAL. It carries no time or speed factor; it is 0.001646 here because it allocates national road-4 activity to one zone. It multiplies at the very end (allocation.rs:201) and nothing else in the chain is county-specific.\n\nWHAT THE JOIN STRUCTURE LOOKS LIKE. J11-J14 are one contraction with two `join.on` clauses — the age relation on `ageID` and the day relation on `hourDayID` — because the four fractions relate four different relations to the same row and compose by conjunction (docs/esm-conventions.md §3). J15 is separate because its result is a DIVISOR and has to be guarded: activity.rs:186-205 is a LEFT JOIN whose miss gives SHO = 0 with VMT intact, and that pair (VMT positive, SHO zero) is the diagnostic signature of a missing speed row. Note what J15 does NOT join on: neither `monthID` nor `ageID`, so one speed serves every month and every age.\n\nData: `travelFraction` is docs/mixed-onroad.md §6.1-§6.4's five values, computed by components/onroad_travel_fraction.esm and carried here as a column so this file tests standalone; the assembly joins the two instead. Everything else — the analysis-year VMT, the four fractions, all thirty-two `avgSpeedFraction` cells and the allocation factor — is the snapshot's.",
+    "authors": ["EarthSciML Authors and Contributors"],
+    "tags": ["moves", "onroad", "activity", "vmt", "component"]
+  },
+
+  "enums": {
+    "source_type": { "PassengerCar": 21 },
+    "hpms_vtype": { "LightDutyVehicles": 25 },
+    "road_type": { "UrbanRestrictedAccess": 4 },
+    "month": { "August": 8 },
+    "hour": { "NineAM": 9 },
+    "day_type": { "Weekend": 2, "Weekday": 5 }
+  },
+
+  "index_sets": {
+    "vmt_age_rows": { "kind": "interval", "size": 5 },
+    "activity_day_rows": { "kind": "interval", "size": 2 },
+    "speed_bin_rows": { "kind": "interval", "size": 16 },
+    "speed_dist_rows": { "kind": "interval", "size": 32 },
+    "source_hour_rows": { "kind": "interval", "size": 10 }
+  },
+
+  "coordinates": {
+    "source_hour_age": {
+      "source": "sho_ageID",
+      "standard_name": "vehicle_age"
+    },
+    "source_hour_hour_day": {
+      "source": "sho_hourDayID",
+      "standard_name": "moves_hour_day_identifier"
+    }
+  },
+
+  "models": {
+    "OnroadSourceHours": {
+      "expression_template_imports": [
+        { "ref": "../lib/onroad_activity.esm", "only": ["weeks_per_month"] }
+      ],
+
+      "tolerance": { "rel": 1e-12 },
+
+      "variables": {
+        "analysisYearVMT": {
+          "type": "parameter", "units": "1", "default": 2572988371051.0,
+          "description": "S4: hpmsvtypeyear[25, 2020].HPMSBaseYearVMT, national annual VMT for HPMS light-duty vehicles. With base year = analysis year the growth fold is the empty product (docs/mixed-onroad.md §1.5), so this is the stored base-year value and not a grown one."
+        },
+        "roadTypeVMTFraction": {
+          "type": "parameter", "units": "1", "default": 0.259544,
+          "description": "roadtypedistribution[21, 4].roadTypeVMTFraction. Gated to `roadtype` membership upstream (vmt.rs:67)."
+        },
+        "monthVMTFraction": {
+          "type": "parameter", "units": "1", "default": 0.0934297,
+          "description": "monthvmtfraction[21, 8].monthVMTFraction. Keyed on source type only — there is no road type in that table."
+        },
+        "daysInMonth": {
+          "type": "parameter", "units": "1", "default": 31.0,
+          "description": "monthofanyyear[8].noOfDays. The only column read from that table in the whole generator, and the input to the divisor of point (2) above."
+        },
+        "shoAllocFactor": {
+          "type": "parameter", "units": "1", "default": 0.001645627794,
+          "description": "zoneroadtype[261610, 4].SHOAllocFactor. Purely spatial; see point (3) above."
+        },
+        "weeksPerMonth": {
+          "type": "unknown", "units": "1",
+          "description": "daysInMonth / 7 = 4.428571 for August (vmt.rs:115, WeeksInMonthHelper)."
+        },
+
+        "vmt_ageID": {
+          "type": "unknown", "shape": ["vmt_age_rows"],
+          "description": "agecategory.ageID for the five probe ages of docs/mixed-onroad.md §6.1-§6.4."
+        },
+        "vmt_travelFraction": {
+          "type": "unknown", "shape": ["vmt_age_rows"], "units": "1",
+          "description": "S3's result, from components/onroad_travel_fraction.esm. Carried as a column so this file tests standalone; the assembly joins on `ageID` instead."
+        },
+        "vmt_annualVMT": {
+          "type": "unknown", "shape": ["vmt_age_rows"], "units": "1",
+          "description": "S5, vmt.rs:88-96 (J6-J8): analysisYearVMT x roadTypeVMTFraction x travelFraction. Still NATIONAL — the county allocation is S9. Checkable against annualvmtbyageroadway."
+        },
+
+        "day_dayID": {
+          "type": "unknown", "shape": ["activity_day_rows"],
+          "description": "runspecday.dayID: 2 (weekend) and 5 (weekday)."
+        },
+        "day_hourDayID": {
+          "type": "unknown", "shape": ["activity_day_rows"],
+          "description": "hourday.hourDayID = hourID x 10 + dayID for hour 9, so 92 and 95. This is the key `sho` carries in place of a separate dayID column (allocation.rs:806-823)."
+        },
+        "day_dayVMTFraction": {
+          "type": "unknown", "shape": ["activity_day_rows"], "units": "1",
+          "description": "dayvmtfraction[21, 8, 4, dayID].dayVMTFraction. A share of the MONTH's VMT, which is what makes the weeksPerMonth divisor necessary. The two sum to 1."
+        },
+        "day_hourVMTFraction": {
+          "type": "unknown", "shape": ["activity_day_rows"], "units": "1",
+          "description": "hourvmtfraction[21, 4, dayID, 9].hourVMTFraction. A share of that day type's own 24 hours."
+        },
+        "day_averageSpeed": {
+          "type": "unknown", "shape": ["activity_day_rows"], "units": "1",
+          "description": "S6, activity.rs:147-150 (J9, J10): the ARITHMETIC mean of the speed-bin distribution, in miles per hour. `mi h-1` is not in the unit registry, so the unit is named here and not declared (docs/esm-conventions.md §11)."
+        },
+
+        "bin_avgSpeedBinID": {
+          "type": "unknown", "shape": ["speed_bin_rows"],
+          "description": "avgspeedbin.avgSpeedBinID, 1..16."
+        },
+        "bin_avgBinSpeed": {
+          "type": "unknown", "shape": ["speed_bin_rows"], "units": "1",
+          "description": "avgspeedbin.avgBinSpeed, the bin's representative speed in mph: 2.5, then 5 to 75 in steps of 5."
+        },
+        "dist_hourDayID": {
+          "type": "unknown", "shape": ["speed_dist_rows"],
+          "description": "avgspeeddistribution.hourDayID. Rows 1-16 are hourDayID 92, rows 17-32 are 95. The table carries no monthID, so one distribution serves every month."
+        },
+        "dist_avgSpeedBinID": {
+          "type": "unknown", "shape": ["speed_dist_rows"],
+          "description": "avgspeeddistribution.avgSpeedBinID, 1..16 within each day type."
+        },
+        "dist_avgSpeedFraction": {
+          "type": "unknown", "shape": ["speed_dist_rows"], "units": "1",
+          "description": "avgspeeddistribution[21, 4, hourDayID, bin].avgSpeedFraction. All thirty-two cells, the snapshot's own. They sum to 1.0000004 and 0.9999999 — 6-significant-figure storage, not a modelling error."
+        },
+
+        "sho_ageID": {
+          "type": "unknown", "shape": ["source_hour_rows"],
+          "description": "The output relation's age key. Rows 1-5 are hourDayID 92 and rows 6-10 are 95, each over the five probe ages."
+        },
+        "sho_hourDayID": {
+          "type": "unknown", "shape": ["source_hour_rows"],
+          "description": "The output relation's hour-day key, joined to `runspechourday` upstream (J17)."
+        },
+        "sho_vmt": {
+          "type": "unknown", "shape": ["source_hour_rows"], "units": "1",
+          "description": "S7, vmt.rs:170-194 (J11-J14): annualVMT x monthVMTFraction x dayVMTFraction x hourVMTFraction / weeksPerMonth. Vehicle-miles in hour 9, summed over the day type's real days in one average week. Checkable against vmtbyageroadwayhour."
+        },
+        "sho_averageSpeed": {
+          "type": "unknown", "shape": ["source_hour_rows"], "units": "1",
+          "description": "J15: the day type's average speed brought to each row. Separate from the S7 contraction because it is a DIVISOR and needs the zero guard, and because the join carries neither monthID nor ageID."
+        },
+        "sho_shoByAgeRoadwayHour": {
+          "type": "unknown", "shape": ["source_hour_rows"], "units": "1",
+          "description": "S8, activity.rs:186-205: vmt / averageSpeed, or 0 where the speed is absent. Still national. Checkable against shobyageroadwayhour."
+        },
+        "sho_SHO": {
+          "type": "unknown", "shape": ["source_hour_rows"], "units": "1",
+          "description": "S9, allocation.rs:201: x SHOAllocFactor. Source-hours-operating for one zone, one road type, one hour of one day type, summed over that day type's real days in an average week. This is the `sho` table, and it is the quantity the output stage multiplies by a rate."
+        }
+      },
+
+      "equations": [
+        {
+          "lhs": "weeksPerMonth",
+          "rhs": { "op": "apply_expression_template", "args": [], "name": "weeks_per_month",
+            "bindings": { "days_in_month": "daysInMonth" } }
+        },
+        {
+          "lhs": "vmt_ageID",
+          "rhs": { "op": "const", "args": [], "value": [0, 5, 20, 22, 40] }
+        },
+        {
+          "_comment": "docs/mixed-onroad.md §6.1-§6.4, computed by components/onroad_travel_fraction.esm.",
+          "lhs": "vmt_travelFraction",
+          "rhs": { "op": "const", "args": [],
+            "value": [0.0180442029323595, 0.027238199558448965, 0.0058023948897717266,
+                      0.0032493126062871306, 0.0016091748533087506] }
+        },
+        {
+          "_comment": "S5, vmt.rs:88-96. J6 and J7 fix the HPMS type and the road type, so the two factors are scalars here; J8 is the elementwise travel fraction.",
+          "lhs": "vmt_annualVMT",
+          "rhs": { "op": "*", "args": [
+            { "op": "*", "args": ["analysisYearVMT", "roadTypeVMTFraction"] },
+            "vmt_travelFraction"] }
+        },
+
+        {
+          "lhs": "day_dayID",
+          "rhs": { "op": "makearray", "args": [],
+            "regions": [[[1, 1]], [[2, 2]]],
+            "values": [
+              { "op": "enum", "args": ["day_type", "Weekend"] },
+              { "op": "enum", "args": ["day_type", "Weekday"] }
+            ] }
+        },
+        {
+          "_comment": "hourday.hourDayID = hourID * 10 + dayID, built from the two enums rather than written as 92 and 95.",
+          "lhs": "day_hourDayID",
+          "rhs": { "op": "+", "args": [
+            { "op": "*", "args": [10, { "op": "enum", "args": ["hour", "NineAM"] }] },
+            "day_dayID"] }
+        },
+        {
+          "lhs": "day_dayVMTFraction",
+          "rhs": { "op": "const", "args": [], "value": [0.237635, 0.762365] }
+        },
+        {
+          "lhs": "day_hourVMTFraction",
+          "rhs": { "op": "const", "args": [], "value": [0.0363852, 0.0608279] }
+        },
+
+        {
+          "lhs": "bin_avgSpeedBinID",
+          "rhs": { "op": "const", "args": [],
+            "value": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16] }
+        },
+        {
+          "lhs": "bin_avgBinSpeed",
+          "rhs": { "op": "const", "args": [],
+            "value": [2.5, 5.0, 10.0, 15.0, 20.0, 25.0, 30.0, 35.0, 40.0, 45.0, 50.0, 55.0,
+                      60.0, 65.0, 70.0, 75.0] }
+        },
+        {
+          "lhs": "dist_hourDayID",
+          "rhs": { "op": "makearray", "args": [],
+            "regions": [[[1, 16]], [[17, 32]]],
+            "values": [
+              { "op": "+", "args": [
+                { "op": "*", "args": [10, { "op": "enum", "args": ["hour", "NineAM"] }] },
+                { "op": "enum", "args": ["day_type", "Weekend"] }] },
+              { "op": "+", "args": [
+                { "op": "*", "args": [10, { "op": "enum", "args": ["hour", "NineAM"] }] },
+                { "op": "enum", "args": ["day_type", "Weekday"] }] }
+            ] }
+        },
+        {
+          "lhs": "dist_avgSpeedBinID",
+          "rhs": { "op": "const", "args": [],
+            "value": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
+                      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16] }
+        },
+        {
+          "lhs": "dist_avgSpeedFraction",
+          "rhs": { "op": "const", "args": [],
+            "value": [0.00700678, 0.00935513, 0.00480108, 0.00379081, 0.0031322, 0.00312075,
+                      0.00318421, 0.00439233, 0.00704431, 0.0131191, 0.0226637, 0.0453375,
+                      0.0995235, 0.177012, 0.235971, 0.360546,
+                      0.0129212, 0.0427775, 0.054823, 0.0552428, 0.0510923, 0.0457315,
+                      0.0406824, 0.0363638, 0.0346183, 0.0359256, 0.0425551, 0.0573242,
+                      0.0855652, 0.119158, 0.129784, 0.155435] }
+        },
+        {
+          "_comment": "S6, activity.rs:147-150. J10 selects the day type's distribution and J9 attaches each bin's speed; the ARITHMETIC mean is the sum of the products.",
+          "lhs": "day_averageSpeed",
+          "rhs": { "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["k"],
+            "ranges": { "k": { "from": "activity_day_rows" },
+                        "p": { "from": "speed_dist_rows" },
+                        "b": { "from": "speed_bin_rows" } },
+            "join": [ { "on": [["day_hourDayID", "dist_hourDayID"]] },
+                      { "on": [["dist_avgSpeedBinID", "bin_avgSpeedBinID"]] } ],
+            "expr": { "op": "*", "args": [
+              { "op": "index", "args": ["dist_avgSpeedFraction", "p"] },
+              { "op": "index", "args": ["bin_avgBinSpeed", "b"] }] } }
+        },
+
+        {
+          "lhs": "sho_ageID",
+          "rhs": { "op": "const", "args": [], "value": [0, 5, 20, 22, 40, 0, 5, 20, 22, 40] }
+        },
+        {
+          "lhs": "sho_hourDayID",
+          "rhs": { "op": "makearray", "args": [],
+            "regions": [[[1, 5]], [[6, 10]]],
+            "values": [
+              { "op": "+", "args": [
+                { "op": "*", "args": [10, { "op": "enum", "args": ["hour", "NineAM"] }] },
+                { "op": "enum", "args": ["day_type", "Weekend"] }] },
+              { "op": "+", "args": [
+                { "op": "*", "args": [10, { "op": "enum", "args": ["hour", "NineAM"] }] },
+                { "op": "enum", "args": ["day_type", "Weekday"] }] }
+            ] }
+        },
+        {
+          "_comment": "S7, vmt.rs:170-194. J11-J14 as ONE contraction with two join clauses over two different symbol pairs, which compose by conjunction: the age relation supplies annualVMT and the day relation supplies both day-level fractions. monthVMTFraction and weeksPerMonth are run-level.",
+          "lhs": "sho_vmt",
+          "rhs": { "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["r"],
+            "ranges": { "r": { "from": "source_hour_rows" },
+                        "a": { "from": "vmt_age_rows" },
+                        "k": { "from": "activity_day_rows" } },
+            "join": [ { "on": [["sho_ageID", "vmt_ageID"]] },
+                      { "on": [["sho_hourDayID", "day_hourDayID"]] } ],
+            "expr": { "op": "/", "args": [
+              { "op": "*", "args": [
+                { "op": "*", "args": [
+                  { "op": "index", "args": ["vmt_annualVMT", "a"] },
+                  "monthVMTFraction"] },
+                { "op": "*", "args": [
+                  { "op": "index", "args": ["day_dayVMTFraction", "k"] },
+                  { "op": "index", "args": ["day_hourVMTFraction", "k"] }] }] },
+              "weeksPerMonth"] } }
+        },
+        {
+          "_comment": "J15. Its own contraction because the result is a divisor that needs a guard, and because the join carries neither monthID nor ageID.",
+          "lhs": "sho_averageSpeed",
+          "rhs": { "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["r"],
+            "ranges": { "r": { "from": "source_hour_rows" }, "k": { "from": "activity_day_rows" } },
+            "join": [ { "on": [["sho_hourDayID", "day_hourDayID"]] } ],
+            "expr": { "op": "index", "args": ["day_averageSpeed", "k"] } }
+        },
+        {
+          "_comment": "S8, activity.rs:186-205. A LEFT JOIN: a missing speed row gives SHO = 0 with the VMT column intact, which is the signature to look for.",
+          "lhs": "sho_shoByAgeRoadwayHour",
+          "rhs": { "op": "ifelse", "args": [
+            { "op": ">", "args": ["sho_averageSpeed", 0.0] },
+            { "op": "/", "args": ["sho_vmt", "sho_averageSpeed"] },
+            0.0] }
+        },
+        {
+          "_comment": "S9, allocation.rs:201.",
+          "lhs": "sho_SHO",
+          "rhs": { "op": "*", "args": ["sho_shoByAgeRoadwayHour", "shoAllocFactor"] }
+        }
+      ],
+
+      "tests": [
+        {
+          "id": "average_speed_is_the_arithmetic_mean",
+          "description": "S6 over all sixteen bins of both day types. 66.09407555 mph on the weekend and 48.185058 on the weekday, matching the snapshot's `averagespeed` table exactly. The HARMONIC mean of the same two distributions is 49.443370 and 24.745720 — 34% and 95% low — and since S8 divides by this number, choosing it makes every emitted row high by the same factor. The harmonic mean is the intuitive choice here, which is why this test exists.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "day_averageSpeed", "time": 0.0, "expected": 66.09407555, "coords": { "activity_day_rows": 1 } },
+            { "variable": "day_averageSpeed", "time": 0.0, "expected": 48.185058, "coords": { "activity_day_rows": 2 } }
+          ]
+        },
+        {
+          "id": "annual_vmt_matches_the_snapshot_table",
+          "description": "S5 for the two extreme ages, against `annualvmtbyageroadway`'s stored 12050000000 and 1074610000 — ratios 1.0000007 and 0.9999997, that column's 6-significant-figure storage (docs/mixed-onroad.md §7.1). Getting the normalisation group of S3 wrong shows up here first, as a 2.55x error, before it reaches any emission.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "vmt_annualVMT", "time": 0.0, "expected": 12049985369.474503, "coords": { "vmt_age_rows": 1 } },
+            { "variable": "vmt_annualVMT", "time": 0.0, "expected": 1074612910.9711344, "coords": { "vmt_age_rows": 5 } }
+          ]
+        },
+        {
+          "id": "weeks_per_month_is_a_divisor",
+          "description": "August's 31 days give 4.428571 weeks, and S7 DIVIDES by it. docs/mixed-onroad.md §6.1: age 40 on the weekend gives 196023.675 vehicle-miles against the snapshot's stored 196023.672. Multiplying instead of dividing gives 3.84e+06, and omitting the factor gives 868102 — a 4.43x over-emit, which is the single largest single-factor error available in this chain and the one a per-pollutant tolerance would still not absorb.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "weeksPerMonth", "time": 0.0, "expected": 4.428571428571429 },
+            { "variable": "sho_vmt", "time": 0.0, "expected": 196023.6750360679, "coords": { "source_hour_rows": 5 } },
+            { "variable": "sho_vmt", "time": 0.0, "expected": 2198077.458533989, "coords": { "source_hour_rows": 1 } }
+          ]
+        },
+        {
+          "id": "the_four_fractions_compose_as_one_join",
+          "description": "J11-J14 as a single contraction over two symbol pairs. Rows 1-5 are hourDayID 92 and rows 6-10 are 95, so a document that resolved the day-level join on the wrong side would give every row the same day type: the weekday age-0 VMT is 1.1789e+07 against the weekend's 2.1981e+06, a factor of 5.4, so the two are not confusable by accident but are entirely confusable by a mis-keyed join.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "sho_vmt", "time": 0.0, "expected": 11788908.397978138, "coords": { "source_hour_rows": 6 } },
+            { "variable": "sho_vmt", "time": 0.0, "expected": 1051330.1703100584, "coords": { "source_hour_rows": 10 } },
+            { "variable": "sho_averageSpeed", "time": 0.0, "expected": 66.09407555, "coords": { "source_hour_rows": 5 } },
+            { "variable": "sho_averageSpeed", "time": 0.0, "expected": 48.185058, "coords": { "source_hour_rows": 10 } }
+          ]
+        },
+        {
+          "id": "source_hours_match_the_snapshot_table",
+          "description": "S8 and S9 for all ten rows' worth of the two documents' worked examples. docs/mixed-onroad.md §6.1 gives sho[92, 40] = 4.880649 against the snapshot's 4.880650; §6.2 gives sho[95, 0] = 402.617660 against 402.618000; §6.3 gives sho[95, 20] = 129.467988 against 129.468000; §6.4 gives sho[92, 0] = 54.728315 against 54.728300. All four ratios are within 8.5e-07. This is the last stage with an independent reference, so a document that is right here and wrong at the output has a rate problem and not an activity problem — which is the whole point of checking it separately.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "sho_shoByAgeRoadwayHour", "time": 0.0, "expected": 2965.8282290033167, "coords": { "source_hour_rows": 5 } },
+            { "variable": "sho_SHO", "time": 0.0, "expected": 4.880649365877655, "coords": { "source_hour_rows": 5 } },
+            { "variable": "sho_SHO", "time": 0.0, "expected": 54.72831458837787, "coords": { "source_hour_rows": 1 } },
+            { "variable": "sho_SHO", "time": 0.0, "expected": 82.61383225647877, "coords": { "source_hour_rows": 2 } },
+            { "variable": "sho_SHO", "time": 0.0, "expected": 9.855209630454468, "coords": { "source_hour_rows": 4 } },
+            { "variable": "sho_SHO", "time": 0.0, "expected": 402.61766045052474, "coords": { "source_hour_rows": 6 } },
+            { "variable": "sho_SHO", "time": 0.0, "expected": 129.4679883776109, "coords": { "source_hour_rows": 8 } },
+            { "variable": "sho_SHO", "time": 0.0, "expected": 72.50143686145377, "coords": { "source_hour_rows": 9 } },
+            { "variable": "sho_SHO", "time": 0.0, "expected": 35.90528310525196, "coords": { "source_hour_rows": 10 } }
+          ]
+        },
+        {
+          "id": "a_missing_speed_row_gives_zero_and_not_an_infinity",
+          "description": "S8's LEFT-JOIN guard, activity.rs:189-193. With `roadTypeVMTFraction` overridden to zero every VMT is zero and every SHO is zero — the trivial arm. The arm that matters is the divisor: overriding `daysInMonth` to zero makes weeksPerMonth zero and the VMT infinite, and the SHO then follows the VMT rather than the guard, because the guard is on the SPEED and not on the quotient. So this test pins what the guard does and does NOT cover, which is worth more than a test that only exercises the happy path: a zero `noOfDays` upstream is silently substituted with 1.0 by vmt.rs:116, so the infinity is unreachable in practice and the 4.43x of `weeks_per_month_is_a_divisor` is the real failure mode.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "parameter_overrides": { "roadTypeVMTFraction": 0.0 },
+          "assertions": [
+            { "variable": "sho_vmt", "time": 0.0, "expected": 0.0, "coords": { "source_hour_rows": 5 } },
+            { "variable": "sho_SHO", "time": 0.0, "expected": 0.0, "coords": { "source_hour_rows": 5 } },
+            { "variable": "sho_averageSpeed", "time": 0.0, "expected": 66.09407555, "coords": { "source_hour_rows": 5 } }
+          ]
+        }
+      ]
+    }
+  }
+}
