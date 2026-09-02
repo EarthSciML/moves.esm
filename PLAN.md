@@ -703,6 +703,30 @@ distribution, all 6 of the evap operating-mode distribution and all 128 of
 `MOVESOutput` from the snapshot's own input tables, reading **nothing** from the
 reference — which `./run-onroad-oracle.sh` cannot do.
 
+**Status: specified, built and WIRED.** `docs/evap-leaks.md` is the port
+specification — 37 input tables from cross-checked sources, nineteen numbered
+steps, twenty-two joins with their exact key pairs, four worked examples and the
+oracle. `lib/evaporative.esm` and three components cover E1–E3, L8 and
+L1/L9/O1–O3 with 81 inline assertions; `runs/evap_leaks_run.esm` mounts them and
+adds the joins that exist only between them, running 107 assertions in total.
+`docs/esm-conventions.md` §18 records what the evaporative graph changed: every
+rule in §1–§17 held, four gained a reason, five things are new, and one new
+finding (**F21**, a scoped name is not an assertable variable) came out of the
+assembly.
+
+And `fixtures/process-evap-leaks.esm` **matches completely** — 128 of 128 rows,
+an exact key set, worst cell 7.294 × 10⁻⁶ against `tolerance.toml`'s 2 × 10⁻⁵,
+worst per-pollutant sum 5.161 × 10⁻⁷ against 10⁻³, with no `[shortfall]` and
+nothing read from the reference. It is the first full match in this repository.
+The oracle reports the same worst cell to the digit from the same tables by a
+different route. Two things had to be got right that are not about inputs and
+that Phase 5 will meet again: L8 is a **two**-relation contraction with the
+operating mode on its own axis, because the five-relation form does not finish
+(F17 at fixture scale, measured at >120 s against 25 s for two two-relation
+joins at the same scale); and a derived relation's axis is a *metaparameter
+expression over discovered extents*, so only the output axis's 64 surviving
+cohorts is declared — checked in-document against a count the chain computes.
+
 ### Phase 5 — Scale out
 
 Remaining NONROAD sectors (mostly the Phase 2 components against different
