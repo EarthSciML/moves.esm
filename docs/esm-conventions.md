@@ -368,28 +368,37 @@ evaluator". Do not reach for it until F5's repro goes green.
 
 ## 10. Precision, and what the document must not do about it
 
-`moves.rs`'s NONROAD port is bit-exact `real*4`. The toolchain evaluates in
-binary64 today: `domain.element_type: "Float32"` is currently **ignored**
-(verified twice, once with every operand a runtime parameter so constant folding
-cannot explain it), and there is no cast operator either. In binary64 four cells
-of `nr-logging-county` compute to exactly zero, carrying 2.4 × 10⁻⁵ g out of
-5,146 g, so per-pollutant sums still agree to 2.6 × 10⁻⁶ and only the key set
-notices.
+`moves.rs`'s NONROAD port is bit-exact `real*4`. `domain.element_type:
+"Float32"` **is honoured**, per operation, and a variable may override it with
+its own `element_type`. **§17 is the operative section; read it before
+declaring a precision.** What follows is the rule that has not changed.
 
-**Author for float32 semantics anyway** **[Phase 2]**. Honouring
-`element_type` is being fixed upstream, and evaluating the whole document in
-float32 reproduces all 144 rows at 4.9 × 10⁻⁶ — the independent oracle confirms
-it. So write the reference's arithmetic and the reference's control flow, and
-let the fixture run declare the element type. Do **not** design the document
+**Author for float32 semantics** **[Phase 2]**. Evaluating the whole document
+in float32 reproduces all 144 rows at 4.9 × 10⁻⁶ — the independent oracle
+confirms it — while binary64 loses four cells of `nr-logging-county` to an
+exact zero, carrying 2.4 × 10⁻⁵ g out of 5,146 g, so per-pollutant sums still
+agree to 2.6 × 10⁻⁶ and only the key set notices. So write the reference's
+arithmetic and the reference's control flow. Do **not** design the document
 around binary64's four missing rows, and do not add a per-key allow-list; that
 was considered and rejected.
 
-**What this costs the inline tests.** Their expected values are the binary64
-values of the specification's expressions, asserted at `rel: 1e-12`. When a
-document declares `Float32` those assertions must move to the float32 values of
-the same expressions — a mechanical change, and the reason each test's
-description records how far its number sits from the specification's printed
-one.
+One correction to how that used to be stated, because it was acted on: those
+four cells are *not* what the fixture's element type recovers. `agedist.f`'s
+fold is inexpressible (F12), so the fixture carries the grown fractions as a
+`const` whose third value is positive in either precision, and its twelve rows
+never depended on the precision at all. §17.5 has the account.
+
+**What this costs the inline tests — measured, and not what this section used
+to predict.** It said the expected values must move to the float32 values of
+the same expressions, mechanically. They must not, and doing it would have been
+a mistake: the only float32 values available to write down are a
+specification's seven-digit prints, so the assertion would end up pinned to a
+rounded transcription rather than to the arithmetic. What moves instead is the
+*tolerance*, to exactly 2⁻²³ — one binary32 epsilon, the tightest a binary32
+evaluation can ever satisfy — **per test, never document-wide**, because a
+blanket epsilon default would let a corrupted ten-digit key pass an assertion
+of the right one, which is F18's own warning one level up. §17.4 has the
+numbers.
 
 ## 11. Data comes from `data_sources`
 
@@ -784,9 +793,9 @@ the base rate read from the reference and the output saying so on every run.
 ## 17. Declaring the working precision **[float32]**
 
 `fixtures/nr-logging-county.esm` now declares `domain.element_type: "Float32"`
-and evaluates in it. This section is what that cost and what it did not, and it
-**supersedes §10's** "`element_type` is currently ignored": at the pinned
-toolchain it is honoured per operation, and a variable may override it.
+and evaluates in it. This section is what that cost and what it did not. §10
+states the authoring rule and points here; this section is the operative
+detail.
 
 ### 17.1 Nineteen variables, no rewritten expressions
 
