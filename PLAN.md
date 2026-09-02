@@ -345,7 +345,7 @@ because MY2018's grown model-year fraction is carried rather than computed
 remaining SCCs land the four rows become live and §1.6.2 becomes the blocker it
 is described as being.
 
-### 1.6.2 `element_type: "Float32"` is declared, documented, and ignored
+### 1.6.2 `element_type: "Float32"` was declared, documented, and ignored — **now honoured**
 
 So the four rows are recoverable only by evaluating in f32 — and the one
 mechanism the format offers for that does not work. A document declaring
@@ -370,6 +370,31 @@ the document and feeding it in as data (§7.3's suggestion — correct, but move
 a computation out of the `.esm`), and recording 140/144 as a known divergence
 (cheapest, but weakens `require_exact_key_set`, which this plan says elsewhere
 not to weaken). Do not add a four-key allow-list.
+
+**Landed** (EarthSciAST `973ee7360`). The fix is larger than "round the two
+kernels" because the evaluator turned out to have **seven** definitions of
+`x + y`, only one of them the nominal kernel table: the shared tables, the
+vectorized `vec_combine` arms, two fused-tape paths, the sum-of-products
+fusion, the relational engine's `vi_eval_op`, and the semiring `⊕`. Each was
+documented as bit-identical to the shared kernel, and each was — *in binary64*.
+The witness kept returning `1.0` with four Float32 resolutions already in
+place, because the arm it actually executed was `vec_combine`.
+
+That is worth recording beyond this fix: "audited for a silent f64 fallback"
+had to mean enumerating every monomorphized arm, not trusting a comment that
+says two functions are the chokepoint.
+
+Rounding also had to reach *ingress* — document `const` literals, parameters,
+`u0`, host and provider arrays — so that every live value is
+binary32-representable and array reads need no per-element rounding. Three
+constructs are refused rather than silently widened: binary64-only ops
+(`intersect_polygon`, `interp.*`, `datetime.julian_day`), a declared extent
+above 2²⁴ (index arithmetic shares the value kernels), and **time integration**,
+since diffsol is instantiated at f64. That last is a judgement call the
+implementer flagged for disagreement; it is right. Integrating in binary64
+while the document declares binary32 would be precisely the silently-wrong-
+answer class this project keeps hitting, and MOVES needs algebraic and
+relational evaluation, not integration.
 
 ---
 

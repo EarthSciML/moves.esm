@@ -33,6 +33,7 @@ three of them do not load.
 | **F15** | A `url_template` is neither environment-expanded nor relative | ingest | no |
 | **F16** | A SCALAR variable is not materialized in a document that ingests data | assertion | no |
 | **F17** | A `join.on` between two LARGE data relations is not driven | — | **yes** |
+| **F18** | `element_type: "Float32"` collapses ingested integer keys above 2²⁴ | — | **yes** |
 
 ---
 
@@ -659,3 +660,63 @@ traced.
   The `.esm` repro is gone; its tripwire in `run-tests.sh` was the `simulate`
   command and is gone with it.
 - **F10** — EarthSciAST `a1a592ecf` — `true` evaluates to 1.0, matching Python, Julia and Rust's own value-invention path; Rust's dense path was the outlier. The other nine core-but-unevaluable ops are now refused at build instead of reaching `unreachable!()`. Confirmed a class, not a case: `rank` panicked the same way.
+
+
+---
+
+## F18 — `element_type: "Float32"` collapses ingested integer keys
+
+`F18_probe_float32_scc.esm`. **Silent, and it lands in the fix that was meant to
+close the precision gap.**
+
+Reading one real snapshot column under each precision, same document, one line
+different:
+
+| precision | rows | distinct `SCC` | first value |
+|---|---|---|---|
+| Float64 | 1,183 | **214** | `2260001010` |
+| Float32 | 1,183 | **48** | `2260001024` |
+
+214 equipment categories collapse to 48. MOVES SCC codes are ten digits, ~2.26 ×
+10⁹, and binary32 represents every integer only to 2²⁴ = 16,777,216 — 135 times
+smaller. `2265007010` and `2265007015` both become `2265007104`, so a `join.on`
+over them merges two different equipment categories.
+
+End to end on `fixtures/nr-logging-county.esm`, adding nothing but the `domain`
+block:
+
+```
+binary64: SCC 2260007005, emissionQuant 1.0997e-07 .. 1205.1395
+Float32 : SCC 2260006912, emissionQuant ALL EXACTLY ZERO
+```
+
+The document validates and the run completes.
+
+**A relative tolerance cannot see this.** The repro asserts at *zero* tolerance
+deliberately. `|2260001024 − 2260001010| / 2.26 × 10⁹` is 6.2 × 10⁻⁹ — four
+orders of magnitude inside the default 1 × 10⁻⁶ — so the first version of this
+repro passed while the key was wrong. The corruption is relatively tiny and
+semantically total. That is exactly why `require_exact_key_set` exists and why a
+key set must never be compared within a tolerance.
+
+Row by row against the same column read in binary64: **all 1,183 rows differ**,
+and rows 0 and 1 (`2260001010` and `2260001020`) both become `2260001024`.
+
+**It is not the `const` path.** A `const` array of the same three codes
+round-trips exactly under Float32 — I wrote that repro first and it passed. The
+corruption is on the **ingested** path, which is where a relational model's keys
+actually live. EarthSciAST `973ee7360` already refuses a declared index-set
+*extent* above 2²⁴, for exactly this reason; the gate does not reach data
+columns.
+
+**Why this is a design question rather than a patch.** Honouring Float32 was
+meant to reproduce the reference's `real*4` arithmetic (PLAN.md §1.6.2). But the
+reference is `real*4` in its *floating-point quantities* while its keys stay
+Fortran `INTEGER` and `CHARACTER` — never `REAL*4`. A document-wide float
+precision cannot express that split: it reproduces the arithmetic and destroys
+the keys. Either key and integer columns are exempt from the document precision
+— a typed-column notion the format does not have — or precision becomes
+per-expression rather than document-wide.
+
+Until then, **this port cannot declare `Float32`**, and the four rows of §1.6.1
+stay out of reach by that route.

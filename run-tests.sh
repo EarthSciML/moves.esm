@@ -61,6 +61,17 @@ fi
 
 PYTHON="${PYTHON:-python3}"
 
+if [[ -z "${SNAPSHOTS:-}" ]]; then
+  d="$PWD"
+  while [[ "$d" != / ]]; do
+    if [[ -d "$d/moves.rs/characterization/snapshots" ]]; then
+      SNAPSHOTS="$d/moves.rs/characterization/snapshots"; break
+    fi
+    d="$(dirname "$d")"
+  done
+  SNAPSHOTS="${SNAPSHOTS:-../moves.rs/characterization/snapshots}"
+fi
+
 # The comparator is checked by its own falsification suite before it is trusted
 # to judge anything. This is not ceremony: two of its three gates are ones a
 # passing-by-default bug would hide completely -- measured on this very
@@ -258,13 +269,29 @@ if [[ ${#REPROS[@]} -eq 0 ]]; then
 else
   for repro in "${REPROS[@]}"; do
     name=$(basename "$repro" .esm)
-    if "$ESM" validate "$repro" >/dev/null 2>&1 && "$ESM" test "$repro" >/dev/null 2>&1; then
+    # A repro that reads real data carries the same ${MOVES_SNAPSHOTS} placeholder
+    # the fixtures do (F15: the runtime resolves neither a variable nor a relative
+    # path). Substitute it, or the repro fails to LOAD and the tripwire reads that
+    # as "still fails, as recorded" -- the right verdict for the wrong reason,
+    # which would hide the defect being fixed.
+    if grep -q 'MOVES_SNAPSHOTS' "$repro" 2>/dev/null; then
+      if [[ ! -d "$SNAPSHOTS" ]]; then
+        skip "$name" "needs the snapshots; none at $SNAPSHOTS"
+        continue
+      fi
+      repro_run="$(mktemp --suffix=.esm)"
+      sed "s|\${MOVES_SNAPSHOTS}|$(cd "$SNAPSHOTS" && pwd)|g" "$repro" > "$repro_run"
+    else
+      repro_run="$repro"
+    fi
+    if "$ESM" validate "$repro_run" >/dev/null 2>&1 && "$ESM" test "$repro_run" >/dev/null 2>&1; then
       fail "$name NOW PASSES — the defect it records is fixed"
       say "       Read docs/findings/README.md: this unblocks a convention, and"
       say "       the workaround it forced is now dead weight. Remove both."
     else
       pass "$name still fails, as recorded"
     fi
+    [[ "$repro_run" != "$repro" ]] && rm -f "$repro_run"
   done
 fi
 
@@ -316,16 +343,6 @@ fi
 # the stage reported "skip -- no snapshots" and the suite went green having
 # compared nothing, which is the same shape as the bug the fixture exists to
 # catch, one level up.
-if [[ -z "${SNAPSHOTS:-}" ]]; then
-  d="$PWD"
-  while [[ "$d" != / ]]; do
-    if [[ -d "$d/moves.rs/characterization/snapshots" ]]; then
-      SNAPSHOTS="$d/moves.rs/characterization/snapshots"; break
-    fi
-    d="$(dirname "$d")"
-  done
-  SNAPSHOTS="${SNAPSHOTS:-../moves.rs/characterization/snapshots}"
-fi
 RUNDIR=".fixtures-run"
 
 # --- data_sources catalogs ------------------------------------------------
