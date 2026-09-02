@@ -1613,8 +1613,112 @@ something.
 
 **And there is no `[shortfall]` to record.** Every input this fixture needs is
 computable from the snapshot — that is the §0.3 argument and §6.5 is the proof —
-so the comparison is expected to *pass*, not to fail in a recorded way. §8.1
-says what remains.
+so the comparison is expected to *pass*, not to fail in a recorded way. A
+`[shortfall]` records a comparison that fails in an exactly-written-down way, and
+there is no such comparison here: the fixture is **not wired yet**, so nothing
+compares. §7.5 is what stands between "every input is computable" and "the
+fixture exists", measured rather than asserted.
+
+### 7.5 What wiring the fixture takes, measured
+
+§7.4 says there is no `[shortfall]` to record because every input is computable
+from the snapshot, and §6.5 is the proof: the oracle derives every one of them.
+**The fixture is nevertheless not wired**, and this section is what stands
+between the two statements, because "computable" is a claim about the inputs and
+a fixture also needs a *shape* and a *cost*. Both were measured, on the real
+tables, with the pinned binary.
+
+**(1) The L8 contraction does not finish at fixture scale — finding F17, at a
+new size.** Written as §2.4 writes it, L8 is one aggregate over five relations:
+`emissionratebyage` (6,564 rows) × `sourcebin` (80) × the source-bin
+distribution (125) × `sourcetypemodelyear` (533) × `agecategory` (41), onto a
+candidate output axis. Ingested and run, that aggregate **did not complete in
+120 s** and was killed. The index-set product is 3.6 × 10¹⁴, so the gate is
+driving some clauses and not others.
+
+Two two-relation joins at the same scale were timed in the same probe and both
+finish: `emissionratebyage` × the distribution on `sourceBinID`, and
+`sourcetypeagedistribution` (33,579) × `sourcetypeage` (533) on
+`(sourceTypeID, ageID)` — **25 s for the pair, including ingest**. So the cost
+is in the *number* of large relations meeting in one node, exactly as
+`docs/esm-conventions.md` §11.1 records, and the remedy is the one it
+prescribes: give the thing the tables meet at an axis, and split the rest.
+
+The decomposition the measurement points at, for a future author:
+
+* Pre-attach to the **125-row distribution relation**, in cheap two-relation
+  aggregates: the cohort's `modelYearID` and derived `effectiveAgeID` (from
+  `sourcetypemodelyear`, 125 × 533), its `ageGroupID` (from `agecategory`,
+  125 × 41), its `fuelTypeID` / `modelYearGroupID` / `regClassID` (from
+  `sourcebin`, 125 × 80), and the K9 and K13 semi-joins. Every one of those is
+  small on both sides.
+* Give the **operating mode an axis** — `evap_op_mode_rows`, three members
+  (150, 151, 300) from `opmodepolprocassoc` — and compute the weighted rate as a
+  two-axis quantity over (distribution row × operating mode). Multi-axis
+  variables are established practice here: `components/exhaust_emission_factors.esm`
+  carries a three-axis one and `fixtures/nr-logging-county.esm` carries
+  `tech_deteriorationFactor['age_rows', 'runspecpollutantprocess_rows',
+  'engine_tech_rows']`.
+* L8 then reduces to `distribution × emissionratebyage` on
+  `(sourceBinID, ageGroupID)` plus the mode axis — the join the probe timed.
+
+**(2) The output axis cannot be derived from the data, and must be declared.**
+The 128 rows are 64 surviving `(fuelTypeID, modelYearID)` cohorts × 2 day types,
+and which 64 survive is a *result* of the chain (§6.4: two independent
+mechanisms). Materialising "the distinct surviving pairs" as an index set is
+precisely `skolem` / `distinct` / `rank` value invention, which **validates and
+materialises empty** — finding F5 — and the `ragged` index-set kind advertised
+for a ragged key set ignores its own member factor (F14). So the axis is a
+declared size, as `fixtures/nr-logging-county.esm`'s `output_rows: 12` and
+`age_rows: 3` are, and that is the established practice of this repository
+rather than a shortcut.
+
+What makes the declaration honest rather than a transcription of the answer, and
+it is worth spelling out because the alternative reading is that the fixture
+would pass `require_exact_key_set` by typing the keys in:
+
+* §7.2 measured that gate on this chain. **None** of the six ablations moves the
+  key set; the per-cell gate catches every one of them. So the key set is not
+  where this fixture's fidelity lives, and declaring it forfeits nothing that
+  was measuring anything.
+* The key COLUMNS need not be transcribed even so. `fixtures/nr-logging-county.esm`
+  computes `out_ageOrdinal = floor((o − 1)/4) + 1` and
+  `out_ppOrdinal = (o − 1) − 4·floor((o − 1)/4) + 1` from the aggregate's own
+  loop symbol, then joins each ordinal to the relation it indexes. The same
+  arithmetic decomposes `o ∈ [1, 128]` into a day ordinal and a cohort ordinal,
+  and the cohort's `(fuelTypeID, modelYearID)` then comes from a join, not from
+  a literal.
+* The survivor count is itself computable — a sum over the distribution relation
+  of the membership column — so `2 × (surviving cohorts) = 128` is an assertion
+  the document can carry. A chain that produced 63 cohorts fails it, in the
+  document, before the comparator sees a row.
+
+**(3) What is left is authoring, and it is not small.** Roughly 33
+`data_sources`, ~120 data-fed columns, ~55 computed relations and the 20-column
+output row: about the size of `fixtures/nr-logging-county.esm`, which is the
+largest document in this repository. Every `.esm` here is hand-authored
+(CLAUDE.md), so that is hand-written work, and it is the reason the fixture is
+not in this commit. Nothing in (1) or (2) blocks it; (1) changes the shape of
+L8 and (2) changes where the output axis comes from, and both are now measured
+rather than guessed.
+
+**Three things measured along the way that the author will need.**
+
+* A **data-fed `parameter` is not an assertable array state** in a document that
+  ingests: `array state 'yr_yearID' has no cells in var_map`. Only computed
+  `unknown`s can be pinned, which is why `fixtures/nr-logging-county.esm`
+  asserts `run_*` columns and never an ingested one. Finding F16's scalar case
+  reproduced too, verbatim: `scalar state 'baseYearCount' not found`.
+* A **`Y`/`N` text column can be ingested**, through a `codes` map on the `from`
+  binding (`esm-spec` §8.9.1): `{"map": {"Y": 1, "N": 0}, "case_insensitive":
+  true}` decoded `year.isBaseYear` and the value reached a join correctly. So A1
+  and K9's `subjectToEvapCalculations` are computable, not carried.
+* **`year.isBaseYear` is `Y` on all 63 rows.** A1's `max(yearID ≤ analysisYear
+  where isBaseYear = 'Y')` therefore returns the analysis year for *any*
+  analysis year in this corpus, so the two `TotalActivityGenerator` folds
+  collapse unconditionally here and the oracle's `assert base == YEAR` is true
+  but not discriminating. `docs/mixed-onroad.md` §1.5 calls that collapse luck;
+  measured, it is luck that cannot come out otherwise on these tables.
 
 ---
 
@@ -1740,4 +1844,8 @@ author scoping from `runspecday` will meet it.
 9. **Every assertion pins a cell, not a total** (§7.3). The cells are in §6.
 10. **Nothing is uncomputable.** No `[shortfall]`, no carried column, no data
     read from the reference. If the fixture does not match, the document is
-    wrong.
+    wrong. **The fixture is not wired yet**, and §7.5 says exactly what that
+    takes: L8 must be re-decomposed because the five-relation form does not
+    finish (F17 at fixture scale, measured), the output axis must be declared
+    because F5's compaction machinery materialises empty, and the rest is about
+    2,500 lines of hand-written ingest. None of those is a missing input.
