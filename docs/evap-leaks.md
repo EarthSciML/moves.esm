@@ -1513,6 +1513,27 @@ reached — `docs/nonroad-logging-county.md` §7.1's 4.0 × 10⁻⁶ and
 `docs/mixed-onroad.md` §7.1's 8.2 × 10⁻⁶ — and the number is comparable because
 the cause is the same.
 
+**A third route agrees too, and it is worth separating from the other two.**
+`components/liquid_leaking_emissions.esm` and `fixtures/process-evap-leaks.esm`
+are different documents with different equations computing the same eight cells:
+the component from the **six-significant-figure numbers this specification
+prints**, the fixture from the Parquet at full precision. Measured over the
+eight:
+
+| | worst |
+|---|---|
+| component against fixture | 6.571 × 10⁻⁶ |
+| fixture against `MOVESOutput` | 7.294 × 10⁻⁶ |
+
+Note what this is *not*: it is not a ulp-level identity check like the one
+`tools/cross-check-chain.py` performs on the two NONROAD chains, because the two
+evaporative documents are not fed the same inputs — one is fed a rounding of the
+other's. The right reading is that the gap between them is the **same order as
+each one's distance from the reference**, which is what it should be if the only
+difference is where the six figures were lost. A component-versus-fixture gap
+materially larger than the fixture-versus-reference gap would mean an equation
+differed, not a rounding.
+
 **Two relations agree exactly, and that is informative.** `FractionOfOperating`
 and the six-row `OpModeDistribution` are 0 and 1 to the last bit, because A10's
 row-wise identity makes the ratio an exact 1 (a quotient of identical binary64
