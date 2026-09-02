@@ -398,6 +398,42 @@ relational evaluation, not integration.
 
 ---
 
+### 1.6.3 …and honouring it document-wide turned out to be the wrong shape
+
+Declaring `Float32` on the real fixture produced `SCC 2260006912` and emission
+quantities of **exactly zero**, on a document that validates and runs. Isolated
+to one ingested column: 214 distinct SCC codes collapse to **48**, and all 1,183
+rows differ. Binary32 is exact for integers only to 2²⁴ = 16,777,216; an SCC is
+2.26 × 10⁹, 135× beyond. `2265007010` and `2265007015` both become
+`2265007104`, so a join over them merges two equipment categories.
+`docs/findings/README.md` F18 carries the full measurement.
+
+Two mistakes in reaching that, both instructive. A `const`-array repro passed —
+the corruption is on the **ingested** path, where a relational model's keys
+live. And the next repro passed too, because
+`|2260001024 − 2260001010| / 2.26 × 10⁹` is 6.2 × 10⁻⁹, four orders **inside**
+the default 1 × 10⁻⁶ relative tolerance. **A relative tolerance cannot see key
+corruption**: it is relatively tiny and semantically total. That is the sharpest
+argument this project has produced for `require_exact_key_set`.
+
+**Decision: a per-variable `element_type` overriding the document's.** The
+reference is `real*4` in its floating-point *quantities* while its keys stay
+Fortran `INTEGER` and `CHARACTER` — one document-wide float precision cannot
+express that split, so it reproduces the arithmetic and destroys the keys.
+
+Three pieces, and the third is the one that matters. Schema: an optional field
+on `ModelVariable`, separate from its semantic `type`. Ingress: skip rounding
+for an exempt variable — cheap, the rounding sites already know which variable
+they fill. **Arithmetic**: exempting ingress alone is not enough, measured — the
+SCC fallback ladder computes `floor(scc/1000)*1000`, which is `2260007000` in
+f64 and `2260006912` in f32, so the first expression node undoes it. Values must
+carry their precision, with an operation taking the wider of its operands.
+
+No integer arithmetic is needed: f64 is exact for every integer below
+9.0 × 10¹⁵, and every key here is at most 2.26 × 10⁹. And an exempt value
+flowing into an f32 quantity must be an explicit narrowing or a hard error —
+silent mixed precision would be the seventh instance of §5's failure mode.
+
 ## 2. Target ladder
 
 Snapshot `MOVESOutput` row counts, the honest measure of fixture size:
