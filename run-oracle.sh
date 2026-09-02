@@ -38,6 +38,16 @@
 # and it is indistinguishable in-document from those 44. The four rows are
 # recovered by evaluating in f32, which is why `domain.element_type: "Float32"`
 # has to be honoured (PLAN.md 1.6.2). Keep the `modfrc <= 0` skip as written.
+#
+# ONE CAVEAT ON READING ACROSS TO THE .esm, because this comment used to invite
+# the wrong inference. `fixtures/nr-logging-county.esm` declares `Float32` and
+# emits twelve rows -- but it emitted the same twelve in binary64. It does not
+# execute agedist's fold at all: the recurrence has no spelling in the format
+# (finding F12), so the fixture carries the f32 fold's OUTPUT as a `const`,
+# `5.8885583e-08` included, and the skip never fires on it in either precision.
+# The 144-vs-140 difference below is this script's, not the document's. It
+# becomes the document's when the other two SCCs land and their folds have to be
+# computed rather than carried (PLAN.md 1.6.1a, docs/esm-conventions.md 17.5).
 
 set -uo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")"
