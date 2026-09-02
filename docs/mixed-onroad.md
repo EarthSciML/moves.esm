@@ -896,17 +896,21 @@ identifier in this port that is built rather than written. The `roadTypeID 100`
 branch is a separate template because it is a different formula, not a
 parameterisation of this one.
 
-### 4.4 `source_bin_components` (new)
+### 4.4 `source_bin_slot` (new)
 
 Not an arithmetic template but a documented decomposition, because the packed
 id must never be materialised (§2.2):
 
 ```
-fuel_type_id_of(bin)         = floor(bin / 1e16) mod 100
-eng_tech_id_of(bin)          = floor(bin / 1e14) mod 100
-reg_class_id_of(bin)         = floor(bin / 1e12) mod 100
-short_mod_yr_group_id_of(bin)= floor(bin / 1e10) mod 100
+source_bin_slot(bin, slot_scale) = floor(bin / slot_scale) mod 100
+
+  with slot_scale 1e16 for fuelTypeID, 1e14 for engTechID,
+                  1e12 for regClassID, 1e10 for shortModYrGroupID
 ```
+
+One parameterised template rather than four, with the four slot exponents in
+the calling component's `enums` under `source_bin_slot` — which is what keeps
+the decimal layout in one place and readable against `:1196-1207`.
 
 These are the **inverse** direction, for reading `emissionrate.sourceBinID`,
 whose 69,200 rows arrive with the id already packed and no component columns.
@@ -925,7 +929,16 @@ ev_energy_divisor(battery_efficiency, charging_efficiency, is_electric)
 shows it is the single largest correction in the fixture (up to 22 %) and the
 one `moves.rs` omits.
 
-### 4.6 Reused unchanged
+### 4.6 Two constants that are templates
+
+`days_per_week` (7.0, which `weeks_per_month` divides by) and
+`kilojoules_per_million_btu` (`1055.0559e6 / 1000`, §5.6). Zero-parameter
+constant fragments, per `docs/esm-conventions.md` §6: the second is imported by
+both the output component and the assembly's roll-up, and a port with two
+copies of an eight-figure conversion constant has two chances to disagree with
+itself.
+
+### 4.7 Reused unchanged
 
 | library | shapes used |
 |---|---|
@@ -933,7 +946,7 @@ one `moves.rs` omits.
 | `lib/keys.esm` | `latest_at_or_before_key` — the same year-precedence shape J25/J32 need |
 | `lib/population.esm` | `linear_series_interpolation` is *not* needed; nothing here interpolates |
 
-### 4.7 Shapes deliberately not factored
+### 4.8 Shapes deliberately not factored
 
 `clamp(x, 0, 1)` appears twice (§2.3(d), §2.3(e)) but with different bodies
 either side of it, and `min`/`max` are core operators; a `clamp01` template
@@ -1369,7 +1382,7 @@ key set:       125 cohorts x 2 day types = 250 rows, exact
 | `ev_efficiency_divides_by_age_group` | §6.3 = 4.965714e-04 and §6.4 = 0.09134021 | omitting it is 22.1 % low at MY2000 and 10.7 % at MY2020 |
 | `the_ac_factor_is_clamped_to_zero_here` | `ACFactor` = 0 at `heatIndex` 66.9 | the unclamped −0.0189 *subtracts* 1 070 kJ from §6.1 |
 | `the_ac_factor_is_reachable` | override `heatIndex` to 75 → `ACFactor` > 0 and §6.1 grows by 14.6 % | a document that hardcodes 0 passes the previous test and is wrong for every other hour |
-| `the_ev_temperature_branch_is_reachable` | override `temperature` to 40 °F → factor 1.0219 | same reason: assert both arms |
+| `the_ev_temperature_branch_is_reachable` | at 40 °F the EV term is +0.214720, so the factor is 1.21472 and §6.4 goes from 0.0913402 to 0.1109528 | same reason. And at 40 °F the A/C term is −1.174540 and still clamps, so the two clamps are not redundant: there is a temperature where one is active and the other is not. At 75 °F they move in OPPOSITE directions, because the `heatIndex > 67` suppression fires and holds the EV factor at 1 |
 | `the_onroad_scc_is_arithmetic` | 2201210401, 2209210401 | an SCC off by a digit relabels the whole relation and passes a per-pollutant tolerance |
 | `the_energy_conversion_is_million_btu` | 944823 kJ → 0.895519 | leaving it in kJ passes nothing, but leaving it in *BTU* is a 10⁶ error a sum check would catch and a per-cell check attributes |
 
@@ -1660,19 +1673,27 @@ Described from code only, and each would need its own verification:
 
 **What to build, in order.** Each stage's numbers come from §6.
 
-1. **`onroad_travel_fraction`** — S1–S3. The population product and the
-   HPMS-normalised travel fraction. The one thing to get right is J5's
-   denominator group (§6.6 test 1).
-2. **`onroad_vmt_allocation`** — S4–S5, S7. The VMT chain, including
-   `weeksPerMonth` as a divisor.
-3. **`onroad_average_speed`** — S6. Arithmetic mean, not harmonic.
-4. **`onroad_source_hours`** — S8–S9. The divide and the spatial allocation.
-   `sho` is the stage with an independent reference (§6.1–§6.4 all print it).
-5. **`onroad_source_bin_distribution`** — S10–S12. The `stmyFraction > 0` row
-   rule is the whole point of this component; it decides the key set.
-6. **`onroad_energy_output`** — S15(f), S16–S18. The EV divisor, the
-   `noOfRealDays` divide, the energy conversion, the arithmetic SCC, and the
-   output relation's key columns.
+1. **`components/onroad_travel_fraction.esm`** — S1–S3. The population product
+   and the HPMS-normalised travel fraction. The one thing to get right is J5's
+   denominator group (§6.6 test 1). *Built: 19 assertions.*
+2. **`components/onroad_source_hours.esm`** — S4–S9. The VMT chain with
+   `weeksPerMonth` as a divisor, the arithmetic-mean speed, the divide and the
+   spatial allocation. One component rather than three because `sho` is the
+   stage with an independent reference and all four of its intermediate steps
+   have stored values to check against. *Built: 23 assertions.*
+3. **`components/onroad_source_bin_distribution.esm`** — S10–S12. The
+   `stmyFraction > 0` row rule is the whole point of this component; it decides
+   the key set. *Built: 36 assertions.*
+4. **`components/onroad_energy_output.esm`** — S15, S16–S18. The two clamps and
+   both their arms, the EV divisor, the `noOfRealDays` divide, the energy
+   conversion, the arithmetic SCC, and the output relation's key columns.
+   *Built: 55 assertions.*
+5. **`runs/mixed_onroad_run.esm`** — the assembly. Performs the three joins the
+   components replace with carried columns, plus the output-row-to-cohort join
+   that has no counterpart in a leaf, and asserts the residuals.
+   *Built: 163 assertions under the mount.*
+6. **Still to build: `W[hourDayID, opModeID]`** (§8.1), and then the fixture
+   (§7.4).
 
 **Six rules carried over from Phase 2 that still apply.**
 
