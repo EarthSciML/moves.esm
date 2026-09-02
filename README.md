@@ -128,8 +128,17 @@ document without the skip over-emits by 44 in either precision. **Reproduce the
 reference's control flow, and author for float32 semantics**: the remaining
 difference is one cohort — SCC 2260007005 / MY2018, 5.96 × 10⁻⁸ in float32 and
 exactly 0.0 in binary64 — which no expression can distinguish and which
-evaluating the document in float32 settles. `domain.element_type: "Float32"` is
-ignored at the pinned toolchain and is being fixed upstream.
+evaluating the document in float32 settles.
+
+`domain.element_type: "Float32"` is now honoured, per operation, and a
+**per-variable** `element_type` overrides it — necessary because a
+document-wide float precision destroys ten-digit join keys (`docs/findings`
+F18). The override is **strict**: mixing precisions inside one operator is a
+compile error, not a silent coercion, so declaring `Float32` on a document that
+carries both identifiers and quantities means splitting every operator that
+touches both. Converting the fixture is in flight; measured on the fixture as
+it stands, adding the domain block alone collapses 52 of its 87 assertions to
+zero.
 
 ## A warning about zeros
 
@@ -140,7 +149,8 @@ no provider; the same when the published `earthsciio` shadows the local
 checkout; an `aggregate` range symbol named `t`, which makes `join.on` match
 nothing; `skolem`/`distinct` materializing empty; an index set sized by `extent`
 discovery, which stayed at its placeholder; and `element_type: "Float32"`, which
-returns the binary64 answer.
+returned the binary64 answer — since fixed, and the entry stays because the
+*class* of failure is the point, not the individual bug.
 
 Four of the six returned `0`. One returned `NaN` — the same defect in a
 different shape, because an unbound *array* forcing reads as NaN where a scalar
@@ -174,12 +184,19 @@ document's rows. Verified against the real snapshot — 1,183 rows of a column
 sized by `extent` discovery, summing to 181564.4520000001, matching pyarrow
 exactly.
 
-One thing still stands between the NONROAD chain and the 144th row:
-`domain.element_type: "Float32"` is accepted, documented, and ignored, so a
-document evaluates in binary64 and one age cohort's `modfrc` lands on the wrong
-side of the reference's skip. See "The binary64 rule" above. Honouring it turns
-out to be a design question rather than a patch — it destroys ingested integer
-keys above 2^24 (`docs/findings/README.md` F18).
+**What stands between the NONROAD chain and the 144th row is no longer
+precision.** `domain.element_type: "Float32"` is now honoured per operation,
+with a per-variable override, because honouring it document-wide destroys
+ingested integer keys above 2^24 (`docs/findings/README.md` F18) and the
+override is the answer to that. See "The binary64 rule" above for what remains:
+converting the fixture is authoring work, not a blocker.
+
+The blocker is **F12** — `agedist.f`'s thirty-year fold is a recurrence over an
+index axis that the format cannot spell, and the fixture's other two SCCs each
+need their own result from it. A closed form over the residual sequence is
+verified exact — 0 of 1,581 cells differ per equipment point, float32, six
+equipment points — but substituting it leaves a deconvolution, so the recurrence
+survives every reduction and the fix is a format addition.
 
 `mixed-onroad` has no fixture yet, and `docs/mixed-onroad.md` §7.4 says why
 rather than recording a shortfall: everything in that 250-row chain is
@@ -194,12 +211,5 @@ test, so the four components check what can be checked without the snapshot
 and `run-onroad-oracle.sh` checks the rest against it.
 
 See `PLAN.md` for the plan of record and `docs/findings/README.md` for what the
-toolchain still cannot do — fifteen open findings, and four retired because
+toolchain still cannot do — sixteen open findings, and four retired because
 they were fixed.
-
-`domain.element_type: "Float32"` is now honoured per operation, and a
-**per-variable** `element_type` overrides it — necessary because a
-document-wide float precision destroys ten-digit join keys (F18). F12's closed
-form over the residual sequence is verified exact — 0 of 1,581 cells differ per
-equipment point — but solving it is a deconvolution, so the recurrence survives
-the reduction.
