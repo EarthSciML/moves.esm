@@ -780,3 +780,165 @@ without the snapshot, against numbers §6 read out of it; and
 `./run-onroad-oracle.sh` extracts §6.5 and reproduces all 82 rows of `sho` and
 all 250 of `MOVESOutput` from the snapshot to 4.1 × 10⁻⁶ and 8.2 × 10⁻⁶, with
 the base rate read from the reference and the output saying so on every run.
+
+## 17. Declaring the working precision **[float32]**
+
+`fixtures/nr-logging-county.esm` now declares `domain.element_type: "Float32"`
+and evaluates in it. This section is what that cost and what it did not, and it
+**supersedes §10's** "`element_type` is currently ignored": at the pinned
+toolchain it is honoured per operation, and a variable may override it.
+
+### 17.1 Nineteen variables, no rewritten expressions
+
+The declaration is two kinds of edit to the model, and nothing else — no equation,
+index set, data source or `expected` value changed (§17.4 is the third kind of
+edit, to ten assertion tolerances):
+
+```json
+"domain": { "element_type": "Float32" }
+```
+
+```json
+"runSCC": { "type": "parameter", "element_type": "Float64", "default": 2260007005.0, … }
+```
+
+— the second repeated on the nineteen variables that hold an **SCC**, and on no
+others. The reference is `real*4` in its floating-point quantities and `INTEGER`
+in its keys (`docs/nonroad-logging-county.md` §7.1), and a per-variable
+`element_type` is the only vocabulary the format has for that split. `Float64`
+is not a rounding preference here: `2260007005` is 135× binary32's exact-integer
+limit of 2²⁴ and rounds to `2260006912`, which is a **different equipment
+category**, so every `join.on` over it matches nothing (finding F18).
+
+Adding *only* the domain block, measured end to end on the real snapshot:
+**35 of 87 inline assertions pass**, `run_statePopulation` 83.3 → 0,
+`run_allocationFraction` 0.0032383 → 0, `run_surrogateID` 8 → 0, and every one
+of the twelve `emissionQuant` cells → exactly 0. Adding the nineteen overrides:
+**48 of 87**, with no zeros left and every remaining failure a rounding
+difference of at most 1.13 × 10⁻⁷.
+
+**Not one operator had to be split.** That is the surprising part and it is
+worth knowing why, because the rule that makes it true is strict:
+
+### 17.2 The rule: one operator, one precision
+
+Mixing precisions inside a single operator is a **compile error**, not a silent
+widening (`esm-spec` §11.3.1):
+
+```
+mixed_element_type: operator '*' mixes operands of different element types
+— key is Float64 and q is Float32.
+```
+
+It is raised at compile time, which is `esm test` / `esm simulate`. **`esm
+validate` does not see it** — a document that mixes precisions validates
+cleanly, so the conventions checker and stage 1 of `./run-tests.sh` cannot be
+the place this is caught. Only running it is.
+
+The escape is not a cast — there is none. §11.3.1's exemption is that a
+**comparison or logical operator returns an exact 0/1 flag**, representable in
+every precision, so it is context-adopting *to its parent* while its own two
+operands must still agree with each other. `sum(quant[i] * (key[i] == k))` is
+therefore legal with `quant` binary32 and `key` binary64: the predicate is
+evaluated in binary64 and hands the arithmetic a flag, not a key.
+
+### 17.3 Why §3's rule already paid for this
+
+Every place an SCC meets a quantity in this fixture — checked by compiling it,
+which is the only thing that checks it — is one of three shapes, and all three
+are the exempt one:
+
+| shape | why it is exempt |
+|---|---|
+| `join.on: [["run_SCC", "mal_SCC"]]` | an equality comparison of two `Float64` keys; the aggregate's `expr` is a `Float32` quantity and never touches the key |
+| `scc_zero_tail(scc, 1000)` — `floor(scc/k)*k` | every operand is the key or a literal, so the whole expression is `Float64` (a literal adopts its context) |
+| `scc_lookup_ladder_key(scc, has_exact, …)` | the `has_*` parameters are **predicates**, and the call site converts its `Float32` presence column with `{"op": ">", "args": [presence, 0.0]}` — the flag is made outside the template |
+
+The third one is the load-bearing accident. `lib/keys.esm`'s ladder templates
+take booleans rather than presence columns because §3 requires the presence test
+to be a `max`-semiring aggregate and the ladder to be a separate key column —
+a *relational* rule, adopted for join cost and for nothing to do with precision.
+Had the ladders been spelled the arithmetic way that a reader of `prccty.f`
+would write first —
+
+```json
+{"op": "+", "args": [{"op": "*", "args": ["has_exact", "scc"]},
+                     {"op": "*", "args": [{"op": "-", "args": [1, "has_exact"]}, "sccZero2"]}]}
+```
+
+— then every one of the five ladders would be a `mixed_element_type` error, and
+the fix would be exactly what §11.3.1 prescribes: compute the mixed step into a
+variable whose own `element_type` states the precision it lands in. **Prefer the
+predicate form for any new ladder or select**: `ifelse(<comparison>, a, b)` with
+the comparison built from operands that agree, never `flag*a + (1-flag)*b` with
+a flag and a key on the two sides of a `*`.
+
+`lib/identifiers.esm` is where the identifier arithmetic lives and therefore
+where the precision concern belongs: **its templates evaluate at the precision
+of the `scc` / `pol_process_id` argument the call site binds.** Bind a key and
+the whole body is `Float64`; bind a quantity and it is the document's. Do not
+bind one of each — `scc_zero_tail(scc, tail_scale)` with a `Float64` `scc` and a
+`Float32` `tail_scale` variable is the error above, which is why `tail_scale` is
+always a literal at every call site.
+
+### 17.4 What it cost the assertions, and the one thing that must not be loosened
+
+Under binary32 no computed value agrees with a decimal `expected` to twelve
+digits, so a model tolerance of `rel: 1e-12` cannot be kept for quantities. The
+39 assertions that binary64 satisfied exactly land between 1.2 × 10⁻⁹ and
+1.13 × 10⁻⁷ relative — **every one inside one binary32 epsilon**,
+2⁻²³ = 1.1920929 × 10⁻⁷.
+
+The move is therefore: **the tolerance goes to exactly one epsilon, and not one
+expected value changes.** One epsilon is the resolution of the declared element
+type and the smallest tolerance a binary32 evaluation can ever satisfy; it is
+not a fitted number, and anything looser has to be argued for separately. §10's
+older plan — migrate the expected values to their float32 equivalents — was
+rejected once it was measurable, because the float32 values available to write
+down are the specification's 7-digit *prints*, and pinning those would replace a
+number derived from seventeen tables with a transcription.
+
+**The tolerance is per test, never document-wide, and this is the important
+part.** At one epsilon, `2260006912` passes an assertion of `2260007005`: the
+relative gap is 4.1 × 10⁻⁸. A blanket epsilon default would make every key
+assertion in the fixture vacuous and hide the exact defect the element type was
+declared to fix — F18's own warning, that a key set must never be compared
+within a tolerance, one level up. So:
+
+* the **model default stays `rel: 1e-12`**, exact for every identifier;
+* the **nine tests whose every assertion is a quantity** carry a test-level
+  one-epsilon tolerance;
+* a test that pins **both** a key and a quantity puts the tolerance on the
+  quantity **assertion** — `the_oxygen_content_survives_four_joins` does, because
+  it also pins `run_fuelRegionID = 270000000`.
+
+Check the loosening against what each test discriminates, not just against
+whether it passes. The tightest in this fixture is `run_monthFraction`: the
+table's `0.0833333` sits 4.0 × 10⁻⁷ from the `defmth = 1/12` that a missed
+lookup would silently deliver, a factor of 3.3 outside one epsilon, so that
+test still tells them apart. A tolerance of 1 × 10⁻⁶ would not have.
+
+### 17.5 The element type is **not** what fixed the row set
+
+`tolerance.toml`, `run-oracle.sh`, `docs/nonroad-logging-county.md` §7.3 and
+README all said, in nearly the same words, that `nr-logging-county`'s four
+MY2018 cells "are recovered by evaluating in f32". For **this document that is
+false**, and it was false before this change too. `PLAN.md` §1.6.1a is the one
+place that had it right — "§1.6.1's four-row binary64 question is NOT among
+[the missing keys] … because MY2018's grown model-year fraction is carried
+rather than computed" — and four files disagreed with it without noticing.
+
+`age_grownModelYearFraction` is a `const` — `[3.7072685, 0.9905483,
+5.8885583e-08]` — because `agedist.f`'s thirty-year fold is a recurrence the
+format cannot express (F12). The third value **is the float32 fold's output**,
+carried in as data, so `age_isPopulated` reads it as positive in binary64 as
+well, and the fixture emitted all twelve rows under binary64 and emits the same
+twelve under `Float32`. `run-oracle.sh --float64`, which *executes* the fold,
+does drop those four cells and emit 140 of 144. Both measurements are true; what
+separates them is F12, not precision.
+
+The general claim — that a chain which executes `scrptime`/`agedist` needs f32
+to reach 144 rows — is unaffected and still correct. The narrower claim, that
+*this fixture* demonstrates it, was wrong: the fixture gets the right row set for
+a different reason, and a document can get a row set right for the wrong reason
+without anything failing. Write down which one you have.

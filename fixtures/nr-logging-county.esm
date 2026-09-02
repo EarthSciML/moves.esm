@@ -2,7 +2,7 @@
   "esm": "1.0.0",
   "metadata": {
     "name": "nr-logging-county snapshot tables",
-    "description": "A SOURCE-CATALOG FILE (esm-spec §2): data_sources only, no component, not mountable as a subsystem. It declares every snapshot table the nr-logging-county chain reads -- twenty-six entries covering all seven stages of PLAN.md §3 Phase 2 -- so that the ingest configuration is written, reviewed and version-controlled before it can be run, rather than invented under time pressure on the day it can.\n\nNOTHING CONSUMES IT YET, AND THAT IS DELIBERATE. No CLI subcommand can load a data source at the pinned toolchain: `src/bin/esm.rs` supplies no PrepareProvider, so a parameter with `update.kind: \"data\"` silently keeps its default and an aggregate over it silently sums to zero (build-esm.sh, KNOWN BLOCKER; PLAN.md §1.5). Wiring a component to one of these entries today would make a green test that compared nothing. THE SHAPE IS THE RUNTIME'S, NOT THE SCHEMA'S GUESS: the format is `metadata.esio_format`, because a `format` key inside `reader_options` is rejected as an unknown reader option (esm-spec §8.9.1 working as specified), and `url_template` carries an explicit `file://` scheme, because a bare absolute path fails with a missing-scheme error. Both were found by building the in-flight provider and running the real ingest. So the entries are declared and CHECKED -- tools/check-sources.py opens every file named here with pyarrow and verifies that it exists, that every `float_columns` entry is really a column, that none of them is already a float, and that no projected decimal-text column was left out -- while the components read `const` arrays transcribed from these same tables.\n\nWHAT IT ALREADY PROVES: that `float_columns` is mandatory, and on almost every table rather than only on MOVESOutput. Checked directly against the parquet: `surrogatequant`, `population`, `fractionLifeused`, `percentageScrapped`, `NREngTechFraction`, `monthFraction`, `dayFraction`, `marketShare`, all seventeen `fuelformulation` property columns, `zonemonthhour.temperature`, `nrsourceusetype`'s four activity columns, `nremissionrate.meanBaseRate`, `nrdeterioration.DFCoefficient` and `MOVESOutput.emissionQuant` are all physically `string` in the file, holding decimal text for byte-reproducibility, even where the sidecar .meta.json calls them float64. Without `float_columns` they arrive as strings and no arithmetic on them means anything. Two traps the catalog also records: `nrscrappagecurve.fractionLifeused` is spelled with a lowercase u, and `nrdayallocation.scc` is lowercase throughout.\n\nWHAT IT WILL PROVE ONCE THE PROVIDER IS WIRED: that each stage selects its own rows out of the real tables -- 55,471 emission rates, 62,699 population rows, 930,816 hourly temperatures -- rather than transcribing the handful its tests use; and that the roll-up can be diffed row by row against the 144-row MOVESOutput at the tolerances in tolerance.toml. Wiring it is a change of source for each relation's columns, not a change of shape: every component's joins already key on the columns these tables carry.",
+    "description": "A SOURCE-CATALOG FILE (esm-spec §2): data_sources only, no component, not mountable as a subsystem. It declares every snapshot table the nr-logging-county chain reads -- twenty-six entries covering all seven stages of PLAN.md §3 Phase 2 -- so that the ingest configuration is written, reviewed and version-controlled before it can be run, rather than invented under time pressure on the day it can.\n\nNOTHING CONSUMES IT YET, AND THAT IS DELIBERATE. No CLI subcommand can load a data source at the pinned toolchain: `src/bin/esm.rs` supplies no PrepareProvider, so a parameter with `update.kind: \"data\"` silently keeps its default and an aggregate over it silently sums to zero (build-esm.sh, KNOWN BLOCKER; PLAN.md §1.5). Wiring a component to one of these entries today would make a green test that compared nothing. THE SHAPE IS THE RUNTIME'S, NOT THE SCHEMA'S GUESS: the format is `metadata.esio_format`, because a `format` key inside `reader_options` is rejected as an unknown reader option (esm-spec §8.9.1 working as specified), and `url_template` carries an explicit `file://` scheme, because a bare absolute path fails with a missing-scheme error. Both were found by building the in-flight provider and running the real ingest. So the entries are declared and CHECKED -- tools/check-sources.py opens every file named here with pyarrow and verifies that it exists, that every `float_columns` entry is really a column, that none of them is already a float, and that no projected decimal-text column was left out -- while the components read `const` arrays transcribed from these same tables.\n\nWHAT IT ALREADY PROVES: that `float_columns` is mandatory, and on almost every table rather than only on MOVESOutput. Checked directly against the parquet: `surrogatequant`, `population`, `fractionLifeused`, `percentageScrapped`, `NREngTechFraction`, `monthFraction`, `dayFraction`, `marketShare`, all seventeen `fuelformulation` property columns, `zonemonthhour.temperature`, `nrsourceusetype`'s four activity columns, `nremissionrate.meanBaseRate`, `nrdeterioration.DFCoefficient` and `MOVESOutput.emissionQuant` are all physically `string` in the file, holding decimal text for byte-reproducibility, even where the sidecar .meta.json calls them float64. Without `float_columns` they arrive as strings and no arithmetic on them means anything. Two traps the catalog also records: `nrscrappagecurve.fractionLifeused` is spelled with a lowercase u, and `nrdayallocation.scc` is lowercase throughout.\n\nWHAT IT WILL PROVE ONCE THE PROVIDER IS WIRED: that each stage selects its own rows out of the real tables -- 55,471 emission rates, 62,699 population rows, 930,816 hourly temperatures -- rather than transcribing the handful its tests use; and that the roll-up can be diffed row by row against the 144-row MOVESOutput at the tolerances in tolerance.toml. Wiring it is a change of source for each relation's columns, not a change of shape: every component's joins already key on the columns these tables carry.\n\nTHE PRECISION THIS DOCUMENT IS EVALUATED IN, AND WHAT IT COSTS THE ASSERTIONS. `domain.element_type` is `Float32`, because `moves.rs`'s NONROAD port is `real*4` operation by operation and preserves the Fortran's associativity (docs/nonroad-logging-county.md §7.1). Nineteen variables override it back to `Float64`, and all nineteen hold an SCC: see `runSCC` for why, and note that the split costs no rewriting of a single expression, because every place an SCC meets a quantity in this document is a `join.on`, and esm-spec §11.3.1 makes a comparison hand its parent an exact 0/1 flag rather than a key (docs/esm-conventions.md §17).\n\nWhat the precision DOES cost is the assertion tolerances, and only some of them. The model default stays at `rel: 1e-12`, which is exact for every integer identifier a binary32 or binary64 evaluation can hold. Nine tests -- the ones whose every assertion is a floating-point QUANTITY -- override it to `1.1920929e-07`, which is 2^-23, one binary32 epsilon, the resolution of the declared element type. That is not a fitted number: it is the smallest tolerance under which a binary32 evaluation can agree with a decimal expected value at all. No expected value in this document changed; measured, the 39 assertions binary64 satisfied exactly and binary32 does not are spread from 1.2e-09 to 1.13e-07 relative, every one of them inside one epsilon.\n\nThe tolerance is per test rather than document-wide for the reason docs/findings F18 gives: `2260006912` is 4.1e-08 from `2260007005` and is a DIFFERENT EQUIPMENT CATEGORY, so a ten-digit key compared within one epsilon would pass while wrong -- which is precisely the failure this whole change exists to fix. The tests that pin an SCC, `run_fuelRegionID`, or any other key therefore stay at 1e-12 and remain exact, and `the_oxygen_content_survives_four_joins`, which pins both `run_fuelRegionID = 270000000` and a quantity, carries the loosened tolerance on the one quantity assertion instead of on the test. The loosening was also checked against what each test is built to discriminate; the tightest is `run_monthFraction`, where the table's 0.0833333 sits 4.0e-07 from the `defmth = 1/12` a missed lookup would deliver, a factor of 3.3 outside one epsilon.",
     "authors": [
       "EarthSciML Authors and Contributors"
     ],
@@ -13,6 +13,9 @@
       "source-catalog",
       "not-yet-consumed"
     ]
+  },
+  "domain": {
+    "element_type": "Float32"
   },
   "data_sources": {
     "nr_logging_county_nremissionrate": {
@@ -680,19 +683,19 @@
           "description": "NONROAD's base population year. Every real nrbaseyearequippopulation row carries it, so the join looks vacuous -- it is not: the table is the only place the base year is asserted, and reading a future base year's rows would grow the population twice."
         },
         "runSCC": {
-          "type": "parameter", "default": 2260007005.0,
-          "description": "The SCC this fixture computes: docs/nonroad-logging-county.md §6.1's two-stroke chain saws, one equipment point, one active engine technology, three model years, twelve MOVESOutput rows. It is a KEY, so every use of it below is a `join.on` and never a filter."
+          "type": "parameter", "element_type": "Float64", "default": 2260007005.0,
+          "description": "The SCC this fixture computes: docs/nonroad-logging-county.md §6.1's two-stroke chain saws, one equipment point, one active engine technology, three model years, twelve MOVESOutput rows. It is a KEY, so every use of it below is a `join.on` and never a filter.\n\nIT IS ALSO THE REASON THIS DOCUMENT NEEDS A PER-VARIABLE `element_type`. The document evaluates in `Float32` (see `domain`), because the reference is `real*4` throughout its floating-point quantities. Its keys are not: `2260007005` is 135x binary32's exact-integer limit of 2^24, and rounds to `2260006912` -- which is not a wrong last digit but a different equipment category, so every `join.on` over it matches nothing and the run emits zeros (docs/findings F18, measured end to end: 35 of 87 assertions, every emissionQuant exactly 0). `Float64` here is the Fortran's `INTEGER SCC` said in the only vocabulary the format has. Every SCC-valued variable in this document carries the same override, and nothing else does; the twelve quantities the roll-up multiplies stay at the document's precision."
         },
 
         "run_SCC": {
-          "type": "unknown", "shape": ["run_rows"],
-          "description": "The run's SCC as a one-row RELATION, which is what a `join.on` needs on the other side of a table column. The scalar parameter above is the single source of truth for its value."
+          "type": "unknown", "element_type": "Float64", "shape": ["run_rows"],
+          "description": "The run's SCC as a one-row RELATION, which is what a `join.on` needs on the other side of a table column. The scalar parameter above is the single source of truth for its value, and for its precision."
         },
         "run_stateID": { "type": "unknown", "shape": ["run_rows"], "description": "The run's state, as a relation." },
         "run_baseYearID": { "type": "unknown", "shape": ["run_rows"], "description": "The base population year, as a relation." },
 
         "scc_SCC": {
-          "type": "parameter", "units": "1", "default": 0.0, "shape": ["nrscc_rows"],
+          "type": "parameter", "element_type": "Float64", "units": "1", "default": 0.0, "shape": ["nrscc_rows"],
           "description": "nrscc.SCC. utf8 in the file and a numeric key here: `float_columns` decodes the decimal text, and every SCC in these tables is below 2^53 so the decode is exact and joins on it are exact.",
           "update": { "kind": "data", "source": "nr_logging_county_nrscc", "from": { "file_variable": "SCC" } }
         },
@@ -712,7 +715,7 @@
           "update": { "kind": "data", "source": "nr_logging_county_nrequipmenttype", "from": { "file_variable": "surrogateID" } }
         },
         "sut_SCC": {
-          "type": "parameter", "units": "1", "default": 0.0, "shape": ["nrsourceusetype_rows"],
+          "type": "parameter", "element_type": "Float64", "units": "1", "default": 0.0, "shape": ["nrsourceusetype_rows"],
           "description": "nrsourceusetype.SCC. One row per EQUIPMENT POINT -- an (SCC, hpAvg) pair -- which is the grain the whole chain runs at.",
           "update": { "kind": "data", "source": "nr_logging_county_nrsourceusetype", "from": { "file_variable": "SCC" } }
         },
@@ -840,7 +843,7 @@
         },
 
         "mal_SCC": {
-          "type": "parameter", "units": "1", "default": 0.0, "shape": ["nrmonthallocation_rows"],
+          "type": "parameter", "element_type": "Float64", "units": "1", "default": 0.0, "shape": ["nrmonthallocation_rows"],
           "description": "nrmonthallocation.SCC, over all 46,428 rows.",
           "update": { "kind": "data", "source": "nr_logging_county_nrmonthallocation", "from": { "file_variable": "SCC" } }
         },
@@ -860,7 +863,7 @@
           "update": { "kind": "data", "source": "nr_logging_county_nrmonthallocation", "from": { "file_variable": "monthFraction" } }
         },
         "dal_SCC": {
-          "type": "parameter", "units": "1", "default": 0.0, "shape": ["nrdayallocation_rows"],
+          "type": "parameter", "element_type": "Float64", "units": "1", "default": 0.0, "shape": ["nrdayallocation_rows"],
           "description": "nrdayallocation.scc -- LOWERCASE in the file, alone among these tables, which is the kind of thing tools/check-sources.py exists to catch before the runtime reports it as a default.",
           "update": { "kind": "data", "source": "nr_logging_county_nrdayallocation", "from": { "file_variable": "scc" } }
         },
@@ -1012,13 +1015,13 @@
         "dpm_monthID": { "type": "unknown", "shape": ["days_per_month_rows"], "description": "Calendar month. A physical constant (§5.7), not a snapshot table." },
         "dpm_daysInMonth": { "type": "unknown", "units": "1", "shape": ["days_per_month_rows"], "description": "Days in it, non-leap. adjtime is 1/this." },
 
-        "run_sccZero2": { "type": "unknown", "shape": ["run_rows"], "description": "The SCC with its last two digits zeroed: rung 2 of the lookup ladder (§4.5)." },
-        "run_sccZero4": { "type": "unknown", "shape": ["run_rows"], "description": "Rung 3, four digits zeroed." },
+        "run_sccZero2": { "type": "unknown", "element_type": "Float64", "shape": ["run_rows"], "description": "The SCC with its last two digits zeroed: rung 2 of the lookup ladder (§4.5)." },
+        "run_sccZero4": { "type": "unknown", "element_type": "Float64", "shape": ["run_rows"], "description": "Rung 3, four digits zeroed." },
         "run_monthExactIsPresent": { "type": "unknown", "units": "1", "shape": ["run_rows"], "description": "Ladder rung 1: does nrmonthallocation hold this exact SCC for the run month, in either visible state?" },
         "run_monthZero2IsPresent": { "type": "unknown", "units": "1", "shape": ["run_rows"], "description": "Rung 2." },
         "run_monthZero4IsPresent": { "type": "unknown", "units": "1", "shape": ["run_rows"], "description": "Rung 3." },
         "run_monthEffectiveSCC": {
-          "type": "unknown", "shape": ["run_rows"],
+          "type": "unknown", "element_type": "Float64", "shape": ["run_rows"],
           "description": "The rung the month ladder stops on: 2260007000 for this SCC. The two rungs both exist for these SCCs and carry 0.0833333 and 0.117764, so stopping on the wrong one is a 41% error (§2.3)."
         },
         "run_monthRunStateRowIsPresent": { "type": "unknown", "units": "1", "shape": ["run_rows"], "description": "§4.6: is there a row for THIS state at the chosen rung? If not the national default row wins." },
@@ -1029,7 +1032,7 @@
         "run_dayExactIsPresent": { "type": "unknown", "units": "1", "shape": ["run_rows"], "description": "The day ladder's rung 1. Searched INDEPENDENTLY of the month ladder, with its own walk (§2.3)." },
         "run_dayZero2IsPresent": { "type": "unknown", "units": "1", "shape": ["run_rows"], "description": "Rung 2." },
         "run_dayZero4IsPresent": { "type": "unknown", "units": "1", "shape": ["run_rows"], "description": "Rung 3." },
-        "run_dayEffectiveSCC": { "type": "unknown", "shape": ["run_rows"], "description": "The rung the day ladder stops on." },
+        "run_dayEffectiveSCC": { "type": "unknown", "element_type": "Float64", "shape": ["run_rows"], "description": "The rung the day ladder stops on." },
         "run_dayRowIsPresent": { "type": "unknown", "units": "1", "shape": ["run_rows"], "description": "Whether it matched; a miss falls back to defday = 1/7." },
         "run_matchedDayFraction": { "type": "unknown", "units": "1", "shape": ["run_rows"], "description": "J16." },
         "run_dayFraction": { "type": "unknown", "units": "1", "shape": ["run_rows"], "description": "dayfrc: 0.166667 for a weekday." },
@@ -1088,7 +1091,7 @@
         },
 
         "gpf_SCC": {
-          "type": "parameter", "units": "1", "default": 0.0, "shape": ["nrgrowthpatternfinder_rows"],
+          "type": "parameter", "element_type": "Float64", "units": "1", "default": 0.0, "shape": ["nrgrowthpatternfinder_rows"],
           "description": "nrgrowthpatternfinder.SCC, over all 4,189 rows.",
           "update": { "kind": "data", "source": "nr_logging_county_nrgrowthpatternfinder", "from": { "file_variable": "SCC" } }
         },
@@ -1119,7 +1122,7 @@
         },
 
         "mix_SCC": {
-          "type": "parameter", "units": "1", "default": 0.0, "shape": ["nrengtechfraction_rows"],
+          "type": "parameter", "element_type": "Float64", "units": "1", "default": 0.0, "shape": ["nrengtechfraction_rows"],
           "description": "nrengtechfraction.SCC, over all 9,554 rows -- the .TECH file.",
           "update": { "kind": "data", "source": "nr_logging_county_nrengtechfraction", "from": { "file_variable": "SCC" } }
         },
@@ -1155,7 +1158,7 @@
         },
 
         "emr_SCC": {
-          "type": "parameter", "units": "1", "default": 0.0, "shape": ["nremissionrate_rows"],
+          "type": "parameter", "element_type": "Float64", "units": "1", "default": 0.0, "shape": ["nremissionrate_rows"],
           "description": "nremissionrate.SCC, over all 55,471 rows.",
           "update": { "kind": "data", "source": "nr_logging_county_nremissionrate", "from": { "file_variable": "SCC" } }
         },
@@ -1222,11 +1225,11 @@
         "run_medianLifeFullLoad": { "type": "unknown", "units": "1", "shape": ["run_rows"], "description": "191 full-load hours." },
         "run_unitConversion": { "type": "unknown", "units": "1", "shape": ["run_rows"], "description": "cvttmp from unitcf.f's g/hp-hr branch: hpAvg x loadFactor = 4.767. The other branches divide by fuel density and are not reached by an hours-based activity." },
 
-        "run_sccZero3": { "type": "unknown", "shape": ["run_rows"], "description": "The SCC with three digits zeroed: rung 2 of the EQUIPMENT chain (§4.5), which is a different ladder from the month/day lookup's zero-2/4/6 one." },
-        "run_sccZero6": { "type": "unknown", "shape": ["run_rows"], "description": "Rung 3, six digits zeroed." },
+        "run_sccZero3": { "type": "unknown", "element_type": "Float64", "shape": ["run_rows"], "description": "The SCC with three digits zeroed: rung 2 of the EQUIPMENT chain (§4.5), which is a different ladder from the month/day lookup's zero-2/4/6 one." },
+        "run_sccZero6": { "type": "unknown", "element_type": "Float64", "shape": ["run_rows"], "description": "Rung 3, six digits zeroed." },
         "run_growthExactIsPresent": { "type": "unknown", "units": "1", "shape": ["run_rows"], "description": "Is there a growth-pattern row for this exact SCC in a state this run can see? For 2260007005 the table has a stateID 99 row and nothing at 26 or 0, so this is 0 and the answer changes if the state scope is dropped." },
         "run_growthZero3IsPresent": { "type": "unknown", "units": "1", "shape": ["run_rows"], "description": "Rung 2." },
-        "run_growthEffectiveSCC": { "type": "unknown", "shape": ["run_rows"], "description": "The rung the equipment chain stops on for growth: 2260007000." },
+        "run_growthEffectiveSCC": { "type": "unknown", "element_type": "Float64", "shape": ["run_rows"], "description": "The rung the equipment chain stops on for growth: 2260007000." },
         "run_growthStateRowIsPresent": { "type": "unknown", "units": "1", "shape": ["run_rows"], "description": "§4.6 again: a state row beats the national default." },
         "run_growthEffectiveStateID": { "type": "unknown", "shape": ["run_rows"], "description": "26." },
         "run_growthPatternID": { "type": "unknown", "shape": ["run_rows"], "description": "J8: 2176." },
@@ -1254,10 +1257,10 @@
 
         "run_mixExactIsPresent": { "type": "unknown", "units": "1", "shape": ["run_rows"], "description": "Does nrengtechfraction have exhaust rows for this exact SCC in this hp bin?" },
         "run_mixZero3IsPresent": { "type": "unknown", "units": "1", "shape": ["run_rows"], "description": "Rung 2 of the equipment chain." },
-        "run_mixEffectiveSCC": { "type": "unknown", "shape": ["run_rows"], "description": "2260007005: this SCC has its own .TECH rows. §6.2's SCCs fall back to 2265000000, which is what makes the walk load-bearing." },
+        "run_mixEffectiveSCC": { "type": "unknown", "element_type": "Float64", "shape": ["run_rows"], "description": "2260007005: this SCC has its own .TECH rows. §6.2's SCCs fall back to 2265000000, which is what makes the walk load-bearing." },
         "run_rateExactIsPresent": { "type": "unknown", "units": "1", "shape": ["run_rows"], "description": "The same question of nremissionrate, asked independently (§2.4)." },
         "run_rateZero3IsPresent": { "type": "unknown", "units": "1", "shape": ["run_rows"], "description": "Rung 2." },
-        "run_rateEffectiveSCC": { "type": "unknown", "shape": ["run_rows"], "description": "2260007005." },
+        "run_rateEffectiveSCC": { "type": "unknown", "element_type": "Float64", "shape": ["run_rows"], "description": "2260007005." },
 
         "tech_engTechID": {
           "type": "unknown", "shape": ["engine_tech_rows"],
@@ -1286,7 +1289,7 @@
 
         "out_ageOrdinal": { "type": "unknown", "units": "1", "shape": ["output_rows"], "description": "Which cohort this output row belongs to. The output is a FLAT row relation with key COLUMNS, not a grid: the fixture's key set is ragged across SCCs and a `ragged` axis is not usable (docs/findings F14)." },
         "out_ppOrdinal": { "type": "unknown", "units": "1", "shape": ["output_rows"], "description": "Which selected pollutant process." },
-        "out_SCC": { "type": "unknown", "shape": ["output_rows"], "description": "MOVESOutput.SCC." },
+        "out_SCC": { "type": "unknown", "element_type": "Float64", "shape": ["output_rows"], "description": "MOVESOutput.SCC." },
         "out_modelYearID": { "type": "unknown", "shape": ["output_rows"], "description": "MOVESOutput.modelYearID." },
         "out_polProcessID": { "type": "unknown", "shape": ["output_rows"], "description": "The packed key, which MOVESOutput does not carry -- it carries the two halves." },
         "out_pollutantID": { "type": "unknown", "shape": ["output_rows"], "description": "MOVESOutput.pollutantID." },
@@ -2611,8 +2614,9 @@
         },
         {
           "id": "getind_picks_2002_out_of_62821_rows",
-          "description": "§6.0 and §2.1: county 26161 quant 1,512,186 and state 26000 quant 466,969,286, both at surrogateYearID 2002, giving allocFrac 0.0032382986. The year rule matters over the real table in a way it cannot over a transcription -- surrogate 8 carries several years, and taking the largest year rather than the latest AT OR BEFORE 2020, or summing the years instead of selecting one, both give a number of the right order of magnitude.",
+          "description": "§6.0 and §2.1: county 26161 quant 1,512,186 and state 26000 quant 466,969,286, both at surrogateYearID 2002, giving allocFrac 0.0032382986. The year rule matters over the real table in a way it cannot over a transcription -- surrogate 8 carries several years, and taking the largest year rather than the latest AT OR BEFORE 2020, or summing the years instead of selecting one, both give a number of the right order of magnitude.\n\nBINARY32 QUANTITIES: every number this test pins is a floating-point quantity, so it asserts at one binary32 epsilon (2^-23) rather than the model's 1e-12 -- the resolution of the declared element type. The tests that pin a ten-digit key keep the exact default; the precision note in `metadata.description` says why a key must never be compared within a tolerance.",
           "time_span": { "start": 0.0, "end": 0.0 },
+          "tolerance": { "rel": 1.1920929e-7 },
           "assertions": [
             { "variable": "tgt_effectiveYearID", "time": 0.0, "expected": 2002.0, "coords": { "surrogate_target_rows": 1 } },
             { "variable": "tgt_effectiveYearID", "time": 0.0, "expected": 2002.0, "coords": { "surrogate_target_rows": 2 } },
@@ -2623,8 +2627,9 @@
         },
         {
           "id": "the_pop_file_rounding_survives_the_real_table",
-          "description": "§6.1 step 1 and §7.4 rank 4. The table holds 83.279223744292 for source type 1059 in Michigan; the engine sees 83.3, because canonical writes the .POP file with %17.1f. Both numbers are asserted so that the quantization cannot be silently dropped -- it is a 0.02% change here and a 7.9% one on SCC 2265007015's second point. Reading these out of 62,699 rows rather than 13 also proves J5: Michigan alone is 83.28, Michigan plus Ohio would be 117.1, and the national total is larger again.",
+          "description": "§6.1 step 1 and §7.4 rank 4. The table holds 83.279223744292 for source type 1059 in Michigan; the engine sees 83.3, because canonical writes the .POP file with %17.1f. Both numbers are asserted so that the quantization cannot be silently dropped -- it is a 0.02% change here and a 7.9% one on SCC 2265007015's second point. Reading these out of 62,699 rows rather than 13 also proves J5: Michigan alone is 83.28, Michigan plus Ohio would be 117.1, and the national total is larger again.\n\nBINARY32 QUANTITIES: every number this test pins is a floating-point quantity, so it asserts at one binary32 epsilon (2^-23) rather than the model's 1e-12 -- the resolution of the declared element type. The tests that pin a ten-digit key keep the exact default; the precision note in `metadata.description` says why a key must never be compared within a tolerance.",
           "time_span": { "start": 0.0, "end": 0.0 },
+          "tolerance": { "rel": 1.1920929e-7 },
           "assertions": [
             { "variable": "run_rawStatePopulation", "time": 0.0, "expected": 83.279223744292, "coords": { "run_rows": 1 } },
             { "variable": "run_statePopulation", "time": 0.0, "expected": 83.3, "coords": { "run_rows": 1 } }
@@ -2632,8 +2637,9 @@
         },
         {
           "id": "population_and_geography_meet_at_the_worked_example",
-          "description": "§6.1 step 1: round1dp(83.279224) x 0.0032382986 = 0.26975028. This is the number components/exhaust_rollup.esm carries as a parameter default, arrived at here from two tables neither of which contains it. The float32 reference prints 0.269750297; the difference is in the 8th significant figure and is the reference rounding allocFrac to f32 first.",
+          "description": "§6.1 step 1: round1dp(83.279224) x 0.0032382986 = 0.26975028. This is the number components/exhaust_rollup.esm carries as a parameter default, arrived at here from two tables neither of which contains it. The float32 reference prints 0.269750297, and now that this document is evaluated in float32 it computes 0.26975029706954956 -- the same number, and 7.8e-08 from the binary64 value asserted here, which is the 8th significant figure and one epsilon. The `expected` is deliberately still the binary64 value: it is derivable from the two tables by hand, and it makes this assertion a check on the arithmetic rather than a transcription of the reference's answer.\n\nBINARY32 QUANTITIES: every number this test pins is a floating-point quantity, so it asserts at one binary32 epsilon (2^-23) rather than the model's 1e-12 -- the resolution of the declared element type. The tests that pin a ten-digit key keep the exact default; the precision note in `metadata.description` says why a key must never be compared within a tolerance.",
           "time_span": { "start": 0.0, "end": 0.0 },
+          "tolerance": { "rel": 1.1920929e-7 },
           "assertions": [
             { "variable": "run_countyPopulation", "time": 0.0, "expected": 0.2697502760384973, "coords": { "run_rows": 1 } }
           ]
@@ -2652,8 +2658,9 @@
         },
         {
           "id": "the_temporal_factors_match_the_worked_example",
-          "description": "§6.0: monthFraction 0.0833333 out of 46,428 rows, dayFraction 0.166667 out of 210, tpltmp 0.09722238, and adjtime 1/31. The month fraction is NOT 1/12 -- it is within 1e-7 of it and read from the table, and the two are worth telling apart because a lookup that missed would silently fall back to defmth = 1/12 and be right to six figures.",
+          "description": "§6.0: monthFraction 0.0833333 out of 46,428 rows, dayFraction 0.166667 out of 210, tpltmp 0.09722238, and adjtime 1/31. The month fraction is NOT 1/12 -- it is within 1e-7 of it and read from the table, and the two are worth telling apart because a lookup that missed would silently fall back to defmth = 1/12 and be right to six figures.\n\nBINARY32 QUANTITIES: every number this test pins is a floating-point quantity, so it asserts at one binary32 epsilon (2^-23) rather than the model's 1e-12 -- the resolution of the declared element type. The tests that pin a ten-digit key keep the exact default; the precision note in `metadata.description` says why a key must never be compared within a tolerance. One epsilon still separates the table's 0.0833333 from the `defmth = 1/12` a missed lookup would deliver: they are 4.0e-07 apart, a factor of 3.3 outside this tolerance.",
           "time_span": { "start": 0.0, "end": 0.0 },
+          "tolerance": { "rel": 1.1920929e-7 },
           "assertions": [
             { "variable": "run_monthRowIsPresent", "time": 0.0, "expected": 1.0, "coords": { "run_rows": 1 } },
             { "variable": "run_monthFraction", "time": 0.0, "expected": 0.0833333, "coords": { "run_rows": 1 } },
@@ -2665,8 +2672,9 @@
         },
         {
           "id": "the_ambient_temperature_is_thirteen_hours_of_one_zone",
-          "description": "§6.0: zone 261610, month 8, hourID 6 through 18 inclusive -- THIRTEEN rows out of 930,816, summing to 956.5000152587901 and averaging 73.57692425067616 degF. The window is inclusive at both ends: twelve hours would give 73.98 and put tamb on the same side of the 75 degF branch, so the count is asserted as well as the mean. The float32 reference prints 73.576927.",
+          "description": "§6.0: zone 261610, month 8, hourID 6 through 18 inclusive -- THIRTEEN rows out of 930,816, summing to 956.5000152587901 and averaging 73.57692425067616 degF. The window is inclusive at both ends: twelve hours would give 73.98 and put tamb on the same side of the 75 degF branch, so the count is asserted as well as the mean. The float32 reference prints 73.576927; evaluated in float32 this document computes 73.5769271850586, and the thirteen-term sum accumulates to 4.8e-08 of the binary64 one -- a float32 reduction rounds once per accumulation step, not once at the end (esm-spec 11.3.1).\n\nBINARY32 QUANTITIES: every number this test pins is a floating-point quantity, so it asserts at one binary32 epsilon (2^-23) rather than the model's 1e-12 -- the resolution of the declared element type. The tests that pin a ten-digit key keep the exact default; the precision note in `metadata.description` says why a key must never be compared within a tolerance.",
           "time_span": { "start": 0.0, "end": 0.0 },
+          "tolerance": { "rel": 1.1920929e-7 },
           "assertions": [
             { "variable": "run_daytimeHourCount", "time": 0.0, "expected": 13.0, "coords": { "run_rows": 1 } },
             { "variable": "run_daytimeTemperatureSum", "time": 0.0, "expected": 956.5000152587901, "coords": { "run_rows": 1 } },
@@ -2675,18 +2683,20 @@
         },
         {
           "id": "the_oxygen_content_survives_four_joins",
-          "description": "§6.0: one gasoline supply row reaches this county-month -- formulation 9114, Gasohol E10, marketShare 1.0, 10 vol% ethanol at 0.3653 wt%/vol% -- giving oxy = 3.653. Four things would each give a plausible wrong number: dropping the regionCodeID = 2 join doubles it (the region appears twice), dropping the fuelYearID join reaches ~140 wt% (the capture carries 1990-2060), dropping the subtype join adds the diesel rows, and dropping the market-share weight gives 3.653 anyway HERE and not on a county with two formulations.",
+          "description": "§6.0: one gasoline supply row reaches this county-month -- formulation 9114, Gasohol E10, marketShare 1.0, 10 vol% ethanol at 0.3653 wt%/vol% -- giving oxy = 3.653. Four things would each give a plausible wrong number: dropping the regionCodeID = 2 join doubles it (the region appears twice), dropping the fuelYearID join reaches ~140 wt% (the capture carries 1990-2060), dropping the subtype join adds the diesel rows, and dropping the market-share weight gives 3.653 anyway HERE and not on a county with two formulations. The oxygen content is a binary32 quantity and carries a one-epsilon tolerance on its own assertion rather than on the test, because the same test pins `run_fuelRegionID = 270000000` -- a key, exact in binary32 as it happens, and a key must stay at the model's exact 1e-12 whether or not it rounds.",
           "time_span": { "start": 0.0, "end": 0.0 },
           "assertions": [
             { "variable": "run_fuelYearID", "time": 0.0, "expected": 2020.0, "coords": { "run_rows": 1 } },
             { "variable": "run_fuelRegionID", "time": 0.0, "expected": 270000000.0, "coords": { "run_rows": 1 } },
-            { "variable": "run_oxygenWeightPercent", "time": 0.0, "expected": 3.653, "coords": { "run_rows": 1 } }
+            { "variable": "run_oxygenWeightPercent", "time": 0.0, "expected": 3.653, "coords": { "run_rows": 1 },
+              "tolerance": { "rel": 1.1920929e-7 } }
           ]
         },
         {
           "id": "the_two_stroke_adjustment_is_the_one_selected",
-          "description": "§6.0's adjustment table for a 2260 SCC: THC 0.978082, CO 0.762555, NOx 1.679458, PM 1.0. Every two-stroke temperature coefficient is zero, so the whole gasoline adjustment here is the oxygenate term -- and that is exactly why the engine fuel kind has to be right: the four-stroke row set at the same tamb and oxy gives 0.8384738, 0.7717785 and 1.4382362, all plausible.",
+          "description": "§6.0's adjustment table for a 2260 SCC: THC 0.978082, CO 0.762555, NOx 1.679458, PM 1.0. Every two-stroke temperature coefficient is zero, so the whole gasoline adjustment here is the oxygenate term -- and that is exactly why the engine fuel kind has to be right: the four-stroke row set at the same tamb and oxy gives 0.8384738, 0.7717785 and 1.4382362, all plausible.\n\nBINARY32 QUANTITIES: every number this test pins is a floating-point quantity, so it asserts at one binary32 epsilon (2^-23) rather than the model's 1e-12 -- the resolution of the declared element type. The tests that pin a ten-digit key keep the exact default; the precision note in `metadata.description` says why a key must never be compared within a tolerance.",
           "time_span": { "start": 0.0, "end": 0.0 },
+          "tolerance": { "rel": 1.1920929e-7 },
           "assertions": [
             { "variable": "run_engineFuelKindID", "time": 0.0, "expected": 1.0, "coords": { "run_rows": 1 } },
             { "variable": "pp_adjustment", "time": 0.0, "expected": 0.978082, "coords": { "runspecpollutantprocess_rows": 1 } },
@@ -2710,7 +2720,7 @@
         },
         {
           "id": "the_carried_age_distribution_sums_to_the_growth_ratio",
-          "description": "The check that keeps F12's carried column honest. agedist.f's thirty-year fold is a recurrence with no spelling, so `age_grownModelYearFraction` is data -- and a carried column nobody is testing is not a number, it is an assertion. Its sum must be the cumulative growth G(2020)/G(1990), which this document derives from nrgrowthindex through a completely different route: the pattern finder's ladder, then two exact rows of a 50,955-row table. 4.6978169 against 4.6978193, agreeing to 5.2e-07 -- which is where two float32-printed fractions summed in binary64 should land, and far tighter than any modelling error would be.",
+          "description": "The check that keeps F12's carried column honest. agedist.f's thirty-year fold is a recurrence with no spelling, so `age_grownModelYearFraction` is data -- and a carried column nobody is testing is not a number, it is an assertion. Its sum must be the cumulative growth G(2020)/G(1990), which this document derives from nrgrowthindex through a completely different route: the pattern finder's ladder, then two exact rows of a 50,955-row table. 4.6978168 against 4.6978192, agreeing to 5.2e-07 -- which is where two float32-printed fractions summed in float32 should land, and far tighter than any modelling error would be. That 5.2e-07 is four epsilons of the declared element type and is the one number in this document that needs a tolerance looser than one: the gap is in the CARRIED fractions, not in the summing, so it does not tighten with precision.",
           "time_span": { "start": 0.0, "end": 0.0 },
           "tolerance": { "rel": 1e-6 },
           "assertions": [
@@ -2722,8 +2732,9 @@
         },
         {
           "id": "the_activity_point_and_its_deterioration_ages",
-          "description": "§6.1's inputs, out of 1,183 nrsourceusetype rows: hpAvg 6.81, 303 hours a year, load factor 0.7, median life 191 full-load hours; cvttmp = 6.81 x 0.7 = 4.767 from unitcf.f's g/hp-hr branch; and detage = (idxyr+1) x 303 x 0.7 / 191 for the three cohorts. All three detages exceed this technology's emissionCap of 1, so §4.1's cap-inside-the-power rule makes every deterioration factor 1 + A here -- which is why §6.2's B = 0.5, cap = 2 point is the one that tests the rule properly, in components/deteriorated_emission_rate.esm.",
+          "description": "§6.1's inputs, out of 1,183 nrsourceusetype rows: hpAvg 6.81, 303 hours a year, load factor 0.7, median life 191 full-load hours; cvttmp = 6.81 x 0.7 = 4.767 from unitcf.f's g/hp-hr branch; and detage = (idxyr+1) x 303 x 0.7 / 191 for the three cohorts. All three detages exceed this technology's emissionCap of 1, so §4.1's cap-inside-the-power rule makes every deterioration factor 1 + A here -- which is why §6.2's B = 0.5, cap = 2 point is the one that tests the rule properly, in components/deteriorated_emission_rate.esm.\n\nBINARY32 QUANTITIES: every number this test pins is a floating-point quantity, so it asserts at one binary32 epsilon (2^-23) rather than the model's 1e-12 -- the resolution of the declared element type. The tests that pin a ten-digit key keep the exact default; the precision note in `metadata.description` says why a key must never be compared within a tolerance.",
           "time_span": { "start": 0.0, "end": 0.0 },
+          "tolerance": { "rel": 1.1920929e-7 },
           "assertions": [
             { "variable": "run_hpAvg", "time": 0.0, "expected": 6.81, "coords": { "run_rows": 1 } },
             { "variable": "run_hoursUsedPerYear", "time": 0.0, "expected": 303.0, "coords": { "run_rows": 1 } },
@@ -2749,8 +2760,9 @@
         },
         {
           "id": "the_technology_mix_sums_to_one_for_every_cohort",
-          "description": "The check that the 100-199 engine-technology window is a SUPERSET of the codes the data carries, and that the hp bin and the exhaust process group each admitted exactly one row set. A code outside the window would make this less than 1; a second hp bin joining in would make it 2; the evap rows, which bin hp differently, would do the same. Six technologies share this bin at mix year 2008 and engTechID 125 holds the whole fraction.",
+          "description": "The check that the 100-199 engine-technology window is a SUPERSET of the codes the data carries, and that the hp bin and the exhaust process group each admitted exactly one row set. A code outside the window would make this less than 1; a second hp bin joining in would make it 2; the evap rows, which bin hp differently, would do the same. Six technologies share this bin at mix year 2008 and engTechID 125 holds the whole fraction.\n\nBINARY32 QUANTITIES: every number this test pins is a floating-point quantity, so it asserts at one binary32 epsilon (2^-23) rather than the model's 1e-12 -- the resolution of the declared element type. The tests that pin a ten-digit key keep the exact default; the precision note in `metadata.description` says why a key must never be compared within a tolerance.",
           "time_span": { "start": 0.0, "end": 0.0 },
+          "tolerance": { "rel": 1.1920929e-7 },
           "assertions": [
             { "variable": "tech_fractionTotal", "time": 0.0, "expected": 1.0, "coords": { "age_rows": 1 } },
             { "variable": "tech_fractionTotal", "time": 0.0, "expected": 1.0, "coords": { "age_rows": 2 } },
@@ -2768,8 +2780,9 @@
         },
         {
           "id": "the_twelve_rows_of_the_worked_example_end_to_end",
-          "description": "docs/nonroad-logging-county.md §6.1's results table, recomputed here from seventeen snapshot tables and no transcribed input except agedist.f's three grown fractions (F12). Every value below is this document's binary64 answer; the specification's independently written float32 reproduction prints 269.1395, 1205.139, 6.923390, 44.16037, 71.91162, 322.0022, 1.849867, 11.79925, 4.274964e-06, 1.914222e-05, 1.099699e-07 and 7.014354e-07 for the same twelve cells, and the snapshot's own MOVESOutput agrees with these to 4.0e-06 relative -- which is where its six-significant-figure storage puts it. Asserting the printed digits at this model's rel 1e-12 would fail for the wrong reason; asserting nothing would leave the emitted column untested between fixture runs.\n\nThe three-order spread across model years is the age distribution: MY2018's grown fraction is 5.9e-08 against MY2020's 3.7, and it is the cohort that the `modfrc <= 0` skip drops when this chain is run in binary64 instead of float32 (PLAN.md §1.6.1). It survives here because the fraction is carried, not computed.",
+          "description": "docs/nonroad-logging-county.md §6.1's results table, recomputed here from seventeen snapshot tables and no transcribed input except agedist.f's three grown fractions (F12). Every value below is this document's binary64 answer; the specification's independently written float32 reproduction prints 269.1395, 1205.139, 6.923390, 44.16037, 71.91162, 322.0022, 1.849867, 11.79925, 4.274964e-06, 1.914222e-05, 1.099699e-07 and 7.014354e-07 for the same twelve cells, and the snapshot's own MOVESOutput agrees with these to 4.0e-06 relative -- which is where its six-significant-figure storage puts it. Those printed digits are not the `expected` here and neither is this document's own output: the binary64 values are kept, and the document -- now evaluated in float32 -- reproduces every one of them to between 3.9e-09 and 1.13e-07, inside the one binary32 epsilon this test asserts at. So the twelve cells are pinned to seven digits of a number derived from seventeen tables, by a route that is independent of both the specification's reproduction and the snapshot.\n\nThe three-order spread across model years is the age distribution: MY2018's grown fraction is 5.9e-08 against MY2020's 3.7, and it is the cohort that the `modfrc <= 0` skip drops when agedist.f's thirty-year fold is EXECUTED in binary64 instead of float32 (PLAN.md §1.6.1). This document does not execute that fold -- F12 -- so the skip is not what keeps MY2018 here and the element type is not what recovers it: `age_grownModelYearFraction` carries the float32 fold's OUTPUT as data, `5.8885583e-08`, and `age_isPopulated` reads it as positive in either precision. All twelve rows were present before this document declared Float32 and are present after. `run-oracle.sh --float64`, which does execute the fold, drops these four cells and emits 140 rows; the two facts are consistent, and the difference between them is F12, not precision.\n\nBINARY32 QUANTITIES: every number this test pins is a floating-point quantity, so it asserts at one binary32 epsilon (2^-23) rather than the model's 1e-12 -- the resolution of the declared element type. The tests that pin a ten-digit key keep the exact default; the precision note in `metadata.description` says why a key must never be compared within a tolerance.",
           "time_span": { "start": 0.0, "end": 0.0 },
+          "tolerance": { "rel": 1.1920929e-7 },
           "assertions": [
             { "variable": "out_emissionQuant", "time": 0.0, "expected": 269.1395238307408, "coords": { "output_rows": 1 } },
             { "variable": "out_emissionQuant", "time": 0.0, "expected": 1205.1395403479848, "coords": { "output_rows": 2 } },
