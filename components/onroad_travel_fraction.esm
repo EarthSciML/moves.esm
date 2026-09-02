@@ -1,0 +1,331 @@
+{
+  "esm": "1.0.0",
+  "metadata": {
+    "name": "OnroadTravelFraction",
+    "description": "Stage S2-S3 of the mixed-onroad chain: the analysis-year population by age, and the travel fraction that distributes an HPMS vehicle type's VMT over it. Ports docs/mixed-onroad.md §2.1 steps S2 and S3, joins J2-J5, and the arithmetic of crates/moves-calculators/src/generators/totalactivitygenerator/population.rs:73 and travel.rs:40-234.\n\nTHE ONE THING TO GET RIGHT, and it is the whole reason this is its own component. The travel fraction's denominator is a sum over EVERY SOURCE TYPE IN THE HPMS VEHICLE TYPE, not over the source type of the row. HPMSVtypeID 25 covers source types 21, 31 and 32, so for the fixture's passenger cars the denominator runs over 123 (sourceType, age) cells and not 41. `travelFraction[21, *]` consequently sums to 0.3923 and not to 1 — which looks like a bug and is the specification (travel.rs:200-204). Normalising over the source type alone gives 4.10e-03 where the snapshot needs 1.609e-03 at age 40, and every emitted row is then 2.55x high. `the_wrong_normalisation_group` asserts both numbers side by side on a synthetic six-row relation whose group sums are 100 and 200, so the contrast is arithmetic a reader can check in their head.\n\nWHAT IS CARRIED RATHER THAN COMPUTED. `hpmsGroupTotal` is the denominator over all 123 cells; this file's real relation carries five probe ages of source type 21, so it cannot form that sum itself. It is a documented parameter with the same status as any §6 value, and it is cross-checked two ways: `travelFractionProbeSum` must be strictly less than the snapshot's own `travelfraction` column sum for source type 21 (0.392331), because five ages are a subset of forty-one; and the synthetic probe computes ITS group total from its own rows, so the normalisation logic is exercised without the carried number. The assembly and the fixture form the real sum from the real table.\n\nTHE TWO FOLDS THAT ARE NOT HERE. `TotalActivityGenerator` grows the population year by year from the base year (population.rs:115-168) and the VMT likewise (travel.rs:325). Both are recurrences of the shape finding F12 says has no spelling. Neither appears in this file, and not because it was skipped: `year` marks 2020 itself as a base year, so `base_year == analysis_year` and both folds are the empty product (docs/mixed-onroad.md §1.5, measured there to 6e-7 and 4e-6). `baseYearIsTheAnalysisYear` asserts the predicate that licenses the omission, so a future fixture whose analysis year is not a base year fails HERE, with a name, rather than silently computing a base-year population and calling it an analysis-year one.\n\nData: `sourceTypePopulation`, `ageFraction` and `relativeMAR` are the snapshot's, for source type 21 at ages 0, 5, 20, 22 and 40 — the five ages docs/mixed-onroad.md §6.1-§6.4 work through. Rows of the `probe_` relation are synthetic and are ladder probes, not data.",
+    "authors": ["EarthSciML Authors and Contributors"],
+    "tags": ["moves", "onroad", "activity", "population", "component"]
+  },
+
+  "enums": {
+    "source_type": { "PassengerCar": 21, "PassengerTruck": 31, "LightCommercialTruck": 32, "OtherBuses": 41, "RefuseTruck": 51 },
+    "hpms_vtype": { "LightDutyVehicles": 25, "Buses": 40, "RefuseTrucks": 50 },
+    "onroad_year": { "AnalysisYear": 2020 }
+  },
+
+  "index_sets": {
+    "travel_age_rows": { "kind": "interval", "size": 5 },
+    "probe_travel_rows": { "kind": "interval", "size": 7 },
+    "probe_hpms_group_rows": { "kind": "interval", "size": 3 },
+    "probe_source_type_rows": { "kind": "interval", "size": 4 }
+  },
+
+  "coordinates": {
+    "travel_age": {
+      "source": "tf_ageID",
+      "standard_name": "vehicle_age"
+    }
+  },
+
+  "models": {
+    "OnroadTravelFraction": {
+      "expression_template_imports": [
+        { "ref": "../lib/onroad_activity.esm", "only": ["share_of_group"] }
+      ],
+
+      "tolerance": { "rel": 1e-12 },
+
+      "variables": {
+        "runYearID": {
+          "type": "parameter", "units": "1", "default": 2020.0,
+          "description": "runspecyear.yearID. The analysis year."
+        },
+        "baseYearID": {
+          "type": "parameter", "units": "1", "default": 2020.0,
+          "description": "S1: max(year.yearID) over rows with isBaseYear = 'Y' and yearID <= runYearID (population.rs:30-35). 2020 is itself a base year in this snapshot, which is what collapses the two folds — see the description above."
+        },
+        "sourceTypePopulation": {
+          "type": "parameter", "units": "1", "default": 105135300.0,
+          "description": "sourcetypeyear[2020, 21].sourceTypePopulation. The national passenger-car population."
+        },
+        "hpmsGroupTotal": {
+          "type": "parameter", "units": "1", "default": 182397687.3700764,
+          "description": "J5's denominator: sum of population x relativeMAR over every (sourceType, ageID) cell whose sourceusetype.HPMSVtypeID is 25 — source types 21, 31 and 32, ages 0..40, 123 cells. Carried rather than computed because this file's relation is five ages of one source type; the assembly forms it from the real table. docs/mixed-onroad.md §6.0."
+        },
+
+        "tf_ageID": {
+          "type": "unknown", "shape": ["travel_age_rows"],
+          "description": "agecategory.ageID for the five probe ages of docs/mixed-onroad.md §6.1-§6.4."
+        },
+        "tf_ageFraction": {
+          "type": "unknown", "shape": ["travel_age_rows"], "units": "1",
+          "description": "sourcetypeagedistribution[21, 2020, ageID].ageFraction. Column 4."
+        },
+        "tf_relativeMAR": {
+          "type": "unknown", "shape": ["travel_age_rows"], "units": "1",
+          "description": "sourcetypeage[ageID, 21].relativeMAR. Column 4: relative mileage accumulation rate, which falls from 0.954 at age 0 to 0.092 at age 40."
+        },
+        "tf_population": {
+          "type": "unknown", "shape": ["travel_age_rows"], "units": "1",
+          "description": "S2, population.rs:73: sourceTypePopulation x ageFraction. With base year = analysis year this IS the analysis-year population; see the description above for why no fold appears."
+        },
+        "tf_travelWeight": {
+          "type": "unknown", "shape": ["travel_age_rows"], "units": "1",
+          "description": "J3: population x relativeMAR. The numerator of S3 and one term of its denominator (travel.rs:139, :200)."
+        },
+        "tf_travelFraction": {
+          "type": "unknown", "shape": ["travel_age_rows"], "units": "1",
+          "description": "S3: travelWeight / hpmsGroupTotal. The share of HPMSVtypeID 25's VMT that this (source type, age) cell accumulates."
+        },
+        "baseYearOffset": {
+          "type": "unknown", "units": "1",
+          "description": "baseYearID - runYearID. Zero exactly when 2020 is itself a base year, which is the predicate that licenses this file's omission of the population and VMT folds. It is a derived quantity rather than a direct assertion on the two parameters, because a `parameter` with no equation has no state for `esm test` to read (finding F6's neighbour: F6 is about a component with no array at all, this is about a variable with no equation)."
+        },
+        "travelFractionProbeSum": {
+          "type": "unknown", "units": "1",
+          "description": "The five probe ages' travel fractions summed. A subset of the forty-one, so it must be strictly below the snapshot's own column sum of 0.392331 — the cross-check on the carried denominator."
+        },
+
+        "probe_sourceTypeID": {
+          "type": "unknown", "shape": ["probe_travel_rows"],
+          "description": "Synthetic. Two source types in HPMS group 25, one in group 40 and one in group 50, so the two candidate normalisation groups differ and one group is empty."
+        },
+        "probe_HPMSVtypeID": {
+          "type": "unknown", "shape": ["probe_travel_rows"],
+          "description": "sourceusetype.HPMSVtypeID for the row's source type (J4)."
+        },
+        "probe_travelWeight": {
+          "type": "unknown", "shape": ["probe_travel_rows"], "units": "1",
+          "description": "Synthetic weights 10, 20, 30, 40, 100, 100 and 0, chosen so group 25 totals 100, group 40 totals 200, every share below is exact in binary, and group 50 totals ZERO — which is what exercises `share_of_group`'s guard on per-row data rather than on a scalar the constant folder can collapse."
+        },
+        "probe_groupHPMSVtypeID": {
+          "type": "unknown", "shape": ["probe_hpms_group_rows"],
+          "description": "The distinct HPMS vehicle types, as a SECOND relation over a second index set. J5 pairs the weight relation with its own group totals, which is a self-join; finding F11 says a relation cannot be joined to itself, so the group side is materialized separately."
+        },
+        "probe_groupTotal": {
+          "type": "unknown", "shape": ["probe_hpms_group_rows"], "units": "1",
+          "description": "J5's denominator, computed from the rows: 100 for group 25, 200 for group 40."
+        },
+        "probe_rowGroupTotal": {
+          "type": "unknown", "shape": ["probe_travel_rows"], "units": "1",
+          "description": "The group total brought back to each row by the same join."
+        },
+        "probe_travelFraction": {
+          "type": "unknown", "shape": ["probe_travel_rows"], "units": "1",
+          "description": "The CORRECT share: weight / HPMS-group total."
+        },
+
+        "probe_sourceTypeGroupID": {
+          "type": "unknown", "shape": ["probe_source_type_rows"],
+          "description": "The distinct source types, for the wrong normalisation."
+        },
+        "probe_sourceTypeTotal": {
+          "type": "unknown", "shape": ["probe_source_type_rows"], "units": "1",
+          "description": "The sum of weights per SOURCE TYPE: 30, 70, 200."
+        },
+        "probe_rowSourceTypeTotal": {
+          "type": "unknown", "shape": ["probe_travel_rows"], "units": "1",
+          "description": "That total brought back to each row."
+        },
+        "probe_sourceTypeShare": {
+          "type": "unknown", "shape": ["probe_travel_rows"], "units": "1",
+          "description": "The WRONG share, computed only so a test can assert it differs. Normalising over the source type gives 0.3333 where the specification gives 0.1."
+        }
+      },
+
+      "equations": [
+        {
+          "_comment": "The five probe ages of docs/mixed-onroad.md §6.1-§6.4: 40 (MY1980), 22 (MY1998), 20 (MY2000), 5 (MY2015) and 0 (MY2020).",
+          "lhs": "tf_ageID",
+          "rhs": { "op": "const", "args": [], "value": [0, 5, 20, 22, 40] }
+        },
+        {
+          "lhs": "tf_ageFraction",
+          "rhs": { "op": "const", "args": [],
+            "value": [0.032825069034, 0.058522363013, 0.019041840514, 0.011321377714, 0.030364100735] }
+        },
+        {
+          "lhs": "tf_relativeMAR",
+          "rhs": { "op": "const", "args": [],
+            "value": [0.953680327, 0.807471705, 0.528651085, 0.497923914, 0.091941923] }
+        },
+        {
+          "_comment": "S2, population.rs:73. J2 joins sourcetypeyear to sourcetypeagedistribution on (sourceTypeID, yearID); here the source type and year are fixed, so the join reduces to the scalar factor.",
+          "lhs": "tf_population",
+          "rhs": { "op": "*", "args": ["sourceTypePopulation", "tf_ageFraction"] }
+        },
+        {
+          "_comment": "J3, travel.rs:139: the age-weighted mileage accumulation.",
+          "lhs": "tf_travelWeight",
+          "rhs": { "op": "*", "args": ["tf_population", "tf_relativeMAR"] }
+        },
+        {
+          "_comment": "S3, travel.rs:200-204. The denominator is the HPMS group's, not this source type's.",
+          "lhs": "tf_travelFraction",
+          "rhs": { "op": "apply_expression_template", "args": [], "name": "share_of_group",
+            "bindings": { "numerator": "tf_travelWeight", "group_total": "hpmsGroupTotal" } }
+        },
+        {
+          "lhs": "baseYearOffset",
+          "rhs": { "op": "-", "args": ["baseYearID", "runYearID"] }
+        },
+        {
+          "lhs": "travelFractionProbeSum",
+          "rhs": { "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": [],
+            "ranges": { "a": { "from": "travel_age_rows" } },
+            "expr": { "op": "index", "args": ["tf_travelFraction", "a"] } }
+        },
+
+        {
+          "lhs": "probe_sourceTypeID",
+          "rhs": { "op": "makearray", "args": [],
+            "regions": [[[1, 2]], [[3, 4]], [[5, 6]], [[7, 7]]],
+            "values": [
+              { "op": "enum", "args": ["source_type", "PassengerCar"] },
+              { "op": "enum", "args": ["source_type", "PassengerTruck"] },
+              { "op": "enum", "args": ["source_type", "OtherBuses"] },
+              { "op": "enum", "args": ["source_type", "RefuseTruck"] }
+            ] }
+        },
+        {
+          "lhs": "probe_HPMSVtypeID",
+          "rhs": { "op": "makearray", "args": [],
+            "regions": [[[1, 4]], [[5, 6]], [[7, 7]]],
+            "values": [
+              { "op": "enum", "args": ["hpms_vtype", "LightDutyVehicles"] },
+              { "op": "enum", "args": ["hpms_vtype", "Buses"] },
+              { "op": "enum", "args": ["hpms_vtype", "RefuseTrucks"] }
+            ] }
+        },
+        {
+          "lhs": "probe_travelWeight",
+          "rhs": { "op": "const", "args": [], "value": [10.0, 20.0, 30.0, 40.0, 100.0, 100.0, 0.0] }
+        },
+        {
+          "lhs": "probe_groupHPMSVtypeID",
+          "rhs": { "op": "makearray", "args": [],
+            "regions": [[[1, 1]], [[2, 2]], [[3, 3]]],
+            "values": [
+              { "op": "enum", "args": ["hpms_vtype", "LightDutyVehicles"] },
+              { "op": "enum", "args": ["hpms_vtype", "Buses"] },
+              { "op": "enum", "args": ["hpms_vtype", "RefuseTrucks"] }
+            ] }
+        },
+        {
+          "_comment": "J5 as a join between the weight relation and a SECOND relation over the distinct groups (finding F11).",
+          "lhs": "probe_groupTotal",
+          "rhs": { "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["g"],
+            "ranges": { "g": { "from": "probe_hpms_group_rows" }, "r": { "from": "probe_travel_rows" } },
+            "join": [ { "on": [["probe_groupHPMSVtypeID", "probe_HPMSVtypeID"]] } ],
+            "expr": { "op": "index", "args": ["probe_travelWeight", "r"] } }
+        },
+        {
+          "lhs": "probe_rowGroupTotal",
+          "rhs": { "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["r"],
+            "ranges": { "r": { "from": "probe_travel_rows" }, "g": { "from": "probe_hpms_group_rows" } },
+            "join": [ { "on": [["probe_HPMSVtypeID", "probe_groupHPMSVtypeID"]] } ],
+            "expr": { "op": "index", "args": ["probe_groupTotal", "g"] } }
+        },
+        {
+          "lhs": "probe_travelFraction",
+          "rhs": { "op": "apply_expression_template", "args": [], "name": "share_of_group",
+            "bindings": { "numerator": "probe_travelWeight", "group_total": "probe_rowGroupTotal" } }
+        },
+        {
+          "lhs": "probe_sourceTypeGroupID",
+          "rhs": { "op": "makearray", "args": [],
+            "regions": [[[1, 1]], [[2, 2]], [[3, 3]], [[4, 4]]],
+            "values": [
+              { "op": "enum", "args": ["source_type", "PassengerCar"] },
+              { "op": "enum", "args": ["source_type", "PassengerTruck"] },
+              { "op": "enum", "args": ["source_type", "OtherBuses"] },
+              { "op": "enum", "args": ["source_type", "RefuseTruck"] }
+            ] }
+        },
+        {
+          "lhs": "probe_sourceTypeTotal",
+          "rhs": { "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["s"],
+            "ranges": { "s": { "from": "probe_source_type_rows" }, "r": { "from": "probe_travel_rows" } },
+            "join": [ { "on": [["probe_sourceTypeGroupID", "probe_sourceTypeID"]] } ],
+            "expr": { "op": "index", "args": ["probe_travelWeight", "r"] } }
+        },
+        {
+          "lhs": "probe_rowSourceTypeTotal",
+          "rhs": { "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["r"],
+            "ranges": { "r": { "from": "probe_travel_rows" }, "s": { "from": "probe_source_type_rows" } },
+            "join": [ { "on": [["probe_sourceTypeID", "probe_sourceTypeGroupID"]] } ],
+            "expr": { "op": "index", "args": ["probe_sourceTypeTotal", "s"] } }
+        },
+        {
+          "lhs": "probe_sourceTypeShare",
+          "rhs": { "op": "apply_expression_template", "args": [], "name": "share_of_group",
+            "bindings": { "numerator": "probe_travelWeight", "group_total": "probe_rowSourceTypeTotal" } }
+        }
+      ],
+
+      "tests": [
+        {
+          "id": "base_year_is_the_analysis_year",
+          "description": "The predicate that licenses this file's omission of the population and VMT folds (docs/mixed-onroad.md §1.5). If a future fixture's analysis year is not a base year, this fails by name instead of the chain silently computing a base-year population and labelling it 2020's.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "baseYearOffset", "time": 0.0, "expected": 0.0 }
+          ]
+        },
+        {
+          "id": "analysis_year_population_matches_the_snapshot",
+          "description": "S2 for the two extreme ages. 105135300 x 0.030364100735 = 3192338.84 at age 40 and x 0.032825069034 = 3451073.48 at age 0, against sourcetypeagepopulation's stored 3192340 and 3451070 — a ratio of 1.0000004, which is that column's 6-significant-figure storage (docs/mixed-onroad.md §7.1) and not an arithmetic difference.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "tf_population", "time": 0.0, "expected": 3451073.4804103007, "coords": { "travel_age_rows": 1 } },
+            { "variable": "tf_population", "time": 0.0, "expected": 3192338.8400044455, "coords": { "travel_age_rows": 5 } }
+          ]
+        },
+        {
+          "id": "travel_fraction_matches_the_worked_examples",
+          "description": "docs/mixed-onroad.md §6.1-§6.4's five travel fractions. Age 40 is §6.1's 1.609174853309e-03 and age 0 is §6.2's 1.804420293236e-02; ages 20 and 22 are §6.3's and the E85 example's. These propagate multiplicatively all the way to emissionQuant, so a wrong one is a wrong output row and nothing in between notices.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "tf_travelFraction", "time": 0.0, "expected": 0.0180442029323595, "coords": { "travel_age_rows": 1 } },
+            { "variable": "tf_travelFraction", "time": 0.0, "expected": 0.027238199558448965, "coords": { "travel_age_rows": 2 } },
+            { "variable": "tf_travelFraction", "time": 0.0, "expected": 0.0058023948897717266, "coords": { "travel_age_rows": 3 } },
+            { "variable": "tf_travelFraction", "time": 0.0, "expected": 0.0032493126062871306, "coords": { "travel_age_rows": 4 } },
+            { "variable": "tf_travelFraction", "time": 0.0, "expected": 0.0016091748533087506, "coords": { "travel_age_rows": 5 } }
+          ]
+        },
+        {
+          "id": "the_carried_denominator_is_the_whole_group",
+          "description": "The cross-check on `hpmsGroupTotal`. Five of source type 21's forty-one ages sum to 0.055943, well under the snapshot's own travelfraction column sum of 0.392331 for that source type — which is itself under 1, because 21 is one of three source types in HPMS type 25. A denominator mistakenly taken over source type 21 alone would make these five sum to 0.143 and the full forty-one sum to exactly 1, so this number is the one that distinguishes the two.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "travelFractionProbeSum", "time": 0.0, "expected": 0.055943284840176064 }
+          ]
+        },
+        {
+          "id": "the_wrong_normalisation_group",
+          "description": "The rule of J5, on numbers a reader can check without a calculator. Six synthetic rows: HPMS group 25 holds source types 21 (weights 10, 20) and 31 (30, 40) and totals 100; group 40 holds source type 41 (100, 100) and totals 200. The first row's correct share is 10/100 = 0.1. Normalised over its SOURCE TYPE instead it is 10/30 = 0.333 — the mistake that makes the fixture 2.55x high — and both are asserted here so the contrast is in the test rather than in a comment.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "probe_groupTotal", "time": 0.0, "expected": 100.0, "coords": { "probe_hpms_group_rows": 1 } },
+            { "variable": "probe_groupTotal", "time": 0.0, "expected": 200.0, "coords": { "probe_hpms_group_rows": 2 } },
+            { "variable": "probe_travelFraction", "time": 0.0, "expected": 0.1, "coords": { "probe_travel_rows": 1 } },
+            { "variable": "probe_travelFraction", "time": 0.0, "expected": 0.4, "coords": { "probe_travel_rows": 4 } },
+            { "variable": "probe_travelFraction", "time": 0.0, "expected": 0.5, "coords": { "probe_travel_rows": 5 } },
+            { "variable": "probe_sourceTypeTotal", "time": 0.0, "expected": 30.0, "coords": { "probe_source_type_rows": 1 } },
+            { "variable": "probe_sourceTypeShare", "time": 0.0, "expected": 0.3333333333333333, "coords": { "probe_travel_rows": 1 } }
+          ]
+        },
+        {
+          "id": "an_empty_group_is_zero_and_not_a_nan",
+          "description": "`share_of_group`'s zero guard, which is travel.rs:99-103 and :200-204. Probe row 7 is the only member of HPMS group 50 and carries weight 0, so its group total is 0 and its share must be 0 rather than NaN. A NaN here would propagate through every subsequent product and arrive at the output as a MISSING ROW rather than as a traceable zero — this repository's characteristic failure is a plausible wrong value, and four of its six recorded instances returned 0 while one returned NaN for the same underlying reason.\n\nThe guard is asserted on per-row DATA and not by overriding the carried denominator, which was the first form of this test. That form fails: with `hpmsGroupTotal` overridden to 0 the whole `ifelse` constant-folds to the scalar 0.0, the elementwise equation loses its declared shape, and the assertion reports `array state 'tf_travelFraction' has no cells in var_map`. Recorded as finding F19.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "probe_groupTotal", "time": 0.0, "expected": 0.0, "coords": { "probe_hpms_group_rows": 3 } },
+            { "variable": "probe_travelFraction", "time": 0.0, "expected": 0.0, "coords": { "probe_travel_rows": 7 } },
+            { "variable": "probe_sourceTypeShare", "time": 0.0, "expected": 0.0, "coords": { "probe_travel_rows": 7 } }
+          ]
+        }
+      ]
+    }
+  }
+}
