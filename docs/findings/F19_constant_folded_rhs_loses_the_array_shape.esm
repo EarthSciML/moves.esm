@@ -1,0 +1,68 @@
+{
+  "esm": "1.0.0",
+  "metadata": {
+    "name": "F19ConstantFoldedRhsLosesTheArrayShape",
+    "description": "Finding F19. An elementwise equation whose right-hand side constant-folds to a SCALAR loses the left-hand side's declared array shape, and the variable then has no cells at all.\n\n`guarded` is declared over `row_ax` and its equation is `ifelse(zeroGuard > 0, col[i], 0.0)`. `zeroGuard` is a `parameter` whose default is 0.0, so the predicate is a compile-time false and the whole `ifelse` folds to the scalar literal 0.0. The intended value is a three-cell array of zeros -- an array assigned a scalar broadcasts, which is what `unguarded` below demonstrates on the same shape. What happens instead is that the variable is absent from the state map.\n\nThe control is `unguarded`, identical but with the guard's default at 1.0 so the fold does not collapse the branch; it materializes correctly. So the difference is the fold and not the shape, the `ifelse`, or the parameter.\n\nLOUD, not silent, which is what keeps this a cost rather than a hazard: `esm test` reports `array state 'guarded' has no cells in var_map` and names the variable.\n\nIMPACT, and it is narrow but real. It removes one testing technique: a component cannot exercise the FALSE arm of a guard whose predicate is a run-level scalar by overriding that scalar, which is the natural way to test a zero-denominator guard or a disabled adjustment. Both places this port wanted it, the technique had to be replaced by data: components/onroad_travel_fraction.esm's `share_of_group` guard is exercised by a probe ROW whose group total is zero rather than by overriding the carried denominator, and components/onroad_energy_output.esm's clamps are exercised by moving a temperature that both arms are reachable from rather than by forcing a factor to zero. Both replacements are better tests -- per-row data exercises the join as well as the arithmetic -- so this cost the port two rewrites and no capability.\n\nFIX SHAPE. Broadcast a scalar-folded right-hand side across the left-hand side's declared shape, which is what the same document already does when the fold does not collapse the branch. The array runtime knows the shape from the declaration; the folder is discarding it.",
+    "authors": ["EarthSciML Authors and Contributors"],
+    "tags": ["finding", "constant-folding", "array-shape"]
+  },
+
+  "index_sets": {
+    "row_ax": { "kind": "interval", "size": 3 }
+  },
+
+  "models": {
+    "F19ConstantFoldedRhsLosesTheArrayShape": {
+      "variables": {
+        "zeroGuard": {
+          "type": "parameter", "units": "1", "default": 0.0,
+          "description": "A compile-time false predicate, so the `ifelse` below folds to the scalar 0.0."
+        },
+        "oneGuard": {
+          "type": "parameter", "units": "1", "default": 1.0,
+          "description": "The control: a compile-time true predicate, so the fold keeps the array branch."
+        },
+        "col": {
+          "type": "unknown", "shape": ["row_ax"], "units": "1",
+          "description": "A three-cell array column."
+        },
+        "guarded": {
+          "type": "unknown", "shape": ["row_ax"], "units": "1",
+          "description": "Declared over row_ax; its RHS folds to a scalar. Expected: three cells of 0.0."
+        },
+        "unguarded": {
+          "type": "unknown", "shape": ["row_ax"], "units": "1",
+          "description": "The control, identical but for the guard's value."
+        }
+      },
+      "equations": [
+        {
+          "lhs": "col",
+          "rhs": { "op": "const", "args": [], "value": [10.0, 20.0, 30.0] }
+        },
+        {
+          "lhs": "guarded",
+          "rhs": { "op": "ifelse", "args": [
+            { "op": ">", "args": ["zeroGuard", 0.0] }, "col", 0.0] }
+        },
+        {
+          "lhs": "unguarded",
+          "rhs": { "op": "ifelse", "args": [
+            { "op": ">", "args": ["oneGuard", 0.0] }, "col", 0.0] }
+        }
+      ],
+      "tests": [
+        {
+          "id": "a_scalar_folded_rhs_broadcasts_over_the_declared_shape",
+          "description": "The intended behaviour, which is what makes this repro fail today. `unguarded` materializes and `guarded` does not, and the two differ only in whether the fold collapsed the branch. When this test starts passing, a component can once again exercise the false arm of a scalar-predicated guard by overriding the scalar.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "unguarded", "time": 0.0, "expected": 10.0, "coords": { "row_ax": 1 } },
+            { "variable": "guarded", "time": 0.0, "expected": 0.0, "coords": { "row_ax": 1 } },
+            { "variable": "guarded", "time": 0.0, "expected": 0.0, "coords": { "row_ax": 3 } }
+          ]
+        }
+      ]
+    }
+  }
+}

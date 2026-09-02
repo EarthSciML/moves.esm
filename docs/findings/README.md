@@ -1,12 +1,12 @@
 # Findings: conventions the format or the toolchain could not express
 
-Eighteen things PLAN.md §3 Phase 1 and Phase 2 assumed, or that an author would
+Nineteen things PLAN.md §3 Phase 1, Phase 2 and Phase 3 assumed, or that an author would
 reasonably assume, that did not hold. Four are now fixed upstream and are listed
 at the bottom, with their sections kept above so the workarounds they forced can
 be traced; the rest still hold at the pinned toolchain (`esm-version.lock`:
 EarthSciAST `8a7810647`, EarthSciIO `d109951d4`, `--features esio,parallel`).
 
-F2, F3, F5, F6 and F11–F14 each have a minimal `.esm` repro in this directory; F7 and F8 are
+F2, F3, F5, F6, F11–F14 and F19 each have a minimal `.esm` repro in this directory; F7 and F8 are
 CLI behaviours rather than documents, and are checked by command against the
 ordinary files of the repo. **Every repro is expected to fail**, and each one's inline test asserts the *intended* behaviour, so a repro
 that starts passing means the defect is fixed. `run-tests.sh` runs them as a
@@ -34,6 +34,7 @@ three of them do not load.
 | **F16** | A SCALAR variable is not materialized in a document that ingests data | assertion | no |
 | **F17** | A `join.on` between two LARGE data relations is not driven | — | **yes** |
 | **F18** | `element_type: "Float32"` collapses ingested integer keys above 2²⁴ | — | **yes** |
+| **F19** | A constant-folded scalar right-hand side loses the left-hand side's array shape | assertion | no |
 
 ---
 
@@ -720,3 +721,58 @@ per-expression rather than document-wide.
 
 Until then, **this port cannot declare `Float32`**, and the four rows of §1.6.1
 stay out of reach by that route.
+
+
+---
+
+## F19 — a constant-folded scalar right-hand side loses the array shape
+
+`F19_constant_folded_rhs_loses_the_array_shape.esm`. Found authoring Phase 3's
+first component.
+
+```
+$ (cd docs/findings && ../../esm test F19_constant_folded_rhs_loses_the_array_shape.esm)
+  a_scalar_folded_rhs_broadcasts_over_the_declared_shape[1] (unguarded)  PASS
+  a_scalar_folded_rhs_broadcasts_over_the_declared_shape[2] (guarded)    ERROR
+      assertion evaluation failed: array state 'guarded' has no cells in var_map
+```
+
+Two variables, both declared `shape: ["row_ax"]`, both assigned
+`ifelse(guard > 0, col, 0.0)`. They differ in one thing: the guard's default.
+With the guard at 1.0 the fold keeps the array branch and `unguarded`
+materializes. With it at 0.0 the predicate is a compile-time false, the whole
+`ifelse` folds to the scalar literal `0.0`, and the left-hand side's declared
+shape is discarded — the variable is absent from the state map rather than
+being a three-cell array of zeros.
+
+An array assigned a scalar broadcasts everywhere else in the format; the
+control in the same document proves the runtime knows the shape. It is the
+*folder* that drops it.
+
+**Loud, not silent**, which is what keeps this a cost rather than a hazard. It
+names the variable, and the message is F12's — which is a small trap of its
+own, since F12's cause (a recurrence) and this one's (a fold) have nothing in
+common.
+
+**Impact: it removes one testing technique.** A component cannot exercise the
+FALSE arm of a guard whose predicate is a run-level scalar by overriding that
+scalar, which is the natural way to test a zero-denominator guard or a
+switched-off adjustment. Both places Phase 3 reached for it, the technique had
+to be replaced:
+
+* `components/onroad_travel_fraction.esm`'s `share_of_group` zero guard is
+  exercised by a probe **row** whose group total is zero, not by overriding the
+  carried denominator to zero;
+* `components/onroad_energy_output.esm`'s two clamps are exercised by moving
+  the **temperature** both arms are reachable from, not by forcing either
+  factor to zero.
+
+Both replacements are better tests — per-row data exercises the join as well
+as the arithmetic, and moving a physical input exercises the branch the way
+the model will actually meet it — so this cost the port two rewrites and no
+capability. It is recorded because the first form of each test was the obvious
+one, and because the error message points at the wrong finding.
+
+**Fix shape.** Broadcast a scalar-folded right-hand side over the left-hand
+side's declared shape, which is what the same document already does when the
+fold does not collapse the branch.

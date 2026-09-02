@@ -11,7 +11,7 @@ eyeball are marked **[checked]**.
 
 Two companions: `docs/nonroad-logging-county.md` is the verified port
 specification these conventions were fitted to, and `docs/findings/README.md`
-records fourteen things the format or the toolchain will not do, each watched
+records fifteen things the format or the toolchain will not do, each watched
 by `run-tests.sh`.
 
 ---
@@ -606,3 +606,177 @@ opposite of what an earlier draft of this document said: **reproduce the
 reference's row suppression**. The `modfrc <= 0` skip removes 44 exactly-zero
 cohorts, and a chain without it emits 188 rows against the snapshot's 144 in
 either precision.
+
+---
+
+## 16. What the onroad graph changed **[Phase 3]**
+
+Phase 3 is the first slice that is not a self-contained Fortran chain: the
+rates-first base-rate path, `mixed-onroad`, specified in
+`docs/mixed-onroad.md`. The question it was authored to answer is whether the
+conventions above survive a SQL-graph calculator, and the short answer is that
+**every rule in §1–§15 held, and four of them are now forced for reasons the
+NONROAD slice never met.** Nothing here is a reversal. What follows is the
+list, because the reasons matter more than the rules.
+
+### 16.1 Four rules that gained a second, independent reason
+
+**A run-level quantity is a one-row relation — and now it has to be, in every
+document.** §11 gives the reason as finding F16: a scalar is not materialized
+in a document that *ingests*. Phase 3 found a second, which applies to `const`
+components too. A `join.on` key column must be a 1-D data column over an index
+set one of the aggregate's ranges draws from, so **a scalar cannot be a join
+key at all** — the build refuses it by name:
+
+```
+join key column 'runPolProcessID' does not resolve to a loop index of this
+aggregate ({"i", "m"}): it names neither a range symbol, nor an index set one
+of those ranges draws from, nor a declared 1-D data column over such an index
+set
+```
+
+`components/onroad_source_bin_distribution.esm`'s `runspec_polProcessID` is a
+one-row relation over `runspec_pol_process_rows` for that reason and no other.
+The convention is unchanged; its scope is wider than §11 says. It is also a
+better failure than F16's: loud, at build, naming the column.
+
+**Reproduce the reference's row suppression** (§3, §15). NONROAD's case is
+`modfrc <= 0`. The onroad case is `samplevehiclepopulation.stmyFraction > 0.0`
+(`source_bin_distribution_generator.rs:1341`), and it was found independently:
+164 candidate rows for this fixture's source type, 39 with the value exactly
+`0.000000000000`, and the surviving 125 are exactly the snapshot's cohorts.
+Without it the fixture emits 328 rows against 250. Two chains with no shared
+code reached the same rule, which is the strongest evidence available that it
+is the rule and not an artefact.
+
+**An output relation carries its key as COLUMNS** (§2). Ragged again, and for a
+physical reason this time: the 125 cohorts are 41, 40, 23 and 21 model years
+for gasoline, diesel, E85 and electricity — the years before E85 and electric
+drive existed, and the year diesel passenger cars stopped. Finding F14's flat-
+relation workaround applies unchanged.
+
+**A relation cannot be joined to itself** (§3, finding F11). Two more instances:
+the travel fraction's numerator against its HPMS-group denominator, and the
+fuel-usage rebase pairing a cohort with other cohorts of its own model year.
+Phase 3 measured what the workaround actually costs, which §3 did not say: an
+operand of an equation whose left-hand side is shaped over one index set must
+itself be shaped over that set, so **the workaround duplicates the whole
+relation and not only its key column**.
+`onroad_source_bin_distribution.esm` carries `eq_stmyFraction`,
+`eq_modelYearGroupIsPresent` and `eq_sourceBinActivityFraction` beside their
+`svp_` twins for that reason.
+
+### 16.2 Three things that are new
+
+**A `makearray` region addresses one contiguous range PER DIMENSION, not a set
+of disjoint spans.** `"regions": [[[1,1],[5,5]]]` is read as a two-dimensional
+region and refused as rank-mismatched against a 1-D sibling. The consequence is
+a *modelling* rule, not a syntax note: a relation whose identifier columns are
+to be built from `enums` rather than written as bare integers must be **ordered
+so that each identifier value occupies one run of rows**.
+`onroad_source_bin_distribution.esm`'s twenty candidate rows are grouped by
+fuel type and then by model year for exactly this reason — the natural order,
+by model year, would need twenty single-cell regions.
+
+**A key column above 2⁵³ is keyed on its components and never materialized.**
+`sourceBinID` is `1e18 + fuel·1e16 + engTech·1e14 + regClass·1e12 +
+shortModYrGroup·1e10`, about 1.01 × 10¹⁸, where binary64 spacing is 128. So
+J22 joins on the four components and no document in this port builds a packed
+id. The **inverse** is needed and is safe — `emissionrate`'s 69,200 rows arrive
+already packed with no component columns, and `floor(bin/1e16)` has a small
+exact quotient — which is what `lib/onroad_activity.esm`'s `source_bin_slot`
+is. This is finding **F18** one binary exponent further out, and a second
+independent reason this port cannot declare `Float32`.
+
+**A residual assertion needs `abs` alongside `rel`.** `runs/mixed_onroad_run.esm`
+recomputes each output row through the mount and asserts the difference against
+the leaf's own column is zero. Nine of ten residuals are exactly `0.0`; one is
+2.78 × 10⁻¹⁷, because the two expressions group the same product differently
+and binary64 rounds them apart by one unit in the last place. A relative
+tolerance is vacuous against an expected zero, so the test carries
+`{"abs": 1e-15, "rel": 1e-12}` — either bound satisfies an assertion
+(`esm-schema.json` `Tolerance`) — and its description says which residual is
+not zero and why. Asserting exact zero would be claiming something about IEEE
+association that the document does not intend.
+
+### 16.3 One rule that did NOT need to fire, and why that is informative
+
+**§11.1's "give the thing the tables meet at an axis"** — finding F17's remedy,
+which turned a 25-minute contraction into 4 seconds by giving `engTechID` its
+own axis over the 100–199 NONROAD exhaust code space. The onroad chain joins on
+engine technology too, and it did not need the remedy: onroad `engTechID` takes
+**two** values here (1, conventional internal combustion; 30, electric drive),
+so it is a column.
+
+That is worth writing down because it locates F17 precisely. The finding is
+about the **size of both sides of a clause**, not about the semantics of the
+key: NONROAD's technology axis was a performance fix because the mix table had
+9,554 rows probing 55,471, and the same key over a two-valued column needs
+nothing. An author reading §11.1 as "technology is always an axis" would be
+generalising a measurement into a rule.
+
+The same goes the other way. §3's table of "what is *not* an equi-join" lists
+three NONROAD cases — the SCC fallback ladders, state-default precedence, and
+hp containment. **The onroad chain has none of the first two.** What it has
+instead is two joins on an inclusive model-year range
+(`beginModelYearID <= MY <= endModelYearID`, in `fleetavgadjustment` and
+`temperatureadjustment`), and those take the same spelling hp containment
+takes: a `join.on` over the non-range keys plus an inclusive-range `filter`.
+So the *list* is fixture-specific and the *spelling* generalises, which is the
+distinction §3 should be read for.
+
+### 16.4 A new finding, and what it cost
+
+**F19: a constant-folded scalar right-hand side loses the left-hand side's
+array shape.** An elementwise equation whose predicate is a compile-time false
+folds to the scalar `0.0`, and the declared shape is discarded — the variable
+has no cells rather than being an array of zeros. Loud, and it names the
+variable.
+
+What it removes is one testing technique: a component cannot exercise the FALSE
+arm of a guard whose predicate is a run-level scalar by overriding that scalar,
+which is the natural way to test a zero-denominator guard.
+`docs/findings/README.md` F19 records both replacements, and both are better
+tests — `onroad_travel_fraction.esm` exercises `share_of_group`'s guard with a
+probe **row** whose group total is zero, which tests the join as well as the
+arithmetic, and `onroad_energy_output.esm` exercises its two clamps by moving
+the **temperature** both arms are reachable from, which is how the model will
+actually meet them. So it cost two rewrites and no capability.
+
+### 16.5 One rule that is about the fixture rather than the format
+
+**The run scope comes from the execution database's `runspec*` tables, never
+from the RunSpec XML.** `mixed-onroad.xml`'s sha256 matches
+`provenance.json` and it nevertheless disagrees with the captured run on
+month, hour, day type, fuel type and pollutant, because it was rewritten when
+the mixed scenario was split in two and re-hashed without re-capturing the
+tables (`docs/mixed-onroad.md` §0.1). A document scoped from the XML emits 250
+rows with the wrong month and hour in every one, which the exact-key-set gate
+rejects wholesale — the good failure. The dangerous one is a document that
+reads the XML for a single dimension and quietly emits 62 rows.
+
+`components/onroad_energy_output.esm`'s
+`the_scope_columns_come_from_the_execution_database` asserts monthID 8 and
+hourID 9 against the XML's 7 and 8 for that reason.
+
+### 16.6 What Phase 3 did not do, and why it is in the specification
+
+`mixed-onroad` has **no fixture**, and that is a decision rather than an
+unfinished edge. `docs/mixed-onroad.md` §7.3 shows that everything in the
+250-row chain is computable from the snapshot's input tables except one
+relation of 46 numbers — the speed-bin-weighted drive-cycle operating-mode
+distribution, which canonical MOVES computes inside its worker and drops. §7.4
+gives the reasoning: a document emitting 250 correctly-keyed rows carrying an
+uncomputed rate fails the per-cell gate for a shape `[shortfall]`'s
+`emitted_rows` / `missing_keys` / `extra_keys` record cannot express, and a
+document reading the reference's own `baserate_1_2020` passes the gate by
+transcribing the answer. Neither is a fidelity test, and §13's rule — a fixture
+stage that says what it did not compare is worth more than a green one that
+read nothing — applies to *whether to add the stage* as much as to what it
+reports.
+
+What replaces it: the four components check every stage that can be checked
+without the snapshot, against numbers §6 read out of it; and
+`./run-onroad-oracle.sh` extracts §6.5 and reproduces all 82 rows of `sho` and
+all 250 of `MOVESOutput` from the snapshot to 4.1 × 10⁻⁶ and 8.2 × 10⁻⁶, with
+the base rate read from the reference and the output saying so on every run.

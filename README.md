@@ -35,7 +35,7 @@ The binary itself, `./esm`, is deliberately untracked.
 | `runs/` | Run-level assemblies that mount components. |
 | `fixtures/` | The documents that read the snapshot Parquet and are compared against its `MOVESOutput`. One per snapshot; each declares the tables it reads as `data_sources`. |
 | `gates/` | Performance gates, currently the `join.on` scaling assertion. |
-| `docs/` | The port specification, the conventions doc, and the findings. |
+| `docs/` | The two port specifications, the conventions doc, and the findings. |
 | `tools/` | `check-conventions.py`, which enforces mechanically what a review would otherwise have to eyeball; `check-sources.py`, which opens every declared Parquet file and checks the columns; `shortfall.py`, which judges a fixture's failure against what `tolerance.toml` says to expect. |
 
 ## Testing
@@ -81,7 +81,10 @@ encodes a byte-identity contract appropriate to diffing two runs of one binary
 and not to comparing two implementations.
 
 `./run-oracle.sh` extracts and runs the independent float32 reproduction
-embedded in `docs/nonroad-logging-county.md` §6.5. It reproduces all 144 rows of
+embedded in `docs/nonroad-logging-county.md` §6.5, and
+`./run-onroad-oracle.sh` does the same for `docs/mixed-onroad.md` §6.5 — all
+82 rows of `sho` to 4.1 × 10⁻⁶ and all 250 of `MOVESOutput` to 8.2 × 10⁻⁶, with
+the base rate read from the reference and the output saying so. It reproduces all 144 rows of
 `nr-logging-county` to 4.9 × 10⁻⁶. Its purpose is attribution: when a document
 disagrees with the snapshot, a third implementation is what tells you whether
 the document is wrong or the specification is. `--float64` runs the same chain
@@ -159,10 +162,11 @@ instance exists and has not been found.
 
 ## Status
 
-<<<<<<< HEAD
-**Phases 0, 1 and 2 are complete.** Eleven components cover all seven NONROAD
-stages of `nr-logging-county`, with 590 inline assertions whose numbers each
-trace to a named line of the port specification.
+**Phases 0, 1 and 2 are complete, and Phase 3 has its specification and its
+first four components.** Fifteen components cover all seven NONROAD stages of
+`nr-logging-county` and four of the six onroad stages of `mixed-onroad`, with
+886 inline assertions whose numbers each trace to a named section of a port
+specification.
 
 Both blockers on the first end-to-end fixture comparison are closed: the CLI
 now wires a data provider and `simulate --format csv` emits a relational
@@ -170,27 +174,25 @@ document's rows. Verified against the real snapshot — 1,183 rows of a column
 sized by `extent` discovery, summing to 181564.4520000001, matching pyarrow
 exactly.
 
-One thing still stands between the chain and the 144th row:
+One thing still stands between the NONROAD chain and the 144th row:
 `domain.element_type: "Float32"` is accepted, documented, and ignored, so a
 document evaluates in binary64 and one age cohort's `modfrc` lands on the wrong
-side of the reference's skip. See "The binary64 rule" above. It is being fixed
-upstream.
+side of the reference's skip. See "The binary64 rule" above. Honouring it turns
+out to be a design question rather than a patch — it destroys ingested integer
+keys above 2^24 (`docs/findings/README.md` F18).
+
+`mixed-onroad` has no fixture yet, and `docs/mixed-onroad.md` §7.4 says why
+rather than recording a shortfall: everything in that 250-row chain is
+computable from the snapshot's input tables except one relation of 46 numbers,
+the drive-cycle operating-mode distribution, which canonical MOVES computes
+inside its worker and drops. §7.3 isolates it by solving for it and shows the
+base rate factorises exactly around it. A document emitting 250
+correctly-keyed rows with an uncomputed rate would fail the per-cell gate for
+a reason no `[shortfall]` record can express; one reading the reference's own
+`baserate_1_2020` would pass by transcribing the answer. Neither is a fidelity
+test, so the four components check what can be checked without the snapshot
+and `run-onroad-oracle.sh` checks the rest against it.
 
 See `PLAN.md` for the plan of record and `docs/findings/README.md` for what the
-toolchain still cannot do — twelve open findings, and three retired because
+toolchain still cannot do — fifteen open findings, and four retired because
 they were fixed.
-=======
-Phases 0 and 1 are complete, and the first end-to-end fidelity comparison runs:
-both blockers that stood in front of it are fixed upstream — the CLI now builds
-a data provider per consumed `data_sources` entry and samples a source's extent
-before closing metaparameters, and `simulate --format csv` writes the rows of a
-document that has nothing to integrate. `fixtures/nr-logging-county.esm` reads
-seventeen snapshot tables and reproduces the twelve `MOVESOutput` rows of SCC
-2260007005 to 4.0 × 10⁻⁶.
-
-The remaining 132 rows are two more SCCs, and the blocker is not authoring
-effort: each equipment point needs its own `agedist.f` result, and that
-thirty-year fold is a recurrence with no spelling in the format
-(`docs/findings/README.md` F12). See `PLAN.md` for the plan of record and the
-findings file for what else the toolchain cannot yet do.
->>>>>>> phase2/wire
