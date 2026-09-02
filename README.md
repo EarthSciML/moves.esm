@@ -127,9 +127,26 @@ Forty-four candidate cohorts have a grown fraction of *exactly* zero, so a
 document without the skip over-emits by 44 in either precision. **Reproduce the
 reference's control flow, and author for float32 semantics**: the remaining
 difference is one cohort — SCC 2260007005 / MY2018, 5.96 × 10⁻⁸ in float32 and
-exactly 0.0 in binary64 — which no expression can distinguish and which
-evaluating the document in float32 settles. `domain.element_type: "Float32"` is
-ignored at the pinned toolchain and is being fixed upstream.
+exactly 0.0 in binary64 — which no expression can distinguish.
+
+`domain.element_type: "Float32"` is honoured, per operation, and a
+**per-variable** `element_type` overrides it — necessary because a
+document-wide float precision destroys ten-digit join keys (`docs/findings`
+F18). The override is **strict**: mixing precisions inside one operator is a
+compile error, not a silent coercion. The fixture declares `Float32` with 19
+SCC-valued variables at `Float64`, and both halves are verifiably live in one
+run: all 12 emitted values are exactly binary32-representable where none of the
+binary64 values was, and the SCC stays `2260007005` rather than collapsing to
+`2260006912`.
+
+**But that cohort is not what the element type settles here, and four files in
+this repo used to say it was.** `agedist.f`'s fold is a recurrence the format
+cannot spell (F12), so the fixture *carries* the grown fractions as a `const`
+whose third value is 5.89 × 10⁻⁸ — positive in either precision. Its twelve
+rows never depended on the element type; the document had the right row set for
+a reason none of those four files stated, and no gate noticed. What the element
+type is needed for is the *other two* SCCs, once F12 lands and their folds are
+computed rather than carried. `docs/esm-conventions.md` §17.5 records this.
 
 ## A warning about zeros
 
@@ -140,7 +157,8 @@ no provider; the same when the published `earthsciio` shadows the local
 checkout; an `aggregate` range symbol named `t`, which makes `join.on` match
 nothing; `skolem`/`distinct` materializing empty; an index set sized by `extent`
 discovery, which stayed at its placeholder; and `element_type: "Float32"`, which
-returns the binary64 answer.
+returned the binary64 answer — since fixed, and the entry stays because the
+*class* of failure is the point, not the individual bug.
 
 Four of the six returned `0`. One returned `NaN` — the same defect in a
 different shape, because an unbound *array* forcing reads as NaN where a scalar
@@ -174,12 +192,31 @@ document's rows. Verified against the real snapshot — 1,183 rows of a column
 sized by `extent` discovery, summing to 181564.4520000001, matching pyarrow
 exactly.
 
-One thing still stands between the NONROAD chain and the 144th row:
-`domain.element_type: "Float32"` is accepted, documented, and ignored, so a
-document evaluates in binary64 and one age cohort's `modfrc` lands on the wrong
-side of the reference's skip. See "The binary64 rule" above. Honouring it turns
-out to be a design question rather than a patch — it destroys ingested integer
-keys above 2^24 (`docs/findings/README.md` F18).
+**The fixture evaluates in Float32.** It declares
+`domain.element_type: "Float32"` with 19 SCC-valued variables overridden to
+`Float64` — the override exists because honouring a float precision
+document-wide destroys ingested integer keys above 2²⁴
+(`docs/findings/README.md` F18). 87 of 87 inline assertions pass, the 12 rows
+and their key set are unchanged, and the worst cell moved from 4.025 × 10⁻⁶ to
+4.046 × 10⁻⁶ against a 2 × 10⁻⁵ gate. Not one expected value changed; ten
+assertion tolerances moved to exactly 2⁻²³, one binary32 epsilon, which is the
+tightest a binary32 evaluation can ever satisfy and still fails a perturbation
+of 3.4 epsilons.
+
+Nothing needed splitting to get there, and that was luck with a cause worth
+knowing: `lib/keys.esm`'s SCC ladders take their presence tests as
+*predicates*, because §3 of the conventions wanted the test to be a separate
+`max`-semiring aggregate for join cost. Written the way a reader of `prccty.f`
+reaches for first — `has_exact*scc + (1-has_exact)*sccZero2` — all five ladders
+would be `mixed_element_type` errors.
+
+**What stands between the NONROAD chain and the 144th row is F12 alone** —
+`agedist.f`'s thirty-year fold is a recurrence over an index axis that the
+format cannot spell, and the fixture's other two SCCs each need their own
+result from it. A closed form over the residual sequence is
+verified exact — 0 of 1,581 cells differ per equipment point, float32, six
+equipment points — but substituting it leaves a deconvolution, so the recurrence
+survives every reduction and the fix is a format addition.
 
 `mixed-onroad` has no fixture yet, and `docs/mixed-onroad.md` §7.4 says why
 rather than recording a shortfall: everything in that 250-row chain is
@@ -194,12 +231,5 @@ test, so the four components check what can be checked without the snapshot
 and `run-onroad-oracle.sh` checks the rest against it.
 
 See `PLAN.md` for the plan of record and `docs/findings/README.md` for what the
-toolchain still cannot do — fifteen open findings, and four retired because
+toolchain still cannot do — sixteen open findings, and four retired because
 they were fixed.
-
-`domain.element_type: "Float32"` is now honoured per operation, and a
-**per-variable** `element_type` overrides it — necessary because a
-document-wide float precision destroys ten-digit join keys (F18). F12's closed
-form over the residual sequence is verified exact — 0 of 1,581 cells differ per
-equipment point — but solving it is a deconvolution, so the recurrence survives
-the reduction.

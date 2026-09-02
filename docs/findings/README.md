@@ -4,7 +4,7 @@ Twenty things PLAN.md §3 Phase 1, Phase 2 and Phase 3 assumed, or that an autho
 reasonably assume, that did not hold. Four are now fixed upstream and are listed
 at the bottom, with their sections kept above so the workarounds they forced can
 be traced; the rest still hold at the pinned toolchain (`esm-version.lock`:
-EarthSciAST `8a7810647`, EarthSciIO `d109951d4`, `--features esio,parallel`).
+EarthSciAST `f83bff90d`, EarthSciIO `d109951d4`, `--features esio,parallel`).
 
 F2, F3, F5, F6, F11–F14 and F20 each have a minimal `.esm` repro in this directory —
 F12 has four, one per spelling an author would try; F7 and F8 are CLI behaviours
@@ -16,9 +16,14 @@ convention that then becomes available. That is the opposite of the usual
 polarity and it is deliberate — a known limitation that quietly gets fixed is a
 workaround left in the tree for no reason.
 
-F19 is the single exception, and it is excluded from that loop by name: its
-repro **passes today, and that is the defect**, so it is watched by an inverted
-check of its own that goes red when it starts failing.
+Two files are excluded from that loop by name, for opposite reasons. **F19's
+repro passes today, and that is the defect**, so it is watched by an inverted
+check of its own that goes red when it starts failing. **F18's is a control that
+is meant to pass**: the key-collapse half of F18 is resolved, by a per-variable
+`element_type` override that is explicit by design, so the behaviour its old
+repro asserted will never hold and "still fails, as recorded" would have been
+false reassurance. It now checks the guarantee the port depends on, from both
+sides — see F18.
 
 The repros are excluded from the ordinary `validate` and `test` stages, because
 three of them do not load.
@@ -38,7 +43,7 @@ three of them do not load.
 | **F15** | A `url_template` is neither environment-expanded nor relative | ingest | no |
 | **F16** | A SCALAR variable is not materialized in a document that ingests data | assertion | no |
 | **F17** | A `join.on` between two LARGE data relations is not driven | — | **yes** |
-| **F18** | `element_type: "Float32"` collapses ingested integer keys above 2²⁴ | — | **yes** |
+| **F18** | An ingested value the declared `element_type` cannot represent is narrowed silently (the key-collapse half is **resolved**, by a per-variable override) | ingest | **yes** |
 | **F19** | An assertion whose actual value is `+inf` passes whatever the `expected` | — | **yes** |
 | **F20** | A constant-folded scalar right-hand side loses the left-hand side's array shape | assertion | no |
 
@@ -836,10 +841,13 @@ traced.
 
 ---
 
-## F18 — `element_type: "Float32"` collapses ingested integer keys
+## F18 — an ingested value the declared `element_type` cannot represent is narrowed silently
 
-`F18_probe_float32_scc.esm`. **Silent, and it lands in the fix that was meant to
-close the precision gap.**
+`F18_control_float32_key_override.esm`. **Resolved as a design question, still
+open as a silence.** The original defect — a document-wide
+`element_type: "Float32"` collapsing ingested ten-digit keys — is fixed by a
+per-variable override. What remains is that *omitting* the override still
+narrows silently, with no diagnostic.
 
 Reading one real snapshot column under each precision, same document, one line
 different:
@@ -881,17 +889,49 @@ actually live. EarthSciAST `973ee7360` already refuses a declared index-set
 *extent* above 2²⁴, for exactly this reason; the gate does not reach data
 columns.
 
-**Why this is a design question rather than a patch.** Honouring Float32 was
+**Why this was a design question rather than a patch.** Honouring Float32 was
 meant to reproduce the reference's `real*4` arithmetic (PLAN.md §1.6.2). But the
 reference is `real*4` in its *floating-point quantities* while its keys stay
 Fortran `INTEGER` and `CHARACTER` — never `REAL*4`. A document-wide float
 precision cannot express that split: it reproduces the arithmetic and destroys
 the keys. Either key and integer columns are exempt from the document precision
-— a typed-column notion the format does not have — or precision becomes
+— a typed-column notion the format did not have — or precision becomes
 per-expression rather than document-wide.
 
-Until then, **this port cannot declare `Float32`**, and the four rows of §1.6.1
-stay out of reach by that route.
+### Resolved: a per-variable `element_type`
+
+Upstream took the first branch and gave the format the typed-column notion it
+lacked: a `ModelVariable` may declare its own `element_type`, overriding the
+document's. `fixtures/nr-logging-county.esm` now declares `Float32` with 19
+SCC-valued variables at `Float64`, passes 87 of 87 assertions, and emits twelve
+values that are *exactly binary32-representable* with the SCC intact — so both
+halves are live in one run.
+
+Two things about the resolution are worth knowing before you use it. It is
+**strict**: mixing precisions inside one operator is a compile error, not a
+coercion. And it is **explicit** — there is no automatic exemption for integers
+or keys — which is why the repro for this finding could not survive as a repro
+and is now a two-sided control instead: the behaviour it asserted, that a
+Float32 document keeps an ingested ten-digit key exact by itself, is
+deliberately not provided. Left in the failure loop, its "still fails, as
+recorded" would have been false reassurance about a fixed defect.
+
+### Still open: the narrowing is silent
+
+Declare `Float32`, ingest a ten-digit key, omit the override, and the document
+validates, runs, and returns a corrupted key. That is the same
+silent-plausible-wrong-value class as everything else in this file, and it is
+now *inconsistent* with the resolution: upstream refuses to widen or narrow
+silently between the operands of one operator, but ingress narrows a value the
+declared type cannot represent without a word. The gate that already exists for
+a declared index-set extent above 2²⁴ is the precedent; it does not reach data
+columns.
+
+**This finding has no repro, and cannot have one.** The wanted behaviour is a
+*refusal*, and "should refuse" has no assertion form in this harness — an error
+and a wrong answer are the same verdict to it. F19 is the same shape of hole in
+the same harness. So the check is the control described above, which catches a
+regression in either direction but cannot catch the silence itself.
 
 
 ---

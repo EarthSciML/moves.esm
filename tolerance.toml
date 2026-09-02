@@ -21,9 +21,16 @@
 # is deliberately `f32` throughout to stay bit-identical to the Fortran `real*4`
 # reference, and preserves Fortran associativity operation by operation
 # (`crates/moves-nonroad/src/emissions/exhaust.rs`, "Numerical-fidelity
-# policy"). EarthSciAST evaluates in binary64 and its `Float32` element type is
-# document-wide, so per-expression single-precision rounding is not
-# reproducible. Divergence here is expected and bounded, not a bug to chase.
+# policy"). EarthSciAST now honours `element_type` per operation, and
+# `fixtures/nr-logging-county.esm` declares `Float32`, so single-precision
+# ROUNDING is reproduced. What is still not reproduced is the reference's
+# per-expression ASSOCIATIVITY: the .esm writes the roll-up as one product and
+# the runtime is free to order it. Measured, the whole remaining gap between
+# this document's float32 answer and its binary64 one -- rounding order and
+# accumulated rounding together, not separable from here -- is at most 1.13e-07
+# relative on the twelve emitted cells, and the worst cell against MOVESOutput
+# moved from 4.025e-06 to 4.046e-06. Divergence here is expected and bounded,
+# not a bug to chase.
 
 [default]
 # Relative tolerance on per-pollutant emissionQuant sums.
@@ -52,16 +59,31 @@ rel = 2e-5
 #   why = "..."
 
 # nr-logging-county needs NO override, and that is a deliberate finding rather
-# than an omission. Evaluating this fixture in binary64 instead of the f32 the
-# Fortran uses drives four cells --- (THC, CO, NOx, PM) x SCC 2260007005 x
-# modelYear 2018 --- to exactly zero, because a 1-ulp difference in
-# `1 - yryrfrcscrp` propagates through 30 age-distribution iterations until a
-# `modfrc <= 0` skip changes sides (PLAN.md 1.6.1). They carry 2.4e-5 g out of
-# 5,146 g, so per-pollutant sums still agree to 2.6e-6.
+# than an omission. In a chain that EXECUTES scrptime and agedist, evaluating in
+# binary64 instead of the f32 the Fortran uses drives four cells --- (THC, CO,
+# NOx, PM) x SCC 2260007005 x modelYear 2018 --- to exactly zero, because a
+# 1-ulp difference in `1 - yryrfrcscrp` propagates through 30 age-distribution
+# iterations until a `modfrc <= 0` skip changes sides (PLAN.md 1.6.1). They
+# carry 2.4e-5 g out of 5,146 g, so per-pollutant sums still agree to 2.6e-6.
+#
+# THAT PARAGRAPH USED TO SAY IT WITHOUT THE QUALIFIER, ABOUT THE FIXTURE
+# ITSELF, AND THAT WAS WRONG. The claim is true
+# of `run-oracle.sh`, which executes the fold; it is NOT true of
+# `fixtures/nr-logging-county.esm`, which does not. agedist.f's thirty-year
+# recurrence has no spelling in the format (finding F12), so the fixture carries
+# the float32 fold's OUTPUT as a `const`: `age_grownModelYearFraction =
+# [3.7072685, 0.9905483, 5.8885583e-08]`. The borderline cohort therefore
+# arrives already positive and `age_isPopulated` reads it as populated in either
+# precision. Measured both ways: the fixture emitted twelve rows in binary64 and
+# emits the same twelve under `Float32`, same keys, values moved by <= 1.13e-07.
+# So the fixture has float32's ROW SET without having needed float32's
+# ARITHMETIC to get it --- the right answer for a different reason than this
+# file claimed, which is a thing to write down rather than smooth over
+# (docs/esm-conventions.md 17.5). PLAN.md 1.6.1a already had it right.
 #
 # The structural risk is real but is a PRECISION question, not a tolerance one,
-# and an earlier version of this comment got the resolution wrong. It said the
-# .esm should emit every key its joins produce rather than copying Fortran's
+# and an earlier version of this comment also got the resolution wrong. It said
+# the .esm should emit every key its joins produce rather than copying Fortran's
 # row suppression. Measured, that is false:
 #
 #     skip predicate        float32   float64
@@ -77,15 +99,17 @@ rel = 2e-5
 # 2260007005 / modelYear 2018, where f32 leaves 5.96e-08 and binary64 leaves
 # exactly 0.0 --- and nothing written in-document can tell those two apart,
 # because 44 other cohorts are legitimately exactly 0. So the .esm must keep
-# the `modfrc <= 0` skip exactly as the reference writes it, and the four rows
-# are recovered by evaluating in f32, not by changing the predicate.
+# the `modfrc <= 0` skip exactly as the reference writes it, and a chain that
+# computes the fold recovers the four rows by evaluating in f32, not by changing
+# the predicate.
 #
-# That is why `domain.element_type: "Float32"` has to be honoured. It is
-# currently ignored --- a document declaring it computes in binary64 anyway,
-# verified with every operand a runtime parameter so constant folding cannot
-# explain it, and there is no cast operator either. Fixing that upstream is the
-# chosen route (PLAN.md 1.6.1); the independent oracle confirms a full-f32
-# evaluation reproduces all 144 rows at 4.897e-06.
+# That is why `domain.element_type: "Float32"` had to be honoured, and it now
+# is, per operation, with a per-variable override for the keys binary32 cannot
+# represent (finding F18). The fixture declares both: `Float32` document-wide
+# and `Float64` on the nineteen SCC-valued variables. The independent oracle
+# confirms a full-f32 evaluation reproduces all 144 rows at 4.897e-06. The
+# element type is a prerequisite for the OTHER two SCCs, whose folds are not
+# carried; it is not what produced this one's twelve rows.
 #
 # Do not weaken `require_exact_key_set` to accommodate any of this.
 
@@ -135,4 +159,4 @@ pollutant_column = "pollutantID"
 emitted_rows = 12
 missing_keys = 132
 extra_keys = 0
-why = "The fixture computes ONE of the snapshot's three SCCs: 2260007005, the twelve rows of docs/nonroad-logging-county.md 6.1. All twelve agree with MOVESOutput to 4.0e-06 relative. The missing 132 are 2265007015 (16 rows, two equipment points summed into each output row) and 2265007010 (116 rows, three equipment points and a 38-year nyrlif). Widening to them is not more .esm of the same kind: each needs its own agedist result, and agedist.f's thirty-year fold is a recurrence the format cannot express (docs/findings F12), so the grown model-year fractions enter as data. One SCC's three values are checkable against the growth ratio this document derives independently; thirty-six cohorts' would be transcribing the reference's answer. F12 is the blocker, not authoring effort."
+why = "The fixture computes ONE of the snapshot's three SCCs: 2260007005, the twelve rows of docs/nonroad-logging-county.md 6.1. All twelve agree with MOVESOutput to 4.046e-06 relative, evaluated in Float32 with the SCC-valued variables overridden to Float64; the same twelve agreed to 4.025e-06 when the document ran in binary64, and the KEY SET is identical in both, because this SCC's grown model-year fractions are carried rather than computed (F12, and see the note above). The missing 132 are 2265007015 (16 rows, two equipment points summed into each output row) and 2265007010 (116 rows, three equipment points and a 38-year nyrlif). Widening to them is not more .esm of the same kind: each needs its own agedist result, and agedist.f's thirty-year fold is a recurrence the format cannot express (docs/findings F12), so the grown model-year fractions enter as data. One SCC's three values are checkable against the growth ratio this document derives independently; thirty-six cohorts' would be transcribing the reference's answer. F12 is the blocker, not authoring effort."

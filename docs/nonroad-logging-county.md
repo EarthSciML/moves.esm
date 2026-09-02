@@ -1820,12 +1820,17 @@ and the `moves.rs` binary itself lands within **4.8 × 10⁻⁶**.
 > constant in `crates/moves-cli/tests/full_suite_regression.rs:450` carries the
 > same incorrect justification in its doc comment.
 
-### 7.2 What EarthSciAST will do, measured
+### 7.2 What EarthSciAST does, measured
 
-ESM evaluates in `binary64`, and `domain.element_type: "Float32"` is
-document-wide — it cannot reproduce *per-expression* single-precision rounding
-(PLAN.md §1.6). To measure the consequence rather than guess it, I re-ran the
-§6.5 script with `f = np.float64` and nothing else changed:
+**Updated.** `domain.element_type` is now honoured per operation, and a
+per-variable `element_type` overrides it, so ESM *does* reproduce
+single-precision rounding — see `docs/esm-conventions.md` §17 for what
+declaring it cost the fixture (nineteen `Float64` overrides on the SCC-valued
+variables, no rewritten expression, and one binary32 epsilon on the tests whose
+assertions are quantities). What is still not reproduced is the reference's
+per-expression *associativity*. The table below was measured before that, with
+the §6.5 script re-run at `f = np.float64` and nothing else changed, and it is
+still the reason the element type matters:
 
 | | rows produced | max rel. error vs snapshot |
 |---|---|---|
@@ -1876,15 +1881,21 @@ Two non-fixes, both checked:
   algebraically equal form — gives exactly 0 in *both* precisions and so does
   not help either.
 
-The only faithful reproduction would round `yryrfrcscrp` to single precision at
-that one operation, which ESM cannot express per-expression. If exact row parity
-is wanted, the honest route is to **precompute `yryrfrcscrp` in f32 outside the
-document** (it depends only on the scrappage curve and `medianLifeYears`, both
-inputs) and feed it in as data — a `data_sources` entry or a build-time
-`skolem`, not an in-document expression.
+The faithful reproduction is to round `yryrfrcscrp` to single precision at that
+operation, which is now expressible: a document declaring
+`domain.element_type: "Float32"` rounds every operation, and the keys that
+binary32 cannot hold declare `Float64` per variable. Neither of the two routes
+this section used to recommend is needed — precomputing `yryrfrcscrp` in f32
+outside the document, or recording 140/144 as a known structural difference.
 
-Otherwise: **record 140/144 as a known structural difference with this cause**,
-and assert the total mass separately.
+**But this fixture does not demonstrate any of it.** `agedist.f`'s thirty-year
+fold is a recurrence the format cannot express (finding F12), so
+`fixtures/nr-logging-county.esm` carries the *output* of the float32 fold as a
+`const` — `[3.7072685, 0.9905483, 5.8885583e-08]` — and MY2018 therefore
+arrives already positive. The fixture emitted all twelve rows in binary64 and
+emits the same twelve under `Float32`. The precision argument above is about a
+chain that *computes* the fold, which is `run-oracle.sh` and, once they land,
+the other two SCCs. `docs/esm-conventions.md` §17.5 records the distinction.
 
 ### 7.4 Other precision-sensitive operations, ranked
 

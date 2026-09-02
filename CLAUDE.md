@@ -5,3 +5,5 @@ All model logic should be contained in .esm files. Tests and examples should be 
 The .esm files should be authored compositionally, with separate components, subcomponents, and expression templates used liberally and imported by reference into other components to keep the .esm code succint, simple, and human-interpretable. Avoid repeating logic or calculations, instead factor reused pieces into their own files/components/expression templates and import them by reference. Avoid the use of scripts to mechanically generate .esm files, as they often end up producing expressios that are not properly factored or succinct.
 
 We have already created a rust clone of the moves model, it is at ../moves.rs. It is expected that it may be easier to create an EarthSciAST implementation based on ../moves.rs rather than the canonical MOVES/nonroad code.
+
+Do not store anything large in /tmp, as it is backed by RAM rather than hard drive and can cause an OOM.
