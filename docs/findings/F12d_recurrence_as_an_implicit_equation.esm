@@ -1,0 +1,144 @@
+{
+  "esm": "1.0.0",
+  "metadata": {
+    "name": "F12dRecurrenceAsAnImplicitEquation",
+    "description": "REPRO, EXPECTED TO FAIL, AND SILENTLY. F12's fourth spelling. An `unknown` is `a quantity the solver solves for -- its behavior is given by EQUATIONS` (esm-schema.json, v1.0.0 preamble), so the recurrence need not be written as an assignment at all: `s - shift(s) = 0` is a residual, the system it defines is unit lower triangular, and forward substitution is its unique solution. The same recurrence F12 asks for -- s[1] = 1, s[k] = 2*s[k-1], answer [1, 2, 4, 8] -- so the four spellings are directly comparable.\n\nThe document validates and the run COMPLETES with s = [1, 1, 1, 1] -- the initial condition, unchanged. The residual equation is not solved and not reported; an `ic` of 5 gives [5, 5, 5, 5] instead, which is how one can tell that what comes back is the guess rather than an answer. A non-bare-LHS equation over an ARRAY unknown is silently inert on the array path.\n\nWorth recording even though it would not have been usable. Had it solved, it would have solved ITERATIVELY, and `agedist.f`'s answer is not a limit: the sign of a residual near zero decides whether a model year appears in the output at all (docs/nonroad-logging-county.md \u00a72.2(e) property 4), and one cohort of this fixture sits at 5.9e-08. A tolerance-converged root cannot be trusted to reproduce a forward substitution's low bits, so the implicit route is the wrong shape for this calculation as well as unimplemented. What makes it a finding is the silence.",
+    "authors": [
+      "EarthSciML Authors and Contributors"
+    ],
+    "tags": [
+      "finding",
+      "expected-to-fail",
+      "equations",
+      "recurrence",
+      "silent"
+    ]
+  },
+  "index_sets": {
+    "step_rows": {
+      "kind": "interval",
+      "size": 4
+    }
+  },
+  "models": {
+    "F12dRecurrenceAsAnImplicitEquation": {
+      "tolerance": {
+        "rel": 1e-12
+      },
+      "variables": {
+        "s": {
+          "type": "unknown",
+          "shape": [
+            "step_rows"
+          ],
+          "units": "1",
+          "description": "Defined by a residual, not an assignment."
+        }
+      },
+      "equations": [
+        {
+          "lhs": {
+            "op": "ic",
+            "args": [
+              "s"
+            ]
+          },
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "output_idx": [
+              "k"
+            ],
+            "ranges": {
+              "k": {
+                "from": "step_rows"
+              }
+            },
+            "expr": 1.0
+          }
+        },
+        {
+          "lhs": {
+            "op": "-",
+            "args": [
+              "s",
+              {
+                "op": "aggregate",
+                "args": [],
+                "output_idx": [
+                  "k"
+                ],
+                "ranges": {
+                  "k": {
+                    "from": "step_rows"
+                  }
+                },
+                "expr": {
+                  "op": "ifelse",
+                  "args": [
+                    {
+                      "op": "<=",
+                      "args": [
+                        "k",
+                        1
+                      ]
+                    },
+                    1.0,
+                    {
+                      "op": "*",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "s",
+                            {
+                              "op": "-",
+                              "args": [
+                                "k",
+                                1
+                              ]
+                            }
+                          ]
+                        },
+                        2.0
+                      ]
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          "rhs": 0.0
+        }
+      ],
+      "tests": [
+        {
+          "id": "an_implicit_recurrence_is_solved",
+          "description": "INTENDED behaviour: [1, 2, 4, 8]. Measured: the `ic`, [1, 1, 1, 1].",
+          "time_span": {
+            "start": 0.0,
+            "end": 1.0
+          },
+          "assertions": [
+            {
+              "variable": "s",
+              "time": 1.0,
+              "expected": 2.0,
+              "coords": {
+                "step_rows": 2
+              }
+            },
+            {
+              "variable": "s",
+              "time": 1.0,
+              "expected": 8.0,
+              "coords": {
+                "step_rows": 4
+              }
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

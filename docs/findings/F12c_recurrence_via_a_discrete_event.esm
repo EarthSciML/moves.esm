@@ -1,0 +1,134 @@
+{
+  "esm": "1.0.0",
+  "metadata": {
+    "name": "F12cRecurrenceViaADiscreteEvent",
+    "description": "REPRO, EXPECTED TO FAIL, AND SILENTLY. F12's third spelling, and the one F12 rules out on a CONVENTION -- a MOVES calculator carries no clock (PLAN.md \u00a71.2). That reason is sound but it is not the binding one, and this repro records the binding one: even a document that DOES take a clock cannot fold this way, because the Rust array backend does not execute events.\n\n`s` doubles on a `periodic` discrete event of interval 1, from s(0) = 1, so s(3.5) should be 8 -- the same recurrence as F12, run on the time axis with `Pre` instead of over an index axis. The same recurrence F12 asks for -- s[1] = 1, s[k] = 2*s[k-1], answer [1, 2, 4, 8] -- so the four spellings are directly comparable.\n\nThe document validates and the run COMPLETES, reporting s(3.5) = 1: the event never fired and nothing said so. The scalar backend, reached by a document with no array variable, refuses the same file loudly --\n\n    Compile failed: Unsupported feature 'discrete_events': v1 does not support\n    discrete events. Track the future Rust events bead for support.\n\n-- so the silence is specific to the ARRAY path, which is the only path a relational MOVES component can take (docs/esm-conventions.md \u00a72: a component always has at least one array). A `parameter` carrying an `update` of kind `schedule` with a `Pre` expression -- \u00a75.4's replacement for the same construct -- IS refused loudly on the array path: `Unsupported feature 'discrete': ... parameter 'g' carries an `expression` update`. So the one shape of time-axis fold that reaches the array evaluator at all is the one that is dropped without a word.\n\nConsequence for F12's write-up: `Pre` is not merely inconvenient for a calculator with no clock, it is unavailable to any array document whatever its clock. Adopting a clock would not unblock `agedist.f`.",
+    "authors": [
+      "EarthSciML Authors and Contributors"
+    ],
+    "tags": [
+      "finding",
+      "expected-to-fail",
+      "events",
+      "recurrence",
+      "silent"
+    ]
+  },
+  "index_sets": {
+    "step_rows": {
+      "kind": "interval",
+      "size": 2
+    }
+  },
+  "models": {
+    "F12cRecurrenceViaADiscreteEvent": {
+      "tolerance": {
+        "rel": 1e-12
+      },
+      "variables": {
+        "s": {
+          "type": "unknown",
+          "units": "1",
+          "description": "Doubles at each event; 1 at t = 0."
+        },
+        "s_seen": {
+          "type": "unknown",
+          "shape": [
+            "step_rows"
+          ],
+          "units": "1",
+          "description": "`s` broadcast over an axis, so the document takes the ARRAY path -- which is what makes the event silently vanish rather than be refused."
+        }
+      },
+      "equations": [
+        {
+          "lhs": {
+            "op": "D",
+            "args": [
+              "s"
+            ],
+            "wrt": "t"
+          },
+          "rhs": 0.0
+        },
+        {
+          "lhs": {
+            "op": "ic",
+            "args": [
+              "s"
+            ]
+          },
+          "rhs": 1.0
+        },
+        {
+          "lhs": "s_seen",
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "output_idx": [
+              "k"
+            ],
+            "ranges": {
+              "k": {
+                "from": "step_rows"
+              }
+            },
+            "expr": "s"
+          }
+        }
+      ],
+      "discrete_events": [
+        {
+          "name": "double",
+          "trigger": {
+            "type": "periodic",
+            "interval": 1.0
+          },
+          "affects": [
+            {
+              "lhs": "s",
+              "rhs": {
+                "op": "*",
+                "args": [
+                  {
+                    "op": "Pre",
+                    "args": [
+                      "s"
+                    ]
+                  },
+                  2.0
+                ]
+              }
+            }
+          ],
+          "description": "s := 2*Pre(s), once per unit of time."
+        }
+      ],
+      "tests": [
+        {
+          "id": "a_periodic_event_folds_an_unknown",
+          "description": "INTENDED behaviour: three firings by t = 3.5, so s = 8 and s_seen = 8. Measured: both are 1.",
+          "time_span": {
+            "start": 0.0,
+            "end": 3.5
+          },
+          "assertions": [
+            {
+              "variable": "s_seen",
+              "time": 3.5,
+              "expected": 8.0,
+              "coords": {
+                "step_rows": 1
+              }
+            },
+            {
+              "variable": "s",
+              "time": 3.5,
+              "expected": 8.0
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

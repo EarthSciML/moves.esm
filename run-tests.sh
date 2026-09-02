@@ -262,7 +262,8 @@ fi
 
 mapfile -t REPROS < <(find docs/findings -name '*.esm' -not -name 'join_leaf.esm' \
   -not -name 'F3_lib_with_enum.esm' \
-  -not -name 'F13_enum_leaf_*.esm' 2>/dev/null | sort)
+  -not -name 'F13_enum_leaf_*.esm' \
+  -not -name 'F19_an_infinite_actual_passes_any_assertion.esm' 2>/dev/null | sort)
 
 if [[ ${#REPROS[@]} -eq 0 ]]; then
   say "  none recorded"
@@ -293,6 +294,26 @@ else
     fi
     [[ "$repro_run" != "$repro" ]] && rm -f "$repro_run"
   done
+fi
+
+# F19 has the OPPOSITE polarity to every other repro and so cannot go through the
+# loop above: it asserts three contradictory values for one cell and PASSES,
+# because an assertion whose actual value is +inf is judged vacuously true. The
+# tripwire is therefore "still passes" = defect still present. It is excluded
+# from REPROS by name so the loop does not read its pass as good news.
+#
+# This one is watched from here rather than merely written down because it can
+# invalidate every OTHER assertion in the repository, including the fixture
+# assertions docs/esm-conventions.md §13 relies on to catch a source that
+# silently delivered its default.
+F19="docs/findings/F19_an_infinite_actual_passes_any_assertion.esm"
+if "$ESM" test "$F19" >/dev/null 2>&1; then
+  pass "F19_an_infinite_actual_passes_any_assertion still passes WRONGLY, as recorded"
+else
+  fail "F19_an_infinite_actual_passes_any_assertion NOW FAILS — the defect it records is fixed"
+  say "       An infinite actual is now judged against \`expected\`. Read"
+  say "       docs/findings/README.md F19: assertions across this tree can now be"
+  say "       trusted not to pass on an overflow, and this inverted check can go."
 fi
 
 # Two limitations that are CLI behaviours rather than documents, so they are

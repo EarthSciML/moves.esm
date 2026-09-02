@@ -1,19 +1,24 @@
 # Findings: conventions the format or the toolchain could not express
 
-Eighteen things PLAN.md §3 Phase 1 and Phase 2 assumed, or that an author would
+Nineteen things PLAN.md §3 Phase 1 and Phase 2 assumed, or that an author would
 reasonably assume, that did not hold. Four are now fixed upstream and are listed
 at the bottom, with their sections kept above so the workarounds they forced can
 be traced; the rest still hold at the pinned toolchain (`esm-version.lock`:
 EarthSciAST `8a7810647`, EarthSciIO `d109951d4`, `--features esio,parallel`).
 
-F2, F3, F5, F6 and F11–F14 each have a minimal `.esm` repro in this directory; F7 and F8 are
-CLI behaviours rather than documents, and are checked by command against the
-ordinary files of the repo. **Every repro is expected to fail**, and each one's inline test asserts the *intended* behaviour, so a repro
+F2, F3, F5, F6 and F11–F14 each have a minimal `.esm` repro in this directory —
+F12 has four, one per spelling an author would try; F7 and F8 are CLI behaviours
+rather than documents, and are checked by command against the ordinary files of
+the repo. **Every repro is expected to fail**, and each one's inline test asserts the *intended* behaviour, so a repro
 that starts passing means the defect is fixed. `run-tests.sh` runs them as a
 **tripwire stage**: it fails if any repro goes green, with a message naming the
 convention that then becomes available. That is the opposite of the usual
 polarity and it is deliberate — a known limitation that quietly gets fixed is a
 workaround left in the tree for no reason.
+
+F19 is the single exception, and it is excluded from that loop by name: its
+repro **passes today, and that is the defect**, so it is watched by an inverted
+check of its own that goes red when it starts failing.
 
 The repros are excluded from the ordinary `validate` and `test` stages, because
 three of them do not load.
@@ -27,13 +32,14 @@ three of them do not load.
 | **F7** | `esm round-trip` resolves a relative `ref` against the CWD | load | no |
 | **F8** | A layered template library does not round-trip to a self-contained form | re-load | no |
 | **F11** | A relation cannot be joined to itself: two ranges over one index set | build | no |
-| **F12** | A recurrence over an index axis has no spelling | evaluation | no |
+| **F12** | A recurrence over an index axis has no spelling | evaluation | **yes**, in 3 of its 4 spellings |
 | **F13** | `enums` merge first-wins across a mount; a colliding value is applied | — | **yes** |
 | **F14** | A `ragged` index set ignores its member factor | evaluation | **yes** |
 | **F15** | A `url_template` is neither environment-expanded nor relative | ingest | no |
 | **F16** | A SCALAR variable is not materialized in a document that ingests data | assertion | no |
 | **F17** | A `join.on` between two LARGE data relations is not driven | — | **yes** |
 | **F18** | `element_type: "Float32"` collapses ingested integer keys above 2²⁴ | — | **yes** |
+| **F19** | An assertion whose actual value is `+inf` passes whatever the `expected` | — | **yes** |
 
 ---
 
@@ -271,49 +277,171 @@ where the author says what joins to what.
 
 ## F12 — a recurrence over an index axis has no spelling
 
-`F12_no_spelling_for_a_recurrence_over_an_index_axis.esm`. **The one that
-stops a Phase 2 stage being computed rather than merely slowing it down.**
+Four repros, one missing feature: `F12_no_spelling_for_a_recurrence_over_an_index_axis.esm`
+(an `aggregate`), `F12b_recurrence_via_a_makearray_region.esm`,
+`F12c_recurrence_via_a_discrete_event.esm` and
+`F12d_recurrence_as_an_implicit_equation.esm`. All four ask for `s[1] = 1`,
+`s[k] = 2·s[k−1]`, answer `[1, 2, 4, 8]`. **The one that stops a Phase 2 stage
+being computed rather than merely slowing it down.**
 
-`s[1] = 1`, `s[k] = 2·s[k−1]`. Validates; then:
+The `aggregate` spelling validates and then says so:
 
 ```
 assertion evaluation failed: array state 's_value' has no cells in var_map
 ```
 
-What exists is the **prefix (cumulative) reduction** of esm-spec §4.3.1 — an
+The other three do not say so. `makearray` fails identically, which is what
+attributes the limitation to self-reference rather than to `aggregate`. The
+event and implicit spellings **complete and return a wrong answer** — see their
+own descriptions; both are recorded here because each is the next thing an
+author reaches for and each fails silently on the array path.
+
+**What exists.** The **prefix (cumulative) reduction** of esm-spec §4.3.1 — an
 `aggregate` whose `filter` compares monotonically against the output index,
-folded ascending, bit-identical across bindings (CONFORMANCE_SPEC §495). That
-covers every fold whose *terms* are independent of the result. It does not
-cover one whose next term is a function of the previous *answer*. And the
-closed semiring registry has no product-as-⊕ entry, so even a cumulative
-**product** — a survival curve — has no prefix spelling. `Pre` (§5.1) is
-defined against events on the time axis and needs a clock, which a MOVES
-calculator does not have.
+folded ascending, bit-identical across bindings (CONFORMANCE_SPEC §495). It
+covers every fold whose *terms* are independent of the result. It does not cover
+one whose next term is a function of the previous *answer*.
+
+**Correction to an earlier version of this entry.** It said that "the closed
+semiring registry has no product-as-addition entry, so even a cumulative
+product — a survival curve — has no prefix-scan spelling". That is wrong, and it
+mattered, because it wrote off the one piece of `agedist.f` that *is* spellable
+today. The closed `semiring` registry indeed has no product-as-⊕ entry, but
+`reduce` is a separate field whose enum is `["+", "*", "max", "min"]`
+(esm-schema.json; CONFORMANCE_SPEC §5.6.2 fixes its empty-reduction identity at
+`1`), and `reduce: "*"` under a `filter` of `j <= i` is a cumulative product.
+Measured on the pinned CLI: `s = [2,3,4,5,6]` gives `[2, 6, 24, 120, 720]`, and
+it is the **ascending left fold to the last bit** — `0.7015463661686019 ×
+1.771150605405849 × 1.645661928464921` returns `2.0448078014798643`, the
+left-associated value, not the `2.044807801479864` of any other association.
+A **banded** product also works, `prod(S[j], a−y < j <= a)` as one aggregate
+over two output indices, which is the windowed survival factor `agedist.f`
+needs. §495's cross-binding bit-identity is stated in terms of the *filter*
+shape rather than the semiring, so the plain `j <= i` product is covered by it;
+the banded one, being a conjunction, is not, and is governed by the §5.9
+simulation tolerance like any other contraction. Both evaluate, and both give
+the right value here.
 
 **Impact: `agedist.f`.** `docs/nonroad-logging-county.md` §2.2(e) grows a
 51-slot age distribution from 1990 to 2020 by folding 30 years; each year's
-vector is the previous year's shifted one slot and scrapped, **clamped at
-zero**, with the newest slot written last as an unclamped residual. The clamp
-is inside the fold, so the recurrence is not linear and there is no closed form
-to substitute: `m0[y] = tpf(y) − Σₐ max(m0[y−a], 0)·R[a]`.
+vector is the previous year's shifted one slot and scrapped, **clamped at zero**,
+with the newest slot written last as an unclamped residual. The clamp is inside
+the fold, so the recurrence is not linear.
 
-`components/age_distribution.esm` therefore computes everything `scrptime.f`
+### The fold does reduce — and the reduction does not remove the recurrence
+
+`tools/verify-agedist-reduction.py` tests, against §6.5's own script, a closed
+form that rests on one property of the inputs: `1 − yy[ia] >= 0` at every slot
+of every equipment point (measured: `max(yy)` is `1.0` exactly, and `0.99999994`
+for SCC 2260007005). Because a non-negative cohort times a non-negative
+survival stays non-negative, and slots 1..50 are themselves a `max(·, 0)`, a
+negative can only ever ENTER at the initial vector or at the unclamped residual
+`md[0]`. So the clamp bites **at most once** along any chain — at the step where
+a negative first meets it — and the chain is identically zero thereafter.
+Tracing slot `ia` back `ia` steps therefore lands on a residual, or on the
+initial vector when `ia > y`:
+
+```
+md_y[ia] = max(r_{y−ia},  0) · Π(1−yy[k], k = 1..ia)         ia <= y
+md_y[ia] = max(mf0[ia−y], 0) · Π(1−yy[k], k = ia−y+1..ia)    ia >  y
+r_y      = tpf_y − Σ(md_y[ia], ia = 1..50)
+```
+
+**It holds.** All six equipment points (3 SCCs), all 31 years × 51 slots, in
+float32: **0 of 1581 cells differ** per point. 73 cells differ only in the sign
+of a zero, which no summation and no `<= 0` test can distinguish — the fold
+produces `−0.0` there only because `max(−0.0, +0.0)` returns its first argument.
+The clamp is load-bearing, so this is not a vacuous agreement: it alters 19, 19
+and 35 values on the three `2265007010` points, at slot 1 and at slots 9–37, and
+the residual goes negative in 8, 8 and 12 of the 30 years.
+
+**And it does not help enough.** Substituting the residual equation into itself
+gives a scalar recurrence on 31 numbers,
+
+```
+r_y = b_y − Σ(max(r_{y−a}, 0) · P[a],  a = 1..min(y,50)),   P[a] = Π(1−yy[k], k<=a)
+```
+
+where `b_y` is `tpf_y` less the initial vector's contribution and is computable
+with no fold at all. Every ingredient except `r` is now spellable today: `P` is
+a prefix product, the windowed factor is a banded product, `tpf` is a cumulative
+product of `(1 + growth factor)`. What remains is still a recurrence — `r_y`
+reads `r_{y−1}` because `P[1] = 1 − yy[1]` is not zero — and the prefix
+reduction reaches a **convolution**, not the **deconvolution** that solving for
+`r` is. Nor can the order be lowered: the per-lag weights `P[a]` differ, so no
+scalar state summarises the history, and the minimal state genuinely is the age
+distribution. The reduction re-expresses that state as a *scalar sequence* at
+the cost of an order-50 dependence; it does not remove it.
+
+The lags do fall away where `1 − yy` reaches exactly zero, which it does at
+slot `nyrlif − 1`, so `P[a]` is non-zero only for `a < nyrlif − 1`: 19, 19, 37,
+1 and 3 lags on five of this fixture's six equipment points. On the sixth, SCC
+2260007005, the last survival is `5.96 × 10⁻⁸` rather than exactly zero, so all
+50 lags carry weight. Either way `S[1]` is non-zero on every point — `0.265`,
+`0.985`, `0.995`, `0.19999999`, `0.865` — so `r_y` always reads `r_{y−1}`. A
+smaller order is not a different shape.
+
+The unclamped system does have one closed form: it is `(I + L)·r = b` with `L`
+strictly lower triangular, hence nilpotent, so the Neumann series
+`r = Σ(−L)^k b` terminates at `k = 30`, term `k` being a `k`-fold contraction. Spelling it means up to thirty nested `aggregate`
+nodes written out by hand — the generated, unfactored `.esm` CLAUDE.md forbids,
+under a different name — and it is valid only where the clamp does not fire,
+which on this fixture is not where it matters.
+
+**Doors checked and closed.** `Pre` (§5.1): unavailable, not merely
+inconvenient. F12 previously ruled it out because a MOVES calculator carries no
+clock (PLAN.md §1.2); the binding reason is that the Rust **array** backend
+drops `discrete_events` silently (F12c) and refuses a `parameter` with an
+`expression` update loudly, and every relational component takes the array path
+(docs/esm-conventions.md §2). Adopting a clock would not unblock this.
+`makearray` regions: no (F12b). An implicit residual equation: not solved, and
+would have been the wrong shape anyway (F12d). Template recursion: forbidden by
+esm-spec, `MAX_TEMPLATE_EXPANSION_DEPTH = 32`. Thirty hand-written year blocks:
+the mechanically generated, unfactored `.esm` CLAUDE.md forbids, and still wrong
+for any run whose year span differs — the longest-lived equipment point of *this*
+fixture spans 39 model years, more than the 30 years the fold runs for, so even
+here the year count and the slot count are different numbers.
+
+So `components/age_distribution.esm` still computes everything `scrptime.f`
 produces and carries `agedist.f`'s **result** as a data column, with the same
 status as a `data_sources` column — the verified §6.1 step 3 values, checked
 against the cumulative growth ratio `components/growth_index.esm` derives
 independently from the index series. That cross-check is what keeps the carried
-column honest.
+column honest, and it is why the column carries one equipment point's three
+values rather than every cohort of all six (3, 21, 21, 39, 3 and 5 of them, for
+the 36 `(SCC, modelYearID)` pairs the output spans): the other cohorts' values
+appear in no §6 table and in no snapshot table, so transcribing them would make
+the comparison circular.
 
-Not used, deliberately: thirty near-identical equations, one per projected
-year. It would run, and it would be the mechanically generated, unfactored
-`.esm` CLAUDE.md forbids — and still wrong for any run with a different year
-span.
+**Fix shape, sharpened.** A **causal self-reference along one index axis**: an
+array-producing node whose body may read the array being defined at a *strictly
+earlier* position on one declared axis, evaluated in ascending order on that
+axis. Three notes on the shape, each of which the reduction above is what
+settles:
 
-**Fix shape.** Extend §4.3.1's prefix reduction to a fold whose body may read
-the accumulator (`acc[i] = f(acc[i−1], body[i])`), which the ascending
-left-fold order already licenses and which all three executing bindings already
-maintain internally; or admit `Pre` on an index axis. Until then, no NONROAD
-port can compute its own age distribution.
+1. `acc[i] = f(acc[i−1], body[i])` — the fix shape this entry used to propose —
+   is **too narrow**. `agedist.f`'s residual needs `r` at `i − a` for `a` up to
+   `nyrlif − 1`, so the body must be able to address any earlier position, not
+   only the immediately preceding one.
+2. It need not be array-valued. Without the reduction the accumulator is the
+   51-slot vector, which is a larger addition; with it, a **scalar** self-
+   reference over a 31-element axis suffices, which is exactly what F12's own
+   repro asks for and what the existing forward-scan machinery's ascending
+   accumulator already licenses (CONFORMANCE_SPEC §495: all three executing
+   bindings maintain that accumulator internally — it is simply not addressable
+   from the body).
+3. The **order** of the arithmetic has to be the fold's, not the closed form's.
+   Measured: spelling a cell as `max(r,0) × P[ia]` — the clamped base times a
+   *precomputed* product — instead of applying the survivals one at a time to
+   the running cohort moves values by up to **9.7 × 10⁻⁶** relative, which is
+   the whole error budget of a fixture whose worst row is 4.9 × 10⁻⁶. No sign
+   flips on this fixture, so no model year is gained or lost, but the margin is
+   gone. A conforming spelling is available — one `reduce: "*"` aggregate whose
+   lowest admitted term is the clamped base and whose remaining terms are the
+   survivals, since the fold is ascending — and it is a constraint on the
+   primitive, not an afterthought.
+
+Until one of these lands, no NONROAD port can compute its own age distribution.
 
 ## F13 — `enums` merge first-wins across a mount, silently
 
@@ -639,6 +767,49 @@ relations, would pin it.
 
 
 ---
+
+## F19 — an assertion whose actual value is `+inf` passes, whatever the `expected`
+
+`F19_an_infinite_actual_passes_any_assertion.esm`. **The one that can invalidate
+every other gate in this repository.**
+
+The repro asserts three mutually contradictory values — `42`, `−5` and `0` — for
+one cell, and `esm test` reports `3 passed, 0 failed`. The cell's value is
+`+inf`: it sums `1e200 * 1e200` over an axis. An assertion is judged by
+`|actual − expected| <= rtol·|expected| + atol`, and with `actual = inf` that
+comparison is satisfied whatever `expected` is, so `expected` stops mattering.
+
+**NaN is handled correctly**, which is what makes this attributable rather than
+a general looseness: a NaN actual reports `actual=NaN … FAIL`. The hole is
+specific to an infinity, which is the value an overflow, a division by a zero
+denominator, or a `log(0)` produces — and the last two are ordinary hazards in
+this port (a growth factor over a zero base indicator, an emission rate over a
+zero `medianLifeFullLoad`).
+
+**Why it lands harder here than it would elsewhere.** CLAUDE.md puts all model
+logic in `.esm` and all testing through `esm test`, so an inline assertion is
+this repository's *only* gate below the fixture comparison, and
+docs/esm-conventions.md §13 leans on it deliberately: every fixture assertion
+names a value out of `docs/nonroad-logging-county.md` §6 so that a source which
+silently delivered its `default` fails at the assertion rather than at the
+comparison. That discipline assumes an assertion cannot pass for a reason
+unrelated to its expected value. Six defects in this port have already returned
+a *plausible wrong value* from a document that validates; this one returns a
+*pass* from a document that computes nothing meaningful.
+
+The fixture comparison is not exposed — `compare-output.py` has its own
+falsification suite and its own key-set check — so what is at risk is every
+`.esm`-level assertion, which is most of what `run-tests.sh` reports.
+
+**Polarity.** This repro passes today, so it is excluded from the tripwire loop
+by name and watched by its own inverted check in `run-tests.sh`: green while
+`esm test` still succeeds on it, red when it starts failing. That is the third
+polarity in this file and it is unavoidable — a defect that makes tests pass
+cannot be watched by a test that fails.
+
+**Fix shape.** Judge finiteness before tolerance: an assertion whose actual
+value is not finite fails unless `expected` is the same infinity. One guard,
+beside the NaN guard that is already there and already right.
 
 ## Fixed upstream
 
