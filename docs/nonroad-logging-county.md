@@ -1760,16 +1760,24 @@ for r in sut.itertuples():
 exp = pq.read_table(D + "db__out_nr_logging_county__movesoutput.parquet").to_pandas()
 exp["emissionQuant"] = exp.emissionQuant.astype(float)
 obs = {(int(r.pollutantID), r.SCC, int(r.modelYearID)): float(r.emissionQuant) for r in exp.itertuples()}
-worst, n = 0.0, 0
+# Three different failures, three different counters. An earlier version folded
+# a missing row into the relative error -- got 0.0 against a real want, so
+# rel == -1 -- which made `worst` mean "either a cell drifted or a row vanished"
+# and made an EXTRA row invisible to the assertion entirely. A row set and a
+# cell value are not the same claim and are not comparable on one scale.
+worst, n, extra, missing = 0.0, 0, 0, 0
 for k in sorted(set(list(totals) + list(obs))):
-    got = float(totals.get(k, 0.0)) / 1.102311e-6
     want = obs.get(k)
     if want is None:
-        print("EXTRA", k, got); continue
+        print("EXTRA", k, float(totals[k]) / 1.102311e-6); extra += 1; continue
+    if k not in totals:
+        print("MISSING", k, want); missing += 1; continue
+    got = float(totals[k]) / 1.102311e-6
     rel = (got - want) / want
     worst = max(worst, abs(rel)); n += 1
-print(f"{n} rows compared, max |relative error| = {worst:.3e}")
-assert n == 144 and worst < 1e-5
+print(f"{n} rows compared, {missing} missing, {extra} extra, "
+      f"max |relative error| = {worst:.3e}")
+assert n == 144 and missing == 0 and extra == 0 and worst < 1e-5
 ```
 
 Output:

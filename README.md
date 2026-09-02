@@ -44,8 +44,8 @@ The binary itself, `./esm`, is deliberately untracked.
 self-test of the comparator, `esm validate` on every document, the conventions
 check, `esm test` (the inline §6.6 tests), a round-trip check, the scaling gate,
 the known-limitations tripwire, the `data_sources` declarations against the
-Parquet, the fixture run — materialize, assert, emit, compare — and a
-cross-check that the two independently authored chains agree.
+Parquet, the fixture run — materialize, assert, emit, compare — a cross-check
+that the two independently authored chains agree, and the independent oracles.
 
 Three stages are worth explaining because their polarity is unusual.
 

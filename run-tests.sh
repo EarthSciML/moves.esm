@@ -564,6 +564,34 @@ else
   fi
 fi
 
+# --- the independent oracles ------------------------------------------------
+
+# run-oracle.sh and run-onroad-oracle.sh are ASSERTION-BEARING tests, not
+# documentation: each extracts the §6.5 reproduction from its port
+# specification and asserts a row count, a missing/extra count and a per-cell
+# bound. They were not in this script, so a regression in either would have
+# gone unnoticed while README went on quoting their numbers as facts -- and
+# CLAUDE.md asks this script to run all of the tests.
+#
+# The binary64 variant is run too, because its assertion is what the whole
+# "binary64 costs exactly four rows" argument rests on: 140 compared, exactly 4
+# missing, 0 extra. Printing that is not the same as asserting it.
+head2 "independent oracles"
+if [[ ! -d "$SNAPSHOTS" ]]; then
+  skip "oracles" "need the snapshots; none at $SNAPSHOTS"
+else
+  for spec in "run-oracle.sh" "run-oracle.sh --float64" "run-onroad-oracle.sh"; do
+    # shellcheck disable=SC2086
+    if out=$(./$spec 2>&1); then
+      pass "./$spec"
+      grep -E "rows compared|worst relative error|key set:|NOTE:" <<<"$out" | sed 's/^/       /'
+    else
+      fail "./$spec — the independent reproduction no longer agrees with the snapshot"
+      sed 's/^/       /' <<<"$out" | tail -12
+    fi
+  done
+fi
+
 # --- summary --------------------------------------------------------------
 
 head2 "summary"

@@ -112,10 +112,16 @@ print(f"  extracted {e - b - 1} lines from {sys.argv[1]} §6.5")
 PY
 
 if [[ $FLOAT64 -eq 1 ]]; then
-  # The script's own assertion is a float32 claim; in binary64 it is expected to
-  # fail, and the failure is the point.
+  # The script's row COUNT is a float32 claim -- binary64's `modfrc <= 0` skip
+  # fires once more and drops model year 2018 of SCC 2260007005 across all four
+  # pollutants -- exactly four, which is now ASSERTED rather than printed, since
+  # README's whole binary64 argument rests on that number. So retarget the
+  # counts rather than deleting the assertion: an
+  # earlier version blanked the whole line, which left the binary64 path with NO
+  # assertion at all, so a regression here would have printed a number and
+  # exited 0. The per-cell bound and the no-extra-rows check both still apply.
   sed -i 's/^f = np\.float32$/f = np.float64/' "$WORK/repro.py"
-  sed -i 's/^assert n == 144 and worst < 1e-5$//' "$WORK/repro.py"
+  sed -i 's/^assert n == 144 and missing == 0 and extra == 0 and worst < 1e-5$/assert n == 140 and missing == 4 and extra == 0 and worst < 1e-5/' "$WORK/repro.py"
   echo "  running in binary64 (expect 140 rows, not 144)"
 fi
 
