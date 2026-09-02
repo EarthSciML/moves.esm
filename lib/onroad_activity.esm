@@ -1,0 +1,87 @@
+{
+  "esm": "1.0.0",
+  "metadata": {
+    "name": "moves.onroad_activity",
+    "description": "Template library: the shapes the ONROAD rates-first chain reuses, from docs/mixed-onroad.md §4. Five of them, and each is here rather than inline for a reason that document measures.\n\n`weeks_per_month` is WeeksInMonthHelper (crates/moves-calculators/src/generators/totalactivitygenerator/vmt.rs:115), a bare divisor. It is NOT lib/conversion.esm's `temporal_scale`, which is NONROAD's `mthf * 7 * dayf / ndays`; the two carry the same 7 and the same ndays and combine them differently, and merging them would double-apply a monthly factor. Omitting this divisor multiplies every onroad row by 4.43 for a 31-day month (§6.6).\n\n`share_of_group` is the normalisation of travel.rs:99-103 and :200-204, with the zero-denominator guard those lines carry. Three call sites. The guard is the difference between a group with no members and a NaN that propagates into every downstream product.\n\n`onroad_scc` is the third built identifier in this port, beside `pol_process_id` and `scc_zero_tail`. An onroad SCC is COMPUTED from four dimension columns (crates/moves-framework/src/execution/engine.rs:1450-1477), not looked up: the `scc` table's 14,976 rows agree with the formula and are read by nothing in the chain. Only the non-off-network branch is here; roadTypeID 100 is a different formula (source type + 1, literal \"00\" in the road slot) and would be a separate template.\n\n`source_bin_*_of` unpack a packed `sourceBinID`. The forward packing is deliberately absent: the id is 1e18 + fuel*1e16 + engTech*1e14 + regClass*1e12 + shortModYrGroup*1e10, about 1.01e18, which is past 2^53, so a document must key on the components and never materialise the id (docs/mixed-onroad.md §2.2, and finding F18 for the same hazard one exponent lower). The INVERSE is safe and is needed, because `emissionrate`'s 69,200 rows arrive with the id already packed and carry no component columns: `floor(bin/1e16)` has a small exact quotient even though `bin` itself is not exactly representable.\n\n`ev_energy_divisor` is adjust.rs:689-708. It is named because §2.3(f) measures it as the single largest correction in the fixture -- up to 22.1% on the electricity rows -- and because it is the one step `moves.rs` computes and then does not apply, so a port that followed the Rust rather than the snapshot would omit it silently.\n\nDeliberately NOT here: `clamp(x, 0, 1)`. It appears twice in the chain, at §2.3(d) and §2.3(e), with different bodies either side and different constants inside, and the VALUE each clamp takes is the load-bearing fact in both cases. A `clamp01` template would hide which clamp is which. As with every library here, an `enums` block does not cross a template import (esm-spec §9.3, finding F3), so identifier values arrive as parameters that the call site binds to `enum` ops.",
+    "authors": ["EarthSciML Authors and Contributors"],
+    "tags": ["moves", "onroad", "activity", "template-library"]
+  },
+  "expression_templates": {
+    "days_per_week": {
+      "params": [],
+      "body": 7.0
+    },
+    "weeks_per_month": {
+      "params": ["days_in_month"],
+      "body": {
+        "op": "/",
+        "args": [
+          "days_in_month",
+          { "op": "apply_expression_template", "args": [], "name": "days_per_week", "bindings": {} }
+        ]
+      }
+    },
+    "share_of_group": {
+      "params": ["numerator", "group_total"],
+      "body": {
+        "op": "ifelse",
+        "args": [
+          { "op": ">", "args": ["group_total", 0.0] },
+          { "op": "/", "args": ["numerator", "group_total"] },
+          0.0
+        ]
+      }
+    },
+    "onroad_scc": {
+      "params": ["fuel_type_id", "source_type_id", "road_type_id", "process_id"],
+      "body": {
+        "op": "+",
+        "args": [
+          { "op": "*", "args": [22.0, 100000000.0] },
+          { "op": "+", "args": [
+            { "op": "*", "args": ["fuel_type_id", 1000000.0] },
+            { "op": "+", "args": [
+              { "op": "*", "args": ["source_type_id", 10000.0] },
+              { "op": "+", "args": [
+                { "op": "*", "args": ["road_type_id", 100.0] },
+                "process_id"
+              ] }
+            ] }
+          ] }
+        ]
+      }
+    },
+    "source_bin_slot": {
+      "params": ["source_bin_id", "slot_scale"],
+      "body": {
+        "op": "-",
+        "args": [
+          { "op": "floor", "args": [{ "op": "/", "args": ["source_bin_id", "slot_scale"] }] },
+          { "op": "*", "args": [
+            100.0,
+            { "op": "floor", "args": [{ "op": "/", "args": [
+              { "op": "floor", "args": [{ "op": "/", "args": ["source_bin_id", "slot_scale"] }] },
+              100.0 ] }] }
+          ] }
+        ]
+      }
+    },
+    "ev_energy_divisor": {
+      "params": ["battery_efficiency", "charging_efficiency", "is_electric"],
+      "body": {
+        "op": "ifelse",
+        "args": [
+          { "op": ">", "args": ["is_electric", 0.0] },
+          { "op": "max", "args": [
+            { "op": "*", "args": ["battery_efficiency", "charging_efficiency"] },
+            1.0e-300 ] },
+          1.0
+        ]
+      }
+    },
+    "kilojoules_per_million_btu": {
+      "params": [],
+      "body": { "op": "/", "args": [{ "op": "*", "args": [1055.0559, 1000000.0] }, 1000.0] }
+    }
+  }
+}

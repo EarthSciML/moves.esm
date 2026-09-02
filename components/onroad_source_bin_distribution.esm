@@ -1,0 +1,488 @@
+{
+  "esm": "1.0.0",
+  "metadata": {
+    "name": "OnroadSourceBinDistribution",
+    "description": "Stages S10-S12 of the mixed-onroad chain: the (model year, fuel type) cohorts, the fraction of each model year's activity they carry, and the fuel-usage rebase. Ports docs/mixed-onroad.md §2.2, joins J18-J21, and crates/moves-calculators/src/generators/source_bin_distribution_generator.rs:1336-1445 and :1590-1637.\n\nTHIS COMPONENT DECIDES THE OUTPUT KEY SET, and that is its whole subject. `MOVESOutput` has 250 rows because 125 (modelYearID, fuelTypeID) cohorts survive here and the run has two day types. The rule is `stmyFraction > 0.0` (:1341), and it is the onroad analogue of NONROAD's `modfrc <= 0` skip — arrived at independently on this side, and with the same consequence: reproduce the reference's row suppression. Measured on the snapshot, `samplevehiclepopulation` carries 164 rows for source type 21 in the 1980-2020 window, 39 of them with `stmyFraction` exactly 0.000000000000, and the surviving 125 are precisely the snapshot's cohorts. A document without the predicate emits 328 rows against 250, and tolerance.toml's require_exact_key_set is not negotiable.\n\nThe 39 suppressed rows are not noise. They are (fuel 9, engTech 30) before 2000, (fuel 5, engTech 1) before 1998, and (fuel 2) in 2020 — the years before electric drive and E85 existed, and the year diesel passenger cars stopped. So the key set is RAGGED (41, 40, 23 and 21 model years for the four fuel types) and it is ragged for a physical reason. Raggedness is carried as a MEMBERSHIP COLUMN on a flat relation, not as a ragged axis: finding F14 says a `ragged` index set ignores its own member factor, and docs/esm-conventions.md §2 says an output relation carries its key as columns anyway.\n\nTHE FUEL-USAGE REBASE IS NOT THE IDENTITY, and getting it wrong is a 56x error on one fuel type. `sourcebindistributionfuelusage_1_26161_2020` is what the base rate is weighted by (crates/moves-calculators/src/generators/baserategenerator/sbweighted.rs:148-165), not the raw distribution, and the two differ: `fuelusagefraction` sends 98.2134% of every E85 source bin's activity to the gasoline fuel SUPPLY and leaves 1.7866% on E85, because a flex-fuel vehicle mostly burns gasoline. For model year 1998 that turns 0.00901856 into 0.000161126 — a factor of 56 — and turns gasoline's 0.988774 into 0.997631. The Rust comment at sbweighted.rs:150-158 records the same measurement as \"over-weights E85 energy ~50x\". Both fractions are computed here and both are asserted, because a document carrying only one of them looks complete.\n\nTHE PACKED IDENTIFIER IS NEVER BUILT, ONLY UNPACKED. `sourceBinID` is 1e18 + fuel x 1e16 + engTech x 1e14 + regClass x 1e12 + shortModYrGroup x 1e10, about 1.01e18 — past 2^53, where binary64 spacing is 128. Every value this fixture uses happens to be exactly representable, but the general form is not, so J22 keys on the four COMPONENTS and this file materializes no packed id. The inverse direction is needed and is safe: `emissionrate`'s 69,200 rows arrive with the id already packed and carry no component columns, and `floor(bin/1e16)` has a small exact quotient regardless. `lib/onroad_activity.esm`'s `source_bin_slot` is that inverse, and `unpacking_a_source_bin_id` exercises it on four real ids. Finding F18 records the same hazard for ten-digit SCCs under Float32; this is the same problem one binary exponent further out, and it is another reason this port cannot declare Float32.\n\nData: the five model years are 1980, 1998, 2000, 2015 and 2020 — the ones docs/mixed-onroad.md §6.1-§6.4 work through, chosen because between them they exercise every arm of the row rule. All twenty `stmyFraction` values, all five `fuelusagefraction` rows and the four packed `sourceBinID`s are the snapshot's.",
+    "authors": ["EarthSciML Authors and Contributors"],
+    "tags": ["moves", "onroad", "source-bin", "key-set", "component"]
+  },
+
+  "enums": {
+    "pollutant": { "TotalEnergyConsumption": 91 },
+    "process": { "RunningExhaust": 1 },
+    "source_type": { "PassengerCar": 21 },
+    "fuel_type": { "Gasoline": 1, "DieselFuel": 2, "EthanolE85": 5, "Electricity": 9 },
+    "engine_tech": { "ConventionalInternalCombustion": 1, "ElectricDrive": 30 },
+    "reg_class": { "LightDutyVehicles": 20 },
+    "source_bin_slot": { "FuelType": 16, "EngineTech": 14, "RegulatoryClass": 12, "ShortModelYearGroup": 10 }
+  },
+
+  "index_sets": {
+    "svp_rows": { "kind": "interval", "size": 20 },
+    "svp_equipped_rows": { "kind": "interval", "size": 20 },
+    "svp_model_year_rows": { "kind": "interval", "size": 5 },
+    "fuel_usage_rows": { "kind": "interval", "size": 5 },
+    "packed_bin_rows": { "kind": "interval", "size": 4 },
+    "runspec_pol_process_rows": { "kind": "interval", "size": 1 }
+  },
+
+  "coordinates": {
+    "cohort_model_year": {
+      "source": "svp_modelYearID",
+      "standard_name": "vehicle_model_year"
+    },
+    "cohort_fuel_type": {
+      "source": "svp_fuelTypeID",
+      "standard_name": "moves_fuel_type_identifier"
+    }
+  },
+
+  "models": {
+    "OnroadSourceBinDistribution": {
+      "expression_template_imports": [
+        { "ref": "../lib/identifiers.esm", "only": ["pol_process_id"] },
+        { "ref": "../lib/onroad_activity.esm", "only": ["source_bin_slot"] }
+      ],
+
+      "tolerance": { "rel": 1e-12 },
+
+      "variables": {
+        "runspec_polProcessID": {
+          "type": "unknown", "shape": ["runspec_pol_process_rows"], "units": "1",
+          "description": "runspecpollutantprocess.polProcessID: 100 x 91 + 1 = 9101, the run's only surviving pollutant-process (docs/mixed-onroad.md §0.2). Built with `pol_process_id` rather than written, so there is no bare 9101 anywhere in the equations.\n\nIt is a ONE-ROW RELATION and not a scalar, and that is forced rather than stylistic: a `join.on` key column must be a 1-D data column over an index set one of the aggregate's ranges draws from, so a scalar cannot be a join key at all — `esm test` refuses it with `join key column 'runPolProcessID' does not resolve to a loop index of this aggregate`. Finding F16 reaches the same one-row shape from a different direction (a scalar has no state in a document that ingests); this is a third reason for the same convention, and it applies to `const`-array components too."
+        },
+        "cohortCount": {
+          "type": "unknown", "units": "1",
+          "description": "The number of surviving cohorts among these twenty candidate rows. Sixteen: four candidates carry stmyFraction exactly zero. Over the whole table the same rule gives 125, which times two day types is MOVESOutput's 250 rows."
+        },
+
+        "svp_modelYearID": {
+          "type": "unknown", "shape": ["svp_rows"],
+          "description": "samplevehiclepopulation.modelYearID, five model years x four (fuel, engine technology) pairs. Rows are grouped by FUEL TYPE and then by model year — 1-5 gasoline, 6-10 diesel, 11-15 E85, 16-20 electricity, each over 1980, 1998, 2000, 2015 and 2020. The grouping is not cosmetic: a `makearray` region addresses one contiguous range PER DIMENSION (esm-spec §4.3.2), not a set of disjoint spans, so a relation whose identifier columns are to be built from `enums` rather than written as bare integers has to be ordered so that each identifier occupies one run of rows."
+        },
+        "svp_fuelTypeID": {
+          "type": "unknown", "shape": ["svp_rows"],
+          "description": "samplevehiclepopulation.fuelTypeID: five rows of gasoline, then diesel, then E85, then electricity. Built from `enums`, which is what fixes the row order — see svp_modelYearID."
+        },
+        "svp_engTechID": {
+          "type": "unknown", "shape": ["svp_rows"],
+          "description": "samplevehiclepopulation.engTechID. 1 (conventional internal combustion) for rows 1-15, the fuels 1, 2 and 5; 30 (electric drive) for rows 16-20. Two values, so this is a column and not an axis — unlike NONROAD, where the technology needed its own axis over the 100-199 code space for performance (finding F17)."
+        },
+        "svp_regClassID": {
+          "type": "unknown", "shape": ["svp_rows"],
+          "description": "samplevehiclepopulation.regClassID, 20 (light-duty vehicles) throughout for passenger cars."
+        },
+        "svp_stmyFraction": {
+          "type": "unknown", "shape": ["svp_rows"], "units": "1",
+          "description": "samplevehiclepopulation.stmyFraction: the share of this (source type, model year) population in this (fuel, engine technology, regulatory class) cell. The sole numeric input to S12 — nothing else feeds the distribution. Sums to 1 over each model year, which is inherited from the input rather than imposed: the generator normalises nowhere (grepped, zero hits for `normali` in 2,766 lines)."
+        },
+        "svp_modelYearGroupIsPresent": {
+          "type": "unknown", "shape": ["svp_rows"], "units": "1",
+          "description": "Semi-join over J18 and J19: does `pollutantprocessmodelyear` carry a row for (9101, this model year) whose group `modelyeargroup` also carries? Both are inner joins in the generator (:1346-1353), so a miss drops the candidate. 1 or 0."
+        },
+        "svp_shortModYrGroupID": {
+          "type": "unknown", "shape": ["svp_rows"], "units": "1",
+          "description": "J19's result: modelyeargroup.shortModYrGroupID, the two-digit code that occupies the fifth slot of a sourceBinID. Note it is this and NOT modelYearGroupID that is packed."
+        },
+        "svp_isSelected": {
+          "type": "unknown", "shape": ["svp_rows"], "units": "1",
+          "description": "The row rule of :1337-1341, as a membership COLUMN on a flat relation rather than a shrunken axis: stmyFraction > 0 and both inner joins hit. This is the column that decides the 250-row key set, and finding F14 is why it is a column."
+        },
+        "svp_sourceBinActivityFraction": {
+          "type": "unknown", "shape": ["svp_rows"], "units": "1",
+          "description": "S12, :1424-1445: the surviving stmyFraction, summed over the (sourceTypeModelYearID, sourceBinID) group. Each group has one member here because engine technology is determined by fuel type, so the sum is the identity and the suppressed rows read 0."
+        },
+
+        "my_modelYearID": {
+          "type": "unknown", "shape": ["svp_model_year_rows"],
+          "description": "The distinct model years, as their own relation: J18's right-hand side."
+        },
+        "my_polProcessID": {
+          "type": "unknown", "shape": ["svp_model_year_rows"],
+          "description": "pollutantprocessmodelyear.polProcessID. 9101 on every row here, because the run has one surviving pollutant-process; a real table carries 222 rows over many."
+        },
+        "my_modelYearGroupID": {
+          "type": "unknown", "shape": ["svp_model_year_rows"],
+          "description": "pollutantprocessmodelyear[9101, modelYearID].modelYearGroupID (J18). For polProcessID 9101 each model year is its own group."
+        },
+        "my_shortModYrGroupID": {
+          "type": "unknown", "shape": ["svp_model_year_rows"], "units": "1",
+          "description": "modelyeargroup[modelYearGroupID].shortModYrGroupID (J19): 80, 98, 20, 35, 40. Note 2000 maps to 20 and 2020 to 40, so the two-digit code is not the model year's last two digits and cannot be derived arithmetically — J19 is a genuine lookup."
+        },
+        "eq_modelYearID": {
+          "type": "unknown", "shape": ["svp_equipped_rows"],
+          "description": "The EQUIPPED side of J21, as a second relation over a second index set. The fuel-usage rebase pairs a row with other rows of its own model year, which is a self-join; finding F11 says a relation cannot be joined to itself, so the equipped side is materialized separately. Same twenty rows."
+        },
+        "eq_fuelTypeID": {
+          "type": "unknown", "shape": ["svp_equipped_rows"],
+          "description": "The equipped side's fuel type — the fuel the VEHICLE is built for, as opposed to the fuel it is supplied with."
+        },
+        "eq_stmyFraction": {
+          "type": "unknown", "shape": ["svp_equipped_rows"], "units": "1",
+          "description": "The equipped side's stmyFraction. The same twenty values as `svp_stmyFraction`; duplicated because an operand of an equation whose left-hand side is shaped over `svp_equipped_rows` must itself be shaped over that set, so the F11 workaround duplicates the whole relation and not only its key. That is the measured cost of the finding, recorded here rather than argued about."
+        },
+        "eq_modelYearGroupIsPresent": {
+          "type": "unknown", "shape": ["svp_equipped_rows"], "units": "1",
+          "description": "The equipped side's J18/J19 semi-join, for the same reason."
+        },
+        "eq_sourceBinActivityFraction": {
+          "type": "unknown", "shape": ["svp_equipped_rows"], "units": "1",
+          "description": "The equipped side's S12 fraction. Equal to `svp_sourceBinActivityFraction` row for row; it exists as a separate column only because of F11."
+        },
+
+        "fu_sourceBinFuelTypeID": {
+          "type": "unknown", "shape": ["fuel_usage_rows"],
+          "description": "fuelusagefraction.sourceBinFuelTypeID: the fuel the vehicle is equipped for."
+        },
+        "fu_fuelSupplyFuelTypeID": {
+          "type": "unknown", "shape": ["fuel_usage_rows"],
+          "description": "fuelusagefraction.fuelSupplyFuelTypeID: the fuel it actually burns. Only E85 differs from its equipped fuel, and it splits two ways."
+        },
+        "fu_usageFraction": {
+          "type": "unknown", "shape": ["fuel_usage_rows"], "units": "1",
+          "description": "fuelusagefraction[26161, 2020, 0, equipped, supplied].usageFraction. The E85 pair is 0.982134 to gasoline and 0.017866 to E85; the other three fuels are 1.0 to themselves. Note the table's `modelYearGroupID` is 0 in every row, a wildcard: J21's fourth key pair therefore matches nothing if it is written as an equality, so it is not joined on and the wildcard is recorded here instead."
+        },
+
+        "svp_usedFraction": {
+          "type": "unknown", "shape": ["svp_rows"], "units": "1",
+          "description": "S12's second half, :1609-1622 (J21): the same activity re-attributed to the fuel each cohort actually BURNS. This — not `svp_sourceBinActivityFraction` — is what weights the emission rates. The key set is unchanged, because every supplied fuel here already exists as an equipped bin; only the values move, and E85's moves by a factor of 56."
+        },
+
+        "packed_sourceBinID": {
+          "type": "unknown", "shape": ["packed_bin_rows"], "units": "1",
+          "description": "Four real `emissionrate.sourceBinID` values, carried packed because that is how they arrive: 69,200 rows with no component columns. Around 1.01e18, past 2^53 where binary64 spacing is 128 — see the description above for why nothing here packs one."
+        },
+        "packed_fuelTypeID": {
+          "type": "unknown", "shape": ["packed_bin_rows"], "units": "1",
+          "description": "The first slot, recovered by `source_bin_slot`. This is the column J22 joins on."
+        },
+        "packed_engTechID": {
+          "type": "unknown", "shape": ["packed_bin_rows"], "units": "1",
+          "description": "The second slot."
+        },
+        "packed_regClassID": {
+          "type": "unknown", "shape": ["packed_bin_rows"], "units": "1",
+          "description": "The third slot."
+        },
+        "packed_shortModYrGroupID": {
+          "type": "unknown", "shape": ["packed_bin_rows"], "units": "1",
+          "description": "The fourth slot. The two remaining decimal slots, engSizeID and weightClassID, are identically 0 for onroad bins and their terms are dropped from the packing altogether (:1196-1207)."
+        }
+      },
+
+      "equations": [
+        {
+          "lhs": "runspec_polProcessID",
+          "rhs": { "op": "makearray", "args": [],
+            "regions": [[[1, 1]]],
+            "values": [{ "op": "apply_expression_template", "args": [], "name": "pol_process_id",
+              "bindings": {
+                "pollutant_id": { "op": "enum", "args": ["pollutant", "TotalEnergyConsumption"] },
+                "process_id": { "op": "enum", "args": ["process", "RunningExhaust"] } } }] }
+        },
+        {
+          "lhs": "svp_modelYearID",
+          "rhs": { "op": "const", "args": [],
+            "value": [1980, 1998, 2000, 2015, 2020, 1980, 1998, 2000, 2015, 2020,
+                      1980, 1998, 2000, 2015, 2020, 1980, 1998, 2000, 2015, 2020] }
+        },
+        {
+          "lhs": "svp_fuelTypeID",
+          "rhs": { "op": "makearray", "args": [],
+            "regions": [[[1, 5]], [[6, 10]], [[11, 15]], [[16, 20]]],
+            "values": [
+              { "op": "enum", "args": ["fuel_type", "Gasoline"] },
+              { "op": "enum", "args": ["fuel_type", "DieselFuel"] },
+              { "op": "enum", "args": ["fuel_type", "EthanolE85"] },
+              { "op": "enum", "args": ["fuel_type", "Electricity"] }
+            ] }
+        },
+        {
+          "lhs": "svp_engTechID",
+          "rhs": { "op": "makearray", "args": [],
+            "regions": [[[1, 15]], [[16, 20]]],
+            "values": [
+              { "op": "enum", "args": ["engine_tech", "ConventionalInternalCombustion"] },
+              { "op": "enum", "args": ["engine_tech", "ElectricDrive"] }
+            ] }
+        },
+        {
+          "lhs": "svp_regClassID",
+          "rhs": { "op": "makearray", "args": [],
+            "regions": [[[1, 20]]],
+            "values": [{ "op": "enum", "args": ["reg_class", "LightDutyVehicles"] }] }
+        },
+        {
+          "_comment": "The snapshot's own stmyFraction. Four of the twenty are exactly zero, and those four are what the row rule removes.",
+          "lhs": "svp_stmyFraction",
+          "rhs": { "op": "const", "args": [],
+            "value": [0.953329286533, 0.988774031717, 0.984120728816, 0.949462440525, 0.940773647219,
+                      0.046670713467, 0.002207409980, 0.003089721865, 0.010234972809, 0.0,
+                      0.0, 0.009018558303, 0.012474246456, 0.031882407886, 0.017887756229,
+                      0.0, 0.0, 0.000315302863, 0.008420178781, 0.041338596552] }
+        },
+        {
+          "_comment": "J18 and J19 as a semi-join under bool_and_or with a numeric body (docs/esm-conventions.md §3): does the pollutantprocessmodelyear -> modelyeargroup chain reach this model year at all? Both are inner joins in the generator, so a miss drops the candidate. All five model years are present here; the test overrides the run's pollutant-process to a value the table does not carry, which is the arm that matters.",
+          "lhs": "svp_modelYearGroupIsPresent",
+          "rhs": { "op": "aggregate", "args": [], "semiring": "bool_and_or", "output_idx": ["i"],
+            "ranges": { "i": { "from": "svp_rows" }, "m": { "from": "svp_model_year_rows" },
+                        "n": { "from": "runspec_pol_process_rows" } },
+            "join": [ { "on": [["svp_modelYearID", "my_modelYearID"]] },
+                      { "on": [["runspec_polProcessID", "my_polProcessID"]] } ],
+            "expr": 1.0 }
+        },
+        {
+          "lhs": "svp_shortModYrGroupID",
+          "rhs": { "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["i"],
+            "ranges": { "i": { "from": "svp_rows" }, "m": { "from": "svp_model_year_rows" },
+                        "n": { "from": "runspec_pol_process_rows" } },
+            "join": [ { "on": [["svp_modelYearID", "my_modelYearID"]] },
+                      { "on": [["runspec_polProcessID", "my_polProcessID"]] } ],
+            "expr": { "op": "index", "args": ["my_shortModYrGroupID", "m"] } }
+        },
+        {
+          "_comment": "The row rule, source_bin_distribution_generator.rs:1337-1341. `stmyFraction > 0` is strict, and it is the onroad analogue of NONROAD's `modfrc <= 0` skip.",
+          "lhs": "svp_isSelected",
+          "rhs": { "op": "ifelse", "args": [
+            { "op": "and", "args": [
+              { "op": ">", "args": ["svp_stmyFraction", 0.0] },
+              { "op": ">", "args": ["svp_modelYearGroupIsPresent", 0.0] }] },
+            1.0, 0.0] }
+        },
+        {
+          "lhs": "svp_sourceBinActivityFraction",
+          "rhs": { "op": "*", "args": ["svp_isSelected", "svp_stmyFraction"] }
+        },
+        {
+          "lhs": "cohortCount",
+          "rhs": { "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": [],
+            "ranges": { "i": { "from": "svp_rows" } },
+            "expr": { "op": "index", "args": ["svp_isSelected", "i"] } }
+        },
+
+        {
+          "lhs": "eq_modelYearID",
+          "rhs": { "op": "const", "args": [],
+            "value": [1980, 1998, 2000, 2015, 2020, 1980, 1998, 2000, 2015, 2020,
+                      1980, 1998, 2000, 2015, 2020, 1980, 1998, 2000, 2015, 2020] }
+        },
+        {
+          "lhs": "eq_fuelTypeID",
+          "rhs": { "op": "makearray", "args": [],
+            "regions": [[[1, 5]], [[6, 10]], [[11, 15]], [[16, 20]]],
+            "values": [
+              { "op": "enum", "args": ["fuel_type", "Gasoline"] },
+              { "op": "enum", "args": ["fuel_type", "DieselFuel"] },
+              { "op": "enum", "args": ["fuel_type", "EthanolE85"] },
+              { "op": "enum", "args": ["fuel_type", "Electricity"] }
+            ] }
+        },
+        {
+          "lhs": "eq_stmyFraction",
+          "rhs": { "op": "const", "args": [],
+            "value": [0.953329286533, 0.988774031717, 0.984120728816, 0.949462440525, 0.940773647219,
+                      0.046670713467, 0.002207409980, 0.003089721865, 0.010234972809, 0.0,
+                      0.0, 0.009018558303, 0.012474246456, 0.031882407886, 0.017887756229,
+                      0.0, 0.0, 0.000315302863, 0.008420178781, 0.041338596552] }
+        },
+        {
+          "lhs": "eq_modelYearGroupIsPresent",
+          "rhs": { "op": "aggregate", "args": [], "semiring": "bool_and_or", "output_idx": ["e"],
+            "ranges": { "e": { "from": "svp_equipped_rows" }, "m": { "from": "svp_model_year_rows" },
+                        "n": { "from": "runspec_pol_process_rows" } },
+            "join": [ { "on": [["eq_modelYearID", "my_modelYearID"]] },
+                      { "on": [["runspec_polProcessID", "my_polProcessID"]] } ],
+            "expr": 1.0 }
+        },
+        {
+          "lhs": "eq_sourceBinActivityFraction",
+          "rhs": { "op": "ifelse", "args": [
+            { "op": "and", "args": [
+              { "op": ">", "args": ["eq_stmyFraction", 0.0] },
+              { "op": ">", "args": ["eq_modelYearGroupIsPresent", 0.0] }] },
+            "eq_stmyFraction", 0.0] }
+        },
+        {
+          "lhs": "fu_sourceBinFuelTypeID",
+          "rhs": { "op": "makearray", "args": [],
+            "regions": [[[1, 1]], [[2, 2]], [[3, 4]], [[5, 5]]],
+            "values": [
+              { "op": "enum", "args": ["fuel_type", "Gasoline"] },
+              { "op": "enum", "args": ["fuel_type", "DieselFuel"] },
+              { "op": "enum", "args": ["fuel_type", "EthanolE85"] },
+              { "op": "enum", "args": ["fuel_type", "Electricity"] }
+            ] }
+        },
+        {
+          "lhs": "fu_fuelSupplyFuelTypeID",
+          "rhs": { "op": "makearray", "args": [],
+            "regions": [[[1, 1]], [[2, 2]], [[3, 3]], [[4, 4]], [[5, 5]]],
+            "values": [
+              { "op": "enum", "args": ["fuel_type", "Gasoline"] },
+              { "op": "enum", "args": ["fuel_type", "DieselFuel"] },
+              { "op": "enum", "args": ["fuel_type", "Gasoline"] },
+              { "op": "enum", "args": ["fuel_type", "EthanolE85"] },
+              { "op": "enum", "args": ["fuel_type", "Electricity"] }
+            ] }
+        },
+        {
+          "lhs": "fu_usageFraction",
+          "rhs": { "op": "const", "args": [], "value": [1.0, 1.0, 0.982134, 0.017866, 1.0] }
+        },
+        {
+          "_comment": "J21, :1609-1622. Three clauses over three different symbol pairs, composing by conjunction: the used row and the equipped row share a model year; the used row's fuel type is the supply fuel; the equipped row's fuel type is the source-bin fuel. `eq_` is a second relation over a second index set because this is a self-join (finding F11). The table's modelYearGroupID is 0 in every row -- a wildcard -- so J21's fourth key pair is deliberately not written; see fu_usageFraction's description.",
+          "lhs": "svp_usedFraction",
+          "rhs": { "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["i"],
+            "ranges": { "i": { "from": "svp_rows" },
+                        "e": { "from": "svp_equipped_rows" },
+                        "u": { "from": "fuel_usage_rows" } },
+            "join": [ { "on": [["svp_modelYearID", "eq_modelYearID"]] },
+                      { "on": [["svp_fuelTypeID", "fu_fuelSupplyFuelTypeID"]] },
+                      { "on": [["eq_fuelTypeID", "fu_sourceBinFuelTypeID"]] } ],
+            "expr": { "op": "*", "args": [
+              { "op": "index", "args": ["eq_sourceBinActivityFraction", "e"] },
+              { "op": "index", "args": ["fu_usageFraction", "u"] }] } }
+        },
+
+        {
+          "_comment": "Four real emissionrate.sourceBinID values, unpacked. Nothing here packs one; see the description above.",
+          "lhs": "packed_sourceBinID",
+          "rhs": { "op": "const", "args": [],
+            "value": [1010120800000000000.0, 1020120800000000000.0,
+                      1050120980000000000.0, 1093020400000000000.0] }
+        },
+        {
+          "lhs": "packed_fuelTypeID",
+          "rhs": { "op": "apply_expression_template", "args": [], "name": "source_bin_slot",
+            "bindings": { "source_bin_id": "packed_sourceBinID",
+                          "slot_scale": { "op": "^", "args": [10.0,
+                            { "op": "enum", "args": ["source_bin_slot", "FuelType"] }] } } }
+        },
+        {
+          "lhs": "packed_engTechID",
+          "rhs": { "op": "apply_expression_template", "args": [], "name": "source_bin_slot",
+            "bindings": { "source_bin_id": "packed_sourceBinID",
+                          "slot_scale": { "op": "^", "args": [10.0,
+                            { "op": "enum", "args": ["source_bin_slot", "EngineTech"] }] } } }
+        },
+        {
+          "lhs": "packed_regClassID",
+          "rhs": { "op": "apply_expression_template", "args": [], "name": "source_bin_slot",
+            "bindings": { "source_bin_id": "packed_sourceBinID",
+                          "slot_scale": { "op": "^", "args": [10.0,
+                            { "op": "enum", "args": ["source_bin_slot", "RegulatoryClass"] }] } } }
+        },
+        {
+          "lhs": "packed_shortModYrGroupID",
+          "rhs": { "op": "apply_expression_template", "args": [], "name": "source_bin_slot",
+            "bindings": { "source_bin_id": "packed_sourceBinID",
+                          "slot_scale": { "op": "^", "args": [10.0,
+                            { "op": "enum", "args": ["source_bin_slot", "ShortModelYearGroup"] }] } } }
+        },
+
+        {
+          "lhs": "my_modelYearID",
+          "rhs": { "op": "const", "args": [], "value": [1980, 1998, 2000, 2015, 2020] }
+        },
+        {
+          "lhs": "my_polProcessID",
+          "rhs": { "op": "makearray", "args": [],
+            "regions": [[[1, 5]]],
+            "values": [{ "op": "apply_expression_template", "args": [], "name": "pol_process_id",
+              "bindings": {
+                "pollutant_id": { "op": "enum", "args": ["pollutant", "TotalEnergyConsumption"] },
+                "process_id": { "op": "enum", "args": ["process", "RunningExhaust"] } } }] }
+        },
+        {
+          "lhs": "my_modelYearGroupID",
+          "rhs": { "op": "const", "args": [], "value": [1980, 1998, 2000, 2015, 2020] }
+        },
+        {
+          "lhs": "my_shortModYrGroupID",
+          "rhs": { "op": "const", "args": [], "value": [80, 98, 20, 35, 40] }
+        }
+      ],
+
+      "tests": [
+        {
+          "id": "the_zero_share_cohorts_are_suppressed",
+          "description": "The row rule of docs/mixed-onroad.md §2.2, on the four candidates it removes. E85 and electricity did not exist in 1980, electricity did not in 1998, and diesel passenger cars had stopped by 2020, so those four rows carry stmyFraction exactly 0.000000000000 and must not become cohorts. Sixteen of twenty survive here; over the whole table the same rule gives 125, and 125 x 2 day types is MOVESOutput's 250. Dropping the predicate emits 328 rows, which require_exact_key_set rejects — and the shape of that failure is the reason this is a column and not a filtered axis (finding F14).",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "cohortCount", "time": 0.0, "expected": 16.0 },
+            { "variable": "svp_isSelected", "time": 0.0, "expected": 1.0, "coords": { "svp_rows": 1 } },
+            { "variable": "svp_isSelected", "time": 0.0, "expected": 0.0, "coords": { "svp_rows": 11 } },
+            { "variable": "svp_isSelected", "time": 0.0, "expected": 0.0, "coords": { "svp_rows": 16 } },
+            { "variable": "svp_isSelected", "time": 0.0, "expected": 1.0, "coords": { "svp_rows": 12 } },
+            { "variable": "svp_isSelected", "time": 0.0, "expected": 0.0, "coords": { "svp_rows": 17 } },
+            { "variable": "svp_isSelected", "time": 0.0, "expected": 0.0, "coords": { "svp_rows": 10 } },
+            { "variable": "svp_isSelected", "time": 0.0, "expected": 1.0, "coords": { "svp_rows": 20 } }
+          ]
+        },
+        {
+          "id": "a_suppressed_cohort_carries_zero_and_keeps_its_row",
+          "description": "The other half of the rule. A suppressed candidate reads 0 and STAYS in the relation, because an unmatched row contributes the additive identity and is still emitted (docs/esm-conventions.md §3) — only the one component that decides output membership removes anything. So `svp_sourceBinActivityFraction` has twenty cells, four of them zero, and the surviving sixteen sum to 5 (one per model year, each summing to 1).",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "svp_sourceBinActivityFraction", "time": 0.0, "expected": 0.0, "coords": { "svp_rows": 11 } },
+            { "variable": "svp_sourceBinActivityFraction", "time": 0.0, "expected": 0.0, "coords": { "svp_rows": 10 } },
+            { "variable": "svp_sourceBinActivityFraction", "time": 0.0, "expected": 0.953329286533, "coords": { "svp_rows": 1 } },
+            { "variable": "svp_sourceBinActivityFraction", "time": 0.0, "expected": 0.940773647219, "coords": { "svp_rows": 5 } }
+          ]
+        },
+        {
+          "id": "the_fuel_usage_rebase_moves_e85_by_a_factor_of_56",
+          "description": "J21, and it is not the identity. `fuelusagefraction` sends 98.2134% of an E85 source bin's activity to the gasoline supply, so model year 1998's E85 fraction goes from 0.009018558 to 0.000161126 — 56x smaller — and its gasoline fraction goes from 0.988774032 to 0.997631464, picking up exactly the 0.008857 that E85 lost. sbweighted.rs:150-158 records the same measurement from the other side as \"over-weights E85 energy ~50x\". Diesel and electricity are unchanged, which is what makes E85 the only fuel this join can be wrong about undetected.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "svp_usedFraction", "time": 0.0, "expected": 0.9976314644573585, "coords": { "svp_rows": 2 } },
+            { "variable": "svp_usedFraction", "time": 0.0, "expected": 0.00220740998, "coords": { "svp_rows": 7 } },
+            { "variable": "svp_usedFraction", "time": 0.0, "expected": 0.000161125562641398, "coords": { "svp_rows": 12 } },
+            { "variable": "svp_usedFraction", "time": 0.0, "expected": 0.0, "coords": { "svp_rows": 17 } },
+            { "variable": "svp_usedFraction", "time": 0.0, "expected": 0.9583418207952127, "coords": { "svp_rows": 5 } },
+            { "variable": "svp_usedFraction", "time": 0.0, "expected": 0.000319582652787314, "coords": { "svp_rows": 15 } },
+            { "variable": "svp_usedFraction", "time": 0.0, "expected": 0.041338596552, "coords": { "svp_rows": 20 } }
+          ]
+        },
+        {
+          "id": "the_rebase_preserves_the_key_set_but_not_the_values",
+          "description": "Why both fractions are computed here rather than only the one the base rate needs. The rebase changes no cohort's existence — every supplied fuel already exists as an equipped bin in this county, so the 125 keys are the same either way — and it changes E85's value by 56x. A document that computed only the raw fraction would pass every key-set check and be wrong in the numbers; one that computed only the rebased fraction would have no way to show the two differ. Model year 1980's rows are the control: with no E85 or electric cohorts, the rebase is the identity there.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "svp_usedFraction", "time": 0.0, "expected": 0.953329286533, "coords": { "svp_rows": 1 } },
+            { "variable": "svp_usedFraction", "time": 0.0, "expected": 0.046670713467, "coords": { "svp_rows": 6 } },
+            { "variable": "svp_usedFraction", "time": 0.0, "expected": 0.0, "coords": { "svp_rows": 11 } }
+          ]
+        },
+        {
+          "id": "unpacking_a_source_bin_id",
+          "description": "`source_bin_slot` on four real emissionrate.sourceBinID values. 1010120800000000000 is (gasoline, conventional, light-duty, model-year group 80) and 1093020400000000000 is (electricity, electric drive, light-duty, group 40). These are the four columns J22 joins on, and the reason it joins on them rather than on the id is that the id is past 2^53: the four values here happen to be exactly representable in binary64, the general form is not, and a mis-decoded slot silently merges two different vehicle classes — which is finding F18's failure mode one binary exponent lower.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "packed_fuelTypeID", "time": 0.0, "expected": 1.0, "coords": { "packed_bin_rows": 1 } },
+            { "variable": "packed_engTechID", "time": 0.0, "expected": 1.0, "coords": { "packed_bin_rows": 1 } },
+            { "variable": "packed_regClassID", "time": 0.0, "expected": 20.0, "coords": { "packed_bin_rows": 1 } },
+            { "variable": "packed_shortModYrGroupID", "time": 0.0, "expected": 80.0, "coords": { "packed_bin_rows": 1 } },
+            { "variable": "packed_fuelTypeID", "time": 0.0, "expected": 2.0, "coords": { "packed_bin_rows": 2 } },
+            { "variable": "packed_fuelTypeID", "time": 0.0, "expected": 5.0, "coords": { "packed_bin_rows": 3 } },
+            { "variable": "packed_shortModYrGroupID", "time": 0.0, "expected": 98.0, "coords": { "packed_bin_rows": 3 } },
+            { "variable": "packed_fuelTypeID", "time": 0.0, "expected": 9.0, "coords": { "packed_bin_rows": 4 } },
+            { "variable": "packed_engTechID", "time": 0.0, "expected": 30.0, "coords": { "packed_bin_rows": 4 } },
+            { "variable": "packed_shortModYrGroupID", "time": 0.0, "expected": 40.0, "coords": { "packed_bin_rows": 4 } }
+          ]
+        },
+        {
+          "id": "the_pol_process_id_is_built_and_not_written",
+          "description": "9101 = 100 x 91 + 1, from `pol_process_id` and the two enums. There is no bare 9101 in this file's equations, at either end of J18, and it is a one-row relation because a scalar cannot be a join key at all — which matters because a wrong pollutant identifier relabels data rather than failing, and both ends would have to be wrong in the same way for the join to notice.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "runspec_polProcessID", "time": 0.0, "expected": 9101.0, "coords": { "runspec_pol_process_rows": 1 } },
+            { "variable": "svp_shortModYrGroupID", "time": 0.0, "expected": 80.0, "coords": { "svp_rows": 1 } },
+            { "variable": "svp_shortModYrGroupID", "time": 0.0, "expected": 40.0, "coords": { "svp_rows": 20 } },
+            { "variable": "svp_modelYearGroupIsPresent", "time": 0.0, "expected": 1.0, "coords": { "svp_rows": 1 } }
+          ]
+        }
+      ]
+    }
+  }
+}

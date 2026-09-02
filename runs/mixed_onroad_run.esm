@@ -1,0 +1,279 @@
+{
+  "esm": "1.0.0",
+  "metadata": {
+    "name": "MixedOnroadRun",
+    "description": "The mixed-onroad assembly: the four Phase 3 components mounted together, with the joins that in the components are replaced by carried columns performed for real across the mounts. Its purpose is to prove that the four stages compose — that the travel fraction the VMT stage multiplies by is the one the population stage computes, that the source hours the output stage multiplies by are the ones the activity stage produces, and that the cohort the output row is keyed to is the one the source-bin stage selected.\n\nEach leaf tests standalone by carrying the previous stage's result as a `const` column: `OnroadSourceHours.vmt_travelFraction` restates §6's five travel fractions, and `OnroadEnergyOutput.out_SHO` restates ten source-hour values. Those columns are correct and they are not evidence of composition — a transcription error would leave both files green. This document recomputes each of them THROUGH a `join.on` across the mount and asserts the difference is exactly zero, which is the only form of that check worth having.\n\nThe fourth join is the one with no counterpart in any leaf: `run_usedFraction` reaches from an output row to the source-bin cohort it belongs to, on (modelYearID, fuelTypeID). It is here rather than in a component because it is the edge between the row set and the values — the join that would silently attribute one cohort's activity to another — and it has no meaning until both sides exist.\n\nMOUNT FORM. The four leaves are top-level `models` `{ref}` entries, the form finding F1 forced and which still works; finding F2 means their `index_sets` do not merge across that edge, so this document restates all eighteen, and finding F13 means `enums` merge first-wins and SILENTLY apply a colliding value, so it restates all sixteen and their thirty symbols. `tools/check-conventions.py` compares both against every leaf, symbol by symbol and definition by definition, which is the loader's conflict check performed by the harness. The union has no conflicts: the four leaves agree on every shared axis and every shared identifier, which is itself worth knowing — `source_type.PassengerCar` is declared by three of them and `fuel_type` by two.\n\nWHAT THIS ASSEMBLY IS NOT. It is not a fixture. Nothing here reads the snapshot; every number is a `const` column and the base rate is the carried quantity docs/mixed-onroad.md §8.1 describes. §7.4 of that document says why no `fixtures/mixed-onroad.esm` exists yet, and the short form is that a document emitting 250 correctly-keyed rows with an uncomputed rate would fail the per-cell gate for a reason the `[shortfall]` record cannot express, while one reading `baserate_1_2020` would pass it by transcribing the reference. Neither is a fidelity test. What can be checked without the snapshot is checked here and in the four leaves; what needs it needs §8.1 first.",
+    "authors": ["EarthSciML Authors and Contributors"],
+    "tags": ["moves", "onroad", "assembly", "run"]
+  },
+
+  "enums": {
+    "county": { "WashtenawMI": 26161 },
+    "day_type": { "Weekend": 2, "Weekday": 5 },
+    "engine_tech": { "ConventionalInternalCombustion": 1, "ElectricDrive": 30 },
+    "fuel_type": { "Gasoline": 1, "DieselFuel": 2, "EthanolE85": 5, "Electricity": 9 },
+    "hour": { "NineAM": 9 },
+    "hpms_vtype": { "LightDutyVehicles": 25, "Buses": 40, "RefuseTrucks": 50 },
+    "month": { "August": 8 },
+    "onroad_scc": { "OnroadPrefix": 22 },
+    "onroad_year": { "AnalysisYear": 2020 },
+    "pollutant": { "TotalEnergyConsumption": 91 },
+    "process": { "RunningExhaust": 1 },
+    "reg_class": { "LightDutyVehicles": 20 },
+    "road_type": { "UrbanRestrictedAccess": 4 },
+    "source_bin_slot": { "ShortModelYearGroup": 10, "RegulatoryClass": 12, "EngineTech": 14, "FuelType": 16 },
+    "source_type": { "PassengerCar": 21, "PassengerTruck": 31, "LightCommercialTruck": 32, "OtherBuses": 41, "RefuseTruck": 51 },
+    "state": { "Michigan": 26 }
+  },
+
+  "index_sets": {
+    "activity_day_rows": { "kind": "interval", "size": 2 },
+    "day_rows": { "kind": "interval", "size": 2 },
+    "fuel_usage_rows": { "kind": "interval", "size": 5 },
+    "output_rows": { "kind": "interval", "size": 10 },
+    "packed_bin_rows": { "kind": "interval", "size": 4 },
+    "probe_hpms_group_rows": { "kind": "interval", "size": 3 },
+    "probe_source_type_rows": { "kind": "interval", "size": 4 },
+    "probe_travel_rows": { "kind": "interval", "size": 7 },
+    "run_rows": { "kind": "interval", "size": 1 },
+    "runspec_pol_process_rows": { "kind": "interval", "size": 1 },
+    "source_hour_rows": { "kind": "interval", "size": 10 },
+    "speed_bin_rows": { "kind": "interval", "size": 16 },
+    "speed_dist_rows": { "kind": "interval", "size": 32 },
+    "svp_equipped_rows": { "kind": "interval", "size": 20 },
+    "svp_model_year_rows": { "kind": "interval", "size": 5 },
+    "svp_rows": { "kind": "interval", "size": 20 },
+    "travel_age_rows": { "kind": "interval", "size": 5 },
+    "vmt_age_rows": { "kind": "interval", "size": 5 }
+  },
+
+  "models": {
+    "Travel": { "ref": "../components/onroad_travel_fraction.esm" },
+    "Activity": { "ref": "../components/onroad_source_hours.esm" },
+    "Cohorts": { "ref": "../components/onroad_source_bin_distribution.esm" },
+    "Output": { "ref": "../components/onroad_energy_output.esm" },
+
+    "Rollup": {
+      "expression_template_imports": [
+        { "ref": "../lib/onroad_activity.esm", "only": ["kilojoules_per_million_btu"] }
+      ],
+
+      "tolerance": { "rel": 1e-12 },
+
+      "variables": {
+        "run_travelFraction": {
+          "type": "unknown", "shape": ["vmt_age_rows"], "units": "1",
+          "description": "S3's result reached across the mount: the population stage's travel fraction, joined to the VMT stage's age relation on ageID. The VMT stage carries the same five numbers as a `const` column so it can test alone; this is the join that stage would perform if it did not."
+        },
+        "run_travelFractionResidual": {
+          "type": "unknown", "shape": ["vmt_age_rows"], "units": "1",
+          "description": "The joined value minus the carried one. Exactly zero, and asserting a residual rather than the value again is the point: it is the only assertion that fails if the transcription is wrong, since both files' own tests would still pass."
+        },
+        "run_SHO": {
+          "type": "unknown", "shape": ["output_rows"], "units": "1",
+          "description": "J34 for real: `sho.SHO` reached from an output row by (hourDayID, ageID). `sho` carries no dayID column, so hourDayID is the key — which is why the output relation derives one."
+        },
+        "run_SHOResidual": {
+          "type": "unknown", "shape": ["output_rows"], "units": "1",
+          "description": "The joined source hours minus the ten carried in the output stage. Exactly zero."
+        },
+        "run_usedFraction": {
+          "type": "unknown", "shape": ["output_rows"], "units": "1",
+          "description": "The join with no counterpart in any leaf: an output row's fuel-usage-rebased source-bin activity fraction, reached on (modelYearID, fuelTypeID). This is the edge between the row SET and the VALUES — a mis-keyed version silently attributes one cohort's activity to another — and it has no meaning until both the cohort stage and the output stage exist."
+        },
+        "run_cohortIsSelected": {
+          "type": "unknown", "shape": ["output_rows"], "units": "1",
+          "description": "The same join carrying the cohort stage's membership column. Every output row must reach a SELECTED cohort: a row whose cohort was suppressed is a row that should not exist, and 1 on all ten is the check that the two stages agree about the key set."
+        },
+        "run_activity": {
+          "type": "unknown", "shape": ["output_rows"], "units": "1",
+          "description": "S16 through the mount: the joined source hours over noOfRealDays, joined again on dayID."
+        },
+        "run_emissionQuant": {
+          "type": "unknown", "shape": ["output_rows"], "units": "1",
+          "description": "S17 and S18 through the mount, in Million BTU. It uses the output stage's adjusted base rate — the A/C, temperature and EV-divisor arithmetic is that stage's business — and the activity stage's source hours, so a disagreement with the output stage's own column is a join fault and not an arithmetic one."
+        },
+        "run_emissionQuantResidual": {
+          "type": "unknown", "shape": ["output_rows"], "units": "1",
+          "description": "run_emissionQuant minus the output stage's own. Exactly zero: the same product, reached two ways."
+        },
+        "run_totalEmissionQuant": {
+          "type": "unknown", "units": "1",
+          "description": "The ten rows summed, in Million BTU. A single number for the analysis section to plot against and for a reader to sanity-check: 20.26, dominated by the two gasoline rows of model year 2020."
+        }
+      },
+
+      "equations": [
+        {
+          "_comment": "Across the mount: the population stage's five travel fractions, joined to the VMT stage's age relation. A scoped name resolves as a join.on key column (docs/esm-conventions.md §5).",
+          "lhs": "run_travelFraction",
+          "rhs": { "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["a"],
+            "ranges": { "a": { "from": "vmt_age_rows" }, "p": { "from": "travel_age_rows" } },
+            "join": [ { "on": [["Activity.vmt_ageID", "Travel.tf_ageID"]] } ],
+            "expr": { "op": "index", "args": ["Travel.tf_travelFraction", "p"] } }
+        },
+        {
+          "lhs": "run_travelFractionResidual",
+          "rhs": { "op": "-", "args": ["run_travelFraction", "Activity.vmt_travelFraction"] }
+        },
+        {
+          "_comment": "J34: (hourDayID, ageID) as ONE clause with two key pairs, which §5.5.8 makes a single composite key whose canonical form is the skolem tuple of the two values.",
+          "lhs": "run_SHO",
+          "rhs": { "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["r"],
+            "ranges": { "r": { "from": "output_rows" }, "s": { "from": "source_hour_rows" } },
+            "join": [ { "on": [["Output.out_hourDayID", "Activity.sho_hourDayID"],
+                               ["Output.out_ageID", "Activity.sho_ageID"]] } ],
+            "expr": { "op": "index", "args": ["Activity.sho_SHO", "s"] } }
+        },
+        {
+          "lhs": "run_SHOResidual",
+          "rhs": { "op": "-", "args": ["run_SHO", "Output.out_SHO"] }
+        },
+        {
+          "_comment": "The output row to its cohort, on (modelYearID, fuelTypeID). One clause, two pairs.",
+          "lhs": "run_usedFraction",
+          "rhs": { "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["r"],
+            "ranges": { "r": { "from": "output_rows" }, "c": { "from": "svp_rows" } },
+            "join": [ { "on": [["Output.out_modelYearID", "Cohorts.svp_modelYearID"],
+                               ["Output.out_fuelTypeID", "Cohorts.svp_fuelTypeID"]] } ],
+            "expr": { "op": "index", "args": ["Cohorts.svp_usedFraction", "c"] } }
+        },
+        {
+          "lhs": "run_cohortIsSelected",
+          "rhs": { "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["r"],
+            "ranges": { "r": { "from": "output_rows" }, "c": { "from": "svp_rows" } },
+            "join": [ { "on": [["Output.out_modelYearID", "Cohorts.svp_modelYearID"],
+                               ["Output.out_fuelTypeID", "Cohorts.svp_fuelTypeID"]] } ],
+            "expr": { "op": "index", "args": ["Cohorts.svp_isSelected", "c"] } }
+        },
+        {
+          "_comment": "S16 through the mount, joining the output stage's day relation on dayID.",
+          "lhs": "run_activity",
+          "rhs": { "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["r"],
+            "ranges": { "r": { "from": "output_rows" }, "d": { "from": "day_rows" } },
+            "join": [ { "on": [["Output.out_dayID", "Output.day_dayID"]] } ],
+            "expr": { "op": "/", "args": [
+              { "op": "index", "args": ["run_SHO", "r"] },
+              { "op": "index", "args": ["Output.day_noOfRealDays", "d"] }] } }
+        },
+        {
+          "lhs": "run_emissionQuant",
+          "rhs": { "op": "/", "args": [
+            { "op": "*", "args": ["Output.out_adjustedMeanBaseRate", "run_activity"] },
+            { "op": "apply_expression_template", "args": [],
+              "name": "kilojoules_per_million_btu", "bindings": {} }] }
+        },
+        {
+          "lhs": "run_emissionQuantResidual",
+          "rhs": { "op": "-", "args": ["run_emissionQuant", "Output.out_emissionQuant"] }
+        },
+        {
+          "lhs": "run_totalEmissionQuant",
+          "rhs": { "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": [],
+            "ranges": { "r": { "from": "output_rows" } },
+            "expr": { "op": "index", "args": ["run_emissionQuant", "r"] } }
+        }
+      ],
+
+      "tests": [
+        {
+          "id": "the_mount_preserves_the_travel_fraction",
+          "description": "The population stage's result, reached across the mount and differenced against the column the VMT stage carries. Zero exactly. The residual is what is asserted, not the value: both leaves' own tests pass whatever the carried column says, so a transcription error between them is invisible to either and visible only here.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "run_travelFraction", "time": 0.0, "expected": 0.0180442029323595, "coords": { "vmt_age_rows": 1 } },
+            { "variable": "run_travelFraction", "time": 0.0, "expected": 0.0016091748533087506, "coords": { "vmt_age_rows": 5 } },
+            { "variable": "run_travelFractionResidual", "time": 0.0, "expected": 0.0, "coords": { "vmt_age_rows": 1 } },
+            { "variable": "run_travelFractionResidual", "time": 0.0, "expected": 0.0, "coords": { "vmt_age_rows": 3 } },
+            { "variable": "run_travelFractionResidual", "time": 0.0, "expected": 0.0, "coords": { "vmt_age_rows": 5 } }
+          ]
+        },
+        {
+          "id": "the_composite_key_reaches_the_right_source_hours",
+          "description": "J34 as one clause with two key pairs. The composite matters: the output relation's rows 1 and 5 share a day type and differ in age, rows 4 and 5 share an age and differ in model year, and rows 1 and 6 share an age and differ in day type — so a single-key join on ageID alone would give row 1 the sum of both day types' source hours, 40.786 instead of 4.881, and one on hourDayID alone would give it the sum over all five ages, 109.798.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "run_SHO", "time": 0.0, "expected": 4.880649365877655, "coords": { "output_rows": 1 } },
+            { "variable": "run_SHO", "time": 0.0, "expected": 54.72831458837787, "coords": { "output_rows": 4 } },
+            { "variable": "run_SHO", "time": 0.0, "expected": 35.90528310525196, "coords": { "output_rows": 6 } },
+            { "variable": "run_SHO", "time": 0.0, "expected": 402.61766045052474, "coords": { "output_rows": 10 } },
+            { "variable": "run_SHOResidual", "time": 0.0, "expected": 0.0, "coords": { "output_rows": 1 } },
+            { "variable": "run_SHOResidual", "time": 0.0, "expected": 0.0, "coords": { "output_rows": 8 } },
+            { "variable": "run_SHOResidual", "time": 0.0, "expected": 0.0, "coords": { "output_rows": 10 } }
+          ]
+        },
+        {
+          "id": "every_output_row_reaches_a_selected_cohort",
+          "description": "The join with no counterpart in a leaf. Each of the ten output rows reaches exactly one source-bin cohort, and that cohort's membership column is 1 — an output row whose cohort was suppressed by the `stmyFraction > 0` rule is a row that should not exist. The fractions come back rebased: row 3 is model year 1998 E85 and carries 0.000161126, the value the fuel-usage remap produced and not the 0.009018558 the raw distribution has, so this assertion also pins WHICH of the cohort stage's two fractions the output side is joined to.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "run_cohortIsSelected", "time": 0.0, "expected": 1.0, "coords": { "output_rows": 1 } },
+            { "variable": "run_cohortIsSelected", "time": 0.0, "expected": 1.0, "coords": { "output_rows": 4 } },
+            { "variable": "run_cohortIsSelected", "time": 0.0, "expected": 1.0, "coords": { "output_rows": 8 } },
+            { "variable": "run_cohortIsSelected", "time": 0.0, "expected": 1.0, "coords": { "output_rows": 10 } },
+            { "variable": "run_usedFraction", "time": 0.0, "expected": 0.953329286533, "coords": { "output_rows": 1 } },
+            { "variable": "run_usedFraction", "time": 0.0, "expected": 0.000161125562641398, "coords": { "output_rows": 3 } },
+            { "variable": "run_usedFraction", "time": 0.0, "expected": 0.041338596552, "coords": { "output_rows": 4 } },
+            { "variable": "run_usedFraction", "time": 0.0, "expected": 0.000315302863, "coords": { "output_rows": 8 } }
+          ]
+        },
+        {
+          "id": "the_assembly_reproduces_the_output_stage",
+          "description": "The whole point: emissionQuant formed from the activity stage's source hours and the output stage's adjusted rate, through three joins, reproduces the output stage's own column. docs/mixed-onroad.md §6.1's 0.895519 and §6.2's 11.850299 both come out of the assembly.\n\nThe residuals are asserted at an ABSOLUTE 1e-15 rather than at zero, and the reason is worth stating because the first version of this test asserted exact zero and one row of ten failed. Nine residuals are exactly 0.0; row 4's is 2.7756e-17. The two expressions compute the same product and group it differently — the output stage divides SHO by noOfRealDays inside one aggregate and multiplies outside it, the assembly reaches SHO through a join first — so binary64 rounds them apart by one unit in the last place on the one row where the operands happen to land that way. 2.8e-17 against 0.0913 is 3.0e-16 relative, which is one ulp and not a join fault: a join that matched the wrong row would be wrong by a factor, and the smallest factor available here is the 2x between the two day types. Asserting exact zero and calling a 1-ulp difference a failure would be asserting something about IEEE association that this document does not intend to claim; asserting a relative tolerance instead would be vacuous against an expected value of zero. Hence `abs`, alongside the file's `rel` — either bound satisfies an assertion (esm-schema.json `Tolerance`), so the absolute term covers the residuals and the relative one still governs the four values in the same test, which a bare `abs` of 1e-15 would have failed.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "tolerance": { "abs": 1e-15, "rel": 1e-12 },
+          "assertions": [
+            { "variable": "run_emissionQuant", "time": 0.0, "expected": 0.8955193253912982, "coords": { "output_rows": 1 } },
+            { "variable": "run_emissionQuant", "time": 0.0, "expected": 0.09134020654604405, "coords": { "output_rows": 4 } },
+            { "variable": "run_emissionQuant", "time": 0.0, "expected": 0.0004965713530089503, "coords": { "output_rows": 8 } },
+            { "variable": "run_emissionQuant", "time": 0.0, "expected": 11.850298908869583, "coords": { "output_rows": 10 } },
+            { "variable": "run_emissionQuantResidual", "time": 0.0, "expected": 0.0, "coords": { "output_rows": 1 } },
+            { "variable": "run_emissionQuantResidual", "time": 0.0, "expected": 0.0, "coords": { "output_rows": 4 } },
+            { "variable": "run_emissionQuantResidual", "time": 0.0, "expected": 0.0, "coords": { "output_rows": 7 } },
+            { "variable": "run_emissionQuantResidual", "time": 0.0, "expected": 0.0, "coords": { "output_rows": 10 } },
+            { "variable": "run_activity", "time": 0.0, "expected": 2.4403246829388276, "coords": { "output_rows": 1 } },
+            { "variable": "run_activity", "time": 0.0, "expected": 80.52353209010495, "coords": { "output_rows": 10 } }
+          ]
+        }
+      ],
+
+      "analyses": [
+        {
+          "id": "energy_by_model_year_and_fuel",
+          "description": "The assembly's output relation plotted against its own SCC key column — the illustrative run PLAN.md §4 asks for. Ten points, four SCCs, two day types; the two gasoline rows of model year 2020 carry 84% of the total.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "plots": [
+            {
+              "id": "energy_by_scc",
+              "type": "scatter",
+              "description": "One point per output row.",
+              "x": { "variable": "Output.out_SCC", "label": "SCC" },
+              "y": { "variable": "run_emissionQuant", "label": "energy consumption (Million BTU)" }
+            }
+          ]
+        },
+        {
+          "id": "energy_over_the_air_conditioning_branch",
+          "description": "A sweep over the ambient heat index across the A/C clamp's boundary. Below about 67.2 degF the clamp holds the A/C factor at zero and the total is flat at 20.26 Million BTU; above it the factor grows and so does every gasoline row. The kink is the clamp, and it is the fixture's most precision-sensitive feature (docs/mixed-onroad.md §7.2) — plotted rather than only asserted because the shape of the curve either side of it is the argument that the clamp is doing real work.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "parameter_sweep": {
+            "type": "cartesian",
+            "dimensions": [
+              { "parameter": "ambientHeatIndex",
+                "values": [40.0, 55.0, 60.0, 64.0, 66.9, 67.2, 70.0, 75.0, 80.0, 90.0] }
+            ]
+          },
+          "plots": [
+            {
+              "id": "total_energy_over_heat_index",
+              "type": "line",
+              "description": "Total energy consumption against ambient heat index.",
+              "x": { "variable": "ambientHeatIndex", "label": "heat index (degF)" },
+              "y": { "variable": "run_totalEmissionQuant", "label": "total energy consumption (Million BTU)" }
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

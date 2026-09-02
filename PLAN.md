@@ -595,7 +595,7 @@ factors, so both must be modelled explicitly.
 tolerance, driven by `./run-tests.sh`. This phase proves the whole approach;
 treat a slip here as a signal to revisit Phase 1, not to push on.
 
-### Phase 3 — First onroad slice: `mixed-onroad` / `expand-day` (250 rows)
+### Phase 3 — First onroad slice: `mixed-onroad` (250 rows)
 
 The rates-first base-rate path, which is what the pinned MOVES runtime actually
 registers (`CriteriaRunningCalculator` is superseded and registers nothing):
@@ -604,6 +604,39 @@ registers (`CriteriaRunningCalculator` is superseded and registers nothing):
 (`crates/moves-calculators/src/calculators/baseratecalculator/`), then output
 aggregation. The adjustment sequence — temperature, humidity, fuel effects,
 I/M, A/C, activity weighting — is where the Phase 1 templates pay off.
+
+**Status: specified and four of six stages built.** The port specification is
+`docs/mixed-onroad.md`, written to the method of its NONROAD companion: the
+input inventory from four cross-checked sources, the eighteen-step chain with
+source lines, thirty-five joins with their exact key pairs, four worked
+examples and an executable oracle (`./run-onroad-oracle.sh`). Four components
+and an assembly cover S1–S12 and S15–S18, with 296 assertions.
+`docs/esm-conventions.md` §16 records what the onroad graph changed: every
+Phase 1/2 rule held, four gained a second reason, three things are new.
+
+**One relation is not computed, and this changes the phase's exit criterion.**
+`W[hourDayID, opModeID]` — the speed-bin-weighted drive-cycle operating-mode
+distribution, 46 numbers — is computed inside the MOVES worker and dropped, so
+no captured table carries it, and `ratesopmodedistribution` covers only the
+off-network road type and start exhaust. §7.3 isolates it by solving for it
+(125 equations, 23 unknowns, residual 7.1 × 10⁻⁶ at the reference's own
+six-significant-figure storage floor), which proves the base rate factorises
+exactly around it and everything either side is right. §8.1 says what computing
+it takes: second-by-second VSP over `driveschedulesecond`'s 63,602 rows with
+`sourceusetypephysicsmapping`'s road-load coefficients, three F11
+neighbouring-row relations for acceleration and the 3-second brake lookback,
+and a range-predicate classification against `operatingmode`. Every piece has a
+spelling; it is F17's "big table meets big table" shape and needs
+`operating_mode_rows` as an axis.
+
+**No fixture yet, and §7.4 argues that rather than recording a shortfall.** A
+document emitting 250 correctly-keyed rows with an uncomputed rate fails the
+per-cell gate for a shape `[shortfall]`'s exact counts cannot express; one
+reading the reference's own `baserate_1_2020` passes by transcribing the
+answer. So the exit criterion becomes: land `W`, check it end to end against
+`MOVESOutput` (§7.3 shows that is a sufficient check), then wire the fixture.
+That is one coherent piece of work and it opens Phase 4 — whose cheapest slice
+is start exhaust, because its operating-mode distribution IS in the snapshot.
 
 ### Phase 4 — Broaden by process
 
