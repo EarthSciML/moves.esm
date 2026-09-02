@@ -29,6 +29,9 @@ cd "$(dirname "${BASH_SOURCE[0]}")"
 ESM="${ESM:-./esm}"
 FAILED=0
 declare -a FAILURES=()
+# Fixtures whose comparison FAILED but failed in exactly the way tolerance.toml
+# records. They pass the gate; they must not be summarised as if they matched.
+declare -a SHORTFALLS=()
 
 say()  { printf '%s\n' "$*"; }
 head2() { printf '\n\033[1m%s\033[0m\n' "$*"; }
@@ -452,6 +455,7 @@ PYEOF
     elif verdict=$("$PYTHON" tools/shortfall.py --fixture "$name" \
                      --tolerance tolerance.toml --report <<<"$out"); then
       pass "$name — $verdict"
+      SHORTFALLS+=("$name: $verdict")
       sed 's/^/       /' <<<"$out"
     else
       fail "fixture $name — comparison against the snapshot MOVESOutput"
@@ -467,7 +471,20 @@ fi
 
 head2 "summary"
 if [[ $FAILED -eq 0 ]]; then
-  say "  all green"
+  if [[ ${#SHORTFALLS[@]} -eq 0 ]]; then
+    say "  all green"
+  else
+    # NOT "all green". A reader who scrolls straight here would otherwise take
+    # it to mean the port reproduces the fixture, when a comparison in fact
+    # FAILED and was accepted only because it failed exactly as recorded. The
+    # gate is honest; the one-line summary has to be too.
+    say "  green, with ${#SHORTFALLS[@]} recorded shortfall(s) — NOT a full match:"
+    printf '    %s\n' "${SHORTFALLS[@]}"
+    say ""
+    say "  Each is a comparison that FAILED and was accepted because it failed in"
+    say "  exactly the way tolerance.toml [shortfall] records, with a reason. Any"
+    say "  other failure, in either direction, is red."
+  fi
 else
   say "  ${#FAILURES[@]} failure(s):"
   printf '    %s\n' "${FAILURES[@]}"
