@@ -322,8 +322,18 @@ F4). This cost a real bug during Phase 1, in precisely the component whose axis
 *is* a time axis. Use `k` for a time-key row symbol, `r`/`d`/`p`/`z` for other
 relations.
 
-**This is now enforced rather than merely advised**: EarthSciAST `ee067f5b6`
-rejects such a document at load with a named `reserved_index_symbol` diagnostic.
+**This is now enforced rather than merely advised — but only in Rust.**
+EarthSciAST `ee067f5b6` rejects such a document at load with a named
+`reserved_index_symbol` diagnostic. **Julia accepts it**, which I verified
+directly: the same document loads under Julia and is refused under Rust.
+
+That divergence makes the convention matter more, not less. Julia's binder
+precedence is the opposite of Rust's, so the join is unaffected there — but the
+binder then shadows the independent variable, and one measured document returns
+**35.0 under binder `k` and 10.0 under binder `t`**, validating either way. A
+document authored and checked against Rust alone is safe; one checked against
+Julia alone is not. Since this port runs through the Rust CLI, the toolchain
+catches it for us.
 Rejecting rather than making the binder win is the right call — an index symbol
 is the author's free choice (§4.3.1), while the alternative inverts name-first
 precedence at nine sites and would still leave the node unable to name the
