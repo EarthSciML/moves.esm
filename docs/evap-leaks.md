@@ -1611,22 +1611,31 @@ no override for covers this fixture with 2.7× to spare, on a chain with no
 `float32` question at all (§7.1). A per-fixture override here would be hiding
 something.
 
-**And there is no `[shortfall]` to record.** Every input this fixture needs is
-computable from the snapshot — that is the §0.3 argument and §6.5 is the proof —
-so the comparison is expected to *pass*, not to fail in a recorded way. A
-`[shortfall]` records a comparison that fails in an exactly-written-down way, and
-there is no such comparison here: the fixture is **not wired yet**, so nothing
-compares. §7.5 is what stands between "every input is computable" and "the
-fixture exists", measured rather than asserted.
+**And there is no `[shortfall]` to record, because the comparison passes.**
+`fixtures/process-evap-leaks.esm` is wired and `./run-tests.sh` compares it:
+
+```
+ok process-evap-leaks
+  rows: 128 actual / 128 expected
+  identity: 19 columns, 4 varying (dayID, fuelTypeID, modelYearID, SCC); 15 constant
+  key set: 128 shared, 0 missing, 0 extra
+  worst cell: rel=7.294e-06 over 128 cells (tolerance 2e-05)
+  worst per-pollutant emissionQuant sum: rel=5.161e-07 (onroad tolerance 0.001)
+```
+
+**7.294 × 10⁻⁶ is the same worst cell §6.5's oracle reports, to the digit** —
+two implementations sharing no code, reaching the same 128 numbers from the same
+input tables by different routes, and landing the same distance from the
+reference's stored six figures. §7.5 records what wiring it took.
 
 ### 7.5 What wiring the fixture takes, measured
 
 §7.4 says there is no `[shortfall]` to record because every input is computable
-from the snapshot, and §6.5 is the proof: the oracle derives every one of them.
-**The fixture is nevertheless not wired**, and this section is what stands
-between the two statements, because "computable" is a claim about the inputs and
-a fixture also needs a *shape* and a *cost*. Both were measured, on the real
-tables, with the pinned binary.
+from the snapshot and the comparison passes. Getting there took more than the
+inputs: a fixture also needs a *shape* and a *cost*, and both were measured on
+the real tables with the pinned binary before anything was authored. This
+section is that record, kept because the next process's fixture will meet the
+same two walls.
 
 **(1) The L8 contraction does not finish at fixture scale — finding F17, at a
 new size.** Written as §2.4 writes it, L8 is one aggregate over five relations:
@@ -1693,14 +1702,32 @@ would pass `require_exact_key_set` by typing the keys in:
   the document can carry. A chain that produced 63 cohorts fails it, in the
   document, before the comparator sees a row.
 
-**(3) What is left is authoring, and it is not small.** Roughly 33
-`data_sources`, ~120 data-fed columns, ~55 computed relations and the 20-column
-output row: about the size of `fixtures/nr-logging-county.esm`, which is the
-largest document in this repository. Every `.esm` here is hand-authored
-(CLAUDE.md), so that is hand-written work, and it is the reason the fixture is
-not in this commit. Nothing in (1) or (2) blocks it; (1) changes the shape of
-L8 and (2) changes where the output axis comes from, and both are now measured
-rather than guessed.
+**(3) What was left was authoring, and it was not small.** The document that
+landed is 38 `data_sources`, 112 data-fed columns, 112 computed relations and a
+21-column output row — 244 variables and 133 equations, about a third larger
+than `fixtures/nr-logging-county.esm`. It runs its 73 inline assertions in 45 s
+and emits its 128 rows in 5 s.
+
+**And the shapes came out better than (2) feared.** Three mechanisms were probed
+first and all three work, which moved most of the shape from declared to
+derived:
+
+* the activity relation's axis is
+  `{"op": "*", "args": ["n_agecategory", "n_runspecday"]}` = 82 and the cohort
+  relation's is `n_agecategory × n_runspecsourcefueltype` = 164, both **metaparameter
+  expressions over extents the runtime discovers** (`esm-spec` §9.7.6);
+* the aggregate's **loop symbol is usable as a value** in `expr`, and so is a
+  metaparameter, so `floor((r − 1) / n_agecategory) + 1` decomposes a row into
+  its block with a discovered block length;
+* a **two-axis variable can be filled by a join**, so the operating mode gets
+  its own axis and L8 stays a two-relation contraction.
+
+So the only declared number in the fixture is `n_outputCohort` = 64, and the
+document **computes the same count from the chain** — `cohortSurvivorCount`,
+the sum of a membership column over the 164 candidates — and a test pins the
+two together. A chain that produced 63 survivors fails in the document before
+the comparator sees a row. The output row's `(fuelTypeID, modelYearID)` are
+joined from the cohort relation on an ordinal, never transcribed.
 
 **The axes that are NOT declared, measured.** Three mechanisms were probed on
 the real tables because the design depends on them, and all three work:
@@ -1861,10 +1888,13 @@ author scoping from `runspecday` will meet it.
 8. **`÷ noOfRealDays` at L9 undoes `÷ weeksPerMonth` at A7.** Both or neither is
    a factor of 2 and 5.
 9. **Every assertion pins a cell, not a total** (§7.3). The cells are in §6.
-10. **Nothing is uncomputable.** No `[shortfall]`, no carried column, no data
-    read from the reference. If the fixture does not match, the document is
-    wrong. **The fixture is not wired yet**, and §7.5 says exactly what that
-    takes: L8 must be re-decomposed because the five-relation form does not
-    finish (F17 at fixture scale, measured), the output axis must be declared
-    because F5's compaction machinery materialises empty, and the rest is about
-    2,500 lines of hand-written ingest. None of those is a missing input.
+10. **Nothing is uncomputable, and the fixture proves it.**
+    `fixtures/process-evap-leaks.esm` computes all 128 rows from the snapshot's
+    input tables — no `[shortfall]`, no carried column, no data read from the
+    reference — and the comparison passes on an exact key set with a worst cell
+    of 7.294 × 10⁻⁶ against a 2 × 10⁻⁵ tolerance. Two things had to be got right
+    that are not about inputs, and §7.5 records both: L8 is a **two**-relation
+    contraction with the operating mode on its own axis, because the
+    five-relation form does not finish (F17 at fixture scale, measured); and the
+    output axis's 64 surviving cohorts is the one declared number, checked
+    in-document against a count the chain computes.

@@ -1142,22 +1142,67 @@ unchanged for a future one: `lib/identifiers.esm`'s templates evaluate at the
 precision of the identifier the call site binds, and the ladders take predicates
 rather than presence columns.
 
-### 18.5 What Phase 4 did not do, and where it is argued
+### 18.5 The fixture, and the two rules that made its shape
 
-`process-evap-leaks` has **no fixture**, and unlike §16.6's case the reason is
-not an uncomputable input. `./run-leaks-oracle.sh` derives every input from the
-snapshot's own input tables and reads **nothing** from the reference —
-reproducing all 82 rows of `SHO`, all 82 of `SourceHours`, all 125 of the
-fuel-usage source-bin distribution, `FractionOfOperating` and the six-row
-operating-mode distribution exactly, and all 128 `MOVESOutput` cells to
-7.294 × 10⁻⁶ on an exact key set. That is strictly more than
-`./run-onroad-oracle.sh` can do, which has to take `baserate_1_2020` from the
-reference.
+`fixtures/process-evap-leaks.esm` computes all 128 rows of `MOVESOutput` from
+the snapshot's input tables and the comparison **passes**: 128 of 128 rows, an
+exact key set, worst cell 7.294 × 10⁻⁶ against `tolerance.toml`'s 2 × 10⁻⁵, worst
+per-pollutant sum 5.161 × 10⁻⁷ against 10⁻³. No `[shortfall]`, no carried column,
+nothing read from the reference. `./run-leaks-oracle.sh` reaches the same 128
+numbers by a different route and reports the **same** worst cell to the digit,
+which is what makes a future disagreement attributable.
 
-`docs/evap-leaks.md` §7.5 is the argument, and it separates three things
-deliberately: the L8 contraction has to be re-decomposed (§18.1, measured); the
-output axis has to be declared because F5's compaction machinery materialises
-empty (measured previously, unchanged); and the remaining ~33 `data_sources` and
-~120 hand-written data columns are authoring effort, stated as such rather than
-dressed up as a blocker. **A specification that says which of those three a
-missing fixture is waiting on is worth more than one that says "not yet".**
+It is the second fixture in the repository and the first that fully matches, so
+two rules about a fixture's *shape* are worth stating separately from its
+arithmetic.
+
+**A derived relation's axis is a metaparameter EXPRESSION over discovered
+extents, not a literal.** §11 says a row axis is sized by `extent` discovery;
+this fixture needed two axes that are not any table's row count, and
+`esm-spec` §9.7.6 admits a `MetaparameterExpression` in an interval `size`:
+
+```json
+"activity_rows": { "kind": "interval",
+                   "size": { "op": "*", "args": ["n_agecategory", "n_runspecday"] } }
+```
+
+82 rows from a 41-row and a 2-row table, and the cohort relation's 164 the same
+way. Two more mechanisms make the rows *addressable* without literals, and both
+were probed before authoring: the aggregate's **loop symbol is usable as a value**
+in `expr` — `floor((r − 1) / n_agecategory) + 1` is a block index with a
+discovered block length — and a **two-axis variable can be filled by a join**,
+which is what puts the operating mode on its own axis and keeps L8 to two large
+relations. So the general rule is stronger than §11's: **derive the shape, not
+just the contents.** A fixture that wrote 82 or 164 would be asserting the
+snapshot's shape.
+
+**The one axis that cannot be derived is the OUTPUT axis, and a declared axis
+must be checked in-document.** Which cohorts reach `MOVESOutput` is a *result*
+of the chain, so materialising them as an index set is F5's value invention,
+which validates and materialises empty; `fixtures/nr-logging-county.esm`
+declares `output_rows: 12` for the same reason. What Phase 4 adds is the rest of
+the discipline, and it is three parts:
+
+1. **Declare the count, not the keys.** `n_outputCohort` = 64 is the only
+   literal shape in the document. The output row's `(fuelTypeID, modelYearID)`
+   come from a join to the cohort relation on an ordinal decomposed from the
+   loop symbol — never from a `const` list of keys, which would pass
+   `require_exact_key_set` by transcription.
+2. **Compute the same count from the chain and pin them together.**
+   `cohortSurvivorCount` sums a membership column over the 164 candidates and a
+   test asserts it equals 64. A chain that produced 63 fails in the document,
+   before the comparator sees a row.
+3. **Say which gate the declaration weakens.** `docs/evap-leaks.md` §7.2
+   measured that `require_exact_key_set` catches **none** of this chain's six
+   ablations and the per-cell gate catches all of them, so the declaration
+   forfeits nothing that was measuring anything. A declaration without that
+   measurement beside it is an excuse.
+
+**One more thing the fixture measured that a component could not.** A data-fed
+`parameter` has no assertable array state in a document that ingests — `array
+state 'yr_yearID' has no cells in var_map` — so only computed `unknown`s can be
+pinned, which is why every assertion in both fixtures is on a derived column.
+F16's scalar case reproduces verbatim alongside it. And a `Y`/`N` text column
+*is* ingestable, through a `codes` map on the `from` binding (`esm-spec`
+§8.9.1): `year.isBaseYear` and `fueltype.subjectToEvapCalculations` both arrive
+as 1/0, so A1 and K9 are computed rather than carried.
