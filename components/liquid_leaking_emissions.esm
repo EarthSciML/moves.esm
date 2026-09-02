@@ -3,33 +3,86 @@
   "metadata": {
     "name": "LiquidLeakingEmissions",
     "description": "Steps L1, L9 and O1-O3 of the process-evap-leaks chain: the emission itself, the inspection-and-maintenance blend, and the MOVESOutput row. Ports docs/evap-leaks.md §2.5, joins K15-K22, and crates/moves-calculators/src/calculators/liquid_leaking_calculator.rs:606 (L1) and :859-1020 (L9 and the output row).\n\nONE PRODUCT AND ONE DIVISION.\n\n    emissionQuant = weightedMeanBaseRate x sourceHours x opModeFraction / noOfRealDays\n\nThe grouping is `((rate x hours) x fraction) / days`, in that order, because that is the order the reference multiplies in and binary64 is not associative; the emitted values agree with MOVESOutput to 1.0e-08 at the newest cohort and 1.3e-06 at the oldest, which is the snapshot's six-significant-figure column storage and not accumulated error (docs/evap-leaks.md §7.1).\n\nWHY `/ noOfRealDays` IS THERE AT ALL. A7 divides the month's VMT by `noOfDays / 7` so that SHO covers one average WEEK -- that is, `noOfRealDays` days of the day type. L9 divides that back out to one day. Applying the factor in both places, or in neither, is a factor of 2 on the weekend rows and 5 on the weekday rows; baseratecalculator/mod.rs:1536-1542 records the rates-first analogue. The weekday/weekend ratio of a single cohort is 3.80618 rather than 2.5 for that reason (docs/evap-leaks.md §6.4), and no factor in that product is 1.\n\nTHE TWO SOAK MODES ARE PRESENT AND CARRY EXACTLY ZERO. Rows 2 and 3 are the hot- and cold-soak modes of the 1980 gasoline cohort, with real non-zero rates of 0.430904708 and 0.22403231499999998 g/h and an opModeFraction of 0 -- because components/evap_operating_mode_distribution.esm COMPUTES that zero from `fractionOfOperating = 1` rather than assuming it. O1 sums the three modes, so a document that dropped the fractions would emit 4.692285338 x hours instead of 4.037348315 x hours: a 16.2% over-emit with the right key set, the right pollutant and no NaN anywhere.\n\nTHE I/M BLEND IS INERT ON THIS FIXTURE AND IS EXERCISED ANYWAY. `imcoverage` and `imfactor` are both EMPTY in the snapshot, so L1 produces no cell and L9's `UPDATE` leaves every row untouched -- `pollutantprocessassoc` nevertheless marks polProcessID 113 `isAffectedByEvapIM = 'Y'`, so this is an absent PROGRAM and not a structural exclusion, and a county with an evap I/M program would exercise it. The `.esm` spells the absence as `IMAdjustFract = 0`, for which lib/adjustments.esm's `im_blend` is the identity. That template was authored in Phase 1 as \"the onroad inspection/maintenance blend PLAN.md §3 names; it is not exercised by the NONROAD slice\", and this is the first chain that reaches it -- so it is exercised here by a PROBE row, the technique docs/esm-conventions.md §16.4 established after finding F19 removed the parameter-override one.\n\nROWS 7 AND 14 ARE THAT PROBE AND THEIR NUMBERS ARE NOT MOVESOutput'S. They carry model year 1990, gasoline, with a round base rate of 1 g/h, an I/M rate of 0.5 g/h and an `imcoverage`-derived `IMAdjustFract` of 0.3 -- none of which is in the snapshot. Model year 1990 IS a real cohort of the fixture; what is invented is its rate and its I/M coverage, so the two output rows for it, 0.46902999999999995 g and 1.7852040000000002 g, are hand arithmetic from this file's own inputs and are NOT the reference's values for that cohort. Every other row in this file reaches a cell of MOVESOutput. The probe uses real `sourceHours` for age 30, 1.1036 h and 10.5012 h, so only the rate and the coverage are constructed.\n\nWHAT THIS COMPONENT EMITS AND WHAT IT DOES NOT. `out_*` here is the load-bearing subset of the 25-column MOVESOutput schema: the three varying keys, the quantity, the computed SCC, the pollutant and process the pollutant-process splits into, the link's road type, and one of the nine columns that must be ABSENT. The full schema belongs to the fixture, which is where a missing column is a comparison failure rather than a review point. `out_regClassID` is `lib/identifiers.esm`'s `null_output_column` -- 0/0, a NaN -- because emitting 0 would claim regulatory class zero, and because the comparator reads NaN, NULL and empty as the same thing. On this fixture the regClassID group-by is a no-op, since `sourcebin` carries only class 20; the column must still be absent.\n\nData: the six weighted mean base rates are components/evap_weighted_base_rate.esm's own output, verified equal to it; `sh_sourceHours` and `omd_opModeFraction` are the two upstream relations the assembly joins instead. Everything else is the snapshot's (docs/evap-leaks.md §6.0-§6.3).",
-    "authors": ["EarthSciML Authors and Contributors"],
-    "tags": ["moves", "onroad", "evaporative", "emission", "output", "component"]
+    "authors": [
+      "EarthSciML Authors and Contributors"
+    ],
+    "tags": [
+      "moves",
+      "onroad",
+      "evaporative",
+      "emission",
+      "output",
+      "component"
+    ]
   },
-
   "enums": {
-    "pollutant": { "TotalGaseousHydrocarbons": 1 },
-    "process": { "EvapFuelLeaks": 13 },
-    "source_type": { "PassengerCar": 21 },
-    "fuel_type": { "Gasoline": 1, "EthanolE85": 5 },
-    "road_type": { "UrbanRestrictedAccess": 4 },
-    "hour": { "SevenAM": 7 },
-    "day_type": { "Weekend": 2, "Weekday": 5 },
-    "operating_mode": { "HotSoaking": 150, "ColdSoaking": 151, "Operating": 300 }
+    "pollutant": {
+      "TotalGaseousHydrocarbons": 1
+    },
+    "process": {
+      "EvapFuelLeaks": 13
+    },
+    "source_type": {
+      "PassengerCar": 21
+    },
+    "fuel_type": {
+      "Gasoline": 1,
+      "EthanolE85": 5
+    },
+    "road_type": {
+      "UrbanRestrictedAccess": 4
+    },
+    "hour": {
+      "SevenAM": 7
+    },
+    "day_type": {
+      "Weekend": 2,
+      "Weekday": 5
+    },
+    "operating_mode": {
+      "HotSoaking": 150,
+      "ColdSoaking": 151,
+      "Operating": 300
+    }
   },
-
   "index_sets": {
-    "leak_emission_rows": { "kind": "interval", "size": 14 },
-    "leak_source_hour_rows": { "kind": "interval", "size": 8 },
-    "leak_op_mode_rows": { "kind": "interval", "size": 6 },
-    "leak_hour_day_rows": { "kind": "interval", "size": 2 },
-    "leak_day_rows": { "kind": "interval", "size": 2 },
-    "im_coverage_rows": { "kind": "interval", "size": 1 },
-    "leak_pol_process_rows": { "kind": "interval", "size": 1 },
-    "leak_link_rows": { "kind": "interval", "size": 1 },
-    "leak_output_rows": { "kind": "interval", "size": 10 }
+    "leak_emission_rows": {
+      "kind": "interval",
+      "size": 14
+    },
+    "leak_source_hour_rows": {
+      "kind": "interval",
+      "size": 8
+    },
+    "leak_op_mode_rows": {
+      "kind": "interval",
+      "size": 6
+    },
+    "leak_hour_day_rows": {
+      "kind": "interval",
+      "size": 2
+    },
+    "leak_day_rows": {
+      "kind": "interval",
+      "size": 2
+    },
+    "im_coverage_rows": {
+      "kind": "interval",
+      "size": 1
+    },
+    "leak_pol_process_rows": {
+      "kind": "interval",
+      "size": 1
+    },
+    "leak_link_rows": {
+      "kind": "interval",
+      "size": 1
+    },
+    "leak_output_rows": {
+      "kind": "interval",
+      "size": 10
+    }
   },
-
   "coordinates": {
     "leak_output_model_year": {
       "source": "out_modelYearID",
@@ -40,572 +93,2188 @@
       "standard_name": "source_classification_code"
     }
   },
-
   "models": {
     "LiquidLeakingEmissions": {
       "expression_template_imports": [
-        { "ref": "../lib/adjustments.esm", "only": ["im_blend"] },
-        { "ref": "../lib/identifiers.esm",
-          "only": ["pol_process_id", "pollutant_id_of", "process_id_of", "null_output_column"] },
-        { "ref": "../lib/onroad_activity.esm", "only": ["onroad_scc"] }
+        {
+          "ref": "../lib/adjustments.esm",
+          "only": [
+            "im_blend"
+          ]
+        },
+        {
+          "ref": "../lib/identifiers.esm",
+          "only": [
+            "pol_process_id",
+            "pollutant_id_of",
+            "process_id_of",
+            "null_output_column",
+            "output_column_is_absent"
+          ]
+        },
+        {
+          "ref": "../lib/onroad_activity.esm",
+          "only": [
+            "onroad_scc"
+          ]
+        }
       ],
-
-      "tolerance": { "rel": 1e-12 },
-
+      "tolerance": {
+        "rel": 1e-12
+      },
       "variables": {
         "runYearID": {
-          "type": "parameter", "units": "1", "default": 2020.0,
+          "type": "parameter",
+          "units": "1",
+          "default": 2020.0,
           "description": "runspecyear.yearID. A scalar: it is an operand of the subtraction that builds the derived age key, not a join key itself (docs/esm-conventions.md §16.1)."
         },
         "runPolProcessID": {
-          "type": "unknown", "shape": ["leak_pol_process_rows"],
+          "type": "unknown",
+          "shape": [
+            "leak_pol_process_rows"
+          ],
           "description": "The run's pollutant-process, 100 x 1 + 13 = 113, built by `pol_process_id`. K17's join key, and a one-row relation for the reason §16.1 gives."
         },
         "ppa_pollutantID": {
-          "type": "unknown", "shape": ["leak_pol_process_rows"],
+          "type": "unknown",
+          "shape": [
+            "leak_pol_process_rows"
+          ],
           "description": "pollutantprocessassoc[113].pollutantID = 1, unpacked from the pollutant-process by `pollutant_id_of` rather than written, so that the packing at the input and the unpacking at the output cannot disagree (lib/identifiers.esm)."
         },
         "ppa_processID": {
-          "type": "unknown", "shape": ["leak_pol_process_rows"],
+          "type": "unknown",
+          "shape": [
+            "leak_pol_process_rows"
+          ],
           "description": "pollutantprocessassoc[113].processID = 13, likewise by `process_id_of`."
         },
-
         "link_roadTypeID": {
-          "type": "unknown", "shape": ["leak_link_rows"],
+          "type": "unknown",
+          "shape": [
+            "leak_link_rows"
+          ],
           "description": "link[2616104].roadTypeID = 4, Urban Restricted Access. An ON-network road type, which is what makes SourceHours = SHO at A10 and therefore what makes this whole slice independent of finding F12 (docs/evap-leaks.md §0.3). It is also the road-type slot of the output SCC."
         },
-
         "hd_hourDayID": {
-          "type": "unknown", "shape": ["leak_hour_day_rows"],
+          "type": "unknown",
+          "shape": [
+            "leak_hour_day_rows"
+          ],
           "description": "hourday.hourDayID = hourID x 10 + dayID for hour 7: 72 and 75."
         },
         "hd_dayID": {
-          "type": "unknown", "shape": ["leak_hour_day_rows"],
+          "type": "unknown",
+          "shape": [
+            "leak_hour_day_rows"
+          ],
           "description": "hourday.dayID: 2 (weekend), 5 (weekday). K18 carries it to the emission row and O1 groups on it."
         },
         "hd_hourID": {
-          "type": "unknown", "shape": ["leak_hour_day_rows"],
+          "type": "unknown",
+          "shape": [
+            "leak_hour_day_rows"
+          ],
           "description": "hourday.hourID = 7 on both rows. `hourofanyday[7].hourname` is \"Hour beginning at 6:00 AM\"; the enum is named for the identifier, not the wall clock."
         },
         "dow_dayID": {
-          "type": "unknown", "shape": ["leak_day_rows"],
+          "type": "unknown",
+          "shape": [
+            "leak_day_rows"
+          ],
           "description": "dayofanyweek.dayID, K19's right-hand side."
         },
         "dow_noOfRealDays": {
-          "type": "unknown", "shape": ["leak_day_rows"], "units": "1",
+          "type": "unknown",
+          "shape": [
+            "leak_day_rows"
+          ],
+          "units": "1",
           "description": "dayofanyweek.noOfRealDays: 2 real days in a weekend, 5 in a week of weekdays. L9's DIVISOR, and the factor A7 multiplied in."
         },
-
         "sh_hourDayID": {
-          "type": "unknown", "shape": ["leak_source_hour_rows"],
+          "type": "unknown",
+          "shape": [
+            "leak_source_hour_rows"
+          ],
           "description": "sourcehours.hourDayID. Rows are hour-day-major, four ages each."
         },
         "sh_ageID": {
-          "type": "unknown", "shape": ["leak_source_hour_rows"],
+          "type": "unknown",
+          "shape": [
+            "leak_source_hour_rows"
+          ],
           "description": "sourcehours.ageID: 0, 18, 30 and 40 -- the ages the five cohorts of this file reach at 2020."
         },
         "sh_sourceHours": {
-          "type": "unknown", "shape": ["leak_source_hour_rows"], "units": "1",
+          "type": "unknown",
+          "shape": [
+            "leak_source_hour_rows"
+          ],
+          "units": "1",
           "description": "sourcehours.sourceHours, in hours: the zone's vehicle-hours in one hour of one day type, summed over that day type's real days in an average week. Equal to `sho.SHO` row for row because the link is on-network (A10). The snapshot's own six-significant-figure values, docs/evap-leaks.md §6.0."
         },
-
         "omd_hourDayID": {
-          "type": "unknown", "shape": ["leak_op_mode_rows"],
+          "type": "unknown",
+          "shape": [
+            "leak_op_mode_rows"
+          ],
           "description": "opmodedistribution.hourDayID. Rows are hour-day-major, three operating modes each."
         },
         "omd_opModeID": {
-          "type": "unknown", "shape": ["leak_op_mode_rows"],
+          "type": "unknown",
+          "shape": [
+            "leak_op_mode_rows"
+          ],
           "description": "opmodedistribution.opModeID: 150, 151, 300 within each hour-day block. Carried as data because a product relation can make only one of its two key columns contiguous (docs/esm-conventions.md §16.2)."
         },
         "omd_opModeFraction": {
-          "type": "unknown", "shape": ["leak_op_mode_rows"], "units": "1",
+          "type": "unknown",
+          "shape": [
+            "leak_op_mode_rows"
+          ],
+          "units": "1",
           "description": "components/evap_operating_mode_distribution.esm's output, carried here as a column so this file tests standalone; the assembly joins the two instead. {150: 0, 151: 0, 300: 1} on both hour-days, and every one of those three numbers is COMPUTED there rather than assumed."
         },
-
         "im_processID": {
-          "type": "unknown", "shape": ["im_coverage_rows"],
+          "type": "unknown",
+          "shape": [
+            "im_coverage_rows"
+          ],
           "description": "IMCoverageMergedUngrouped.processID. A PROBE row: `imcoverage` and `imfactor` are both empty in this snapshot, so L1 produces nothing and this relation would be empty. See the description."
         },
         "im_pollutantID": {
-          "type": "unknown", "shape": ["im_coverage_rows"],
+          "type": "unknown",
+          "shape": [
+            "im_coverage_rows"
+          ],
           "description": "IMCoverageMergedUngrouped.pollutantID, 1."
         },
         "im_modelYearID": {
-          "type": "unknown", "shape": ["im_coverage_rows"],
+          "type": "unknown",
+          "shape": [
+            "im_coverage_rows"
+          ],
           "description": "IMCoverageMergedUngrouped.modelYearID, 1990 -- L1 disaggregates each IMCoverage record across the individual model years its [begModelYearID, endModelYearID] range covers, so this relation is model-year-per-row and the range predicate (K20's `filter`) lives upstream of it."
         },
         "im_fuelTypeID": {
-          "type": "unknown", "shape": ["im_coverage_rows"],
+          "type": "unknown",
+          "shape": [
+            "im_coverage_rows"
+          ],
           "description": "IMCoverageMergedUngrouped.fuelTypeID, 1."
         },
         "im_sourceTypeID": {
-          "type": "unknown", "shape": ["im_coverage_rows"],
+          "type": "unknown",
+          "shape": [
+            "im_coverage_rows"
+          ],
           "description": "IMCoverageMergedUngrouped.sourceTypeID, 21."
         },
         "im_imAdjustFract": {
-          "type": "unknown", "shape": ["im_coverage_rows"], "units": "1",
+          "type": "unknown",
+          "shape": [
+            "im_coverage_rows"
+          ],
+          "units": "1",
           "description": "SUM of `IMFactor x complianceFactor x 0.01` over the programs covering this key. 0.3 on the probe row, which blends the I/M rate in at weight 0.3 and the non-I/M rate at 0.7."
         },
-
         "emis_hourDayID": {
-          "type": "unknown", "shape": ["leak_emission_rows"],
+          "type": "unknown",
+          "shape": [
+            "leak_emission_rows"
+          ],
           "description": "L9's hour-day key. Rows 1-7 are hourDayID 72 and rows 8-14 are 75, so this column is built from the `hour` and `day_type` enums in two contiguous blocks."
         },
         "emis_fuelTypeID": {
-          "type": "unknown", "shape": ["leak_emission_rows"],
+          "type": "unknown",
+          "shape": [
+            "leak_emission_rows"
+          ],
           "description": "L9's fuel key: gasoline except on rows 5 and 12, which are the E85 cohort of docs/evap-leaks.md §6.3."
         },
         "emis_modelYearID": {
-          "type": "unknown", "shape": ["leak_emission_rows"],
+          "type": "unknown",
+          "shape": [
+            "leak_emission_rows"
+          ],
           "description": "L9's model-year key: 1980 three times (one per operating mode), then 2002 twice (gasoline and E85), 2020, and the 1990 I/M probe."
         },
         "emis_opModeID": {
-          "type": "unknown", "shape": ["leak_emission_rows"],
+          "type": "unknown",
+          "shape": [
+            "leak_emission_rows"
+          ],
           "description": "L9's operating-mode key. 300 everywhere except rows 2, 3, 9 and 10, which are the hot- and cold-soak modes of the 1980 gasoline cohort."
         },
         "emis_sourceTypeID": {
-          "type": "unknown", "shape": ["leak_emission_rows"],
+          "type": "unknown",
+          "shape": [
+            "leak_emission_rows"
+          ],
           "description": "L9's source-type key, 21 throughout. K21 joins on it."
         },
         "emis_effectiveAgeID": {
-          "type": "unknown", "shape": ["leak_emission_rows"],
+          "type": "unknown",
+          "shape": [
+            "leak_emission_rows"
+          ],
           "description": "`runYearID - modelYearID`: K15's join key into `sourceHours`. components/evap_weighted_base_rate.esm computes the same subtraction for K12 and carries it on the rate relation; the assembly takes it from there rather than repeating it, because moves.rs writes it at :767 and :935 and a port that wrote it twice has two chances to disagree with itself."
         },
         "emis_weightedMeanBaseRate": {
-          "type": "unknown", "shape": ["leak_emission_rows"], "units": "1",
+          "type": "unknown",
+          "shape": [
+            "leak_emission_rows"
+          ],
+          "units": "1",
           "description": "L8's output, in grams of THC per hour, from components/evap_weighted_base_rate.esm: 4.037348315, 0.430904708, 0.22403231499999998, 1.353566677, 0.000192737741, 0.12496779679999999 and the probe's 1. `g h-1` is not a registry unit so the unit is named here and not declared."
         },
         "emis_weightedMeanBaseRateIM": {
-          "type": "unknown", "shape": ["leak_emission_rows"], "units": "1",
+          "type": "unknown",
+          "shape": [
+            "leak_emission_rows"
+          ],
+          "units": "1",
           "description": "L8's second measure. Zero everywhere except the probe rows, whose 0.5 g/h is what makes the blend observable."
         },
         "emis_sourceHours": {
-          "type": "unknown", "shape": ["leak_emission_rows"], "units": "1",
+          "type": "unknown",
+          "shape": [
+            "leak_emission_rows"
+          ],
+          "units": "1",
           "description": "K15: `sourceHours` brought to the row on (hourDayID, ageID), with the year, month, link and source type from the iteration context. One clause, two pairs here; the reference's is six pairs, four of which are run scope in this component."
         },
         "emis_opModeFraction": {
-          "type": "unknown", "shape": ["leak_emission_rows"], "units": "1",
+          "type": "unknown",
+          "shape": [
+            "leak_emission_rows"
+          ],
+          "units": "1",
           "description": "K16: the operating-mode fraction brought to the row on (hourDayID, opModeID). 1 on the mode-300 rows and 0 on the four soak rows."
         },
         "emis_dayID": {
-          "type": "unknown", "shape": ["leak_emission_rows"],
+          "type": "unknown",
+          "shape": [
+            "leak_emission_rows"
+          ],
           "description": "K18: `hourday.dayID`. The output row carries the day and the hour separately, not the packed hourDayID."
         },
         "emis_noOfRealDays": {
-          "type": "unknown", "shape": ["leak_emission_rows"], "units": "1",
+          "type": "unknown",
+          "shape": [
+            "leak_emission_rows"
+          ],
+          "units": "1",
           "description": "K18 and K19 as one contraction: hourDayID to dayID to noOfRealDays. Two clauses over two relations, composing by conjunction."
         },
         "emis_imAdjustFract": {
-          "type": "unknown", "shape": ["leak_emission_rows"], "units": "1",
+          "type": "unknown",
+          "shape": [
+            "leak_emission_rows"
+          ],
+          "units": "1",
           "description": "K21: the I/M adjustment fraction, on five key pairs. Zero on every row but the two probes -- and a zero here is the SQL's \"no matching row, keep the value unchanged\", for which `im_blend` is the identity. `IMCoverageMergedUngrouped` carries at most one cell per key (it is L1's GROUP BY result), which is what makes folding the UPDATE into this join equivalent."
         },
         "emis_emissionQuant": {
-          "type": "unknown", "shape": ["leak_emission_rows"], "units": "1",
+          "type": "unknown",
+          "shape": [
+            "leak_emission_rows"
+          ],
+          "units": "1",
           "description": "L9: `((weightedMeanBaseRate x sourceHours) x opModeFraction) / noOfRealDays`, in grams. The grouping is the reference's; binary64 is not associative and the alternative groupings differ in the last bits."
         },
         "emis_emissionQuantIM": {
-          "type": "unknown", "shape": ["leak_emission_rows"], "units": "1",
+          "type": "unknown",
+          "shape": [
+            "leak_emission_rows"
+          ],
+          "units": "1",
           "description": "The same product over `weightedMeanBaseRateIM`, in grams. L9's second working column."
         },
         "emis_blendedQuant": {
-          "type": "unknown", "shape": ["leak_emission_rows"], "units": "1",
+          "type": "unknown",
+          "shape": [
+            "leak_emission_rows"
+          ],
+          "units": "1",
           "description": "L9's trailing UPDATE: `im_blend(emissionQuantIM, IMAdjustFract, emissionQuant)`, which is `GREATEST(qIM x f + q x (1 - f), 0)`. Equal to `emis_emissionQuant` on the twelve rows with no I/M cell."
         },
-
         "out_dayID": {
-          "type": "unknown", "shape": ["leak_output_rows"],
+          "type": "unknown",
+          "shape": [
+            "leak_output_rows"
+          ],
           "description": "MOVESOutput.dayID. Rows 1-5 are the weekend and rows 6-10 the weekday, so the column is built from the `day_type` enums in two contiguous blocks."
         },
         "out_fuelTypeID": {
-          "type": "unknown", "shape": ["leak_output_rows"],
+          "type": "unknown",
+          "shape": [
+            "leak_output_rows"
+          ],
           "description": "MOVESOutput.fuelTypeID, carried as data because gasoline occurs in disjoint runs."
         },
         "out_modelYearID": {
-          "type": "unknown", "shape": ["leak_output_rows"],
+          "type": "unknown",
+          "shape": [
+            "leak_output_rows"
+          ],
           "description": "MOVESOutput.modelYearID: 1980, 2002, 2002, 2020 and the 1990 probe, twice."
         },
         "out_polProcessID": {
-          "type": "unknown", "shape": ["leak_output_rows"],
+          "type": "unknown",
+          "shape": [
+            "leak_output_rows"
+          ],
           "description": "The pollutant-process, 113, built by `pol_process_id`. It is not a MOVESOutput column; it is the join key that splits into the two that are."
         },
         "out_pollutantID": {
-          "type": "unknown", "shape": ["leak_output_rows"],
+          "type": "unknown",
+          "shape": [
+            "leak_output_rows"
+          ],
           "description": "MOVESOutput.pollutantID = 1, from K17."
         },
         "out_processID": {
-          "type": "unknown", "shape": ["leak_output_rows"],
+          "type": "unknown",
+          "shape": [
+            "leak_output_rows"
+          ],
           "description": "MOVESOutput.processID = 13, from K17. It is also the last two digits of the SCC."
         },
         "out_roadTypeID": {
-          "type": "unknown", "shape": ["leak_output_rows"],
+          "type": "unknown",
+          "shape": [
+            "leak_output_rows"
+          ],
           "description": "MOVESOutput.roadTypeID = 4, from the link. `tolerance.toml` lists it among the columns the comparator ignores, because two implementations legitimately disagree on it -- but the SCC's road-type slot is computed from it, and that is compared."
         },
         "out_SCC": {
-          "type": "unknown", "shape": ["leak_output_rows"],
+          "type": "unknown",
+          "shape": [
+            "leak_output_rows"
+          ],
           "description": "O2: `22e8 + fuelTypeID x 1e6 + sourceTypeID x 1e4 + roadTypeID x 1e2 + processID` (engine.rs:1450-1477), by lib/onroad_activity.esm's `onroad_scc`. 2201210413 for gasoline and 2205210413 for E85. It is COMPUTED, not looked up: the `scc` table's 14,976 rows agree with the formula and are read by nothing in this chain."
         },
         "out_regClassID": {
-          "type": "unknown", "shape": ["leak_output_rows"],
+          "type": "unknown",
+          "shape": [
+            "leak_output_rows"
+          ],
           "description": "MOVESOutput.regClassID, which this run leaves NULL on all 128 rows: `null_output_column` is 0/0, a NaN, and the comparator reads NaN, NULL and empty as the same thing. Emitting 0 would claim regulatory class zero. One of nine absent columns; the other eight are the fixture's business."
         },
         "out_emissionQuant": {
-          "type": "unknown", "shape": ["leak_output_rows"], "units": "1",
+          "type": "unknown",
+          "shape": [
+            "leak_output_rows"
+          ],
+          "units": "1",
           "description": "O1: the sum of `emis_blendedQuant` over the operating modes, in grams of THC. The 1980 gasoline rows sum three modes of which two contribute exactly zero; every other row is one mode. Eight of the ten values are cells of the snapshot's MOVESOutput and two are the labelled I/M probe."
+        },
+        "out_regClassIsAbsent": {
+          "type": "unknown",
+          "shape": [
+            "leak_output_rows"
+          ],
+          "units": "1",
+          "description": "O3's testable half: `output_column_is_absent(out_regClassID)`, which is 1 where the column is NaN and 0 for any real value. It exists because absence is the one property of a NULL output column that cannot be pinned directly -- `expected` is a JSON number so NaN cannot be written down, and every tolerance form is a magnitude comparison that a NaN actual fails (measured: `actual=NaN expected=0` reports FAIL, the right verdict and the wrong polarity). This column turns that into an assertion with a non-zero expected value."
+        },
+        "out_emissionQuantIsAbsent": {
+          "type": "unknown",
+          "shape": [
+            "leak_output_rows"
+          ],
+          "units": "1",
+          "description": "The NEGATIVE control for the indicator above -- the same template applied to a column that is PRESENT, so it reads 0 on every row. Without it, an indicator that returned 1 unconditionally would satisfy the absence test, which is the failure mode gates/equijoin_undriven_control.esm exists for one level up. docs/esm-conventions.md 12 puts it as: assert both arms of a branch."
         }
       },
-
       "equations": [
         {
           "lhs": "runPolProcessID",
-          "rhs": { "op": "makearray", "args": [], "regions": [[[1, 1]]],
+          "rhs": {
+            "op": "makearray",
+            "args": [],
+            "regions": [
+              [
+                [
+                  1,
+                  1
+                ]
+              ]
+            ],
             "values": [
-              { "op": "apply_expression_template", "args": [], "name": "pol_process_id",
+              {
+                "op": "apply_expression_template",
+                "args": [],
+                "name": "pol_process_id",
                 "bindings": {
-                  "pollutant_id": { "op": "enum", "args": ["pollutant", "TotalGaseousHydrocarbons"] },
-                  "process_id": { "op": "enum", "args": ["process", "EvapFuelLeaks"] } } }
-            ] }
+                  "pollutant_id": {
+                    "op": "enum",
+                    "args": [
+                      "pollutant",
+                      "TotalGaseousHydrocarbons"
+                    ]
+                  },
+                  "process_id": {
+                    "op": "enum",
+                    "args": [
+                      "process",
+                      "EvapFuelLeaks"
+                    ]
+                  }
+                }
+              }
+            ]
+          }
         },
         {
           "lhs": "ppa_pollutantID",
-          "rhs": { "op": "apply_expression_template", "args": [], "name": "pollutant_id_of",
-            "bindings": { "pol_process_id": "runPolProcessID" } }
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "pollutant_id_of",
+            "bindings": {
+              "pol_process_id": "runPolProcessID"
+            }
+          }
         },
         {
           "lhs": "ppa_processID",
-          "rhs": { "op": "apply_expression_template", "args": [], "name": "process_id_of",
-            "bindings": { "pol_process_id": "runPolProcessID" } }
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "process_id_of",
+            "bindings": {
+              "pol_process_id": "runPolProcessID"
+            }
+          }
         },
         {
           "lhs": "link_roadTypeID",
-          "rhs": { "op": "makearray", "args": [], "regions": [[[1, 1]]],
-            "values": [{ "op": "enum", "args": ["road_type", "UrbanRestrictedAccess"] }] }
+          "rhs": {
+            "op": "makearray",
+            "args": [],
+            "regions": [
+              [
+                [
+                  1,
+                  1
+                ]
+              ]
+            ],
+            "values": [
+              {
+                "op": "enum",
+                "args": [
+                  "road_type",
+                  "UrbanRestrictedAccess"
+                ]
+              }
+            ]
+          }
         },
-
         {
           "lhs": "hd_hourDayID",
-          "rhs": { "op": "makearray", "args": [], "regions": [[[1, 1]], [[2, 2]]],
+          "rhs": {
+            "op": "makearray",
+            "args": [],
+            "regions": [
+              [
+                [
+                  1,
+                  1
+                ]
+              ],
+              [
+                [
+                  2,
+                  2
+                ]
+              ]
+            ],
             "values": [
-              { "op": "+", "args": [
-                { "op": "*", "args": [10, { "op": "enum", "args": ["hour", "SevenAM"] }] },
-                { "op": "enum", "args": ["day_type", "Weekend"] }] },
-              { "op": "+", "args": [
-                { "op": "*", "args": [10, { "op": "enum", "args": ["hour", "SevenAM"] }] },
-                { "op": "enum", "args": ["day_type", "Weekday"] }] }
-            ] }
+              {
+                "op": "+",
+                "args": [
+                  {
+                    "op": "*",
+                    "args": [
+                      10,
+                      {
+                        "op": "enum",
+                        "args": [
+                          "hour",
+                          "SevenAM"
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "op": "enum",
+                    "args": [
+                      "day_type",
+                      "Weekend"
+                    ]
+                  }
+                ]
+              },
+              {
+                "op": "+",
+                "args": [
+                  {
+                    "op": "*",
+                    "args": [
+                      10,
+                      {
+                        "op": "enum",
+                        "args": [
+                          "hour",
+                          "SevenAM"
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "op": "enum",
+                    "args": [
+                      "day_type",
+                      "Weekday"
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
         },
         {
           "lhs": "hd_dayID",
-          "rhs": { "op": "makearray", "args": [], "regions": [[[1, 1]], [[2, 2]]],
+          "rhs": {
+            "op": "makearray",
+            "args": [],
+            "regions": [
+              [
+                [
+                  1,
+                  1
+                ]
+              ],
+              [
+                [
+                  2,
+                  2
+                ]
+              ]
+            ],
             "values": [
-              { "op": "enum", "args": ["day_type", "Weekend"] },
-              { "op": "enum", "args": ["day_type", "Weekday"] }
-            ] }
+              {
+                "op": "enum",
+                "args": [
+                  "day_type",
+                  "Weekend"
+                ]
+              },
+              {
+                "op": "enum",
+                "args": [
+                  "day_type",
+                  "Weekday"
+                ]
+              }
+            ]
+          }
         },
         {
           "lhs": "hd_hourID",
-          "rhs": { "op": "makearray", "args": [], "regions": [[[1, 2]]],
-            "values": [{ "op": "enum", "args": ["hour", "SevenAM"] }] }
+          "rhs": {
+            "op": "makearray",
+            "args": [],
+            "regions": [
+              [
+                [
+                  1,
+                  2
+                ]
+              ]
+            ],
+            "values": [
+              {
+                "op": "enum",
+                "args": [
+                  "hour",
+                  "SevenAM"
+                ]
+              }
+            ]
+          }
         },
         {
           "lhs": "dow_dayID",
-          "rhs": { "op": "makearray", "args": [], "regions": [[[1, 1]], [[2, 2]]],
+          "rhs": {
+            "op": "makearray",
+            "args": [],
+            "regions": [
+              [
+                [
+                  1,
+                  1
+                ]
+              ],
+              [
+                [
+                  2,
+                  2
+                ]
+              ]
+            ],
             "values": [
-              { "op": "enum", "args": ["day_type", "Weekend"] },
-              { "op": "enum", "args": ["day_type", "Weekday"] }
-            ] }
+              {
+                "op": "enum",
+                "args": [
+                  "day_type",
+                  "Weekend"
+                ]
+              },
+              {
+                "op": "enum",
+                "args": [
+                  "day_type",
+                  "Weekday"
+                ]
+              }
+            ]
+          }
         },
         {
           "lhs": "dow_noOfRealDays",
-          "rhs": { "op": "const", "args": [], "value": [2.0, 5.0] }
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              2.0,
+              5.0
+            ]
+          }
         },
-
         {
           "lhs": "sh_hourDayID",
-          "rhs": { "op": "makearray", "args": [], "regions": [[[1, 4]], [[5, 8]]],
+          "rhs": {
+            "op": "makearray",
+            "args": [],
+            "regions": [
+              [
+                [
+                  1,
+                  4
+                ]
+              ],
+              [
+                [
+                  5,
+                  8
+                ]
+              ]
+            ],
             "values": [
-              { "op": "+", "args": [
-                { "op": "*", "args": [10, { "op": "enum", "args": ["hour", "SevenAM"] }] },
-                { "op": "enum", "args": ["day_type", "Weekend"] }] },
-              { "op": "+", "args": [
-                { "op": "*", "args": [10, { "op": "enum", "args": ["hour", "SevenAM"] }] },
-                { "op": "enum", "args": ["day_type", "Weekday"] }] }
-            ] }
+              {
+                "op": "+",
+                "args": [
+                  {
+                    "op": "*",
+                    "args": [
+                      10,
+                      {
+                        "op": "enum",
+                        "args": [
+                          "hour",
+                          "SevenAM"
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "op": "enum",
+                    "args": [
+                      "day_type",
+                      "Weekend"
+                    ]
+                  }
+                ]
+              },
+              {
+                "op": "+",
+                "args": [
+                  {
+                    "op": "*",
+                    "args": [
+                      10,
+                      {
+                        "op": "enum",
+                        "args": [
+                          "hour",
+                          "SevenAM"
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "op": "enum",
+                    "args": [
+                      "day_type",
+                      "Weekday"
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
         },
         {
           "lhs": "sh_ageID",
-          "rhs": { "op": "const", "args": [], "value": [0, 18, 30, 40, 0, 18, 30, 40] }
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              0,
+              18,
+              30,
+              40,
+              0,
+              18,
+              30,
+              40
+            ]
+          }
         },
         {
           "_comment": "docs/evap-leaks.md §6.0 and the age-30 pair the I/M probe uses. Equal to sho.SHO row for row (A10).",
           "lhs": "sh_sourceHours",
-          "rhs": { "op": "const", "args": [],
-            "value": [27.33, 12.4561, 1.1036, 2.43728, 260.057, 118.526, 10.5012, 23.1918] }
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              27.33,
+              12.4561,
+              1.1036,
+              2.43728,
+              260.057,
+              118.526,
+              10.5012,
+              23.1918
+            ]
+          }
         },
-
         {
           "lhs": "omd_hourDayID",
-          "rhs": { "op": "makearray", "args": [], "regions": [[[1, 3]], [[4, 6]]],
+          "rhs": {
+            "op": "makearray",
+            "args": [],
+            "regions": [
+              [
+                [
+                  1,
+                  3
+                ]
+              ],
+              [
+                [
+                  4,
+                  6
+                ]
+              ]
+            ],
             "values": [
-              { "op": "+", "args": [
-                { "op": "*", "args": [10, { "op": "enum", "args": ["hour", "SevenAM"] }] },
-                { "op": "enum", "args": ["day_type", "Weekend"] }] },
-              { "op": "+", "args": [
-                { "op": "*", "args": [10, { "op": "enum", "args": ["hour", "SevenAM"] }] },
-                { "op": "enum", "args": ["day_type", "Weekday"] }] }
-            ] }
+              {
+                "op": "+",
+                "args": [
+                  {
+                    "op": "*",
+                    "args": [
+                      10,
+                      {
+                        "op": "enum",
+                        "args": [
+                          "hour",
+                          "SevenAM"
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "op": "enum",
+                    "args": [
+                      "day_type",
+                      "Weekend"
+                    ]
+                  }
+                ]
+              },
+              {
+                "op": "+",
+                "args": [
+                  {
+                    "op": "*",
+                    "args": [
+                      10,
+                      {
+                        "op": "enum",
+                        "args": [
+                          "hour",
+                          "SevenAM"
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "op": "enum",
+                    "args": [
+                      "day_type",
+                      "Weekday"
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
         },
         {
           "lhs": "omd_opModeID",
-          "rhs": { "op": "const", "args": [], "value": [150, 151, 300, 150, 151, 300] }
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              150,
+              151,
+              300,
+              150,
+              151,
+              300
+            ]
+          }
         },
         {
           "lhs": "omd_opModeFraction",
-          "rhs": { "op": "const", "args": [], "value": [0.0, 0.0, 1.0, 0.0, 0.0, 1.0] }
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              1.0
+            ]
+          }
         },
-
         {
           "lhs": "im_processID",
-          "rhs": { "op": "makearray", "args": [], "regions": [[[1, 1]]],
-            "values": [{ "op": "enum", "args": ["process", "EvapFuelLeaks"] }] }
+          "rhs": {
+            "op": "makearray",
+            "args": [],
+            "regions": [
+              [
+                [
+                  1,
+                  1
+                ]
+              ]
+            ],
+            "values": [
+              {
+                "op": "enum",
+                "args": [
+                  "process",
+                  "EvapFuelLeaks"
+                ]
+              }
+            ]
+          }
         },
         {
           "lhs": "im_pollutantID",
-          "rhs": { "op": "makearray", "args": [], "regions": [[[1, 1]]],
-            "values": [{ "op": "enum", "args": ["pollutant", "TotalGaseousHydrocarbons"] }] }
+          "rhs": {
+            "op": "makearray",
+            "args": [],
+            "regions": [
+              [
+                [
+                  1,
+                  1
+                ]
+              ]
+            ],
+            "values": [
+              {
+                "op": "enum",
+                "args": [
+                  "pollutant",
+                  "TotalGaseousHydrocarbons"
+                ]
+              }
+            ]
+          }
         },
         {
           "lhs": "im_modelYearID",
-          "rhs": { "op": "const", "args": [], "value": [1990] }
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              1990
+            ]
+          }
         },
         {
           "lhs": "im_fuelTypeID",
-          "rhs": { "op": "makearray", "args": [], "regions": [[[1, 1]]],
-            "values": [{ "op": "enum", "args": ["fuel_type", "Gasoline"] }] }
+          "rhs": {
+            "op": "makearray",
+            "args": [],
+            "regions": [
+              [
+                [
+                  1,
+                  1
+                ]
+              ]
+            ],
+            "values": [
+              {
+                "op": "enum",
+                "args": [
+                  "fuel_type",
+                  "Gasoline"
+                ]
+              }
+            ]
+          }
         },
         {
           "lhs": "im_sourceTypeID",
-          "rhs": { "op": "makearray", "args": [], "regions": [[[1, 1]]],
-            "values": [{ "op": "enum", "args": ["source_type", "PassengerCar"] }] }
+          "rhs": {
+            "op": "makearray",
+            "args": [],
+            "regions": [
+              [
+                [
+                  1,
+                  1
+                ]
+              ]
+            ],
+            "values": [
+              {
+                "op": "enum",
+                "args": [
+                  "source_type",
+                  "PassengerCar"
+                ]
+              }
+            ]
+          }
         },
         {
           "lhs": "im_imAdjustFract",
-          "rhs": { "op": "const", "args": [], "value": [0.3] }
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              0.3
+            ]
+          }
         },
-
         {
           "lhs": "emis_hourDayID",
-          "rhs": { "op": "makearray", "args": [], "regions": [[[1, 7]], [[8, 14]]],
+          "rhs": {
+            "op": "makearray",
+            "args": [],
+            "regions": [
+              [
+                [
+                  1,
+                  7
+                ]
+              ],
+              [
+                [
+                  8,
+                  14
+                ]
+              ]
+            ],
             "values": [
-              { "op": "+", "args": [
-                { "op": "*", "args": [10, { "op": "enum", "args": ["hour", "SevenAM"] }] },
-                { "op": "enum", "args": ["day_type", "Weekend"] }] },
-              { "op": "+", "args": [
-                { "op": "*", "args": [10, { "op": "enum", "args": ["hour", "SevenAM"] }] },
-                { "op": "enum", "args": ["day_type", "Weekday"] }] }
-            ] }
+              {
+                "op": "+",
+                "args": [
+                  {
+                    "op": "*",
+                    "args": [
+                      10,
+                      {
+                        "op": "enum",
+                        "args": [
+                          "hour",
+                          "SevenAM"
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "op": "enum",
+                    "args": [
+                      "day_type",
+                      "Weekend"
+                    ]
+                  }
+                ]
+              },
+              {
+                "op": "+",
+                "args": [
+                  {
+                    "op": "*",
+                    "args": [
+                      10,
+                      {
+                        "op": "enum",
+                        "args": [
+                          "hour",
+                          "SevenAM"
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "op": "enum",
+                    "args": [
+                      "day_type",
+                      "Weekday"
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
         },
         {
           "lhs": "emis_fuelTypeID",
-          "rhs": { "op": "const", "args": [], "value": [1, 1, 1, 1, 5, 1, 1, 1, 1, 1, 1, 5, 1, 1] }
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              1,
+              1,
+              1,
+              1,
+              5,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              5,
+              1,
+              1
+            ]
+          }
         },
         {
           "lhs": "emis_modelYearID",
-          "rhs": { "op": "const", "args": [],
-            "value": [1980, 1980, 1980, 2002, 2002, 2020, 1990,
-                      1980, 1980, 1980, 2002, 2002, 2020, 1990] }
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              1980,
+              1980,
+              1980,
+              2002,
+              2002,
+              2020,
+              1990,
+              1980,
+              1980,
+              1980,
+              2002,
+              2002,
+              2020,
+              1990
+            ]
+          }
         },
         {
           "lhs": "emis_opModeID",
-          "rhs": { "op": "const", "args": [],
-            "value": [300, 150, 151, 300, 300, 300, 300, 300, 150, 151, 300, 300, 300, 300] }
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              300,
+              150,
+              151,
+              300,
+              300,
+              300,
+              300,
+              300,
+              150,
+              151,
+              300,
+              300,
+              300,
+              300
+            ]
+          }
         },
         {
           "lhs": "emis_sourceTypeID",
-          "rhs": { "op": "makearray", "args": [], "regions": [[[1, 14]]],
-            "values": [{ "op": "enum", "args": ["source_type", "PassengerCar"] }] }
+          "rhs": {
+            "op": "makearray",
+            "args": [],
+            "regions": [
+              [
+                [
+                  1,
+                  14
+                ]
+              ]
+            ],
+            "values": [
+              {
+                "op": "enum",
+                "args": [
+                  "source_type",
+                  "PassengerCar"
+                ]
+              }
+            ]
+          }
         },
         {
           "lhs": "emis_effectiveAgeID",
-          "rhs": { "op": "-", "args": ["runYearID", "emis_modelYearID"] }
+          "rhs": {
+            "op": "-",
+            "args": [
+              "runYearID",
+              "emis_modelYearID"
+            ]
+          }
         },
         {
           "_comment": "components/evap_weighted_base_rate.esm's output; rows 7 and 14 are the labelled I/M probe.",
           "lhs": "emis_weightedMeanBaseRate",
-          "rhs": { "op": "const", "args": [],
-            "value": [4.037348315, 0.430904708, 0.22403231499999998, 1.353566677,
-                      0.000192737741, 0.12496779679999999, 1.0,
-                      4.037348315, 0.430904708, 0.22403231499999998, 1.353566677,
-                      0.000192737741, 0.12496779679999999, 1.0] }
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              4.037348315,
+              0.430904708,
+              0.22403231499999998,
+              1.353566677,
+              0.000192737741,
+              0.12496779679999999,
+              1.0,
+              4.037348315,
+              0.430904708,
+              0.22403231499999998,
+              1.353566677,
+              0.000192737741,
+              0.12496779679999999,
+              1.0
+            ]
+          }
         },
         {
           "lhs": "emis_weightedMeanBaseRateIM",
-          "rhs": { "op": "const", "args": [],
-            "value": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.5,
-                      0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.5] }
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.5,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.5
+            ]
+          }
         },
         {
           "_comment": "K15. One clause, two pairs; the reference's six-pair key adds year, month, link and source type, which are run scope here.",
           "lhs": "emis_sourceHours",
-          "rhs": { "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["r"],
-            "ranges": { "r": { "from": "leak_emission_rows" },
-                        "h": { "from": "leak_source_hour_rows" } },
-            "join": [ { "on": [["emis_hourDayID", "sh_hourDayID"],
-                               ["emis_effectiveAgeID", "sh_ageID"]] } ],
-            "expr": { "op": "index", "args": ["sh_sourceHours", "h"] } }
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "r"
+            ],
+            "ranges": {
+              "r": {
+                "from": "leak_emission_rows"
+              },
+              "h": {
+                "from": "leak_source_hour_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "emis_hourDayID",
+                    "sh_hourDayID"
+                  ],
+                  [
+                    "emis_effectiveAgeID",
+                    "sh_ageID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "sh_sourceHours",
+                "h"
+              ]
+            }
+          }
         },
         {
           "_comment": "K16.",
           "lhs": "emis_opModeFraction",
-          "rhs": { "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["r"],
-            "ranges": { "r": { "from": "leak_emission_rows" },
-                        "m": { "from": "leak_op_mode_rows" } },
-            "join": [ { "on": [["emis_hourDayID", "omd_hourDayID"],
-                               ["emis_opModeID", "omd_opModeID"]] } ],
-            "expr": { "op": "index", "args": ["omd_opModeFraction", "m"] } }
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "r"
+            ],
+            "ranges": {
+              "r": {
+                "from": "leak_emission_rows"
+              },
+              "m": {
+                "from": "leak_op_mode_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "emis_hourDayID",
+                    "omd_hourDayID"
+                  ],
+                  [
+                    "emis_opModeID",
+                    "omd_opModeID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "omd_opModeFraction",
+                "m"
+              ]
+            }
+          }
         },
         {
           "_comment": "K18.",
           "lhs": "emis_dayID",
-          "rhs": { "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["r"],
-            "ranges": { "r": { "from": "leak_emission_rows" },
-                        "k": { "from": "leak_hour_day_rows" } },
-            "join": [ { "on": [["emis_hourDayID", "hd_hourDayID"]] } ],
-            "expr": { "op": "index", "args": ["hd_dayID", "k"] } }
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "r"
+            ],
+            "ranges": {
+              "r": {
+                "from": "leak_emission_rows"
+              },
+              "k": {
+                "from": "leak_hour_day_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "emis_hourDayID",
+                    "hd_hourDayID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "hd_dayID",
+                "k"
+              ]
+            }
+          }
         },
         {
           "_comment": "K18 and K19 as one contraction over two relations: hourDayID to dayID to noOfRealDays.",
           "lhs": "emis_noOfRealDays",
-          "rhs": { "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["r"],
-            "ranges": { "r": { "from": "leak_emission_rows" },
-                        "k": { "from": "leak_hour_day_rows" },
-                        "w": { "from": "leak_day_rows" } },
-            "join": [ { "on": [["emis_hourDayID", "hd_hourDayID"]] },
-                      { "on": [["hd_dayID", "dow_dayID"]] } ],
-            "expr": { "op": "index", "args": ["dow_noOfRealDays", "w"] } }
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "r"
+            ],
+            "ranges": {
+              "r": {
+                "from": "leak_emission_rows"
+              },
+              "k": {
+                "from": "leak_hour_day_rows"
+              },
+              "w": {
+                "from": "leak_day_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "emis_hourDayID",
+                    "hd_hourDayID"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "hd_dayID",
+                    "dow_dayID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "dow_noOfRealDays",
+                "w"
+              ]
+            }
+          }
         },
         {
           "_comment": "K21, five key pairs in one clause. An unmatched row reads 0, for which im_blend is the identity -- the SQL's UPDATE leaves such a row untouched.",
           "lhs": "emis_imAdjustFract",
-          "rhs": { "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["r"],
-            "ranges": { "r": { "from": "leak_emission_rows" },
-                        "c": { "from": "im_coverage_rows" },
-                        "n": { "from": "leak_pol_process_rows" } },
-            "join": [ { "on": [["ppa_processID", "im_processID"],
-                               ["ppa_pollutantID", "im_pollutantID"],
-                               ["emis_modelYearID", "im_modelYearID"],
-                               ["emis_fuelTypeID", "im_fuelTypeID"],
-                               ["emis_sourceTypeID", "im_sourceTypeID"]] } ],
-            "expr": { "op": "index", "args": ["im_imAdjustFract", "c"] } }
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "r"
+            ],
+            "ranges": {
+              "r": {
+                "from": "leak_emission_rows"
+              },
+              "c": {
+                "from": "im_coverage_rows"
+              },
+              "n": {
+                "from": "leak_pol_process_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "ppa_processID",
+                    "im_processID"
+                  ],
+                  [
+                    "ppa_pollutantID",
+                    "im_pollutantID"
+                  ],
+                  [
+                    "emis_modelYearID",
+                    "im_modelYearID"
+                  ],
+                  [
+                    "emis_fuelTypeID",
+                    "im_fuelTypeID"
+                  ],
+                  [
+                    "emis_sourceTypeID",
+                    "im_sourceTypeID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "im_imAdjustFract",
+                "c"
+              ]
+            }
+          }
         },
         {
           "_comment": "L9, :974-980. The grouping is the reference's: ((rate x hours) x fraction) / days.",
           "lhs": "emis_emissionQuant",
-          "rhs": { "op": "/", "args": [
-            { "op": "*", "args": [
-              { "op": "*", "args": ["emis_weightedMeanBaseRate", "emis_sourceHours"] },
-              "emis_opModeFraction"] },
-            "emis_noOfRealDays"] }
+          "rhs": {
+            "op": "/",
+            "args": [
+              {
+                "op": "*",
+                "args": [
+                  {
+                    "op": "*",
+                    "args": [
+                      "emis_weightedMeanBaseRate",
+                      "emis_sourceHours"
+                    ]
+                  },
+                  "emis_opModeFraction"
+                ]
+              },
+              "emis_noOfRealDays"
+            ]
+          }
         },
         {
           "lhs": "emis_emissionQuantIM",
-          "rhs": { "op": "/", "args": [
-            { "op": "*", "args": [
-              { "op": "*", "args": ["emis_weightedMeanBaseRateIM", "emis_sourceHours"] },
-              "emis_opModeFraction"] },
-            "emis_noOfRealDays"] }
+          "rhs": {
+            "op": "/",
+            "args": [
+              {
+                "op": "*",
+                "args": [
+                  {
+                    "op": "*",
+                    "args": [
+                      "emis_weightedMeanBaseRateIM",
+                      "emis_sourceHours"
+                    ]
+                  },
+                  "emis_opModeFraction"
+                ]
+              },
+              "emis_noOfRealDays"
+            ]
+          }
         },
         {
           "_comment": "L9's trailing UPDATE, by lib/adjustments.esm's im_blend -- authored in Phase 1 for this and unexercised until now.",
           "lhs": "emis_blendedQuant",
-          "rhs": { "op": "apply_expression_template", "args": [], "name": "im_blend",
-            "bindings": { "rate_im": "emis_emissionQuantIM",
-                          "fraction_im": "emis_imAdjustFract",
-                          "rate_base": "emis_emissionQuant" } }
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "im_blend",
+            "bindings": {
+              "rate_im": "emis_emissionQuantIM",
+              "fraction_im": "emis_imAdjustFract",
+              "rate_base": "emis_emissionQuant"
+            }
+          }
         },
-
         {
           "lhs": "out_dayID",
-          "rhs": { "op": "makearray", "args": [], "regions": [[[1, 5]], [[6, 10]]],
+          "rhs": {
+            "op": "makearray",
+            "args": [],
+            "regions": [
+              [
+                [
+                  1,
+                  5
+                ]
+              ],
+              [
+                [
+                  6,
+                  10
+                ]
+              ]
+            ],
             "values": [
-              { "op": "enum", "args": ["day_type", "Weekend"] },
-              { "op": "enum", "args": ["day_type", "Weekday"] }
-            ] }
+              {
+                "op": "enum",
+                "args": [
+                  "day_type",
+                  "Weekend"
+                ]
+              },
+              {
+                "op": "enum",
+                "args": [
+                  "day_type",
+                  "Weekday"
+                ]
+              }
+            ]
+          }
         },
         {
           "lhs": "out_fuelTypeID",
-          "rhs": { "op": "const", "args": [], "value": [1, 1, 5, 1, 1, 1, 1, 5, 1, 1] }
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              1,
+              1,
+              5,
+              1,
+              1,
+              1,
+              1,
+              5,
+              1,
+              1
+            ]
+          }
         },
         {
           "lhs": "out_modelYearID",
-          "rhs": { "op": "const", "args": [],
-            "value": [1980, 2002, 2002, 2020, 1990, 1980, 2002, 2002, 2020, 1990] }
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              1980,
+              2002,
+              2002,
+              2020,
+              1990,
+              1980,
+              2002,
+              2002,
+              2020,
+              1990
+            ]
+          }
         },
         {
           "lhs": "out_polProcessID",
-          "rhs": { "op": "makearray", "args": [], "regions": [[[1, 10]]],
+          "rhs": {
+            "op": "makearray",
+            "args": [],
+            "regions": [
+              [
+                [
+                  1,
+                  10
+                ]
+              ]
+            ],
             "values": [
-              { "op": "apply_expression_template", "args": [], "name": "pol_process_id",
+              {
+                "op": "apply_expression_template",
+                "args": [],
+                "name": "pol_process_id",
                 "bindings": {
-                  "pollutant_id": { "op": "enum", "args": ["pollutant", "TotalGaseousHydrocarbons"] },
-                  "process_id": { "op": "enum", "args": ["process", "EvapFuelLeaks"] } } }
-            ] }
+                  "pollutant_id": {
+                    "op": "enum",
+                    "args": [
+                      "pollutant",
+                      "TotalGaseousHydrocarbons"
+                    ]
+                  },
+                  "process_id": {
+                    "op": "enum",
+                    "args": [
+                      "process",
+                      "EvapFuelLeaks"
+                    ]
+                  }
+                }
+              }
+            ]
+          }
         },
         {
           "_comment": "K17: the pollutant-process splits into the output's two columns.",
           "lhs": "out_pollutantID",
-          "rhs": { "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["o"],
-            "ranges": { "o": { "from": "leak_output_rows" },
-                        "n": { "from": "leak_pol_process_rows" } },
-            "join": [ { "on": [["out_polProcessID", "runPolProcessID"]] } ],
-            "expr": { "op": "index", "args": ["ppa_pollutantID", "n"] } }
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "o"
+            ],
+            "ranges": {
+              "o": {
+                "from": "leak_output_rows"
+              },
+              "n": {
+                "from": "leak_pol_process_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "out_polProcessID",
+                    "runPolProcessID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "ppa_pollutantID",
+                "n"
+              ]
+            }
+          }
         },
         {
           "lhs": "out_processID",
-          "rhs": { "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["o"],
-            "ranges": { "o": { "from": "leak_output_rows" },
-                        "n": { "from": "leak_pol_process_rows" } },
-            "join": [ { "on": [["out_polProcessID", "runPolProcessID"]] } ],
-            "expr": { "op": "index", "args": ["ppa_processID", "n"] } }
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "o"
+            ],
+            "ranges": {
+              "o": {
+                "from": "leak_output_rows"
+              },
+              "n": {
+                "from": "leak_pol_process_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "out_polProcessID",
+                    "runPolProcessID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "ppa_processID",
+                "n"
+              ]
+            }
+          }
         },
         {
           "_comment": "The SQL's `INNER JOIN Link ON the iteration link`: one row, no key, a cross join.",
           "lhs": "out_roadTypeID",
-          "rhs": { "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["o"],
-            "ranges": { "o": { "from": "leak_output_rows" },
-                        "l": { "from": "leak_link_rows" } },
-            "expr": { "op": "index", "args": ["link_roadTypeID", "l"] } }
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "o"
+            ],
+            "ranges": {
+              "o": {
+                "from": "leak_output_rows"
+              },
+              "l": {
+                "from": "leak_link_rows"
+              }
+            },
+            "expr": {
+              "op": "index",
+              "args": [
+                "link_roadTypeID",
+                "l"
+              ]
+            }
+          }
         },
         {
           "_comment": "O2, engine.rs:1450-1477.",
           "lhs": "out_SCC",
-          "rhs": { "op": "apply_expression_template", "args": [], "name": "onroad_scc",
-            "bindings": { "fuel_type_id": "out_fuelTypeID",
-                          "source_type_id": { "op": "enum", "args": ["source_type", "PassengerCar"] },
-                          "road_type_id": "out_roadTypeID",
-                          "process_id": "out_processID" } }
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "onroad_scc",
+            "bindings": {
+              "fuel_type_id": "out_fuelTypeID",
+              "source_type_id": {
+                "op": "enum",
+                "args": [
+                  "source_type",
+                  "PassengerCar"
+                ]
+              },
+              "road_type_id": "out_roadTypeID",
+              "process_id": "out_processID"
+            }
+          }
         },
         {
           "_comment": "O3: NULL, not zero. lib/identifiers.esm's null_output_column is 0/0.",
           "lhs": "out_regClassID",
-          "rhs": { "op": "*", "args": [
-            { "op": "apply_expression_template", "args": [], "name": "null_output_column",
-              "bindings": {} },
-            "out_polProcessID"] }
+          "rhs": {
+            "op": "*",
+            "args": [
+              {
+                "op": "apply_expression_template",
+                "args": [],
+                "name": "null_output_column",
+                "bindings": {}
+              },
+              "out_polProcessID"
+            ]
+          }
         },
         {
           "_comment": "O1, K22: the GROUP BY that drops opModeID. Two rows sharing an output key add, and here that sum is over the three operating modes.",
           "lhs": "out_emissionQuant",
-          "rhs": { "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["o"],
-            "ranges": { "o": { "from": "leak_output_rows" },
-                        "r": { "from": "leak_emission_rows" } },
-            "join": [ { "on": [["out_dayID", "emis_dayID"],
-                               ["out_fuelTypeID", "emis_fuelTypeID"],
-                               ["out_modelYearID", "emis_modelYearID"]] } ],
-            "expr": { "op": "index", "args": ["emis_blendedQuant", "r"] } }
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "o"
+            ],
+            "ranges": {
+              "o": {
+                "from": "leak_output_rows"
+              },
+              "r": {
+                "from": "leak_emission_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "out_dayID",
+                    "emis_dayID"
+                  ],
+                  [
+                    "out_fuelTypeID",
+                    "emis_fuelTypeID"
+                  ],
+                  [
+                    "out_modelYearID",
+                    "emis_modelYearID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "emis_blendedQuant",
+                "r"
+              ]
+            }
+          }
+        },
+        {
+          "_comment": "1 - [x>0] - [x<=0]: both comparisons are false for a NaN, so this is 1 exactly where the column is absent.",
+          "lhs": "out_regClassIsAbsent",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "output_column_is_absent",
+            "bindings": {
+              "column": "out_regClassID"
+            }
+          }
+        },
+        {
+          "lhs": "out_emissionQuantIsAbsent",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "output_column_is_absent",
+            "bindings": {
+              "column": "out_emissionQuant"
+            }
+          }
         }
       ],
-
-      "tests": []
+      "tests": [
+        {
+          "id": "the_worked_examples_reach_movesoutput",
+          "description": "L9 and O1 on the eight rows that are cells of the snapshot's MOVESOutput, against docs/evap-leaks.md 6.1 to 6.3. The reference stores 4.92007, 8.43008, 0.00120038, 1.70768, 18.7267, 32.0866, 0.00456889 and 6.49975; the values pinned here are the binary64 values of the specification's own expressions and sit between 1.0e-08 and 1.3e-06 from those prints, which is the snapshot's six-significant-figure column storage and not accumulated error (docs/evap-leaks.md 7.1, where each residual is attributed to a specific stored input). What breaks if this is wrong: every factor of the L9 product is in these numbers, so a wrong base rate, a wrong activity join, a wrong operating-mode fraction or a wrong divisor all land here -- which is why the attribution lives in the upstream components and this test is the end-to-end one.",
+          "time_span": {
+            "start": 0.0,
+            "end": 0.0
+          },
+          "assertions": [
+            {
+              "variable": "out_emissionQuant",
+              "time": 0.0,
+              "expected": 4.9200741505916,
+              "coords": {
+                "leak_output_rows": 1
+              }
+            },
+            {
+              "variable": "out_emissionQuant",
+              "time": 0.0,
+              "expected": 8.43008094268985,
+              "coords": {
+                "leak_output_rows": 2
+              }
+            },
+            {
+              "variable": "out_emissionQuant",
+              "time": 0.0,
+              "expected": 0.0012003802878350499,
+              "coords": {
+                "leak_output_rows": 3
+              }
+            },
+            {
+              "variable": "out_emissionQuant",
+              "time": 0.0,
+              "expected": 1.7076849432719998,
+              "coords": {
+                "leak_output_rows": 4
+              }
+            },
+            {
+              "variable": "out_emissionQuant",
+              "time": 0.0,
+              "expected": 18.7266749303634,
+              "coords": {
+                "leak_output_rows": 6
+              }
+            },
+            {
+              "variable": "out_emissionQuant",
+              "time": 0.0,
+              "expected": 32.0865687916204,
+              "coords": {
+                "leak_output_rows": 7
+              }
+            },
+            {
+              "variable": "out_emissionQuant",
+              "time": 0.0,
+              "expected": 0.0045688866979532,
+              "coords": {
+                "leak_output_rows": 8
+              }
+            },
+            {
+              "variable": "out_emissionQuant",
+              "time": 0.0,
+              "expected": 6.49975006648352,
+              "coords": {
+                "leak_output_rows": 9
+              }
+            }
+          ]
+        },
+        {
+          "id": "real_days_divides_and_does_not_multiply",
+          "description": "L9's divisor, on one cohort in both day types. The 1980 gasoline rows are 4.9200741505916 g on the weekend and 18.7266749303634 g on the weekday, a ratio of 3.80618. What breaks if this is wrong: A7 has already multiplied `noOfRealDays` in, by dividing the month's VMT by weeksPerMonth, so L9 must divide it out. Multiplying instead gives 4.037348315 x 23.1918 x 5 = 468.16687325908504 g for the weekday row, and omitting the factor entirely gives 93.63337465181701 g -- a factor of 5 on a row whose key set, pollutant and SCC are all correct. The ratio is also a check on the whole day-type chain: 3.80618 is dayVMTFraction (3.208) x hourVMTFraction (2.493) / noOfRealDays (2.5) x the speed ratio (1.18950), and no factor in that product is 1 (docs/evap-leaks.md 6.4).",
+          "time_span": {
+            "start": 0.0,
+            "end": 0.0
+          },
+          "assertions": [
+            {
+              "variable": "emis_noOfRealDays",
+              "time": 0.0,
+              "expected": 2.0,
+              "coords": {
+                "leak_emission_rows": 1
+              }
+            },
+            {
+              "variable": "emis_noOfRealDays",
+              "time": 0.0,
+              "expected": 5.0,
+              "coords": {
+                "leak_emission_rows": 8
+              }
+            },
+            {
+              "variable": "out_emissionQuant",
+              "time": 0.0,
+              "expected": 4.9200741505916,
+              "coords": {
+                "leak_output_rows": 1
+              }
+            },
+            {
+              "variable": "out_emissionQuant",
+              "time": 0.0,
+              "expected": 18.7266749303634,
+              "coords": {
+                "leak_output_rows": 6
+              }
+            }
+          ]
+        },
+        {
+          "id": "the_zero_op_mode_fractions_contribute_nothing",
+          "description": "O1 sums the three operating modes of the 1980 gasoline cohort, and two of them carry a real non-zero base rate -- 0.430904708 g/h hot-soaking and 0.22403231499999998 g/h cold-soaking, asserted here so that their zero contribution cannot be a missing input -- times an opModeFraction of exactly 0. So the weekend sum is the mode-300 term alone, 4.9200741505916 g. What breaks if this is wrong: summing the three rates without their fractions gives (4.037348315 + 0.430904708 + 0.22403231499999998) x 2.43728 / 2 = 5.7182066043003195 g, a 16.2% over-emit with the right key set, the right pollutant and no NaN to trace it by. The zero is COMPUTED by components/evap_operating_mode_distribution.esm from fractionOfOperating = 1, not assumed here; this test is what makes that zero load-bearing rather than decorative.",
+          "time_span": {
+            "start": 0.0,
+            "end": 0.0
+          },
+          "assertions": [
+            {
+              "variable": "emis_weightedMeanBaseRate",
+              "time": 0.0,
+              "expected": 0.430904708,
+              "coords": {
+                "leak_emission_rows": 2
+              }
+            },
+            {
+              "variable": "emis_weightedMeanBaseRate",
+              "time": 0.0,
+              "expected": 0.22403231499999998,
+              "coords": {
+                "leak_emission_rows": 3
+              }
+            },
+            {
+              "variable": "emis_emissionQuant",
+              "time": 0.0,
+              "expected": 4.9200741505916,
+              "coords": {
+                "leak_emission_rows": 1
+              }
+            },
+            {
+              "variable": "out_emissionQuant",
+              "time": 0.0,
+              "expected": 4.9200741505916,
+              "coords": {
+                "leak_output_rows": 1
+              }
+            }
+          ]
+        },
+        {
+          "id": "the_im_blend_is_the_identity_where_no_program_covers_the_row",
+          "description": "Both arms of L9's trailing UPDATE. On row 1 no IMCoverageMergedUngrouped cell matches, `emis_imAdjustFract` is 0, and `im_blend` returns the unblended 4.9200741505916 g -- which is the SQL's `a row with no matching cell keeps its value unchanged`, spelled as a zero rather than as a branch. On the probe rows the fraction is 0.3 and the blend moves the value: 0.2759 x 0.3 + 0.5518 x 0.7 = 0.46902999999999995 g. What breaks if this is wrong: lib/adjustments.esm's `im_blend` was authored in Phase 1 and has never been exercised, and its two rate arguments are the same shape and the same units. Swapping them was measured, by doing it: every one of the twelve non-probe rows goes to EXACTLY 0, because the blend then reads `q x 0 + 0 x 1` where the fraction is 0 -- so a swapped `im_blend` does not perturb this fixture, it silences it, and 0 is a legal emission quantity that flows through a sum without leaving a NaN to trace. The probe rows go to 0.35866999999999993 g and 1.3651560000000003 g. Fifteen of this file's thirty-seven assertions fail under that sabotage; without the probe the swap would be invisible in the argument ORDER and visible only as a total of zero.",
+          "time_span": {
+            "start": 0.0,
+            "end": 0.0
+          },
+          "assertions": [
+            {
+              "variable": "emis_blendedQuant",
+              "time": 0.0,
+              "expected": 4.9200741505916,
+              "coords": {
+                "leak_emission_rows": 1
+              }
+            },
+            {
+              "variable": "emis_imAdjustFract",
+              "time": 0.0,
+              "expected": 0.3,
+              "coords": {
+                "leak_emission_rows": 7
+              }
+            },
+            {
+              "variable": "emis_emissionQuant",
+              "time": 0.0,
+              "expected": 0.5518,
+              "coords": {
+                "leak_emission_rows": 7
+              }
+            },
+            {
+              "variable": "emis_emissionQuantIM",
+              "time": 0.0,
+              "expected": 0.2759,
+              "coords": {
+                "leak_emission_rows": 7
+              }
+            },
+            {
+              "variable": "out_emissionQuant",
+              "time": 0.0,
+              "expected": 0.46902999999999995,
+              "coords": {
+                "leak_output_rows": 5
+              }
+            },
+            {
+              "variable": "out_emissionQuant",
+              "time": 0.0,
+              "expected": 1.7852040000000002,
+              "coords": {
+                "leak_output_rows": 10
+              }
+            }
+          ]
+        },
+        {
+          "id": "the_scc_is_computed_from_four_columns",
+          "description": "O2, engine.rs:1450-1477, by lib/onroad_activity.esm's `onroad_scc`: 22e8 + fuelTypeID x 1e6 + sourceTypeID x 1e4 + roadTypeID x 1e2 + processID. Gasoline gives 2201210413 and E85 2205210413, which is what MOVESOutput's two SCCs are. What breaks if this is wrong: the SCC is COMPUTED and not looked up -- the `scc` table's 14,976 rows agree with the formula and are read by nothing in this chain -- so a hard-coded value would be right for gasoline and wrong for the 46 E85 rows, and the comparator treats SCC as an identity column, so those 46 would come back as 46 missing plus 46 extra keys rather than as a wrong number. Exchanging the fuel and source-type slots gives 2221010413, which is still a ten-digit SCC. The pollutant and process columns are pinned beside it because `process_id_of` supplies the SCC's last two digits and the output row's processID from the same packed identifier, so a disagreement between them is impossible by construction and worth keeping that way.",
+          "time_span": {
+            "start": 0.0,
+            "end": 0.0
+          },
+          "assertions": [
+            {
+              "variable": "out_SCC",
+              "time": 0.0,
+              "expected": 2201210413.0,
+              "coords": {
+                "leak_output_rows": 1
+              }
+            },
+            {
+              "variable": "out_SCC",
+              "time": 0.0,
+              "expected": 2205210413.0,
+              "coords": {
+                "leak_output_rows": 3
+              }
+            },
+            {
+              "variable": "out_pollutantID",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "leak_output_rows": 1
+              }
+            },
+            {
+              "variable": "out_processID",
+              "time": 0.0,
+              "expected": 13.0,
+              "coords": {
+                "leak_output_rows": 1
+              }
+            },
+            {
+              "variable": "out_roadTypeID",
+              "time": 0.0,
+              "expected": 4.0,
+              "coords": {
+                "leak_output_rows": 1
+              }
+            }
+          ]
+        },
+        {
+          "id": "the_absent_output_column_is_absent_and_not_zero",
+          "description": "O3, and both arms of it. `out_regClassID` is `null_output_column` -- 0/0 -- because MOVESOutput leaves regClassID NULL on all 128 rows of this run and emitting 0 would claim regulatory class zero; `out_regClassIsAbsent` is 1 on every row and `out_emissionQuantIsAbsent` is 0 on every row, which is the negative control. What breaks if this is wrong: the absence cannot be asserted directly. `Assertion.expected` is a JSON number, so NaN cannot be written down, and every tolerance form is a magnitude comparison that a NaN actual fails -- measured, `actual=NaN expected=0` reports FAIL, which is the correct verdict and the wrong polarity for a test that should pass. So the indicator is the assertion, and it uses only ops the format already has: IEEE makes both `x > 0` and `x <= 0` false for a NaN, so `1 - [x>0] - [x<=0]` separates absent from present. Measured on a three-row probe: 1 for 0/0, 0 for 4.25, 0 for -1.5. Without the negative control an indicator stuck at 1 would satisfy the first assertion, which is why both arms are here.",
+          "time_span": {
+            "start": 0.0,
+            "end": 0.0
+          },
+          "assertions": [
+            {
+              "variable": "out_regClassIsAbsent",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "leak_output_rows": 1
+              }
+            },
+            {
+              "variable": "out_regClassIsAbsent",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "leak_output_rows": 8
+              }
+            },
+            {
+              "variable": "out_emissionQuantIsAbsent",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "leak_output_rows": 1
+              }
+            },
+            {
+              "variable": "out_emissionQuantIsAbsent",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "leak_output_rows": 8
+              }
+            },
+            {
+              "variable": "out_emissionQuant",
+              "time": 0.0,
+              "expected": 4.9200741505916,
+              "coords": {
+                "leak_output_rows": 1
+              }
+            }
+          ]
+        },
+        {
+          "id": "the_activity_join_pairs_a_rate_with_its_own_age",
+          "description": "K15, whose key is the derived `runYearID - modelYearID`. The 1980 cohort is age 40 and reads 2.43728 h on the weekend and 23.1918 h on the weekday; the 2020 cohort is age 0 and reads 27.33 h and 260.057 h. What breaks if this is wrong: components/evap_weighted_base_rate.esm's K12 uses the SAME subtraction to pick the rate, so if the two disagreed a cohort would get its own rate against another age's activity. For the 1980 gasoline row that is 4.037348315 g/h against age 0's 260.057 h instead of age 40's 23.1918 h -- 209.98813815079103 g instead of 18.7266749303634 g on the weekday, an 11.2-fold over-emit with the correct key set. moves.rs writes the subtraction at :767 and :935; this port writes it once and joins on the column.",
+          "time_span": {
+            "start": 0.0,
+            "end": 0.0
+          },
+          "assertions": [
+            {
+              "variable": "emis_effectiveAgeID",
+              "time": 0.0,
+              "expected": 40.0,
+              "coords": {
+                "leak_emission_rows": 1
+              }
+            },
+            {
+              "variable": "emis_sourceHours",
+              "time": 0.0,
+              "expected": 2.43728,
+              "coords": {
+                "leak_emission_rows": 1
+              }
+            },
+            {
+              "variable": "emis_sourceHours",
+              "time": 0.0,
+              "expected": 23.1918,
+              "coords": {
+                "leak_emission_rows": 8
+              }
+            },
+            {
+              "variable": "emis_effectiveAgeID",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "leak_emission_rows": 6
+              }
+            },
+            {
+              "variable": "emis_sourceHours",
+              "time": 0.0,
+              "expected": 260.057,
+              "coords": {
+                "leak_emission_rows": 13
+              }
+            }
+          ]
+        }
+      ]
     }
   }
 }
