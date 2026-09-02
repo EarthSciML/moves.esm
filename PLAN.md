@@ -254,9 +254,12 @@ not a schema value. Every hand-authored document must say `unknown`.
 bit-identical to the Fortran `real*4` reference, and preserves Fortran
 associativity operation by operation
 (`crates/moves-nonroad/src/emissions/exhaust.rs`, "Numerical-fidelity policy").
-ESM evaluates in `binary64`; `domain.element_type: "Float32"` is document-wide
-and does not reproduce per-expression single-precision rounding. Set a relative
-tolerance and record it — do not promise bit equality.
+ESM evaluated in `binary64` when this was written. It no longer does:
+`domain.element_type: "Float32"` is honoured **per operation**, and a
+per-variable override carries the identifier columns a float precision would
+destroy (§1.6.2, `docs/findings` F18). Set a relative tolerance and record it
+anyway — the per-operation rounding matches, but associativity is not promised,
+so do not promise bit equality.
 
 **Which tolerance, though, is not the obvious one.** An earlier draft of this
 plan said to mirror `moves.rs/characterization/tolerance.toml`. That is wrong:
@@ -346,6 +349,13 @@ remaining SCCs land the four rows become live and §1.6.2 becomes the blocker it
 is described as being.
 
 ### 1.6.2 `element_type: "Float32"` was declared, documented, and ignored — **now honoured**
+
+*(Historical, and now landed — see the end of this subsection. One correction
+to its premise: the four rows are recoverable by evaluating the FOLD in f32,
+which the fixture does not do — it carries the fold's output as data because of
+F12, so its own twelve rows never depended on the element type. §1.6.1a has
+this right; `docs/esm-conventions.md` §17.5 records where four other files did
+not.)*
 
 So the four rows are recoverable only by evaluating in f32 — and the one
 mechanism the format offers for that does not work. A document declaring

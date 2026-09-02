@@ -127,18 +127,26 @@ Forty-four candidate cohorts have a grown fraction of *exactly* zero, so a
 document without the skip over-emits by 44 in either precision. **Reproduce the
 reference's control flow, and author for float32 semantics**: the remaining
 difference is one cohort — SCC 2260007005 / MY2018, 5.96 × 10⁻⁸ in float32 and
-exactly 0.0 in binary64 — which no expression can distinguish and which
-evaluating the document in float32 settles.
+exactly 0.0 in binary64 — which no expression can distinguish.
 
-`domain.element_type: "Float32"` is now honoured, per operation, and a
+`domain.element_type: "Float32"` is honoured, per operation, and a
 **per-variable** `element_type` overrides it — necessary because a
 document-wide float precision destroys ten-digit join keys (`docs/findings`
 F18). The override is **strict**: mixing precisions inside one operator is a
-compile error, not a silent coercion, so declaring `Float32` on a document that
-carries both identifiers and quantities means splitting every operator that
-touches both. Converting the fixture is in flight; measured on the fixture as
-it stands, adding the domain block alone collapses 52 of its 87 assertions to
-zero.
+compile error, not a silent coercion. The fixture declares `Float32` with 19
+SCC-valued variables at `Float64`, and both halves are verifiably live in one
+run: all 12 emitted values are exactly binary32-representable where none of the
+binary64 values was, and the SCC stays `2260007005` rather than collapsing to
+`2260006912`.
+
+**But that cohort is not what the element type settles here, and four files in
+this repo used to say it was.** `agedist.f`'s fold is a recurrence the format
+cannot spell (F12), so the fixture *carries* the grown fractions as a `const`
+whose third value is 5.89 × 10⁻⁸ — positive in either precision. Its twelve
+rows never depended on the element type; the document had the right row set for
+a reason none of those four files stated, and no gate noticed. What the element
+type is needed for is the *other two* SCCs, once F12 lands and their folds are
+computed rather than carried. `docs/esm-conventions.md` §17.5 records this.
 
 ## A warning about zeros
 
@@ -184,16 +192,28 @@ document's rows. Verified against the real snapshot — 1,183 rows of a column
 sized by `extent` discovery, summing to 181564.4520000001, matching pyarrow
 exactly.
 
-**What stands between the NONROAD chain and the 144th row is no longer
-precision.** `domain.element_type: "Float32"` is now honoured per operation,
-with a per-variable override, because honouring it document-wide destroys
-ingested integer keys above 2^24 (`docs/findings/README.md` F18) and the
-override is the answer to that. See "The binary64 rule" above for what remains:
-converting the fixture is authoring work, not a blocker.
+**The fixture evaluates in Float32.** It declares
+`domain.element_type: "Float32"` with 19 SCC-valued variables overridden to
+`Float64` — the override exists because honouring a float precision
+document-wide destroys ingested integer keys above 2²⁴
+(`docs/findings/README.md` F18). 87 of 87 inline assertions pass, the 12 rows
+and their key set are unchanged, and the worst cell moved from 4.025 × 10⁻⁶ to
+4.046 × 10⁻⁶ against a 2 × 10⁻⁵ gate. Not one expected value changed; ten
+assertion tolerances moved to exactly 2⁻²³, one binary32 epsilon, which is the
+tightest a binary32 evaluation can ever satisfy and still fails a perturbation
+of 3.4 epsilons.
 
-The blocker is **F12** — `agedist.f`'s thirty-year fold is a recurrence over an
-index axis that the format cannot spell, and the fixture's other two SCCs each
-need their own result from it. A closed form over the residual sequence is
+Nothing needed splitting to get there, and that was luck with a cause worth
+knowing: `lib/keys.esm`'s SCC ladders take their presence tests as
+*predicates*, because §3 of the conventions wanted the test to be a separate
+`max`-semiring aggregate for join cost. Written the way a reader of `prccty.f`
+reaches for first — `has_exact*scc + (1-has_exact)*sccZero2` — all five ladders
+would be `mixed_element_type` errors.
+
+**What stands between the NONROAD chain and the 144th row is F12 alone** —
+`agedist.f`'s thirty-year fold is a recurrence over an index axis that the
+format cannot spell, and the fixture's other two SCCs each need their own
+result from it. A closed form over the residual sequence is
 verified exact — 0 of 1,581 cells differ per equipment point, float32, six
 equipment points — but substituting it leaves a deconvolution, so the recurrence
 survives every reduction and the fix is a format addition.
