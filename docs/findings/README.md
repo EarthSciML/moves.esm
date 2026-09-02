@@ -1,12 +1,12 @@
 # Findings: conventions the format or the toolchain could not express
 
-Twenty things PLAN.md §3 Phase 1, Phase 2 and Phase 3 assumed, or that an author would
+Twenty-one things PLAN.md §3 Phase 1 through Phase 4 assumed, or that an author would
 reasonably assume, that did not hold. Four are now fixed upstream and are listed
 at the bottom, with their sections kept above so the workarounds they forced can
 be traced; the rest still hold at the pinned toolchain (`esm-version.lock`:
 EarthSciAST `f83bff90d`, EarthSciIO `d109951d4`, `--features esio,parallel`).
 
-F2, F3, F5, F6, F11–F14 and F20 each have a minimal `.esm` repro in this directory —
+F2, F3, F5, F6, F11–F14, F20 and F21 each have a minimal `.esm` repro in this directory —
 F12 has four, one per spelling an author would try; F7 and F8 are CLI behaviours
 rather than documents, and are checked by command against the ordinary files of
 the repo. **Every repro is expected to fail**, and each one's inline test asserts the *intended* behaviour, so a repro
@@ -16,7 +16,11 @@ convention that then becomes available. That is the opposite of the usual
 polarity and it is deliberate — a known limitation that quietly gets fixed is a
 workaround left in the tree for no reason.
 
-Two files are excluded from that loop by name, for opposite reasons. **F19's
+Three files are excluded from that loop by name. **`join_leaf.esm`** is a leaf
+that two repros mount and that passes standalone, which is what makes their
+failures attributable to the mount — F21 reuses it rather than adding a fourth
+leaf, so that finding needed no change to `run-tests.sh`. The other two are
+excluded for opposite reasons. **F19's
 repro passes today, and that is the defect**, so it is watched by an inverted
 check of its own that goes red when it starts failing. **F18's is a control that
 is meant to pass**: the key-collapse half of F18 is resolved, by a per-variable
@@ -46,6 +50,7 @@ three of them do not load.
 | **F18** | An ingested value the declared `element_type` cannot represent is narrowed silently (the key-collapse half is **resolved**, by a per-variable override) | ingest | **yes** |
 | **F19** | An assertion whose actual value is `+inf` passes whatever the `expected` | — | **yes** |
 | **F20** | A constant-folded scalar right-hand side loses the left-hand side's array shape | assertion | no |
+| **F21** | A scoped reference to a mounted model's variable resolves as an operand and a join key but not as an assertion `variable` | assertion | no |
 
 ---
 
@@ -987,3 +992,84 @@ one, and because the error message points at the wrong finding.
 **Fix shape.** Broadcast a scalar-folded right-hand side over the left-hand
 side's declared shape, which is what the same document already does when the
 fold does not collapse the branch.
+
+---
+
+## F21 — a scoped name is not an assertable variable
+
+`F21_a_scoped_name_is_not_assertable.esm` (with `join_leaf.esm`). Found
+authoring Phase 4's assembly, `runs/evap_leaks_run.esm`.
+
+`esm-schema.json`'s `Assertion.variable` says, verbatim:
+
+> Name of the variable or species to check. Use the local name (e.g., `"O3"`)
+> or a scoped reference relative to this component (e.g., `"subsystem.X"`).
+
+Do that and the assertion errors:
+
+```
+$ (cd docs/findings && ../../esm test F21_a_scoped_name_is_not_assertable.esm)
+  TOTAL                                        3      0      1
+
+  - Host/a_scoped_name_resolves_as_an_operand_but_not_as_an_assertion[3]
+      (Leaf.left_key@t=0.0) — ERROR
+      assertion evaluation failed: variable 'Leaf.left_key' is not declared in
+      model 'Host'
+```
+
+**The same name resolves everywhere else in the same document.** That is what
+the repro's first two assertions establish, and it is what makes this a gap in
+one code path rather than a mount that does not work: `host_doubled` is
+`2 × Leaf.left_key` in an ordinary equation and evaluates to 14 and 8 from the
+leaf's `[7, 9, 4]`. Across this repository's four assemblies the scoped form is
+also used, and works, as
+
+* a `join.on` key column — every `run_*` equation in `runs/mixed_onroad_run.esm`
+  and `runs/evap_leaks_run.esm`;
+* an `expr` operand inside an aggregate;
+* a `plots` `variable` — `runs/nr_logging_county_run.esm` plots
+  `Rollup.pp_polProcessID`, `runs/mixed_onroad_run.esm` plots `Output.out_SCC`.
+
+**Measured on both mount forms, with a byte-identical message.** The repro uses
+the top-level `models` `{ref}` form (`docs/esm-conventions.md` §5's). A
+`subsystems` mount of the same leaf asserting the same scoped name fails the
+same way, so there is no spelling of the mount that makes the assertion work and
+the finding is not about which form §5 recommends.
+
+**Loud, and at assertion time.** `esm validate` passes; the failure is reported
+as an `ERROR` (not a `FAIL`) with the name in it, so nothing is silent and
+nothing is mistaken for a wrong number.
+
+**Impact: an assembly can only assert its own columns.** A leaf value it wants
+to pin has to be routed through a variable the asserting model declares. Two
+shapes for that, and the second is better:
+
+* an identity equation, `run_x = Leaf.x`, which adds a variable that means
+  nothing;
+* an algebraic recovery from columns the model already has.
+  `runs/evap_leaks_run.esm` wants the base rate its emission stage *carries*, to
+  assert it beside the residual of the rate join, and gets it as
+  `run_carriedRate = run_weightedMeanBaseRate − run_rateResidual` — both its
+  own. One expression more than the schema implies is needed, and no loss of
+  coverage.
+
+**A second measurement, taken at the same time, that is not this finding.** The
+two mount forms differ in whether the *leaf's own* tests run under the mount.
+Same leaf, same host, one host variable and two host assertions either way:
+
+| mount form | assertions discovered | leaf's own test runs? |
+|---|---|---|
+| top-level `models` `{ref}` | 3 | **yes** |
+| nested `subsystems` | 2 | **no** |
+
+`docs/esm-conventions.md` §5 states the leaf's-tests-run behaviour as a feature
+of mounting and then recommends the nested form for new assemblies. On this
+toolchain those two sentences pull against each other, and this port's
+assemblies get the leaves' tests only because a now-fixed defect (F1) forced
+them onto the top-level form. Recorded here because it is a reason to keep that
+form that §5 does not know about; `docs/esm-conventions.md` §18 carries the
+authoring consequence.
+
+**Fix shape.** Resolve an assertion's `variable` through the same scope chain
+the equation binder already uses, which is the behaviour the schema's own
+description promises.

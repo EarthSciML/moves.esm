@@ -1,0 +1,674 @@
+{
+  "esm": "1.0.0",
+  "metadata": {
+    "name": "EvapLeaksRun",
+    "description": "The process-evap-leaks assembly: the three evaporative components mounted together, with the joins that exist only BETWEEN them. Ports the composition of docs/evap-leaks.md §2.3-§2.5 -- E1-E3 feeding L9's operating-mode fraction, and L8 feeding its base rate.\n\nWHAT AN ASSEMBLY IS FOR HERE. Each leaf carries its upstream's result as a `const` column so that it tests standalone (docs/esm-conventions.md §12). That is convenient and it is also a risk: three files can each be right about their own arithmetic and disagree about the key that joins them. So this document does not re-derive anything. It JOINS the leaves and asserts that the joined value equals the carried one -- a residual of exactly zero -- which is the only check that the numbers copied between components were copied against the right keys. Running `esm test` here also runs all three leaves' own tests under the mount, which is the check that mounting preserved their meaning.\n\nTHREE JOINS THAT NO LEAF HAS.\n\n  * `OpModes.omd_opModeFraction` to `Emissions.emis_opModeID` on (hourDayID, opModeID). The fraction the emission stage carries as `[0, 0, 1]` is the one E3 computes as a residual, and this is where the two meet. `OpModes` carries twelve rows over four hour-days and `Emissions` fourteen over two, so the join is a genuine many-to-one on a composite key and not a coincidence of row order.\n  * `Rates.wmbr_weightedMeanBaseRate` to `Emissions` on (fuelTypeID, modelYearID, opModeID). One clause, three pairs.\n  * The recomputed emission, `joined rate x carried hours x joined fraction / carried days`, against `Emissions.emis_emissionQuant`.\n\nTHE ONE PLACE THE RESIDUAL IS NOT ZERO, AND IT IS ON PURPOSE. `Emissions` rows 7 and 14 are the labelled I/M probe at model year 1990, which `Rates` does not carry -- the rate stage's eight rows are model years 1980, 2002 and 2020. So the rate join MISSES there and reads the additive identity, and `run_rateResidual` is -1 rather than 0 on those two rows. That is the correct behaviour of an unmatched join (docs/esm-conventions.md §3) and the test asserts it as a number, beside the twelve zeros, rather than letting it be an unexplained non-zero.\n\nWHAT IS NOT MOUNTED, AND WHY THAT IS INFORMATIVE. `components/onroad_source_hours.esm` computes the activity this chain needs, and it is NOT mounted here. Its `sho_hourDayID` column is 92 and 95 -- hour 9, `mixed-onroad`'s scope -- while this fixture is hour 7, so a join on `hourDayID` would match nothing and return zeros, silently. The reuse between Phase 3 and Phase 4 is of the EQUATIONS, not of the leaves' probe data, and the place the same equations meet hour 7 is the fixture, which reads `hourvmtfraction` and `avgspeeddistribution` for hour 7 off disk. docs/evap-leaks.md §2.1 lists the ten steps this slice takes unchanged from `mixed-onroad` §2.1-§2.2; §6.5's oracle is what checks them at hour 7 today.\n\nThe assembly restates the union of the three leaves' index sets and enums, because neither merges across a top-level `models` {ref} edge (findings F2, F13); tools/check-conventions.py compares both, symbol by symbol and axis by axis.",
+    "authors": [
+      "EarthSciML Authors and Contributors"
+    ],
+    "tags": [
+      "moves",
+      "onroad",
+      "evaporative",
+      "assembly",
+      "run"
+    ]
+  },
+  "enums": {
+    "pollutant": {
+      "TotalGaseousHydrocarbons": 1
+    },
+    "process": {
+      "EvapFuelLeaks": 13
+    },
+    "source_type": {
+      "PassengerCar": 21
+    },
+    "fuel_type": {
+      "Gasoline": 1,
+      "DieselFuel": 2,
+      "EthanolE85": 5,
+      "Electricity": 9
+    },
+    "engine_tech": {
+      "ConventionalInternalCombustion": 1,
+      "ElectricDrive": 30
+    },
+    "reg_class": {
+      "LightDutyVehicles": 20
+    },
+    "road_type": {
+      "UrbanRestrictedAccess": 4
+    },
+    "hour": {
+      "SevenAM": 7,
+      "SixAM": 6
+    },
+    "day_type": {
+      "Weekend": 2,
+      "Weekday": 5
+    },
+    "operating_mode": {
+      "HotSoaking": 150,
+      "ColdSoaking": 151,
+      "Operating": 300,
+      "NotAssociatedWithEvap": 501
+    },
+    "age_group": {
+      "ZeroToThree": 3,
+      "FourToFive": 405,
+      "SixToSeven": 607,
+      "EightToNine": 809,
+      "TenToFourteen": 1014,
+      "FifteenToNineteen": 1519,
+      "TwentyToNinetyNine": 2099
+    }
+  },
+  "index_sets": {
+    "evap_activity_rows": {
+      "kind": "interval",
+      "size": 4
+    },
+    "soak_rows": {
+      "kind": "interval",
+      "size": 9
+    },
+    "opmode_assoc_rows": {
+      "kind": "interval",
+      "size": 3
+    },
+    "evap_pol_process_rows": {
+      "kind": "interval",
+      "size": 1
+    },
+    "opmode_dist_rows": {
+      "kind": "interval",
+      "size": 12
+    },
+    "emission_rate_rows": {
+      "kind": "interval",
+      "size": 12
+    },
+    "source_bin_rows": {
+      "kind": "interval",
+      "size": 6
+    },
+    "fuel_type_rows": {
+      "kind": "interval",
+      "size": 4
+    },
+    "bin_distribution_rows": {
+      "kind": "interval",
+      "size": 6
+    },
+    "source_type_model_year_rows": {
+      "kind": "interval",
+      "size": 3
+    },
+    "pol_process_model_year_rows": {
+      "kind": "interval",
+      "size": 3
+    },
+    "age_category_rows": {
+      "kind": "interval",
+      "size": 41
+    },
+    "runspec_source_type_rows": {
+      "kind": "interval",
+      "size": 1
+    },
+    "weighted_rate_rows": {
+      "kind": "interval",
+      "size": 8
+    },
+    "leak_emission_rows": {
+      "kind": "interval",
+      "size": 14
+    },
+    "leak_source_hour_rows": {
+      "kind": "interval",
+      "size": 8
+    },
+    "leak_op_mode_rows": {
+      "kind": "interval",
+      "size": 6
+    },
+    "leak_hour_day_rows": {
+      "kind": "interval",
+      "size": 2
+    },
+    "leak_day_rows": {
+      "kind": "interval",
+      "size": 2
+    },
+    "im_coverage_rows": {
+      "kind": "interval",
+      "size": 1
+    },
+    "leak_pol_process_rows": {
+      "kind": "interval",
+      "size": 1
+    },
+    "leak_link_rows": {
+      "kind": "interval",
+      "size": 1
+    },
+    "leak_output_rows": {
+      "kind": "interval",
+      "size": 10
+    }
+  },
+  "models": {
+    "OpModes": {
+      "ref": "../components/evap_operating_mode_distribution.esm"
+    },
+    "Rates": {
+      "ref": "../components/evap_weighted_base_rate.esm"
+    },
+    "Emissions": {
+      "ref": "../components/liquid_leaking_emissions.esm"
+    },
+    "Rollup": {
+      "tolerance": {
+        "rel": 1e-12
+      },
+      "variables": {
+        "run_opModeFraction": {
+          "type": "unknown",
+          "shape": [
+            "leak_emission_rows"
+          ],
+          "units": "1",
+          "description": "E1-E3's result reached across the mount: the operating-mode fraction joined to each emission row on (hourDayID, opModeID). A scoped name resolves as a `join.on` key column (docs/esm-conventions.md §5). Twelve rows on the left of the join, fourteen on the right, four hour-days against two -- so a match here is a match on the composite key and not on row position."
+        },
+        "run_opModeFractionResidual": {
+          "type": "unknown",
+          "shape": [
+            "leak_emission_rows"
+          ],
+          "units": "1",
+          "description": "The joined fraction minus the one the emission stage carries. Exactly zero on all fourteen rows. This is the residual that matters most in this port, because the value it checks is a ZERO on ten of the fourteen rows: a mis-keyed join would also deliver zero, and only the four mode-300 rows' 1 tells the two apart."
+        },
+        "run_weightedMeanBaseRate": {
+          "type": "unknown",
+          "shape": [
+            "leak_emission_rows"
+          ],
+          "units": "1",
+          "description": "L8's result reached across the mount, joined on (fuelTypeID, modelYearID, opModeID) -- one clause, three pairs. Zero on rows 7 and 14, whose model year 1990 the rate stage does not carry; see the description."
+        },
+        "run_rateResidual": {
+          "type": "unknown",
+          "shape": [
+            "leak_emission_rows"
+          ],
+          "units": "1",
+          "description": "The joined rate minus the carried one: exactly zero on the twelve real rows and exactly -1 on the two I/M probe rows, where the join misses and reads the additive identity against a carried 1."
+        },
+        "run_emissionQuant": {
+          "type": "unknown",
+          "shape": [
+            "leak_emission_rows"
+          ],
+          "units": "1",
+          "description": "L9 recomputed through the mount from the JOINED rate and the JOINED fraction, with the emission stage's own hours and days: `((rate x hours) x fraction) / days`, in grams."
+        },
+        "run_emissionQuantResidual": {
+          "type": "unknown",
+          "shape": [
+            "leak_emission_rows"
+          ],
+          "units": "1",
+          "description": "run_emissionQuant minus the emission stage's own. Zero on the twelve real rows -- the same product of the same operands in the same order -- and equal to minus the probe's own quantity on rows 7 and 14."
+        },
+        "run_totalEmissionQuant": {
+          "type": "unknown",
+          "units": "1",
+          "description": "The ten output rows summed, in grams: 74.63083709200654. Two of the ten are the I/M probe, so this is NOT the fixture's 960.06 g and is not comparable to it -- the eight real rows sum to 72.37660309200655 and are eight of the snapshot's 128 cells. A single number for an `analyses` section to plot."
+        },
+        "run_carriedRate": {
+          "type": "unknown",
+          "shape": [
+            "leak_emission_rows"
+          ],
+          "units": "1",
+          "description": "The rate the emission stage CARRIES, recovered as `run_weightedMeanBaseRate - run_rateResidual`. It exists because finding F21 forbids the direct route: a scoped name from a mount resolves as a `join.on` key column, as an operand of an equation and as a `plots` variable -- all three are used in this file -- but NOT as an assertion `variable`, where it reports `variable 'Emissions.emis_weightedMeanBaseRate' is not declared in model 'Rollup'`. So an assembly can only assert its own columns, and a leaf value it wants to pin has to be routed through one."
+        }
+      },
+      "equations": [
+        {
+          "_comment": "One clause, two pairs: (hourDayID, opModeID). §5.5.8 makes that a single composite key whose canonical form is the skolem tuple of the two values.",
+          "lhs": "run_opModeFraction",
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "r"
+            ],
+            "ranges": {
+              "r": {
+                "from": "leak_emission_rows"
+              },
+              "m": {
+                "from": "opmode_dist_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "Emissions.emis_hourDayID",
+                    "OpModes.omd_hourDayID"
+                  ],
+                  [
+                    "Emissions.emis_opModeID",
+                    "OpModes.omd_opModeID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "OpModes.omd_opModeFraction",
+                "m"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "run_opModeFractionResidual",
+          "rhs": {
+            "op": "-",
+            "args": [
+              "run_opModeFraction",
+              "Emissions.emis_opModeFraction"
+            ]
+          }
+        },
+        {
+          "_comment": "One clause, three pairs. regClassID is not among them: the rate stage carries one class and the emission row does not key on it, because O1 aggregates it away.",
+          "lhs": "run_weightedMeanBaseRate",
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "r"
+            ],
+            "ranges": {
+              "r": {
+                "from": "leak_emission_rows"
+              },
+              "i": {
+                "from": "weighted_rate_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "Emissions.emis_fuelTypeID",
+                    "Rates.wmbr_fuelTypeID"
+                  ],
+                  [
+                    "Emissions.emis_modelYearID",
+                    "Rates.wmbr_modelYearID"
+                  ],
+                  [
+                    "Emissions.emis_opModeID",
+                    "Rates.wmbr_opModeID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "Rates.wmbr_weightedMeanBaseRate",
+                "i"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "run_rateResidual",
+          "rhs": {
+            "op": "-",
+            "args": [
+              "run_weightedMeanBaseRate",
+              "Emissions.emis_weightedMeanBaseRate"
+            ]
+          }
+        },
+        {
+          "_comment": "L9 through the mount, with the reference's grouping: ((rate x hours) x fraction) / days.",
+          "lhs": "run_emissionQuant",
+          "rhs": {
+            "op": "/",
+            "args": [
+              {
+                "op": "*",
+                "args": [
+                  {
+                    "op": "*",
+                    "args": [
+                      "run_weightedMeanBaseRate",
+                      "Emissions.emis_sourceHours"
+                    ]
+                  },
+                  "run_opModeFraction"
+                ]
+              },
+              "Emissions.emis_noOfRealDays"
+            ]
+          }
+        },
+        {
+          "lhs": "run_emissionQuantResidual",
+          "rhs": {
+            "op": "-",
+            "args": [
+              "run_emissionQuant",
+              "Emissions.emis_emissionQuant"
+            ]
+          }
+        },
+        {
+          "lhs": "run_totalEmissionQuant",
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [],
+            "ranges": {
+              "o": {
+                "from": "leak_output_rows"
+              }
+            },
+            "expr": {
+              "op": "index",
+              "args": [
+                "Emissions.out_emissionQuant",
+                "o"
+              ]
+            }
+          }
+        },
+        {
+          "_comment": "Finding F21's workaround: the carried rate expressed in this model's own variables, because a scoped name is not assertable.",
+          "lhs": "run_carriedRate",
+          "rhs": {
+            "op": "-",
+            "args": [
+              "run_weightedMeanBaseRate",
+              "run_rateResidual"
+            ]
+          }
+        }
+      ],
+      "tests": [
+        {
+          "id": "the_mount_delivers_the_computed_operating_mode_fraction",
+          "description": "The join that carries E3's residual into L9's product. `run_opModeFraction` is 1 on the mode-300 rows and 0 on the four soak rows, and the residual against the emission stage's carried column is exactly zero on all fourteen. What breaks if this is wrong: ten of the fourteen values are 0, so a join keyed on the wrong pair -- hourDayID alone, say, which would sum the three modes to 1 on every row -- still delivers plausible numbers. The mode-150 row would then carry 1 instead of 0 and the 1980 gasoline cohort would emit 5.7182066043003195 g instead of 4.9200741505916 g. The 1s are what discriminate, so they are pinned beside the residual rather than only the residual.",
+          "time_span": {
+            "start": 0.0,
+            "end": 0.0
+          },
+          "assertions": [
+            {
+              "variable": "run_opModeFraction",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "leak_emission_rows": 1
+              }
+            },
+            {
+              "variable": "run_opModeFraction",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "leak_emission_rows": 8
+              }
+            },
+            {
+              "variable": "run_opModeFractionResidual",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "leak_emission_rows": 1
+              }
+            },
+            {
+              "variable": "run_opModeFractionResidual",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "leak_emission_rows": 2
+              }
+            },
+            {
+              "variable": "run_opModeFractionResidual",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "leak_emission_rows": 9
+              }
+            },
+            {
+              "variable": "run_opModeFractionResidual",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "leak_emission_rows": 14
+              }
+            }
+          ]
+        },
+        {
+          "id": "the_mount_delivers_the_weighted_base_rate_on_three_keys",
+          "description": "The join that carries L8 into L9, on (fuelTypeID, modelYearID, opModeID). The three 1980 gasoline rows get 4.037348315, 0.430904708 and 0.22403231499999998 -- the three operating modes of one cohort -- so a join that dropped `opModeID` from the key would sum them to 4.692285338 on all three rows and the residual would be 0.654937023 on the first, not zero. What breaks if this is wrong: the rate and the fraction are keyed on the same operating mode and multiplied together, so a rate join missing `opModeID` and a fraction join missing it too would cancel into a plausible answer; keying both on the full composite is what stops that.",
+          "time_span": {
+            "start": 0.0,
+            "end": 0.0
+          },
+          "assertions": [
+            {
+              "variable": "run_weightedMeanBaseRate",
+              "time": 0.0,
+              "expected": 4.037348315,
+              "coords": {
+                "leak_emission_rows": 1
+              }
+            },
+            {
+              "variable": "run_weightedMeanBaseRate",
+              "time": 0.0,
+              "expected": 0.430904708,
+              "coords": {
+                "leak_emission_rows": 2
+              }
+            },
+            {
+              "variable": "run_weightedMeanBaseRate",
+              "time": 0.0,
+              "expected": 0.22403231499999998,
+              "coords": {
+                "leak_emission_rows": 3
+              }
+            },
+            {
+              "variable": "run_weightedMeanBaseRate",
+              "time": 0.0,
+              "expected": 0.000192737741,
+              "coords": {
+                "leak_emission_rows": 5
+              }
+            },
+            {
+              "variable": "run_rateResidual",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "leak_emission_rows": 1
+              }
+            },
+            {
+              "variable": "run_rateResidual",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "leak_emission_rows": 5
+              }
+            },
+            {
+              "variable": "run_rateResidual",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "leak_emission_rows": 12
+              }
+            }
+          ]
+        },
+        {
+          "id": "the_probe_row_has_no_counterpart_in_the_rate_stage",
+          "description": "The one non-zero residual in this document, asserted as a number. `Emissions` rows 7 and 14 are the labelled I/M probe at model year 1990, and `Rates` carries model years 1980, 2002 and 2020 only, so the three-pair join finds no partner and reads the additive identity -- `run_weightedMeanBaseRate` is 0 against a carried 1, giving a residual of exactly -1. What breaks if this is wrong: an unmatched join must read the identity and keep its row (docs/esm-conventions.md §3), and the alternative -- dropping the row -- would make the fourteen-row relation thirteen rows and every subsequent `coords` assertion in this file point at the wrong row. Pinning -1 is also what stops the probe from being mistaken for a modelling error later: the carried 1 g/h is asserted beside it so the residual cannot be read as a missing input. That carried value reaches the assertion through `run_carriedRate` rather than directly, because a scoped name is not an assertable variable -- finding F21, found here.",
+          "time_span": {
+            "start": 0.0,
+            "end": 0.0
+          },
+          "assertions": [
+            {
+              "variable": "run_carriedRate",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "leak_emission_rows": 7
+              }
+            },
+            {
+              "variable": "run_carriedRate",
+              "time": 0.0,
+              "expected": 4.037348315,
+              "coords": {
+                "leak_emission_rows": 1
+              }
+            },
+            {
+              "variable": "run_rateResidual",
+              "time": 0.0,
+              "expected": -1.0,
+              "coords": {
+                "leak_emission_rows": 7
+              }
+            },
+            {
+              "variable": "run_rateResidual",
+              "time": 0.0,
+              "expected": -1.0,
+              "coords": {
+                "leak_emission_rows": 14
+              }
+            }
+          ]
+        },
+        {
+          "id": "the_assembly_reproduces_the_emission_stage",
+          "description": "L9 recomputed from the two joined inputs, against the emission stage's own product. The four worked-example rows come out at 4.9200741505916, 8.43008094268985, 18.7266749303634 and 32.0865687916204 g -- the same values docs/evap-leaks.md §6.1 and §6.3 derive by hand and the same the snapshot stores to six figures -- and the residual is zero. The tolerance carries `abs` beside `rel` because a relative bound is vacuous against an expected zero, and because two expressions grouping the same product identically can still differ by one unit in the last place (docs/esm-conventions.md §16.2). Every residual in this document measured exactly 0.0; the `abs` bound is there so that a future reordering shows up as a number rather than as a failure with no scale.",
+          "time_span": {
+            "start": 0.0,
+            "end": 0.0
+          },
+          "tolerance": {
+            "abs": 1e-15,
+            "rel": 1e-12
+          },
+          "assertions": [
+            {
+              "variable": "run_emissionQuant",
+              "time": 0.0,
+              "expected": 4.9200741505916,
+              "coords": {
+                "leak_emission_rows": 1
+              }
+            },
+            {
+              "variable": "run_emissionQuant",
+              "time": 0.0,
+              "expected": 8.43008094268985,
+              "coords": {
+                "leak_emission_rows": 4
+              }
+            },
+            {
+              "variable": "run_emissionQuant",
+              "time": 0.0,
+              "expected": 18.7266749303634,
+              "coords": {
+                "leak_emission_rows": 8
+              }
+            },
+            {
+              "variable": "run_emissionQuant",
+              "time": 0.0,
+              "expected": 32.0865687916204,
+              "coords": {
+                "leak_emission_rows": 11
+              }
+            },
+            {
+              "variable": "run_emissionQuantResidual",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "leak_emission_rows": 1
+              }
+            },
+            {
+              "variable": "run_emissionQuantResidual",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "leak_emission_rows": 4
+              }
+            },
+            {
+              "variable": "run_emissionQuantResidual",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "leak_emission_rows": 8
+              }
+            },
+            {
+              "variable": "run_emissionQuantResidual",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "leak_emission_rows": 11
+              }
+            }
+          ]
+        },
+        {
+          "id": "the_total_is_the_output_relation_and_not_the_fixture",
+          "description": "The ten output rows summed: 74.63083709200654 g. This is asserted so that the number is written down somewhere and so that the two things it is NOT are written down with it. It is not the fixture's total -- `MOVESOutput` carries 960.061201 g over 128 rows and this document has ten -- and it is not eight snapshot cells either, because two of the ten are the I/M probe; the eight real rows sum to 72.37660309200655 g. What breaks if this is wrong: a total is the weakest assertion in this port and docs/evap-leaks.md §7.3 measures why -- substituting the raw source-bin distribution for the rebased one changes the fixture's worst cell by a factor of 56 and its total by nothing at all, to thirteen significant figures. So this test exists to label a number, not to gate the arithmetic; the gating is per-cell, in the four tests above.",
+          "time_span": {
+            "start": 0.0,
+            "end": 0.0
+          },
+          "assertions": [
+            {
+              "variable": "run_totalEmissionQuant",
+              "time": 0.0,
+              "expected": 74.63083709200654
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

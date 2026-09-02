@@ -1,0 +1,40 @@
+{
+  "esm": "1.0.0",
+  "metadata": {
+    "name": "F21ScopedNameIsNotAssertable",
+    "description": "F21: a scoped reference to a mounted model's variable resolves everywhere EXCEPT in an assertion.\n\n`esm-schema.json`'s `Assertion.variable` says, verbatim: \"Name of the variable or species to check. Use the local name (e.g., \\\"O3\\\") or a scoped reference relative to this component (e.g., \\\"subsystem.X\\\").\" This document does exactly that and the second assertion errors:\n\n    assertion evaluation failed: variable 'Leaf.left_key' is not declared in model 'Host'\n\nThe first assertion is the control, and it is what makes the failure attributable. `host_doubled` is computed from `Leaf.left_key` in an ordinary equation, and it evaluates: 14 from the leaf's 7. So the scoped name resolves as an operand -- and, in the three run assemblies of this repository, as a `join.on` key column and as a `plots` `variable` too. It is the ASSERTION path alone that cannot see it.\n\nMeasured on both mount forms, with the same one-line error. This file uses the top-level `models` {ref} form, which is the form docs/esm-conventions.md 5 records this port as using; a `subsystems` mount of the same leaf, asserting the same scoped name, fails identically. So the finding is not about which mount is used, and there is no form of it that works.\n\nWHAT IT COSTS. An assembly cannot pin a mounted leaf's value. Every check has to be routed through a variable the asserting model declares itself, which is either an identity equation or -- better, and what runs/evap_leaks_run.esm does -- an algebraic recovery: it wants the base rate the emission stage CARRIES, and gets it as `run_weightedMeanBaseRate - run_rateResidual`, both of which are its own columns. That works and it is one more expression between the number and the assertion than the schema implies is necessary.\n\nA SECOND MEASUREMENT, TAKEN AT THE SAME TIME, that is not the finding but bears on docs/esm-conventions.md 5. The two mount forms differ in whether the leaf's OWN tests run under the mount. Top-level `models` {ref}: the leaf's test runs (3 assertions discovered from a host declaring 2). Nested `subsystems`: it does not (2 assertions discovered from the same host). 5 states the running-the-leaves'-tests behaviour as a feature of mounting and then recommends the nested form for new assemblies; on this toolchain those two sentences pull in opposite directions, and this port's assemblies get the leaves' tests because they use the form a now-fixed defect forced on them.\n\nEXPECTED TO FAIL, like every repro here. It goes green when a scoped name becomes assertable, and docs/esm-conventions.md 18 then loses its workaround.\n\nThe leaf is docs/findings/join_leaf.esm, reused rather than duplicated -- it already carries a 1-D key column and is already excluded from the tripwire loop by name, so this finding needs no change to run-tests.sh. Its index sets are restated here because they do not merge across a top-level {ref} edge (finding F2).",
+    "authors": ["EarthSciML Authors and Contributors"],
+    "tags": ["moves", "finding", "assertion", "mount"]
+  },
+  "index_sets": {
+    "leaf_left": { "kind": "interval", "size": 3 },
+    "leaf_right": { "kind": "interval", "size": 2 }
+  },
+  "models": {
+    "Leaf": { "ref": "join_leaf.esm" },
+    "Host": {
+      "tolerance": { "rel": 1e-12 },
+      "variables": {
+        "host_doubled": {
+          "type": "unknown", "shape": ["leaf_left"], "units": "1",
+          "description": "Twice the leaf's key column, computed across the mount. The CONTROL: it evaluates, so the scoped name resolves as an operand and the failure below is about the assertion path and not about the mount."
+        }
+      },
+      "equations": [
+        { "lhs": "host_doubled", "rhs": { "op": "*", "args": [2.0, "Leaf.left_key"] } }
+      ],
+      "tests": [
+        {
+          "id": "a_scoped_name_resolves_as_an_operand_but_not_as_an_assertion",
+          "description": "The first two assertions pass and are the control: the leaf's [7, 9, 4] doubled is [14, 18, 8]. The third asserts the leaf's own column by the scoped name the Assertion schema documents, and errors with `variable 'Leaf.left_key' is not declared in model 'Host'`. Intended behaviour: 7.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "host_doubled", "time": 0.0, "expected": 14.0, "coords": { "leaf_left": 1 } },
+            { "variable": "host_doubled", "time": 0.0, "expected": 8.0, "coords": { "leaf_left": 3 } },
+            { "variable": "Leaf.left_key", "time": 0.0, "expected": 7.0, "coords": { "leaf_left": 1 } }
+          ]
+        }
+      ]
+    }
+  }
+}
