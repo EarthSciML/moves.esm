@@ -211,23 +211,41 @@ non-zero is decoration. Nudged to 10⁻³, all 68 go red.
 
 ## Status
 
-**Phases 0, 1 and 2 are complete, and Phase 3 has its specification and its
-first four components.** Fifteen components cover all seven NONROAD stages of
-`nr-logging-county` and four of the six onroad stages of `mixed-onroad`, with
-**457 distinct inline assertions** whose numbers each trace to a named section
-of a port specification.
+**Phases 0–2 are complete, Phase 3 has its specification and four components,
+and Phase 4 has its first slice — wired, and complete.** Eighteen components
+cover all seven NONROAD stages of `nr-logging-county`, four of the six onroad
+stages of `mixed-onroad`, and all of `process-evap-leaks`, with **728 distinct
+inline assertions** whose numbers each trace to a named section of a port
+specification — 490 in the components, 74 in the assemblies, 160 in the two
+wired fixtures and 4 in the gates.
 
-`esm test` reports 886, and the difference is worth knowing rather than
-quoting: mounting a component into an assembly **re-runs that component's own
-tests in the assembly's context**, so 429 of the 886 are re-executions. The
+**`process-evap-leaks` is the first fixture with no shortfall at all**: 128 of
+128 rows against the snapshot `MOVESOutput`, key set exact — 128 shared, 0
+missing, 0 extra, verified against the Parquet directly on all 20 identity
+columns — worst cell 7.294 × 10⁻⁶ against a 2 × 10⁻⁵ gate that was not
+widened, and 0 cells over it. Its oracle reads *nothing* from the reference.
+
+Choosing that slice corrected this plan. `PLAN.md` had said Phase 4's cheapest
+slice was start exhaust, because its operating-mode distribution is in the
+snapshot. Measured across all 39 snapshots, `MOVESOutput` contains **zero rows
+with `processID` 2** — every onroad fixture selects road type 4 and
+`BaseRateCalculator` discards the road-type-1 start rates — so a start-exhaust
+slice has nothing to validate against, which is also why eight fixtures have no
+output rows at all. Leaks was chosen instead because it needs neither the
+uncomputable drive-cycle distribution nor F12.
+
+Running the component and assembly directories reports 1,074 against 564
+declared there, and the difference is worth knowing rather than quoting:
+mounting a component into an assembly **re-runs that component's own tests in
+the assembly's context**, so 510 of those 1,074 are re-executions. The
 nonroad assembly declares 9 assertions of its own and runs 275 — its ten
 mounted components' 266, plus its 9. That is not redundancy: a mount is
 precisely where this toolchain has been caught changing behaviour — dropped
 `join.on` key columns (F1), unmerged `index_sets` (F2), `enums` colliding
 first-wins and applying the wrong value (F13) — so re-running a component's
 assertions under the mount is the only check that would catch it, and it is
-free. But 886 overstates how much independent checking exists, so the headline
-number is 457.
+free. But a run count overstates how much independent checking exists, so the
+headline number is what the documents declare.
 
 Both blockers on the first end-to-end fixture comparison are closed: the CLI
 now wires a data provider and `simulate --format csv` emits a relational
@@ -235,7 +253,7 @@ document's rows. Verified against the real snapshot — 1,183 rows of a column
 sized by `extent` discovery, summing to 181564.4520000001, matching pyarrow
 exactly.
 
-**The fixture evaluates in Float32.** It declares
+**The nonroad fixture evaluates in Float32.** It declares
 `domain.element_type: "Float32"` with 19 SCC-valued variables overridden to
 `Float64` — the override exists because honouring a float precision
 document-wide destroys ingested integer keys above 2²⁴
