@@ -2,7 +2,7 @@
   "esm": "1.0.0",
   "metadata": {
     "name": "nr-logging-county snapshot tables",
-    "description": "A SOURCE-CATALOG FILE (esm-spec §2): data_sources only, no component, not mountable as a subsystem. It declares every snapshot table the nr-logging-county chain reads -- twenty-six entries covering all seven stages of PLAN.md §3 Phase 2 -- so that the ingest configuration is written, reviewed and version-controlled before it can be run, rather than invented under time pressure on the day it can.\n\nNOTHING CONSUMES IT YET, AND THAT IS DELIBERATE. No CLI subcommand can load a data source at the pinned toolchain: `src/bin/esm.rs` supplies no PrepareProvider, so a parameter with `update.kind: \"data\"` silently keeps its default and an aggregate over it silently sums to zero (build-esm.sh, KNOWN BLOCKER; PLAN.md §1.5). Wiring a component to one of these entries today would make a green test that compared nothing. THE SHAPE IS THE RUNTIME'S, NOT THE SCHEMA'S GUESS: the format is `metadata.esio_format`, because a `format` key inside `reader_options` is rejected as an unknown reader option (esm-spec §8.9.1 working as specified), and `url_template` carries an explicit `file://` scheme, because a bare absolute path fails with a missing-scheme error. Both were found by building the in-flight provider and running the real ingest. So the entries are declared and CHECKED -- tools/check-sources.py opens every file named here with pyarrow and verifies that it exists, that every `float_columns` entry is really a column, that none of them is already a float, and that no projected decimal-text column was left out -- while the components read `const` arrays transcribed from these same tables.\n\nWHAT IT ALREADY PROVES: that `float_columns` is mandatory, and on almost every table rather than only on MOVESOutput. Checked directly against the parquet: `surrogatequant`, `population`, `fractionLifeused`, `percentageScrapped`, `NREngTechFraction`, `monthFraction`, `dayFraction`, `marketShare`, all seventeen `fuelformulation` property columns, `zonemonthhour.temperature`, `nrsourceusetype`'s four activity columns, `nremissionrate.meanBaseRate`, `nrdeterioration.DFCoefficient` and `MOVESOutput.emissionQuant` are all physically `string` in the file, holding decimal text for byte-reproducibility, even where the sidecar .meta.json calls them float64. Without `float_columns` they arrive as strings and no arithmetic on them means anything. Two traps the catalog also records: `nrscrappagecurve.fractionLifeused` is spelled with a lowercase u, and `nrdayallocation.scc` is lowercase throughout.\n\nWHAT IT WILL PROVE ONCE THE PROVIDER IS WIRED: that each stage selects its own rows out of the real tables -- 55,471 emission rates, 62,699 population rows, 930,816 hourly temperatures -- rather than transcribing the handful its tests use; and that the roll-up can be diffed row by row against the 144-row MOVESOutput at the tolerances in tolerance.toml. Wiring it is a change of source for each relation's columns, not a change of shape: every component's joins already key on the columns these tables carry.\n\nTHE PRECISION THIS DOCUMENT IS EVALUATED IN, AND WHAT IT COSTS THE ASSERTIONS. `domain.element_type` is `Float32`, because `moves.rs`'s NONROAD port is `real*4` operation by operation and preserves the Fortran's associativity (docs/nonroad-logging-county.md §7.1). Nineteen variables override it back to `Float64`, and all nineteen hold an SCC: see `runSCC` for why, and note that the split costs no rewriting of a single expression, because every place an SCC meets a quantity in this document is a `join.on`, and esm-spec §11.3.1 makes a comparison hand its parent an exact 0/1 flag rather than a key (docs/esm-conventions.md §17).\n\nWhat the precision DOES cost is the assertion tolerances, and only some of them. The model default stays at `rel: 1e-12`, which is exact for every integer identifier a binary32 or binary64 evaluation can hold. Nine tests -- the ones whose every assertion is a floating-point QUANTITY -- override it to `1.1920929e-07`, which is 2^-23, one binary32 epsilon, the resolution of the declared element type. That is not a fitted number: it is the smallest tolerance under which a binary32 evaluation can agree with a decimal expected value at all. No expected value in this document changed; measured, the 39 assertions binary64 satisfied exactly and binary32 does not are spread from 1.2e-09 to 1.13e-07 relative, every one of them inside one epsilon.\n\nThe tolerance is per test rather than document-wide for the reason docs/findings F18 gives: `2260006912` is 4.1e-08 from `2260007005` and is a DIFFERENT EQUIPMENT CATEGORY, so a ten-digit key compared within one epsilon would pass while wrong -- which is precisely the failure this whole change exists to fix. The tests that pin an SCC, `run_fuelRegionID`, or any other key therefore stay at 1e-12 and remain exact, and `the_oxygen_content_survives_four_joins`, which pins both `run_fuelRegionID = 270000000` and a quantity, carries the loosened tolerance on the one quantity assertion instead of on the test. The loosening was also checked against what each test is built to discriminate; the tightest is `run_monthFraction`, where the table's 0.0833333 sits 4.0e-07 from the `defmth = 1/12` a missed lookup would deliver, a factor of 3.3 outside one epsilon.",
+    "description": "A SOURCE-CATALOG FILE (esm-spec §2): data_sources only, no component, not mountable as a subsystem. It declares every snapshot table the nr-logging-county chain reads -- twenty-six entries covering all seven stages of PLAN.md §3 Phase 2 -- so that the ingest configuration is written, reviewed and version-controlled before it can be run, rather than invented under time pressure on the day it can.\n\nNOTHING CONSUMES IT YET, AND THAT IS DELIBERATE. No CLI subcommand can load a data source at the pinned toolchain: `src/bin/esm.rs` supplies no PrepareProvider, so a parameter with `update.kind: \"data\"` silently keeps its default and an aggregate over it silently sums to zero (build-esm.sh, KNOWN BLOCKER; PLAN.md §1.5). Wiring a component to one of these entries today would make a green test that compared nothing. THE SHAPE IS THE RUNTIME'S, NOT THE SCHEMA'S GUESS: the format is `metadata.esio_format`, because a `format` key inside `reader_options` is rejected as an unknown reader option (esm-spec §8.9.1 working as specified), and `url_template` carries an explicit `file://` scheme, because a bare absolute path fails with a missing-scheme error. Both were found by building the in-flight provider and running the real ingest. So the entries are declared and CHECKED -- tools/check-sources.py opens every file named here with pyarrow and verifies that it exists, that every `float_columns` entry is really a column, that none of them is already a float, and that no projected decimal-text column was left out -- while the components read `const` arrays transcribed from these same tables.\n\nWHAT IT ALREADY PROVES: that `float_columns` is mandatory, and on almost every table rather than only on MOVESOutput. Checked directly against the parquet: `surrogatequant`, `population`, `fractionLifeused`, `percentageScrapped`, `NREngTechFraction`, `monthFraction`, `dayFraction`, `marketShare`, all seventeen `fuelformulation` property columns, `zonemonthhour.temperature`, `nrsourceusetype`'s four activity columns, `nremissionrate.meanBaseRate`, `nrdeterioration.DFCoefficient` and `MOVESOutput.emissionQuant` are all physically `string` in the file, holding decimal text for byte-reproducibility, even where the sidecar .meta.json calls them float64. Without `float_columns` they arrive as strings and no arithmetic on them means anything. Two traps the catalog also records: `nrscrappagecurve.fractionLifeused` is spelled with a lowercase u, and `nrdayallocation.scc` is lowercase throughout.\n\nWHAT AGEDIST'S FOLD COSTS, AND WHAT IS NOW COMPUTED INSTEAD OF CARRIED. Every input the fold consumes comes out of the snapshot now: the 197-row `nrscrappagecurve` step lookup, the year-over-year scrapped fractions, `nyrlif`, the sales curve, the base model-year fractions, and getgrw's whole indicator series with the thirty annual `grwfac` factors it implies -- exact table rows, an interpolated year, and a year-over-year DIP whose negative factor is the mechanism §6.3 calls the most fragile behaviour in the chain. §7.3's 5.9604645e-08 age-3 survival is computed here too, which is the first time this fixture has asserted anything about it rather than receiving it inside a constant. What is still carried is the fold's three OUTPUT values, and the blocker is no longer F12: the format spells the fold and components/age_distribution.esm evaluates it. It is F24 -- a document that ingests `data_sources` is forced onto the build-pipeline evaluation path, and that path resolves every causal self-read to zero silently. The upstream canonical valid example is the repro, and docs/findings/F24_control_a_recurrence_on_the_ingesting_path.esm is the one kept here.\n\nWHAT IT WILL PROVE ONCE THE PROVIDER IS WIRED: that each stage selects its own rows out of the real tables -- 55,471 emission rates, 62,699 population rows, 930,816 hourly temperatures -- rather than transcribing the handful its tests use; and that the roll-up can be diffed row by row against the 144-row MOVESOutput at the tolerances in tolerance.toml. Wiring it is a change of source for each relation's columns, not a change of shape: every component's joins already key on the columns these tables carry.\n\nTHE PRECISION THIS DOCUMENT IS EVALUATED IN, AND WHAT IT COSTS THE ASSERTIONS. `domain.element_type` is `Float32`, because `moves.rs`'s NONROAD port is `real*4` operation by operation and preserves the Fortran's associativity (docs/nonroad-logging-county.md §7.1). Nineteen variables override it back to `Float64`, and all nineteen hold an SCC: see `runSCC` for why, and note that the split costs no rewriting of a single expression, because every place an SCC meets a quantity in this document is a `join.on`, and esm-spec §11.3.1 makes a comparison hand its parent an exact 0/1 flag rather than a key (docs/esm-conventions.md §17).\n\nWhat the precision DOES cost is the assertion tolerances, and only some of them. The model default stays at `rel: 1e-12`, which is exact for every integer identifier a binary32 or binary64 evaluation can hold. Nine tests -- the ones whose every assertion is a floating-point QUANTITY -- override it to `1.1920929e-07`, which is 2^-23, one binary32 epsilon, the resolution of the declared element type. That is not a fitted number: it is the smallest tolerance under which a binary32 evaluation can agree with a decimal expected value at all. No expected value in this document changed; measured, the 39 assertions binary64 satisfied exactly and binary32 does not are spread from 1.2e-09 to 1.13e-07 relative, every one of them inside one epsilon.\n\nThe tolerance is per test rather than document-wide for the reason docs/findings F18 gives: `2260006912` is 4.1e-08 from `2260007005` and is a DIFFERENT EQUIPMENT CATEGORY, so a ten-digit key compared within one epsilon would pass while wrong -- which is precisely the failure this whole change exists to fix. The tests that pin an SCC, `run_fuelRegionID`, or any other key therefore stay at 1e-12 and remain exact, and `the_oxygen_content_survives_four_joins`, which pins both `run_fuelRegionID = 270000000` and a quantity, carries the loosened tolerance on the one quantity assertion instead of on the test. The loosening was also checked against what each test is built to discriminate; the tightest is `run_monthFraction`, where the table's 0.0833333 sits 4.0e-07 from the `defmth = 1/12` a missed lookup would deliver, a factor of 3.3 outside one epsilon.",
     "authors": [
       "EarthSciML Authors and Contributors"
     ],
@@ -670,7 +670,7 @@
   "models": {
     "NrLoggingCounty": {
       "expression_template_imports": [
-        { "ref": "../lib/population.esm", "only": ["pop_file_rounding", "max_equipment_ages", "median_life_years", "year_over_year_scrap_fraction", "scrappage_sales_growth", "surviving_equipment", "truncate_toward_zero", "linear_series_interpolation", "annualized_growth_factor", "agedist_cohort_term"] },
+        { "ref": "../lib/population.esm", "only": ["pop_file_rounding", "max_equipment_ages", "median_life_years", "year_over_year_scrap_fraction", "scrappage_sales_growth", "surviving_equipment", "truncate_toward_zero", "linear_series_interpolation", "annualized_growth_factor"] },
         { "ref": "../lib/identifiers.esm", "only": ["scc_zero_tail", "pol_process_id", "pollutant_id_of", "process_id_of", "null_output_column"] },
         { "ref": "../lib/keys.esm", "only": ["latest_at_or_before_key", "scc_lookup_ladder_key", "scc_equipment_chain_key", "state_default_precedence"] },
         { "ref": "../lib/conversion.esm", "only": ["days_per_week", "default_month_fraction", "default_day_fraction", "unit_conversion", "emission_unit_g_per_hp_hr"] },
@@ -1281,23 +1281,17 @@
         "fold_priorIndicator": { "type": "unknown", "units": "1", "shape": ["run_rows", "fold_year_rows"], "description": "The indicator one fold year earlier, which is the base of this row's one-year growth step. Row 1 reads ITSELF rather than an out-of-range row, which makes row 1's growth factor exactly 0 -- the value the base row needs, since the fold takes no step there." },
         "fold_annualGrowthFactor": { "type": "unknown", "units": "1", "shape": ["run_rows", "fold_year_rows"], "description": "grwfac(year-1, year): the ANNUALIZED fractional change (g - b) / (b x span), not the cumulative ratio. This is the series agedist folds one year at a time, and it is where the /GROWTH/ truncation earns its keep -- the year-over-year changes sit near zero, so the truncation decides the SIGN of the factor and with it which model years survive the fold's clamp." },
         "run_popGrowthFactor": { "type": "unknown", "units": "1", "shape": ["run_rows"], "description": "grwfac(1990, 1991) = 0.401523, read out of fold_annualGrowthFactor at row 2. scrptime's sales curve is built from the FIRST year's rate alone (§2.2(c)); using the cumulative ratio here would compound a per-year rate as though it were a total." },
-        "minimumGrowthPopulation": { "type": "parameter", "units": "1", "default": 0.0001, "description": "MINGRWIND (agedist.rs:135): a floor applied to the running population total ONCE PER YEAR, and only when that year's growth factor is non-zero, before the factor is applied. It cannot bind on any of this fixture's equipment points -- the smallest base population is 0.5 -- and it is carried because leaving it out would make the port agree by accident on this data and disagree on a state with almost no equipment." },
-        "fold_totalPopulation": { "type": "unknown", "units": "1", "shape": ["run_rows", "fold_year_rows"], "description": "totpop: the projected population after this row's growth step, starting from run_statePopulation. A RECURRENCE in its own right, and the simplest in the document -- lag 1, one term." },
-        "fold_residualMinuend": { "type": "unknown", "units": "1", "shape": ["run_rows", "fold_year_rows"], "description": "The number the newest-model-year slot is the residual OF: totpopfrc = totpop / statePopulation at every fold row but the first, and the base vector's own newest-cohort fraction at the first. Carrying the base case here rather than inside the recurrence is what lets `residual = minuend - scrapped sum` hold at EVERY row, so the recurrence can read a lag of any size with one expression and no second base case." },
-        "fold_scrappedFraction": { "type": "unknown", "units": "1", "shape": ["run_rows", "fold_year_rows"], "description": "frcsum: the sum over age slots 1..MXAGYR-1 of the cohorts that survived into this fold year, in ASCENDING slot order, which is the order agedist.f accumulates them in. THIS IS agedist.f's THIRTY-YEAR FOLD, spelled as esm-spec §4.3.1.1's causal self-reference: the body reads `index(fold_scrappedFraction, r, Y - a)` -- itself, strictly earlier along its own fold-year axis, once per age slot `a`, which is also the lag. Nothing is declared; the recurrence, its axis and its maximum lag of 50 are read off that one self-read. The equipment-point axis is an IDENTITY index, which §4.3.1.1 requires of a non-recurrence axis. Row 1 is 0 by a guard inside the body rather than by falling off the axis, because a self-read of an unpublished cell FAULTS rather than reading a zero ghost." },
-        "fold_newestCohortResidual": { "type": "unknown", "units": "1", "shape": ["run_rows", "fold_year_rows"], "description": "mdyrfrc[0] at each fold row: the minuend less the scrapped sum, UNCLAMPED (§2.2(e) property 2). This is the quantity whose SIGN decides whether a model year exists -- when the truncated growth index dips year over year it goes negative, the next year's shift clamps it to zero, and prccty.f's `modfrc <= 0` skip drops the row. It is a column of its own so that the sign is assertable." },
-        "slot_grownModelYearFraction": { "type": "unknown", "units": "1", "shape": ["run_rows", "age_slot_rows"], "description": "modfrc after the fold: the last fold row's vector, read back. Slot 1 is the newest model year -- the unclamped residual -- and slot a+1 is the cohort shifted and scrapped a times." },
 
         "age_ordinal": { "type": "unknown", "units": "1", "shape": ["age_rows"], "description": "This cohort's 1-based position, which is what the output relation joins on." },
         "age_ageIndex": { "type": "unknown", "units": "1", "shape": ["age_rows"], "description": "idxyr: 0 for the newest model year." },
         "age_modelYearID": { "type": "unknown", "shape": ["age_rows"], "description": "runYearID - ageIndex: 2020, 2019, 2018. Which model years exist is set by this equipment point's scrptime nyrlif = 3 (§6.1 step 2)." },
         "age_grownModelYearFraction": {
           "type": "unknown", "units": "1", "shape": ["age_rows"],
-          "description": "modfrc after agedist.f's thirty-year fold. CARRIED AS DATA, not computed: the fold is a recurrence whose next term is a function of the previous ANSWER, clamped inside the loop, and the format has no spelling for one (docs/findings F12). The three values are §6.1 step 3's, and the cross-check below is what keeps them honest -- they must sum to the cumulative growth ratio this document derives from nrgrowthindex by a completely different route."
+          "description": "modfrc after agedist.f's thirty-year fold. STILL CARRIED AS DATA, but no longer for F12's reason: the format now spells the fold (esm-spec §4.3.1.1) and components/age_distribution.esm computes it. What stops this document is that a document which INGESTS is forced onto the build-pipeline evaluation path, and that path resolves a causal self-read to zero without a diagnostic -- finding F24, whose repro is the upstream canonical example itself. Everything the fold CONSUMES is computed above from the real tables now: the year-over-year survivals including §7.3's 5.9604645e-08, the base model-year fractions, nyrlif, and the thirty annual growth factors. The three values are §6.1 step 3's and must sum to the cumulative growth ratio this document derives from nrgrowthindex by a different route."
         },
         "age_isPopulated": {
           "type": "unknown", "units": "1", "shape": ["age_rows"],
-          "description": "prccty.f's `modfrc <= 0` skip as a membership test. All three cohorts of this SCC are populated -- the third only just, at 5.9e-08 -- so the skip removes nothing HERE; it is the rule that decides the row set for the other two SCCs, where it drops 44 exactly-zero cohorts, and it is written as the reference writes it."
+          "description": "prccty.f's `modfrc <= 0` skip as a membership test. All three cohorts of this SCC are populated -- the third only just, at 5.9e-08 -- so the skip removes nothing HERE; it is the rule that decides the row set for the other two SCCs, where it drops 44 exactly-zero cohorts, and it is written as the reference writes it. Because the grown fractions are still carried (F24), this row set does not yet depend on the element type; the survival factor it hangs off does, and IS computed (§7.3, `slot_survivalFraction`)."
         },
         "age_grownModelYearFractionTotal": { "type": "unknown", "units": "1", "shape": ["run_rows"], "description": "The carried column's sum, for the cross-check." },
         "age_detAge": { "type": "unknown", "units": "1", "shape": ["age_rows"], "description": "detage = (idxyr+1) x acttmp x ldfctr / mdlfhrs: 1.11, 2.22, 3.33 full-load-life fractions. All three exceed this technology's emissionCap of 1." },
@@ -2434,118 +2428,6 @@
             "expr": { "op": "/", "args": [{ "op": "index", "args": ["slot_survivingEquipment", "r", "s"] }, { "op": "index", "args": ["run_survivingEquipmentTotal", "r"] }] }
           }
         },
-        {
-          "_comment": "agedist.rs:133-136. A recurrence of lag 1: the MINGRWIND floor is applied to the RUNNING TOTAL before the year's factor and only when that factor is non-zero, and the clamp at zero is applied after. Either one the other way round is a different projection for a state with almost no equipment.",
-          "lhs": "fold_totalPopulation",
-          "rhs": {
-            "op": "aggregate", "args": [], "output_idx": ["r", "w"],
-            "ranges": { "r": { "from": "run_rows" }, "w": { "from": "fold_year_rows" } },
-            "expr": {
-              "op": "ifelse",
-              "args": [
-                { "op": "<=", "args": ["w", 1] },
-                { "op": "index", "args": ["run_statePopulation", "r"] },
-                {
-                  "op": "max",
-                  "args": [
-                    {
-                      "op": "*",
-                      "args": [
-                        {
-                          "op": "ifelse",
-                          "args": [
-                            { "op": "!=", "args": [{ "op": "index", "args": ["fold_annualGrowthFactor", "r", "w"] }, 0.0] },
-                            { "op": "max", "args": [{ "op": "index", "args": ["fold_totalPopulation", "r", { "op": "-", "args": ["w", 1] }] }, "minimumGrowthPopulation"] },
-                            { "op": "index", "args": ["fold_totalPopulation", "r", { "op": "-", "args": ["w", 1] }] }
-                          ]
-                        },
-                        { "op": "+", "args": [1.0, { "op": "index", "args": ["fold_annualGrowthFactor", "r", "w"] }] }
-                      ]
-                    },
-                    0.0
-                  ]
-                }
-              ]
-            }
-          }
-        },
-        {
-          "lhs": "fold_residualMinuend",
-          "rhs": {
-            "op": "aggregate", "args": [], "output_idx": ["r", "w"],
-            "ranges": { "r": { "from": "run_rows" }, "w": { "from": "fold_year_rows" } },
-            "expr": {
-              "op": "ifelse",
-              "args": [
-                { "op": "<=", "args": ["w", 1] },
-                { "op": "index", "args": ["slot_baseModelYearFraction", "r", 1] },
-                { "op": "/", "args": [{ "op": "index", "args": ["fold_totalPopulation", "r", "w"] }, { "op": "index", "args": ["run_statePopulation", "r"] }] }
-              ]
-            }
-          }
-        },
-        {
-          "_comment": "THE FOLD (§2.2(e)), as esm-spec §4.3.1.1's causal self-reference. The body reads `index(fold_scrappedFraction, r, w - a)`: itself, strictly earlier along the fold-year axis, with the equipment-point axis an identity index. The 51-slot vector fold is reduced to this scalar recurrence on 31 residuals first -- every cell of the grown vector is a clamped base times an ASCENDING run of survival factors, so slot `a` of year `w` traces back `a` years to the residual of year `w - a`, or to the 1990 vector if the fold has not run that long. tools/verify-agedist-reduction.py checks that reduction cell by cell in float32 against the specification's own script, 0 of 1,581 cells differing, on all six of the snapshot's equipment points. Two orders are load-bearing and both were measured: the residual is `minuend - sum` with the cohorts summed ascending FIRST (folding the negated terms into the minuend one at a time moves the answer up to 1.1e-05 relative, because the residual is a catastrophic cancellation), and each cohort's factors multiply left to right starting FROM the base (precomputing the run product moves it up to 6.4e-06).",
-          "lhs": "fold_scrappedFraction",
-          "rhs": {
-            "op": "aggregate", "args": [], "output_idx": ["r", "w"], "reduce": "+",
-            "ranges": { "r": { "from": "run_rows" }, "w": { "from": "fold_year_rows" }, "a": [1, 50] },
-            "expr": {
-              "op": "ifelse",
-              "args": [
-                { "op": "<=", "args": ["w", 1] },
-                0.0,
-                {
-                  "op": "apply_expression_template", "args": [], "name": "agedist_cohort_term",
-                  "bindings": {
-                    "equipment_point": "r",
-                    "fold_year": "w",
-                    "age_slot": "a",
-                    "survival": "slot_survivalFraction",
-                    "base_fraction": "slot_baseModelYearFraction",
-                    "residual_minuend": "fold_residualMinuend",
-                    "scrapped_sum": "fold_scrappedFraction"
-                  }
-                }
-              ]
-            }
-          }
-        },
-        {
-          "lhs": "fold_newestCohortResidual",
-          "rhs": {
-            "op": "aggregate", "args": [], "output_idx": ["r", "w"],
-            "ranges": { "r": { "from": "run_rows" }, "w": { "from": "fold_year_rows" } },
-            "expr": { "op": "-", "args": [{ "op": "index", "args": ["fold_residualMinuend", "r", "w"] }, { "op": "index", "args": ["fold_scrappedFraction", "r", "w"] }] }
-          }
-        },
-        {
-          "_comment": "The last fold row's vector, read back. `31` is the last row of fold_year_rows, the episode year: fold_yearID row 31 is asserted to be 2020 so the literal cannot drift away from the axis.",
-          "lhs": "slot_grownModelYearFraction",
-          "rhs": {
-            "op": "aggregate", "args": [], "output_idx": ["r", "s"],
-            "ranges": { "r": { "from": "run_rows" }, "s": { "from": "age_slot_rows" } },
-            "expr": {
-              "op": "ifelse",
-              "args": [
-                { "op": "<=", "args": ["s", 1] },
-                { "op": "index", "args": ["fold_newestCohortResidual", "r", 31] },
-                {
-                  "op": "apply_expression_template", "args": [], "name": "agedist_cohort_term",
-                  "bindings": {
-                    "equipment_point": "r",
-                    "fold_year": 31,
-                    "age_slot": { "op": "-", "args": ["s", 1] },
-                    "survival": "slot_survivalFraction",
-                    "base_fraction": "slot_baseModelYearFraction",
-                    "residual_minuend": "fold_residualMinuend",
-                    "scrapped_sum": "fold_scrappedFraction"
-                  }
-                }
-              ]
-            }
-          }
-        },
 
         { "lhs": "age_ordinal", "rhs": { "op": "aggregate", "args": [], "output_idx": ["g"], "ranges": { "g": { "from": "age_rows" } }, "expr": "g" } },
         {
@@ -2560,13 +2442,9 @@
           }
         },
         {
-          "_comment": "agedist.f's result, COMPUTED -- it used to be a `const` carrying §6.1 step 3's three values, because the fold was a recurrence the format could not spell (finding F12, fixed upstream in EarthSciAST a83cde55e). This is the fold's own answer for this cohort, contracted over the equipment-point axis, which this SCC has one row of. The values it must reproduce are still §6.1 step 3's, and the test below pins all three; what changed is that the third one, 5.8885583e-08, is now PRODUCED by the arithmetic instead of asserted into existence -- so this SCC's model-year set now depends on the declared element type, which is the whole of §7.3.",
+          "_comment": "agedist.f's result, still CARRIED, and the blocker is no longer F12. Everything the fold consumes is now computed above from the real tables -- the survivals, the base fractions, nyrlif and the thirty annual growth factors -- and the fold itself was authored here as esm-spec §4.3.1.1's causal self-reference and then taken back out, because a document that INGESTS is forced onto the build-pipeline evaluation path and that path resolves every self-read to zero without saying so (finding F24; the upstream canonical example is the repro). components/age_distribution.esm computes the same fold and passes, because it does not ingest. The three values are §6.1 step 3's; what keeps them honest is that they must sum to the cumulative growth ratio this document derives from nrgrowthindex by a different route, and that the survival factor the third one hangs off, 5.9604645e-08, is now COMPUTED here rather than assumed (§7.3).",
           "lhs": "age_grownModelYearFraction",
-          "rhs": {
-            "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["g"],
-            "ranges": { "g": { "from": "age_rows" }, "r": { "from": "run_rows" } },
-            "expr": { "op": "index", "args": ["slot_grownModelYearFraction", "r", "g"] }
-          }
+          "rhs": { "op": "const", "args": [], "value": [3.7072685, 0.9905483, 5.8885583e-08] }
         },
         {
           "lhs": "age_isPopulated",
@@ -3161,8 +3039,57 @@
           ]
         },
         {
+          "id": "scrptime_runs_on_the_real_scrappage_curve",
+          "description": "docs/nonroad-logging-county.md §6.1 step 2, computed here for the first time rather than carried. Every number in that step now comes out of the snapshot: the 197-row nrscrappagecurve, nrsourceusetype's four activity columns, and the growth series below. What it discriminates:\n\nTHE STEP LOOKUP IS A STEP LOOKUP. Age 2's fraction of life used is 1.1104711, and the default curve's breakpoints straddle it at 1.1106 (73.5%) and 1.1178 (74%) -- find_scrappage_percent takes the last breakpoint AT OR BELOW, so 73.5, and an interpolating lookup would give 73.6. Age 3 is at 2.2209423, past the curve's last breakpoint of 2.0, so it reads the terminal 100.\n\nTHE YEAR-OVER-YEAR FRACTION IS NOT A DIFFERENCE OF CUMULATIVES. Age 3's is 100 x 0.265 / 26.5, the fraction of the survivors at age 2 that go, not 100 - 73.5.\n\n§7.3 IS NOW COMPUTED HERE. The age-3 survival is 5.9604645e-08 and not 0, because this document declares Float32 and 100 x 0.265 / 26.5 is 0.99999994 in binary32 and exactly 1 in binary64. That residue is what carries model year 2018 through thirty fold iterations into four MOVESOutput rows, and until this commit the fixture asserted nothing about it -- it arrived inside a carried constant. The value is asserted at 2^-23 RELATIVE, which on 5.96e-08 is 7e-15 absolute, so the assertion separates it from zero by eight orders of magnitude rather than tolerating either.\n\nBINARY32 QUANTITIES: the percents and nyrlif are exact counts and keep the model's 1e-12; the rest are quantities and carry one binary32 epsilon.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "tolerance": { "rel": 1.1920929e-07 },
+          "assertions": [
+            { "variable": "run_medianLifeYears", "time": 0.0, "expected": 0.90051866, "coords": { "run_rows": 1 } },
+            { "variable": "run_medianLifePerYear", "time": 0.0, "expected": 1.1104711, "coords": { "run_rows": 1 } },
+            { "variable": "run_equipmentLifeYears", "time": 0.0, "expected": 3.0, "coords": { "run_rows": 1 }, "tolerance": { "rel": 1e-12 } },
+            { "variable": "slot_fractionLifeUsed", "time": 0.0, "expected": 0.0, "coords": { "run_rows": 1, "age_slot_rows": 1 } },
+            { "variable": "slot_fractionLifeUsed", "time": 0.0, "expected": 1.1104711, "coords": { "run_rows": 1, "age_slot_rows": 2 } },
+            { "variable": "slot_fractionLifeUsed", "time": 0.0, "expected": 2.2209423, "coords": { "run_rows": 1, "age_slot_rows": 3 } },
+            { "variable": "slot_percentScrapped", "time": 0.0, "expected": 0.0, "coords": { "run_rows": 1, "age_slot_rows": 1 }, "tolerance": { "rel": 1e-12 } },
+            { "variable": "slot_percentScrapped", "time": 0.0, "expected": 73.5, "coords": { "run_rows": 1, "age_slot_rows": 2 }, "tolerance": { "rel": 1e-12 } },
+            { "variable": "slot_percentScrapped", "time": 0.0, "expected": 100.0, "coords": { "run_rows": 1, "age_slot_rows": 3 }, "tolerance": { "rel": 1e-12 } },
+            { "variable": "slot_priorPercentScrapped", "time": 0.0, "expected": 73.5, "coords": { "run_rows": 1, "age_slot_rows": 3 }, "tolerance": { "rel": 1e-12 } },
+            { "variable": "slot_yearScrapFraction", "time": 0.0, "expected": 0.0, "coords": { "run_rows": 1, "age_slot_rows": 1 } },
+            { "variable": "slot_yearScrapFraction", "time": 0.0, "expected": 0.735, "coords": { "run_rows": 1, "age_slot_rows": 2 } },
+            { "variable": "slot_yearScrapFraction", "time": 0.0, "expected": 0.99999994, "coords": { "run_rows": 1, "age_slot_rows": 3 } },
+            { "variable": "slot_yearScrapFraction", "time": 0.0, "expected": 0.0, "coords": { "run_rows": 1, "age_slot_rows": 4 } },
+            { "variable": "slot_survivalFraction", "time": 0.0, "expected": 5.9604645e-08, "coords": { "run_rows": 1, "age_slot_rows": 3 } },
+            { "variable": "slot_baseModelYearFraction", "time": 0.0, "expected": 0.8506725, "coords": { "run_rows": 1, "age_slot_rows": 1 } },
+            { "variable": "slot_baseModelYearFraction", "time": 0.0, "expected": 0.1493275, "coords": { "run_rows": 1, "age_slot_rows": 2 } },
+            { "variable": "slot_baseModelYearFraction", "time": 0.0, "expected": 0.0, "coords": { "run_rows": 1, "age_slot_rows": 3 } }
+          ]
+        },
+        {
+          "id": "the_growth_series_is_read_year_by_year_and_interpolated",
+          "description": "docs/nonroad-logging-county.md §6.0 and §2.2(b). agedist folds THIRTY ANNUAL FACTORS, not one cumulative ratio, and until this commit the fixture read only the two endpoint rows. Now it reads getgrw's whole series for the run's pattern, and each of the three cases in that series is asserted:\n\nAN EXACT TABLE ROW. 1990 and 2020 are tabulated, so the bracketing years coincide and the indicator is the stored value, 321 and 1508.\n\nAN INTERPOLATED YEAR. Pattern 2176 jumps from 1990 straight to 1999, so 1991 is bracketed by 1990 (321) and 1999 (1481) and getgrw returns 449.8889 -- the number §6.0 gives, and the number scrptime's sales curve is built from. `fold_lowYearID` and `fold_highYearID` are asserted at that row so the bracket itself is pinned, not just its result: an interpolation between the wrong two rows would land somewhere plausible.\n\nA YEAR-OVER-YEAR DIP. The indicator falls from 1481 in 1999 to 1000 in 2000, so grwfac(1999, 2000) is NEGATIVE, -0.32478055. That sign is the mechanism §6.3 names as the single most fragile behaviour in the chain: it is what drives agedist's unclamped residual below zero and makes the model-year sets gappy. A cumulative-ratio port would never see it, and a port that took the absolute value or clamped the factor would pass every other assertion in this file.\n\nBINARY32 QUANTITIES for the indicators and factors; the years are keys and stay exact.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "tolerance": { "rel": 1.1920929e-07 },
+          "assertions": [
+            { "variable": "fold_yearID", "time": 0.0, "expected": 1990.0, "coords": { "fold_year_rows": 1 }, "tolerance": { "rel": 1e-12 } },
+            { "variable": "fold_yearID", "time": 0.0, "expected": 2020.0, "coords": { "fold_year_rows": 31 }, "tolerance": { "rel": 1e-12 } },
+            { "variable": "fold_lowYearID", "time": 0.0, "expected": 1990.0, "coords": { "run_rows": 1, "fold_year_rows": 2 }, "tolerance": { "rel": 1e-12 } },
+            { "variable": "fold_highYearID", "time": 0.0, "expected": 1999.0, "coords": { "run_rows": 1, "fold_year_rows": 2 }, "tolerance": { "rel": 1e-12 } },
+            { "variable": "fold_lowIndicator", "time": 0.0, "expected": 321.0, "coords": { "run_rows": 1, "fold_year_rows": 2 }, "tolerance": { "rel": 1e-12 } },
+            { "variable": "fold_highIndicator", "time": 0.0, "expected": 1481.0, "coords": { "run_rows": 1, "fold_year_rows": 2 }, "tolerance": { "rel": 1e-12 } },
+            { "variable": "fold_indicator", "time": 0.0, "expected": 321.0, "coords": { "run_rows": 1, "fold_year_rows": 1 } },
+            { "variable": "fold_indicator", "time": 0.0, "expected": 449.8889, "coords": { "run_rows": 1, "fold_year_rows": 2 } },
+            { "variable": "fold_indicator", "time": 0.0, "expected": 1481.0, "coords": { "run_rows": 1, "fold_year_rows": 10 } },
+            { "variable": "fold_indicator", "time": 0.0, "expected": 1000.0, "coords": { "run_rows": 1, "fold_year_rows": 11 } },
+            { "variable": "fold_indicator", "time": 0.0, "expected": 1508.0, "coords": { "run_rows": 1, "fold_year_rows": 31 } },
+            { "variable": "fold_annualGrowthFactor", "time": 0.0, "expected": 0.0, "coords": { "run_rows": 1, "fold_year_rows": 1 } },
+            { "variable": "fold_annualGrowthFactor", "time": 0.0, "expected": 0.401523, "coords": { "run_rows": 1, "fold_year_rows": 2 } },
+            { "variable": "fold_annualGrowthFactor", "time": 0.0, "expected": -0.32478055, "coords": { "run_rows": 1, "fold_year_rows": 11 } },
+            { "variable": "run_popGrowthFactor", "time": 0.0, "expected": 0.401523, "coords": { "run_rows": 1 } }
+          ]
+        },
+        {
           "id": "the_carried_age_distribution_sums_to_the_growth_ratio",
-          "description": "The check that keeps F12's carried column honest. agedist.f's thirty-year fold is a recurrence with no spelling, so `age_grownModelYearFraction` is data -- and a carried column nobody is testing is not a number, it is an assertion. Its sum must be the cumulative growth G(2020)/G(1990), which this document derives from nrgrowthindex through a completely different route: the pattern finder's ladder, then two exact rows of a 50,955-row table. 4.6978168 against 4.6978192, agreeing to 5.2e-07 -- which is where two float32-printed fractions summed in float32 should land, and far tighter than any modelling error would be. That 5.2e-07 is four epsilons of the declared element type and is the one number in this document that needs a tolerance looser than one: the gap is in the CARRIED fractions, not in the summing, so it does not tighten with precision.",
+          "description": "The check that keeps the ONE carried column honest. `age_grownModelYearFraction` is still data -- not because the fold has no spelling any more (it has: esm-spec §4.3.1.1, and components/age_distribution.esm computes it) but because this document ingests, and a document that ingests is forced onto an evaluation path that resolves a causal self-read to zero without a diagnostic (finding F24). A carried column nobody is testing is not a number, it is an assertion. Its sum must be the cumulative growth G(2020)/G(1990), which this document derives from nrgrowthindex through a completely different route: the pattern finder's ladder, then two exact rows of a 50,955-row table. 4.6978168 against 4.6978192, agreeing to 5.2e-07 -- which is where two float32-printed fractions summed in float32 should land, and far tighter than any modelling error would be. That 5.2e-07 is four epsilons of the declared element type and is the one number in this document that needs a tolerance looser than one: the gap is in the CARRIED fractions, not in the summing, so it does not tighten with precision.",
           "time_span": { "start": 0.0, "end": 0.0 },
           "tolerance": { "rel": 1e-6 },
           "assertions": [
