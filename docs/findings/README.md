@@ -1,14 +1,19 @@
 # Findings: conventions the format or the toolchain could not express
 
-Twenty-two things PLAN.md §3 Phase 1 through Phase 4 assumed, or that an author would
-reasonably assume, that did not hold. Four are now fixed upstream and are listed
-at the bottom, with their sections kept above so the workarounds they forced can
-be traced; the rest still hold at the pinned toolchain (`esm-version.lock`:
-EarthSciAST `f83bff90d`, EarthSciIO `d109951d4`, `--features esio,parallel`).
+Twenty-four things PLAN.md §3 Phase 1 through Phase 4 assumed, or that an author would
+reasonably assume, that did not hold. Nine are fixed upstream and retired from
+the tripwire, listed at the bottom with their sections kept above so the
+workarounds they forced can be traced. A tenth, **F24**, is fixed upstream
+(EarthSciAST `de784f3f8`) but is **not in the pinned toolchain** — `6d0ec3b13`
+predates it — so its repros still reproduce here and stay in the tripwire until
+`./esm` is rebuilt. The rest still hold at the pinned toolchain
+(`esm-version.lock`: EarthSciAST `6d0ec3b13`, EarthSciIO `d109951d4`,
+`--features esio,parallel`).
 
-F2, F3, F5, F11, F13, F14, F20, F21 and F22 each have a minimal `.esm` repro in this directory —
-F22 has two, one per construct; F8 is a CLI behaviour rather than a
-document, and is checked by command against the ordinary files of the repo. **Every repro is expected to fail**, and each one's inline test asserts the *intended* behaviour, so a repro
+F2, F3, F5, F11, F13, F14, F20, F21, F22 and F24 each have a minimal `.esm` repro in this directory —
+F22 has two, one per construct, and F24 has two for a different reason (see
+below); F8 is a CLI behaviour rather than a
+document, and is checked by command against the ordinary files of the repo. F23 has no repro at all, because the document that would carry it is `components/age_distribution.esm` itself and the finding is what that file does NOT declare. **Every repro is expected to fail**, and each one's inline test asserts the *intended* behaviour, so a repro
 that starts passing means the defect is fixed. `run-tests.sh` runs them as a
 **tripwire stage**: it fails if any repro goes green, with a message naming the
 convention that then becomes available. That is the opposite of the usual
@@ -18,19 +23,27 @@ workaround left in the tree for no reason.
 Three files are excluded from that loop by name. **`join_leaf.esm`** is a leaf
 that two repros mount and that passes standalone, which is what makes their
 failures attributable to the mount — F21 reuses it rather than adding a fourth
-leaf, so that finding needed no change to `run-tests.sh`. The other two are
-**controls that are meant to pass**. **F18's** checks the guarantee the port
-depends on, from both sides: the key-collapse half of F18 is resolved by a
-per-variable `element_type` override that is explicit by design, so the
-behaviour its old repro asserted will never hold and "still fails, as recorded"
-would have been false reassurance. **F12's** is kept for a narrower reason —
-this port is about to depend on the construct, and until
-`components/age_distribution.esm` computes `agedist.f`'s fold and guards it with
-its own assertions, that control is the only thing here that would notice a
-recurrence regressing.
+leaf, so that finding needed no change to `run-tests.sh`. **F18's control** is
+meant to pass, and checks the guarantee the port depends on from both sides: the
+key-collapse half of F18 is resolved by a per-variable `element_type` override
+that is explicit by design, so the behaviour its old repro asserted will never
+hold and "still fails, as recorded" would have been false reassurance.
 
-There used to be a third, F19, whose repro *passed* and whose passing was the
-defect, watched by an inverted check. It is fixed, so the check is gone.
+**F24a is excluded because its document PASSES**, and that is the finding rather
+than an exception to it. F24 is a **disagreement between two evaluation paths**:
+the same file gives `[1, 2, 4, 8]` under `esm test` and reads its self-reference
+as unresolved under `esm simulate`. So the check runs *both commands* and asserts
+that they still disagree — inverted polarity, like the one F19 had. Its twin
+**F24b** is an ordinary tripwire repro and stays in the loop: it is F24a plus one
+ingested column, so its inline test fails, which is exactly the polarity the loop
+wants.
+
+F12's control is **gone**. It was kept until `components/age_distribution.esm`
+computed `agedist.f`'s fold and guarded it with its own assertions; it does, in
+55 places, so the control had nothing left to notice.
+
+There used to be another inverted check, F19's, whose repro *passed* and whose
+passing was the defect. It is fixed, so that check is gone.
 
 The repros are excluded from the ordinary `validate` and `test` stages, because
 three of them do not load.
@@ -47,6 +60,8 @@ three of them do not load.
 | **F16** | A SCALAR variable is not materialized in a document that ingests data | assertion | no |
 | **F17** | A `join.on` between two LARGE data relations is not driven | — | **yes** |
 | **F18** | An ingested value the declared `element_type` cannot represent is narrowed silently (the key-collapse half is **resolved**, by a per-variable override) | ingest | **yes** |
+| **F23** | A leaf's `domain.element_type` does not survive a top-level `models` `{ref}` mount | — | **yes** |
+| **F24** | A causal self-reference is dropped once the document ingests (**fixed upstream**, `de784f3f8`; not in the pinned toolchain, and the ingestion axis not yet confirmed against a reader-enabled build) | — | **yes** |
 | **F22** | A discrete event, and an implicit equation, do not evaluate on the ARRAY path (both work on the scalar path) | evaluation | no |
 | **F20** | A constant-folded scalar right-hand side loses the left-hand side's array shape | assertion | no |
 | **F21** | A scoped reference to a mounted model's variable resolves as an operand and a join key but not as an assertion `variable` | assertion | no |
@@ -844,6 +859,172 @@ author who reaches for one finds a measurement instead of a surprise.
 
 ---
 
+## F23 — a leaf's `domain.element_type` does not survive a `{ref}` mount
+
+No repro file: the document that would carry it is
+`components/age_distribution.esm`, and the finding is about what that file
+cannot declare.
+
+`agedist.f`'s fold is the first calculation in this port whose **answer** depends
+on the working precision, and only for one equipment point. SCC `2260007005`'s
+cumulative scrappage reaches exactly 100 % at age 3, so `yryrfrcscrp` is
+`100 × 0.265 / 26.5` — exactly `1` in binary64 and `0.99999994` in `real*4` —
+and the surviving `5.96e-08` is amplified by thirty iterations of an unclamped
+residual into a `5.3e-07` disagreement on the grown fractions and an **exact
+zero** where the reference leaves `5.8885583e-08`. Four `MOVESOutput` rows hang
+off that (§7.3).
+
+So the leaf wants `domain.element_type: "Float32"`. Declaring it does not work,
+and the way it fails is the shape this repository fears:
+
+* `runs/nr_logging_county_run.esm` mounts the leaf through a top-level `models`
+  `{ref}` and **re-runs the leaf's own inline tests**. With `Float32` on the
+  leaf, those tests ran in **binary64** under the mount and the third grown
+  fraction came back as exactly `0` against an expected
+  `5.888558263222876e-08`. Nothing was rejected and nothing was logged: the
+  leaf's declared precision is simply not part of what the mount carries.
+* Declaring it on the **assembly** instead is not a workaround. Measured: **119
+  of 295** assertions fail, across ten leaves that were authored and checked in
+  binary64.
+
+This is F2's family — a top-level `{ref}` does not merge the referenced file's
+`index_sets` either — but with a worse failure mode: F2 fails at `validate`,
+this one changes an answer.
+
+**What the port does instead.** The leaf stays in binary64 and **pins both
+precisions**, in the two places they are actually evaluated. Its own arithmetic
+is asserted exactly, at the model's `rel 1e-12`: `3.707270451304289`,
+`0.9905488043395176`, and the exact `0`. §6.1 step 3's `real*4` values are named
+beside them in the test's description with the measured `5.3e-07` gap and the
+reason it is amplification rather than rounding. And the **invariant both
+precisions share** is asserted, which is what stops the first from being
+self-referential: `Σ modfrc = G(2020)/G(1990) = 4.697819`, which
+`components/growth_index.esm` derives from the index series by a different
+route, asserted at 2⁻²³ for all three equipment points.
+`fixtures/nr-logging-county.esm`, which declares `Float32`, is where the
+`real*4` residue is asserted. `docs/esm-conventions.md` §19.5 has the rule.
+
+The two other `2265007015` equipment points §6.2 tabulates need none of this: in
+binary64 their grown fractions land within `1.8e-07` of the specification's own
+decimals, because neither has a survival factor that is a cancellation residue.
+Precision sensitivity here is a property of **one equipment point's scrappage
+curve landing exactly on 100 %**, not of the fold.
+
+---
+
+## F24 — a causal self-reference is dropped once the document ingests — **fixed upstream, not yet pinned**
+
+Two repros, and the second one is the finding.
+
+`F24_repro_a_recurrence_is_dropped_on_the_ingesting_path.esm` is esm-spec
+§4.3.1.1's canonical spelling over `const` inputs. **Its inline test passes**,
+and that is half the finding: the defect is a disagreement between two
+evaluation paths.
+
+```
+esm test <that file>      ->  s_value [1, 2, 4, 8]        s_clamped [1, 3, 7, 15]   correct
+esm simulate <that file>  ->  s_value [1, NaN, NaN, NaN]  s_clamped [1, 1, 1, 1]
+```
+
+`F24b_repro_one_ingested_column_breaks_the_recurrence.esm` is that same document
+plus **one ingested column that the recurrence never reads** —
+`runspecmonth.monthID`, one row. At `rel 0, abs 0`:
+
+```
+same document, no data_sources    esm test -> 4/4 pass
+same document, one column read    esm test -> 1/5 pass (the month is right; both recurrences are not)
+```
+
+The `m_month = 8` assertion passes in the ingesting case, so the **data path
+works** and it is the recurrence that the build changes. The trigger is not that
+the recurrence reads ingested data; it is that **the document ingests at all**.
+`run_simulate` sets `build_pipeline = true` whenever providers exist, and
+`esm simulate` takes that path even for a document that does not ingest.
+
+**Silent, and the clamp is why.** An unresolved self-read comes back `NaN`,
+which would at least be loud. `max(NaN, 0)` returns `0`, so a body with a clamp
+— which is exactly what `agedist.f` has — reads `[1, 1, 1, 1]` where the
+document says `[1, 3, 7, 15]`: finite, plausible, monotone, wrong, nothing
+logged at any level. `CONFORMANCE_SPEC` §5.19.4 requires a raised fault rather
+than a sentinel and names this laundering as the reason.
+
+**Confirmed upstream, not a spelling problem here.** The repro is EarthSciAST's
+own canonical valid example, `tests/valid/recurrence_causal_self_reference.esm`:
+6/6 under `esm test`, and under `esm simulate --observed r` it returns that
+file's non-recurrent `b[y]` `const` verbatim,
+`[1e-16, 1, 1e-16, 1e8, 3, -1e16]`, meaning the self-read term contributed
+nothing at all. Four spellings were tried before filing — the bare-variable LHS,
+the §4.3 indexed-aggregate LHS (`aggregate{expr: s[k]} ~ …`, the other form
+§4.3.1.1's *Recognition* paragraph admits), a one-axis fold, and a two-axis fold
+with the second axis an identity index — and all four are correct under
+`esm test` and unresolved under `esm simulate`.
+
+**What it costs this port, and what it does not.**
+`fixtures/nr-logging-county.esm` reads twenty-six snapshot tables, so it is on
+the pipeline path unconditionally, and a fixture's emitted answer goes through
+`esm simulate` regardless. The fold was authored into that fixture and taken
+back out: measured, `fold_totalPopulation` at 1991 read `1e-4 × (1 + grwfac)`
+instead of `83.3 × (1 + grwfac)` — the signature of
+`max(self_read, MINGRWIND)` with an unresolved self-read — and the grown
+fractions summed to `1.5e-06` instead of `4.697819`. So the fixture still
+carries three numbers.
+
+It costs `components/age_distribution.esm` nothing: that document does not
+ingest, so it computes the fold on the path that honours it, verified
+**bit-exactly against the reference fold on all six equipment points — 306 of
+306 cells at `rel 0, abs 0`** — with 55 assertions on it.
+
+**The gap that let it through is worth more than the defect.** The construct's
+conformance tier and every fixture for it were verified under `esm test` only: a
+construct with two evaluation paths, checked on one. `run-tests.sh`'s F24 check
+therefore runs **both** commands on F24a and asserts that they still disagree,
+and it checks the *clamped* column rather than the `NaN` one — a check on `NaN`
+alone would pass the day the sentinel changed without the construct working.
+`docs/esm-conventions.md` §19.4 makes "exercise a new construct on both paths"
+a rule rather than an anecdote.
+
+### The fix, and one cause rather than two
+
+EarthSciAST `de784f3f8` (`9dafce9a0` is the fix, `ed939f48b` the both-paths
+test, `1c05b569a` the spec text). The two axes this section describes — "any
+document that ingests" and "every document under `esm simulate`" — turned out to
+be **one cause**: `prepare::eval_observed` evaluated every observed
+**wholesale** through the shared expression evaluator with no recurrence scope,
+so `index(r, y − a)` resolved against a map that does not yet hold the array
+being built and fell through to an unbound-name `NaN`. Both routes reach that
+function.
+
+The fix is structural rather than a second implementation. The sweep is factored
+out of `materialize_observeds_pass` into `rhs::sweep_recurrence` and **both
+paths call it** — two call sites with two copies is precisely how one path came
+to work and the other to be dead, so one function is the fix and not a cleanup.
+And the part that matters beyond this bug: a self-read the lowering does not
+recognize now returns **`recurrence_unsupported_form`** instead of falling
+through to the wholesale evaluation, so a future path that misses the sweep
+fails loudly rather than quietly.
+
+**It is the eighth instance of this repository's characteristic failure, and the
+first where the sentinel was MANUFACTURED BY A CLAMP rather than returned by the
+runtime.** The runtime did return `NaN`, which is the loud sentinel and would
+have propagated; `max(NaN, 0.0) == 0.0` destroyed it, because IEEE-754 `max`
+returns the non-NaN operand. MOVES clamps everywhere — `agedist.f`'s own fold
+body is `max(·, 0)`, and so is `prccty.f`'s skip test and half the scrappage
+arithmetic — so in this port a NaN sentinel is not a defence at all. That is why
+`run-tests.sh` checks the clamped column: the loud half of the evidence was
+already there and the clamp is what removed it.
+
+**Not in the pinned toolchain, and one axis still unproven.** `esm-version.lock`
+pins `6d0ec3b13`, which predates the fix, so both repros still reproduce here
+and stay in the tripwire. The upstream author verified the **build-pipeline
+path** — which both axes reduce to — and said plainly that they could not verify
+the **ingestion** axis, because that build has no parquet reader. So
+`fixtures/nr-logging-county.esm` keeps its carried `const` until the ingestion
+axis is confirmed against a reader-enabled binary on the real snapshot.
+`run-tests.sh`'s F24 check is already the tripwire for that: it fails, with
+instructions, the moment `esm simulate` agrees with `esm test` on F24a.
+
+---
+
 ## Fixed upstream
 
 Retired from the tripwire; the repros are gone because the fixing commits carry
@@ -854,7 +1035,8 @@ traced.
   F7 came along because it had to. It was recorded here as a `round-trip` bug and is in fact **~17 subcommands** — only `validate` and `test` used `load_path`. On its own that is a loud failure. Combined with F15's fix it would have become a **silent** one: a CWD-anchored `ref` fails, but a CWD-anchored `url_template` resolves, succeeds, and reads a *different file*. Measured before the fix, one document converted from three directories gave `file:///tmp/tables/probe.parquet`, `file:///tables/probe.parquet` and `file:///u/ctessum/tables/probe.parquet`. That is the eighth instance of this toolchain's characteristic failure, and it was found by an author noticing that their own change would create it.
 - **F6 and F16** — EarthSciAST `d421d3541` — they were **one cause, not two**. The §6.6.3 pointwise assertion path read the solve trajectory and nothing else, and a 0-D observed lives in one of three carriers: the array runtime exposes every 0-D observed unasked (which is why the array-shaped twin always worked), the scalar backend exposes one only when the caller names it (F6), and a document that cannot integrate has no trajectory at all (F16). `esm simulate` printed the right value for both repros the whole time; only `esm test` could not reach it. The fix requests the pointwise-asserted observeds and falls back to the state-free scalar observed, with the same guards the array branch has — so an unbound name is still an ERROR naming it, never a zero. **Fixed in Rust only**; Julia and Python still resolve a pointwise assertion against state rows, recorded upstream as `BEHAV-06-B-008` rather than papered over.
 - **F19** — EarthSciAST `31b46188c` — an assertion whose actual was `±inf` passed whatever `expected` said, because `check_assertion` had been reduced to the tolerance bound alone and `|inf − expected| ≤ inf` holds for every `expected`. **Julia was always right**: its `_check_assertion` delegates to `isapprox`, which carries the finiteness clause. The Rust and Python re-implementations both documented themselves as "Julia `isapprox` semantics" and both dropped it — a re-implementation drifting from the binding it names, invisible to every other conformance category because every other fixture's actuals are finite. Now normative in esm-spec §6.6.3 and pinned by CONFORMANCE_SPEC §5.20, a tier that compares **verdicts** rather than actuals, since `±Inf` and `NaN` are not JSON-representable.
-- **F12** — EarthSciAST `a83cde55e` — a recurrence over an index axis now has a spelling, and it adds **no new op and no new schema field**: an equation defining an array-shaped unknown `V` whose `aggregate` body reads `index(V, k − c)` — `V` itself, strictly earlier along one of that node's output axes — is a causal self-reference, materialized cell by cell, that axis outermost and ascending, each cell published before the axis advances. The LHS already names the accumulator, so an annotation would carry no information the read does not. The proof obligation **splits**: the coefficient of the frame symbol must be provably 1, or the axis and direction are undecidable, but the lag's *sign* need not be provable at all, because a self-read resolves only against published cells and so faults rather than returning a number. Arithmetic order is normative (CONFORMANCE_SPEC §5.19), and the carried value is rounded to the variable's `element_type` at **every** cell, not once at the end — which matters here, since the consumer is a `Float32` document. Its repro is kept as a **control**, not deleted: see the preamble. Of the four spellings tried, the `makearray`-region one is now refused *loudly* with `recurrence_unsupported_form` naming the fix, where it used to fail silently — region order fixes which write wins, not which cell is evaluated when — and the other two turned out to record a different gap, re-filed as **F22**.
+- **F12** — EarthSciAST `a83cde55e` — a recurrence over an index axis now has a spelling, and it adds **no new op and no new schema field**: an equation defining an array-shaped unknown `V` whose `aggregate` body reads `index(V, k − c)` — `V` itself, strictly earlier along one of that node's output axes — is a causal self-reference, materialized cell by cell, that axis outermost and ascending, each cell published before the axis advances. The LHS already names the accumulator, so an annotation would carry no information the read does not. The proof obligation **splits**: the coefficient of the frame symbol must be provably 1, or the axis and direction are undecidable, but the lag's *sign* need not be provable at all, because a self-read resolves only against published cells and so faults rather than returning a number. Arithmetic order is normative (CONFORMANCE_SPEC §5.19), and the carried value is rounded to the variable's `element_type` at **every** cell, not once at the end — which matters here, since the consumer is a `Float32` document. Its control is now **deleted**: it was kept only until `components/age_distribution.esm` computed the fold and guarded it with its own assertions, which it does, in 55 places, verified bit-exactly against the reference fold on all six equipment points (306 of 306 cells at `rel 0, abs 0`). **The port's blocker did not disappear with F12, it moved and shrank**: `fixtures/nr-logging-county.esm` still carries the fold's three output values, because a document that ingests is forced onto an evaluation path that leaves a causal self-read unresolved — **F24**, which is about the toolchain rather than the format, and which the construct's own conformance tier could not have caught because it was verified under `esm test` only. Of the four spellings tried, the `makearray`-region one is now refused *loudly* with `recurrence_unsupported_form` naming the fix, where it used to fail silently — region order fixes which write wins, not which cell is evaluated when — and the other two turned out to record a different gap, re-filed as **F22**.
+- **F24** — EarthSciAST `de784f3f8` — a causal self-reference was **dead on the build-pipeline path, and silent**: `prepare::eval_observed` evaluated every observed wholesale with no recurrence scope, so the self-read fell through to an unbound-name `NaN` and `max(NaN, 0.0)` returned `0.0`. One cause, not the two axes the section above describes — `esm simulate` and the ingesting path both reach that function. The sweep is now one shared `rhs::sweep_recurrence` both routes call, and an unrecognized self-read returns `recurrence_unsupported_form` rather than falling through. **Listed here for the record but NOT retired**: `6d0ec3b13` is pinned, so it still reproduces, and the ingestion axis has not been confirmed against a reader-enabled build. Its two repros stay.
 - **F1** — EarthSciAST `a5e8a7d94` — `rename_free_symbol` now rewrites `join.on`, `overlap.src_env`/`tgt_env` and a resolved `on_gate`'s columns after `map_children`, so a nested §4.7 mount carries a leaf's key columns. **The nested mount is available again**; this port's assemblies still use the top-level `{ref}` form the workaround forced, which works and is not worth churning, but a new assembly may use either.
 - **F4** — EarthSciAST `ee067f5b6` — rejected at load with a named diagnostic, `reserved_index_symbol`, rather than made to work: an index symbol is the author's free choice (§4.3.1), while making the binder win would invert name-first precedence at nine sites and still leave the node unable to name the independent variable at all. The convention in `docs/esm-conventions.md` §7 stands, now enforced by the toolchain.
 - **F9** — EarthSciAST `8274f0918` — `simulate` treats a document with nothing to

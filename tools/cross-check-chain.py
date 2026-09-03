@@ -1,46 +1,80 @@
 #!/usr/bin/env python3
 """Check that the two independently authored NONROAD chains agree.
 
-`runs/nr_logging_county_run.esm` mounts the fifteen components and recomputes
+`runs/nr_logging_county_run.esm` mounts the components and recomputes
 docs/nonroad-logging-county.md §6.1's four model-year-2020 rows from leaves.
 `fixtures/nr-logging-county.esm` computes the same four rows from the snapshot
 Parquet. They are separate documents with separate equations, and until this
 check nothing compared them -- each passed its own gate against its own
 transcribed numbers, at tolerances far tighter than the gap between them.
 
-They evaluate in DIFFERENT PRECISIONS, deliberately, and that is the whole
-subtlety. The fixture declares Float32 and rounds per operation. The assembly
-does not declare an element type, so it evaluates in binary64 and asserts
-binary64 values. Comparing them therefore means casting the assembly's values
-to binary32 and allowing the difference between per-operation rounding and a
-single final cast -- which is bounded by one ulp per operation but is, measured
-on these four rows, exactly one ulp on one row and zero on the other three.
+TWO THINGS NOW SEPARATE THE ROUTES, AND THEY ARE NOT THE SAME KIND OF THING.
+This script used to bound the pair at ONE ULP of binary32, measured: three rows
+agreed bit-exactly and one differed by exactly one ulp, which is per-operation
+rounding versus a single final cast. That was right while both routes used the
+SAME grown model-year fraction -- the fixture carried `agedist.f`'s real*4
+result as a `const` and so did the assembly's stage-2c leaf.
 
-So the tolerance here is ULPS, not a relative fraction: a relative bound would
-have to be loosened to 1e-7 to pass row 2, and 1e-7 is four orders looser than
-what either document asserts internally. An ulp bound stays tight in the units
-that the divergence is actually measured in.
+The leaf now COMPUTES the fold (esm-spec §4.3.1.1), in the binary64 the assembly
+evaluates in, and for this equipment point the fold's answer depends on the
+precision: `age_percentScrapped` reaches exactly 100 at age 3, so the age-3
+survival is exactly 0 in binary64 and 5.96e-08 in real*4, and thirty iterations
+of an unclamped residual amplify that into a 5.3e-07 disagreement on
+`modfrc[2020]`. So the routes differ by
+
+  (a) per-operation rounding versus a final cast   -- <= 1 ulp of binary32; and
+  (b) ONE INPUT: the grown model-year fraction, 3.707270451304289 computed in
+      binary64 against 3.7072685 carried at real*4 -- about 8 ulps, and NOT
+      rounding. It is a cancellation residue amplified thirty times.
+
+RAISING THE BOUND TO 8 ULPS WOULD BE THE WRONG FIX, and it was considered. It
+would absorb (b) into the tolerance and with it any future divergence of the
+same size arising for a completely different reason, which is the one thing this
+gate exists to catch. So (b) is DIVIDED OUT instead: each route's four rows are
+normalised by ITS OWN `modfrc[2020]`, read out of the document that owns it, and
+the normalised rows are then held to the original one-ulp bound. Measured after
+normalising: three rows bit-exact and one at exactly one ulp -- the same picture
+as before the leaf started computing the fold, which is the evidence that (b) is
+the whole of the difference.
+
+The size of (b) is asserted separately, two-sidedly, so it cannot drift
+unnoticed: it must be LARGER than one binary32 ulp (below that the two routes
+would be using the same fold again and the normalisation would be dead weight
+hiding nothing) and no larger than sixteen (twice the measured 8.18; beyond that
+it is not the recorded amplification any more). Both edges name what they mean
+rather than being fitted.
 
 What this catches that nothing else does: an arithmetic divergence between the
-two chains. What it deliberately tolerates: the precision difference. What it
-does NOT catch: both chains being wrong in the same way -- that is what
-run-oracle.sh's third implementation is for.
+two chains. What it deliberately accounts for: the precision difference, and the
+one grown fraction the two routes get from different places. What it does NOT
+catch: both chains being wrong in the same way -- that is what run-oracle.sh's
+third implementation is for.
 """
 import csv, json, math, struct, sys
 
 ASSEMBLY = "runs/nr_logging_county_run.esm"
+LEAF = "components/age_distribution.esm"
+FIXTURE = "fixtures/nr-logging-county.esm"
 TEST_ID = "the_chain_reproduces_the_worked_examples_2020_rows"
+LEAF_TEST_ID = "the_grown_fractions_sum_to_the_cumulative_growth_ratio"
 MODEL_YEAR = "2020"
 MAX_ULPS = 1.0
+# The recorded size of difference (b), in ulps of binary32, two-sided. Measured
+# 8.18; see the module docstring for what each edge means.
+FOLD_GAP_ULPS_MIN = 1.0
+FOLD_GAP_ULPS_MAX = 16.0
+
 
 def f32(x):
     return struct.unpack("f", struct.pack("f", x))[0]
+
 
 def ulp32(x):
     """The spacing of binary32 at x. Normal magnitudes only, which these are."""
     if x == 0.0:
         return 2.0 ** -149
     return 2.0 ** (math.frexp(abs(x))[1] - 1 - 23)
+
 
 def assembly_values():
     doc = json.load(open(ASSEMBLY))
@@ -50,17 +84,90 @@ def assembly_values():
         sys.exit(f"{ASSEMBLY}: expected exactly one test '{TEST_ID}', found {len(hit)}")
     return [a["expected"] for a in hit[0]["assertions"]]
 
+
+def assembly_grown_fraction():
+    """`modfrc[2020]` as the assembly's stage-2c leaf computes it, in binary64.
+
+    Read from the leaf's own assertion rather than hardcoded, for the same
+    reason the four row values above are: a number this script restated would
+    stop tracking the document the day the document moved.
+    """
+    doc = json.load(open(LEAF))
+    tests = doc["models"]["AgeDistribution"]["tests"]
+    hit = [t for t in tests if t["id"] == LEAF_TEST_ID]
+    if len(hit) != 1:
+        sys.exit(f"{LEAF}: expected exactly one test '{LEAF_TEST_ID}', found {len(hit)}")
+    got = [a["expected"] for a in hit[0]["assertions"]
+           if a["variable"] == "age_grownModelYearFraction"
+           and a.get("coords", {}).get("age_rows") == 1]
+    if len(got) != 1:
+        sys.exit(f"{LEAF}: expected one age_grownModelYearFraction[1] assertion in "
+                 f"'{LEAF_TEST_ID}', found {len(got)}")
+    return got[0]
+
+
+def fixture_grown_fraction():
+    """`modfrc[2020]` as the fixture carries it -- agedist.f's real*4 answer.
+
+    When finding F24 is fixed the fixture will COMPUTE this instead of carrying
+    it, and the equation will stop being a `const`. That is not a silent change
+    here: it exits with the reason and what to do, because at that point the two
+    routes agree on the fold again, difference (b) collapses to rounding, and
+    the normalisation this script performs should be deleted rather than left
+    dividing by two numbers that are the same.
+    """
+    doc = json.load(open(FIXTURE))
+    eqs = [e for e in doc["models"]["NrLoggingCounty"]["equations"]
+           if e["lhs"] == "age_grownModelYearFraction"]
+    if len(eqs) != 1:
+        sys.exit(f"{FIXTURE}: expected one age_grownModelYearFraction equation, found {len(eqs)}")
+    rhs = eqs[0]["rhs"]
+    if rhs.get("op") != "const":
+        print(f"{FIXTURE} no longer CARRIES agedist.f's fold: age_grownModelYearFraction "
+              f"is an `{rhs.get('op')}`, not a `const`.")
+        print("  If finding F24 is fixed and the fixture now computes the fold, the two")
+        print("  routes agree on it again and difference (b) in this script's docstring is")
+        print("  gone. Delete the normalisation and restore the plain one-ulp comparison.")
+        sys.exit(1)
+    return rhs["value"][0]
+
+
 def fixture_values(csv_path):
     rows = [r for r in csv.DictReader(open(csv_path)) if r["modelYearID"] == MODEL_YEAR]
     if not rows:
         sys.exit(f"{csv_path}: no rows for model year {MODEL_YEAR}")
     return [float(r["emissionQuant"]) for r in rows]
 
+
 def main():
     if len(sys.argv) != 2:
         sys.exit("usage: cross-check-chain.py <fixture actual .csv>")
-    a = sorted(f32(v) for v in assembly_values())
-    b = sorted(fixture_values(sys.argv[1]))
+
+    a_mod, f_mod = assembly_grown_fraction(), fixture_grown_fraction()
+    gap_ulps = abs(a_mod - f_mod) / ulp32(f_mod)
+    gap_rel = abs(a_mod - f_mod) / abs(f_mod)
+    print(f"  modfrc[2020]: assembly (binary64 fold) {a_mod!r}")
+    print(f"                fixture  (carried real*4) {f_mod!r}")
+    print(f"                differ by {gap_rel:.3e} relative = {gap_ulps:.2f} ulps of binary32")
+    if gap_ulps < FOLD_GAP_ULPS_MIN:
+        print(f"FAIL: the two routes' grown fractions now differ by {gap_ulps:.2f} ulps, less "
+              f"than one. That is rounding, not the recorded 5.3e-07 amplification, so the two "
+              f"routes are using the same fold and the normalisation below divides by two equal "
+              f"numbers -- it would hide a real divergence rather than isolate a known one. "
+              f"Delete it and restore the plain comparison.")
+        return 1
+    if gap_ulps > FOLD_GAP_ULPS_MAX:
+        print(f"FAIL: the two routes' grown fractions differ by {gap_ulps:.2f} ulps, more than "
+              f"the {FOLD_GAP_ULPS_MAX:.0f} recorded. The binary64 fold, or the carried real*4 "
+              f"value, has moved by more than the age-3 cancellation residue explains, and this "
+              f"script's account of WHY the routes differ is no longer true.")
+        return 1
+
+    # Difference (b) divided out: each route by its own grown fraction. Division
+    # by a positive number preserves order, so the sorted pairing below is the
+    # same pairing it would have been on the raw values.
+    a = sorted(f32(v / a_mod) for v in assembly_values())
+    b = sorted(f32(v / f_mod) for v in fixture_values(sys.argv[1]))
 
     if len(a) != len(b):
         print(f"FAIL: assembly asserts {len(a)} rows for {MODEL_YEAR}, fixture emitted {len(b)}")
@@ -73,12 +180,14 @@ def main():
     for i in range(len(a) - 1):
         gap = a[i + 1] - a[i]
         if gap <= MAX_ULPS * ulp32(a[i + 1]) * 2:
-            print(f"FAIL: values {a[i]!r} and {a[i+1]!r} are closer than the "
+            print(f"FAIL: normalised values {a[i]!r} and {a[i+1]!r} are closer than the "
                   f"tolerance, so a sorted comparison cannot pair them safely")
             return 1
 
     bad = 0
-    print(f"  {'assembly f64->f32':>22} {'fixture per-op f32':>22} {'ulps':>7}")
+    print()
+    print(f"  each row divided by its own route's modfrc[2020]:")
+    print(f"  {'assembly / 3.7072705':>22} {'fixture / 3.7072685':>22} {'ulps':>7}")
     for x, y in zip(a, b):
         n = abs(y - x) / ulp32(x)
         flag = "" if n <= MAX_ULPS else "  <-- EXCEEDS"
@@ -86,12 +195,15 @@ def main():
             bad += 1
         print(f"  {x!r:>22} {y!r:>22} {n:7.2f}{flag}")
     if bad:
-        print(f"FAIL: {bad} of {len(a)} rows differ by more than {MAX_ULPS} ulp of "
-              f"binary32. The two chains disagree by more than the precision "
-              f"difference between them can explain.")
+        print(f"FAIL: {bad} of {len(a)} normalised rows differ by more than {MAX_ULPS} ulp of "
+              f"binary32. With the one grown fraction the two routes get from different places "
+              f"divided out, what is left is per-operation rounding against a final cast, and "
+              f"that is bounded by one ulp -- measured, three rows bit-exact and one at exactly "
+              f"one ulp. A divergence here is arithmetic, not precision.")
         return 1
-    print(f"  all {len(a)} rows agree within {MAX_ULPS} ulp of binary32")
+    print(f"  all {len(a)} normalised rows agree within {MAX_ULPS} ulp of binary32")
     return 0
+
 
 if __name__ == "__main__":
     sys.exit(main())

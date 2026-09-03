@@ -2,7 +2,7 @@
   "esm": "1.0.0",
   "metadata": {
     "name": "moves.population",
-    "description": "Template library: the arithmetic of the NONROAD population stage — the base-year equipment population, the growth indicator series that projects it, and the scrappage curve that spreads it over model years (docs/nonroad-logging-county.md §2.2). Four of these shapes are the ones §7.4 warns an author is most likely to read as noise and simplify away, and they are not noise; they are the file formats canonical MOVES writes and reads.\n\n`pop_file_rounding` is the `%17.1f` of the .POP file: the engine never sees a population at full precision, and 0.463484 -> 0.5 is a 7.9% change that is REQUIRED to match the snapshot. `truncate_toward_zero` is the `%20d` of the /GROWTH/ packet: the year-over-year indicator changes sit near zero, so the truncation decides the SIGN of the growth factor and with it which model years survive agedist's clamp at all.\n\n`annualized_growth_factor` is grwfac.f: the ANNUALIZED fractional change (g - b)/(b*span), not the cumulative ratio g/b — mixing them up compounds a per-year rate as if it were a total. `median_life_years` keeps grwfac's sibling trap: scrptime.rs:102 divides LEFT TO RIGHT, (mdlfhrs/ldfctr)/acthpy, and caps at MXAGYR/2 = 25 years.\n\nLayering (esm-spec §9.7.3): `median_life_years` invokes `median_life_cap_years`, which invokes `max_equipment_ages`, so MXAGYR = 51 appears once in the repository and the cap is derived from it rather than written as 25.",
+    "description": "Template library: the arithmetic of the NONROAD population stage — the base-year equipment population, the growth indicator series that projects it, and the scrappage curve that spreads it over model years (docs/nonroad-logging-county.md §2.2). Four of these shapes are the ones §7.4 warns an author is most likely to read as noise and simplify away, and they are not noise; they are the file formats canonical MOVES writes and reads.\n\n`pop_file_rounding` is the `%17.1f` of the .POP file: the engine never sees a population at full precision, and 0.463484 -> 0.5 is a 7.9% change that is REQUIRED to match the snapshot. `truncate_toward_zero` is the `%20d` of the /GROWTH/ packet: the year-over-year indicator changes sit near zero, so the truncation decides the SIGN of the growth factor and with it which model years survive agedist's clamp at all.\n\n`annualized_growth_factor` is grwfac.f: the ANNUALIZED fractional change (g - b)/(b*span), not the cumulative ratio g/b — mixing them up compounds a per-year rate as if it were a total. `median_life_years` keeps grwfac's sibling trap: scrptime.rs:102 divides LEFT TO RIGHT, (mdlfhrs/ldfctr)/acthpy, and caps at MXAGYR/2 = 25 years.\n\nLayering (esm-spec §9.7.3): `median_life_years` invokes `median_life_cap_years`, which invokes `max_equipment_ages`, so MXAGYR = 51 appears once in the repository and the cap is derived from it rather than written as 25.\n\n`agedist_cohort_term` is agedist.f's fold, reduced to one cell of it. The fold itself is a causal self-reference along the year axis (esm-spec §4.3.1.1); what this template holds is the ONE cell that self-read multiplies out, and it is a template because the same expression is needed twice — once inside the recurrence that sums the scrapped cohorts, once outside it to read the last year's vector back. Its body is a `reduce: \"*\"` run over the survival factors whose FIRST factor is the cohort's clamped base, so the multiplication associates exactly as the Fortran's year loop does: `((base * S[lo]) * S[lo+1]) * ...`. Precomputing the run product and multiplying the base in afterwards is a different float32 number — measured, up to 6.4e-06 relative on a grown fraction, against zero for the left fold. Every array it reads is indexed by EQUIPMENT POINT FIRST, because agedist.f is called once per point and the fold's answer depends on the point's own base population: two of the fixture's points differ in nothing but that and their grown fractions still differ in the last bits. The point index is a parameter rather than a broadcast so that the recurrence's non-recurrence axis stays an IDENTITY index, which esm-spec §4.3.1.1 requires -- `index(V, p, Y - a)` is admitted and `index(V, p + 1, Y - a)` is `recurrence_not_wellfounded`. `agedist_cohort_run_start` is where that run begins: age slot 1 for a cohort young enough to trace back to a residual, `age_slot - fold_year + 2` for one that traces back to the 1990 vector instead. The `[1, 51]` range is MXAGYR and is written as a literal because a `ranges` endpoint is a metaparameter expression, not an expression, so `max_equipment_ages` cannot be applied there; the `filter` is what actually bounds the run.",
     "authors": ["EarthSciML Authors and Contributors"],
     "tags": ["moves", "nonroad", "population", "growth", "scrappage", "template-library"]
   },
@@ -129,6 +129,63 @@
             ]
           }
         ]
+      }
+    },
+    "agedist_cohort_run_start": {
+      "params": ["fold_year", "age_slot"],
+      "body": {
+        "op": "max",
+        "args": [
+          { "op": "+", "args": [{ "op": "-", "args": ["age_slot", "fold_year"] }, 2] },
+          1
+        ]
+      }
+    },
+    "agedist_cohort_term": {
+      "params": ["equipment_point", "fold_year", "age_slot", "survival", "base_fraction", "residual_minuend", "scrapped_sum"],
+      "body": {
+        "op": "aggregate",
+        "args": [],
+        "output_idx": [],
+        "reduce": "*",
+        "ranges": { "m": [1, 51] },
+        "filter": {
+          "op": "and",
+          "args": [
+            { "op": ">=", "args": [
+              "m",
+              { "op": "apply_expression_template", "args": [], "name": "agedist_cohort_run_start",
+                "bindings": { "fold_year": "fold_year", "age_slot": "age_slot" } }] },
+            { "op": "<=", "args": ["m", { "op": "+", "args": ["age_slot", 1] }] }
+          ]
+        },
+        "expr": {
+          "op": "ifelse",
+          "args": [
+            { "op": "==", "args": [
+              "m",
+              { "op": "apply_expression_template", "args": [], "name": "agedist_cohort_run_start",
+                "bindings": { "fold_year": "fold_year", "age_slot": "age_slot" } }] },
+            {
+              "op": "ifelse",
+              "args": [
+                { "op": "<=", "args": ["age_slot", { "op": "-", "args": ["fold_year", 1] }] },
+                { "op": "max", "args": [
+                  { "op": "-", "args": [
+                    { "op": "index", "args": ["residual_minuend", "equipment_point", { "op": "-", "args": ["fold_year", "age_slot"] }] },
+                    { "op": "index", "args": ["scrapped_sum", "equipment_point", { "op": "-", "args": ["fold_year", "age_slot"] }] }] },
+                  0.0] },
+                { "op": "max", "args": [
+                  { "op": "index", "args": [
+                    "base_fraction", "equipment_point",
+                    { "op": "apply_expression_template", "args": [], "name": "agedist_cohort_run_start",
+                      "bindings": { "fold_year": "fold_year", "age_slot": "age_slot" } }] },
+                  0.0] }
+              ]
+            },
+            { "op": "index", "args": ["survival", "equipment_point", "m"] }
+          ]
+        }
       }
     },
     "surviving_equipment": {

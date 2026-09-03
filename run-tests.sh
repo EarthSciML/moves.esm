@@ -283,16 +283,64 @@ fi
 # of 0.34. Sabotage-checked both ways: dropping the override collapses both keys
 # to 2260001024 (2 fail), and setting the domain to Float64 reads 0.34 instead
 # of 0.3400000035762787 (1 fail).
-# F12's control, kept for one reason: this port is about to DEPEND on the
-# construct. components/age_distribution.esm carries agedist.f's fold as a const
-# because F12 said a recurrence had no spelling; it now has one, and until that
-# component computes the fold and guards it with its own assertions, this is the
-# only thing here that would notice the construct regressing. Delete it then.
-F12_CONTROL=docs/findings/F12_control_a_recurrence_over_an_index_axis.esm
-if "$ESM" validate "$F12_CONTROL" >/dev/null 2>&1 && "$ESM" test "$F12_CONTROL" >/dev/null 2>&1; then
-  pass "F12 recurrence control passes: a causal self-reference still evaluates"
+# F12's control is gone: components/age_distribution.esm now computes agedist.f's
+# fold and guards it with 55 assertions, which is what that control was waiting
+# for. What replaced it is F24, and F24 cannot be a repro of the usual shape,
+# because its document PASSES `esm test`. The defect is a DISAGREEMENT BETWEEN
+# TWO EVALUATION PATHS, so the check runs both commands.
+#
+# Two-sided, and both sides matter. `esm test` must keep passing, because
+# components/age_distribution.esm's fold runs on that path. `esm simulate` must
+# keep disagreeing, because that is the recorded defect -- and the day it agrees,
+# fixtures/nr-logging-county.esm can compute the fold instead of carrying it and
+# the shortfall in tolerance.toml can be rewritten. Inverted polarity, like the
+# one F19 used to have.
+#
+# THIS IS EXPECTED TO FIRE, AND SOON. F24 is fixed upstream (EarthSciAST
+# de784f3f8: one shared `rhs::sweep_recurrence` both routes call, plus a
+# `recurrence_unsupported_form` floor under any path that misses it), and this
+# check passes only because esm-version.lock pins 6d0ec3b13, which predates it.
+# Rebuilding ./esm turns this stage red on purpose. What has NOT been confirmed
+# is the INGESTION axis: the upstream build has no parquet reader, so the fix
+# was verified on the build-pipeline path only. So when this fires, check the
+# ingesting case against the real snapshot BEFORE deleting the fixture's const
+# -- F24b is the document for that, and it is one ingested column wide.
+#
+# The clamped column is what is checked rather than the plain one: an unresolved
+# self-read comes back NaN, but `max(NaN, 0)` -- the shape agedist.f's own body
+# has -- returns 0, so `s_clamped` reads a plausible [1, 1, 1, 1] where the
+# document says [1, 3, 7, 15]. A check on the NaN column alone would pass the day
+# the sentinel changed without the construct working.
+F24_REPRO=docs/findings/F24_repro_a_recurrence_is_dropped_on_the_ingesting_path.esm
+if ! "$ESM" test "$F24_REPRO" >/dev/null 2>&1; then
+  fail "F24 repro — the recurrence no longer evaluates on the SCALAR path either, and components/age_distribution.esm's fold depends on it"
 else
-  fail "F12 recurrence control — a recurrence over an index axis no longer evaluates, and components/age_distribution.esm depends on it"
+  f24_csv="$(mktemp --suffix=.csv)"
+  if "$ESM" simulate "$F24_REPRO" --time 0 --format csv \
+       --observed s_clamped --output "$f24_csv" >/dev/null 2>&1; then
+    f24_step2=$(awk -F, 'NR==3 {print $2}' "$f24_csv")
+    if [[ "$f24_step2" == "1" ]]; then
+      pass "F24 still holds: the pipeline path drops the self-read (s_clamped step 2 = 1, document says 3)"
+    else
+      fail "F24's fix has reached this toolchain — \`esm simulate\` now gives s_clamped step 2 = $f24_step2, not the laundered 1"
+      say "       Expected: EarthSciAST de784f3f8 fixes it. Do these in order."
+      say "       1. Confirm the INGESTION axis, which upstream could not: that build has"
+      say "          no parquet reader, so only the build-pipeline path was verified."
+      say "          \`$ESM test docs/findings/F24b_repro_one_ingested_column_breaks_the_recurrence.esm\`"
+      say "          must go 5/5. It is F24a plus one ingested column, so it is the"
+      say "          smallest thing that separates the two axes."
+      say "       2. Then fixtures/nr-logging-county.esm can COMPUTE agedist.f's fold"
+      say "          instead of carrying it: drop the const in age_grownModelYearFraction"
+      say "          and restore the fold columns (git log, 'WIP: fixture scrappage +"
+      say "          growth series'), which are authored and were removed only for F24."
+      say "       3. tools/cross-check-chain.py will then say so itself: the two routes"
+      say "          agree on the fold again, so its normalisation is dead weight."
+      say "       4. Rewrite [shortfall.\"nr-logging-county\"] in tolerance.toml."
+    fi
+  else
+    fail "F24 repro — \`esm simulate\` no longer runs on it at all, so the two-path check proves nothing"
+  fi
+  rm -f "$f24_csv"
 fi
 
 F18_CONTROL=docs/findings/F18_control_float32_key_override.esm
@@ -310,7 +358,7 @@ mapfile -t REPROS < <(find docs/findings -name '*.esm' -not -name 'join_leaf.esm
   -not -name 'F3_lib_with_enum.esm' \
   -not -name 'F13_enum_leaf_*.esm' \
   -not -name 'F18_control_float32_key_override.esm' \
-  -not -name 'F12_control_a_recurrence_over_an_index_axis.esm' 2>/dev/null | sort)
+  -not -name 'F24_repro_a_recurrence_is_dropped_on_the_ingesting_path.esm' 2>/dev/null | sort)
 
 if [[ ${#REPROS[@]} -eq 0 ]]; then
   say "  none recorded"

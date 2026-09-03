@@ -383,10 +383,14 @@ around binary64's four missing rows, and do not add a per-key allow-list; that
 was considered and rejected.
 
 One correction to how that used to be stated, because it was acted on: those
-four cells are *not* what the fixture's element type recovers. `agedist.f`'s
-fold is inexpressible (F12), so the fixture carries the grown fractions as a
-`const` whose third value is positive in either precision, and its twelve rows
-never depended on the precision at all. §17.5 has the account.
+four cells are *not* what the fixture's element type recovers. The fixture
+carries the grown fractions as a `const` whose third value is positive in either
+precision, and its twelve rows never depended on the precision at all. §17.5 has
+the account. What the element type *does* now recover in the fixture is the
+residue those four cells hang off — the age-3 survival, `5.9604645e-08` against
+binary64's exact `0` — which the fixture computes from the real curve and
+asserts. The step from that residue to the four rows is the fold, and the fold
+is blocked by **F24**, not by the format: see §19.
 
 **What this costs the inline tests — measured, and not what this section used
 to predict.** It said the expected values must move to the float32 values of
@@ -480,12 +484,36 @@ recorded in `tolerance.toml` under `[shortfall."nr-logging-county"]` and
 `run-tests.sh` is green only while the comparison fails *exactly* that way — the
 tripwire polarity again.
 
-What the other two SCCs need is not more `.esm` of the same kind. Each equipment
-point has its own `agedist.f` result, and that fold is a recurrence the format
-cannot express (finding **F12**), so the grown model-year fractions enter as
-data. One SCC's three values are checkable against the cumulative growth ratio
-the document derives independently from `nrgrowthindex`; thirty-six cohorts'
-would be transcribing the reference's answer, which is not a fidelity test.
+What stands between the fixture and the other 132 rows is now **two separable
+things**, where it used to be one.
+
+**The fold, and it is a toolchain blocker rather than a format one — and it is
+fixed upstream but not yet pinned here.** `agedist.f`'s thirty-year fold has a
+spelling, esm-spec §4.3.1.1's causal self-reference, and
+`components/age_distribution.esm` computes it, verified bit-exactly against the
+reference on all six equipment points. The fixture cannot *at the pinned
+toolchain*, because a document that ingests `data_sources` is forced onto the
+build-pipeline evaluation path and that path left a causal self-read unresolved
+(**F24**, fixed by EarthSciAST `de784f3f8`, which `6d0ec3b13` predates — and
+whose **ingestion** axis has not yet been confirmed against a reader-enabled
+build). So the three grown fractions still enter as data, and the day the
+rebuild lands `run-tests.sh`'s F24 check fails with instructions. What is
+no longer carried is everything that *feeds* them: the 197-row scrappage curve's
+step lookup, `yryrfrcscrp`, the survivals, `nyrlif`, the sales curve, the base
+model-year fractions, and `getgrw`'s whole indicator series with the thirty
+annual `grwfac` factors — 120 assertions against the Parquet, up from 87.
+
+**The equipment-point axis, and that is ordinary authoring effort.** The other
+two SCCs are six equipment points between them, summed per output row, with a
+gappy model-year set that the `modfrc <= 0` skip decides. `run_rows` is already
+the axis every stage is written over, and `lib/population.esm`'s
+`agedist_cohort_term` already indexes by equipment point, so the shape is
+settled; what remains is widening the axis and deriving the 144-row output key
+set from the membership column rather than authoring it dense.
+
+Recording those as one blocker is what the old text did, and it read as "the
+format cannot do this" when the truthful version is "one upstream defect, and
+then work".
 
 ## 12. Testing
 
@@ -513,13 +541,15 @@ parquet, and the assertions are that document's own worked longhand.
   instances so far, `nyrlif` 38 against the code's 39 for §6.3's 750-hour point,
   and two of §6.2's four printed deterioration factors, which are ~2 × 10⁻⁵ off
   the arithmetic in both precisions.
-* **A quantity the format cannot compute enters as data, with an independent
-  cross-check** **[Phase 2]**. `agedist.f`'s thirty-year fold is a recurrence
-  and has no spelling (finding F12), so
-  `components/age_distribution.esm` carries its result as a column — and
-  asserts that the column sums to `G(2020)/G(1990)`, which
-  `components/growth_index.esm` derives from the index series by a different
-  route. A carried column without such a check is a number nobody is testing.
+* **A quantity the toolchain cannot compute *here* enters as data, with an
+  independent cross-check** **[Phase 2, narrowed]**. `agedist.f`'s thirty-year
+  fold is now computed by `components/age_distribution.esm`; only
+  `fixtures/nr-logging-county.esm` still carries it, because that document
+  ingests (**F24**). The carried column asserts that it sums to
+  `G(2020)/G(1990)`, which the same document derives from `nrgrowthindex` by a
+  different route. A carried column without such a check is a number nobody is
+  testing — and the check is what made it safe to carry three values while the
+  stage around them became computed.
 * **A test names *what breaks if this is wrong*, not what it computes.** The
   composite-join test says a single-key join would give 131.86 instead of 60.74;
   the window test says the count would be 16 or 24 instead of 13. A description
@@ -599,7 +629,8 @@ visible place in the `.esm` rather than a silent substitution.
 
 | | What | Where it shows |
 |---|---|---|
-| **F12** | `agedist.f`'s 30-year fold is a recurrence — no spelling | `components/age_distribution.esm`'s `age_grownModelYearFraction` is a data column, cross-checked against the growth stage's cumulative ratio |
+| **F24** | a causal self-reference is dropped once the document ingests | `fixtures/nr-logging-county.esm`'s `age_grownModelYearFraction` is still a data column, cross-checked against the growth stage's cumulative ratio; `components/age_distribution.esm`, which does not ingest, computes it. (This row was **F12** — the fold had no spelling at all — until EarthSciAST `a83cde55e`) |
+| **F23** | a leaf's `domain.element_type` does not survive a top-level `{ref}` mount | `components/age_distribution.esm` stays in binary64 and pins BOTH precisions: its own answer exactly, the real\*4 value named beside it, and the invariant they share asserted |
 | **F15** | a `url_template` has no relative or environment form | the checked-in fixture cannot ingest; `run-tests.sh` materializes `.fixtures-run/` and asserts that the checked-in one still cannot |
 | **F16** | a scalar has no state in a document that ingests | every run-level quantity is a one-row relation over `run_rows` |
 | **F17** | a `join.on` between two large relations is not driven | `engine_tech_rows` gives the technology an axis, and `tech_fractionTotal` proves the window is a superset |
@@ -938,13 +969,23 @@ place that had it right — "§1.6.1's four-row binary64 question is NOT among
 rather than computed" — and four files disagreed with it without noticing.
 
 `age_grownModelYearFraction` is a `const` — `[3.7072685, 0.9905483,
-5.8885583e-08]` — because `agedist.f`'s thirty-year fold is a recurrence the
-format cannot express (F12). The third value **is the float32 fold's output**,
-carried in as data, so `age_isPopulated` reads it as positive in binary64 as
-well, and the fixture emitted all twelve rows under binary64 and emits the same
-twelve under `Float32`. `run-oracle.sh --float64`, which *executes* the fold,
-does drop those four cells and emit 140 of 144. Both measurements are true; what
-separates them is F12, not precision.
+5.8885583e-08]` — because the fixture cannot evaluate `agedist.f`'s thirty-year
+fold: it ingests, and a document that ingests is forced onto an evaluation path
+that leaves a causal self-read unresolved (**F24**; it was **F12**, the fold
+having no spelling at all, until EarthSciAST `a83cde55e`). The third value **is
+the float32 fold's output**, carried in as data, so `age_isPopulated` reads it as
+positive in binary64 as well, and the fixture emitted all twelve rows under
+binary64 and emits the same twelve under `Float32`. `run-oracle.sh --float64`,
+which *executes* the fold, does drop those four cells and emit 140 of 144. Both
+measurements are true; what separates them is the carried column, not precision.
+
+**One half of it has since become computed, and the half that matters for this
+section.** The fixture now derives the age-3 survival from the real 197-row
+curve in the declared `Float32` and asserts it to be `5.9604645e-08` rather than
+`0`. So the *input* whose precision decides those four rows is measured in this
+document; what is still carried is the fold that turns it into them. A document
+can get a row set right for the wrong reason — and it can also get half of the
+reason right, which is worth writing down as precisely as the whole.
 
 The general claim — that a chain which executes `scrptime`/`agedist` needs f32
 to reach 144 rows — is unaffected and still correct. The narrower claim, that
@@ -1060,7 +1101,7 @@ because an indicator stuck at 1 would otherwise satisfy it.
 
 **A computed zero and an assumed zero are different documents, and this slice
 turns on the difference.** `docs/evap-leaks.md` §0.3 chose evap fuel leaks over
-permeation and FVV because the one F12-blocked quantity it touches —
+permeation and FVV because the one recurrence-blocked quantity it touches —
 `soakActivityFraction`, downstream of a quarter-hour recurrence — enters at a
 weight of exactly zero. That weight is `1 − fractionOfOperating` where
 `fractionOfOperating = least(1, ΣSHO / ΣsourceHours)`, and it is 1 because at an
@@ -1215,3 +1256,196 @@ F16's scalar case reproduces verbatim alongside it. And a `Y`/`N` text column
 *is* ingestable, through a `codes` map on the `from` binding (`esm-spec`
 §8.9.1): `year.isBaseYear` and `fueltype.subjectToEvapCalculations` both arrive
 as 1/0, so A1 and K9 are computed rather than carried.
+
+---
+
+## 19. Authoring a recurrence, and the two paths it evaluates on **[F12 fixed]**
+
+`agedist.f`'s thirty-year fold was the one calculation in this port that the
+format could not hold. It can now, and §11.2's blocker moved from the format to
+the toolchain. What follows is what authoring one cost.
+
+### 19.1 Reduce the fold before you spell it
+
+The construct is esm-spec §4.3.1.1's **causal self-reference**: an equation
+whose LHS is an array-shaped unknown `V` and whose `aggregate` body reads
+`index(V, k − c)` — `V` itself, strictly earlier along one of that node's own
+output axes. Nothing is declared. The recurrence, its axis and its maximum lag
+are all read off that one read.
+
+That admits a *scalar* recurrence over one axis. `agedist.f`'s fold is not one:
+it shifts, scrapps and tops up a **51-slot vector** thirty times. So the first
+step is arithmetic, not authoring — reduce the vector fold to a scalar
+recurrence on its 31 residuals. Every cell of the grown vector is a clamped base
+times an ascending run of survival factors, so slot `a` of year `y` traces back
+`a` years to the residual of year `y − a`, or to the base vector if the fold has
+not run that long. The reduction rests on `1 − yryrfrcscrp ≥ 0`: a non-negative
+cohort times a non-negative survival stays non-negative, so along any chain the
+clamp bites at most once.
+
+**Verify the reduction against the reference, cell by cell, before authoring
+anything.** `tools/verify-agedist-reduction.py` extracts
+`docs/nonroad-logging-county.md` §6.5's own script — so both sides of the
+comparison see the same inputs from one source of truth — replays the fold and
+the closed form in float32 and compares **every** cell of every year of every
+equipment point: 0 of 1,581 differing, six points. A reduction argued and not
+measured is a rewrite of the model.
+
+### 19.2 The contracted index is the lag
+
+The natural spelling of a bounded-lag fold is **one** aggregate whose contracted
+index runs from 0, the `0` term carrying the non-recurrent part and the rest
+carrying `f(V[k − a])` under a guard. The lag then *straddles* zero, and
+§4.3.1.1 admits that deliberately: the `a = 0` cell is never evaluated because
+the guard selects the other branch, and that is sound without a static proof
+because a self-read of an unpublished cell cannot return a value at all.
+
+This port does **not** use that shape, and the reason is arithmetic. The
+residual is `minuend − Σ cohorts`, with the cohorts summed in ascending slot
+order **first**; the one-aggregate form accumulates `minuend + (−term₁) +
+(−term₂) + …` instead. Measured, that moves the answer by up to **1.1 × 10⁻⁵
+relative**, because the residual is a catastrophic cancellation — `4.6978183 −
+0.9905498` leaves `5.9e-08` in slot 3 thirty years later. So the sum is its own
+recurrence variable and the difference is a separate equation. The base case
+lives in the *minuend*, not in the recurrence, which is what lets
+`residual = minuend − sum` hold at every row including the first and so lets the
+body read a lag of any size with one expression and no second base case.
+
+**The second order is inside the cell.** Each cohort's factors must multiply
+left to right *starting from the base* — `((base · S[lo]) · S[lo+1]) · …` —
+which is a `reduce: "*"` aggregate whose **first** factor is the clamped base,
+selected by an `ifelse` on the run's start index. Precomputing the run product
+and multiplying the base in afterwards is a different float32 number, measured
+at up to **6.4 × 10⁻⁶**. Written as specified, all 306 cells of all six
+equipment points reproduce the reference fold **bit-exactly, at `rel 0, abs 0`**.
+
+Neither order is something the format chooses for you and neither is visible in
+the answer's magnitude. Measure both alternatives and write the numbers into the
+equation's `_comment`, because the next author will reach for the tidier one.
+
+### 19.3 Give the recurrence the axis the domain has
+
+`agedist.f` is called once **per equipment point**, and the fold's answer depends
+on the point's own base population — two of this fixture's points differ in
+nothing else and their grown fractions still differ in the last bits. So the
+recurrence carries a second, **non-recurrence** output axis, and that axis must
+be an **identity** index: §4.3.1.1 admits `index(V, p, Y − a)` and rejects
+`index(V, p + 1, Y − a)` as `recurrence_not_wellfounded`. Pass the point index as
+an `expression_templates` parameter rather than broadcasting, so one template
+serves a one-point component and a six-point fixture instead of the library
+carrying two copies of the same twenty lines.
+
+A `ranges` endpoint is a **metaparameter** expression, not an expression, so
+`max_equipment_ages` cannot be applied there and MXAGYR appears as a literal
+`51` inside the template's product range. The `filter` is what actually bounds
+the run; the literal only has to cover it.
+
+### 19.4 There are TWO evaluation paths, and a construct verified on one is not verified
+
+This is the finding, and it is the thing to carry into the next slice.
+
+`esm test` on a document that does not ingest builds without the array
+pipeline. `esm simulate`, and `esm test` on any document that **ingests
+`data_sources`**, build with it. A causal self-reference is honoured on the
+first path and silently dropped on the second: the self-read comes back
+unresolved, and `max(NaN, 0)` returns `0`, so a body with a clamp — which is
+exactly what `agedist.f` has — produces a finite, plausible, monotone, wrong
+answer with nothing logged. That is finding **F24**; the repro is upstream's own
+canonical valid example, and `docs/findings/F24b_…esm` is the same document with
+**one ingested column the recurrence never reads**, which is enough to break it.
+
+Two rules follow.
+
+**Exercise a new construct on both paths before depending on it.** Every
+conformance fixture for this construct was verified under `esm test`, which is
+why a construct with two evaluation paths shipped correct on one of them. A
+downstream check that runs only the command the repository happens to use is the
+same mistake one level down: `run-tests.sh`'s F24 check runs `esm test` **and**
+`esm simulate` on the same file and asserts that they still disagree — inverted
+polarity, so the day they agree, the fixture can compute the fold.
+
+**A construct blocked on one path can still earn its keep on the other.** The
+fold lives in `components/age_distribution.esm`, which does not ingest, with 55
+assertions on it; the fixture carries its three output values and computes
+everything that *feeds* them. That split is worth more than either half: it is
+what let §7.3's `5.9604645e-08` become a measured number in the fixture while
+the fold that consumes it stayed carried.
+
+**The two axes were one cause, and the fix says what to generalize.** F24 is
+fixed upstream (EarthSciAST `de784f3f8`): `prepare::eval_observed` evaluated
+every observed *wholesale* with no recurrence scope, and both routes reach it.
+The sweep is now **one shared function both paths call** — two call sites with
+two copies is exactly how one path came to work and the other to be dead — and
+an unrecognized self-read now returns `recurrence_unsupported_form` instead of
+falling through to the wholesale evaluation. Generalize the second half, not the
+first: **a construct with more than one evaluation path needs one
+implementation and a loud floor under the paths that miss it**, not two correct
+implementations.
+
+### 19.4a A NaN sentinel is not a defence in a model that clamps
+
+The runtime *did* return the loud sentinel: an unresolved self-read was `NaN`.
+`max(NaN, 0.0)` returns `0.0`, because IEEE-754 `max` returns the non-NaN
+operand — so the clamp destroyed it, and `agedist.f`'s fold body **is**
+`max(·, 0)`. This is the eighth instance of the plausible-wrong-value failure
+this repository tracks (README's "A warning about zeros") and the **first where
+the sentinel was manufactured by a clamp rather than returned by the runtime**.
+
+MOVES clamps everywhere — the fold body, `prccty.f`'s `modfrc <= 0` skip, half
+the scrappage arithmetic, `least`/`greatest` through the evaporative chain — so
+in this port NaN propagation cannot be relied on to surface an unbound read at
+all. Two consequences for authoring and for checking. Where a repro's evidence
+is a sentinel, assert the value **downstream of the clamp** as well as at it:
+`run-tests.sh`'s F24 check reads the *clamped* column, because a check on the
+`NaN` column alone would pass the day the sentinel changed without the construct
+working. And when a number is suspiciously round — a constant `1`, a sum of
+`1.5e-06` where `4.697819` was expected — look for a clamp upstream of it before
+looking for an arithmetic error.
+
+### 19.5 A precision-sensitive leaf cannot declare its precision
+
+`domain.element_type` does **not** survive a top-level `models` `{ref}` mount
+(finding **F23**). Declaring `Float32` on
+`components/age_distribution.esm` made `runs/nr_logging_county_run.esm` re-run
+that leaf's inline tests in binary64 and read the third grown fraction as
+exactly `0` against an expected `5.888558263222876e-08` — the silent precision
+change producing the plausible zero. Declaring it on the *assembly* instead
+breaks **119 of 295** assertions across ten leaves authored in binary64.
+
+So a leaf whose answer depends on the precision **pins both**, in the two places
+they are actually evaluated: its own arithmetic exactly, at the model default;
+the reference's real\*4 value named beside it in the description with the
+measured gap; and — this is what stops the first from being self-referential —
+the **invariant the two precisions share**, asserted. Here that is
+`Σ modfrc = G(2020)/G(1990) = 4.697819`, which the growth stage derives
+independently, asserted at 2⁻²³ for all three equipment points.
+
+Two further notes on tolerances, both learned by getting them wrong first. A
+divergence that is **amplification** rather than rounding cannot be absorbed
+into a tolerance: this leaf's binary64 fold is `5.3 × 10⁻⁷` from the real\*4
+answer, four binary32 epsilons, so no tolerance makes the reference decimals
+both assertable and discriminating. And where a reference *print* is coarser
+than the arithmetic — §6.2 prints `0.0717785`, six significant figures because a
+leading zero ate one — the assertion's tolerance is the **sum of two measured
+quantities** written out in the test, one binary32 epsilon plus half an ulp of
+the print, never a number chosen to make the test pass.
+
+### 19.6 Isolate a known input difference; do not widen a gate to swallow it
+
+`tools/cross-check-chain.py` holds the assembly and the fixture — two
+independently authored routes to the same four numbers — at **one ulp** of
+binary32, which was measured and not chosen. Once the leaf computed the fold,
+the two routes differed by 5–8 ulps, for a reason that is *not* the one the gate
+bounds: they now get one input, `modfrc[2020]`, from different places.
+
+Raising the bound to 8 would absorb that and with it any future divergence of
+the same size arising for a different reason, which is the one thing the gate
+exists to catch. The fix is to **divide the known difference out** — normalise
+each route's rows by its own `modfrc[2020]`, read from the document that owns it
+— and hold the normalised rows to the original bound. It comes back to three
+rows bit-exact and one at exactly one ulp, which is also the evidence that the
+one input was the whole of the difference. The size of that input difference is
+then asserted **two-sidedly**, with both edges naming what they mean, so it
+cannot drift unnoticed; and if the fixture's equation stops being a `const`, the
+script says the normalisation is now dead weight rather than silently dividing by
+two equal numbers.

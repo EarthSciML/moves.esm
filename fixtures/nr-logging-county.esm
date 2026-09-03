@@ -2,7 +2,7 @@
   "esm": "1.0.0",
   "metadata": {
     "name": "nr-logging-county snapshot tables",
-    "description": "A SOURCE-CATALOG FILE (esm-spec §2): data_sources only, no component, not mountable as a subsystem. It declares every snapshot table the nr-logging-county chain reads -- twenty-six entries covering all seven stages of PLAN.md §3 Phase 2 -- so that the ingest configuration is written, reviewed and version-controlled before it can be run, rather than invented under time pressure on the day it can.\n\nNOTHING CONSUMES IT YET, AND THAT IS DELIBERATE. No CLI subcommand can load a data source at the pinned toolchain: `src/bin/esm.rs` supplies no PrepareProvider, so a parameter with `update.kind: \"data\"` silently keeps its default and an aggregate over it silently sums to zero (build-esm.sh, KNOWN BLOCKER; PLAN.md §1.5). Wiring a component to one of these entries today would make a green test that compared nothing. THE SHAPE IS THE RUNTIME'S, NOT THE SCHEMA'S GUESS: the format is `metadata.esio_format`, because a `format` key inside `reader_options` is rejected as an unknown reader option (esm-spec §8.9.1 working as specified), and `url_template` carries an explicit `file://` scheme, because a bare absolute path fails with a missing-scheme error. Both were found by building the in-flight provider and running the real ingest. So the entries are declared and CHECKED -- tools/check-sources.py opens every file named here with pyarrow and verifies that it exists, that every `float_columns` entry is really a column, that none of them is already a float, and that no projected decimal-text column was left out -- while the components read `const` arrays transcribed from these same tables.\n\nWHAT IT ALREADY PROVES: that `float_columns` is mandatory, and on almost every table rather than only on MOVESOutput. Checked directly against the parquet: `surrogatequant`, `population`, `fractionLifeused`, `percentageScrapped`, `NREngTechFraction`, `monthFraction`, `dayFraction`, `marketShare`, all seventeen `fuelformulation` property columns, `zonemonthhour.temperature`, `nrsourceusetype`'s four activity columns, `nremissionrate.meanBaseRate`, `nrdeterioration.DFCoefficient` and `MOVESOutput.emissionQuant` are all physically `string` in the file, holding decimal text for byte-reproducibility, even where the sidecar .meta.json calls them float64. Without `float_columns` they arrive as strings and no arithmetic on them means anything. Two traps the catalog also records: `nrscrappagecurve.fractionLifeused` is spelled with a lowercase u, and `nrdayallocation.scc` is lowercase throughout.\n\nWHAT IT WILL PROVE ONCE THE PROVIDER IS WIRED: that each stage selects its own rows out of the real tables -- 55,471 emission rates, 62,699 population rows, 930,816 hourly temperatures -- rather than transcribing the handful its tests use; and that the roll-up can be diffed row by row against the 144-row MOVESOutput at the tolerances in tolerance.toml. Wiring it is a change of source for each relation's columns, not a change of shape: every component's joins already key on the columns these tables carry.\n\nTHE PRECISION THIS DOCUMENT IS EVALUATED IN, AND WHAT IT COSTS THE ASSERTIONS. `domain.element_type` is `Float32`, because `moves.rs`'s NONROAD port is `real*4` operation by operation and preserves the Fortran's associativity (docs/nonroad-logging-county.md §7.1). Nineteen variables override it back to `Float64`, and all nineteen hold an SCC: see `runSCC` for why, and note that the split costs no rewriting of a single expression, because every place an SCC meets a quantity in this document is a `join.on`, and esm-spec §11.3.1 makes a comparison hand its parent an exact 0/1 flag rather than a key (docs/esm-conventions.md §17).\n\nWhat the precision DOES cost is the assertion tolerances, and only some of them. The model default stays at `rel: 1e-12`, which is exact for every integer identifier a binary32 or binary64 evaluation can hold. Nine tests -- the ones whose every assertion is a floating-point QUANTITY -- override it to `1.1920929e-07`, which is 2^-23, one binary32 epsilon, the resolution of the declared element type. That is not a fitted number: it is the smallest tolerance under which a binary32 evaluation can agree with a decimal expected value at all. No expected value in this document changed; measured, the 39 assertions binary64 satisfied exactly and binary32 does not are spread from 1.2e-09 to 1.13e-07 relative, every one of them inside one epsilon.\n\nThe tolerance is per test rather than document-wide for the reason docs/findings F18 gives: `2260006912` is 4.1e-08 from `2260007005` and is a DIFFERENT EQUIPMENT CATEGORY, so a ten-digit key compared within one epsilon would pass while wrong -- which is precisely the failure this whole change exists to fix. The tests that pin an SCC, `run_fuelRegionID`, or any other key therefore stay at 1e-12 and remain exact, and `the_oxygen_content_survives_four_joins`, which pins both `run_fuelRegionID = 270000000` and a quantity, carries the loosened tolerance on the one quantity assertion instead of on the test. The loosening was also checked against what each test is built to discriminate; the tightest is `run_monthFraction`, where the table's 0.0833333 sits 4.0e-07 from the `defmth = 1/12` a missed lookup would deliver, a factor of 3.3 outside one epsilon.",
+    "description": "A SOURCE-CATALOG FILE (esm-spec §2): data_sources only, no component, not mountable as a subsystem. It declares every snapshot table the nr-logging-county chain reads -- twenty-six entries covering all seven stages of PLAN.md §3 Phase 2 -- so that the ingest configuration is written, reviewed and version-controlled before it can be run, rather than invented under time pressure on the day it can.\n\nNOTHING CONSUMES IT YET, AND THAT IS DELIBERATE. No CLI subcommand can load a data source at the pinned toolchain: `src/bin/esm.rs` supplies no PrepareProvider, so a parameter with `update.kind: \"data\"` silently keeps its default and an aggregate over it silently sums to zero (build-esm.sh, KNOWN BLOCKER; PLAN.md §1.5). Wiring a component to one of these entries today would make a green test that compared nothing. THE SHAPE IS THE RUNTIME'S, NOT THE SCHEMA'S GUESS: the format is `metadata.esio_format`, because a `format` key inside `reader_options` is rejected as an unknown reader option (esm-spec §8.9.1 working as specified), and `url_template` carries an explicit `file://` scheme, because a bare absolute path fails with a missing-scheme error. Both were found by building the in-flight provider and running the real ingest. So the entries are declared and CHECKED -- tools/check-sources.py opens every file named here with pyarrow and verifies that it exists, that every `float_columns` entry is really a column, that none of them is already a float, and that no projected decimal-text column was left out -- while the components read `const` arrays transcribed from these same tables.\n\nWHAT IT ALREADY PROVES: that `float_columns` is mandatory, and on almost every table rather than only on MOVESOutput. Checked directly against the parquet: `surrogatequant`, `population`, `fractionLifeused`, `percentageScrapped`, `NREngTechFraction`, `monthFraction`, `dayFraction`, `marketShare`, all seventeen `fuelformulation` property columns, `zonemonthhour.temperature`, `nrsourceusetype`'s four activity columns, `nremissionrate.meanBaseRate`, `nrdeterioration.DFCoefficient` and `MOVESOutput.emissionQuant` are all physically `string` in the file, holding decimal text for byte-reproducibility, even where the sidecar .meta.json calls them float64. Without `float_columns` they arrive as strings and no arithmetic on them means anything. Two traps the catalog also records: `nrscrappagecurve.fractionLifeused` is spelled with a lowercase u, and `nrdayallocation.scc` is lowercase throughout.\n\nWHAT AGEDIST'S FOLD COSTS, AND WHAT IS NOW COMPUTED INSTEAD OF CARRIED. Every input the fold consumes comes out of the snapshot now: the 197-row `nrscrappagecurve` step lookup, the year-over-year scrapped fractions, `nyrlif`, the sales curve, the base model-year fractions, and getgrw's whole indicator series with the thirty annual `grwfac` factors it implies -- exact table rows, an interpolated year, and a year-over-year DIP whose negative factor is the mechanism §6.3 calls the most fragile behaviour in the chain. §7.3's 5.9604645e-08 age-3 survival is computed here too, which is the first time this fixture has asserted anything about it rather than receiving it inside a constant. What is still carried is the fold's three OUTPUT values, and the blocker is no longer F12: the format spells the fold and components/age_distribution.esm evaluates it. It is F24 -- a document that ingests `data_sources` is forced onto the build-pipeline evaluation path, and that path left every causal self-read unresolved, whereupon `max(NaN, 0)` laundered the sentinel into a plausible number. F24 IS FIXED UPSTREAM (EarthSciAST de784f3f8) and this column is still carried anyway, for two stated reasons: `esm-version.lock` pins 6d0ec3b13, which predates the fix, and the upstream author verified the build-pipeline path but could not verify the INGESTION axis, that build having no parquet reader. The const goes when a reader-enabled binary is confirmed against the real snapshot, and run-tests.sh fails with instructions the moment it is. The upstream canonical valid example is the repro, and docs/findings/F24_repro_a_recurrence_is_dropped_on_the_ingesting_path.esm and its F24b twin is the one kept here.\n\nWHAT IT WILL PROVE ONCE THE PROVIDER IS WIRED: that each stage selects its own rows out of the real tables -- 55,471 emission rates, 62,699 population rows, 930,816 hourly temperatures -- rather than transcribing the handful its tests use; and that the roll-up can be diffed row by row against the 144-row MOVESOutput at the tolerances in tolerance.toml. Wiring it is a change of source for each relation's columns, not a change of shape: every component's joins already key on the columns these tables carry.\n\nTHE PRECISION THIS DOCUMENT IS EVALUATED IN, AND WHAT IT COSTS THE ASSERTIONS. `domain.element_type` is `Float32`, because `moves.rs`'s NONROAD port is `real*4` operation by operation and preserves the Fortran's associativity (docs/nonroad-logging-county.md §7.1). Nineteen variables override it back to `Float64`, and all nineteen hold an SCC: see `runSCC` for why, and note that the split costs no rewriting of a single expression, because every place an SCC meets a quantity in this document is a `join.on`, and esm-spec §11.3.1 makes a comparison hand its parent an exact 0/1 flag rather than a key (docs/esm-conventions.md §17).\n\nWhat the precision DOES cost is the assertion tolerances, and only some of them. The model default stays at `rel: 1e-12`, which is exact for every integer identifier a binary32 or binary64 evaluation can hold. Nine tests -- the ones whose every assertion is a floating-point QUANTITY -- override it to `1.1920929e-07`, which is 2^-23, one binary32 epsilon, the resolution of the declared element type. That is not a fitted number: it is the smallest tolerance under which a binary32 evaluation can agree with a decimal expected value at all. No expected value in this document changed; measured, the 39 assertions binary64 satisfied exactly and binary32 does not are spread from 1.2e-09 to 1.13e-07 relative, every one of them inside one epsilon.\n\nThe tolerance is per test rather than document-wide for the reason docs/findings F18 gives: `2260006912` is 4.1e-08 from `2260007005` and is a DIFFERENT EQUIPMENT CATEGORY, so a ten-digit key compared within one epsilon would pass while wrong -- which is precisely the failure this whole change exists to fix. The tests that pin an SCC, `run_fuelRegionID`, or any other key therefore stay at 1e-12 and remain exact, and `the_oxygen_content_survives_four_joins`, which pins both `run_fuelRegionID = 270000000` and a quantity, carries the loosened tolerance on the one quantity assertion instead of on the test. The loosening was also checked against what each test is built to discriminate; the tightest is `run_monthFraction`, where the table's 0.0833333 sits 4.0e-07 from the `defmth = 1/12` a missed lookup would deliver, a factor of 3.3 outside one epsilon.",
     "authors": [
       "EarthSciML Authors and Contributors"
     ],
@@ -204,6 +204,9 @@
           "fractionLifeused",
           "percentageScrapped"
         ]
+      },
+      "extent": {
+        "metaparameter": "n_nrscrappagecurve"
       },
       "metadata": {
         "tags": [
@@ -593,6 +596,11 @@
     "n_fuelformulation": { "type": "integer", "default": 0, "description": "Rows in fuelformulation. Runtime-discovered; see n_nrscc." },
     "n_nrfuelsubtype": { "type": "integer", "default": 0, "description": "Rows in nrfuelsubtype. Runtime-discovered; see n_nrscc." },
     "n_nrgrowthpatternfinder": { "type": "integer", "default": 0, "description": "Rows in nrgrowthpatternfinder. Runtime-discovered; see n_nrscc." },
+    "n_nrscrappagecurve": {
+      "type": "integer",
+      "default": 0,
+      "description": "Rows in nrscrappagecurve -- 197 breakpoints of the default curve. Runtime-discovered; see n_nrscc. A zero here would make the step lookup reduce over nothing, which the assertions on the age-2 and age-3 scrappage percents catch."
+    },
     "n_nrgrowthindex": { "type": "integer", "default": 0, "description": "Rows in nrgrowthindex. Runtime-discovered; see n_nrscc." },
     "n_nrengtechfraction": { "type": "integer", "default": 0, "description": "Rows in nrengtechfraction. Runtime-discovered; see n_nrscc." },
     "n_nremissionrate": { "type": "integer", "default": 0, "description": "Rows in nremissionrate. Runtime-discovered; see n_nrscc." },
@@ -628,6 +636,7 @@
     "fuel_scope_rows": { "kind": "interval", "size": 1 },
     "adjustment_rows": { "kind": "interval", "size": 8 },
 
+    "nrscrappagecurve_rows": { "kind": "interval", "size": "n_nrscrappagecurve" },
     "nrgrowthpatternfinder_rows": { "kind": "interval", "size": "n_nrgrowthpatternfinder" },
     "nrgrowthindex_rows": { "kind": "interval", "size": "n_nrgrowthindex" },
     "nrengtechfraction_rows": { "kind": "interval", "size": "n_nrengtechfraction" },
@@ -638,11 +647,17 @@
     "growth_span_rows": { "kind": "interval", "size": 2 },
     "exhaust_process_group_rows": { "kind": "interval", "size": 1 },
     "engine_tech_rows": { "kind": "interval", "size": 100 },
+    "default_curve_rows": { "kind": "interval", "size": 1 },
+    "age_slot_rows": { "kind": "interval", "size": 51 },
+    "fold_year_rows": { "kind": "interval", "size": 31 },
     "age_rows": { "kind": "interval", "size": 3 },
     "output_rows": { "kind": "interval", "size": 12 }
   },
 
   "enums": {
+    "scrappage": {
+      "FullyScrappedPercent": 100
+    },
     "engine_fuel_kind": { "Gasoline2Stroke": 1, "Gasoline4Stroke": 2 },
     "moves_fuel_type": { "Gasoline": 1 },
     "nonroad_fuel_type": { "Gasoline": 1, "NonroadDiesel": 23, "MarineDiesel": 24 },
@@ -655,7 +670,7 @@
   "models": {
     "NrLoggingCounty": {
       "expression_template_imports": [
-        { "ref": "../lib/population.esm", "only": ["pop_file_rounding"] },
+        { "ref": "../lib/population.esm", "only": ["pop_file_rounding", "max_equipment_ages", "median_life_years", "year_over_year_scrap_fraction", "scrappage_sales_growth", "surviving_equipment", "truncate_toward_zero", "linear_series_interpolation", "annualized_growth_factor"] },
         { "ref": "../lib/identifiers.esm", "only": ["scc_zero_tail", "pol_process_id", "pollutant_id_of", "process_id_of", "null_output_column"] },
         { "ref": "../lib/keys.esm", "only": ["latest_at_or_before_key", "scc_lookup_ladder_key", "scc_equipment_chain_key", "state_default_precedence"] },
         { "ref": "../lib/conversion.esm", "only": ["days_per_week", "default_month_fraction", "default_day_fraction", "unit_conversion", "emission_unit_g_per_hp_hr"] },
@@ -1237,16 +1252,46 @@
         "run_endGrowthIndex": { "type": "unknown", "units": "1", "shape": ["run_rows"], "description": "G(2020) = 1508." },
         "run_cumulativeGrowthRatio": { "type": "unknown", "units": "1", "shape": ["run_rows"], "description": "G(2020)/G(1990) = 4.697819. The independent check on the carried age distribution below." },
 
+        "crv_NREquipTypeID": { "type": "parameter", "units": "1", "default": 0.0, "shape": ["nrscrappagecurve_rows"], "description": "nrscrappagecurve.NREquipTypeID: J10's key. Every one of this snapshot's 197 rows carries 0, the default curve.", "update": { "kind": "data", "source": "nr_logging_county_nrscrappagecurve", "from": { "file_variable": "NREquipTypeID" } } },
+        "crv_fractionLifeUsed": { "type": "parameter", "units": "1", "default": 0.0, "shape": ["nrscrappagecurve_rows"], "description": "nrscrappagecurve.fractionLifeused -- LOWERCASE u in the file, where every Fortran listing and §1.2 write fractionLifeUsed. Column 1: the breakpoint, in fractions of median life consumed. Decimal text, so it is in float_columns.", "update": { "kind": "data", "source": "nr_logging_county_nrscrappagecurve", "from": { "file_variable": "fractionLifeused" } } },
+        "crv_percentageScrapped": { "type": "parameter", "units": "1", "default": 0.0, "shape": ["nrscrappagecurve_rows"], "description": "nrscrappagecurve.percentageScrapped. Column 2: cumulative percent scrapped at that breakpoint, 0 at 0.0 and 100 at 2.0. Also decimal text.", "update": { "kind": "data", "source": "nr_logging_county_nrscrappagecurve", "from": { "file_variable": "percentageScrapped" } } },
+        "dc_NREquipTypeID": { "type": "unknown", "units": "1", "shape": ["default_curve_rows"], "description": "The equipment type whose scrappage curve this run reads, 0, as a one-row relation so the restriction is a `join.on` and not a filter (§3). WHAT THIS DOES NOT PORT: scrptime reads the curve for the equipment's OWN NREquipTypeID and falls back to 0 when there is none, and that fallback ladder is not here, because this snapshot's nrscrappagecurve is 197 rows all at type 0 and a ladder over one rung would be untestable. A snapshot carrying per-type curves would need it, and would silently mix curves without it -- which is why the restriction is written as a join on a named type rather than left out." },
+
+        "slot_ageID": { "type": "unknown", "units": "1", "shape": ["age_slot_rows"], "description": "1-based equipment age in years, 1 to MXAGYR = 51. Age 1 is the newest cohort. This is the fold's slot axis and is longer than `age_rows`, which carries only the cohorts this SCC actually has." },
+        "run_medianLifeYears": { "type": "unknown", "units": "1", "shape": ["run_rows"], "description": "min(25, (medianLifeFullLoad / loadFactor) / hoursUsedPerYear) = 0.90051866 yr. The division order is scrptime.rs:102's, LEFT TO RIGHT, and the cap is MXAGYR/2." },
+        "run_medianLifePerYear": { "type": "unknown", "units": "1", "shape": ["run_rows"], "description": "1 / medianLifeYears = 1.1104711: the life fraction one year of use consumes." },
+        "slot_fractionLifeUsed": { "type": "unknown", "units": "1", "shape": ["run_rows", "age_slot_rows"], "description": "(age - 1) / medianLifeYears: how much of the median life this cohort has consumed." },
+        "slot_priorFractionLifeUsed": { "type": "unknown", "units": "1", "shape": ["run_rows", "age_slot_rows"], "description": "The same for the age before it, floored at 0 so age 1's predecessor reads the curve's origin. Computed rather than read from the neighbouring row, because a relation cannot be joined to itself (docs/findings F11)." },
+        "slot_percentScrapped": { "type": "unknown", "units": "1", "shape": ["run_rows", "age_slot_rows"], "description": "Cumulative percent scrapped at this age: the curve's value at the last breakpoint AT OR BELOW slot_fractionLifeUsed. find_scrappage_percent does NOT interpolate between breakpoints (output/find.rs:233-244), which is why all 197 points are read rather than a few around the answer." },
+        "slot_priorPercentScrapped": { "type": "unknown", "units": "1", "shape": ["run_rows", "age_slot_rows"], "description": "The same at the previous age. scrptime works with both at once, which is what makes the year-over-year fraction a difference of cumulatives rather than a curve of its own." },
+        "slot_yearScrapFraction": { "type": "unknown", "units": "1", "shape": ["run_rows", "age_slot_rows"], "description": "yryrfrcscrp: the fraction of the cohort SURVIVING at the previous age that is scrapped during this one. Once the previous age is fully scrapped the entry is 0 rather than a division by zero (scrptime.rs:126-131)." },
+        "slot_survivalFraction": { "type": "unknown", "units": "1", "shape": ["run_rows", "age_slot_rows"], "description": "1 - yryrfrcscrp: the factor agedist.f applies when it shifts a cohort one year older. §7.3 LIVES HERE. For this equipment point age 3's cumulative scrappage is exactly 100%, so this is 100 x 0.265 / 26.5 subtracted from 1 -- exactly 0 in binary64 and 5.9604645e-08 in the binary32 this document declares. Thirty fold iterations later that residue is the whole of model year 2018, four MOVESOutput rows." },
+        "run_equipmentLifeYears": { "type": "unknown", "units": "1", "shape": ["run_rows"], "description": "nyrlif = 3: the first age at which cumulative scrappage reaches 100%, and so the number of model years this equipment point spans. Capped at MXAGYR for totality; the cap cannot bind, because the median life is itself capped at MXAGYR/2 and the curve reaches 100% at twice the median life." },
+        "run_salesGrowth": { "type": "unknown", "units": "1", "shape": ["run_rows"], "description": "The sales trend scrptime.rs:139-143 infers from ONE year's population growth -- grwfac(1990, 1991), not the growth over the whole projection." },
+        "slot_survivingEquipment": { "type": "unknown", "units": "1", "shape": ["run_rows", "age_slot_rows"], "description": "The 1990 stock at this age: the sales of the year it was built, decayed by its cumulative scrappage (scrptime.rs:147-165). The cohort at age `a` was sold nyrlif - a sales-years after the curve's start, so the sales index is a subtraction rather than an array read. Ages beyond nyrlif carry 0." },
+        "run_survivingEquipmentTotal": { "type": "unknown", "units": "1", "shape": ["run_rows"], "description": "The normalizing sum of slot_survivingEquipment, accumulated in ascending age order as scrptime accumulates it." },
+        "slot_baseModelYearFraction": { "type": "unknown", "units": "1", "shape": ["run_rows", "age_slot_rows"], "description": "modfrc before growth: the share of the 1990 population at this age, (0.8506725, 0.1493275, 0) for this point (§6.1 step 2). Sums to 1." },
+
+        "fold_yearID": { "type": "unknown", "shape": ["fold_year_rows"], "description": "The calendar year each fold row stands for: runBaseYearID + (row - 1), so row 1 is 1990 -- the base distribution before any growth -- and row 31 is 2020. Two equations index the last row as the literal 31; the assertion that this column's row 31 is 2020 is what guards that literal." },
+        "fold_lowYearID": { "type": "unknown", "shape": ["run_rows", "fold_year_rows"], "description": "getgrw.f, first half: the latest year at or below this fold year that this run's growth pattern is actually tabulated at. Pattern 2176 is tabulated at 1990 and then annually from 1999 to 2040, so for 1991..1998 this is 1990 and thereafter it is the fold year itself." },
+        "fold_highYearID": { "type": "unknown", "shape": ["run_rows", "fold_year_rows"], "description": "The earliest tabulated year at or above it: 1999 for 1991..1998, and equal to fold_lowYearID wherever the fold year is itself tabulated. EQUAL IS THE COMMON CASE and it is what the interpolation below has to be guarded against, not a corner." },
+        "fold_lowIndicator": { "type": "unknown", "units": "1", "shape": ["run_rows", "fold_year_rows"], "description": "G at fold_lowYearID, truncated toward zero because canonical writes the /GROWTH/ packet with %20d (nonroad_loader.rs:1516). Selected by TWO RANGE PREDICATES rather than an equality: at or below the fold year and at or above the low year, which exactly one tabulated row satisfies. That keeps §3's rule -- a filter carries a genuine predicate -- without needing to join on a two-axis column." },
+        "fold_highIndicator": { "type": "unknown", "units": "1", "shape": ["run_rows", "fold_year_rows"], "description": "G at fold_highYearID, the same way." },
+        "fold_indicator": { "type": "unknown", "units": "1", "shape": ["run_rows", "fold_year_rows"], "description": "getgrw.f's indicator at this fold year: the tabulated value where the year is tabulated, and the two-point linear interpolation between the bracketing years where it is not. G(1990) = 321, G(1991) = 449.8889, G(2020) = 1508. WHAT THIS DOES NOT PORT: getgrw's two EXTRAPOLATION branches, for a query below the first tabulated year or above the last. They cannot fire here -- 1990 through 2020 lies inside pattern 2176's span 1990 to 2040 -- and components/growth_index.esm ports and tests both." },
+        "fold_priorIndicator": { "type": "unknown", "units": "1", "shape": ["run_rows", "fold_year_rows"], "description": "The indicator one fold year earlier, which is the base of this row's one-year growth step. Row 1 reads ITSELF rather than an out-of-range row, which makes row 1's growth factor exactly 0 -- the value the base row needs, since the fold takes no step there." },
+        "fold_annualGrowthFactor": { "type": "unknown", "units": "1", "shape": ["run_rows", "fold_year_rows"], "description": "grwfac(year-1, year): the ANNUALIZED fractional change (g - b) / (b x span), not the cumulative ratio. This is the series agedist folds one year at a time, and it is where the /GROWTH/ truncation earns its keep -- the year-over-year changes sit near zero, so the truncation decides the SIGN of the factor and with it which model years survive the fold's clamp." },
+        "run_popGrowthFactor": { "type": "unknown", "units": "1", "shape": ["run_rows"], "description": "grwfac(1990, 1991) = 0.401523, read out of fold_annualGrowthFactor at row 2. scrptime's sales curve is built from the FIRST year's rate alone (§2.2(c)); using the cumulative ratio here would compound a per-year rate as though it were a total." },
+
         "age_ordinal": { "type": "unknown", "units": "1", "shape": ["age_rows"], "description": "This cohort's 1-based position, which is what the output relation joins on." },
         "age_ageIndex": { "type": "unknown", "units": "1", "shape": ["age_rows"], "description": "idxyr: 0 for the newest model year." },
         "age_modelYearID": { "type": "unknown", "shape": ["age_rows"], "description": "runYearID - ageIndex: 2020, 2019, 2018. Which model years exist is set by this equipment point's scrptime nyrlif = 3 (§6.1 step 2)." },
         "age_grownModelYearFraction": {
           "type": "unknown", "units": "1", "shape": ["age_rows"],
-          "description": "modfrc after agedist.f's thirty-year fold. CARRIED AS DATA, not computed: the fold is a recurrence whose next term is a function of the previous ANSWER, clamped inside the loop, and the format has no spelling for one (docs/findings F12). The three values are §6.1 step 3's, and the cross-check below is what keeps them honest -- they must sum to the cumulative growth ratio this document derives from nrgrowthindex by a completely different route."
+          "description": "modfrc after agedist.f's thirty-year fold. STILL CARRIED AS DATA, but no longer for F12's reason: the format now spells the fold (esm-spec §4.3.1.1) and components/age_distribution.esm computes it. What stops this document is that a document which INGESTS is forced onto the build-pipeline evaluation path, and at the pinned toolchain that path left a causal self-read unresolved, with `max(NaN, 0)` laundering the sentinel -- finding F24, whose repro is the upstream canonical example itself. Fixed upstream in EarthSciAST de784f3f8; not in the pinned 6d0ec3b13, and the ingestion axis not yet confirmed against a reader-enabled build. Everything the fold CONSUMES is computed above from the real tables now: the year-over-year survivals including §7.3's 5.9604645e-08, the base model-year fractions, nyrlif, and the thirty annual growth factors. The three values are §6.1 step 3's and must sum to the cumulative growth ratio this document derives from nrgrowthindex by a different route."
         },
         "age_isPopulated": {
           "type": "unknown", "units": "1", "shape": ["age_rows"],
-          "description": "prccty.f's `modfrc <= 0` skip as a membership test. All three cohorts of this SCC are populated -- the third only just, at 5.9e-08 -- so the skip removes nothing HERE; it is the rule that decides the row set for the other two SCCs, where it drops 44 exactly-zero cohorts, and it is written as the reference writes it."
+          "description": "prccty.f's `modfrc <= 0` skip as a membership test. All three cohorts of this SCC are populated -- the third only just, at 5.9e-08 -- so the skip removes nothing HERE; it is the rule that decides the row set for the other two SCCs, where it drops 44 exactly-zero cohorts, and it is written as the reference writes it. Because the grown fractions are still carried (F24), this row set does not yet depend on the element type; the survival factor it hangs off does, and IS computed (§7.3, `slot_survivalFraction`)."
         },
         "age_grownModelYearFractionTotal": { "type": "unknown", "units": "1", "shape": ["run_rows"], "description": "The carried column's sum, for the cross-check." },
         "age_detAge": { "type": "unknown", "units": "1", "shape": ["age_rows"], "description": "detage = (idxyr+1) x acttmp x ldfctr / mdlfhrs: 1.11, 2.22, 3.33 full-load-life fractions. All three exceed this technology's emissionCap of 1." },
@@ -2109,6 +2154,281 @@
           }
         },
 
+        { "lhs": "dc_NREquipTypeID", "rhs": { "op": "makearray", "args": [], "regions": [[[1, 1]]], "values": [0.0] } },
+        { "lhs": "slot_ageID", "rhs": { "op": "aggregate", "args": [], "output_idx": ["s"], "ranges": { "s": { "from": "age_slot_rows" } }, "expr": "s" } },
+        { "lhs": "fold_yearID", "rhs": { "op": "aggregate", "args": [], "output_idx": ["w"], "ranges": { "w": { "from": "fold_year_rows" } }, "expr": { "op": "+", "args": ["runBaseYearID", { "op": "-", "args": ["w", 1] }] } } },
+        {
+          "_comment": "getgrw.f's bracketing years, per equipment point and fold year. The pattern is a KEY and is joined on; the year test is a genuine range predicate and is a filter (§3).",
+          "lhs": "fold_lowYearID",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "max_product", "output_idx": ["r", "w"],
+            "ranges": { "r": { "from": "run_rows" }, "w": { "from": "fold_year_rows" }, "i": { "from": "nrgrowthindex_rows" } },
+            "join": [{ "on": [["gi_growthPatternID", "run_growthPatternID"]] }],
+            "filter": { "op": "<=", "args": [{ "op": "index", "args": ["gi_yearID", "i"] }, { "op": "index", "args": ["fold_yearID", "w"] }] },
+            "expr": { "op": "index", "args": ["gi_yearID", "i"] }
+          }
+        },
+        {
+          "lhs": "fold_highYearID",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "min_sum", "output_idx": ["r", "w"],
+            "ranges": { "r": { "from": "run_rows" }, "w": { "from": "fold_year_rows" }, "i": { "from": "nrgrowthindex_rows" } },
+            "join": [{ "on": [["gi_growthPatternID", "run_growthPatternID"]] }],
+            "filter": { "op": ">=", "args": [{ "op": "index", "args": ["gi_yearID", "i"] }, { "op": "index", "args": ["fold_yearID", "w"] }] },
+            "expr": { "op": "index", "args": ["gi_yearID", "i"] }
+          }
+        },
+        {
+          "_comment": "The indicator at each bracketing year. Selected by a PAIR of range predicates -- at or below the fold year, at or above the low year -- which exactly one tabulated row satisfies, so no equality filter and no join on a two-axis column is needed. The truncation toward zero is canonical's %20d packet write, and is a no-op on this snapshot's integral indices; it is written because it is control flow, not a decode artefact.",
+          "lhs": "fold_lowIndicator",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["r", "w"],
+            "ranges": { "r": { "from": "run_rows" }, "w": { "from": "fold_year_rows" }, "i": { "from": "nrgrowthindex_rows" } },
+            "join": [{ "on": [["gi_growthPatternID", "run_growthPatternID"]] }],
+            "filter": {
+              "op": "and",
+              "args": [
+                { "op": "<=", "args": [{ "op": "index", "args": ["gi_yearID", "i"] }, { "op": "index", "args": ["fold_yearID", "w"] }] },
+                { "op": ">=", "args": [{ "op": "index", "args": ["gi_yearID", "i"] }, { "op": "index", "args": ["fold_lowYearID", "r", "w"] }] }
+              ]
+            },
+            "expr": { "op": "apply_expression_template", "args": [], "name": "truncate_toward_zero", "bindings": { "value": { "op": "index", "args": ["gi_growthIndex", "i"] } } }
+          }
+        },
+        {
+          "lhs": "fold_highIndicator",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["r", "w"],
+            "ranges": { "r": { "from": "run_rows" }, "w": { "from": "fold_year_rows" }, "i": { "from": "nrgrowthindex_rows" } },
+            "join": [{ "on": [["gi_growthPatternID", "run_growthPatternID"]] }],
+            "filter": {
+              "op": "and",
+              "args": [
+                { "op": ">=", "args": [{ "op": "index", "args": ["gi_yearID", "i"] }, { "op": "index", "args": ["fold_yearID", "w"] }] },
+                { "op": "<=", "args": [{ "op": "index", "args": ["gi_yearID", "i"] }, { "op": "index", "args": ["fold_highYearID", "r", "w"] }] }
+              ]
+            },
+            "expr": { "op": "apply_expression_template", "args": [], "name": "truncate_toward_zero", "bindings": { "value": { "op": "index", "args": ["gi_growthIndex", "i"] } } }
+          }
+        },
+        {
+          "_comment": "The tabulated value where the fold year is tabulated, the two-point line where it is not. The guard is `high > low`, not `high != low`: equality is the common case here -- 22 of 31 fold years are exact rows -- and interpolating on it would divide by zero.",
+          "lhs": "fold_indicator",
+          "rhs": {
+            "op": "aggregate", "args": [], "output_idx": ["r", "w"],
+            "ranges": { "r": { "from": "run_rows" }, "w": { "from": "fold_year_rows" } },
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                { "op": ">", "args": [{ "op": "index", "args": ["fold_highYearID", "r", "w"] }, { "op": "index", "args": ["fold_lowYearID", "r", "w"] }] },
+                {
+                  "op": "apply_expression_template", "args": [], "name": "linear_series_interpolation",
+                  "bindings": {
+                    "x": { "op": "index", "args": ["fold_yearID", "w"] },
+                    "x_low": { "op": "index", "args": ["fold_lowYearID", "r", "w"] },
+                    "y_low": { "op": "index", "args": ["fold_lowIndicator", "r", "w"] },
+                    "x_high": { "op": "index", "args": ["fold_highYearID", "r", "w"] },
+                    "y_high": { "op": "index", "args": ["fold_highIndicator", "r", "w"] }
+                  }
+                },
+                { "op": "index", "args": ["fold_lowIndicator", "r", "w"] }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "fold_priorIndicator",
+          "rhs": {
+            "op": "aggregate", "args": [], "output_idx": ["r", "w"],
+            "ranges": { "r": { "from": "run_rows" }, "w": { "from": "fold_year_rows" } },
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                { "op": "<=", "args": ["w", 1] },
+                { "op": "index", "args": ["fold_indicator", "r", 1] },
+                { "op": "index", "args": ["fold_indicator", "r", { "op": "-", "args": ["w", 1] }] }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "fold_annualGrowthFactor",
+          "rhs": {
+            "op": "aggregate", "args": [], "output_idx": ["r", "w"],
+            "ranges": { "r": { "from": "run_rows" }, "w": { "from": "fold_year_rows" } },
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                { "op": ">", "args": [{ "op": "index", "args": ["fold_priorIndicator", "r", "w"] }, 0.0] },
+                {
+                  "op": "apply_expression_template", "args": [], "name": "annualized_growth_factor",
+                  "bindings": {
+                    "base_indicator": { "op": "index", "args": ["fold_priorIndicator", "r", "w"] },
+                    "grown_indicator": { "op": "index", "args": ["fold_indicator", "r", "w"] },
+                    "year_span": 1.0
+                  }
+                },
+                0.0
+              ]
+            }
+          }
+        },
+        {
+          "_comment": "grwfac(1990, 1991) is fold row 2's factor: row 1 is the base year and takes no step. The literal 2 is guarded by the assertion that fold_yearID row 1 is runBaseYearID.",
+          "lhs": "run_popGrowthFactor",
+          "rhs": {
+            "op": "aggregate", "args": [], "output_idx": ["r"], "ranges": { "r": { "from": "run_rows" } },
+            "expr": { "op": "index", "args": ["fold_annualGrowthFactor", "r", 2] }
+          }
+        },
+        {
+          "lhs": "run_medianLifeYears",
+          "rhs": {
+            "op": "aggregate", "args": [], "output_idx": ["r"], "ranges": { "r": { "from": "run_rows" } },
+            "expr": {
+              "op": "apply_expression_template", "args": [], "name": "median_life_years",
+              "bindings": {
+                "median_life_full_load": { "op": "index", "args": ["run_medianLifeFullLoad", "r"] },
+                "load_factor": { "op": "index", "args": ["run_loadFactor", "r"] },
+                "hours_used_per_year": { "op": "index", "args": ["run_hoursUsedPerYear", "r"] }
+              }
+            }
+          }
+        },
+        {
+          "lhs": "run_medianLifePerYear",
+          "rhs": {
+            "op": "aggregate", "args": [], "output_idx": ["r"], "ranges": { "r": { "from": "run_rows" } },
+            "expr": { "op": "/", "args": [1.0, { "op": "index", "args": ["run_medianLifeYears", "r"] }] }
+          }
+        },
+        {
+          "lhs": "slot_fractionLifeUsed",
+          "rhs": {
+            "op": "aggregate", "args": [], "output_idx": ["r", "s"],
+            "ranges": { "r": { "from": "run_rows" }, "s": { "from": "age_slot_rows" } },
+            "expr": { "op": "*", "args": [{ "op": "-", "args": [{ "op": "index", "args": ["slot_ageID", "s"] }, 1] }, { "op": "index", "args": ["run_medianLifePerYear", "r"] }] }
+          }
+        },
+        {
+          "lhs": "slot_priorFractionLifeUsed",
+          "rhs": {
+            "op": "aggregate", "args": [], "output_idx": ["r", "s"],
+            "ranges": { "r": { "from": "run_rows" }, "s": { "from": "age_slot_rows" } },
+            "expr": { "op": "max", "args": [{ "op": "*", "args": [{ "op": "-", "args": [{ "op": "index", "args": ["slot_ageID", "s"] }, 2] }, { "op": "index", "args": ["run_medianLifePerYear", "r"] }] }, 0.0] }
+          }
+        },
+        {
+          "_comment": "find_scrappage_percent, twice, over the real 197-row table. `max_product` over the curve rows admitted by a filter that is a genuine range predicate: the largest percent among breakpoints at or below the life fraction. The curve is monotone, so `the largest percent below` and `the percent of the last breakpoint below` are the same row -- and its first breakpoint is 0.0, so the reduction is never empty for a non-negative life fraction.",
+          "lhs": "slot_percentScrapped",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "max_product", "output_idx": ["r", "s"],
+            "ranges": { "r": { "from": "run_rows" }, "s": { "from": "age_slot_rows" }, "v": { "from": "nrscrappagecurve_rows" }, "e": { "from": "default_curve_rows" } },
+            "join": [{ "on": [["crv_NREquipTypeID", "dc_NREquipTypeID"]] }],
+            "filter": { "op": "<=", "args": [{ "op": "index", "args": ["crv_fractionLifeUsed", "v"] }, { "op": "index", "args": ["slot_fractionLifeUsed", "r", "s"] }] },
+            "expr": { "op": "index", "args": ["crv_percentageScrapped", "v"] }
+          }
+        },
+        {
+          "lhs": "slot_priorPercentScrapped",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "max_product", "output_idx": ["r", "s"],
+            "ranges": { "r": { "from": "run_rows" }, "s": { "from": "age_slot_rows" }, "v": { "from": "nrscrappagecurve_rows" }, "e": { "from": "default_curve_rows" } },
+            "join": [{ "on": [["crv_NREquipTypeID", "dc_NREquipTypeID"]] }],
+            "filter": { "op": "<=", "args": [{ "op": "index", "args": ["crv_fractionLifeUsed", "v"] }, { "op": "index", "args": ["slot_priorFractionLifeUsed", "r", "s"] }] },
+            "expr": { "op": "index", "args": ["crv_percentageScrapped", "v"] }
+          }
+        },
+        {
+          "lhs": "slot_yearScrapFraction",
+          "rhs": {
+            "op": "aggregate", "args": [], "output_idx": ["r", "s"],
+            "ranges": { "r": { "from": "run_rows" }, "s": { "from": "age_slot_rows" } },
+            "expr": {
+              "op": "apply_expression_template", "args": [], "name": "year_over_year_scrap_fraction",
+              "bindings": {
+                "percent_scrapped": { "op": "index", "args": ["slot_percentScrapped", "r", "s"] },
+                "percent_scrapped_prior": { "op": "index", "args": ["slot_priorPercentScrapped", "r", "s"] }
+              }
+            }
+          }
+        },
+        {
+          "lhs": "slot_survivalFraction",
+          "rhs": {
+            "op": "aggregate", "args": [], "output_idx": ["r", "s"],
+            "ranges": { "r": { "from": "run_rows" }, "s": { "from": "age_slot_rows" } },
+            "expr": { "op": "-", "args": [1.0, { "op": "index", "args": ["slot_yearScrapFraction", "r", "s"] }] }
+          }
+        },
+        {
+          "_comment": "nyrlif, as a min-semiring contraction with the 100% test as its filter, capped at MXAGYR for totality. The cap cannot bind: the median life is capped at MXAGYR/2 and the curve reaches 100% at twice the median life.",
+          "lhs": "run_equipmentLifeYears",
+          "rhs": {
+            "op": "min",
+            "args": [
+              { "op": "apply_expression_template", "args": [], "name": "max_equipment_ages", "bindings": {} },
+              {
+                "op": "aggregate", "args": [], "semiring": "min_sum", "output_idx": ["r"],
+                "ranges": { "r": { "from": "run_rows" }, "s": { "from": "age_slot_rows" } },
+                "filter": { "op": ">=", "args": [{ "op": "index", "args": ["slot_percentScrapped", "r", "s"] }, { "op": "enum", "args": ["scrappage", "FullyScrappedPercent"] }] },
+                "expr": { "op": "index", "args": ["slot_ageID", "s"] }
+              }
+            ]
+          }
+        },
+        {
+          "lhs": "run_salesGrowth",
+          "rhs": {
+            "op": "aggregate", "args": [], "output_idx": ["r"], "ranges": { "r": { "from": "run_rows" } },
+            "expr": {
+              "op": "apply_expression_template", "args": [], "name": "scrappage_sales_growth",
+              "bindings": {
+                "pop_growth_factor": { "op": "index", "args": ["run_popGrowthFactor", "r"] },
+                "median_life_years": { "op": "index", "args": ["run_medianLifeYears", "r"] }
+              }
+            }
+          }
+        },
+        {
+          "lhs": "slot_survivingEquipment",
+          "rhs": {
+            "op": "aggregate", "args": [], "output_idx": ["r", "s"],
+            "ranges": { "r": { "from": "run_rows" }, "s": { "from": "age_slot_rows" } },
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                { "op": "<=", "args": [{ "op": "index", "args": ["slot_ageID", "s"] }, { "op": "index", "args": ["run_equipmentLifeYears", "r"] }] },
+                {
+                  "op": "apply_expression_template", "args": [], "name": "surviving_equipment",
+                  "bindings": {
+                    "sales_growth": { "op": "index", "args": ["run_salesGrowth", "r"] },
+                    "sales_index": { "op": "-", "args": [{ "op": "index", "args": ["run_equipmentLifeYears", "r"] }, { "op": "index", "args": ["slot_ageID", "s"] }] },
+                    "percent_scrapped": { "op": "index", "args": ["slot_percentScrapped", "r", "s"] }
+                  }
+                },
+                0.0
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "run_survivingEquipmentTotal",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["r"],
+            "ranges": { "r": { "from": "run_rows" }, "s": { "from": "age_slot_rows" } },
+            "expr": { "op": "index", "args": ["slot_survivingEquipment", "r", "s"] }
+          }
+        },
+        {
+          "lhs": "slot_baseModelYearFraction",
+          "rhs": {
+            "op": "aggregate", "args": [], "output_idx": ["r", "s"],
+            "ranges": { "r": { "from": "run_rows" }, "s": { "from": "age_slot_rows" } },
+            "expr": { "op": "/", "args": [{ "op": "index", "args": ["slot_survivingEquipment", "r", "s"] }, { "op": "index", "args": ["run_survivingEquipmentTotal", "r"] }] }
+          }
+        },
+
         { "lhs": "age_ordinal", "rhs": { "op": "aggregate", "args": [], "output_idx": ["g"], "ranges": { "g": { "from": "age_rows" } }, "expr": "g" } },
         {
           "lhs": "age_ageIndex",
@@ -2122,7 +2442,7 @@
           }
         },
         {
-          "_comment": "F12. agedist.f's result, carried. The values are docs/nonroad-logging-county.md §6.1 step 3's, which that document read out of the snapshot and reproduced in float32; the cross-check below is what makes them a number this repository is testing rather than a number it is asserting.",
+          "_comment": "agedist.f's result, still CARRIED, and the blocker is no longer F12. Everything the fold consumes is now computed above from the real tables -- the survivals, the base fractions, nyrlif and the thirty annual growth factors -- and the fold itself was authored here as esm-spec §4.3.1.1's causal self-reference and then taken back out, because a document that INGESTS is forced onto the build-pipeline evaluation path and that path resolves every self-read to zero without saying so (finding F24; the upstream canonical example is the repro). components/age_distribution.esm computes the same fold and passes, because it does not ingest. The three values are §6.1 step 3's; what keeps them honest is that they must sum to the cumulative growth ratio this document derives from nrgrowthindex by a different route, and that the survival factor the third one hangs off, 5.9604645e-08, is now COMPUTED here rather than assumed (§7.3).",
           "lhs": "age_grownModelYearFraction",
           "rhs": { "op": "const", "args": [], "value": [3.7072685, 0.9905483, 5.8885583e-08] }
         },
@@ -2719,8 +3039,57 @@
           ]
         },
         {
+          "id": "scrptime_runs_on_the_real_scrappage_curve",
+          "description": "docs/nonroad-logging-county.md §6.1 step 2, computed here for the first time rather than carried. Every number in that step now comes out of the snapshot: the 197-row nrscrappagecurve, nrsourceusetype's four activity columns, and the growth series below. What it discriminates:\n\nTHE STEP LOOKUP IS A STEP LOOKUP. Age 2's fraction of life used is 1.1104711, and the default curve's breakpoints straddle it at 1.1106 (73.5%) and 1.1178 (74%) -- find_scrappage_percent takes the last breakpoint AT OR BELOW, so 73.5, and an interpolating lookup would give 73.6. Age 3 is at 2.2209423, past the curve's last breakpoint of 2.0, so it reads the terminal 100.\n\nTHE YEAR-OVER-YEAR FRACTION IS NOT A DIFFERENCE OF CUMULATIVES. Age 3's is 100 x 0.265 / 26.5, the fraction of the survivors at age 2 that go, not 100 - 73.5.\n\n§7.3 IS NOW COMPUTED HERE. The age-3 survival is 5.9604645e-08 and not 0, because this document declares Float32 and 100 x 0.265 / 26.5 is 0.99999994 in binary32 and exactly 1 in binary64. That residue is what carries model year 2018 through thirty fold iterations into four MOVESOutput rows, and until this commit the fixture asserted nothing about it -- it arrived inside a carried constant. The value is asserted at 2^-23 RELATIVE, which on 5.96e-08 is 7e-15 absolute, so the assertion separates it from zero by eight orders of magnitude rather than tolerating either.\n\nBINARY32 QUANTITIES: the percents and nyrlif are exact counts and keep the model's 1e-12; the rest are quantities and carry one binary32 epsilon.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "tolerance": { "rel": 1.1920929e-07 },
+          "assertions": [
+            { "variable": "run_medianLifeYears", "time": 0.0, "expected": 0.90051866, "coords": { "run_rows": 1 } },
+            { "variable": "run_medianLifePerYear", "time": 0.0, "expected": 1.1104711, "coords": { "run_rows": 1 } },
+            { "variable": "run_equipmentLifeYears", "time": 0.0, "expected": 3.0, "coords": { "run_rows": 1 }, "tolerance": { "rel": 1e-12 } },
+            { "variable": "slot_fractionLifeUsed", "time": 0.0, "expected": 0.0, "coords": { "run_rows": 1, "age_slot_rows": 1 } },
+            { "variable": "slot_fractionLifeUsed", "time": 0.0, "expected": 1.1104711, "coords": { "run_rows": 1, "age_slot_rows": 2 } },
+            { "variable": "slot_fractionLifeUsed", "time": 0.0, "expected": 2.2209423, "coords": { "run_rows": 1, "age_slot_rows": 3 } },
+            { "variable": "slot_percentScrapped", "time": 0.0, "expected": 0.0, "coords": { "run_rows": 1, "age_slot_rows": 1 }, "tolerance": { "rel": 1e-12 } },
+            { "variable": "slot_percentScrapped", "time": 0.0, "expected": 73.5, "coords": { "run_rows": 1, "age_slot_rows": 2 }, "tolerance": { "rel": 1e-12 } },
+            { "variable": "slot_percentScrapped", "time": 0.0, "expected": 100.0, "coords": { "run_rows": 1, "age_slot_rows": 3 }, "tolerance": { "rel": 1e-12 } },
+            { "variable": "slot_priorPercentScrapped", "time": 0.0, "expected": 73.5, "coords": { "run_rows": 1, "age_slot_rows": 3 }, "tolerance": { "rel": 1e-12 } },
+            { "variable": "slot_yearScrapFraction", "time": 0.0, "expected": 0.0, "coords": { "run_rows": 1, "age_slot_rows": 1 } },
+            { "variable": "slot_yearScrapFraction", "time": 0.0, "expected": 0.735, "coords": { "run_rows": 1, "age_slot_rows": 2 } },
+            { "variable": "slot_yearScrapFraction", "time": 0.0, "expected": 0.99999994, "coords": { "run_rows": 1, "age_slot_rows": 3 } },
+            { "variable": "slot_yearScrapFraction", "time": 0.0, "expected": 0.0, "coords": { "run_rows": 1, "age_slot_rows": 4 } },
+            { "variable": "slot_survivalFraction", "time": 0.0, "expected": 5.9604645e-08, "coords": { "run_rows": 1, "age_slot_rows": 3 } },
+            { "variable": "slot_baseModelYearFraction", "time": 0.0, "expected": 0.8506725, "coords": { "run_rows": 1, "age_slot_rows": 1 } },
+            { "variable": "slot_baseModelYearFraction", "time": 0.0, "expected": 0.1493275, "coords": { "run_rows": 1, "age_slot_rows": 2 } },
+            { "variable": "slot_baseModelYearFraction", "time": 0.0, "expected": 0.0, "coords": { "run_rows": 1, "age_slot_rows": 3 } }
+          ]
+        },
+        {
+          "id": "the_growth_series_is_read_year_by_year_and_interpolated",
+          "description": "docs/nonroad-logging-county.md §6.0 and §2.2(b). agedist folds THIRTY ANNUAL FACTORS, not one cumulative ratio, and until this commit the fixture read only the two endpoint rows. Now it reads getgrw's whole series for the run's pattern, and each of the three cases in that series is asserted:\n\nAN EXACT TABLE ROW. 1990 and 2020 are tabulated, so the bracketing years coincide and the indicator is the stored value, 321 and 1508.\n\nAN INTERPOLATED YEAR. Pattern 2176 jumps from 1990 straight to 1999, so 1991 is bracketed by 1990 (321) and 1999 (1481) and getgrw returns 449.8889 -- the number §6.0 gives, and the number scrptime's sales curve is built from. `fold_lowYearID` and `fold_highYearID` are asserted at that row so the bracket itself is pinned, not just its result: an interpolation between the wrong two rows would land somewhere plausible.\n\nA YEAR-OVER-YEAR DIP. The indicator falls from 1481 in 1999 to 1000 in 2000, so grwfac(1999, 2000) is NEGATIVE, -0.32478055. That sign is the mechanism §6.3 names as the single most fragile behaviour in the chain: it is what drives agedist's unclamped residual below zero and makes the model-year sets gappy. A cumulative-ratio port would never see it, and a port that took the absolute value or clamped the factor would pass every other assertion in this file.\n\nBINARY32 QUANTITIES for the indicators and factors; the years are keys and stay exact.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "tolerance": { "rel": 1.1920929e-07 },
+          "assertions": [
+            { "variable": "fold_yearID", "time": 0.0, "expected": 1990.0, "coords": { "fold_year_rows": 1 }, "tolerance": { "rel": 1e-12 } },
+            { "variable": "fold_yearID", "time": 0.0, "expected": 2020.0, "coords": { "fold_year_rows": 31 }, "tolerance": { "rel": 1e-12 } },
+            { "variable": "fold_lowYearID", "time": 0.0, "expected": 1990.0, "coords": { "run_rows": 1, "fold_year_rows": 2 }, "tolerance": { "rel": 1e-12 } },
+            { "variable": "fold_highYearID", "time": 0.0, "expected": 1999.0, "coords": { "run_rows": 1, "fold_year_rows": 2 }, "tolerance": { "rel": 1e-12 } },
+            { "variable": "fold_lowIndicator", "time": 0.0, "expected": 321.0, "coords": { "run_rows": 1, "fold_year_rows": 2 }, "tolerance": { "rel": 1e-12 } },
+            { "variable": "fold_highIndicator", "time": 0.0, "expected": 1481.0, "coords": { "run_rows": 1, "fold_year_rows": 2 }, "tolerance": { "rel": 1e-12 } },
+            { "variable": "fold_indicator", "time": 0.0, "expected": 321.0, "coords": { "run_rows": 1, "fold_year_rows": 1 } },
+            { "variable": "fold_indicator", "time": 0.0, "expected": 449.8889, "coords": { "run_rows": 1, "fold_year_rows": 2 } },
+            { "variable": "fold_indicator", "time": 0.0, "expected": 1481.0, "coords": { "run_rows": 1, "fold_year_rows": 10 } },
+            { "variable": "fold_indicator", "time": 0.0, "expected": 1000.0, "coords": { "run_rows": 1, "fold_year_rows": 11 } },
+            { "variable": "fold_indicator", "time": 0.0, "expected": 1508.0, "coords": { "run_rows": 1, "fold_year_rows": 31 } },
+            { "variable": "fold_annualGrowthFactor", "time": 0.0, "expected": 0.0, "coords": { "run_rows": 1, "fold_year_rows": 1 } },
+            { "variable": "fold_annualGrowthFactor", "time": 0.0, "expected": 0.401523, "coords": { "run_rows": 1, "fold_year_rows": 2 } },
+            { "variable": "fold_annualGrowthFactor", "time": 0.0, "expected": -0.32478055, "coords": { "run_rows": 1, "fold_year_rows": 11 } },
+            { "variable": "run_popGrowthFactor", "time": 0.0, "expected": 0.401523, "coords": { "run_rows": 1 } }
+          ]
+        },
+        {
           "id": "the_carried_age_distribution_sums_to_the_growth_ratio",
-          "description": "The check that keeps F12's carried column honest. agedist.f's thirty-year fold is a recurrence with no spelling, so `age_grownModelYearFraction` is data -- and a carried column nobody is testing is not a number, it is an assertion. Its sum must be the cumulative growth G(2020)/G(1990), which this document derives from nrgrowthindex through a completely different route: the pattern finder's ladder, then two exact rows of a 50,955-row table. 4.6978168 against 4.6978192, agreeing to 5.2e-07 -- which is where two float32-printed fractions summed in float32 should land, and far tighter than any modelling error would be. That 5.2e-07 is four epsilons of the declared element type and is the one number in this document that needs a tolerance looser than one: the gap is in the CARRIED fractions, not in the summing, so it does not tighten with precision.",
+          "description": "The check that keeps the ONE carried column honest. `age_grownModelYearFraction` is still data -- not because the fold has no spelling any more (it has: esm-spec §4.3.1.1, and components/age_distribution.esm computes it) but because this document ingests, and at the PINNED toolchain a document that ingests is forced onto an evaluation path that left a causal self-read unresolved (finding F24 -- fixed upstream in EarthSciAST de784f3f8, which the pinned 6d0ec3b13 predates, and whose ingestion axis is not yet confirmed). A carried column nobody is testing is not a number, it is an assertion. Its sum must be the cumulative growth G(2020)/G(1990), which this document derives from nrgrowthindex through a completely different route: the pattern finder's ladder, then two exact rows of a 50,955-row table. 4.6978168 against 4.6978192, agreeing to 5.2e-07 -- which is where two float32-printed fractions summed in float32 should land, and far tighter than any modelling error would be. That 5.2e-07 is four epsilons of the declared element type and is the one number in this document that needs a tolerance looser than one: the gap is in the CARRIED fractions, not in the summing, so it does not tighten with precision.",
           "time_span": { "start": 0.0, "end": 0.0 },
           "tolerance": { "rel": 1e-6 },
           "assertions": [

@@ -374,6 +374,14 @@ for iyear in (base_year + 1)..=growth_year {
 }
 ```
 
+This fold **is** expressible: esm-spec §4.3.1.1's causal self-reference, after
+the 51-slot vector fold is reduced to a scalar recurrence on the 31 residuals
+(`tools/verify-agedist-reduction.py` verifies that reduction cell by cell in
+float32 against §6.5's own script, 0 of 1,581 cells differing, on every one of
+the six equipment points). `components/age_distribution.esm` computes it.
+`docs/esm-conventions.md` §19 has the spelling and the two arithmetic orders it
+is not free to choose.
+
 Three properties an `.esm` port must reproduce exactly:
 
 1. `tmpfrc` is snapshotted before the age loop (a shift, not an in-place scan).
@@ -1194,6 +1202,7 @@ examples below are the worked longhand for a subset of them.
 | `rfg` | `false` | RFG (subtype 11) share 0 of gasoline share 1.0 |
 | growth pattern (all three SCCs) | `2176` | `nrgrowthpatternfinder` SCC `2265007000` / `2260007000`, `stateID = 26` |
 | `G(1990)`, `G(1991)`, `G(2020)` | `321`, `449.8889`, `1508` | `nrgrowthindex` pattern 2176; 1991 interpolated between the 1990 (321) and 1999 (1481) rows |
+| `G(1999)`, `G(2000)` | `1481`, `1000` | the same pattern's next two rows, and the reason the model-year sets are gappy: the indicator FALLS, so `grwfac(1999, 2000)` is `−0.32478055` and `agedist`'s unclamped residual goes negative (§6.3, §2.2(e) property 2). Tabulated, not interpolated; `fixtures/nr-logging-county.esm` pins both, and the negative factor with them |
 | `pgf = grwfac(1990, 1991)` | `0.401523` | `(449.8889 − 321) / (321 × 1)` |
 | `G(2020)/G(1990)` | `4.697819` | the cumulative growth the age distribution carries |
 | `allocFrac` (surrogate 8) | `0.0032382987` (f32) | `nrstatesurrogate`: county 26161 quant `1512186`, state 26000 quant `466969286`, both `surrogateYearID = 2002` |
@@ -1896,14 +1905,34 @@ binary32 cannot hold declare `Float64` per variable. Neither of the two routes
 this section used to recommend is needed — precomputing `yryrfrcscrp` in f32
 outside the document, or recording 140/144 as a known structural difference.
 
-**But this fixture does not demonstrate any of it.** `agedist.f`'s thirty-year
-fold is a recurrence the format cannot express (finding F12), so
-`fixtures/nr-logging-county.esm` carries the *output* of the float32 fold as a
-`const` — `[3.7072685, 0.9905483, 5.8885583e-08]` — and MY2018 therefore
-arrives already positive. The fixture emitted all twelve rows in binary64 and
-emits the same twelve under `Float32`. The precision argument above is about a
-chain that *computes* the fold, which is `run-oracle.sh` and, once they land,
-the other two SCCs. `docs/esm-conventions.md` §17.5 records the distinction.
+**The fixture now demonstrates half of it, and the half it demonstrates is the
+half that was in doubt.** `fixtures/nr-logging-county.esm` computes
+`yryrfrcscrp` and its survival from the real 197-row curve, in the declared
+`Float32`, and asserts the survival at age 3 to be `5.9604645e-08` rather than
+`0` — pinned at 2⁻²³ *relative*, which on that value is 7 × 10⁻¹⁵ absolute, so
+the assertion separates it from zero by eight orders of magnitude rather than
+tolerating either. Until then this residue reached the fixture only inside a
+carried constant, and nothing in the document said anything about it.
+
+What the fixture still does not demonstrate is the *consequence*: it carries the
+fold's **output** as a `const` — `[3.7072685, 0.9905483, 5.8885583e-08]` — so
+MY2018 arrives already positive and its row set does not depend on the element
+type. That is no longer F12's fault. `agedist.f`'s fold **has** a spelling
+(esm-spec §4.3.1.1's causal self-reference), and
+`components/age_distribution.esm` computes it — verified bit-exactly against the
+reference fold on all six equipment points, 306 of 306 cells at zero tolerance.
+The blocker is finding **F24**: a document that ingests `data_sources` is forced
+onto the build-pipeline evaluation path, and on that path a causal self-read
+comes back unresolved, whereupon the `max(·, 0)` in `agedist.f`'s own body
+launders the sentinel into a plausible number. Measured with the fold wired in,
+the grown fractions summed to `1.5e-06` instead of `4.697819`.
+
+So the precision argument above is demonstrated by three things and not by one:
+`run-oracle.sh`, which computes the fold in f32 and reproduces all 144 rows;
+`components/age_distribution.esm`, which computes it in binary64 and gets
+exactly `0` in the third slot, naming the real\*4 value beside it; and the
+fixture, which computes the *input* residue in `Float32` and asserts it.
+`docs/esm-conventions.md` §17.5 and §19 record the distinction.
 
 ### 7.4 Other precision-sensitive operations, ranked
 
