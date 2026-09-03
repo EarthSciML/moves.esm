@@ -31,6 +31,10 @@
     "fold_year_rows": {
       "kind": "interval",
       "size": 31
+    },
+    "fold_point_rows": {
+      "kind": "interval",
+      "size": 1
     }
   },
   "coordinates": {
@@ -182,6 +186,24 @@
           "units": "1",
           "description": "modfrc before growth: the share of the 1990 population at this age. Sums to 1."
         },
+        "fold_survival": {
+          "type": "unknown",
+          "shape": [
+            "fold_point_rows",
+            "age_rows"
+          ],
+          "units": "1",
+          "description": "`age_survivalFraction` with the EQUIPMENT-POINT axis the fold reads it through. agedist.f is called once per equipment point, so lib/population.esm's `agedist_cohort_term` indexes every array it reads by point first; this component ports ONE point and the axis has one row, while fixtures/nr-logging-county.esm binds the same template with six. The axis is carried rather than broadcast because the recurrence needs it to be an IDENTITY index at a non-recurrence axis -- esm-spec §4.3.1.1 admits `index(V, p, Y - a)` and rejects `index(V, p + 1, Y - a)` as `recurrence_not_wellfounded`."
+        },
+        "fold_baseModelYearFraction": {
+          "type": "unknown",
+          "shape": [
+            "fold_point_rows",
+            "age_rows"
+          ],
+          "units": "1",
+          "description": "`age_baseModelYearFraction` with the same equipment-point axis, for the same reason."
+        },
         "fold_yearID": {
           "type": "unknown",
           "shape": [
@@ -200,6 +222,7 @@
         "fold_totalPopulation": {
           "type": "unknown",
           "shape": [
+            "fold_point_rows",
             "fold_year_rows"
           ],
           "units": "1",
@@ -208,6 +231,7 @@
         "fold_residualMinuend": {
           "type": "unknown",
           "shape": [
+            "fold_point_rows",
             "fold_year_rows"
           ],
           "units": "1",
@@ -216,6 +240,7 @@
         "fold_scrappedFraction": {
           "type": "unknown",
           "shape": [
+            "fold_point_rows",
             "fold_year_rows"
           ],
           "units": "1",
@@ -224,6 +249,7 @@
         "fold_newestCohortResidual": {
           "type": "unknown",
           "shape": [
+            "fold_point_rows",
             "fold_year_rows"
           ],
           "units": "1",
@@ -1178,6 +1204,59 @@
           }
         },
         {
+          "_comment": "The two reshape columns the fold's template reads through. Plain re-indexings, not a second calculation: this component has one equipment point and the fixture has six, and the template is the same one.",
+          "lhs": "fold_survival",
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "output_idx": [
+              "p",
+              "a"
+            ],
+            "ranges": {
+              "p": {
+                "from": "fold_point_rows"
+              },
+              "a": {
+                "from": "age_rows"
+              }
+            },
+            "expr": {
+              "op": "index",
+              "args": [
+                "age_survivalFraction",
+                "a"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "fold_baseModelYearFraction",
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "output_idx": [
+              "p",
+              "a"
+            ],
+            "ranges": {
+              "p": {
+                "from": "fold_point_rows"
+              },
+              "a": {
+                "from": "age_rows"
+              }
+            },
+            "expr": {
+              "op": "index",
+              "args": [
+                "age_baseModelYearFraction",
+                "a"
+              ]
+            }
+          }
+        },
+        {
           "lhs": "fold_yearID",
           "rhs": {
             "op": "aggregate",
@@ -1253,9 +1332,13 @@
             "op": "aggregate",
             "args": [],
             "output_idx": [
+              "p",
               "Y"
             ],
             "ranges": {
+              "p": {
+                "from": "fold_point_rows"
+              },
               "Y": {
                 "from": "fold_year_rows"
               }
@@ -1300,6 +1383,7 @@
                                   "op": "index",
                                   "args": [
                                     "fold_totalPopulation",
+                                    "p",
                                     {
                                       "op": "-",
                                       "args": [
@@ -1316,6 +1400,7 @@
                               "op": "index",
                               "args": [
                                 "fold_totalPopulation",
+                                "p",
                                 {
                                   "op": "-",
                                   "args": [
@@ -1355,9 +1440,13 @@
             "op": "aggregate",
             "args": [],
             "output_idx": [
+              "p",
               "Y"
             ],
             "ranges": {
+              "p": {
+                "from": "fold_point_rows"
+              },
               "Y": {
                 "from": "fold_year_rows"
               }
@@ -1375,7 +1464,8 @@
                 {
                   "op": "index",
                   "args": [
-                    "age_baseModelYearFraction",
+                    "fold_baseModelYearFraction",
+                    "p",
                     1
                   ]
                 },
@@ -1386,6 +1476,7 @@
                       "op": "index",
                       "args": [
                         "fold_totalPopulation",
+                        "p",
                         "Y"
                       ]
                     },
@@ -1403,9 +1494,13 @@
             "op": "aggregate",
             "args": [],
             "output_idx": [
+              "p",
               "Y"
             ],
             "ranges": {
+              "p": {
+                "from": "fold_point_rows"
+              },
               "Y": {
                 "from": "fold_year_rows"
               },
@@ -1431,10 +1526,11 @@
                   "args": [],
                   "name": "agedist_cohort_term",
                   "bindings": {
+                    "equipment_point": "p",
                     "fold_year": "Y",
                     "age_slot": "a",
-                    "survival": "age_survivalFraction",
-                    "base_fraction": "age_baseModelYearFraction",
+                    "survival": "fold_survival",
+                    "base_fraction": "fold_baseModelYearFraction",
                     "residual_minuend": "fold_residualMinuend",
                     "scrapped_sum": "fold_scrappedFraction"
                   }
@@ -1449,9 +1545,13 @@
             "op": "aggregate",
             "args": [],
             "output_idx": [
+              "p",
               "Y"
             ],
             "ranges": {
+              "p": {
+                "from": "fold_point_rows"
+              },
               "Y": {
                 "from": "fold_year_rows"
               }
@@ -1463,6 +1563,7 @@
                   "op": "index",
                   "args": [
                     "fold_residualMinuend",
+                    "p",
                     "Y"
                   ]
                 },
@@ -1470,6 +1571,7 @@
                   "op": "index",
                   "args": [
                     "fold_scrappedFraction",
+                    "p",
                     "Y"
                   ]
                 }
@@ -1478,17 +1580,21 @@
           }
         },
         {
-          "_comment": "The last year's vector, read back out of the fold. Slot 1 is the newest model year -- the unclamped residual -- and slot `a+1` is the cohort that has been shifted and scrapped `a` times. `31` is the last row of fold_year_rows, the episode year: `fold_yearID` row 31 is asserted to be 2020 so that the literal cannot drift away from the axis.",
+          "_comment": "The last year's vector, read back out of the fold and contracted over the equipment-point axis, which has one row here. Slot 1 is the newest model year -- the unclamped residual -- and slot `a+1` is the cohort that has been shifted and scrapped `a` times. `31` is the last row of fold_year_rows, the episode year: `fold_yearID` row 31 is asserted to be 2020 so that the literal cannot drift away from the axis.",
           "lhs": "age_grownModelYearFraction",
           "rhs": {
             "op": "aggregate",
             "args": [],
+            "semiring": "sum_product",
             "output_idx": [
               "a"
             ],
             "ranges": {
               "a": {
                 "from": "age_rows"
+              },
+              "p": {
+                "from": "fold_point_rows"
               }
             },
             "expr": {
@@ -1505,6 +1611,7 @@
                   "op": "index",
                   "args": [
                     "fold_newestCohortResidual",
+                    "p",
                     31
                   ]
                 },
@@ -1513,6 +1620,7 @@
                   "args": [],
                   "name": "agedist_cohort_term",
                   "bindings": {
+                    "equipment_point": "p",
                     "fold_year": 31,
                     "age_slot": {
                       "op": "-",
@@ -1521,8 +1629,8 @@
                         1
                       ]
                     },
-                    "survival": "age_survivalFraction",
-                    "base_fraction": "age_baseModelYearFraction",
+                    "survival": "fold_survival",
+                    "base_fraction": "fold_baseModelYearFraction",
                     "residual_minuend": "fold_residualMinuend",
                     "scrapped_sum": "fold_scrappedFraction"
                   }
@@ -1942,6 +2050,7 @@
               "time": 0.0,
               "expected": 83.3,
               "coords": {
+                "fold_point_rows": 1,
                 "fold_year_rows": 1
               }
             },
@@ -1950,6 +2059,7 @@
               "time": 0.0,
               "expected": 0.0,
               "coords": {
+                "fold_point_rows": 1,
                 "fold_year_rows": 1
               }
             },
@@ -1958,6 +2068,7 @@
               "time": 0.0,
               "expected": 0.8506725,
               "coords": {
+                "fold_point_rows": 1,
                 "fold_year_rows": 1
               }
             },
@@ -1966,6 +2077,7 @@
               "time": 0.0,
               "expected": 116.74687,
               "coords": {
+                "fold_point_rows": 1,
                 "fold_year_rows": 2
               }
             },
@@ -1974,6 +2086,7 @@
               "time": 0.0,
               "expected": 1.401523,
               "coords": {
+                "fold_point_rows": 1,
                 "fold_year_rows": 2
               }
             },
@@ -1982,6 +2095,7 @@
               "time": 0.0,
               "expected": 0.22542821,
               "coords": {
+                "fold_point_rows": 1,
                 "fold_year_rows": 2
               }
             },
@@ -1990,6 +2104,7 @@
               "time": 0.0,
               "expected": 1.1760948,
               "coords": {
+                "fold_point_rows": 1,
                 "fold_year_rows": 2
               }
             },
@@ -1998,6 +2113,7 @@
               "time": 0.0,
               "expected": 4.697819,
               "coords": {
+                "fold_point_rows": 1,
                 "fold_year_rows": 31
               }
             }
