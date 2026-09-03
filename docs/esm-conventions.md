@@ -487,13 +487,17 @@ tripwire polarity again.
 What stands between the fixture and the other 132 rows is now **two separable
 things**, where it used to be one.
 
-**The fold, and it is a toolchain blocker rather than a format one.**
-`agedist.f`'s thirty-year fold has a spelling — esm-spec §4.3.1.1's causal
-self-reference — and `components/age_distribution.esm` computes it, verified
-bit-exactly against the reference on all six equipment points. The fixture
-cannot, because a document that ingests `data_sources` is forced onto the
-build-pipeline evaluation path and that path leaves a causal self-read
-unresolved (**F24**). So the three grown fractions still enter as data. What is
+**The fold, and it is a toolchain blocker rather than a format one — and it is
+fixed upstream but not yet pinned here.** `agedist.f`'s thirty-year fold has a
+spelling, esm-spec §4.3.1.1's causal self-reference, and
+`components/age_distribution.esm` computes it, verified bit-exactly against the
+reference on all six equipment points. The fixture cannot *at the pinned
+toolchain*, because a document that ingests `data_sources` is forced onto the
+build-pipeline evaluation path and that path left a causal self-read unresolved
+(**F24**, fixed by EarthSciAST `de784f3f8`, which `6d0ec3b13` predates — and
+whose **ingestion** axis has not yet been confirmed against a reader-enabled
+build). So the three grown fractions still enter as data, and the day the
+rebuild lands `run-tests.sh`'s F24 check fails with instructions. What is
 no longer carried is everything that *feeds* them: the 197-row scrappage curve's
 step lookup, `yryrfrcscrp`, the survivals, `nyrlif`, the sales curve, the base
 model-year fractions, and `getgrw`'s whole indicator series with the thirty
@@ -1366,6 +1370,37 @@ assertions on it; the fixture carries its three output values and computes
 everything that *feeds* them. That split is worth more than either half: it is
 what let §7.3's `5.9604645e-08` become a measured number in the fixture while
 the fold that consumes it stayed carried.
+
+**The two axes were one cause, and the fix says what to generalize.** F24 is
+fixed upstream (EarthSciAST `de784f3f8`): `prepare::eval_observed` evaluated
+every observed *wholesale* with no recurrence scope, and both routes reach it.
+The sweep is now **one shared function both paths call** — two call sites with
+two copies is exactly how one path came to work and the other to be dead — and
+an unrecognized self-read now returns `recurrence_unsupported_form` instead of
+falling through to the wholesale evaluation. Generalize the second half, not the
+first: **a construct with more than one evaluation path needs one
+implementation and a loud floor under the paths that miss it**, not two correct
+implementations.
+
+### 19.4a A NaN sentinel is not a defence in a model that clamps
+
+The runtime *did* return the loud sentinel: an unresolved self-read was `NaN`.
+`max(NaN, 0.0)` returns `0.0`, because IEEE-754 `max` returns the non-NaN
+operand — so the clamp destroyed it, and `agedist.f`'s fold body **is**
+`max(·, 0)`. This is the eighth instance of the plausible-wrong-value failure
+this repository tracks (README's "A warning about zeros") and the **first where
+the sentinel was manufactured by a clamp rather than returned by the runtime**.
+
+MOVES clamps everywhere — the fold body, `prccty.f`'s `modfrc <= 0` skip, half
+the scrappage arithmetic, `least`/`greatest` through the evaporative chain — so
+in this port NaN propagation cannot be relied on to surface an unbound read at
+all. Two consequences for authoring and for checking. Where a repro's evidence
+is a sentinel, assert the value **downstream of the clamp** as well as at it:
+`run-tests.sh`'s F24 check reads the *clamped* column, because a check on the
+`NaN` column alone would pass the day the sentinel changed without the construct
+working. And when a number is suspiciously round — a constant `1`, a sum of
+`1.5e-06` where `4.697819` was expected — look for a clamp upstream of it before
+looking for an arithmetic error.
 
 ### 19.5 A precision-sensitive leaf cannot declare its precision
 

@@ -1,10 +1,14 @@
 # Findings: conventions the format or the toolchain could not express
 
 Twenty-four things PLAN.md §3 Phase 1 through Phase 4 assumed, or that an author would
-reasonably assume, that did not hold. Nine are now fixed upstream and are listed
-at the bottom, with their sections kept above so the workarounds they forced can
-be traced; the rest still hold at the pinned toolchain (`esm-version.lock`:
-EarthSciAST `6d0ec3b13`, EarthSciIO `d109951d4`, `--features esio,parallel`).
+reasonably assume, that did not hold. Nine are fixed upstream and retired from
+the tripwire, listed at the bottom with their sections kept above so the
+workarounds they forced can be traced. A tenth, **F24**, is fixed upstream
+(EarthSciAST `de784f3f8`) but is **not in the pinned toolchain** — `6d0ec3b13`
+predates it — so its repros still reproduce here and stay in the tripwire until
+`./esm` is rebuilt. The rest still hold at the pinned toolchain
+(`esm-version.lock`: EarthSciAST `6d0ec3b13`, EarthSciIO `d109951d4`,
+`--features esio,parallel`).
 
 F2, F3, F5, F11, F13, F14, F20, F21, F22 and F24 each have a minimal `.esm` repro in this directory —
 F22 has two, one per construct, and F24 has two for a different reason (see
@@ -57,7 +61,7 @@ three of them do not load.
 | **F17** | A `join.on` between two LARGE data relations is not driven | — | **yes** |
 | **F18** | An ingested value the declared `element_type` cannot represent is narrowed silently (the key-collapse half is **resolved**, by a per-variable override) | ingest | **yes** |
 | **F23** | A leaf's `domain.element_type` does not survive a top-level `models` `{ref}` mount | — | **yes** |
-| **F24** | A causal self-reference is dropped once the document ingests | — | **yes** |
+| **F24** | A causal self-reference is dropped once the document ingests (**fixed upstream**, `de784f3f8`; not in the pinned toolchain, and the ingestion axis not yet confirmed against a reader-enabled build) | — | **yes** |
 | **F22** | A discrete event, and an implicit equation, do not evaluate on the ARRAY path (both work on the scalar path) | evaluation | no |
 | **F20** | A constant-folded scalar right-hand side loses the left-hand side's array shape | assertion | no |
 | **F21** | A scoped reference to a mounted model's variable resolves as an operand and a join key but not as an assertion `variable` | assertion | no |
@@ -908,7 +912,7 @@ curve landing exactly on 100 %**, not of the fold.
 
 ---
 
-## F24 — a causal self-reference is dropped once the document ingests
+## F24 — a causal self-reference is dropped once the document ingests — **fixed upstream, not yet pinned**
 
 Two repros, and the second one is the finding.
 
@@ -979,6 +983,46 @@ alone would pass the day the sentinel changed without the construct working.
 `docs/esm-conventions.md` §19.4 makes "exercise a new construct on both paths"
 a rule rather than an anecdote.
 
+### The fix, and one cause rather than two
+
+EarthSciAST `de784f3f8` (`9dafce9a0` is the fix, `ed939f48b` the both-paths
+test, `1c05b569a` the spec text). The two axes this section describes — "any
+document that ingests" and "every document under `esm simulate`" — turned out to
+be **one cause**: `prepare::eval_observed` evaluated every observed
+**wholesale** through the shared expression evaluator with no recurrence scope,
+so `index(r, y − a)` resolved against a map that does not yet hold the array
+being built and fell through to an unbound-name `NaN`. Both routes reach that
+function.
+
+The fix is structural rather than a second implementation. The sweep is factored
+out of `materialize_observeds_pass` into `rhs::sweep_recurrence` and **both
+paths call it** — two call sites with two copies is precisely how one path came
+to work and the other to be dead, so one function is the fix and not a cleanup.
+And the part that matters beyond this bug: a self-read the lowering does not
+recognize now returns **`recurrence_unsupported_form`** instead of falling
+through to the wholesale evaluation, so a future path that misses the sweep
+fails loudly rather than quietly.
+
+**It is the eighth instance of this repository's characteristic failure, and the
+first where the sentinel was MANUFACTURED BY A CLAMP rather than returned by the
+runtime.** The runtime did return `NaN`, which is the loud sentinel and would
+have propagated; `max(NaN, 0.0) == 0.0` destroyed it, because IEEE-754 `max`
+returns the non-NaN operand. MOVES clamps everywhere — `agedist.f`'s own fold
+body is `max(·, 0)`, and so is `prccty.f`'s skip test and half the scrappage
+arithmetic — so in this port a NaN sentinel is not a defence at all. That is why
+`run-tests.sh` checks the clamped column: the loud half of the evidence was
+already there and the clamp is what removed it.
+
+**Not in the pinned toolchain, and one axis still unproven.** `esm-version.lock`
+pins `6d0ec3b13`, which predates the fix, so both repros still reproduce here
+and stay in the tripwire. The upstream author verified the **build-pipeline
+path** — which both axes reduce to — and said plainly that they could not verify
+the **ingestion** axis, because that build has no parquet reader. So
+`fixtures/nr-logging-county.esm` keeps its carried `const` until the ingestion
+axis is confirmed against a reader-enabled binary on the real snapshot.
+`run-tests.sh`'s F24 check is already the tripwire for that: it fails, with
+instructions, the moment `esm simulate` agrees with `esm test` on F24a.
+
 ---
 
 ## Fixed upstream
@@ -992,6 +1036,7 @@ traced.
 - **F6 and F16** — EarthSciAST `d421d3541` — they were **one cause, not two**. The §6.6.3 pointwise assertion path read the solve trajectory and nothing else, and a 0-D observed lives in one of three carriers: the array runtime exposes every 0-D observed unasked (which is why the array-shaped twin always worked), the scalar backend exposes one only when the caller names it (F6), and a document that cannot integrate has no trajectory at all (F16). `esm simulate` printed the right value for both repros the whole time; only `esm test` could not reach it. The fix requests the pointwise-asserted observeds and falls back to the state-free scalar observed, with the same guards the array branch has — so an unbound name is still an ERROR naming it, never a zero. **Fixed in Rust only**; Julia and Python still resolve a pointwise assertion against state rows, recorded upstream as `BEHAV-06-B-008` rather than papered over.
 - **F19** — EarthSciAST `31b46188c` — an assertion whose actual was `±inf` passed whatever `expected` said, because `check_assertion` had been reduced to the tolerance bound alone and `|inf − expected| ≤ inf` holds for every `expected`. **Julia was always right**: its `_check_assertion` delegates to `isapprox`, which carries the finiteness clause. The Rust and Python re-implementations both documented themselves as "Julia `isapprox` semantics" and both dropped it — a re-implementation drifting from the binding it names, invisible to every other conformance category because every other fixture's actuals are finite. Now normative in esm-spec §6.6.3 and pinned by CONFORMANCE_SPEC §5.20, a tier that compares **verdicts** rather than actuals, since `±Inf` and `NaN` are not JSON-representable.
 - **F12** — EarthSciAST `a83cde55e` — a recurrence over an index axis now has a spelling, and it adds **no new op and no new schema field**: an equation defining an array-shaped unknown `V` whose `aggregate` body reads `index(V, k − c)` — `V` itself, strictly earlier along one of that node's output axes — is a causal self-reference, materialized cell by cell, that axis outermost and ascending, each cell published before the axis advances. The LHS already names the accumulator, so an annotation would carry no information the read does not. The proof obligation **splits**: the coefficient of the frame symbol must be provably 1, or the axis and direction are undecidable, but the lag's *sign* need not be provable at all, because a self-read resolves only against published cells and so faults rather than returning a number. Arithmetic order is normative (CONFORMANCE_SPEC §5.19), and the carried value is rounded to the variable's `element_type` at **every** cell, not once at the end — which matters here, since the consumer is a `Float32` document. Its control is now **deleted**: it was kept only until `components/age_distribution.esm` computed the fold and guarded it with its own assertions, which it does, in 55 places, verified bit-exactly against the reference fold on all six equipment points (306 of 306 cells at `rel 0, abs 0`). **The port's blocker did not disappear with F12, it moved and shrank**: `fixtures/nr-logging-county.esm` still carries the fold's three output values, because a document that ingests is forced onto an evaluation path that leaves a causal self-read unresolved — **F24**, which is about the toolchain rather than the format, and which the construct's own conformance tier could not have caught because it was verified under `esm test` only. Of the four spellings tried, the `makearray`-region one is now refused *loudly* with `recurrence_unsupported_form` naming the fix, where it used to fail silently — region order fixes which write wins, not which cell is evaluated when — and the other two turned out to record a different gap, re-filed as **F22**.
+- **F24** — EarthSciAST `de784f3f8` — a causal self-reference was **dead on the build-pipeline path, and silent**: `prepare::eval_observed` evaluated every observed wholesale with no recurrence scope, so the self-read fell through to an unbound-name `NaN` and `max(NaN, 0.0)` returned `0.0`. One cause, not the two axes the section above describes — `esm simulate` and the ingesting path both reach that function. The sweep is now one shared `rhs::sweep_recurrence` both routes call, and an unrecognized self-read returns `recurrence_unsupported_form` rather than falling through. **Listed here for the record but NOT retired**: `6d0ec3b13` is pinned, so it still reproduces, and the ingestion axis has not been confirmed against a reader-enabled build. Its two repros stay.
 - **F1** — EarthSciAST `a5e8a7d94` — `rename_free_symbol` now rewrites `join.on`, `overlap.src_env`/`tgt_env` and a resolved `on_gate`'s columns after `map_children`, so a nested §4.7 mount carries a leaf's key columns. **The nested mount is available again**; this port's assemblies still use the top-level `{ref}` form the workaround forced, which works and is not worth churning, but a new assembly may use either.
 - **F4** — EarthSciAST `ee067f5b6` — rejected at load with a named diagnostic, `reserved_index_symbol`, rather than made to work: an index symbol is the author's free choice (§4.3.1), while making the binder win would invert name-first precedence at nine sites and still leave the node unable to name the independent variable at all. The convention in `docs/esm-conventions.md` §7 stands, now enforced by the toolchain.
 - **F9** — EarthSciAST `8274f0918` — `simulate` treats a document with nothing to
