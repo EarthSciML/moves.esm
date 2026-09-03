@@ -69,9 +69,8 @@ rel = 2e-5
 # THAT PARAGRAPH USED TO SAY IT WITHOUT THE QUALIFIER, ABOUT THE FIXTURE
 # ITSELF, AND THAT WAS WRONG. The claim is true
 # of `run-oracle.sh`, which executes the fold; it is NOT true of
-# `fixtures/nr-logging-county.esm`, which does not. agedist.f's thirty-year
-# recurrence has no spelling in the format (finding F12), so the fixture carries
-# the float32 fold's OUTPUT as a `const`: `age_grownModelYearFraction =
+# `fixtures/nr-logging-county.esm`, which does not. The fixture carries the
+# float32 fold's OUTPUT as a `const`: `age_grownModelYearFraction =
 # [3.7072685, 0.9905483, 5.8885583e-08]`. The borderline cohort therefore
 # arrives already positive and `age_isPopulated` reads it as populated in either
 # precision. Measured both ways: the fixture emitted twelve rows in binary64 and
@@ -80,6 +79,27 @@ rel = 2e-5
 # ARITHMETIC to get it --- the right answer for a different reason than this
 # file claimed, which is a thing to write down rather than smooth over
 # (docs/esm-conventions.md 17.5). PLAN.md 1.6.1a already had it right.
+#
+# WHY IT IS STILL CARRIED, AND IT IS NO LONGER F12. agedist.f's thirty-year
+# recurrence HAS a spelling now (esm-spec 4.3.1.1, EarthSciAST a83cde55e), and
+# components/age_distribution.esm computes the fold with it and asserts the
+# result in 55 places. What stops the FIXTURE is finding F24: a document that
+# ingests `data_sources` is forced onto the build-pipeline evaluation path, and
+# on that path every causal self-read comes back unresolved, with no diagnostic.
+# The clamp in agedist.f's own body then launders the sentinel into a plausible
+# number --- measured, the grown fractions summed to 1.5e-06 instead of
+# 4.697819 --- which is the failure mode this whole file exists to make visible.
+# The repro is upstream's own canonical valid example; ours is
+# docs/findings/F24_repro_a_recurrence_is_dropped_on_the_ingesting_path.esm and
+# run-tests.sh checks it by running both commands.
+#
+# What DID change: every input the fold consumes is now computed in the fixture
+# from the real tables rather than absent --- the 197-row scrappage curve, the
+# year-over-year survivals including 7.3's 5.9604645e-08, nyrlif, the base
+# model-year fractions, and getgrw's thirty annual growth factors. So the
+# carried column is three numbers wide now instead of standing in for a whole
+# stage, and the survival factor its third value hangs off is ASSERTED rather
+# than assumed.
 #
 # The structural risk is real but is a PRECISION question, not a tolerance one,
 # and an earlier version of this comment also got the resolution wrong. It said
@@ -159,4 +179,4 @@ pollutant_column = "pollutantID"
 emitted_rows = 12
 missing_keys = 132
 extra_keys = 0
-why = "The fixture computes ONE of the snapshot's three SCCs: 2260007005, the twelve rows of docs/nonroad-logging-county.md 6.1. All twelve agree with MOVESOutput to 4.046e-06 relative, evaluated in Float32 with the SCC-valued variables overridden to Float64; the same twelve agreed to 4.025e-06 when the document ran in binary64, and the KEY SET is identical in both, because this SCC's grown model-year fractions are carried rather than computed (F12, and see the note above). The missing 132 are 2265007015 (16 rows, two equipment points summed into each output row) and 2265007010 (116 rows, three equipment points and a 38-year nyrlif). Widening to them is not more .esm of the same kind: each needs its own agedist result, and agedist.f's thirty-year fold is a recurrence the format cannot express (docs/findings F12), so the grown model-year fractions enter as data. One SCC's three values are checkable against the growth ratio this document derives independently; thirty-six cohorts' would be transcribing the reference's answer. F12 is the blocker, not authoring effort."
+why = "The fixture computes ONE of the snapshot's three SCCs: 2260007005, the twelve rows of docs/nonroad-logging-county.md 6.1. All twelve agree with MOVESOutput to 4.046e-06 relative, evaluated in Float32 with the SCC-valued variables overridden to Float64; the same twelve agreed to 4.025e-06 when the document ran in binary64, and the KEY SET is identical in both, because this SCC's three grown model-year fractions are still carried as a const rather than computed. The missing 132 are 2265007015 (16 rows, two equipment points summed into each output row) and 2265007010 (116 rows, three equipment points and a 38-year nyrlif). THE BLOCKER MOVED AND SHRANK. It is no longer F12: agedist.f's fold has a spelling (esm-spec 4.3.1.1) and components/age_distribution.esm computes it, bit-exactly against the reference on all six equipment points, with 55 assertions on it. It is now F24, which is narrower and is about the TOOLCHAIN rather than the format: a document that ingests data_sources is forced onto the build-pipeline evaluation path, where every causal self-read comes back unresolved and agedist.f's own max(x, 0) launders the sentinel into a plausible number (measured in the fixture: grown fractions summing to 1.5e-06 instead of 4.697819). The fold was authored into this fixture and taken back out for that reason; the commit is in the log. What the fixture DOES now compute, from the real tables, is every input the fold consumes: the 197-row nrscrappagecurve step lookup, yryrfrcscrp, the survivals including 7.3's 5.9604645e-08, nyrlif, the sales curve, the base model-year fractions, and getgrw's whole indicator series with its thirty annual grwfac factors (an exact row, an interpolated year and a year-over-year dip all asserted separately). 120 assertions against the snapshot Parquet, up from 87. What remains between here and 144 is therefore TWO things and they are separable: F24, upstream, for the fold; and then the equipment-point axis for the other two SCCs, which is authoring effort of the ordinary kind now that the fold's shape is settled and lib/population.esm's agedist_cohort_term already indexes by equipment point."
