@@ -152,10 +152,11 @@ fi
 # accurately each test is integrated, not the tolerance its assertions are
 # judged against, which each test declares for itself (§6.6.4).
 
-# fixtures/ is excluded here and run by stage 7 instead: a fixture's
-# `url_template` carries a ${MOVES_SNAPSHOTS} placeholder the RUNTIME does not
-# substitute, so the checked-in file deliberately cannot ingest and its inline
-# tests only mean anything against the materialized copy.
+# fixtures/ is excluded here and run by the fixture stage instead -- not
+# because it cannot ingest (it can, since F15 landed and a `url_template`
+# resolves against its own document), but because that stage does three things
+# with it in order: assert, emit, compare. Running its assertions here too
+# would just run them twice.
 mapfile -t TEST_TARGETS < <(find . -maxdepth 1 -mindepth 1 -type d \
   -not -name '.*' -not -name 'target' -not -name 'gates' -not -name 'docs' \
   -not -name 'tools' -not -name 'fixtures' | sort)
@@ -172,18 +173,20 @@ fi
 # parse → emit → parse must be faithful, which is the check that this repo is
 # using the format rather than a dialect of it that happens to load.
 #
-# Each document is round-tripped FROM ITS OWN DIRECTORY, because `esm
-# round-trip` resolves a relative `ref` against the process working directory
-# instead of the referencing file's directory (finding F7) — unlike `validate`
-# and `test`, which get it right. lib/keys.esm is excluded: a layered template
-# library does not currently round-trip to a self-contained form (finding F8).
-# Both are watched by the tripwire stage.
+# Each document is round-tripped WHERE IT LIVES. It used to be run from its own
+# directory, because `esm round-trip` resolved a relative `ref` against the
+# process working directory instead of the referencing file's (finding F7) —
+# which turned out to be ~17 subcommands rather than one, and to be the
+# prerequisite for F15: a CWD-anchored `ref` fails loudly, but a CWD-anchored
+# `url_template` resolves, succeeds, and reads a different file. Both are fixed.
+# lib/keys.esm is still excluded: a layered template library does not round-trip
+# to a self-contained form (finding F8), watched by the tripwire stage.
 
 head2 "round-trip"
 for doc in "${DOCS[@]}"; do
   rel="${doc#./}"
   [[ "$rel" == "lib/keys.esm" ]] && continue
-  if out=$( cd "$(dirname "$doc")" && "$OLDPWD/$ESM" round-trip "$(basename "$doc")" 2>&1 ); then
+  if out=$("$ESM" round-trip "$doc" 2>&1); then
     pass "$rel"
   else
     fail "round-trip $rel"
@@ -296,14 +299,11 @@ F18_CONTROL=docs/findings/F18_control_float32_key_override.esm
 if [[ ! -d "$SNAPSHOTS" ]]; then
   skip "F18 key-override control" "needs the snapshots; none at $SNAPSHOTS"
 else
-  f18_run="$(mktemp --suffix=.esm)"
-  sed "s|\${MOVES_SNAPSHOTS}|$(cd "$SNAPSHOTS" && pwd)|g" "$F18_CONTROL" > "$f18_run"
-  if "$ESM" validate "$f18_run" >/dev/null 2>&1 && "$ESM" test "$f18_run" >/dev/null 2>&1; then
+  if "$ESM" validate "$F18_CONTROL" >/dev/null 2>&1 && "$ESM" test "$F18_CONTROL" >/dev/null 2>&1; then
     pass "F18 key-override control passes: an overridden key stays exact, and Float32 is still live"
   else
     fail "F18 key-override control — either a per-variable element_type override no longer keeps an ingested ten-digit key exact, or the document is no longer evaluating in Float32. Both are load-bearing for fixtures/nr-logging-county.esm"
   fi
-  rm -f "$f18_run"
 fi
 
 mapfile -t REPROS < <(find docs/findings -name '*.esm' -not -name 'join_leaf.esm' \
@@ -317,21 +317,17 @@ if [[ ${#REPROS[@]} -eq 0 ]]; then
 else
   for repro in "${REPROS[@]}"; do
     name=$(basename "$repro" .esm)
-    # A repro that reads real data carries the same ${MOVES_SNAPSHOTS} placeholder
-    # the fixtures do (F15: the runtime resolves neither a variable nor a relative
-    # path). Substitute it, or the repro fails to LOAD and the tripwire reads that
-    # as "still fails, as recorded" -- the right verdict for the wrong reason,
-    # which would hide the defect being fixed.
-    if grep -q 'MOVES_SNAPSHOTS' "$repro" 2>/dev/null; then
-      if [[ ! -d "$SNAPSHOTS" ]]; then
-        skip "$name" "needs the snapshots; none at $SNAPSHOTS"
-        continue
-      fi
-      repro_run="$(mktemp --suffix=.esm)"
-      sed "s|\${MOVES_SNAPSHOTS}|$(cd "$SNAPSHOTS" && pwd)|g" "$repro" > "$repro_run"
-    else
-      repro_run="$repro"
+    # A repro that reads real data used to need its ${MOVES_SNAPSHOTS} placeholder
+    # substituted before it could load, or the tripwire read the load failure as
+    # "still fails, as recorded" -- the right verdict for the wrong reason. F15
+    # landed, so a repro names its own inputs with a relative path and runs as
+    # checked in. It still needs the snapshots to be PRESENT.
+    if grep -q 'characterization/snapshots' "$repro" 2>/dev/null \
+       && [[ ! -d "$SNAPSHOTS" ]]; then
+      skip "$name" "needs the snapshots; none at $SNAPSHOTS"
+      continue
     fi
+    repro_run="$repro"
     if "$ESM" validate "$repro_run" >/dev/null 2>&1 && "$ESM" test "$repro_run" >/dev/null 2>&1; then
       fail "$name NOW PASSES — the defect it records is fixed"
       say "       Read docs/findings/README.md: this unblocks a convention, and"
@@ -343,17 +339,9 @@ else
   done
 fi
 
-# Two limitations that are CLI behaviours rather than documents, so they are
-# checked by command rather than by a repro file.
-
-# F7: `esm round-trip` resolves a relative ref against the process working
-# directory, not the referencing file's directory (esm-spec §4.7, §9.7.2).
-if "$ESM" round-trip components/deteriorated_emission_rate.esm >/dev/null 2>&1; then
-  fail "F7_round_trip_ref_resolution NOW PASSES — the defect it records is fixed"
-  say "       Simplify the round-trip stage above: it no longer needs to cd."
-else
-  pass "F7_round_trip_ref_resolution still fails, as recorded"
-fi
+# One limitation that is a CLI behaviour rather than a document, so it is
+# checked by command rather than by a repro file. (F7 was the other, and is
+# fixed -- which is why the round-trip stage above no longer has to `cd`.)
 
 # F8: a layered template library does not round-trip to a self-contained form —
 # the import edge is consumed but the imported DECLARATION does not survive.
@@ -372,41 +360,23 @@ fi
 # array, and it is the level at which this port is compared against the
 # reference at all.
 #
-# THE MATERIALIZATION STEP, AND WHY IT IS NOT A GENERATED DOCUMENT. A
-# `url_template` is neither environment-expanded nor resolved relative to the
-# referencing file: `file://${MOVES_SNAPSHOTS}/...` is looked up literally and
-# `file://../x` eats `..` as the URL host (both measured; see
-# docs/findings/README.md F15). So a checked-in fixture cannot name its own
-# inputs, and this stage rewrites ONLY the snapshot path into an untracked copy
-# under .fixtures-run/. No model logic is generated -- CLAUDE.md's rule is about
-# expressions, and the copy differs from the source by one absolute path per
-# data source. .fixtures-run/ sits at the repository root so that each fixture's
-# relative `../lib/...` template imports resolve exactly as they do from
-# fixtures/.
-
-# Located by searching UPWARD, not by a fixed `../`, which is right from the
-# canonical checkout and one level too deep from a git worktree under .moves/.
-# The failure was silent and had already been fixed twice elsewhere in this
-# repository (run-oracle.sh, tools/check-sources.py) before it was noticed here:
-# the stage reported "skip -- no snapshots" and the suite went green having
-# compared nothing, which is the same shape as the bug the fixture exists to
-# catch, one level up.
-RUNDIR=".fixtures-run"
-
-# --- data_sources catalogs ------------------------------------------------
+# THERE IS NO LONGER A MATERIALIZATION STEP. This stage used to rewrite each
+# fixture's snapshot path into an untracked copy under .fixtures-run/, because a
+# `url_template` was neither environment-expanded nor resolved relative to its
+# own document (F15), so a checked-in fixture could not name its own inputs.
+# F15 landed: a relative template resolves against the declaring file, so the
+# document that runs IS the document that is checked in -- which is what makes
+# `esm validate` on it mean anything.
 #
-# Checked against the Parquet directly, with pyarrow, because the runtime's own
-# report of a wrong column name is a `default` -- a plausible number with no
-# diagnostic attached. This stage is what makes a misspelled `fractionLifeused`
-# or a forgotten `float_columns` entry fail where it can be attributed.
+# That also removed the reason this stage ran `simulate` from inside
+# .fixtures-run/. It did so because `simulate` resolved a relative `ref` against
+# the process working directory rather than the referencing file's (F7). F7 is
+# fixed too -- and it was the more dangerous of the pair, because a CWD-anchored
+# `ref` fails loudly while a CWD-anchored `url_template` resolves, succeeds, and
+# reads a different file. .fixtures-run/ now holds only emitted CSV.
 
-head2 "data_sources catalogs"
-if out=$("$PYTHON" tools/check-sources.py 2>&1); then
-  sed 's/^/  /' <<<"$out"
-else
-  fail "data_sources catalogs"
-  sed 's/^/       /' <<<"$out"
-fi
+# Untracked, and now holding only emitted CSV rather than rewritten documents.
+RUNDIR=".fixtures-run"
 
 head2 "fixtures"
 mapfile -t FIXTURES < <(find fixtures -name '*.esm' 2>/dev/null | sort)
@@ -418,7 +388,6 @@ elif [[ ! -d "$SNAPSHOTS" ]]; then
     skip "$f" "no snapshots at $SNAPSHOTS (set SNAPSHOTS=...)"
   done
 else
-  SNAP_ABS="$(cd "$SNAPSHOTS" && pwd)"
   mkdir -p "$RUNDIR"
   for f in "${FIXTURES[@]}"; do
     name=$(basename "$f" .esm)
@@ -427,18 +396,7 @@ else
       continue
     fi
 
-    # F15 tripwire, in the direction that matters: the CHECKED-IN document must
-    # NOT be able to ingest. If it can, `url_template` has grown a portable
-    # form and the substitution below is dead weight.
-    if "$ESM" test "$f" >/dev/null 2>&1; then
-      fail "$name — the checked-in fixture INGESTED without substitution"
-      say "       url_template now resolves \${MOVES_SNAPSHOTS} or a relative path"
-      say "       (docs/findings/README.md F15). Drop the materialization step."
-      continue
-    fi
-
-    run="$RUNDIR/$name.esm"
-    sed "s|\${MOVES_SNAPSHOTS}|$SNAP_ABS|g" "$f" > "$run"
+    run="$f"
 
     # The fixture's own inline assertions, against the real tables. Every one
     # names a value out of docs/nonroad-logging-county.md §6, so a source that
@@ -462,9 +420,9 @@ else
     # must share one shape, which is exactly the constraint that keeps the
     # output a single relation.
     #
-    # It runs from $RUNDIR, because `simulate` resolves a relative `ref` against
-    # the process working directory rather than the referencing file's (finding
-    # F7, the same defect the round-trip stage works around).
+    # It runs from the repo root. It used to run from $RUNDIR because `simulate`
+    # resolved a relative `ref` against the process working directory (F7); that
+    # is fixed, so the document is run where it lives.
     mapfile -t FIELDS < <("$PYTHON" - "$run" <<'PYEOF'
 import json, sys
 doc = json.load(open(sys.argv[1]))
@@ -483,8 +441,8 @@ PYEOF
 
     raw="$RUNDIR/$name.emitted.csv"
     actual="${ACTUAL_DIR:-$RUNDIR}/$name.actual.csv"
-    if ! out=$( cd "$RUNDIR" && "$OLDPWD/$ESM" simulate "$name.esm" --time 0 \
-                  --format csv "${obs[@]}" --output "$name.emitted.csv" 2>&1 ); then
+    if ! out=$("$ESM" simulate "$run" --time 0 \
+                  --format csv "${obs[@]}" --output "$raw" 2>&1 ); then
       fail "fixture $name — emit"
       sed 's/^/       /' <<<"$out" | tail -5
       continue

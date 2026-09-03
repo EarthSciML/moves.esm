@@ -7,9 +7,8 @@ be traced; the rest still hold at the pinned toolchain (`esm-version.lock`:
 EarthSciAST `f83bff90d`, EarthSciIO `d109951d4`, `--features esio,parallel`).
 
 F2, F3, F5, F11, F13, F14, F20, F21 and F22 each have a minimal `.esm` repro in this directory —
-F22 has two, one per construct; F7 and F8 are CLI behaviours
-rather than documents, and are checked by command against the ordinary files of
-the repo. **Every repro is expected to fail**, and each one's inline test asserts the *intended* behaviour, so a repro
+F22 has two, one per construct; F8 is a CLI behaviour rather than a
+document, and is checked by command against the ordinary files of the repo. **Every repro is expected to fail**, and each one's inline test asserts the *intended* behaviour, so a repro
 that starts passing means the defect is fixed. `run-tests.sh` runs them as a
 **tripwire stage**: it fails if any repro goes green, with a message naming the
 convention that then becomes available. That is the opposite of the usual
@@ -41,12 +40,10 @@ three of them do not load.
 | **F2** | A top-level `models` `{ref}` does not merge the referenced file's `index_sets` | validate | no |
 | **F3** | An `enums` block does not cross an `expression_template_imports` edge | load | no |
 | **F5** | `skolem` / `distinct` / `rank` value invention does not evaluate | — | **yes** |
-| **F7** | `esm round-trip` resolves a relative `ref` against the CWD | load | no |
 | **F8** | A layered template library does not round-trip to a self-contained form | re-load | no |
 | **F11** | A relation cannot be joined to itself: two ranges over one index set | build | no |
 | **F13** | `enums` merge first-wins across a mount; a colliding value is applied | — | **yes** |
 | **F14** | A `ragged` index set ignores its member factor | evaluation | **yes** |
-| **F15** | A `url_template` is neither environment-expanded nor relative | ingest | no |
 | **F16** | A SCALAR variable is not materialized in a document that ingests data | assertion | no |
 | **F17** | A `join.on` between two LARGE data relations is not driven | — | **yes** |
 | **F18** | An ingested value the declared `element_type` cannot represent is narrowed silently (the key-collapse half is **resolved**, by a per-variable override) | ingest | **yes** |
@@ -523,7 +520,7 @@ written that way, so this costs the port only the axis it cannot use.
 the same requirement — cell *i*'s edges are not the first `nEdgesOnCell[i]`
 entries of `edgesOnCell`.
 
-## F7 — `esm round-trip` resolves refs against the working directory
+## F7 — `esm round-trip` resolves refs against the working directory — **fixed, and it was ~17 subcommands**
 
 No repro file; the whole repo is the repro.
 
@@ -636,7 +633,7 @@ the document had to still evaluate, and to still fail to emit. It is the
 direction that fired — `simulate` began writing the file — which is how the
 fixture stage came to exist.
 
-## F15 — a `url_template` has no portable form
+## F15 — a `url_template` has no portable form — **fixed**
 
 No repro file; `fixtures/nr-logging-county.esm` is the repro, and
 `run-tests.sh`'s fixture stage checks it by command in the direction that
@@ -853,6 +850,8 @@ Retired from the tripwire; the repros are gone because the fixing commits carry
 their own regression tests. Kept here so the workarounds they forced can be
 traced.
 
+- **F15 and F7** — EarthSciAST `35f8d9e87` — a scheme-less `url_template` is a filesystem path, and a relative one resolves against the directory of the file that declared it, which is §4.7's rule for a `ref` verbatim. Dot-segment removal is lexical (RFC 3986 §5.2.4) and never `realpath`, because a `{date:…}` template names a file per timestep and none of them exists at load time. **Environment expansion is refused, not granted**: a `${` anywhere in a template is a load-time `data_source_url_unresolved`, because a document reading `${…}` does not say what it reads, and the value is spliced into a URL that is then *fetched* — a `://`, `@`, `?`, `#` or `..` from the environment redirects it without changing a byte of the document. **The workaround is gone**: `run-tests.sh` no longer rewrites any document before running it, so the document that runs is the document that is checked in, which is what makes `esm validate` on a fixture mean anything.
+  F7 came along because it had to. It was recorded here as a `round-trip` bug and is in fact **~17 subcommands** — only `validate` and `test` used `load_path`. On its own that is a loud failure. Combined with F15's fix it would have become a **silent** one: a CWD-anchored `ref` fails, but a CWD-anchored `url_template` resolves, succeeds, and reads a *different file*. Measured before the fix, one document converted from three directories gave `file:///tmp/tables/probe.parquet`, `file:///tables/probe.parquet` and `file:///u/ctessum/tables/probe.parquet`. That is the eighth instance of this toolchain's characteristic failure, and it was found by an author noticing that their own change would create it.
 - **F6 and F16** — EarthSciAST `d421d3541` — they were **one cause, not two**. The §6.6.3 pointwise assertion path read the solve trajectory and nothing else, and a 0-D observed lives in one of three carriers: the array runtime exposes every 0-D observed unasked (which is why the array-shaped twin always worked), the scalar backend exposes one only when the caller names it (F6), and a document that cannot integrate has no trajectory at all (F16). `esm simulate` printed the right value for both repros the whole time; only `esm test` could not reach it. The fix requests the pointwise-asserted observeds and falls back to the state-free scalar observed, with the same guards the array branch has — so an unbound name is still an ERROR naming it, never a zero. **Fixed in Rust only**; Julia and Python still resolve a pointwise assertion against state rows, recorded upstream as `BEHAV-06-B-008` rather than papered over.
 - **F19** — EarthSciAST `31b46188c` — an assertion whose actual was `±inf` passed whatever `expected` said, because `check_assertion` had been reduced to the tolerance bound alone and `|inf − expected| ≤ inf` holds for every `expected`. **Julia was always right**: its `_check_assertion` delegates to `isapprox`, which carries the finiteness clause. The Rust and Python re-implementations both documented themselves as "Julia `isapprox` semantics" and both dropped it — a re-implementation drifting from the binding it names, invisible to every other conformance category because every other fixture's actuals are finite. Now normative in esm-spec §6.6.3 and pinned by CONFORMANCE_SPEC §5.20, a tier that compares **verdicts** rather than actuals, since `±Inf` and `NaN` are not JSON-representable.
 - **F12** — EarthSciAST `a83cde55e` — a recurrence over an index axis now has a spelling, and it adds **no new op and no new schema field**: an equation defining an array-shaped unknown `V` whose `aggregate` body reads `index(V, k − c)` — `V` itself, strictly earlier along one of that node's output axes — is a causal self-reference, materialized cell by cell, that axis outermost and ascending, each cell published before the axis advances. The LHS already names the accumulator, so an annotation would carry no information the read does not. The proof obligation **splits**: the coefficient of the frame symbol must be provably 1, or the axis and direction are undecidable, but the lag's *sign* need not be provable at all, because a self-read resolves only against published cells and so faults rather than returning a number. Arithmetic order is normative (CONFORMANCE_SPEC §5.19), and the carried value is rounded to the variable's `element_type` at **every** cell, not once at the end — which matters here, since the consumer is a `Float32` document. Its repro is kept as a **control**, not deleted: see the preamble. Of the four spellings tried, the `makearray`-region one is now refused *loudly* with `recurrence_unsupported_form` naming the fix, where it used to fail silently — region order fixes which write wins, not which cell is evaluated when — and the other two turned out to record a different gap, re-filed as **F22**.
