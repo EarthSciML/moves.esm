@@ -1,18 +1,14 @@
 # Findings: conventions the format or the toolchain could not express
 
 Twenty-four things PLAN.md §3 Phase 1 through Phase 4 assumed, or that an author would
-reasonably assume, that did not hold. Nine are fixed upstream and retired from
-the tripwire, listed at the bottom with their sections kept above so the
-workarounds they forced can be traced. A tenth, **F24**, is fixed upstream
-(EarthSciAST `de784f3f8`) but is **not in the pinned toolchain** — `6d0ec3b13`
-predates it — so its repros still reproduce here and stay in the tripwire until
-`./esm` is rebuilt. The rest still hold at the pinned toolchain
-(`esm-version.lock`: EarthSciAST `6d0ec3b13`, EarthSciIO `d109951d4`,
-`--features esio,parallel`).
+reasonably assume, that did not hold. **Eleven are fixed upstream and retired**
+from the tripwire, listed at the bottom with their sections kept above so the
+workarounds they forced can be traced. The rest still hold at the pinned
+toolchain (`esm-version.lock`: EarthSciAST `de784f3f8`, EarthSciIO
+`d109951d4`, `--features esio,parallel`).
 
-F2, F3, F5, F11, F13, F14, F20, F21, F22 and F24 each have a minimal `.esm` repro in this directory —
-F22 has two, one per construct, and F24 has two for a different reason (see
-below); F8 is a CLI behaviour rather than a
+F2, F3, F5, F13, F14, F20, F21 and F22 each have a minimal `.esm` repro in this
+directory — F22 has two, one per construct; F8 is a CLI behaviour rather than a
 document, and is checked by command against the ordinary files of the repo. F23 has no repro at all, because the document that would carry it is `components/age_distribution.esm` itself and the finding is what that file does NOT declare. **Every repro is expected to fail**, and each one's inline test asserts the *intended* behaviour, so a repro
 that starts passing means the defect is fixed. `run-tests.sh` runs them as a
 **tripwire stage**: it fails if any repro goes green, with a message naming the
@@ -29,14 +25,16 @@ key-collapse half of F18 is resolved by a per-variable `element_type` override
 that is explicit by design, so the behaviour its old repro asserted will never
 hold and "still fails, as recorded" would have been false reassurance.
 
-**F24a is excluded because its document PASSES**, and that is the finding rather
-than an exception to it. F24 is a **disagreement between two evaluation paths**:
-the same file gives `[1, 2, 4, 8]` under `esm test` and reads its self-reference
-as unresolved under `esm simulate`. So the check runs *both commands* and asserts
-that they still disagree — inverted polarity, like the one F19 had. Its twin
-**F24b** is an ordinary tripwire repro and stays in the loop: it is F24a plus one
-ingested column, so its inline test fails, which is exactly the polarity the loop
-wants.
+**F24b's control** is the third, and it covers something nothing upstream could.
+F24 was fixed in a build with **no parquet reader**, so the *ingestion* axis was
+never verified there — the author said so rather than claiming it. F24b is that
+verification: one ingested column wide, reading the real snapshot, 5/5. It
+asserts the **clamped** column rather than the plain one, because an unresolved
+self-read came back `NaN` and `max(NaN, 0.0)` returns `0.0`, so a check on the
+plain column would go green the day the sentinel changed without the construct
+working. Its twin F24a is gone — the cross-route agreement it checked is now
+pinned upstream by ten tests that re-materialize every recurrence fixture
+through the pipeline and compare on bits.
 
 F12's control is **gone**. It was kept until `components/age_distribution.esm`
 computed `agedist.f`'s fold and guarded it with its own assertions; it does, in
@@ -54,14 +52,12 @@ three of them do not load.
 | **F3** | An `enums` block does not cross an `expression_template_imports` edge | load | no |
 | **F5** | `skolem` / `distinct` / `rank` value invention does not evaluate | — | **yes** |
 | **F8** | A layered template library does not round-trip to a self-contained form | re-load | no |
-| **F11** | A relation cannot be joined to itself: two ranges over one index set | build | no |
 | **F13** | `enums` merge first-wins across a mount; a colliding value is applied | — | **yes** |
 | **F14** | A `ragged` index set ignores its member factor | evaluation | **yes** |
 | **F16** | A SCALAR variable is not materialized in a document that ingests data | assertion | no |
 | **F17** | A `join.on` between two LARGE data relations is not driven | — | **yes** |
 | **F18** | An ingested value the declared `element_type` cannot represent is narrowed silently (the key-collapse half is **resolved**, by a per-variable override) | ingest | **yes** |
 | **F23** | A leaf's `domain.element_type` does not survive a top-level `models` `{ref}` mount | — | **yes** |
-| **F24** | A causal self-reference is dropped once the document ingests (**fixed upstream**, `de784f3f8`; not in the pinned toolchain, and the ingestion axis not yet confirmed against a reader-enabled build) | — | **yes** |
 | **F22** | A discrete event, and an implicit equation, do not evaluate on the ARRAY path (both work on the scalar path) | evaluation | no |
 | **F20** | A constant-folded scalar right-hand side loses the left-hand side's array shape | assertion | no |
 | **F21** | A scoped reference to a mounted model's variable resolves as an operand and a join key but not as an assertion `variable` | assertion | no |
@@ -263,7 +259,7 @@ and never evaluated — remove it from the schema's evaluable-core enumeration s
 `validate` rejects it. Either is fine; the present state, where the schema
 promises an evaluator and the evaluator calls `unreachable!()`, is not.
 
-## F11 — a relation cannot be joined to itself
+## F11 — a relation cannot be joined to itself — **fixed**
 
 `F11_a_relation_cannot_be_joined_to_itself.esm`. Found authoring Phase 2's
 population stage.
@@ -1031,6 +1027,8 @@ Retired from the tripwire; the repros are gone because the fixing commits carry
 their own regression tests. Kept here so the workarounds they forced can be
 traced.
 
+- **F11** — EarthSciAST `107a15152` — a relation can be joined to itself, and driven. The root cause was neither the validator nor the join kernel: resolving an `on` key column to a loop symbol goes through the column's *axis*, and that map is one-to-many the moment two ranges draw `{from}` one index set, so both reference bindings declined to pick. The kernel could always have done it — `equijoin` addresses range symbols by *name* and never consults an axis. It was a genuine underdetermination in the format: `["a","b"]` and `["b","a"]` are both consistent and compute transposed results. Resolved with no new syntax in the common case (candidates in the node's canonical range order, left key earlier and right later), **refused** at three or more, with an explicit `join.syms` overriding — and narrowed to the data-column step, so a key naming an index set still errors rather than becoming a tautology and an ungated product. Measured at the downstream scale: 63,602 rows, 4.045e9 candidate pairs, **0.31 s driven**. **F17 is separate and its headline is already gone** — its exact bisected shape runs 0.06 s driven on the *merge-base* binary, so earlier driver work fixed it; what remains is gate selection and ordering, measured identical on both binaries.
+- **F24** — EarthSciAST `de784f3f8` — a causal self-reference was dropped on the build-pipeline path, and **silently**. One root cause, not two axes: `prepare::eval_observed` evaluated every observed wholesale with no recurrence scope, and both `esm simulate` (which turns the pipeline on to materialize array observeds) and any ingesting document reach that one function. The self-read resolved against a map that does not yet hold the array being built, fell through to an unbound-name `NaN`, and **`max(NaN, 0.0)` returned `0.0`** — the shape `agedist.f`'s own body has. Measured downstream, the grown fractions summed to **1.5e-06 instead of 4.697819**. Fixed by making the sweep **one function both routes call** — two copies is precisely how one route came to work and the other to be dead — with `recurrence_unsupported_form` under any path that misses it, so a future miss fails loudly. The correction to the *verification* matters more: the conformance tier and all nine fixtures had been exercised under `esm test` only, so ten new tests re-materialize each fixture through the pipeline and re-check every assertion **on bits against the same pin**, because "both routes produced something plausible" is the state that persisted here. Normative as `CONFORMANCE_SPEC` §5.19.3b and `BEHAV-04-G-009`. The ingestion axis could not be verified upstream — no parquet reader in that build — and is verified here instead: `F24b` goes 5/5 against the real snapshot, and is kept as a **control** for exactly that reason.
 - **F15 and F7** — EarthSciAST `35f8d9e87` — a scheme-less `url_template` is a filesystem path, and a relative one resolves against the directory of the file that declared it, which is §4.7's rule for a `ref` verbatim. Dot-segment removal is lexical (RFC 3986 §5.2.4) and never `realpath`, because a `{date:…}` template names a file per timestep and none of them exists at load time. **Environment expansion is refused, not granted**: a `${` anywhere in a template is a load-time `data_source_url_unresolved`, because a document reading `${…}` does not say what it reads, and the value is spliced into a URL that is then *fetched* — a `://`, `@`, `?`, `#` or `..` from the environment redirects it without changing a byte of the document. **The workaround is gone**: `run-tests.sh` no longer rewrites any document before running it, so the document that runs is the document that is checked in, which is what makes `esm validate` on a fixture mean anything.
   F7 came along because it had to. It was recorded here as a `round-trip` bug and is in fact **~17 subcommands** — only `validate` and `test` used `load_path`. On its own that is a loud failure. Combined with F15's fix it would have become a **silent** one: a CWD-anchored `ref` fails, but a CWD-anchored `url_template` resolves, succeeds, and reads a *different file*. Measured before the fix, one document converted from three directories gave `file:///tmp/tables/probe.parquet`, `file:///tables/probe.parquet` and `file:///u/ctessum/tables/probe.parquet`. That is the eighth instance of this toolchain's characteristic failure, and it was found by an author noticing that their own change would create it.
 - **F6 and F16** — EarthSciAST `d421d3541` — they were **one cause, not two**. The §6.6.3 pointwise assertion path read the solve trajectory and nothing else, and a 0-D observed lives in one of three carriers: the array runtime exposes every 0-D observed unasked (which is why the array-shaped twin always worked), the scalar backend exposes one only when the caller names it (F6), and a document that cannot integrate has no trajectory at all (F16). `esm simulate` printed the right value for both repros the whole time; only `esm test` could not reach it. The fix requests the pointwise-asserted observeds and falls back to the state-free scalar observed, with the same guards the array branch has — so an unbound name is still an ERROR naming it, never a zero. **Fixed in Rust only**; Julia and Python still resolve a pointwise assertion against state rows, recorded upstream as `BEHAV-06-B-008` rather than papered over.

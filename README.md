@@ -292,5 +292,5 @@ test, so the four components check what can be checked without the snapshot
 and `run-onroad-oracle.sh` checks the rest against it.
 
 See `PLAN.md` for the plan of record and `docs/findings/README.md` for what the
-toolchain still cannot do — thirteen open findings, and nine retired because
-they were fixed.
+toolchain still cannot do — thirteen open findings, and twelve retired
+because they were fixed.
