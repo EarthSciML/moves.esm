@@ -684,9 +684,21 @@ emits processID 1 rows (brake wear, tire wear, PM exhaust, crankcase running,
 the speciation chains, air toxics), plus refueling, which chains off
 `BaseRateCalculator`'s total-energy output. Of the three 128-row evap fixtures,
 FVV (process 12) needs the multi-day tank-vapour soak-day recurrence that
-finding F12 blocks, and permeation (process 11) needs
+finding F12 blocked, and permeation (process 11) needs
 `AverageTankTemperature`, which is the output of `TankTemperatureGenerator`'s
 quarter-hour recurrence — F12 again.
+
+**F12 is now fixed (EarthSciAST `a83cde55e`), so this screening is out of date
+in the port's favour: FVV and permeation are unblocked.** A recurrence over an
+index axis has a spelling — an `aggregate` body reading `index(V, k − c)` where
+`V` is the equation's own left-hand side — with an arbitrary bounded lag, a
+normative arithmetic order, and per-cell rounding to the variable's
+`element_type`. Both of those fixtures are 128 rows, both are cheaper than
+anything else remaining, and neither needs `W`. They are the next two slices
+after the `agedist` fold, and they are the first chance to exercise the
+construct on a *different* recurrence than the one it was designed against —
+which is worth having, because a feature verified only against its motivating
+case is verified narrowly.
 
 **Evap fuel leaks (process 13) needs neither.** Its base rate is
 `emissionRateByAge`, a default-database input table, so it replaces exactly the
