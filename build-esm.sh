@@ -40,17 +40,31 @@ set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")"
 
 AST="${AST:-../EarthSciAST}"
-IO_REL="../../../EarthSciIO/rust"   # relative to the crate dir, per its Cargo.toml comment
+
+# Relative to the CRATE dir ($AST/pkg/earthsci-ast-rs), per its Cargo.toml
+# comment, so the default resolves to $AST/../EarthSciIO/rust. That is right for
+# a normal sibling checkout and WRONG for a git worktree, where $AST is nested
+# and the path lands somewhere that does not exist -- and this script's whole
+# job is catching build misconfiguration that otherwise fails silently, so it
+# should not have a silent one of its own. Overridable, and checked below.
+IO="${IO:-$AST/../EarthSciIO}"
 
 if [[ ! -d "$AST/pkg/earthsci-ast-rs" ]]; then
   echo "error: no EarthSciAST crate at '$AST/pkg/earthsci-ast-rs' (set AST=...)" >&2
   exit 2
 fi
+if [[ ! -d "$IO/rust" ]]; then
+  echo "error: no EarthSciIO crate at '$IO/rust' (set IO=...)" >&2
+  echo "       the registry copy of earthsciio has no parquet reader, so a build" >&2
+  echo "       without this patch produces a binary that silently reads nothing" >&2
+  exit 2
+fi
+IO_ABS="$(cd "$IO/rust" && pwd)"
 
 echo "building esm from $AST ..."
 (
   cd "$AST/pkg/earthsci-ast-rs" || exit 2
-  PATCH="patch.crates-io.earthsciio.path=\"$IO_REL\""
+  PATCH="patch.crates-io.earthsciio.path=\"$IO_ABS\""
 
   # `--config patch...` is SILENTLY IGNORED when Cargo.lock already pins the
   # registry copy: cargo prints "warning: patch ... was not used in the crate
@@ -84,7 +98,7 @@ echo "building esm from $AST ..."
   # Belt and braces: a registry-sourced earthsciio in the lock means the local
   # checkout is NOT what got linked, whatever the build log said.
   if grep -A2 '^name = "earthsciio"' Cargo.lock | grep -q '^source = "registry'; then
-    echo "error: Cargo.lock resolves earthsciio to the registry, not $IO_REL" >&2
+    echo "error: Cargo.lock resolves earthsciio to the registry, not $IO_ABS" >&2
     exit 3
   fi
 ) || exit $?
