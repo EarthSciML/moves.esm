@@ -1,0 +1,147 @@
+{
+ "esm": "1.0.0",
+ "metadata": {
+  "name": "F12RecurrenceControl",
+  "description": "FINDING F12, CONTROL \u2014 expected to PASS, and run as a control rather than a repro.\n\nF12 was that a recurrence over an index axis had no spelling: agedist.f's thirty-year fold is r[y] = b[y] - sum_a max(r[y-a], 0) * P[a], whose next term is a function of the previous ANSWER, clamped inside the loop. Four spellings were tried and none evaluated. It is FIXED upstream (EarthSciAST a83cde55e): an equation defining an array-shaped unknown V whose aggregate body reads index(V, k - c) -- V itself, strictly earlier along one of that node's output axes -- is a causal self-reference, materialized cell by cell, that axis outermost and ascending, each cell published before the axis advances. No new op and no new schema field: the LHS already names the accumulator.\n\nWHY THIS IS KEPT AS A CONTROL AND NOT DELETED. The other retired repros were deleted because the fixing commits carry their own regression tests, which is true here too. But this port is about to DEPEND on the construct -- components/age_distribution.esm carries agedist.f's output as a const today precisely because of F12, and the fixture's other two SCCs each need their own fold. Until that component computes the fold and its own assertions guard it, this is the only thing in the repository that would notice the construct regressing. Delete it once age_distribution.esm computes the fold.\n\nWHAT IT PINS: the value at three cells of a fold whose body reads its own earlier output. It does NOT pin arithmetic order -- that is CONFORMANCE_SPEC 5.19.3's job, upstream, where a catastrophic-cancellation ladder separates the left fold from any reassociation. A downstream control cannot add to that and should not pretend to.",
+  "authors": [
+   "EarthSciML Authors and Contributors"
+  ],
+  "tags": [
+   "finding",
+   "expected-to-fail",
+   "aggregate",
+   "recurrence"
+  ]
+ },
+ "index_sets": {
+  "step_rows": {
+   "kind": "interval",
+   "size": 4
+  }
+ },
+ "models": {
+  "F12NoSpellingForARecurrenceOverAnIndexAxis": {
+   "tolerance": {
+    "rel": 1e-12
+   },
+   "variables": {
+    "s_stepID": {
+     "type": "unknown",
+     "shape": [
+      "step_rows"
+     ],
+     "description": "1-based position along the axis the recurrence runs over."
+    },
+    "s_value": {
+     "type": "unknown",
+     "shape": [
+      "step_rows"
+     ],
+     "units": "1",
+     "description": "The recurrence: 1 at the first step, twice the previous value at every later one. The shape of agedist.f's year fold, with everything but the self-reference removed."
+    }
+   },
+   "equations": [
+    {
+     "lhs": "s_stepID",
+     "rhs": {
+      "op": "aggregate",
+      "args": [],
+      "output_idx": [
+       "k"
+      ],
+      "ranges": {
+       "k": {
+        "from": "step_rows"
+       }
+      },
+      "expr": "k"
+     }
+    },
+    {
+     "lhs": "s_value",
+     "rhs": {
+      "op": "aggregate",
+      "args": [],
+      "output_idx": [
+       "k"
+      ],
+      "ranges": {
+       "k": {
+        "from": "step_rows"
+       }
+      },
+      "expr": {
+       "op": "ifelse",
+       "args": [
+        {
+         "op": "<=",
+         "args": [
+          "k",
+          1
+         ]
+        },
+        1.0,
+        {
+         "op": "*",
+         "args": [
+          {
+           "op": "index",
+           "args": [
+            "s_value",
+            {
+             "op": "-",
+             "args": [
+              "k",
+              1
+             ]
+            }
+           ]
+          },
+          2.0
+         ]
+        }
+       ]
+      }
+     }
+    }
+   ],
+   "tests": [
+    {
+     "id": "a_recurrence_over_an_index_axis_evaluates",
+     "description": "INTENDED behaviour: [1, 2, 4, 8]. When this goes green, components/age_distribution.esm can compute agedist.f's fold instead of carrying its result as data, and the nr-logging-county chain becomes end-to-end computable from the snapshot tables alone.",
+     "time_span": {
+      "start": 0.0,
+      "end": 0.0
+     },
+     "assertions": [
+      {
+       "variable": "s_value",
+       "time": 0.0,
+       "expected": 1.0,
+       "coords": {
+        "step_rows": 1
+       }
+      },
+      {
+       "variable": "s_value",
+       "time": 0.0,
+       "expected": 4.0,
+       "coords": {
+        "step_rows": 3
+       }
+      },
+      {
+       "variable": "s_value",
+       "time": 0.0,
+       "expected": 8.0,
+       "coords": {
+        "step_rows": 4
+       }
+      }
+     ]
+    }
+   ]
+  }
+ }
+}

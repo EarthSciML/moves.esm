@@ -280,6 +280,18 @@ fi
 # of 0.34. Sabotage-checked both ways: dropping the override collapses both keys
 # to 2260001024 (2 fail), and setting the domain to Float64 reads 0.34 instead
 # of 0.3400000035762787 (1 fail).
+# F12's control, kept for one reason: this port is about to DEPEND on the
+# construct. components/age_distribution.esm carries agedist.f's fold as a const
+# because F12 said a recurrence had no spelling; it now has one, and until that
+# component computes the fold and guards it with its own assertions, this is the
+# only thing here that would notice the construct regressing. Delete it then.
+F12_CONTROL=docs/findings/F12_control_a_recurrence_over_an_index_axis.esm
+if "$ESM" validate "$F12_CONTROL" >/dev/null 2>&1 && "$ESM" test "$F12_CONTROL" >/dev/null 2>&1; then
+  pass "F12 recurrence control passes: a causal self-reference still evaluates"
+else
+  fail "F12 recurrence control — a recurrence over an index axis no longer evaluates, and components/age_distribution.esm depends on it"
+fi
+
 F18_CONTROL=docs/findings/F18_control_float32_key_override.esm
 if [[ ! -d "$SNAPSHOTS" ]]; then
   skip "F18 key-override control" "needs the snapshots; none at $SNAPSHOTS"
@@ -298,7 +310,7 @@ mapfile -t REPROS < <(find docs/findings -name '*.esm' -not -name 'join_leaf.esm
   -not -name 'F3_lib_with_enum.esm' \
   -not -name 'F13_enum_leaf_*.esm' \
   -not -name 'F18_control_float32_key_override.esm' \
-  -not -name 'F19_an_infinite_actual_passes_any_assertion.esm' 2>/dev/null | sort)
+  -not -name 'F12_control_a_recurrence_over_an_index_axis.esm' 2>/dev/null | sort)
 
 if [[ ${#REPROS[@]} -eq 0 ]]; then
   say "  none recorded"
@@ -329,26 +341,6 @@ else
     fi
     [[ "$repro_run" != "$repro" ]] && rm -f "$repro_run"
   done
-fi
-
-# F19 has the OPPOSITE polarity to every other repro and so cannot go through the
-# loop above: it asserts three contradictory values for one cell and PASSES,
-# because an assertion whose actual value is +inf is judged vacuously true. The
-# tripwire is therefore "still passes" = defect still present. It is excluded
-# from REPROS by name so the loop does not read its pass as good news.
-#
-# This one is watched from here rather than merely written down because it can
-# invalidate every OTHER assertion in the repository, including the fixture
-# assertions docs/esm-conventions.md §13 relies on to catch a source that
-# silently delivered its default.
-F19="docs/findings/F19_an_infinite_actual_passes_any_assertion.esm"
-if "$ESM" test "$F19" >/dev/null 2>&1; then
-  pass "F19_an_infinite_actual_passes_any_assertion still passes WRONGLY, as recorded"
-else
-  fail "F19_an_infinite_actual_passes_any_assertion NOW FAILS — the defect it records is fixed"
-  say "       An infinite actual is now judged against \`expected\`. Read"
-  say "       docs/findings/README.md F19: assertions across this tree can now be"
-  say "       trusted not to pass on an overflow, and this inverted check can go."
 fi
 
 # Two limitations that are CLI behaviours rather than documents, so they are

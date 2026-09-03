@@ -1,13 +1,13 @@
 # Findings: conventions the format or the toolchain could not express
 
-Twenty-one things PLAN.md §3 Phase 1 through Phase 4 assumed, or that an author would
+Twenty-two things PLAN.md §3 Phase 1 through Phase 4 assumed, or that an author would
 reasonably assume, that did not hold. Four are now fixed upstream and are listed
 at the bottom, with their sections kept above so the workarounds they forced can
 be traced; the rest still hold at the pinned toolchain (`esm-version.lock`:
 EarthSciAST `f83bff90d`, EarthSciIO `d109951d4`, `--features esio,parallel`).
 
-F2, F3, F5, F6, F11–F14, F20 and F21 each have a minimal `.esm` repro in this directory —
-F12 has four, one per spelling an author would try; F7 and F8 are CLI behaviours
+F2, F3, F5, F11, F13, F14, F20, F21 and F22 each have a minimal `.esm` repro in this directory —
+F22 has two, one per construct; F7 and F8 are CLI behaviours
 rather than documents, and are checked by command against the ordinary files of
 the repo. **Every repro is expected to fail**, and each one's inline test asserts the *intended* behaviour, so a repro
 that starts passing means the defect is fixed. `run-tests.sh` runs them as a
@@ -20,14 +20,18 @@ Three files are excluded from that loop by name. **`join_leaf.esm`** is a leaf
 that two repros mount and that passes standalone, which is what makes their
 failures attributable to the mount — F21 reuses it rather than adding a fourth
 leaf, so that finding needed no change to `run-tests.sh`. The other two are
-excluded for opposite reasons. **F19's
-repro passes today, and that is the defect**, so it is watched by an inverted
-check of its own that goes red when it starts failing. **F18's is a control that
-is meant to pass**: the key-collapse half of F18 is resolved, by a per-variable
-`element_type` override that is explicit by design, so the behaviour its old
-repro asserted will never hold and "still fails, as recorded" would have been
-false reassurance. It now checks the guarantee the port depends on, from both
-sides — see F18.
+**controls that are meant to pass**. **F18's** checks the guarantee the port
+depends on, from both sides: the key-collapse half of F18 is resolved by a
+per-variable `element_type` override that is explicit by design, so the
+behaviour its old repro asserted will never hold and "still fails, as recorded"
+would have been false reassurance. **F12's** is kept for a narrower reason —
+this port is about to depend on the construct, and until
+`components/age_distribution.esm` computes `agedist.f`'s fold and guards it with
+its own assertions, that control is the only thing here that would notice a
+recurrence regressing.
+
+There used to be a third, F19, whose repro *passed* and whose passing was the
+defect, watched by an inverted check. It is fixed, so the check is gone.
 
 The repros are excluded from the ordinary `validate` and `test` stages, because
 three of them do not load.
@@ -37,18 +41,16 @@ three of them do not load.
 | **F2** | A top-level `models` `{ref}` does not merge the referenced file's `index_sets` | validate | no |
 | **F3** | An `enums` block does not cross an `expression_template_imports` edge | load | no |
 | **F5** | `skolem` / `distinct` / `rank` value invention does not evaluate | — | **yes** |
-| **F6** | A component with only scalar variables has no assertable state | assertion | no |
 | **F7** | `esm round-trip` resolves a relative `ref` against the CWD | load | no |
 | **F8** | A layered template library does not round-trip to a self-contained form | re-load | no |
 | **F11** | A relation cannot be joined to itself: two ranges over one index set | build | no |
-| **F12** | A recurrence over an index axis has no spelling | evaluation | **yes**, in 3 of its 4 spellings |
 | **F13** | `enums` merge first-wins across a mount; a colliding value is applied | — | **yes** |
 | **F14** | A `ragged` index set ignores its member factor | evaluation | **yes** |
 | **F15** | A `url_template` is neither environment-expanded nor relative | ingest | no |
 | **F16** | A SCALAR variable is not materialized in a document that ingests data | assertion | no |
 | **F17** | A `join.on` between two LARGE data relations is not driven | — | **yes** |
 | **F18** | An ingested value the declared `element_type` cannot represent is narrowed silently (the key-collapse half is **resolved**, by a per-variable override) | ingest | **yes** |
-| **F19** | An assertion whose actual value is `+inf` passes whatever the `expected` | — | **yes** |
+| **F22** | A discrete event, and an implicit equation, do not evaluate on the ARRAY path (both work on the scalar path) | evaluation | no |
 | **F20** | A constant-folded scalar right-hand side loses the left-hand side's array shape | assertion | no |
 | **F21** | A scoped reference to a mounted model's variable resolves as an operand and a join key but not as an assertion `variable` | assertion | no |
 
@@ -191,7 +193,7 @@ index set whose members are the distinct tuples, which a rollup grouped by a
 composite key would want. Phase 2 does not need one (its groupings are over
 declared axes), but Phase 5's larger NONROAD sectors may.
 
-## F6 — a scalar-only component has no assertable state
+## F6 — a scalar-only component has no assertable state — **fixed**
 
 `F6_scalar_only_component_has_no_testable_state.esm`.
 
@@ -286,7 +288,7 @@ falling back to the axis rule only where that is unambiguous; or admit an
 explicit `[symbol, column]` spelling in the pair, since the pair list is already
 where the author says what joins to what.
 
-## F12 — a recurrence over an index axis has no spelling
+## F12 — a recurrence over an index axis has no spelling — **fixed**
 
 Four repros, one missing feature: `F12_no_spelling_for_a_recurrence_over_an_index_axis.esm`
 (an `aggregate`), `F12b_recurrence_via_a_makearray_region.esm`,
@@ -674,7 +676,7 @@ or resolve a relative path against the referencing document's directory, per
 materialization step; the first also lets one catalog serve several machines.
 
 
-## F16 — a scalar has no state in a document that ingests
+## F16 — a scalar has no state in a document that ingests — **fixed (Rust)**
 
 No repro file, for a reason given below; the measurement is a pair of documents
 that differ in one thing.
@@ -779,7 +781,7 @@ relations, would pin it.
 
 ---
 
-## F19 — an assertion whose actual value is `+inf` passes, whatever the `expected`
+## F19 — an assertion whose actual value is `+inf` passes, whatever the `expected` — **fixed**
 
 `F19_an_infinite_actual_passes_any_assertion.esm`. **The one that can invalidate
 every other gate in this repository.**
@@ -822,12 +824,38 @@ cannot be watched by a test that fails.
 value is not finite fails unless `expected` is the same infinity. One guard,
 beside the NaN guard that is already there and already right.
 
+## F22 — a discrete event, and an implicit equation, do not evaluate on the array path
+
+`F22a_a_discrete_event_on_the_array_path.esm`,
+`F22b_an_implicit_equation_on_the_array_path.esm`.
+
+**Found while looking for something else, and it outlived it.** Both documents
+began as candidate spellings for F12's recurrence — an author reaching for a
+fold naturally tries a discrete event that mutates an accumulator, and an
+implicit equation that states the fold as a residual. F12 is now fixed by a
+causal self-reference, so neither is a recurrence question any more.
+
+They still fail, and what they fail at is real and separate: both constructs
+work on the **scalar** path and neither evaluates on the **array** path. That is
+worth keeping as its own finding rather than retiring with F12, because
+retiring it would have deleted a live limitation along with the solved one —
+the two documents were only ever *filed* under F12, they were never *about* it.
+
+**Nothing in this port needs either today**, which is why this sits at the
+bottom of the list rather than blocking anything. It is recorded so the next
+author who reaches for one finds a measurement instead of a surprise.
+
+---
+
 ## Fixed upstream
 
 Retired from the tripwire; the repros are gone because the fixing commits carry
 their own regression tests. Kept here so the workarounds they forced can be
 traced.
 
+- **F6 and F16** — EarthSciAST `d421d3541` — they were **one cause, not two**. The §6.6.3 pointwise assertion path read the solve trajectory and nothing else, and a 0-D observed lives in one of three carriers: the array runtime exposes every 0-D observed unasked (which is why the array-shaped twin always worked), the scalar backend exposes one only when the caller names it (F6), and a document that cannot integrate has no trajectory at all (F16). `esm simulate` printed the right value for both repros the whole time; only `esm test` could not reach it. The fix requests the pointwise-asserted observeds and falls back to the state-free scalar observed, with the same guards the array branch has — so an unbound name is still an ERROR naming it, never a zero. **Fixed in Rust only**; Julia and Python still resolve a pointwise assertion against state rows, recorded upstream as `BEHAV-06-B-008` rather than papered over.
+- **F19** — EarthSciAST `31b46188c` — an assertion whose actual was `±inf` passed whatever `expected` said, because `check_assertion` had been reduced to the tolerance bound alone and `|inf − expected| ≤ inf` holds for every `expected`. **Julia was always right**: its `_check_assertion` delegates to `isapprox`, which carries the finiteness clause. The Rust and Python re-implementations both documented themselves as "Julia `isapprox` semantics" and both dropped it — a re-implementation drifting from the binding it names, invisible to every other conformance category because every other fixture's actuals are finite. Now normative in esm-spec §6.6.3 and pinned by CONFORMANCE_SPEC §5.20, a tier that compares **verdicts** rather than actuals, since `±Inf` and `NaN` are not JSON-representable.
+- **F12** — EarthSciAST `a83cde55e` — a recurrence over an index axis now has a spelling, and it adds **no new op and no new schema field**: an equation defining an array-shaped unknown `V` whose `aggregate` body reads `index(V, k − c)` — `V` itself, strictly earlier along one of that node's output axes — is a causal self-reference, materialized cell by cell, that axis outermost and ascending, each cell published before the axis advances. The LHS already names the accumulator, so an annotation would carry no information the read does not. The proof obligation **splits**: the coefficient of the frame symbol must be provably 1, or the axis and direction are undecidable, but the lag's *sign* need not be provable at all, because a self-read resolves only against published cells and so faults rather than returning a number. Arithmetic order is normative (CONFORMANCE_SPEC §5.19), and the carried value is rounded to the variable's `element_type` at **every** cell, not once at the end — which matters here, since the consumer is a `Float32` document. Its repro is kept as a **control**, not deleted: see the preamble. Of the four spellings tried, the `makearray`-region one is now refused *loudly* with `recurrence_unsupported_form` naming the fix, where it used to fail silently — region order fixes which write wins, not which cell is evaluated when — and the other two turned out to record a different gap, re-filed as **F22**.
 - **F1** — EarthSciAST `a5e8a7d94` — `rename_free_symbol` now rewrites `join.on`, `overlap.src_env`/`tgt_env` and a resolved `on_gate`'s columns after `map_children`, so a nested §4.7 mount carries a leaf's key columns. **The nested mount is available again**; this port's assemblies still use the top-level `{ref}` form the workaround forced, which works and is not worth churning, but a new assembly may use either.
 - **F4** — EarthSciAST `ee067f5b6` — rejected at load with a named diagnostic, `reserved_index_symbol`, rather than made to work: an index symbol is the author's free choice (§4.3.1), while making the binder win would invert name-first precedence at nine sites and still leave the node unable to name the independent variable at all. The convention in `docs/esm-conventions.md` §7 stands, now enforced by the toolchain.
 - **F9** — EarthSciAST `8274f0918` — `simulate` treats a document with nothing to
