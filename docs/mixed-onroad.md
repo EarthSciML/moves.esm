@@ -37,6 +37,20 @@ the way.
 
 ### 0.1 The RunSpec on disk does not describe the captured run
 
+> **CORRECTION (Phase 4).** The *rule* this section reaches is right and is
+> unchanged — scope a document from the execution database's `runspec*` tables.
+> The *explanation* below, that the XML is a stale rewrite, is wrong for three of
+> the five rows. `<month key>`, `<beginhour key>` and `<day key>` are canonical
+> `RunSpecXML` **0-based indices into sorted ID lists**, not identifiers:
+> `xml_format.rs:600-626` resolves month and hour as `key + 1`, and
+> `default_db_setup.rs:2504-2540` resolves `<day key>` against the sorted
+> `DayOfAnyWeek` list `[2, 5]`, where an out-of-range key means "no day
+> selected" and falls back to all day types. All 27 onroad fixtures in the
+> corpus show the identical offsets, which a stale rewrite would not reproduce.
+> `docs/evap-leaks.md` §0.1 has the measurement and the citations; §8.3 there
+> records the one row of the table below that was not re-derived (the
+> pollutant/process row). Read the rule, not the diagnosis.
+
 This has to be said first, because taking `mixed-onroad.xml` at face value
 produces the wrong scope in five separate dimensions.
 

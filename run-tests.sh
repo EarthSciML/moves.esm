@@ -92,7 +92,14 @@ fi
 # of upstream defects and three of them do not load at all. Stage 5 runs them.
 # gates/ is excluded from stage 3 only, because stage 4 runs it and times it.
 
-mapfile -t DOCS < <(find . -name '*.esm' \
+# `-not -name '.*'` is load-bearing, not tidiness. This list is collected ONCE,
+# at the top of the run, and a hidden .esm is by convention transient -- a
+# probe, a materialized copy, a half-written scratch file. One that exists now
+# and is gone by stage 2 fails the round-trip with "No such file or directory",
+# which is the harness reporting on its own bookkeeping rather than on the
+# repo. Observed: a concurrent `fixtures/.abs.esm` / `.rel.esm` pair did exactly
+# that. Hidden files are not part of the document set.
+mapfile -t DOCS < <(find . -name '*.esm' -not -name '.*' \
   -not -path './.moves/*' -not -path './target/*' -not -path './docs/findings/*' \
   -not -path './.fixtures-run/*' \
   | sort)
@@ -564,29 +571,44 @@ else
   fi
 fi
 
-# --- the independent oracles ------------------------------------------------
+# --- independent oracles ----------------------------------------------------
 
-# run-oracle.sh and run-onroad-oracle.sh are ASSERTION-BEARING tests, not
-# documentation: each extracts the §6.5 reproduction from its port
-# specification and asserts a row count, a missing/extra count and a per-cell
-# bound. They were not in this script, so a regression in either would have
-# gone unnoticed while README went on quoting their numbers as facts -- and
-# CLAUDE.md asks this script to run all of the tests.
+# The four reproductions that live inside the port specifications. Each is
+# EXTRACTED from its §6.5 fence at run time and run against the snapshot, so a
+# specification whose code has quietly stopped working cannot keep looking
+# authoritative -- and each one ASSERTS, so a drift in the snapshot or in a
+# spec's arithmetic fails here rather than being discovered the next time
+# someone reads the document.
 #
-# The binary64 variant is run too, because its assertion is what the whole
-# "binary64 costs exactly four rows" argument rests on: 140 compared, exactly 4
-# missing, 0 extra. Printing that is not the same as asserting it.
+# None of them was in this suite until now: four scripts that assert, run by
+# nobody, while README quoted their numbers as facts. CLAUDE.md asks this
+# script to run all of the tests.
+#
+# `run-oracle.sh --float64` re-runs the NONROAD reproduction in binary64 rather
+# than f32. It is expected to SUCCEED as a script -- the row difference is its
+# output, not its exit code -- and it asserts what the whole "binary64 costs
+# exactly four rows" argument rests on (docs/nonroad-logging-county.md §7.3,
+# PLAN.md §1.6.1a): 140 compared, exactly 4 missing, 0 extra. Printing that is
+# not the same as asserting it, and until today it was only printed.
 head2 "independent oracles"
 if [[ ! -d "$SNAPSHOTS" ]]; then
-  skip "oracles" "need the snapshots; none at $SNAPSHOTS"
+  skip "oracles" "no snapshots at $SNAPSHOTS (set SNAPSHOTS=...)"
 else
-  for spec in "run-oracle.sh" "run-oracle.sh --float64" "run-onroad-oracle.sh"; do
-    # shellcheck disable=SC2086
-    if out=$(./$spec 2>&1); then
-      pass "./$spec"
-      grep -E "rows compared|worst relative error|key set:|NOTE:" <<<"$out" | sed 's/^/       /'
+  ORACLES=("./run-oracle.sh" "./run-oracle.sh --float64"
+           "./run-onroad-oracle.sh" "./run-leaks-oracle.sh")
+  for oracle in "${ORACLES[@]}"; do
+    if [[ ! -x "${oracle%% *}" ]]; then
+      fail "oracle ${oracle} — not executable"
+      continue
+    fi
+    if out=$(SNAPSHOTS="$SNAPSHOTS" $oracle 2>&1); then
+      pass "${oracle}"
+      # Report the counts each oracle asserts, not its last few lines: the
+      # row-set numbers are the point and a tail can scroll them away.
+      grep -E "rows compared|worst relative error|key set:|rows,|NOTE:" <<<"$out" \
+        | sed 's/^/       /'
     else
-      fail "./$spec — the independent reproduction no longer agrees with the snapshot"
+      fail "oracle ${oracle} — the independent reproduction no longer agrees with the snapshot"
       sed 's/^/       /' <<<"$out" | tail -12
     fi
   done

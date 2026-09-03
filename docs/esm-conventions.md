@@ -951,3 +951,267 @@ to reach 144 rows — is unaffected and still correct. The narrower claim, that
 *this fixture* demonstrates it, was wrong: the fixture gets the right row set for
 a different reason, and a document can get a row set right for the wrong reason
 without anything failing. Write down which one you have.
+
+---
+
+## 18. What the evaporative slice changed **[Phase 4]**
+
+Phase 4's first slice is `process-evap-leaks`, specified in
+`docs/evap-leaks.md`. It is the third of the three shapes MOVES has — after a
+Fortran chain (§1–§15) and a rates-first SQL graph (§16), a SQL-graph
+**inventory** calculator, whose base rate is a table rather than a computed
+rate. Every rule in §1–§17 held. Four gained a reason, five things are new, one
+finding came out of it, and one rule was deliberately not applied.
+
+### 18.1 Four rules that gained a new reason
+
+**§11.1's "give the thing the tables meet at an axis" — finding F17 — fired for
+the first time as a measurement on a fixture-scale document, not on a
+component.** §16.3 recorded that the onroad chain did not need the remedy and
+located F17 as being about the *size of both sides* rather than the semantics of
+the key. The evaporative chain needs it, and at a size worth writing down: L8
+written as `docs/evap-leaks.md` §2.4 writes it is one aggregate over five
+relations — `emissionratebyage` (6,564 rows) × `sourcebin` (80) × the source-bin
+distribution (125) × `sourcetypemodelyear` (533) × `agecategory` (41) — and,
+ingested and run, it **did not complete in 120 s**. Two two-relation joins at the
+same scale, timed in the same probe, finish in **25 s for the pair including
+ingest**. So the sharper statement of F17 is: **cost goes with the number of
+LARGE relations meeting in one node, and two is affordable where five is not.**
+`docs/evap-leaks.md` §7.5 has the decomposition that follows, which gives the
+operating mode its own axis in the §11.1 way.
+
+**§16.5's "the run scope comes from the execution database, never from the
+RunSpec XML" now has a second instance and a different reason.** §16.5 explains
+`mixed-onroad.xml`'s disagreement as a stale rewrite. Measured across all 27
+onroad fixtures, *every one* shows the same three offsets, which a stale rewrite
+would not reproduce: `<month key>` and `<beginhour key>` are canonical
+`RunSpecXML` **0-based indices into sorted ID lists**, so the ID is `key + 1`
+(`moves.rs`, `crates/moves-runspec/src/xml_format.rs:600-626`), and `<day key>`
+is an index into the sorted `DayOfAnyWeek` list `[2, 5]`, where an out-of-range
+key means "no day selected" and falls back to all day types
+(`default_db_setup.rs:2504-2540`). The rule is unchanged and stronger: an author
+who reads those attributes as identifiers is off by one in month and hour and
+wrong wholesale in day, systematically, in every fixture.
+`docs/evap-leaks.md` §0.1 has the derivation and `docs/mixed-onroad.md` §0.1
+carries a correction note.
+
+**§3's "an unmatched row contributes the additive identity, and is still
+emitted" has three more instances, and one of them is the row-set rule.** The
+(1980, diesel) and (2020, electricity) cohorts have real non-zero activity
+fractions and no `emissionRateByAge` row, so they read 0 and stay in the rate
+relation — which is what keeps the decision about *which* cohorts reach
+`MOVESOutput` in the output stage, where §3 puts it. The I/M blend is the second:
+`imcoverage` is empty, so `IMAdjustFract` is 0 on every row and `im_blend` is
+the identity, which is exactly the SQL's "a row with no matching cell keeps its
+value unchanged" — an `UPDATE`, not a join, spelled as a zero. The third is in
+the assembly, where a probe row has no counterpart upstream.
+
+**§12's "assert both arms of a branch" is again served by probe ROWS, not
+parameter overrides** — §16.4's replacement technique, now used three times in
+one component. `components/evap_operating_mode_distribution.esm` carries two
+probe hour-days at constructed activity ratios (0.6 and 1.25) because the
+fixture's own two rows make the `least(1, ·)` cap do nothing, and a ninth soak
+row at an operating mode `opmodepolprocassoc` does not admit, so the semi-join
+has a negative arm. `components/liquid_leaking_emissions.esm` carries two I/M
+probe rows because `imcoverage` is empty. In all three the probe is *labelled* in
+the description as not being MOVESOutput's value.
+
+### 18.2 Five things that are new
+
+**A PRODUCT relation can build at most one of its two key columns from
+`enums`.** §16.2's rule is that a `makearray` region addresses one contiguous
+range per dimension, so a value built from an enum must occupy one run of rows.
+In a two-key rectangle — four hour-days × three operating modes, say — only one
+of the two keys can be contiguous, whichever the row order favours; the other
+recurs in disjoint runs and must be a `const` data column. That is not a
+workaround, it is a consequence, and the choice of which key to build from enums
+is an authoring decision worth making deliberately: **build the key whose values
+are enumerated SYMBOLS, and carry the derived or ordinal key as data.**
+`components/evap_operating_mode_distribution.esm` orders its soak relation by
+operating mode (so `soak_opModeID` comes from `enums`) and its distribution
+relation by hour-day (so `omd_hourDayID` comes from `hour` × `day_type`), and
+each file says which and why.
+
+**A zero IS assertable — under two conditions.** §10 and the README are right
+that a plausible zero on a cleanly-validating document is this port's
+characteristic failure, and the rule that every assertion pins a specific
+non-zero value follows from it. Phase 4 met three places where the *reference's*
+answer is zero and the assertion is worth having anyway, and the conditions that
+keep it honest are: **(a) the zero is the additive identity of an unmatched
+join, named as such in the description, and (b) a non-zero sibling in the SAME
+test proves the join works when a partner exists, and a non-zero input column
+proves the row reached it.** `a_fuel_with_no_rate_row_contributes_nothing_and_keeps_its_row`
+pins 0 for the diesel cohort beside its own 0.0466707 activity fraction and the
+gasoline cohort's 4.037348315 rate. A zero pinned alone is still worthless.
+
+**An absent output column is assertable too, and the technique is not obvious.**
+MOVESOutput leaves nine of 25 columns NULL and §11's `null_output_column`
+computes NaN for them. That absence cannot be pinned directly: `Assertion.expected`
+is a JSON number, so NaN cannot be written down, and every tolerance form is a
+magnitude comparison a NaN actual fails — measured, `actual=NaN expected=0`
+reports FAIL, which is the right verdict and the wrong polarity for a test that
+should pass. The way through uses only ops the format already has: IEEE makes
+both `x > 0` and `x <= 0` **false** for a NaN, so `1 − [x>0] − [x<=0]` is 1 for
+an absent column and 0 for every real number. Measured on a three-row probe: 1
+for `0/0`, 0 for `4.25`, 0 for `-1.5`. `lib/identifiers.esm`'s
+`output_column_is_absent` is that expression, and the test that uses it carries a
+**negative control** — the same template applied to a column that is present —
+because an indicator stuck at 1 would otherwise satisfy it.
+
+**A computed zero and an assumed zero are different documents, and this slice
+turns on the difference.** `docs/evap-leaks.md` §0.3 chose evap fuel leaks over
+permeation and FVV because the one F12-blocked quantity it touches —
+`soakActivityFraction`, downstream of a quarter-hour recurrence — enters at a
+weight of exactly zero. That weight is `1 − fractionOfOperating` where
+`fractionOfOperating = least(1, ΣSHO / ΣsourceHours)`, and it is 1 because at an
+**on-network** link `SourceHours = SHO` row for row. A document that wrote
+`opModeFraction[300] = 1` would agree with the snapshot on every one of its six
+rows and be wrong the first time it met an off-network link. So the component
+computes the ratio and the residual, and it carries a probe row on which the
+residual is `0.599999932` where `fractionOfOperating` is `0.6` — a 6.8 × 10⁻⁸
+difference that is the only thing distinguishing the right expression from a
+wrong one. Verified as a real gate: setting that assertion to `0.6` fails at the
+model's `rel: 1e-12`. **Where a fixture's answer does not depend on a number,
+compute the coefficient that makes it not depend on it, and assert the
+coefficient.**
+
+**A `CROSS JOIN` with no `ON` clause may be dropped from a key — stated, not
+silently.** L8's `CROSS JOIN RunSpecMonth, RunSpecHourDay` replicates the
+weighted base rate across the run's months and hour/days without changing it, so
+`components/evap_weighted_base_rate.esm` carries the rate over
+`(regClassID, fuelTypeID, modelYearID, opModeID)` and the emission component
+attaches the two temporal keys at L9, where `sourceHours` and `opModeFraction`
+first make them matter. That is a simplification of the reference's control flow,
+which §3 and §15 otherwise forbid; what licenses it is that the clause has no
+`ON` and therefore no information, and what keeps it honest is that the
+specification says so in one place (§2.4 point 7) and says what would confirm it
+on a multi-month fixture (§8.2).
+
+### 18.3 One new finding, and what it costs an assembly
+
+**F21: a scoped name is not an assertable variable.** `esm-schema.json`'s
+`Assertion.variable` documents a scoped reference (`"subsystem.X"`), and the
+assertion path cannot resolve one: `variable 'Emissions.emis_weightedMeanBaseRate'
+is not declared in model 'Rollup'`. The same name works in the same document as a
+`join.on` key column, as an operand of an ordinary equation, as an `expr`
+operand and as a `plots` `variable`. Measured on **both** mount forms with an
+identical message, so no spelling of the mount avoids it.
+
+What it costs: **an assembly can only assert its own columns**, so a leaf value
+it wants to pin has to be routed through one. Prefer an algebraic recovery over
+an identity equation — `runs/evap_leaks_run.esm` wants the rate its emission
+stage carries and gets it as `run_carriedRate = run_weightedMeanBaseRate −
+run_rateResidual`, both of which it declares — because an identity equation adds
+a variable that means nothing and a recovery adds one that means something.
+
+**And a second measurement that bears on §5.** The two mount forms differ in
+whether the leaf's *own* tests run under the mount. Same leaf, same host, one
+host variable and two host assertions either way:
+
+| mount form | assertions discovered | leaf's own test runs? |
+|---|---|---|
+| top-level `models` `{ref}` | 3 | **yes** |
+| nested `subsystems` | 2 | **no** |
+
+§5 states the leaves'-tests-run behaviour as a feature of mounting and then
+recommends the nested form for new assemblies. On this toolchain those two
+sentences pull against each other, and this port's assemblies get the leaves'
+tests only because a now-fixed defect (F1) forced them onto the top-level form.
+**Until that changes, prefer the top-level form when the leaves carry tests you
+want run under the mount** — which, in this port, is all of them.
+`runs/evap_leaks_run.esm` runs 107 assertions, of which 81 are its three
+leaves'.
+
+### 18.4 One rule that was deliberately not applied: §17's element type
+
+`fixtures/nr-logging-county.esm` declares `domain.element_type: "Float32"`
+because the NONROAD reference is `real*4`. **The evaporative chain declares no
+element type, and that is a decision.** MOVES stores its SQL working tables in
+`FLOAT` and evaluates the arithmetic in MariaDB's `DOUBLE`, so the reference for
+this chain *is* binary64 arithmetic with binary32 storage between steps — a
+sub-10⁻⁷ drift that is smaller than the six-significant-figure column storage
+every residual in `docs/evap-leaks.md` §7.1 is attributed to. There is no
+Fortran and no associativity contract to reproduce.
+
+If a future document does declare it, §17.1's per-variable override is needed for
+one column and the margin is much wider than the SCC's. `sourceBinID` is about
+1.01 × 10¹⁸, which is **6.0 × 10¹⁰ times** binary32's exact-integer limit of
+2²⁴ — where an SCC is 135 times it. Two bins differ by 10¹⁰, and binary32's
+spacing at 10¹⁸ is about 6.9 × 10¹⁰, so every source bin in the run would
+collapse onto the same value and `emissionRateByAge` would join to all of them
+or none. It is exact in binary64 for a reason worth knowing: every id ends in
+10¹⁰, which contains 2¹⁰, so each is a multiple of 1024 while the spacing at
+10¹⁸ is 128. **A packed identifier is a `Float64` override, always, and its
+margin should be computed and written down rather than assumed to resemble the
+SCC's.**
+
+§17.2's strict rule — one operator, one precision — did not fire here because no
+document declares an element type, so no operator mixes. §17.3's route survives
+unchanged for a future one: `lib/identifiers.esm`'s templates evaluate at the
+precision of the identifier the call site binds, and the ladders take predicates
+rather than presence columns.
+
+### 18.5 The fixture, and the two rules that made its shape
+
+`fixtures/process-evap-leaks.esm` computes all 128 rows of `MOVESOutput` from
+the snapshot's input tables and the comparison **passes**: 128 of 128 rows, an
+exact key set, worst cell 7.294 × 10⁻⁶ against `tolerance.toml`'s 2 × 10⁻⁵, worst
+per-pollutant sum 5.161 × 10⁻⁷ against 10⁻³. No `[shortfall]`, no carried column,
+nothing read from the reference. `./run-leaks-oracle.sh` reaches the same 128
+numbers by a different route and reports the **same** worst cell to the digit,
+which is what makes a future disagreement attributable.
+
+It is the second fixture in the repository and the first that fully matches, so
+two rules about a fixture's *shape* are worth stating separately from its
+arithmetic.
+
+**A derived relation's axis is a metaparameter EXPRESSION over discovered
+extents, not a literal.** §11 says a row axis is sized by `extent` discovery;
+this fixture needed two axes that are not any table's row count, and
+`esm-spec` §9.7.6 admits a `MetaparameterExpression` in an interval `size`:
+
+```json
+"activity_rows": { "kind": "interval",
+                   "size": { "op": "*", "args": ["n_agecategory", "n_runspecday"] } }
+```
+
+82 rows from a 41-row and a 2-row table, and the cohort relation's 164 the same
+way. Two more mechanisms make the rows *addressable* without literals, and both
+were probed before authoring: the aggregate's **loop symbol is usable as a value**
+in `expr` — `floor((r − 1) / n_agecategory) + 1` is a block index with a
+discovered block length — and a **two-axis variable can be filled by a join**,
+which is what puts the operating mode on its own axis and keeps L8 to two large
+relations. So the general rule is stronger than §11's: **derive the shape, not
+just the contents.** A fixture that wrote 82 or 164 would be asserting the
+snapshot's shape.
+
+**The one axis that cannot be derived is the OUTPUT axis, and a declared axis
+must be checked in-document.** Which cohorts reach `MOVESOutput` is a *result*
+of the chain, so materialising them as an index set is F5's value invention,
+which validates and materialises empty; `fixtures/nr-logging-county.esm`
+declares `output_rows: 12` for the same reason. What Phase 4 adds is the rest of
+the discipline, and it is three parts:
+
+1. **Declare the count, not the keys.** `n_outputCohort` = 64 is the only
+   literal shape in the document. The output row's `(fuelTypeID, modelYearID)`
+   come from a join to the cohort relation on an ordinal decomposed from the
+   loop symbol — never from a `const` list of keys, which would pass
+   `require_exact_key_set` by transcription.
+2. **Compute the same count from the chain and pin them together.**
+   `cohortSurvivorCount` sums a membership column over the 164 candidates and a
+   test asserts it equals 64. A chain that produced 63 fails in the document,
+   before the comparator sees a row.
+3. **Say which gate the declaration weakens.** `docs/evap-leaks.md` §7.2
+   measured that `require_exact_key_set` catches **none** of this chain's six
+   ablations and the per-cell gate catches all of them, so the declaration
+   forfeits nothing that was measuring anything. A declaration without that
+   measurement beside it is an excuse.
+
+**One more thing the fixture measured that a component could not.** A data-fed
+`parameter` has no assertable array state in a document that ingests — `array
+state 'yr_yearID' has no cells in var_map` — so only computed `unknown`s can be
+pinned, which is why every assertion in both fixtures is on a derived column.
+F16's scalar case reproduces verbatim alongside it. And a `Y`/`N` text column
+*is* ingestable, through a `codes` map on the `from` binding (`esm-spec`
+§8.9.1): `year.isBaseYear` and `fueltype.subjectToEvapCalculations` both arrive
+as 1/0, so A1 and K9 are computed rather than carried.

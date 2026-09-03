@@ -461,7 +461,12 @@ Snapshot `MOVESOutput` row counts, the honest measure of fixture size:
 
 Eight fixtures have 0 output rows (`process-apu*`, `process-extended-idle*`,
 `process-crankcase-extidle*`, `process-crankcase-start*`) — cheap structural
-gates, not numerical ones.
+gates, not numerical ones. **They are zero for one shared reason, measured:**
+every onroad fixture selects `runspecroadtype = {4}`, and those four processes'
+rates are emitted on road type 1, so `BaseRateCalculator`'s road-type join
+discards them all (`docs/mixed-onroad.md` §0.2, `docs/evap-leaks.md` §0.3). The
+same measurement rules out any start-exhaust (processID 2) target: not one of
+the 39 snapshots contains a single process-2 output row.
 
 Each snapshot carries **both sides** of the comparison: ~200 non-empty
 `MOVESExecution` input tables *and* the expected `MOVESOutput`. No canonical
@@ -645,8 +650,22 @@ per-cell gate for a shape `[shortfall]`'s exact counts cannot express; one
 reading the reference's own `baserate_1_2020` passes by transcribing the
 answer. So the exit criterion becomes: land `W`, check it end to end against
 `MOVESOutput` (§7.3 shows that is a sufficient check), then wire the fixture.
-That is one coherent piece of work and it opens Phase 4 — whose cheapest slice
-is start exhaust, because its operating-mode distribution IS in the snapshot.
+That is one coherent piece of work, and it is not the only route into Phase 4.
+An earlier version of this paragraph said Phase 4's cheapest slice is start
+exhaust, "because its operating-mode distribution IS in the snapshot". **That
+claim is wrong, and Phase 4 corrected it in place.** The premise is half true —
+`ratesopmodedistribution` does carry polProcessID 9102 — but the conclusion does
+not follow, because *no fixture in the suite has any start-exhaust output to
+check against*. Measured over all 39 snapshots: `MOVESOutput` carries
+**processID 2 rows in none of them**, and all 27 onroad fixtures select
+`runspecroadtype = {4}` while `BaseRateGenerator` emits start, extended-idle,
+APU and crankcase-start rates on road type 1, so `BaseRateCalculator`'s join to
+`runSpecRoadType` discards every one of them — which §0.2 of
+`docs/mixed-onroad.md` derives for `mixed-onroad`, and which holds suite-wide.
+It is also why the eight zero-output-row fixtures are zero. A start-exhaust
+slice would therefore be the *most* expensive kind available: unvalidatable.
+See `docs/evap-leaks.md` §0.3 for the measurement, and Phase 4 below for the
+slice that was taken instead.
 
 ### Phase 4 — Broaden by process
 
@@ -654,7 +673,59 @@ One new leaf component per process, each reusing the spine: evap (permeation /
 leaks / FVV, 128 rows each), refueling (336), brake and tire wear (750 each),
 crankcase (1,368), PM exhaust (1,456), the TOG/NonHAPTOG speciation chains
 (1,080), air toxics (1,288). The zero-row idle/APU fixtures come along as
-structural gates.
+structural gates — see the note in §2 for the one join that makes all eight of
+them zero.
+
+**The first slice is `process-evap-leaks` (128 rows), and it was chosen by
+measurement rather than by size.** `docs/evap-leaks.md` §0.3 records the
+selection. Of the candidate onroad processes, most need the drive-cycle
+operating-mode distribution `W` that Phase 3 §8.1 blocks — every fixture that
+emits processID 1 rows (brake wear, tire wear, PM exhaust, crankcase running,
+the speciation chains, air toxics), plus refueling, which chains off
+`BaseRateCalculator`'s total-energy output. Of the three 128-row evap fixtures,
+FVV (process 12) needs the multi-day tank-vapour soak-day recurrence that
+finding F12 blocks, and permeation (process 11) needs
+`AverageTankTemperature`, which is the output of `TankTemperatureGenerator`'s
+quarter-hour recurrence — F12 again.
+
+**Evap fuel leaks (process 13) needs neither.** Its base rate is
+`emissionRateByAge`, a default-database input table, so it replaces exactly the
+one relation Phase 3 could not compute; and its operating-mode distribution
+comes out of the evap generator as `{opMode 300: 1}` because
+`fractionOfOperating = least(1, ΣSHO / ΣsourceHours)` is exactly 1 at an
+on-network link, which multiplies the F12-blocked soak activity fractions by a
+*computed* zero rather than an assumed one.
+
+So the leaks slice is also the slice that makes Phase 3's activity and cohort
+spine checkable end to end: `./run-leaks-oracle.sh` reproduces all 82 rows of
+`SHO`, all 82 of `SourceHours`, all 125 of the fuel-usage source-bin
+distribution, all 6 of the evap operating-mode distribution and all 128 of
+`MOVESOutput` from the snapshot's own input tables, reading **nothing** from the
+reference — which `./run-onroad-oracle.sh` cannot do.
+
+**Status: specified, built and WIRED.** `docs/evap-leaks.md` is the port
+specification — 37 input tables from cross-checked sources, nineteen numbered
+steps, twenty-two joins with their exact key pairs, four worked examples and the
+oracle. `lib/evaporative.esm` and three components cover E1–E3, L8 and
+L1/L9/O1–O3 with 81 inline assertions; `runs/evap_leaks_run.esm` mounts them and
+adds the joins that exist only between them, running 107 assertions in total.
+`docs/esm-conventions.md` §18 records what the evaporative graph changed: every
+rule in §1–§17 held, four gained a reason, five things are new, and one new
+finding (**F21**, a scoped name is not an assertable variable) came out of the
+assembly.
+
+And `fixtures/process-evap-leaks.esm` **matches completely** — 128 of 128 rows,
+an exact key set, worst cell 7.294 × 10⁻⁶ against `tolerance.toml`'s 2 × 10⁻⁵,
+worst per-pollutant sum 5.161 × 10⁻⁷ against 10⁻³, with no `[shortfall]` and
+nothing read from the reference. It is the first full match in this repository.
+The oracle reports the same worst cell to the digit from the same tables by a
+different route. Two things had to be got right that are not about inputs and
+that Phase 5 will meet again: L8 is a **two**-relation contraction with the
+operating mode on its own axis, because the five-relation form does not finish
+(F17 at fixture scale, measured at >120 s against 25 s for two two-relation
+joins at the same scale); and a derived relation's axis is a *metaparameter
+expression over discovered extents*, so only the output axis's 64 surviving
+cohorts is declared — checked in-document against a count the chain computes.
 
 ### Phase 5 — Scale out
 

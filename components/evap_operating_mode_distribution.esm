@@ -1,0 +1,1226 @@
+{
+  "esm": "1.0.0",
+  "metadata": {
+    "name": "EvapOperatingModeDistribution",
+    "description": "Steps E1-E3 of the process-evap-leaks chain: the operating-mode distribution the three evaporative calculators read. Ports docs/evap-leaks.md §2.3, joins K2-K7, and crates/moves-calculators/src/generators/evap_op_mode_distribution.rs:350 (stage 1) and :443 (stages 2 and 3) -- the port of EvaporativeEmissionsOperatingModeDistributionGenerator.java.\n\nWHAT IT COMPUTES, IN ONE LINE EACH. E1: `fractionOfOperating = least(1, SUM(SHO)/SUM(sourceHours))` per (hourDay, sourceType), both sums over the age dimension. E2: each soak mode takes `soakActivityFraction x (1 - fractionOfOperating)`. E3: operating mode 300 takes `greatest(0, 1 - SUM(soak shares))`.\n\nWHY THIS COMPONENT DECIDES THE WHOLE SLICE. `soakActivityFraction` is TankTemperatureGenerator's TTG-6 output, and TTG-1b is a quarter-hour recurrence the format cannot express (finding F12). This chain nevertheless needs nothing from it, because at an ON-NETWORK link `SourceHours = SHO` row for row (allocation.rs:631-682), so E1's numerator and denominator are the SAME COLUMN, the ratio is exactly 1, and E2's weight is exactly 0. The fixture's link is road type 4. That is why docs/evap-leaks.md §0.3 chose evap fuel leaks over permeation and FVV, and it is why rows 1 and 2 of `act_shoTotal` and `act_sourceHoursTotal` below carry the same two numbers: the ratio does not depend on what they are.\n\nTHE ZERO IS COMPUTED, NOT ASSUMED, and that distinction is the reason this file exists as a component rather than as a constant. This repository's characteristic failure is a plausible wrong value -- usually 0 -- on a document that validates cleanly (README.md; six instances on record). A document that wrote `opModeFraction[300] = 1` would agree with the snapshot on every one of its six rows and would be wrong the first time it met an off-network link.\n\nFOUR ROWS, TWO OF WHICH ARE PROBES, and this is the technique docs/esm-conventions.md §16.4 established after finding F19 removed the parameter-override one. Rows 1 and 2 are the fixture's own hourDayIDs 72 and 75 with the §6.0 activity sums. Rows 3 and 4 are the same two day types one hour earlier -- hourDayIDs 62 and 65, real MOVES keys this run does not select -- carrying CONSTRUCTED totals so that the two arms this fixture cannot reach are reachable: row 3's ratio is 300/500 = 0.6, which brings the soak modes alive, and row 4's is 625/500 = 1.25, which is the only place `least(1, .)` does anything. Nothing in rows 3 and 4 is claimed to be MOVES output; their soak fractions are the fixture's own, so only the operating share differs.\n\nMODE 300 IS A RESIDUAL, NOT `fractionOfOperating`. On rows 1, 2 and 4 the two are equal to the last bit. On row 3 the residual is 0.599999932 and `fractionOfOperating` is 0.6, because the snapshot's soak pair sums to 1.00000017 rather than to 1 -- six-significant-figure storage. A 6.8e-08 difference is the only thing in this fixture that distinguishes the right expression from a wrong one, so it is asserted.\n\nWHY `omd_opModeID` IS A PLAIN `const` AND `omd_hourDayID` IS BUILT FROM `enums`. A makearray region addresses ONE contiguous range per dimension per value (docs/esm-conventions.md §16.2), so a PRODUCT relation -- here 4 hour-days x 3 operating modes -- can build at most one of its two key columns from `enums`, whichever one the row order makes contiguous. The rows are hour-day-major, so `omd_hourDayID` is four contiguous blocks built as `hourID x 10 + dayID` from the `hour` and `day_type` enums, and `omd_opModeID` is the operating-mode column `opmodepolprocassoc` itself carries, as data. The `operating_mode` enums are still declared and are still what `assoc_opModeID` is built from, where each value does occupy one row.\n\nE3'S BRANCH IS A SEMI-JOIN, NOT A TEST ON THE MODE. `omd_hasSoakRow` asks whether `soakActivityFraction` carries a row for this (hourDay, opMode). That is not a trick to avoid comparing against 300: it is the reference's own control flow. Stage 2 emits a row for each mode SoakActivityFraction carries; stage 3 emits the mode-300 row for whatever those left. `soakactivityfraction` carries 150 and 151 and never 300, so the semi-join and the mode identity coincide -- and the semi-join is the one that stays right if a future default database gives a third soak mode.\n\nData: `soak_soakActivityFraction` and the two activity sums are the snapshot's (docs/evap-leaks.md §6.0). `act_fractionOfOperating` is computed here; the snapshot's own `fractionofoperating` table stores 1.000000000000 twice and the oracle reproduces it to 0 absolute error.",
+    "authors": [
+      "EarthSciML Authors and Contributors"
+    ],
+    "tags": [
+      "moves",
+      "onroad",
+      "evaporative",
+      "operating-mode",
+      "component"
+    ]
+  },
+  "enums": {
+    "pollutant": {
+      "TotalGaseousHydrocarbons": 1
+    },
+    "process": {
+      "EvapFuelLeaks": 13
+    },
+    "source_type": {
+      "PassengerCar": 21
+    },
+    "hour": {
+      "SevenAM": 7,
+      "SixAM": 6
+    },
+    "day_type": {
+      "Weekend": 2,
+      "Weekday": 5
+    },
+    "operating_mode": {
+      "HotSoaking": 150,
+      "ColdSoaking": 151,
+      "Operating": 300,
+      "NotAssociatedWithEvap": 501
+    }
+  },
+  "index_sets": {
+    "evap_activity_rows": {
+      "kind": "interval",
+      "size": 4
+    },
+    "soak_rows": {
+      "kind": "interval",
+      "size": 9
+    },
+    "opmode_assoc_rows": {
+      "kind": "interval",
+      "size": 3
+    },
+    "evap_pol_process_rows": {
+      "kind": "interval",
+      "size": 1
+    },
+    "opmode_dist_rows": {
+      "kind": "interval",
+      "size": 12
+    }
+  },
+  "coordinates": {
+    "evap_omd_hour_day": {
+      "source": "omd_hourDayID",
+      "standard_name": "moves_hour_day_identifier"
+    },
+    "evap_omd_op_mode": {
+      "source": "omd_opModeID",
+      "standard_name": "moves_operating_mode_identifier"
+    }
+  },
+  "models": {
+    "EvapOperatingModeDistribution": {
+      "expression_template_imports": [
+        {
+          "ref": "../lib/evaporative.esm",
+          "only": [
+            "operating_share_of_activity",
+            "soak_share"
+          ]
+        },
+        {
+          "ref": "../lib/identifiers.esm",
+          "only": [
+            "pol_process_id"
+          ]
+        }
+      ],
+      "tolerance": {
+        "rel": 1e-12
+      },
+      "variables": {
+        "runPolProcessID": {
+          "type": "unknown",
+          "shape": [
+            "evap_pol_process_rows"
+          ],
+          "description": "K6's right-hand side: the run's pollutant-process, 100 x 1 + 13 = 113, built by `pol_process_id`. A one-row RELATION and not a scalar, because a join key column must resolve to a loop index of the aggregate (docs/esm-conventions.md §16.1) -- the build refuses a scalar there by name."
+        },
+        "act_hourDayID": {
+          "type": "unknown",
+          "shape": [
+            "evap_activity_rows"
+          ],
+          "description": "E1's group key. 72 and 75 are the fixture's (hour 7, days 2 and 5); 62 and 65 are the probe rows of the description, one hour earlier."
+        },
+        "act_shoTotal": {
+          "type": "unknown",
+          "shape": [
+            "evap_activity_rows"
+          ],
+          "units": "1",
+          "description": "K2: SUM(SHO) over the 41 ages, in hours. Rows 1-2 are the snapshot's own totals (docs/evap-leaks.md §6.0), 594.229522 h and 5654.364 h. Rows 3-4 are constructed: 300 and 625 against a denominator of 500, giving ratios 0.6 and 1.25."
+        },
+        "act_sourceHoursTotal": {
+          "type": "unknown",
+          "shape": [
+            "evap_activity_rows"
+          ],
+          "units": "1",
+          "description": "K3: SUM(sourceHours) over the same ages. On rows 1-2 this is the SAME COLUMN as `act_shoTotal` -- A10's row-wise identity at an on-network link -- which is what makes the ratio exactly 1 rather than approximately 1."
+        },
+        "act_fractionOfOperating": {
+          "type": "unknown",
+          "shape": [
+            "evap_activity_rows"
+          ],
+          "units": "1",
+          "description": "E1, evap_op_mode_distribution.rs:350: `least(1, SUM(SHO)/SUM(sourceHours))` with the zero-denominator guard. 1, 1, 0.6, 1 -- the fourth being 1.25 capped."
+        },
+        "assoc_opModeID": {
+          "type": "unknown",
+          "shape": [
+            "opmode_assoc_rows"
+          ],
+          "description": "opmodepolprocassoc.opModeID for polProcessID 113: 150 (hot soaking), 151 (cold soaking), 300 (operating). Built from `enums`, which is possible here and not in `omd_opModeID` because each value occupies one row. The table's other 24 rows carry polProcessID -1 and K6 never admits them."
+        },
+        "assoc_polProcessID": {
+          "type": "unknown",
+          "shape": [
+            "opmode_assoc_rows"
+          ],
+          "description": "opmodepolprocassoc.polProcessID, 113 on all three rows."
+        },
+        "soak_hourDayID": {
+          "type": "unknown",
+          "shape": [
+            "soak_rows"
+          ],
+          "description": "soakactivityfraction.hourDayID. Rows are OPERATING-MODE-major -- 150, then 151, then the row-9 probe -- so this column is the one carried as data and `soak_opModeID` is the one built from `enums` (docs/esm-conventions.md §16.2; see the description)."
+        },
+        "soak_opModeID": {
+          "type": "unknown",
+          "shape": [
+            "soak_rows"
+          ],
+          "description": "soakactivityfraction.opModeID: 150 on rows 1-4, 151 on rows 5-8. Row 9 is a PROBE carrying operating mode 501, which opmodepolprocassoc lists only at polProcessID -1 -- a drive-cycle mode, not an evaporative one. It is the negative arm of the K5/K6 semi-join, and it sits on hourDayID 62 so that admitting it wrongly would change a non-zero number."
+        },
+        "soak_soakActivityFraction": {
+          "type": "unknown",
+          "shape": [
+            "soak_rows"
+          ],
+          "units": "1",
+          "description": "soakactivityfraction[21, 261610, 8, hourDay, opMode].soakActivityFraction, TTG-6's output and the one F12-blocked quantity this chain touches. 0.00668717 / 0.993313 at hourDay 72 and 0.0221274 / 0.977873 at 75; the probe hour-days 62 and 65 reuse the same two splits, so only the operating share differs between a fixture row and its probe. The pair sums to 1.00000017, not 1. Row 9 carries 0.5 -- deliberately large, so that the semi-join failing to exclude it would move omd_soakSum for hourDay 62 from 0.400000068 to 0.600000068 and the residual from 0.599999932 to 0.399999932."
+        },
+        "soak_isAdmitted": {
+          "type": "unknown",
+          "shape": [
+            "soak_rows"
+          ],
+          "units": "1",
+          "description": "K5 and K6 as one semi-join under `bool_and_or` with a numeric body (docs/esm-conventions.md §3): does opmodepolprocassoc carry this operating mode for the run's pollutant-process? 1 on rows 1-8 and 0 on the row-9 probe, whose mode 501 the table carries only at polProcessID -1."
+        },
+        "soak_operatingShare": {
+          "type": "unknown",
+          "shape": [
+            "soak_rows"
+          ],
+          "units": "1",
+          "description": "K4: `act_fractionOfOperating` brought to each soak row on hourDayID. One clause, one pair -- the generator's join is on (sourceTypeID, hourDayID) and this component has one source type, so the second pair is the run scope and not a column."
+        },
+        "soak_opModeFraction": {
+          "type": "unknown",
+          "shape": [
+            "soak_rows"
+          ],
+          "units": "1",
+          "description": "E2, :443 stage 2: `soak_share(soakActivityFraction, fractionOfOperating)` gated by the admission semi-join. Zero on the six rows whose operating share is 1, which is the whole fixture; 0.0026748680000000004 and 0.39732520000000005 on the two probe rows at share 0.6."
+        },
+        "omd_hourDayID": {
+          "type": "unknown",
+          "shape": [
+            "opmode_dist_rows"
+          ],
+          "description": "The output relation's hour-day key, four contiguous blocks of three, built as `hourID x 10 + dayID` from the `hour` and `day_type` enums."
+        },
+        "omd_opModeID": {
+          "type": "unknown",
+          "shape": [
+            "opmode_dist_rows"
+          ],
+          "description": "The output relation's operating-mode key, 150 / 151 / 300 within each hour-day block. Carried as data rather than built from `enums` because a product relation can make only one of its two key columns contiguous (§16.2); see the description."
+        },
+        "omd_hasSoakRow": {
+          "type": "unknown",
+          "shape": [
+            "opmode_dist_rows"
+          ],
+          "units": "1",
+          "description": "Semi-join to `soakactivityfraction` on (hourDayID, opModeID), gated by admission: is this a stage-2 row or a stage-3 row? 1 for the soak modes, 0 for mode 300. This is the reference's control flow and not a test on the identifier 300 -- stage 2 emits a row per mode SoakActivityFraction carries, stage 3 emits the residual row."
+        },
+        "omd_soakValue": {
+          "type": "unknown",
+          "shape": [
+            "opmode_dist_rows"
+          ],
+          "units": "1",
+          "description": "The stage-2 fraction brought to this row on (hourDayID, opModeID). Zero on the mode-300 rows because no soak row matches -- an unmatched row contributes the additive identity (docs/esm-conventions.md §3)."
+        },
+        "omd_soakSum": {
+          "type": "unknown",
+          "shape": [
+            "opmode_dist_rows"
+          ],
+          "units": "1",
+          "description": "K7: SUM of the stage-2 fractions over this hour-day, which is E3's `SUM(opModeFraction)`. Joined on hourDayID ALONE, which is what makes it a group total rather than the row's own value -- the difference between this and `omd_soakValue` is one key pair."
+        },
+        "omd_opModeFraction": {
+          "type": "unknown",
+          "shape": [
+            "opmode_dist_rows"
+          ],
+          "units": "1",
+          "description": "E2 and E3 together: the stage-2 fraction where a soak row exists, otherwise `greatest(0, 1 - omd_soakSum)`. This is the `opmodedistributiontemp` table, and the oracle reproduces its six fixture rows to 0 absolute error."
+        }
+      },
+      "equations": [
+        {
+          "lhs": "runPolProcessID",
+          "rhs": {
+            "op": "makearray",
+            "args": [],
+            "regions": [
+              [
+                [
+                  1,
+                  1
+                ]
+              ]
+            ],
+            "values": [
+              {
+                "op": "apply_expression_template",
+                "args": [],
+                "name": "pol_process_id",
+                "bindings": {
+                  "pollutant_id": {
+                    "op": "enum",
+                    "args": [
+                      "pollutant",
+                      "TotalGaseousHydrocarbons"
+                    ]
+                  },
+                  "process_id": {
+                    "op": "enum",
+                    "args": [
+                      "process",
+                      "EvapFuelLeaks"
+                    ]
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "_comment": "Rows 1-2 are the fixture's hour 7, weekend then weekday; rows 3-4 the probe hour 6, same order. Four single-cell makearray regions, because each hourDayID occurs once and so each occupies one run (§16.2).",
+          "lhs": "act_hourDayID",
+          "rhs": {
+            "op": "makearray",
+            "args": [],
+            "regions": [
+              [
+                [
+                  1,
+                  1
+                ]
+              ],
+              [
+                [
+                  2,
+                  2
+                ]
+              ],
+              [
+                [
+                  3,
+                  3
+                ]
+              ],
+              [
+                [
+                  4,
+                  4
+                ]
+              ]
+            ],
+            "values": [
+              {
+                "op": "+",
+                "args": [
+                  {
+                    "op": "*",
+                    "args": [
+                      10,
+                      {
+                        "op": "enum",
+                        "args": [
+                          "hour",
+                          "SevenAM"
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "op": "enum",
+                    "args": [
+                      "day_type",
+                      "Weekend"
+                    ]
+                  }
+                ]
+              },
+              {
+                "op": "+",
+                "args": [
+                  {
+                    "op": "*",
+                    "args": [
+                      10,
+                      {
+                        "op": "enum",
+                        "args": [
+                          "hour",
+                          "SevenAM"
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "op": "enum",
+                    "args": [
+                      "day_type",
+                      "Weekday"
+                    ]
+                  }
+                ]
+              },
+              {
+                "op": "+",
+                "args": [
+                  {
+                    "op": "*",
+                    "args": [
+                      10,
+                      {
+                        "op": "enum",
+                        "args": [
+                          "hour",
+                          "SixAM"
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "op": "enum",
+                    "args": [
+                      "day_type",
+                      "Weekend"
+                    ]
+                  }
+                ]
+              },
+              {
+                "op": "+",
+                "args": [
+                  {
+                    "op": "*",
+                    "args": [
+                      10,
+                      {
+                        "op": "enum",
+                        "args": [
+                          "hour",
+                          "SixAM"
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "op": "enum",
+                    "args": [
+                      "day_type",
+                      "Weekday"
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "lhs": "act_shoTotal",
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              594.229522,
+              5654.364,
+              300.0,
+              625.0
+            ]
+          }
+        },
+        {
+          "lhs": "act_sourceHoursTotal",
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              594.229522,
+              5654.364,
+              500.0,
+              500.0
+            ]
+          }
+        },
+        {
+          "_comment": "E1, evap_op_mode_distribution.rs:350.",
+          "lhs": "act_fractionOfOperating",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "operating_share_of_activity",
+            "bindings": {
+              "sho_total": "act_shoTotal",
+              "source_hours_total": "act_sourceHoursTotal"
+            }
+          }
+        },
+        {
+          "lhs": "assoc_opModeID",
+          "rhs": {
+            "op": "makearray",
+            "args": [],
+            "regions": [
+              [
+                [
+                  1,
+                  1
+                ]
+              ],
+              [
+                [
+                  2,
+                  2
+                ]
+              ],
+              [
+                [
+                  3,
+                  3
+                ]
+              ]
+            ],
+            "values": [
+              {
+                "op": "enum",
+                "args": [
+                  "operating_mode",
+                  "HotSoaking"
+                ]
+              },
+              {
+                "op": "enum",
+                "args": [
+                  "operating_mode",
+                  "ColdSoaking"
+                ]
+              },
+              {
+                "op": "enum",
+                "args": [
+                  "operating_mode",
+                  "Operating"
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "lhs": "assoc_polProcessID",
+          "rhs": {
+            "op": "makearray",
+            "args": [],
+            "regions": [
+              [
+                [
+                  1,
+                  3
+                ]
+              ]
+            ],
+            "values": [
+              {
+                "op": "apply_expression_template",
+                "args": [],
+                "name": "pol_process_id",
+                "bindings": {
+                  "pollutant_id": {
+                    "op": "enum",
+                    "args": [
+                      "pollutant",
+                      "TotalGaseousHydrocarbons"
+                    ]
+                  },
+                  "process_id": {
+                    "op": "enum",
+                    "args": [
+                      "process",
+                      "EvapFuelLeaks"
+                    ]
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "lhs": "soak_hourDayID",
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              72,
+              75,
+              62,
+              65,
+              72,
+              75,
+              62,
+              65,
+              62
+            ]
+          }
+        },
+        {
+          "lhs": "soak_opModeID",
+          "rhs": {
+            "op": "makearray",
+            "args": [],
+            "regions": [
+              [
+                [
+                  1,
+                  4
+                ]
+              ],
+              [
+                [
+                  5,
+                  8
+                ]
+              ],
+              [
+                [
+                  9,
+                  9
+                ]
+              ]
+            ],
+            "values": [
+              {
+                "op": "enum",
+                "args": [
+                  "operating_mode",
+                  "HotSoaking"
+                ]
+              },
+              {
+                "op": "enum",
+                "args": [
+                  "operating_mode",
+                  "ColdSoaking"
+                ]
+              },
+              {
+                "op": "enum",
+                "args": [
+                  "operating_mode",
+                  "NotAssociatedWithEvap"
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "lhs": "soak_soakActivityFraction",
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              0.00668717,
+              0.0221274,
+              0.00668717,
+              0.0221274,
+              0.993313,
+              0.977873,
+              0.993313,
+              0.977873,
+              0.5
+            ]
+          }
+        },
+        {
+          "_comment": "K5 and K6 as one semi-join: bool_and_or with a numeric body, bound below as `> 0`.",
+          "lhs": "soak_isAdmitted",
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "semiring": "bool_and_or",
+            "output_idx": [
+              "s"
+            ],
+            "ranges": {
+              "s": {
+                "from": "soak_rows"
+              },
+              "a": {
+                "from": "opmode_assoc_rows"
+              },
+              "n": {
+                "from": "evap_pol_process_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "soak_opModeID",
+                    "assoc_opModeID"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "assoc_polProcessID",
+                    "runPolProcessID"
+                  ]
+                ]
+              }
+            ],
+            "expr": 1.0
+          }
+        },
+        {
+          "lhs": "soak_operatingShare",
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "s"
+            ],
+            "ranges": {
+              "s": {
+                "from": "soak_rows"
+              },
+              "k": {
+                "from": "evap_activity_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "soak_hourDayID",
+                    "act_hourDayID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "act_fractionOfOperating",
+                "k"
+              ]
+            }
+          }
+        },
+        {
+          "_comment": "E2, :443 stage 2. The admission semi-join gates the row: a mode the association table does not carry is not emitted at all.",
+          "lhs": "soak_opModeFraction",
+          "rhs": {
+            "op": "ifelse",
+            "args": [
+              {
+                "op": ">",
+                "args": [
+                  "soak_isAdmitted",
+                  0.0
+                ]
+              },
+              {
+                "op": "apply_expression_template",
+                "args": [],
+                "name": "soak_share",
+                "bindings": {
+                  "soak_activity_fraction": "soak_soakActivityFraction",
+                  "operating_share": "soak_operatingShare"
+                }
+              },
+              0.0
+            ]
+          }
+        },
+        {
+          "lhs": "omd_hourDayID",
+          "rhs": {
+            "op": "makearray",
+            "args": [],
+            "regions": [
+              [
+                [
+                  1,
+                  3
+                ]
+              ],
+              [
+                [
+                  4,
+                  6
+                ]
+              ],
+              [
+                [
+                  7,
+                  9
+                ]
+              ],
+              [
+                [
+                  10,
+                  12
+                ]
+              ]
+            ],
+            "values": [
+              {
+                "op": "+",
+                "args": [
+                  {
+                    "op": "*",
+                    "args": [
+                      10,
+                      {
+                        "op": "enum",
+                        "args": [
+                          "hour",
+                          "SevenAM"
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "op": "enum",
+                    "args": [
+                      "day_type",
+                      "Weekend"
+                    ]
+                  }
+                ]
+              },
+              {
+                "op": "+",
+                "args": [
+                  {
+                    "op": "*",
+                    "args": [
+                      10,
+                      {
+                        "op": "enum",
+                        "args": [
+                          "hour",
+                          "SevenAM"
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "op": "enum",
+                    "args": [
+                      "day_type",
+                      "Weekday"
+                    ]
+                  }
+                ]
+              },
+              {
+                "op": "+",
+                "args": [
+                  {
+                    "op": "*",
+                    "args": [
+                      10,
+                      {
+                        "op": "enum",
+                        "args": [
+                          "hour",
+                          "SixAM"
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "op": "enum",
+                    "args": [
+                      "day_type",
+                      "Weekend"
+                    ]
+                  }
+                ]
+              },
+              {
+                "op": "+",
+                "args": [
+                  {
+                    "op": "*",
+                    "args": [
+                      10,
+                      {
+                        "op": "enum",
+                        "args": [
+                          "hour",
+                          "SixAM"
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "op": "enum",
+                    "args": [
+                      "day_type",
+                      "Weekday"
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "lhs": "omd_opModeID",
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              150,
+              151,
+              300,
+              150,
+              151,
+              300,
+              150,
+              151,
+              300,
+              150,
+              151,
+              300
+            ]
+          }
+        },
+        {
+          "lhs": "omd_hasSoakRow",
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "semiring": "bool_and_or",
+            "output_idx": [
+              "r"
+            ],
+            "ranges": {
+              "r": {
+                "from": "opmode_dist_rows"
+              },
+              "s": {
+                "from": "soak_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "omd_hourDayID",
+                    "soak_hourDayID"
+                  ],
+                  [
+                    "omd_opModeID",
+                    "soak_opModeID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "soak_isAdmitted",
+                "s"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "omd_soakValue",
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "r"
+            ],
+            "ranges": {
+              "r": {
+                "from": "opmode_dist_rows"
+              },
+              "s": {
+                "from": "soak_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "omd_hourDayID",
+                    "soak_hourDayID"
+                  ],
+                  [
+                    "omd_opModeID",
+                    "soak_opModeID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "soak_opModeFraction",
+                "s"
+              ]
+            }
+          }
+        },
+        {
+          "_comment": "K7. One key pair fewer than omd_soakValue, which is the whole difference between a row's own fraction and its group's total.",
+          "lhs": "omd_soakSum",
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "r"
+            ],
+            "ranges": {
+              "r": {
+                "from": "opmode_dist_rows"
+              },
+              "s": {
+                "from": "soak_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "omd_hourDayID",
+                    "soak_hourDayID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "soak_opModeFraction",
+                "s"
+              ]
+            }
+          }
+        },
+        {
+          "_comment": "E3, :443 stage 3: the operating mode takes whatever the soak modes left, floored at 0. A RESIDUAL, not fractionOfOperating.",
+          "lhs": "omd_opModeFraction",
+          "rhs": {
+            "op": "ifelse",
+            "args": [
+              {
+                "op": ">",
+                "args": [
+                  "omd_hasSoakRow",
+                  0.0
+                ]
+              },
+              "omd_soakValue",
+              {
+                "op": "max",
+                "args": [
+                  0.0,
+                  {
+                    "op": "-",
+                    "args": [
+                      1.0,
+                      "omd_soakSum"
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "tests": [
+        {
+          "id": "the_operating_share_is_one_at_an_on_network_link",
+          "description": "E1 on the fixture's two hour-days. The value is 1 EXACTLY, not approximately, because A10 makes SUM(SHO) and SUM(sourceHours) the same 41 numbers at an on-network link (allocation.rs:631-682) and a quotient of identical binary64 values is 1. What breaks if this is wrong: if A10 took the off-network SHP branch instead, the denominator for hourDay 72 would be population x noOfRealDays - SHO = 6,902,112.67 h against a numerator of 594.23 h, a ratio of 8.6e-05, and every soak weight in this chain would come alive -- which would make the whole slice depend on TankTemperatureGenerator's quarter-hour recurrence (finding F12). The exactness is the load-bearing part, so it is asserted at the model's rel 1e-12.",
+          "time_span": {
+            "start": 0.0,
+            "end": 0.0
+          },
+          "assertions": [
+            {
+              "variable": "act_fractionOfOperating",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "evap_activity_rows": 1
+              }
+            },
+            {
+              "variable": "act_fractionOfOperating",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "evap_activity_rows": 2
+              }
+            },
+            {
+              "variable": "omd_opModeFraction",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "opmode_dist_rows": 3
+              }
+            },
+            {
+              "variable": "omd_opModeFraction",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "opmode_dist_rows": 6
+              }
+            }
+          ]
+        },
+        {
+          "id": "mode_300_is_a_residual_and_not_the_operating_share",
+          "description": "The probe row at hourDay 62, whose operating share is 300/500 = 0.6. The residual is greatest(0, 1 - 0.40000006800000004) = 0.599999932; `fractionOfOperating` is 0.6. They differ by 6.8e-08 because the snapshot's soak pair sums to 1.00000017 rather than to 1 -- six-significant-figure storage, not a modelling error. What breaks if this is wrong: nothing on this fixture, which is exactly the danger. A document that wrote `opModeFraction[300] = fractionOfOperating` agrees with the snapshot's six rows to the last bit and is wrong in general; this probe row is the only thing in the component that can tell the two apart, and at rel 1e-12 it does.",
+          "time_span": {
+            "start": 0.0,
+            "end": 0.0
+          },
+          "assertions": [
+            {
+              "variable": "act_fractionOfOperating",
+              "time": 0.0,
+              "expected": 0.6,
+              "coords": {
+                "evap_activity_rows": 3
+              }
+            },
+            {
+              "variable": "omd_soakSum",
+              "time": 0.0,
+              "expected": 0.40000006800000004,
+              "coords": {
+                "opmode_dist_rows": 9
+              }
+            },
+            {
+              "variable": "omd_opModeFraction",
+              "time": 0.0,
+              "expected": 0.599999932,
+              "coords": {
+                "opmode_dist_rows": 9
+              }
+            }
+          ]
+        },
+        {
+          "id": "the_soak_modes_carry_the_complement_of_the_operating_share",
+          "description": "E2 on the same probe row: 0.00668717 x 0.4 = 0.0026748680000000004 for hot soaking and 0.993313 x 0.4 = 0.39732520000000005 for cold soaking. What breaks if this is wrong: writing `x fractionOfOperating` instead of `x (1 - fractionOfOperating)` gives 0.0040123020000000005 and 0.5959877999999999 -- a 1.5x error on the hot-soak mode and, through the residual, an opModeFraction[300] of 0.39999993200000003 instead of 0.599999932. Both arms are plausible numbers between 0 and 1, which is why the check is on a value and not on a bound. The two soak values are ZERO on the fixture's own rows (1, 2, 4, 5), so this probe row is the only place the sign of the complement is observable.",
+          "time_span": {
+            "start": 0.0,
+            "end": 0.0
+          },
+          "assertions": [
+            {
+              "variable": "soak_opModeFraction",
+              "time": 0.0,
+              "expected": 0.0026748680000000004,
+              "coords": {
+                "soak_rows": 3
+              }
+            },
+            {
+              "variable": "soak_opModeFraction",
+              "time": 0.0,
+              "expected": 0.39732520000000005,
+              "coords": {
+                "soak_rows": 7
+              }
+            },
+            {
+              "variable": "omd_soakValue",
+              "time": 0.0,
+              "expected": 0.0026748680000000004,
+              "coords": {
+                "opmode_dist_rows": 7
+              }
+            },
+            {
+              "variable": "omd_soakValue",
+              "time": 0.0,
+              "expected": 0.39732520000000005,
+              "coords": {
+                "opmode_dist_rows": 8
+              }
+            }
+          ]
+        },
+        {
+          "id": "the_operating_share_is_capped_at_one",
+          "description": "The probe row at hourDay 65, whose raw ratio is 625/500 = 1.25. `least(1, .)` makes it 1, so the soak modes are 0 and the residual is 1. What breaks if this is wrong: without the cap the soak shares are 0.00668717 x (-0.25) = -0.0016717925 and -0.24832825, their sum is -0.2500000425, and the residual becomes greatest(0, 1.2500000425) = 1.2500000425 -- an operating-mode FRACTION above 1, which would then multiply an emission by 1.25. The assertion pins the capped 1 and the zero soak sum together, because the cap is only observable through what it prevents.",
+          "time_span": {
+            "start": 0.0,
+            "end": 0.0
+          },
+          "assertions": [
+            {
+              "variable": "act_fractionOfOperating",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "evap_activity_rows": 4
+              }
+            },
+            {
+              "variable": "omd_opModeFraction",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "opmode_dist_rows": 12
+              }
+            }
+          ]
+        },
+        {
+          "id": "a_mode_the_association_table_does_not_carry_contributes_nothing",
+          "description": "K5 and K6's semi-join, exercised by a probe ROW rather than by a parameter override -- the technique docs/esm-conventions.md §16.4 established after finding F19 removed the other one. Row 9 of the soak relation carries operating mode 501 at hourDay 62 with a soakActivityFraction of 0.5, and opmodepolprocassoc lists 501 only at polProcessID -1. What breaks if this is wrong: the association table's other 24 rows are the DRIVE-CYCLE operating modes (0, 1, 11-40, 501), all at polProcessID -1. A join that ignored the pollutant-process would admit every one of them, and each would multiply a soak fraction it has no business touching. Here that mistake is visible as a number: omd_soakSum for hourDay 62 would be 0.6000000680000001 instead of 0.40000006800000004, and the mode-300 residual 0.399999932 instead of 0.599999932 -- a 33% under-emit on every row of that hour-day, with no NaN and no missing key to trace it by. The assertions pin the surviving sum and residual, and the 0.5 input beside them, so the exclusion is proved by what did NOT change.",
+          "time_span": {
+            "start": 0.0,
+            "end": 0.0
+          },
+          "assertions": [
+            {
+              "variable": "soak_soakActivityFraction",
+              "time": 0.0,
+              "expected": 0.5,
+              "coords": {
+                "soak_rows": 9
+              }
+            },
+            {
+              "variable": "soak_isAdmitted",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "soak_rows": 3
+              }
+            },
+            {
+              "variable": "omd_soakSum",
+              "time": 0.0,
+              "expected": 0.40000006800000004,
+              "coords": {
+                "opmode_dist_rows": 7
+              }
+            },
+            {
+              "variable": "omd_opModeFraction",
+              "time": 0.0,
+              "expected": 0.599999932,
+              "coords": {
+                "opmode_dist_rows": 9
+              }
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
