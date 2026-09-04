@@ -1,0 +1,212 @@
+{
+  "esm": "1.0.0",
+  "metadata": {
+    "name": "moves.findings.f28.control",
+    "description": "F28's CONTROL, and it is MEANT TO PASS. It is the workaround for the finding in the file beside it: a recurrence whose predecessor is named by a data column, re-expressed as a BOUNDED CONTRACTED LAG.\n\nThe contracted index `a` runs over the lag's whole observed range and the body selects the one term whose lag matches the data column, `ifelse(lag[k] == a, ...)`, summing the rest as the additive identity. That is esm-spec 4.3.1.1's straddling idiom and docs/esm-conventions.md 19.2's rule that the contracted index IS the lag -- the same shape `agedist.f`'s fold uses, applied to a predecessor that a column names rather than the slot number.\n\nTwo costs, and they are why the finding is recorded rather than the workaround simply being used. It evaluates `max lag` terms per cell where the direct spelling would evaluate one, so a chain whose lags are mostly 1 pays for the worst case at every cell. And the range `[1, 7]` is a METAPARAMETER expression that has to be right: it is read off the DATA (the largest `tripID - priorTripID` in the snapshot's 26,300 chained trips), so it is a fact about a capture and not about the model, and a lag beyond it would silently contribute nothing rather than raise. That second cost is the one worth pausing on -- an under-sized range is this repository's characteristic failure, a plausible number in place of an answer.\n\nIt is excluded from run-tests.sh's tripwire loop by name, for the same reason F18's and F24b's controls are: a file that is meant to pass would be read by that loop as a defect that has been fixed.",
+    "authors": [
+      "EarthSciML Authors and Contributors"
+    ],
+    "tags": [
+      "moves",
+      "finding",
+      "recurrence"
+    ]
+  },
+  "index_sets": {
+    "f28_rows": {
+      "kind": "interval",
+      "size": 6
+    }
+  },
+  "models": {
+    "F28Control": {
+      "tolerance": {
+        "rel": 1e-12
+      },
+      "variables": {
+        "f28_lag": {
+          "type": "unknown",
+          "shape": [
+            "f28_rows"
+          ],
+          "description": "How many rows back this row's predecessor is. Row 1 has none. The shape of `SampleVehicleTrip.tripID - priorTripID` in miniature: mostly 1, sometimes more."
+        },
+        "f28_value": {
+          "type": "unknown",
+          "shape": [
+            "f28_rows"
+          ],
+          "description": "`v[k] = 2 * v[k - lag[k]]`, spelled as a contracted lag: one term per candidate lag, all but the matching one contributing 0."
+        }
+      },
+      "equations": [
+        {
+          "lhs": "f28_lag",
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              0,
+              1,
+              1,
+              2,
+              1,
+              3
+            ]
+          }
+        },
+        {
+          "_comment": "The workaround. `a` is contracted over the lag's bounded range and the equality against the data column selects the single term that is not the additive identity; the no-predecessor case is carried on the a = 1 slot so that it is emitted exactly once rather than max-lag times.",
+          "lhs": "f28_value",
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "output_idx": [
+              "k"
+            ],
+            "ranges": {
+              "k": {
+                "from": "f28_rows"
+              },
+              "a": [
+                1,
+                7
+              ]
+            },
+            "reduce": "+",
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                {
+                  "op": "<=",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "f28_lag",
+                        "k"
+                      ]
+                    },
+                    0
+                  ]
+                },
+                {
+                  "op": "ifelse",
+                  "args": [
+                    {
+                      "op": "==",
+                      "args": [
+                        "a",
+                        1
+                      ]
+                    },
+                    1.0,
+                    0.0
+                  ]
+                },
+                {
+                  "op": "ifelse",
+                  "args": [
+                    {
+                      "op": "==",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "f28_lag",
+                            "k"
+                          ]
+                        },
+                        "a"
+                      ]
+                    },
+                    {
+                      "op": "*",
+                      "args": [
+                        2.0,
+                        {
+                          "op": "index",
+                          "args": [
+                            "f28_value",
+                            {
+                              "op": "-",
+                              "args": [
+                                "k",
+                                "a"
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    0.0
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "tests": [
+        {
+          "id": "the_contracted_lag_reproduces_the_data_named_chain",
+          "description": "The same six answers the finding's repro asks for, obtained through the contracted-lag spelling. Row 4 reads row 2 and row 6 reads row 3, so the chain really is following the data column and not a constant offset -- with a constant lag of 1 the answers would be [1, 2, 4, 8, 16, 32] and five of these six assertions would fail.",
+          "time_span": {
+            "start": 0.0,
+            "end": 0.0
+          },
+          "assertions": [
+            {
+              "variable": "f28_value",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "f28_rows": 1
+              }
+            },
+            {
+              "variable": "f28_value",
+              "time": 0.0,
+              "expected": 2.0,
+              "coords": {
+                "f28_rows": 2
+              }
+            },
+            {
+              "variable": "f28_value",
+              "time": 0.0,
+              "expected": 4.0,
+              "coords": {
+                "f28_rows": 3
+              }
+            },
+            {
+              "variable": "f28_value",
+              "time": 0.0,
+              "expected": 4.0,
+              "coords": {
+                "f28_rows": 4
+              }
+            },
+            {
+              "variable": "f28_value",
+              "time": 0.0,
+              "expected": 8.0,
+              "coords": {
+                "f28_rows": 5
+              }
+            },
+            {
+              "variable": "f28_value",
+              "time": 0.0,
+              "expected": 8.0,
+              "coords": {
+                "f28_rows": 6
+              }
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
