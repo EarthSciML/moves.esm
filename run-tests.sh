@@ -171,6 +171,19 @@ else
   fail "inline tests (see the table above for which)"
 fi
 
+# The assertions this stage just ran are audited for whether they CAN fail, by
+# `tools/perturbation-audit.py`, which is deliberately NOT part of this suite.
+# It perturbs the documents in place and restores them from git, and a hard kill
+# mid-run -- which happens -- would leave a perturbed tree behind. That is a bad
+# trade to make on every routine run for a property that changes only when
+# assertions are added. Run it when they are:
+#
+#   ./tools/perturbation-audit.py                # components/ and runs/
+#   ./tools/perturbation-audit.py fixtures gates # the rest
+#
+# All 785 currently go red under a 10^-3 nudge, the 102 zero-valued ones
+# additively. It refuses to start on a dirty tree.
+
 # --- 4. round-trip --------------------------------------------------------
 #
 # parse → emit → parse must be faithful, which is the check that this repo is

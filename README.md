@@ -230,12 +230,20 @@ go red:
 | what | result |
 |---|---|
 | all 585 declared assertions in `components/` and `runs/`, perturbed by 10⁻³ | **1,116 of 1,116 evaluations fail, 0 pass** |
+| the 196 in `fixtures/`, same perturbation | **196 of 196 fail, 0 pass** |
+| the 4 in `gates/`, same perturbation | **4 of 4 fail, 0 pass** |
 | the fixture's 84 perturbable assertions, at ×(1+10⁻⁵) | **84 of 84 fail** |
 | the same, at ×(1+4 × 10⁻⁷) | 80 fail; the 4 survivors are the one test whose `rel: 1e-6` is older than the float32 work |
 | the F18 control, override dropped / domain forced to Float64 | 2 of 3 fail / 1 of 3 fails |
 
+That is all 785 of them, which it had never been: the audit used to stop at
+`components/` and `runs/`, so the fixtures — the documents that actually ingest,
+and where both silent findings on that path were eventually found — had no
+evidence any of their assertions could fail. They can; 102 of the 785 assert
+exactly zero and all 102 go red.
+
 The zero-valued ones are the case that matters most and the easiest to get
-wrong. 91 of the 585 assert *exactly* zero — an earlier version of this
+wrong. 91 of the 585 in `components/` and `runs/` assert *exactly* zero — an earlier version of this
 paragraph claimed none did — and a zero assertion whose tolerance hides a
 non-zero is decoration. They are nudged *additively*, because `x × (1 + ε)`
 leaves a zero exactly where it was: a purely multiplicative audit skips every
