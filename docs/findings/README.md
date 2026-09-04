@@ -36,14 +36,22 @@ working. Its twin F24a is gone — the cross-route agreement it checked is now
 pinned upstream by ten tests that re-materialize every recurrence fixture
 through the pipeline and compare on bits.
 
-**F25's repro is the fourth file the tripwire loop does not run**, and the only
-one excluded because its document is *meant* to be invalid. `esm validate`
+**F25's repro is the fourth file the tripwire loop does not run**, and F26's is
+the fifth; both are excluded because their documents are *meant* to be invalid. `esm validate`
 rejects it and always will; the defect is that `esm test` does not, on one
 evaluation path. So "both stages pass" can never fire, and the loop would report
 "still fails, as recorded" forever without noticing a fix. `run-tests.sh` checks
 which of the two answers `esm test` gives instead — the dropped operand
 (`actual=2 expected=10`) or the variable's name — and that check is
-falsified in both directions.
+falsified in both directions. **F26 is watched the same way** and for the same
+reason, on `esm validate` (where the refusal belongs) and `esm simulate` (where
+the silence is).
+
+There is a pattern in that pair worth naming, because a third instance would
+make it a rule: both are **undefined names that only the SCALAR path notices**,
+and every ingesting document takes the other one. F25 is an undeclared operand
+dropped; F26 is an index symbol left free outside its aggregate, read as
+position zero. Neither is refused at load, which is where both belong.
 
 **F28's control is the fifth file the tripwire loop does not run**, and like F18's and F24b's it is meant to pass. F28 is a shape the format refuses; its control is the WORKAROUND that shape has to be rewritten into, and everything this repository can say about porting `TankTemperatureGenerator` TTG-4 rests on that workaround existing. It is checked rather than assumed, and it is two-sided by construction: with a constant lag of 1 in place of the contracted one, rows 4, 5 and 6 read 8, 16 and 32 where the chain says 4, 8 and 8, and three of its six assertions fail.
 
@@ -71,11 +79,67 @@ three of them do not load.
 | **F23** | A leaf's `domain.element_type` does not survive a top-level `models` `{ref}` mount | — | **yes** |
 | **F25** | An undeclared operand is dropped rather than named, on the ingesting path only | — | **yes** |
 | **F22** | A discrete event, and an implicit equation, do not evaluate on the ARRAY path (both work on the scalar path) | evaluation | no |
+| **F26** | An index symbol left free outside its `aggregate` is accepted, and contributes the additive identity on the ARRAY path | — | **yes** |
 | **F20** | A constant-folded scalar right-hand side loses the left-hand side's array shape | assertion | no |
 | **F21** | A scoped reference to a mounted model's variable resolves as an operand and a join key but not as an assertion `variable` | assertion | no |
 | **F28** | A recurrence whose predecessor is named by a DATA COLUMN has no direct spelling; the lag must be an offset of the frame symbol | validate + test | no |
 
 ---
+
+## F26 — an index symbol left free outside its `aggregate` is dropped
+
+`F26_repro_a_free_index_symbol_is_dropped_on_the_array_path.esm`.
+
+esm-spec §4.3.1 binds an index symbol **inside** the `aggregate` that declares
+it — in that node's `output_idx`, its `ranges` keys and its `expr` — and says
+that a bare string is a variable reference everywhere else. So
+
+```jsonc
+{ "op": "+", "args": [
+    { "op": "aggregate", "output_idx": ["i"], "ranges": {"i": {"from": "rows"}},
+      "expr": {"op": "index", "args": ["a", "i"]} },
+    { "op": "index", "args": ["a", "i"] } ] }   // <- `i` is free here
+```
+
+names a variable `i` that does not exist and should be refused at load with an
+undefined-name diagnostic. It is not:
+
+```
+$ ./esm validate docs/findings/F26_repro_a_free_index_symbol_is_dropped_on_the_array_path.esm
+✓ Validation passed
+$ ./esm test  …                 # tree walk
+E_TREEWALK_CONSTARRAY_OOB: const array 'a' index 0 out of range 1..4 in dim 0
+$ ./esm simulate … --observed b # array path
+b[1] = 10   b[2] = 20   b[3] = 30   b[4] = 40
+```
+
+`b` is `a[i] + a[i]` and should be `[20, 40, 60, 80]`; the control `c`, the same
+arithmetic with both terms inside the aggregate, is. On the array path the free
+term contributes the additive identity and `b` comes back as `a`, with no
+diagnostic. The tree walk's message is the useful one, and it says what
+happened: the index was read as **zero**.
+
+**Why this project cares, and it is not hypothetical.** The array path is the
+one every ingesting document takes, for `esm test` as much as for `esm
+simulate` — the same split F25 records. Hoisting `nrdeterioration`'s join off
+the cohort axis in `fixtures/nr-logging-county.esm` was first written with the
+missing-row default (`+ (1 - det_isPresent[q, cc])`) outside its aggregate.
+`esm validate` passed, `esm test` passed **343 of 343** assertions, and 109 of
+the 144 output cells were wrong: the deterioration exponent came out 2 where
+the table says 1, because the correction term evaluated to 1 everywhere instead
+of 0. Every wrong cell was a plausible number, and none of the 343 assertions
+happened to cover a technology whose exponent had moved. What caught it was
+diffing the emitted rows against the previous run — not a gate, and not
+something anyone should have to rely on. The document now does the defaulting
+inside the aggregate, where `q` and `cc` are bound.
+
+**Fix shape.** The undefined-name walk of esm-spec §9.7.5 already exists; it is
+the *binder set* that is wrong here. A node's loop symbols are node-local
+(CONFORMANCE_SPEC §5.5.6 says so, normatively, for `join` key columns), so a
+symbol that is not bound by the node it appears in, nor by any enclosing
+`aggregate`, nor declared as a variable, resolves nowhere and should be
+rejected — the same conclusion §9.7.5 reaches for every other reference.
+
 
 ## F1 — a nested subsystem mount drops `join.on` key columns
 

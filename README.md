@@ -54,14 +54,16 @@ in `docs/findings/` reproduces an upstream defect and asserts the behaviour we
 want, so it fails today. A repro going green is good news that has to be acted
 on — a limitation quietly fixed leaves a workaround in the tree for no reason.
 
-**The fixture comparison is expected to fail, at a recorded size.** The port
-computes twelve of `nr-logging-county`'s 144 rows today, and those twelve agree
-with the snapshot to 4.0 × 10⁻⁶. `compare-output.py` fails on that, as it
-should — a comparator that can be told to pass is not a comparator — so
-`tolerance.toml` records the shortfall with its reason and `tools/shortfall.py`
-checks that the failure is still exactly that one. It fires if the shortfall
-grows, if it shrinks, or if a row this port does emit drifts. See §11.2 of the
-conventions for what the other 132 rows need, which is not more `.esm`.
+**A fixture comparison that falls short fails at a RECORDED size, and there are
+no such records left.** `nr-logging-county` computed twelve of its 144 rows for
+a long time, and `tolerance.toml` carried the shortfall with its reason while it
+did; `compare-output.py` failed on it, as it should — a comparator that can be
+told to pass is not a comparator — and `tools/shortfall.py` checked that the
+failure was still exactly the recorded one, firing if it grew, if it shrank, or
+if an emitted row drifted. It shrank to nothing: both fixtures now match their
+snapshots completely. The machinery stays, and `run-tests.sh` fails if a
+`[shortfall]` record is ever left behind a comparison that has started
+passing.
 
 **The two chains are compared to each other, in ulps.**
 `runs/nr_logging_county_run.esm` and `fixtures/nr-logging-county.esm` are
@@ -168,7 +170,7 @@ folds rather than carrying them. `docs/esm-conventions.md` §17.5 records this.
 This toolchain's characteristic failure is returning a plausible wrong value
 rather than raising. **This list is the authoritative count** — other documents
 in this repo cite an instance by its number here, and should not number one
-themselves. Nine independent instances so far, each on a document that runs
+themselves. Ten independent instances so far, each on a document that runs
 clean, with no error and no warning:
 
 1. a `data_sources` entry read by no provider;
@@ -183,12 +185,17 @@ clean, with no error and no warning:
 8. a causal self-reference dropped on the ingesting path (F24);
 9. an undeclared operand dropped rather than named, again only when the
    document ingests — `max(known, undeclared)` quietly becomes `max(known)`
-   (F25).
+   (F25);
+10. an index symbol left free outside its `aggregate` — an undefined name —
+    read as index zero and contributing the additive identity, again only on
+    the path an ingesting document takes (F26). It reached 109 of
+    `nr-logging-county`'s 144 output cells past 343 of 343 green assertions,
+    and was caught by diffing against the previous run.
 
 The fixed ones stay listed, because the *class* of failure is the point rather
 than the individual bug.
 
-Five of the nine returned `0`. One returned `NaN` — the same defect in a
+Six of the ten returned `0`. One returned `NaN` — the same defect in a
 different shape, because an unbound *array* forcing reads as NaN where a scalar
 reads as zero. One returns a number right to fifteen digits and wrong in the
 sixteenth, which is the hardest of all to see and changes how many rows exist.
@@ -216,12 +223,15 @@ disagreement to, and the exact key set catches the row-shaped version. Seven of
 the nine were found by running something real and checking the number against
 an independent source, not by reading code.
 
-**Two of the nine are on the ingesting path, and that is now a place to look
-rather than a coincidence.** F24 lost a self-read there and F25 loses an
-undeclared name there, and both are the same sentence: that route re-resolves
-names against a map built for the pipeline, and a name the map does not hold
-becomes an absence instead of an error. Every fixture in this repo ingests. Assume the next instance exists and
-has not been found.
+**Three of the ten are on the ingesting path, and that is now a place to look
+rather than a coincidence.** F24 lost a self-read there, F25 loses an
+undeclared operand there, and F26 loses an unbound index symbol there; all
+three are the same sentence: that route re-resolves names against a map built
+for the pipeline, and a name the map does not hold becomes an absence instead
+of an error. Every fixture in this repo ingests. The prediction under the
+previous version of this paragraph — assume the next instance exists and has
+not been found — was written before F26 and was right within the week; it still
+stands.
 
 **That defence is audited, not asserted.** A gate that cannot fail is worse
 than no gate, so every assertion in the repo has been perturbed and checked to
@@ -230,17 +240,25 @@ go red:
 | what | result |
 |---|---|
 | all 585 declared assertions in `components/` and `runs/`, perturbed by 10⁻³ | **1,116 of 1,116 evaluations fail, 0 pass** |
-| the 196 in `fixtures/`, same perturbation | **196 of 196 fail, 0 pass** |
+| the 416 in `fixtures/`, same perturbation | **416 of 416 fail, 0 pass** |
 | the 4 in `gates/`, same perturbation | **4 of 4 fail, 0 pass** |
-| the fixture's 84 perturbable assertions, at ×(1+10⁻⁵) | **84 of 84 fail** |
+| `nr-logging-county`'s 84 perturbable assertions **as it stood at twelve output rows**, at ×(1+10⁻⁵) | **84 of 84 fail** |
 | the same, at ×(1+4 × 10⁻⁷) | 80 fail; the 4 survivors are the one test whose `rel: 1e-6` is older than the float32 work |
 | the F18 control, override dropped / domain forced to Float64 | 2 of 3 fail / 1 of 3 fails |
 
-That is all 785 of them, which it had never been: the audit used to stop at
+That is all 1,005 of them, which it had never been: the audit used to stop at
 `components/` and `runs/`, so the fixtures — the documents that actually ingest,
-and where both silent findings on that path were eventually found — had no
-evidence any of their assertions could fail. They can; 102 of the 785 assert
-exactly zero and all 102 go red.
+and where all three silent findings on that path were eventually found — had no
+evidence any of their assertions could fail. They can; 32 of the 416 in
+`fixtures/` assert exactly zero and all 32 go red.
+
+The two fine-grained rows above are marked with the version they were measured
+on and have not been re-run since `nr-logging-county` went from 12 output rows
+to 144: its assertion count went 196 → 416 and its tolerances gained two
+entries. `tools/perturbation-audit.py` covers the whole of it at 10⁻³ and is
+what run-tests.sh and every commit rely on; the ×(1+4 × 10⁻⁷) sweep is a
+sharper instrument that is worth re-running by hand rather than quietly
+restating.
 
 The zero-valued ones are the case that matters most and the easiest to get
 wrong. 91 of the 585 in `components/` and `runs/` assert *exactly* zero — an earlier version of this
@@ -266,12 +284,12 @@ it does.
 **Phases 0–2 are complete, Phase 3 has its specification and four components,
 and Phase 4 has its first slice — wired, and complete.** Eighteen components
 cover all seven NONROAD stages of `nr-logging-county`, four of the six onroad
-stages of `mixed-onroad`, and all of `process-evap-leaks`, with **785 distinct
+stages of `mixed-onroad`, and all of `process-evap-leaks`, with **1,005 distinct
 inline assertions** whose numbers each trace to a named section of a port
-specification — 511 in the components, 74 in the assemblies, 196 in the two
+specification — 511 in the components, 74 in the assemblies, 416 in the two
 wired fixtures and 4 in the gates.
 
-**`process-evap-leaks` is the first fixture with no shortfall at all**: 128 of
+**`process-evap-leaks` was the first fixture with no shortfall at all**: 128 of
 128 rows against the snapshot `MOVESOutput`, key set exact — 128 shared, 0
 missing, 0 extra, verified against the Parquet directly on all 20 identity
 columns — worst cell 7.294 × 10⁻⁶ against a 2 × 10⁻⁵ gate that was not
@@ -305,16 +323,18 @@ document's rows. Verified against the real snapshot — 1,183 rows of a column
 sized by `extent` discovery, summing to 181564.4520000001, matching pyarrow
 exactly.
 
-**The nonroad fixture evaluates in Float32.** It declares
-`domain.element_type: "Float32"` with 19 SCC-valued variables overridden to
-`Float64` — the override exists because honouring a float precision
-document-wide destroys ingested integer keys above 2²⁴
-(`docs/findings/README.md` F18). 87 of 87 inline assertions pass, the 12 rows
-and their key set are unchanged, and the worst cell moved from 4.025 × 10⁻⁶ to
-4.046 × 10⁻⁶ against a 2 × 10⁻⁵ gate. Not one expected value changed; ten
-assertion tolerances moved to exactly 2⁻²³, one binary32 epsilon, which is the
-tightest a binary32 evaluation can ever satisfy and still fails a perturbation
-of 3.4 epsilons.
+**The nonroad fixture evaluates in Float32, and its row COUNT depends on it.**
+It declares `domain.element_type: "Float32"` with 20 SCC-valued variables
+overridden to `Float64` — the override exists because honouring a float
+precision document-wide destroys ingested integer keys above 2²⁴
+(`docs/findings/README.md` F18). When that landed, 87 of 87 inline assertions
+passed, the 12 rows of the day were unchanged and the worst cell moved from
+4.025 × 10⁻⁶ to 4.046 × 10⁻⁶ — but the row set did not yet depend on the
+precision, because the fixture still carried `agedist.f`'s answer as data. It
+computes the fold now, six times, once per equipment point: model year 2018 of
+SCC `2260007005` survives on a grown fraction of 5.888558263222876 × 10⁻⁸,
+which is exactly binary32's `5.8885583e-08` and is exactly `0.0` in binary64.
+Four of the 144 rows exist because the declared element type is honoured.
 
 Nothing needed splitting to get there, and that was luck with a cause worth
 knowing: `lib/keys.esm`'s SCC ladders take their presence tests as
@@ -343,10 +363,18 @@ binary64 makes it exactly zero, and it decides whether this SCC has three model
 years or two. **The document's row set is now produced by its declared element
 type instead of resting on a constant that was typed in.**
 
-That leaves the equipment-point axis as the only thing between the fixture and
-144 rows, and it is ordinary authoring effort rather than a missing capability:
-2265007015 needs 16 rows over two points, 2265007010 needs 116 over three and a
-38-year `nyrlif`.
+That left the equipment-point axis as the only thing between the fixture and 144
+rows, and it was ordinary authoring rather than a missing capability — but more
+of it than "widen the axis". `prccty.f` loops over the `nrsourceusetype` rows
+the RunSpec's SCCs select, six here, three of them sharing one SCC, so an output
+row is a SUM over points and its model-year set is the UNION of their `nyrlif`s.
+That union is ragged (3, 29 and 4 model years) and gappy (`2265007010` is
+missing 1991, 2000–2002 and 2006–2010 out of a 1983–2020 span), and a `ragged`
+index set does not evaluate (**F14**). The shape that works is a rectangular
+6 × 51 grid of (equipment point, age slot), a membership mask that is
+`prccty.f`'s skip written as TWO gates, and a prefix-count rank that compacts the
+survivors onto a flat 144-row output relation — `docs/esm-conventions.md` §22.
+It lands at 144 rows, key set exact, worst cell 4.561 × 10⁻⁶.
 
 Restoring the fold is also what turned up **F25**: the fixture passed 120 of 120
 with `minimumGrowthPopulation` undeclared, because on the ingesting path the

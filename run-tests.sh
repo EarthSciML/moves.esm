@@ -72,8 +72,9 @@ if [[ -z "${SNAPSHOTS:-}" ]]; then
   SNAPSHOTS="${SNAPSHOTS:-../moves.rs/characterization/snapshots}"
 fi
 
-# The one repro the tripwire loop cannot judge; see the F25 block below.
+# The two repros the tripwire loop cannot judge; see the F25 and F26 blocks below.
 F25="${F25:-docs/findings/F25_repro_an_undeclared_operand_is_dropped_when_ingesting.esm}"
+F26="${F26:-docs/findings/F26_repro_a_free_index_symbol_is_dropped_on_the_array_path.esm}"
 
 # The comparator is checked by its own falsification suite before it is trusted
 # to judge anything. This is not ceremony: two of its three gates are ones a
@@ -373,6 +374,7 @@ mapfile -t REPROS < <(find docs/findings -name '*.esm' -not -name '.*' -not -nam
   -not -name 'F24b_repro_one_ingested_column_breaks_the_recurrence.esm' \
   -not -name 'F28_control_the_contracted_lag_workaround.esm' \
   -not -name 'F25_repro_an_undeclared_operand_is_dropped_when_ingesting.esm' \
+  -not -name 'F26_repro_a_free_index_symbol_is_dropped_on_the_array_path.esm' \
   2>/dev/null | sort)
 
 if [[ ${#REPROS[@]} -eq 0 ]]; then
@@ -429,6 +431,38 @@ if [[ -f "$F25" ]]; then
        fix). Something else changed underneath it:"
       sed 's/^/         /' <<<"$f25_out"
     fi
+  fi
+fi
+
+# F26 is the fifth file the loop above does not run, and it is F25's twin: its
+# document is INTENDED to be invalid. An index symbol is bound only inside the
+# aggregate that declares it (esm-spec 4.3.1), so `index(a, i)` written outside
+# that aggregate names a variable `i` that does not exist and should be refused
+# at load. `esm validate` accepts it, and the two evaluation paths then
+# disagree: the tree walk raises E_TREEWALK_CONSTARRAY_OOB naming index 0,
+# while the ARRAY path -- the one every ingesting document takes -- silently
+# gives the free term the additive identity. So what is watched is `validate`,
+# which is where the fix belongs, and `simulate`, which is where the silence is.
+if [[ -f "$F26" ]]; then
+  if "$ESM" validate "$F26" >/dev/null 2>&1; then
+    f26_out=$("$ESM" simulate "$F26" --time 0 --observed b 2>&1 || true)
+    if grep -qE '^ *b\[1\] = 10( |$)' <<<"$f26_out"; then
+      pass "F26 still fails, as recorded — a free index symbol contributes zero on the array path"
+    elif grep -qE '^ *b\[1\] = 20( |$)' <<<"$f26_out"; then
+      fail "F26's array path now DOUBLES correctly while \`esm validate\` still accepts the
+       document. That is a worse state than the recorded one, not a fix: the free
+       symbol is being resolved to the enclosing aggregate's binder rather than
+       refused, so a genuine typo now silently means something. Check esm-spec 4.3.1
+       before retiring anything."
+    else
+      fail "F26's repro gives neither recorded answer. It should return b[1] = 10 (the
+       defect) or be refused by \`esm validate\` (the fix). Something else changed:"
+      sed 's/^/         /' <<<"$f26_out"
+    fi
+  else
+    fail "F26 IS FIXED — \`esm validate\` now rejects an index symbol left free outside its
+       aggregate. Remove the repro, retire F26 in docs/findings/README.md, and delete
+       this block. The undefined-name rule no longer depends on where the symbol sits."
   fi
 fi
 

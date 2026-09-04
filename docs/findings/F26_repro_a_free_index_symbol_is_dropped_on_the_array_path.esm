@@ -1,0 +1,79 @@
+{
+  "esm": "1.0.0",
+  "metadata": {
+    "name": "F26 repro — an index symbol left free outside its aggregate",
+    "description": "AN INDEX SYMBOL IS ONLY BOUND INSIDE THE AGGREGATE THAT DECLARES IT. esm-spec §4.3.1 is explicit that a bare string is a variable reference everywhere except inside an `aggregate`'s `output_idx`, `ranges` keys and `expr`, where it may be an index symbol. So `{\"op\": \"index\", \"args\": [\"a\", \"i\"]}` written OUTSIDE the aggregate that binds `i` names a variable `i` that does not exist, and the document should be rejected at load with an undefined-name diagnostic.\n\nIt is not. `esm validate` passes. What happens next depends on which evaluation path is taken, and the two do not agree:\n\n  esm test      E_TREEWALK_CONSTARRAY_OOB: const array 'a' index 0 out of\n                range 1..4  -- loud, and it says the index was ZERO\n  esm simulate  b = [10, 20, 30, 40]  -- silently `a`, the free term having\n                contributed the additive identity\n\n`b` is spelled `sum_i a[i]  +  a[i]` with the second term outside the aggregate; `c` is the same arithmetic with both terms inside it. `c` is [20, 40, 60, 80] on both paths. `b` should be too, and on the array path it is `a` instead.\n\nWHY IT MATTERS HERE AND NOT ONLY IN PRINCIPLE. The array path is the one EVERY INGESTING DOCUMENT TAKES, for `esm test` as much as for `esm simulate` -- that is the same path split finding F25 records. So in `fixtures/nr-logging-county.esm` the loud diagnostic is unreachable: hoisting nrdeterioration's join off the cohort axis was written with the defaulting term outside its aggregate, `esm validate` passed, `esm test` passed 343 of 343 assertions, and 109 of the 144 output cells were wrong -- the deterioration exponent came out 2 where the table says 1, because `(1 - det_isPresent)` evaluated to 1 everywhere instead of 0. Every affected cell was a plausible number and none of the assertions covered a technology whose exponent had moved. It was caught by diffing against the previous run, which is not a gate anyone should have to rely on.\n\nTHE ASSERTIONS BELOW ARE THE INTENDED BEHAVIOUR, so this file goes green the day the defect is fixed at evaluation. What the finding actually asks for is a REJECTION at load, which no inline test can assert -- so `run-tests.sh` watches `esm validate` and `esm simulate` on this file directly, the way it watches F25, rather than running it through the tripwire loop. The loop's rule is 'validate and test both pass means fixed', and for a document that is meant to be invalid that can never fire.\n\nMinimal on purpose: four rows, one const array, no data sources, no templates, no recurrence.",
+    "authors": ["EarthSciML Authors and Contributors"],
+    "tags": ["moves", "finding", "repro", "aggregate", "index-symbol", "silent"]
+  },
+  "index_sets": {
+    "rows": { "kind": "interval", "size": 4 }
+  },
+  "models": {
+    "FreeIndexSymbol": {
+      "tolerance": { "rel": 1e-12 },
+      "variables": {
+        "a": {
+          "type": "unknown", "units": "1", "shape": ["rows"],
+          "description": "10, 20, 30, 40. A plain const array, so the failure cannot be blamed on ingestion, on a recurrence, or on a template."
+        },
+        "b": {
+          "type": "unknown", "units": "1", "shape": ["rows"],
+          "description": "THE DEFECT. `a[i] + a[i]`, with the SECOND term written outside the aggregate that binds `i`. Should be an undefined-name rejection at load; is accepted, and on the array path the free term contributes 0, so `b` comes back equal to `a`."
+        },
+        "c": {
+          "type": "unknown", "units": "1", "shape": ["rows"],
+          "description": "THE CONTROL. The same arithmetic with both terms inside the aggregate. It is [20, 40, 60, 80] on both evaluation paths, which is what makes `b`'s answer attributable to the free symbol and not to the addition."
+        }
+      },
+      "equations": [
+        {
+          "lhs": "a",
+          "rhs": { "op": "const", "args": [], "value": [10.0, 20.0, 30.0, 40.0] }
+        },
+        {
+          "_comment": "The free `i` is in the second argument of the outer `+`, outside the aggregate node entirely.",
+          "lhs": "b",
+          "rhs": {
+            "op": "+",
+            "args": [
+              {
+                "op": "aggregate", "args": [], "output_idx": ["i"],
+                "ranges": { "i": { "from": "rows" } },
+                "expr": { "op": "index", "args": ["a", "i"] }
+              },
+              { "op": "index", "args": ["a", "i"] }
+            ]
+          }
+        },
+        {
+          "lhs": "c",
+          "rhs": {
+            "op": "aggregate", "args": [], "output_idx": ["i"],
+            "ranges": { "i": { "from": "rows" } },
+            "expr": {
+              "op": "+",
+              "args": [
+                { "op": "index", "args": ["a", "i"] },
+                { "op": "index", "args": ["a", "i"] }
+              ]
+            }
+          }
+        }
+      ],
+      "tests": [
+        {
+          "id": "a_free_index_symbol_doubles_nothing",
+          "description": "The intended answers. `c` holds on both paths; `b` holds on neither -- it errors under the tree walk and comes back as `a` on the array path. Both `b` rows are asserted so the finding cannot be read as an off-by-one at one end of the axis.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "c", "time": 0.0, "expected": 20.0, "coords": { "rows": 1 } },
+            { "variable": "c", "time": 0.0, "expected": 80.0, "coords": { "rows": 4 } },
+            { "variable": "b", "time": 0.0, "expected": 20.0, "coords": { "rows": 1 } },
+            { "variable": "b", "time": 0.0, "expected": 80.0, "coords": { "rows": 4 } }
+          ]
+        }
+      ]
+    }
+  }
+}

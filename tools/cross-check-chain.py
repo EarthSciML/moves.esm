@@ -65,6 +65,10 @@ TEST_ID = "the_chain_reproduces_the_worked_examples_2020_rows"
 LEAF_TEST_ID = "the_grown_fractions_sum_to_the_cumulative_growth_ratio"
 FIXTURE_TEST_ID = "the_fold_reproduces_the_reference_fractions_exactly_in_float32"
 MODEL_YEAR = "2020"
+# The fixture computes six equipment points over three SCCs; the assembly
+# computes one. These name the one they share.
+FIXTURE_SCC = "2260007005"
+FIXTURE_POINT = 1
 MAX_ULPS = 1.0
 # The recorded size of difference (b), in ulps of binary32, two-sided. Measured
 # 8.18; see the module docstring for what each edge means.
@@ -138,17 +142,28 @@ def fixture_grown_fraction():
     if len(hit) != 1:
         sys.exit(f"{FIXTURE}: expected exactly one test {FIXTURE_TEST_ID!r}, found {len(hit)}")
     got = [a["expected"] for a in hit[0]["assertions"]
-           if a["variable"] == "age_grownModelYearFraction"
-           and a.get("coords", {}).get("age_rows") == 1]
+           if a["variable"] == "slot_grownModelYearFraction"
+           and a.get("coords", {}).get("equipment_point_rows") == FIXTURE_POINT
+           and a.get("coords", {}).get("age_slot_rows") == 1]
     if len(got) != 1:
-        sys.exit(f"{FIXTURE}: expected one age_grownModelYearFraction[1] assertion in "
-                 f"{FIXTURE_TEST_ID!r}, found {len(got)}")
+        sys.exit(f"{FIXTURE}: expected one slot_grownModelYearFraction"
+                 f"[{FIXTURE_POINT}, 1] assertion in {FIXTURE_TEST_ID!r}, found {len(got)}")
     return got[0]
 
 def fixture_values(csv_path):
-    rows = [r for r in csv.DictReader(open(csv_path)) if r["modelYearID"] == MODEL_YEAR]
+    """The fixture's four rows for the SCC the assembly computes.
+
+    THE SCC FILTER IS NOT DECORATION. The assembly recomputes SS6.1's SCC and
+    nothing else; the fixture now emits all three, so model year 2020 alone is
+    twelve rows and an unfiltered read would hand four of another SCC's rows to
+    a comparison that pairs by sorted position. It would not pass -- the row
+    count check below catches it -- but it would fail for the wrong reason, and
+    a gate that fails for the wrong reason teaches its reader the wrong thing.
+    """
+    rows = [r for r in csv.DictReader(open(csv_path))
+            if r["modelYearID"] == MODEL_YEAR and r["SCC"] == FIXTURE_SCC]
     if not rows:
-        sys.exit(f"{csv_path}: no rows for model year {MODEL_YEAR}")
+        sys.exit(f"{csv_path}: no rows for SCC {FIXTURE_SCC} model year {MODEL_YEAR}")
     return [float(r["emissionQuant"]) for r in rows]
 
 
