@@ -2,29 +2,170 @@
   "esm": "1.0.0",
   "metadata": {
     "name": "moves.evaporative",
-    "description": "Template library: the two shapes the EVAPORATIVE chain adds, from docs/evap-leaks.md §4.2 and §4.3. Both are small, and both are here rather than inline because the arithmetic either side of them looks alike and the difference is load-bearing.\n\n`operating_share_of_activity` is E1, crates/moves-calculators/src/generators/evap_op_mode_distribution.rs:350 -- `least(1, SUM(SHO) / SUM(sourceHours))`, with the zero-denominator guard that `COALESCE(SUM(SHO), 0)`'s other half implies. It is NOT lib/onroad_activity.esm's `share_of_group`, and merging the two would be wrong in both directions: `share_of_group` has no cap, and a cap on a normalisation would silently change the travel fraction of docs/mixed-onroad.md S3.\n\n`soak_share` is E2, :443 stage 2 -- `soakActivityFraction * (1 - fractionOfOperating)`. One product, two parameters, and a name. The name is the point. E3's operating-mode-300 fraction is `greatest(0, 1 - SUM(soak shares))`, a RESIDUAL over a different set, and the two subtractions are easy to confuse: on the process-evap-leaks fixture `fractionOfOperating` is exactly 1, so `opModeFraction[300] = fractionOfOperating` and `opModeFraction[300] = 1 - SUM(...)` agree to the last bit and only one of them is right (docs/evap-leaks.md §2.3 measures the difference on a probe as 6.8e-08). Naming the soak half makes the residual half conspicuous by NOT having a template.\n\nDeliberately absent: a `clamp01`. There are two clamps in this stage, `least(1, .)` at E1 and `greatest(0, .)` at E3, with different bodies and different constants, and in both cases the VALUE the clamp takes is the load-bearing fact. A shared template would hide which clamp is which -- the same reasoning lib/onroad_activity.esm records for declining to factor the two onroad clamps. Also absent: the `/ noOfRealDays` of L9. It appears once, and it is the third thing in this port that carries a 7-day week and combines it differently from the other two (lib/conversion.esm's `temporal_scale` and lib/onroad_activity.esm's `weeks_per_month`); three templates for three combinations, none merged.\n\nAs with every library here, an `enums` block is file-local and does not cross a template import (esm-spec §9.3, finding F3), so identifier values arrive as parameters the call site binds to `enum` ops.",
-    "authors": ["EarthSciML Authors and Contributors"],
-    "tags": ["moves", "onroad", "evaporative", "template-library"]
+    "description": "Template library: the two shapes the EVAPORATIVE chain adds, from docs/evap-leaks.md §4.2 and §4.3. Both are small, and both are here rather than inline because the arithmetic either side of them looks alike and the difference is load-bearing.\n\n`operating_share_of_activity` is E1, crates/moves-calculators/src/generators/evap_op_mode_distribution.rs:350 -- `least(1, SUM(SHO) / SUM(sourceHours))`, with the zero-denominator guard that `COALESCE(SUM(SHO), 0)`'s other half implies. It is NOT lib/onroad_activity.esm's `share_of_group`, and merging the two would be wrong in both directions: `share_of_group` has no cap, and a cap on a normalisation would silently change the travel fraction of docs/mixed-onroad.md S3.\n\n`soak_share` is E2, :443 stage 2 -- `soakActivityFraction * (1 - fractionOfOperating)`. One product, two parameters, and a name. The name is the point. E3's operating-mode-300 fraction is `greatest(0, 1 - SUM(soak shares))`, a RESIDUAL over a different set, and the two subtractions are easy to confuse: on the process-evap-leaks fixture `fractionOfOperating` is exactly 1, so `opModeFraction[300] = fractionOfOperating` and `opModeFraction[300] = 1 - SUM(...)` agree to the last bit and only one of them is right (docs/evap-leaks.md §2.3 measures the difference on a probe as 6.8e-08). Naming the soak half makes the residual half conspicuous by NOT having a template.\n\nDeliberately absent: a `clamp01`. There are two clamps in this stage, `least(1, .)` at E1 and `greatest(0, .)` at E3, with different bodies and different constants, and in both cases the VALUE the clamp takes is the load-bearing fact. A shared template would hide which clamp is which -- the same reasoning lib/onroad_activity.esm records for declining to factor the two onroad clamps. Also absent: the `/ noOfRealDays` of L9. It appears once, and it is the third thing in this port that carries a 7-day week and combines it differently from the other two (lib/conversion.esm's `temporal_scale` and lib/onroad_activity.esm's `weeks_per_month`); three templates for three combinations, none merged.\n\nAs with every library here, an `enums` block is file-local and does not cross a template import (esm-spec §9.3, finding F3), so identifier values arrive as parameters the call site binds to `enum` ops.\n\nTHE FOUR TTG-1 SHAPES (docs/evap-permeation.md §2.6, crates/moves-calculators/src/generators/tank_temperature_generator.rs:1483-1537). `TankTemperatureGenerator` turns 24 hourly ambient temperatures into the parked vehicle's hourly tank temperature, and the step that does it is a RECURRENCE over a 96-cell quarter-hour axis. The arithmetic is split into four templates because three of the four are read by more than one equation and because the fourth is the guard the recurrence needs.\n\n`quarter_hour_interpolated_temperature` is TTG-1a: `t[h] + (ts - 1) * 0.25 * (t[next h] - t[h])`, a linear ramp from this hour's ambient temperature toward the next hour's. The `0.25` is written as the literal MOVES writes rather than as `1 / quarter_hours_per_hour`, because the two are the same number but not the same expression and the reference's own quarter-hour temperatures are stored at six significant figures; the association `((ts - 1) * 0.25) * delta` is the one the port evaluates (tank_temperature_generator.rs:1508).\n\n`quarter_hour_tank_temperature` is TTG-1b's smoothing: `1.4 * sumTempDelta + firstQHTankTemp`. The tank lags the air, and the 1.4 is the lag coefficient (`TANK_TEMP_SMOOTHING`). Two equations invoke it -- the recurrence's own body, which needs the tank temperature to form the delta it accumulates, and the equation that publishes the tank temperature -- so it is a template and not an inlined product. Writing it twice would be the classic way to end up with two different 1.4s.\n\n`quarter_hour_delta_sum` is the CARRIED VALUE of that recurrence: `sum + (quarterHourTemperature - quarterHourTankTemperature(sum))`. It invokes `quarter_hour_tank_temperature` (esm-spec §9.7.3 layering) rather than repeating the smoothing, so the recurrence and its published output cannot drift apart. Note what it is NOT: it is not a prefix sum of independent terms, because each term is a function of the answer so far -- which is exactly why it needs esm-spec §4.3.1.1's causal self-reference and not §4.3.1's ordinary scan.\n\n`prior_quarter_hour_delta_sum` is the base-case guard, and it exists because §4.3.1.1 point 6 says a self-read of an unpublished cell FAULTS: it does not read a zero ghost. So row 1's `sum` has to be written as a guard inside the body, `ifelse(k <= 1, 0, index(V, k - 1))`, and the guard is read by both equations above. Factoring it is not tidiness -- an `ifelse` in a recurrence body selects its branch BEFORE evaluating it (§4.3.1.1), which is the property that keeps the guarded self-read from being evaluated at the first cell, and having one copy of it means there is one place where that property has to hold. What the guard must NOT be is a hard-coded first row: row 1's delta sum is `firstQHTankTemp` subtracted from the hour-1 quarter-hour temperature, which is computed, is zero only because those two are the same number, and would move if either input moved. A recurrence whose first cell is written as the literal 0.0 has one fewer input it can be perturbed through, and finding F24 is what perturbing a recurrence is for.\n\n`quarter_hours_per_hour` is the 4 of `timeStepID`. It is here rather than in lib/conversion.esm because it is not a property of the clock -- it is TTG's discretisation of it, and nothing outside the tank-temperature step knows about it. `hours_per_day` IS in lib/conversion.esm, for the mirror-image reason.",
+    "authors": [
+      "EarthSciML Authors and Contributors"
+    ],
+    "tags": [
+      "moves",
+      "onroad",
+      "evaporative",
+      "template-library"
+    ]
   },
   "expression_templates": {
     "operating_share_of_activity": {
-      "params": ["sho_total", "source_hours_total"],
+      "params": [
+        "sho_total",
+        "source_hours_total"
+      ],
       "body": {
         "op": "ifelse",
         "args": [
-          { "op": ">", "args": ["source_hours_total", 0.0] },
-          { "op": "min", "args": [1.0, { "op": "/", "args": ["sho_total", "source_hours_total"] }] },
+          {
+            "op": ">",
+            "args": [
+              "source_hours_total",
+              0.0
+            ]
+          },
+          {
+            "op": "min",
+            "args": [
+              1.0,
+              {
+                "op": "/",
+                "args": [
+                  "sho_total",
+                  "source_hours_total"
+                ]
+              }
+            ]
+          },
           0.0
         ]
       }
     },
     "soak_share": {
-      "params": ["soak_activity_fraction", "operating_share"],
+      "params": [
+        "soak_activity_fraction",
+        "operating_share"
+      ],
       "body": {
         "op": "*",
         "args": [
           "soak_activity_fraction",
-          { "op": "-", "args": [1.0, "operating_share"] }
+          {
+            "op": "-",
+            "args": [
+              1.0,
+              "operating_share"
+            ]
+          }
+        ]
+      }
+    },
+    "quarter_hours_per_hour": {
+      "params": [],
+      "body": 4
+    },
+    "quarter_hour_interpolated_temperature": {
+      "params": [
+        "hour_temperature",
+        "next_hour_temperature",
+        "time_step"
+      ],
+      "body": {
+        "op": "+",
+        "args": [
+          "hour_temperature",
+          {
+            "op": "*",
+            "args": [
+              {
+                "op": "-",
+                "args": [
+                  "time_step",
+                  1
+                ]
+              },
+              0.25,
+              {
+                "op": "-",
+                "args": [
+                  "next_hour_temperature",
+                  "hour_temperature"
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "quarter_hour_tank_temperature": {
+      "params": [
+        "prior_delta_sum",
+        "first_tank_temperature"
+      ],
+      "body": {
+        "op": "+",
+        "args": [
+          {
+            "op": "*",
+            "args": [
+              1.4,
+              "prior_delta_sum"
+            ]
+          },
+          "first_tank_temperature"
+        ]
+      }
+    },
+    "quarter_hour_delta_sum": {
+      "params": [
+        "prior_delta_sum",
+        "quarter_hour_temperature",
+        "first_tank_temperature"
+      ],
+      "body": {
+        "op": "+",
+        "args": [
+          "prior_delta_sum",
+          {
+            "op": "-",
+            "args": [
+              "quarter_hour_temperature",
+              {
+                "op": "apply_expression_template",
+                "args": [],
+                "name": "quarter_hour_tank_temperature",
+                "bindings": {
+                  "prior_delta_sum": "prior_delta_sum",
+                  "first_tank_temperature": "first_tank_temperature"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "prior_quarter_hour_delta_sum": {
+      "params": [
+        "previous_delta_sum",
+        "quarter_hour_row"
+      ],
+      "body": {
+        "op": "ifelse",
+        "args": [
+          {
+            "op": "<=",
+            "args": [
+              "quarter_hour_row",
+              1
+            ]
+          },
+          0.0,
+          "previous_delta_sum"
         ]
       }
     }
