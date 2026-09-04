@@ -2,7 +2,7 @@
   "esm": "1.0.0",
   "metadata": {
     "name": "nr-logging-county snapshot tables",
-    "description": "A SOURCE-CATALOG FILE (esm-spec \u00a72): data_sources only, no component, not mountable as a subsystem. It declares every snapshot table the nr-logging-county chain reads -- twenty-six entries covering all seven stages of PLAN.md \u00a73 Phase 2 -- so that the ingest configuration is written, reviewed and version-controlled before it can be run, rather than invented under time pressure on the day it can.\n\nNOTHING CONSUMES IT YET, AND THAT IS DELIBERATE. No CLI subcommand can load a data source at the pinned toolchain: `src/bin/esm.rs` supplies no PrepareProvider, so a parameter with `update.kind: \"data\"` silently keeps its default and an aggregate over it silently sums to zero (build-esm.sh, KNOWN BLOCKER; PLAN.md \u00a71.5). Wiring a component to one of these entries today would make a green test that compared nothing. THE SHAPE IS THE RUNTIME'S, NOT THE SCHEMA'S GUESS: the format is `metadata.esio_format`, because a `format` key inside `reader_options` is rejected as an unknown reader option (esm-spec \u00a78.9.1 working as specified), and `url_template` carries an explicit `file://` scheme, because a bare absolute path fails with a missing-scheme error. Both were found by building the in-flight provider and running the real ingest. So the entries are declared and CHECKED -- tools/check-sources.py opens every file named here with pyarrow and verifies that it exists, that every `float_columns` entry is really a column, that none of them is already a float, and that no projected decimal-text column was left out -- while the components read `const` arrays transcribed from these same tables.\n\nWHAT IT ALREADY PROVES: that `float_columns` is mandatory, and on almost every table rather than only on MOVESOutput. Checked directly against the parquet: `surrogatequant`, `population`, `fractionLifeused`, `percentageScrapped`, `NREngTechFraction`, `monthFraction`, `dayFraction`, `marketShare`, all seventeen `fuelformulation` property columns, `zonemonthhour.temperature`, `nrsourceusetype`'s four activity columns, `nremissionrate.meanBaseRate`, `nrdeterioration.DFCoefficient` and `MOVESOutput.emissionQuant` are all physically `string` in the file, holding decimal text for byte-reproducibility, even where the sidecar .meta.json calls them float64. Without `float_columns` they arrive as strings and no arithmetic on them means anything. Two traps the catalog also records: `nrscrappagecurve.fractionLifeused` is spelled with a lowercase u, and `nrdayallocation.scc` is lowercase throughout.\n\nWHAT AGEDIST'S FOLD COSTS, AND WHAT IS NOW COMPUTED INSTEAD OF CARRIED. Every input the fold consumes comes out of the snapshot now: the 197-row `nrscrappagecurve` step lookup, the year-over-year scrapped fractions, `nyrlif`, the sales curve, the base model-year fractions, and getgrw's whole indicator series with the thirty annual `grwfac` factors it implies -- exact table rows, an interpolated year, and a year-over-year DIP whose negative factor is the mechanism \u00a76.3 calls the most fragile behaviour in the chain. \u00a77.3's 5.9604645e-08 age-3 survival is computed here too, which is the first time this fixture has asserted anything about it rather than receiving it inside a constant. What is still carried is the fold's three OUTPUT values, and the blocker is no longer F12: the format spells the fold and components/age_distribution.esm evaluates it. It is F24 -- a document that ingests `data_sources` is forced onto the build-pipeline evaluation path, and that path left every causal self-read unresolved, whereupon `max(NaN, 0)` laundered the sentinel into a plausible number. F24 IS FIXED UPSTREAM (EarthSciAST de784f3f8) and this column is still carried anyway, for two stated reasons: `esm-version.lock` pins 6d0ec3b13, which predates the fix, and the upstream author verified the build-pipeline path but could not verify the INGESTION axis, that build having no parquet reader. The const goes when a reader-enabled binary is confirmed against the real snapshot, and run-tests.sh fails with instructions the moment it is. The upstream canonical valid example is the repro, and docs/findings/F24_repro_a_recurrence_is_dropped_on_the_ingesting_path.esm and its F24b twin is the one kept here.\n\nWHAT IT WILL PROVE ONCE THE PROVIDER IS WIRED: that each stage selects its own rows out of the real tables -- 55,471 emission rates, 62,699 population rows, 930,816 hourly temperatures -- rather than transcribing the handful its tests use; and that the roll-up can be diffed row by row against the 144-row MOVESOutput at the tolerances in tolerance.toml. Wiring it is a change of source for each relation's columns, not a change of shape: every component's joins already key on the columns these tables carry.\n\nTHE PRECISION THIS DOCUMENT IS EVALUATED IN, AND WHAT IT COSTS THE ASSERTIONS. `domain.element_type` is `Float32`, because `moves.rs`'s NONROAD port is `real*4` operation by operation and preserves the Fortran's associativity (docs/nonroad-logging-county.md \u00a77.1). Nineteen variables override it back to `Float64`, and all nineteen hold an SCC: see `runSCC` for why, and note that the split costs no rewriting of a single expression, because every place an SCC meets a quantity in this document is a `join.on`, and esm-spec \u00a711.3.1 makes a comparison hand its parent an exact 0/1 flag rather than a key (docs/esm-conventions.md \u00a717).\n\nWhat the precision DOES cost is the assertion tolerances, and only some of them. The model default stays at `rel: 1e-12`, which is exact for every integer identifier a binary32 or binary64 evaluation can hold. Nine tests -- the ones whose every assertion is a floating-point QUANTITY -- override it to `1.1920929e-07`, which is 2^-23, one binary32 epsilon, the resolution of the declared element type. That is not a fitted number: it is the smallest tolerance under which a binary32 evaluation can agree with a decimal expected value at all. No expected value in this document changed; measured, the 39 assertions binary64 satisfied exactly and binary32 does not are spread from 1.2e-09 to 1.13e-07 relative, every one of them inside one epsilon.\n\nThe tolerance is per test rather than document-wide for the reason docs/findings F18 gives: `2260006912` is 4.1e-08 from `2260007005` and is a DIFFERENT EQUIPMENT CATEGORY, so a ten-digit key compared within one epsilon would pass while wrong -- which is precisely the failure this whole change exists to fix. The tests that pin an SCC, `run_fuelRegionID`, or any other key therefore stay at 1e-12 and remain exact, and `the_oxygen_content_survives_four_joins`, which pins both `run_fuelRegionID = 270000000` and a quantity, carries the loosened tolerance on the one quantity assertion instead of on the test. The loosening was also checked against what each test is built to discriminate; the tightest is `run_monthFraction`, where the table's 0.0833333 sits 4.0e-07 from the `defmth = 1/12` a missed lookup would deliver, a factor of 3.3 outside one epsilon.",
+    "description": "A SOURCE-CATALOG FILE (esm-spec \u00a72): data_sources only, no component, not mountable as a subsystem. It declares every snapshot table the nr-logging-county chain reads -- twenty-six entries covering all seven stages of PLAN.md \u00a73 Phase 2 -- so that the ingest configuration is written, reviewed and version-controlled before it can be run, rather than invented under time pressure on the day it can.\n\nNOTHING CONSUMES IT YET, AND THAT IS DELIBERATE. No CLI subcommand can load a data source at the pinned toolchain: `src/bin/esm.rs` supplies no PrepareProvider, so a parameter with `update.kind: \"data\"` silently keeps its default and an aggregate over it silently sums to zero (build-esm.sh, KNOWN BLOCKER; PLAN.md \u00a71.5). Wiring a component to one of these entries today would make a green test that compared nothing. THE SHAPE IS THE RUNTIME'S, NOT THE SCHEMA'S GUESS: the format is `metadata.esio_format`, because a `format` key inside `reader_options` is rejected as an unknown reader option (esm-spec \u00a78.9.1 working as specified), and `url_template` carries an explicit `file://` scheme, because a bare absolute path fails with a missing-scheme error. Both were found by building the in-flight provider and running the real ingest. So the entries are declared and CHECKED -- tools/check-sources.py opens every file named here with pyarrow and verifies that it exists, that every `float_columns` entry is really a column, that none of them is already a float, and that no projected decimal-text column was left out -- while the components read `const` arrays transcribed from these same tables.\n\nWHAT IT ALREADY PROVES: that `float_columns` is mandatory, and on almost every table rather than only on MOVESOutput. Checked directly against the parquet: `surrogatequant`, `population`, `fractionLifeused`, `percentageScrapped`, `NREngTechFraction`, `monthFraction`, `dayFraction`, `marketShare`, all seventeen `fuelformulation` property columns, `zonemonthhour.temperature`, `nrsourceusetype`'s four activity columns, `nremissionrate.meanBaseRate`, `nrdeterioration.DFCoefficient` and `MOVESOutput.emissionQuant` are all physically `string` in the file, holding decimal text for byte-reproducibility, even where the sidecar .meta.json calls them float64. Without `float_columns` they arrive as strings and no arithmetic on them means anything. Two traps the catalog also records: `nrscrappagecurve.fractionLifeused` is spelled with a lowercase u, and `nrdayallocation.scc` is lowercase throughout.\n\nWHAT AGEDIST'S FOLD COSTS, AND WHAT IS NOW COMPUTED INSTEAD OF CARRIED. Every input the fold consumes comes out of the snapshot now: the 197-row `nrscrappagecurve` step lookup, the year-over-year scrapped fractions, `nyrlif`, the sales curve, the base model-year fractions, and getgrw's whole indicator series with the thirty annual `grwfac` factors it implies -- exact table rows, an interpolated year, and a year-over-year DIP whose negative factor is the mechanism \u00a76.3 calls the most fragile behaviour in the chain. \u00a77.3's 5.9604645e-08 age-3 survival is computed here too, which is the first time this fixture has asserted anything about it rather than receiving it inside a constant. What is still carried is the fold's three OUTPUT values, and the blocker is no longer F12: the format spells the fold and components/age_distribution.esm evaluates it. It is F24 -- a document that ingests `data_sources` is forced onto the build-pipeline evaluation path, and that path left every causal self-read unresolved, whereupon `max(NaN, 0)` laundered the sentinel into a plausible number. F24 IS FIXED UPSTREAM (EarthSciAST de784f3f8) and this column is still carried anyway, for two stated reasons: `esm-version.lock` pins 6d0ec3b13, which predates the fix, and the upstream author verified the build-pipeline path but could not verify the INGESTION axis, that build having no parquet reader. The const goes when a reader-enabled binary is confirmed against the real snapshot, and run-tests.sh fails with instructions the moment it is. The upstream canonical valid example is the repro, and docs/findings/F24_repro_a_recurrence_is_dropped_on_the_ingesting_path.esm and its F24b twin is the one kept here.\n\nWHAT IT WILL PROVE ONCE THE PROVIDER IS WIRED: that each stage selects its own rows out of the real tables -- 55,471 emission rates, 62,699 population rows, 930,816 hourly temperatures -- rather than transcribing the handful its tests use; and that the roll-up can be diffed row by row against the 144-row MOVESOutput at the tolerances in tolerance.toml. Wiring it is a change of source for each relation's columns, not a change of shape: every component's joins already key on the columns these tables carry.\n\nTHE PRECISION THIS DOCUMENT IS EVALUATED IN, AND WHAT IT COSTS THE ASSERTIONS. `domain.element_type` is `Float32`, because `moves.rs`'s NONROAD port is `real*4` operation by operation and preserves the Fortran's associativity (docs/nonroad-logging-county.md \u00a77.1). Nineteen variables override it back to `Float64`, and all nineteen hold an SCC: see `runSCC` for why, and note that the split costs no rewriting of a single expression, because every place an SCC meets a quantity in this document is a `join.on`, and esm-spec \u00a711.3.1 makes a comparison hand its parent an exact 0/1 flag rather than a key (docs/esm-conventions.md \u00a717).\n\nWhat the precision DOES cost is the assertion tolerances, and only some of them. The model default stays at `rel: 1e-12`, which is exact for every integer identifier a binary32 or binary64 evaluation can hold. Nine tests -- the ones whose every assertion is a floating-point QUANTITY -- override it to `1.1920929e-07`, which is 2^-23, one binary32 epsilon, the resolution of the declared element type. That is not a fitted number: it is the smallest tolerance under which a binary32 evaluation can agree with a decimal expected value at all. No expected value in this document changed; measured, the 39 assertions binary64 satisfied exactly and binary32 does not are spread from 1.2e-09 to 1.13e-07 relative, every one of them inside one epsilon.\n\nThe tolerance is per test rather than document-wide for the reason docs/findings F18 gives: `2260006912` is 4.1e-08 from `2260007005` and is a DIFFERENT EQUIPMENT CATEGORY, so a ten-digit key compared within one epsilon would pass while wrong -- which is precisely the failure this whole change exists to fix. The tests that pin an SCC, `point_fuelRegionID`, or any other key therefore stay at 1e-12 and remain exact, and `the_oxygen_content_survives_four_joins`, which pins both `point_fuelRegionID = 270000000` and a quantity, carries the loosened tolerance on the one quantity assertion instead of on the test. The loosening was also checked against what each test is built to discriminate; the tightest is `point_monthFraction`, where the table's 0.0833333 sits 4.0e-07 from the `defmth = 1/12` a missed lookup would deliver, a factor of 3.3 outside one epsilon.",
     "authors": [
       "EarthSciML Authors and Contributors"
     ],
@@ -706,7 +706,7 @@
       "kind": "interval",
       "size": "n_nrstatesurrogate"
     },
-    "run_rows": {
+    "equipment_point_rows": {
       "kind": "interval",
       "size": 1
     },
@@ -969,25 +969,25 @@
           "default": 2260007005.0,
           "description": "The SCC this fixture computes: docs/nonroad-logging-county.md \u00a76.1's two-stroke chain saws, one equipment point, one active engine technology, three model years, twelve MOVESOutput rows. It is a KEY, so every use of it below is a `join.on` and never a filter.\n\nIT IS ALSO THE REASON THIS DOCUMENT NEEDS A PER-VARIABLE `element_type`. The document evaluates in `Float32` (see `domain`), because the reference is `real*4` throughout its floating-point quantities. Its keys are not: `2260007005` is 135x binary32's exact-integer limit of 2^24, and rounds to `2260006912` -- which is not a wrong last digit but a different equipment category, so every `join.on` over it matches nothing and the run emits zeros (docs/findings F18, measured end to end: 35 of 87 assertions, every emissionQuant exactly 0). `Float64` here is the Fortran's `INTEGER SCC` said in the only vocabulary the format has. Every SCC-valued variable in this document carries the same override, and nothing else does; the twelve quantities the roll-up multiplies stay at the document's precision."
         },
-        "run_SCC": {
+        "point_SCC": {
           "type": "unknown",
           "element_type": "Float64",
           "shape": [
-            "run_rows"
+            "equipment_point_rows"
           ],
           "description": "The run's SCC as a one-row RELATION, which is what a `join.on` needs on the other side of a table column. The scalar parameter above is the single source of truth for its value, and for its precision."
         },
-        "run_stateID": {
+        "point_stateID": {
           "type": "unknown",
           "shape": [
-            "run_rows"
+            "equipment_point_rows"
           ],
           "description": "The run's state, as a relation."
         },
-        "run_baseYearID": {
+        "point_baseYearID": {
           "type": "unknown",
           "shape": [
-            "run_rows"
+            "equipment_point_rows"
           ],
           "description": "The base population year, as a relation."
         },
@@ -1144,7 +1144,7 @@
           "shape": [
             "nrbaseyearequippopulation_rows"
           ],
-          "description": "nrbaseyearequippopulation.population, decimal text in the file, at the full precision the table stores. The engine never sees this number -- see run_statePopulation.",
+          "description": "nrbaseyearequippopulation.population, decimal text in the file, at the full precision the table stores. The engine never sees this number -- see point_statePopulation.",
           "update": {
             "kind": "data",
             "source": "nr_logging_county_nrbaseyearequippopulation",
@@ -1217,10 +1217,10 @@
             }
           }
         },
-        "run_surrogateID": {
+        "point_surrogateID": {
           "type": "unknown",
           "shape": [
-            "run_rows"
+            "equipment_point_rows"
           ],
           "description": "J1 twice over: this SCC's equipment type, and that type's allocation surrogate. Read out of nrscc and nrequipmenttype rather than declared, so a snapshot that reassigned chain saws to another surrogate would move this fixture's answer instead of being ignored."
         },
@@ -1244,7 +1244,7 @@
           "shape": [
             "surrogate_target_rows"
           ],
-          "description": "The surrogate both lookups key on, carried from run_surrogateID onto both rows."
+          "description": "The surrogate both lookups key on, carried from point_surrogateID onto both rows."
         },
         "tgt_yearAtOrBeforeCount": {
           "type": "unknown",
@@ -1283,51 +1283,51 @@
           ],
           "description": "J6: the surrogate quantity for each lookup. County 26161 gets 1,512,186 and state 26000 gets 466,969,286, both at surrogateYearID 2002."
         },
-        "run_allocationCountyQuant": {
+        "point_allocationCountyQuant": {
           "type": "unknown",
           "units": "1",
           "shape": [
-            "run_rows"
+            "equipment_point_rows"
           ],
           "description": "The county row's quantity, selected out of the pair by its own membership column."
         },
-        "run_allocationStateQuant": {
+        "point_allocationStateQuant": {
           "type": "unknown",
           "units": "1",
           "shape": [
-            "run_rows"
+            "equipment_point_rows"
           ],
           "description": "The state row's."
         },
-        "run_allocationFraction": {
+        "point_allocationFraction": {
           "type": "unknown",
           "units": "1",
           "shape": [
-            "run_rows"
+            "equipment_point_rows"
           ],
           "description": "alocty.f. A non-positive state quantity gives 0 rather than a division (nonroad_loader.rs:1076), which is the guard the decoy surrogate in components/geographic_allocation.esm exercises."
         },
-        "run_rawStatePopulation": {
+        "point_rawStatePopulation": {
           "type": "unknown",
           "units": "1",
           "shape": [
-            "run_rows"
+            "equipment_point_rows"
           ],
           "description": "What the state population would be without the .POP quantization. Computed only so a test can show the two apart; nothing downstream reads it."
         },
-        "run_statePopulation": {
+        "point_statePopulation": {
           "type": "unknown",
           "units": "1",
           "shape": [
-            "run_rows"
+            "equipment_point_rows"
           ],
           "description": "The state population as the engine sees it: canonical writes the .POP file with %17.1f, so each row is rounded to one decimal BEFORE summing (nonroad_loader.rs:1226). Rounding the sum instead would differ wherever a source type has rows in more than one populated state."
         },
-        "run_countyPopulation": {
+        "point_countyPopulation": {
           "type": "unknown",
           "units": "1",
           "shape": [
-            "run_rows"
+            "equipment_point_rows"
           ],
           "description": "The `population` factor of the \u00a72.6(b) roll-up product: the grown-on-state, allocated-afterwards quantity of \u00a72.1."
         },
@@ -1351,31 +1351,31 @@
           "default": 18.0,
           "description": "Last hourID of it, inclusive. Thirteen hours, not twelve."
         },
-        "run_countyID": {
+        "point_countyID": {
           "type": "unknown",
           "shape": [
-            "run_rows"
+            "equipment_point_rows"
           ],
           "description": "The run's county, as a relation, so zone and regioncounty are reached by `join.on`."
         },
-        "run_yearID": {
+        "point_yearID": {
           "type": "unknown",
           "shape": [
-            "run_rows"
+            "equipment_point_rows"
           ],
           "description": "The episode year, as a relation, for the year -> fuelYear lookup."
         },
-        "run_dayID": {
+        "point_dayID": {
           "type": "unknown",
           "shape": [
-            "run_rows"
+            "equipment_point_rows"
           ],
           "description": "The run's day type, as a relation."
         },
-        "run_engineFuelKindID": {
+        "point_engineFuelKindID": {
           "type": "unknown",
           "shape": [
-            "run_rows"
+            "equipment_point_rows"
           ],
           "description": "Two-stroke or four-stroke, DERIVED from the SCC rather than declared: \u00a75.3 says an SCC beginning 2260 is two-stroke gasoline and one beginning 2265 is four-stroke. Getting it wrong is a 24% error on NOx (\u00a74.3), and it is not in any table."
         },
@@ -1970,215 +1970,215 @@
           ],
           "description": "Days in it, non-leap. adjtime is 1/this."
         },
-        "run_sccZero2": {
+        "point_sccZero2": {
           "type": "unknown",
           "element_type": "Float64",
           "shape": [
-            "run_rows"
+            "equipment_point_rows"
           ],
           "description": "The SCC with its last two digits zeroed: rung 2 of the lookup ladder (\u00a74.5)."
         },
-        "run_sccZero4": {
+        "point_sccZero4": {
           "type": "unknown",
           "element_type": "Float64",
           "shape": [
-            "run_rows"
+            "equipment_point_rows"
           ],
           "description": "Rung 3, four digits zeroed."
         },
-        "run_monthExactIsPresent": {
+        "point_monthExactIsPresent": {
           "type": "unknown",
           "units": "1",
           "shape": [
-            "run_rows"
+            "equipment_point_rows"
           ],
           "description": "Ladder rung 1: does nrmonthallocation hold this exact SCC for the run month, in either visible state?"
         },
-        "run_monthZero2IsPresent": {
+        "point_monthZero2IsPresent": {
           "type": "unknown",
           "units": "1",
           "shape": [
-            "run_rows"
+            "equipment_point_rows"
           ],
           "description": "Rung 2."
         },
-        "run_monthZero4IsPresent": {
+        "point_monthZero4IsPresent": {
           "type": "unknown",
           "units": "1",
           "shape": [
-            "run_rows"
+            "equipment_point_rows"
           ],
           "description": "Rung 3."
         },
-        "run_monthEffectiveSCC": {
+        "point_monthEffectiveSCC": {
           "type": "unknown",
           "element_type": "Float64",
           "shape": [
-            "run_rows"
+            "equipment_point_rows"
           ],
           "description": "The rung the month ladder stops on: 2260007000 for this SCC. The two rungs both exist for these SCCs and carry 0.0833333 and 0.117764, so stopping on the wrong one is a 41% error (\u00a72.3)."
         },
-        "run_monthRunStateRowIsPresent": {
+        "point_monthRunStateRowIsPresent": {
           "type": "unknown",
           "units": "1",
           "shape": [
-            "run_rows"
+            "equipment_point_rows"
           ],
           "description": "\u00a74.6: is there a row for THIS state at the chosen rung? If not the national default row wins."
         },
-        "run_monthEffectiveStateID": {
+        "point_monthEffectiveStateID": {
           "type": "unknown",
           "shape": [
-            "run_rows"
+            "equipment_point_rows"
           ],
           "description": "The stateID the lookup keys on, after that precedence."
         },
-        "run_monthRowIsPresent": {
+        "point_monthRowIsPresent": {
           "type": "unknown",
           "units": "1",
           "shape": [
-            "run_rows"
+            "equipment_point_rows"
           ],
           "description": "Whether the resolved key matches anything at all; a miss falls back to defmth = 1/12."
         },
-        "run_matchedMonthFraction": {
+        "point_matchedMonthFraction": {
           "type": "unknown",
           "units": "1",
           "shape": [
-            "run_rows"
+            "equipment_point_rows"
           ],
           "description": "J15, now a plain three-column equi-join on the resolved key."
         },
-        "run_monthFraction": {
+        "point_monthFraction": {
           "type": "unknown",
           "units": "1",
           "shape": [
-            "run_rows"
+            "equipment_point_rows"
           ],
           "description": "mthfrc: 0.0833333 for August at rung 2260007000."
         },
-        "run_dayExactIsPresent": {
+        "point_dayExactIsPresent": {
           "type": "unknown",
           "units": "1",
           "shape": [
-            "run_rows"
+            "equipment_point_rows"
           ],
           "description": "The day ladder's rung 1. Searched INDEPENDENTLY of the month ladder, with its own walk (\u00a72.3)."
         },
-        "run_dayZero2IsPresent": {
+        "point_dayZero2IsPresent": {
           "type": "unknown",
           "units": "1",
           "shape": [
-            "run_rows"
+            "equipment_point_rows"
           ],
           "description": "Rung 2."
         },
-        "run_dayZero4IsPresent": {
+        "point_dayZero4IsPresent": {
           "type": "unknown",
           "units": "1",
           "shape": [
-            "run_rows"
+            "equipment_point_rows"
           ],
           "description": "Rung 3."
         },
-        "run_dayEffectiveSCC": {
+        "point_dayEffectiveSCC": {
           "type": "unknown",
           "element_type": "Float64",
           "shape": [
-            "run_rows"
+            "equipment_point_rows"
           ],
           "description": "The rung the day ladder stops on."
         },
-        "run_dayRowIsPresent": {
+        "point_dayRowIsPresent": {
           "type": "unknown",
           "units": "1",
           "shape": [
-            "run_rows"
+            "equipment_point_rows"
           ],
           "description": "Whether it matched; a miss falls back to defday = 1/7."
         },
-        "run_matchedDayFraction": {
+        "point_matchedDayFraction": {
           "type": "unknown",
           "units": "1",
           "shape": [
-            "run_rows"
+            "equipment_point_rows"
           ],
           "description": "J16."
         },
-        "run_dayFraction": {
+        "point_dayFraction": {
           "type": "unknown",
           "units": "1",
           "shape": [
-            "run_rows"
+            "equipment_point_rows"
           ],
           "description": "dayfrc: 0.166667 for a weekday."
         },
-        "run_monthDayFactor": {
+        "point_monthDayFactor": {
           "type": "unknown",
           "units": "1",
           "shape": [
-            "run_rows"
+            "equipment_point_rows"
           ],
           "description": "tpltmp = mthfrc x 7 x dayfrc = 0.09722238."
         },
-        "run_daysInMonth": {
+        "point_daysInMonth": {
           "type": "unknown",
           "units": "1",
           "shape": [
-            "run_rows"
+            "equipment_point_rows"
           ],
           "description": "Days in the run month, 31 for August."
         },
-        "run_adjustmentTime": {
+        "point_adjustmentTime": {
           "type": "unknown",
           "units": "1",
           "shape": [
-            "run_rows"
+            "equipment_point_rows"
           ],
           "description": "adjtime = 1/ndays. clcems.f divides the annual activity down to one typical day."
         },
-        "run_daytimeHourCount": {
+        "point_daytimeHourCount": {
           "type": "unknown",
           "units": "1",
           "shape": [
-            "run_rows"
+            "equipment_point_rows"
           ],
           "description": "Hours in the averaging window that the zone actually has rows for: 13, not 12 -- the window is inclusive at both ends."
         },
-        "run_daytimeTemperatureSum": {
+        "point_daytimeTemperatureSum": {
           "type": "unknown",
           "units": "degF",
           "shape": [
-            "run_rows"
+            "equipment_point_rows"
           ],
           "description": "Their sum."
         },
-        "run_meanTemperature": {
+        "point_meanTemperature": {
           "type": "unknown",
           "units": "degF",
           "shape": [
-            "run_rows"
+            "equipment_point_rows"
           ],
           "description": "tamb. 73.576924 for this county-month, which is BELOW emsadj.f's 75 degF branch point -- the cold coefficients apply."
         },
-        "run_fuelYearID": {
+        "point_fuelYearID": {
           "type": "unknown",
           "shape": [
-            "run_rows"
+            "equipment_point_rows"
           ],
           "description": "J19: the fuel year for this calendar year."
         },
-        "run_monthID": {
+        "point_monthID": {
           "type": "unknown",
           "shape": [
-            "run_rows"
+            "equipment_point_rows"
           ],
           "description": "The run month, read from runspecmonth rather than from the RunSpec XML's zero-based key."
         },
-        "run_fuelRegionID": {
+        "point_fuelRegionID": {
           "type": "unknown",
           "shape": [
-            "run_rows"
+            "equipment_point_rows"
           ],
           "description": "J20: the county's NONROAD fuel region, taken at regionCodeID 2."
         },
@@ -2217,11 +2217,11 @@
           ],
           "description": "The resolved fuel region, carried onto the same one-row relation so J21 can join on it."
         },
-        "run_oxygenWeightPercent": {
+        "point_oxygenWeightPercent": {
           "type": "unknown",
           "units": "1",
           "shape": [
-            "run_rows"
+            "equipment_point_rows"
           ],
           "description": "oxy: the market-share-weighted oxygen content of the county's gasoline, in weight percent. 3.653 here -- one supply row, formulation 9114 (Gasohol E10), share 1.0, 10 vol% ethanol at 0.3653 wt%/vol%."
         },
@@ -2767,128 +2767,128 @@
           ],
           "description": "0 for the base year, 1 for the episode year: which end of the span this row is."
         },
-        "run_hpAvg": {
+        "point_hpAvg": {
           "type": "unknown",
           "shape": [
-            "run_rows"
+            "equipment_point_rows"
           ],
           "description": "This equipment point's average horsepower, 6.81. Selects the hp bin in BOTH the mix and the rate table."
         },
-        "run_hoursUsedPerYear": {
+        "point_hoursUsedPerYear": {
           "type": "unknown",
           "units": "1",
           "shape": [
-            "run_rows"
+            "equipment_point_rows"
           ],
           "description": "acttmp: 303 hours a year."
         },
-        "run_loadFactor": {
+        "point_loadFactor": {
           "type": "unknown",
           "units": "1",
           "shape": [
-            "run_rows"
+            "equipment_point_rows"
           ],
           "description": "0.7."
         },
-        "run_medianLifeFullLoad": {
+        "point_medianLifeFullLoad": {
           "type": "unknown",
           "units": "1",
           "shape": [
-            "run_rows"
+            "equipment_point_rows"
           ],
           "description": "191 full-load hours."
         },
-        "run_unitConversion": {
+        "point_unitConversion": {
           "type": "unknown",
           "units": "1",
           "shape": [
-            "run_rows"
+            "equipment_point_rows"
           ],
           "description": "cvttmp from unitcf.f's g/hp-hr branch: hpAvg x loadFactor = 4.767. The other branches divide by fuel density and are not reached by an hours-based activity."
         },
-        "run_sccZero3": {
+        "point_sccZero3": {
           "type": "unknown",
           "element_type": "Float64",
           "shape": [
-            "run_rows"
+            "equipment_point_rows"
           ],
           "description": "The SCC with three digits zeroed: rung 2 of the EQUIPMENT chain (\u00a74.5), which is a different ladder from the month/day lookup's zero-2/4/6 one."
         },
-        "run_sccZero6": {
+        "point_sccZero6": {
           "type": "unknown",
           "element_type": "Float64",
           "shape": [
-            "run_rows"
+            "equipment_point_rows"
           ],
           "description": "Rung 3, six digits zeroed."
         },
-        "run_growthExactIsPresent": {
+        "point_growthExactIsPresent": {
           "type": "unknown",
           "units": "1",
           "shape": [
-            "run_rows"
+            "equipment_point_rows"
           ],
           "description": "Is there a growth-pattern row for this exact SCC in a state this run can see? For 2260007005 the table has a stateID 99 row and nothing at 26 or 0, so this is 0 and the answer changes if the state scope is dropped."
         },
-        "run_growthZero3IsPresent": {
+        "point_growthZero3IsPresent": {
           "type": "unknown",
           "units": "1",
           "shape": [
-            "run_rows"
+            "equipment_point_rows"
           ],
           "description": "Rung 2."
         },
-        "run_growthEffectiveSCC": {
+        "point_growthEffectiveSCC": {
           "type": "unknown",
           "element_type": "Float64",
           "shape": [
-            "run_rows"
+            "equipment_point_rows"
           ],
           "description": "The rung the equipment chain stops on for growth: 2260007000."
         },
-        "run_growthStateRowIsPresent": {
+        "point_growthStateRowIsPresent": {
           "type": "unknown",
           "units": "1",
           "shape": [
-            "run_rows"
+            "equipment_point_rows"
           ],
           "description": "\u00a74.6 again: a state row beats the national default."
         },
-        "run_growthEffectiveStateID": {
+        "point_growthEffectiveStateID": {
           "type": "unknown",
           "shape": [
-            "run_rows"
+            "equipment_point_rows"
           ],
           "description": "26."
         },
-        "run_growthPatternID": {
+        "point_growthPatternID": {
           "type": "unknown",
           "shape": [
-            "run_rows"
+            "equipment_point_rows"
           ],
           "description": "J8: 2176."
         },
-        "run_baseGrowthIndex": {
+        "point_baseGrowthIndex": {
           "type": "unknown",
           "units": "1",
           "shape": [
-            "run_rows"
+            "equipment_point_rows"
           ],
           "description": "G(1990) = 321, an exact row of nrgrowthindex."
         },
-        "run_endGrowthIndex": {
+        "point_endGrowthIndex": {
           "type": "unknown",
           "units": "1",
           "shape": [
-            "run_rows"
+            "equipment_point_rows"
           ],
           "description": "G(2020) = 1508."
         },
-        "run_cumulativeGrowthRatio": {
+        "point_cumulativeGrowthRatio": {
           "type": "unknown",
           "units": "1",
           "shape": [
-            "run_rows"
+            "equipment_point_rows"
           ],
           "description": "G(2020)/G(1990) = 4.697819. The independent check on the carried age distribution below."
         },
@@ -2956,19 +2956,19 @@
           ],
           "description": "1-based equipment age in years, 1 to MXAGYR = 51. Age 1 is the newest cohort. This is the fold's slot axis and is longer than `age_rows`, which carries only the cohorts this SCC actually has."
         },
-        "run_medianLifeYears": {
+        "point_medianLifeYears": {
           "type": "unknown",
           "units": "1",
           "shape": [
-            "run_rows"
+            "equipment_point_rows"
           ],
           "description": "min(25, (medianLifeFullLoad / loadFactor) / hoursUsedPerYear) = 0.90051866 yr. The division order is scrptime.rs:102's, LEFT TO RIGHT, and the cap is MXAGYR/2."
         },
-        "run_medianLifePerYear": {
+        "point_medianLifePerYear": {
           "type": "unknown",
           "units": "1",
           "shape": [
-            "run_rows"
+            "equipment_point_rows"
           ],
           "description": "1 / medianLifeYears = 1.1104711: the life fraction one year of use consumes."
         },
@@ -2976,7 +2976,7 @@
           "type": "unknown",
           "units": "1",
           "shape": [
-            "run_rows",
+            "equipment_point_rows",
             "age_slot_rows"
           ],
           "description": "(age - 1) / medianLifeYears: how much of the median life this cohort has consumed."
@@ -2985,7 +2985,7 @@
           "type": "unknown",
           "units": "1",
           "shape": [
-            "run_rows",
+            "equipment_point_rows",
             "age_slot_rows"
           ],
           "description": "The same for the age before it, floored at 0 so age 1's predecessor reads the curve's origin. Computed rather than read from the neighbouring row, because a relation cannot be joined to itself (docs/findings F11)."
@@ -2994,7 +2994,7 @@
           "type": "unknown",
           "units": "1",
           "shape": [
-            "run_rows",
+            "equipment_point_rows",
             "age_slot_rows"
           ],
           "description": "Cumulative percent scrapped at this age: the curve's value at the last breakpoint AT OR BELOW slot_fractionLifeUsed. find_scrappage_percent does NOT interpolate between breakpoints (output/find.rs:233-244), which is why all 197 points are read rather than a few around the answer."
@@ -3003,7 +3003,7 @@
           "type": "unknown",
           "units": "1",
           "shape": [
-            "run_rows",
+            "equipment_point_rows",
             "age_slot_rows"
           ],
           "description": "The same at the previous age. scrptime works with both at once, which is what makes the year-over-year fraction a difference of cumulatives rather than a curve of its own."
@@ -3012,7 +3012,7 @@
           "type": "unknown",
           "units": "1",
           "shape": [
-            "run_rows",
+            "equipment_point_rows",
             "age_slot_rows"
           ],
           "description": "yryrfrcscrp: the fraction of the cohort SURVIVING at the previous age that is scrapped during this one. Once the previous age is fully scrapped the entry is 0 rather than a division by zero (scrptime.rs:126-131)."
@@ -3021,24 +3021,24 @@
           "type": "unknown",
           "units": "1",
           "shape": [
-            "run_rows",
+            "equipment_point_rows",
             "age_slot_rows"
           ],
           "description": "1 - yryrfrcscrp: the factor agedist.f applies when it shifts a cohort one year older. \u00a77.3 LIVES HERE. For this equipment point age 3's cumulative scrappage is exactly 100%, so this is 100 x 0.265 / 26.5 subtracted from 1 -- exactly 0 in binary64 and 5.9604645e-08 in the binary32 this document declares. Thirty fold iterations later that residue is the whole of model year 2018, four MOVESOutput rows."
         },
-        "run_equipmentLifeYears": {
+        "point_equipmentLifeYears": {
           "type": "unknown",
           "units": "1",
           "shape": [
-            "run_rows"
+            "equipment_point_rows"
           ],
           "description": "nyrlif = 3: the first age at which cumulative scrappage reaches 100%, and so the number of model years this equipment point spans. Capped at MXAGYR for totality; the cap cannot bind, because the median life is itself capped at MXAGYR/2 and the curve reaches 100% at twice the median life."
         },
-        "run_salesGrowth": {
+        "point_salesGrowth": {
           "type": "unknown",
           "units": "1",
           "shape": [
-            "run_rows"
+            "equipment_point_rows"
           ],
           "description": "The sales trend scrptime.rs:139-143 infers from ONE year's population growth -- grwfac(1990, 1991), not the growth over the whole projection."
         },
@@ -3046,16 +3046,16 @@
           "type": "unknown",
           "units": "1",
           "shape": [
-            "run_rows",
+            "equipment_point_rows",
             "age_slot_rows"
           ],
           "description": "The 1990 stock at this age: the sales of the year it was built, decayed by its cumulative scrappage (scrptime.rs:147-165). The cohort at age `a` was sold nyrlif - a sales-years after the curve's start, so the sales index is a subtraction rather than an array read. Ages beyond nyrlif carry 0."
         },
-        "run_survivingEquipmentTotal": {
+        "point_survivingEquipmentTotal": {
           "type": "unknown",
           "units": "1",
           "shape": [
-            "run_rows"
+            "equipment_point_rows"
           ],
           "description": "The normalizing sum of slot_survivingEquipment, accumulated in ascending age order as scrptime accumulates it."
         },
@@ -3063,7 +3063,7 @@
           "type": "unknown",
           "units": "1",
           "shape": [
-            "run_rows",
+            "equipment_point_rows",
             "age_slot_rows"
           ],
           "description": "modfrc before growth: the share of the 1990 population at this age, (0.8506725, 0.1493275, 0) for this point (\u00a76.1 step 2). Sums to 1."
@@ -3078,7 +3078,7 @@
         "fold_lowYearID": {
           "type": "unknown",
           "shape": [
-            "run_rows",
+            "equipment_point_rows",
             "fold_year_rows"
           ],
           "description": "getgrw.f, first half: the latest year at or below this fold year that this run's growth pattern is actually tabulated at. Pattern 2176 is tabulated at 1990 and then annually from 1999 to 2040, so for 1991..1998 this is 1990 and thereafter it is the fold year itself."
@@ -3086,7 +3086,7 @@
         "fold_highYearID": {
           "type": "unknown",
           "shape": [
-            "run_rows",
+            "equipment_point_rows",
             "fold_year_rows"
           ],
           "description": "The earliest tabulated year at or above it: 1999 for 1991..1998, and equal to fold_lowYearID wherever the fold year is itself tabulated. EQUAL IS THE COMMON CASE and it is what the interpolation below has to be guarded against, not a corner."
@@ -3095,7 +3095,7 @@
           "type": "unknown",
           "units": "1",
           "shape": [
-            "run_rows",
+            "equipment_point_rows",
             "fold_year_rows"
           ],
           "description": "G at fold_lowYearID, truncated toward zero because canonical writes the /GROWTH/ packet with %20d (nonroad_loader.rs:1516). Selected by TWO RANGE PREDICATES rather than an equality: at or below the fold year and at or above the low year, which exactly one tabulated row satisfies. That keeps \u00a73's rule -- a filter carries a genuine predicate -- without needing to join on a two-axis column."
@@ -3104,7 +3104,7 @@
           "type": "unknown",
           "units": "1",
           "shape": [
-            "run_rows",
+            "equipment_point_rows",
             "fold_year_rows"
           ],
           "description": "G at fold_highYearID, the same way."
@@ -3113,7 +3113,7 @@
           "type": "unknown",
           "units": "1",
           "shape": [
-            "run_rows",
+            "equipment_point_rows",
             "fold_year_rows"
           ],
           "description": "getgrw.f's indicator at this fold year: the tabulated value where the year is tabulated, and the two-point linear interpolation between the bracketing years where it is not. G(1990) = 321, G(1991) = 449.8889, G(2020) = 1508. WHAT THIS DOES NOT PORT: getgrw's two EXTRAPOLATION branches, for a query below the first tabulated year or above the last. They cannot fire here -- 1990 through 2020 lies inside pattern 2176's span 1990 to 2040 -- and components/growth_index.esm ports and tests both."
@@ -3122,7 +3122,7 @@
           "type": "unknown",
           "units": "1",
           "shape": [
-            "run_rows",
+            "equipment_point_rows",
             "fold_year_rows"
           ],
           "description": "The indicator one fold year earlier, which is the base of this row's one-year growth step. Row 1 reads ITSELF rather than an out-of-range row, which makes row 1's growth factor exactly 0 -- the value the base row needs, since the fold takes no step there."
@@ -3131,16 +3131,16 @@
           "type": "unknown",
           "units": "1",
           "shape": [
-            "run_rows",
+            "equipment_point_rows",
             "fold_year_rows"
           ],
           "description": "grwfac(year-1, year): the ANNUALIZED fractional change (g - b) / (b x span), not the cumulative ratio. This is the series agedist folds one year at a time, and it is where the /GROWTH/ truncation earns its keep -- the year-over-year changes sit near zero, so the truncation decides the SIGN of the factor and with it which model years survive the fold's clamp."
         },
-        "run_popGrowthFactor": {
+        "point_popGrowthFactor": {
           "type": "unknown",
           "units": "1",
           "shape": [
-            "run_rows"
+            "equipment_point_rows"
           ],
           "description": "grwfac(1990, 1991) = 0.401523, read out of fold_annualGrowthFactor at row 2. scrptime's sales curve is built from the FIRST year's rate alone (\u00a72.2(c)); using the cumulative ratio here would compound a per-year rate as though it were a total."
         },
@@ -3187,7 +3187,7 @@
           "type": "unknown",
           "units": "1",
           "shape": [
-            "run_rows"
+            "equipment_point_rows"
           ],
           "description": "The carried column's sum, for the cross-check."
         },
@@ -3228,51 +3228,51 @@
           ],
           "description": "The mix year the cohort uses, reduced to a key so the tech-mix lookup is a plain equi-join."
         },
-        "run_mixExactIsPresent": {
+        "point_mixExactIsPresent": {
           "type": "unknown",
           "units": "1",
           "shape": [
-            "run_rows"
+            "equipment_point_rows"
           ],
           "description": "Does nrengtechfraction have exhaust rows for this exact SCC in this hp bin?"
         },
-        "run_mixZero3IsPresent": {
+        "point_mixZero3IsPresent": {
           "type": "unknown",
           "units": "1",
           "shape": [
-            "run_rows"
+            "equipment_point_rows"
           ],
           "description": "Rung 2 of the equipment chain."
         },
-        "run_mixEffectiveSCC": {
+        "point_mixEffectiveSCC": {
           "type": "unknown",
           "element_type": "Float64",
           "shape": [
-            "run_rows"
+            "equipment_point_rows"
           ],
           "description": "2260007005: this SCC has its own .TECH rows. \u00a76.2's SCCs fall back to 2265000000, which is what makes the walk load-bearing."
         },
-        "run_rateExactIsPresent": {
+        "point_rateExactIsPresent": {
           "type": "unknown",
           "units": "1",
           "shape": [
-            "run_rows"
+            "equipment_point_rows"
           ],
           "description": "The same question of nremissionrate, asked independently (\u00a72.4)."
         },
-        "run_rateZero3IsPresent": {
+        "point_rateZero3IsPresent": {
           "type": "unknown",
           "units": "1",
           "shape": [
-            "run_rows"
+            "equipment_point_rows"
           ],
           "description": "Rung 2."
         },
-        "run_rateEffectiveSCC": {
+        "point_rateEffectiveSCC": {
           "type": "unknown",
           "element_type": "Float64",
           "shape": [
-            "run_rows"
+            "equipment_point_rows"
           ],
           "description": "2260007005."
         },
@@ -3438,17 +3438,17 @@
           ],
           "description": "Its MOVESOutput label. A zero here would mean the mapping had no row and would look like a legal fuel type."
         },
-        "run_nonroadFuelTypeID": {
+        "point_nonroadFuelTypeID": {
           "type": "unknown",
           "shape": [
-            "run_rows"
+            "equipment_point_rows"
           ],
           "description": "This SCC's nonroad fuel type, read from nrscc."
         },
-        "run_outputFuelTypeID": {
+        "point_outputFuelTypeID": {
           "type": "unknown",
           "shape": [
-            "run_rows"
+            "equipment_point_rows"
           ],
           "description": "The mapped onroad label MOVESOutput carries."
         },
@@ -3541,16 +3541,16 @@
           "type": "unknown",
           "units": "1",
           "shape": [
-            "run_rows",
+            "equipment_point_rows",
             "fold_year_rows"
           ],
-          "description": "totpop: the projected population after this row's growth step, starting from run_statePopulation. A RECURRENCE in its own right, and the simplest in the document -- lag 1, one term."
+          "description": "totpop: the projected population after this row's growth step, starting from point_statePopulation. A RECURRENCE in its own right, and the simplest in the document -- lag 1, one term."
         },
         "fold_residualMinuend": {
           "type": "unknown",
           "units": "1",
           "shape": [
-            "run_rows",
+            "equipment_point_rows",
             "fold_year_rows"
           ],
           "description": "The number the newest-model-year slot is the residual OF: totpopfrc = totpop / statePopulation at every fold row but the first, and the base vector's own newest-cohort fraction at the first. Carrying the base case here rather than inside the recurrence is what lets `residual = minuend - scrapped sum` hold at EVERY row, so the recurrence can read a lag of any size with one expression and no second base case."
@@ -3559,7 +3559,7 @@
           "type": "unknown",
           "units": "1",
           "shape": [
-            "run_rows",
+            "equipment_point_rows",
             "fold_year_rows"
           ],
           "description": "frcsum: the sum over age slots 1..MXAGYR-1 of the cohorts that survived into this fold year, in ASCENDING slot order, which is the order agedist.f accumulates them in. THIS IS agedist.f's THIRTY-YEAR FOLD, spelled as esm-spec \u00a74.3.1.1's causal self-reference: the body reads `index(fold_scrappedFraction, r, Y - a)` -- itself, strictly earlier along its own fold-year axis, once per age slot `a`, which is also the lag. Nothing is declared; the recurrence, its axis and its maximum lag of 50 are read off that one self-read. The equipment-point axis is an IDENTITY index, which \u00a74.3.1.1 requires of a non-recurrence axis. Row 1 is 0 by a guard inside the body rather than by falling off the axis, because a self-read of an unpublished cell FAULTS rather than reading a zero ghost."
@@ -3568,7 +3568,7 @@
           "type": "unknown",
           "units": "1",
           "shape": [
-            "run_rows",
+            "equipment_point_rows",
             "fold_year_rows"
           ],
           "description": "mdyrfrc[0] at each fold row: the minuend less the scrapped sum, UNCLAMPED (\u00a72.2(e) property 2). This is the quantity whose SIGN decides whether a model year exists -- when the truncated growth index dips year over year it goes negative, the next year's shift clamps it to zero, and prccty.f's `modfrc <= 0` skip drops the row. It is a column of its own so that the sign is assertable."
@@ -3577,7 +3577,7 @@
           "type": "unknown",
           "units": "1",
           "shape": [
-            "run_rows",
+            "equipment_point_rows",
             "age_slot_rows"
           ],
           "description": "modfrc after the fold: the last fold row's vector, read back. Slot 1 is the newest model year -- the unclamped residual -- and slot a+1 is the cohort shifted and scrapped a times."
@@ -3592,7 +3592,7 @@
       "equations": [
         {
           "_comment": "The run scope as one-row relations, so that every use of it downstream is an equi-join on a key column rather than an equality filter (docs/esm-conventions.md \u00a73).",
-          "lhs": "run_SCC",
+          "lhs": "point_SCC",
           "rhs": {
             "op": "makearray",
             "args": [],
@@ -3610,7 +3610,7 @@
           }
         },
         {
-          "lhs": "run_stateID",
+          "lhs": "point_stateID",
           "rhs": {
             "op": "makearray",
             "args": [],
@@ -3628,7 +3628,7 @@
           }
         },
         {
-          "lhs": "run_baseYearID",
+          "lhs": "point_baseYearID",
           "rhs": {
             "op": "makearray",
             "args": [],
@@ -3647,7 +3647,7 @@
         },
         {
           "_comment": "J1, both hops in one contraction: nrscc gives this SCC its equipment type and nrequipmenttype gives that type its surrogate.",
-          "lhs": "run_surrogateID",
+          "lhs": "point_surrogateID",
           "rhs": {
             "op": "aggregate",
             "args": [],
@@ -3657,7 +3657,7 @@
             ],
             "ranges": {
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               },
               "s": {
                 "from": "nrscc_rows"
@@ -3671,7 +3671,7 @@
                 "on": [
                   [
                     "scc_SCC",
-                    "run_SCC"
+                    "point_SCC"
                   ]
                 ]
               },
@@ -3770,13 +3770,13 @@
                 "from": "surrogate_target_rows"
               },
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               }
             },
             "expr": {
               "op": "index",
               "args": [
-                "run_surrogateID",
+                "point_surrogateID",
                 "r"
               ]
             }
@@ -4030,7 +4030,7 @@
           }
         },
         {
-          "lhs": "run_allocationCountyQuant",
+          "lhs": "point_allocationCountyQuant",
           "rhs": {
             "op": "aggregate",
             "args": [],
@@ -4040,7 +4040,7 @@
             ],
             "ranges": {
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               },
               "g": {
                 "from": "surrogate_target_rows"
@@ -4068,7 +4068,7 @@
           }
         },
         {
-          "lhs": "run_allocationStateQuant",
+          "lhs": "point_allocationStateQuant",
           "rhs": {
             "op": "aggregate",
             "args": [],
@@ -4078,7 +4078,7 @@
             ],
             "ranges": {
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               },
               "g": {
                 "from": "surrogate_target_rows"
@@ -4112,7 +4112,7 @@
           }
         },
         {
-          "lhs": "run_allocationFraction",
+          "lhs": "point_allocationFraction",
           "rhs": {
             "op": "aggregate",
             "args": [],
@@ -4121,7 +4121,7 @@
             ],
             "ranges": {
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               }
             },
             "expr": {
@@ -4133,7 +4133,7 @@
                     {
                       "op": "index",
                       "args": [
-                        "run_allocationStateQuant",
+                        "point_allocationStateQuant",
                         "r"
                       ]
                     },
@@ -4146,14 +4146,14 @@
                     {
                       "op": "index",
                       "args": [
-                        "run_allocationCountyQuant",
+                        "point_allocationCountyQuant",
                         "r"
                       ]
                     },
                     {
                       "op": "index",
                       "args": [
-                        "run_allocationStateQuant",
+                        "point_allocationStateQuant",
                         "r"
                       ]
                     }
@@ -4166,7 +4166,7 @@
         },
         {
           "_comment": "J4 and J5 over the whole 62,699-row table, as four `join.on` clauses that compose by conjunction. Without the rounding this is the number the .POP file would have carried had canonical written it at full precision.",
-          "lhs": "run_rawStatePopulation",
+          "lhs": "point_rawStatePopulation",
           "rhs": {
             "op": "aggregate",
             "args": [],
@@ -4176,7 +4176,7 @@
             ],
             "ranges": {
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               },
               "u": {
                 "from": "nrsourceusetype_rows"
@@ -4190,7 +4190,7 @@
                 "on": [
                   [
                     "sut_SCC",
-                    "run_SCC"
+                    "point_SCC"
                   ]
                 ]
               },
@@ -4206,7 +4206,7 @@
                 "on": [
                   [
                     "pop_stateID",
-                    "run_stateID"
+                    "point_stateID"
                   ]
                 ]
               },
@@ -4214,7 +4214,7 @@
                 "on": [
                   [
                     "pop_NRBaseYearID",
-                    "run_baseYearID"
+                    "point_baseYearID"
                   ]
                 ]
               }
@@ -4229,7 +4229,7 @@
           }
         },
         {
-          "lhs": "run_statePopulation",
+          "lhs": "point_statePopulation",
           "rhs": {
             "op": "aggregate",
             "args": [],
@@ -4239,7 +4239,7 @@
             ],
             "ranges": {
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               },
               "u": {
                 "from": "nrsourceusetype_rows"
@@ -4253,7 +4253,7 @@
                 "on": [
                   [
                     "sut_SCC",
-                    "run_SCC"
+                    "point_SCC"
                   ]
                 ]
               },
@@ -4269,7 +4269,7 @@
                 "on": [
                   [
                     "pop_stateID",
-                    "run_stateID"
+                    "point_stateID"
                   ]
                 ]
               },
@@ -4277,7 +4277,7 @@
                 "on": [
                   [
                     "pop_NRBaseYearID",
-                    "run_baseYearID"
+                    "point_baseYearID"
                   ]
                 ]
               }
@@ -4299,7 +4299,7 @@
           }
         },
         {
-          "lhs": "run_countyPopulation",
+          "lhs": "point_countyPopulation",
           "rhs": {
             "op": "aggregate",
             "args": [],
@@ -4308,7 +4308,7 @@
             ],
             "ranges": {
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               }
             },
             "expr": {
@@ -4317,14 +4317,14 @@
                 {
                   "op": "index",
                   "args": [
-                    "run_statePopulation",
+                    "point_statePopulation",
                     "r"
                   ]
                 },
                 {
                   "op": "index",
                   "args": [
-                    "run_allocationFraction",
+                    "point_allocationFraction",
                     "r"
                   ]
                 }
@@ -4333,7 +4333,7 @@
           }
         },
         {
-          "lhs": "run_countyID",
+          "lhs": "point_countyID",
           "rhs": {
             "op": "makearray",
             "args": [],
@@ -4351,7 +4351,7 @@
           }
         },
         {
-          "lhs": "run_yearID",
+          "lhs": "point_yearID",
           "rhs": {
             "op": "makearray",
             "args": [],
@@ -4369,7 +4369,7 @@
           }
         },
         {
-          "lhs": "run_dayID",
+          "lhs": "point_dayID",
           "rhs": {
             "op": "makearray",
             "args": [],
@@ -4388,7 +4388,7 @@
         },
         {
           "_comment": "\u00a75.3: an SCC beginning 2260 is two-stroke gasoline, 2265 four-stroke. Derived from the key rather than declared, so the fixture cannot be pointed at another SCC and keep the wrong coefficients.",
-          "lhs": "run_engineFuelKindID",
+          "lhs": "point_engineFuelKindID",
           "rhs": {
             "op": "makearray",
             "args": [],
@@ -4524,7 +4524,7 @@
           }
         },
         {
-          "lhs": "run_sccZero2",
+          "lhs": "point_sccZero2",
           "rhs": {
             "op": "aggregate",
             "args": [],
@@ -4533,7 +4533,7 @@
             ],
             "ranges": {
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               }
             },
             "expr": {
@@ -4544,7 +4544,7 @@
                 "scc": {
                   "op": "index",
                   "args": [
-                    "run_SCC",
+                    "point_SCC",
                     "r"
                   ]
                 },
@@ -4554,7 +4554,7 @@
           }
         },
         {
-          "lhs": "run_sccZero4",
+          "lhs": "point_sccZero4",
           "rhs": {
             "op": "aggregate",
             "args": [],
@@ -4563,7 +4563,7 @@
             ],
             "ranges": {
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               }
             },
             "expr": {
@@ -4574,7 +4574,7 @@
                 "scc": {
                   "op": "index",
                   "args": [
-                    "run_SCC",
+                    "point_SCC",
                     "r"
                   ]
                 },
@@ -4585,7 +4585,7 @@
         },
         {
           "_comment": "The month ladder's three presence questions, each scoped by the run month and the two visible states, because the ladder searches WITHIN that scope -- a rung that exists only for another month is not a match.",
-          "lhs": "run_monthExactIsPresent",
+          "lhs": "point_monthExactIsPresent",
           "rhs": {
             "op": "aggregate",
             "args": [],
@@ -4595,7 +4595,7 @@
             ],
             "ranges": {
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               },
               "m": {
                 "from": "nrmonthallocation_rows"
@@ -4611,7 +4611,7 @@
               {
                 "on": [
                   [
-                    "run_SCC",
+                    "point_SCC",
                     "mal_SCC"
                   ]
                 ]
@@ -4637,7 +4637,7 @@
           }
         },
         {
-          "lhs": "run_monthZero2IsPresent",
+          "lhs": "point_monthZero2IsPresent",
           "rhs": {
             "op": "aggregate",
             "args": [],
@@ -4647,7 +4647,7 @@
             ],
             "ranges": {
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               },
               "m": {
                 "from": "nrmonthallocation_rows"
@@ -4663,7 +4663,7 @@
               {
                 "on": [
                   [
-                    "run_sccZero2",
+                    "point_sccZero2",
                     "mal_SCC"
                   ]
                 ]
@@ -4689,7 +4689,7 @@
           }
         },
         {
-          "lhs": "run_monthZero4IsPresent",
+          "lhs": "point_monthZero4IsPresent",
           "rhs": {
             "op": "aggregate",
             "args": [],
@@ -4699,7 +4699,7 @@
             ],
             "ranges": {
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               },
               "m": {
                 "from": "nrmonthallocation_rows"
@@ -4715,7 +4715,7 @@
               {
                 "on": [
                   [
-                    "run_sccZero4",
+                    "point_sccZero4",
                     "mal_SCC"
                   ]
                 ]
@@ -4741,7 +4741,7 @@
           }
         },
         {
-          "lhs": "run_monthEffectiveSCC",
+          "lhs": "point_monthEffectiveSCC",
           "rhs": {
             "op": "aggregate",
             "args": [],
@@ -4750,7 +4750,7 @@
             ],
             "ranges": {
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               }
             },
             "expr": {
@@ -4761,7 +4761,7 @@
                 "scc": {
                   "op": "index",
                   "args": [
-                    "run_SCC",
+                    "point_SCC",
                     "r"
                   ]
                 },
@@ -4771,7 +4771,7 @@
                     {
                       "op": "index",
                       "args": [
-                        "run_monthExactIsPresent",
+                        "point_monthExactIsPresent",
                         "r"
                       ]
                     },
@@ -4784,7 +4784,7 @@
                     {
                       "op": "index",
                       "args": [
-                        "run_monthZero2IsPresent",
+                        "point_monthZero2IsPresent",
                         "r"
                       ]
                     },
@@ -4797,7 +4797,7 @@
                     {
                       "op": "index",
                       "args": [
-                        "run_monthZero4IsPresent",
+                        "point_monthZero4IsPresent",
                         "r"
                       ]
                     },
@@ -4809,7 +4809,7 @@
           }
         },
         {
-          "lhs": "run_monthRunStateRowIsPresent",
+          "lhs": "point_monthRunStateRowIsPresent",
           "rhs": {
             "op": "aggregate",
             "args": [],
@@ -4819,7 +4819,7 @@
             ],
             "ranges": {
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               },
               "m": {
                 "from": "nrmonthallocation_rows"
@@ -4835,7 +4835,7 @@
               {
                 "on": [
                   [
-                    "run_monthEffectiveSCC",
+                    "point_monthEffectiveSCC",
                     "mal_SCC"
                   ]
                 ]
@@ -4861,7 +4861,7 @@
           }
         },
         {
-          "lhs": "run_monthEffectiveStateID",
+          "lhs": "point_monthEffectiveStateID",
           "rhs": {
             "op": "aggregate",
             "args": [],
@@ -4870,7 +4870,7 @@
             ],
             "ranges": {
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               }
             },
             "expr": {
@@ -4884,7 +4884,7 @@
                     {
                       "op": "index",
                       "args": [
-                        "run_monthRunStateRowIsPresent",
+                        "point_monthRunStateRowIsPresent",
                         "r"
                       ]
                     },
@@ -4898,7 +4898,7 @@
           }
         },
         {
-          "lhs": "run_monthRowIsPresent",
+          "lhs": "point_monthRowIsPresent",
           "rhs": {
             "op": "aggregate",
             "args": [],
@@ -4908,7 +4908,7 @@
             ],
             "ranges": {
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               },
               "m": {
                 "from": "nrmonthallocation_rows"
@@ -4921,11 +4921,11 @@
               {
                 "on": [
                   [
-                    "run_monthEffectiveSCC",
+                    "point_monthEffectiveSCC",
                     "mal_SCC"
                   ],
                   [
-                    "run_monthEffectiveStateID",
+                    "point_monthEffectiveStateID",
                     "mal_stateID"
                   ]
                 ]
@@ -4944,7 +4944,7 @@
         },
         {
           "_comment": "J15, a plain three-column equi-join now that both halves of the precedence have been reduced to keys.",
-          "lhs": "run_matchedMonthFraction",
+          "lhs": "point_matchedMonthFraction",
           "rhs": {
             "op": "aggregate",
             "args": [],
@@ -4954,7 +4954,7 @@
             ],
             "ranges": {
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               },
               "m": {
                 "from": "nrmonthallocation_rows"
@@ -4967,11 +4967,11 @@
               {
                 "on": [
                   [
-                    "run_monthEffectiveSCC",
+                    "point_monthEffectiveSCC",
                     "mal_SCC"
                   ],
                   [
-                    "run_monthEffectiveStateID",
+                    "point_monthEffectiveStateID",
                     "mal_stateID"
                   ]
                 ]
@@ -4995,7 +4995,7 @@
           }
         },
         {
-          "lhs": "run_monthFraction",
+          "lhs": "point_monthFraction",
           "rhs": {
             "op": "aggregate",
             "args": [],
@@ -5004,7 +5004,7 @@
             ],
             "ranges": {
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               }
             },
             "expr": {
@@ -5016,7 +5016,7 @@
                     {
                       "op": "index",
                       "args": [
-                        "run_monthRowIsPresent",
+                        "point_monthRowIsPresent",
                         "r"
                       ]
                     },
@@ -5026,7 +5026,7 @@
                 {
                   "op": "index",
                   "args": [
-                    "run_matchedMonthFraction",
+                    "point_matchedMonthFraction",
                     "r"
                   ]
                 },
@@ -5042,7 +5042,7 @@
         },
         {
           "_comment": "The day ladder, walked INDEPENDENTLY of the month one and against a different table (\u00a72.3). nrdayallocation has no state column.",
-          "lhs": "run_dayExactIsPresent",
+          "lhs": "point_dayExactIsPresent",
           "rhs": {
             "op": "aggregate",
             "args": [],
@@ -5052,7 +5052,7 @@
             ],
             "ranges": {
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               },
               "d": {
                 "from": "nrdayallocation_rows"
@@ -5062,7 +5062,7 @@
               {
                 "on": [
                   [
-                    "run_SCC",
+                    "point_SCC",
                     "dal_SCC"
                   ]
                 ]
@@ -5071,7 +5071,7 @@
                 "on": [
                   [
                     "dal_dayID",
-                    "run_dayID"
+                    "point_dayID"
                   ]
                 ]
               }
@@ -5080,7 +5080,7 @@
           }
         },
         {
-          "lhs": "run_dayZero2IsPresent",
+          "lhs": "point_dayZero2IsPresent",
           "rhs": {
             "op": "aggregate",
             "args": [],
@@ -5090,7 +5090,7 @@
             ],
             "ranges": {
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               },
               "d": {
                 "from": "nrdayallocation_rows"
@@ -5100,7 +5100,7 @@
               {
                 "on": [
                   [
-                    "run_sccZero2",
+                    "point_sccZero2",
                     "dal_SCC"
                   ]
                 ]
@@ -5109,7 +5109,7 @@
                 "on": [
                   [
                     "dal_dayID",
-                    "run_dayID"
+                    "point_dayID"
                   ]
                 ]
               }
@@ -5118,7 +5118,7 @@
           }
         },
         {
-          "lhs": "run_dayZero4IsPresent",
+          "lhs": "point_dayZero4IsPresent",
           "rhs": {
             "op": "aggregate",
             "args": [],
@@ -5128,7 +5128,7 @@
             ],
             "ranges": {
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               },
               "d": {
                 "from": "nrdayallocation_rows"
@@ -5138,7 +5138,7 @@
               {
                 "on": [
                   [
-                    "run_sccZero4",
+                    "point_sccZero4",
                     "dal_SCC"
                   ]
                 ]
@@ -5147,7 +5147,7 @@
                 "on": [
                   [
                     "dal_dayID",
-                    "run_dayID"
+                    "point_dayID"
                   ]
                 ]
               }
@@ -5156,7 +5156,7 @@
           }
         },
         {
-          "lhs": "run_dayEffectiveSCC",
+          "lhs": "point_dayEffectiveSCC",
           "rhs": {
             "op": "aggregate",
             "args": [],
@@ -5165,7 +5165,7 @@
             ],
             "ranges": {
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               }
             },
             "expr": {
@@ -5176,7 +5176,7 @@
                 "scc": {
                   "op": "index",
                   "args": [
-                    "run_SCC",
+                    "point_SCC",
                     "r"
                   ]
                 },
@@ -5186,7 +5186,7 @@
                     {
                       "op": "index",
                       "args": [
-                        "run_dayExactIsPresent",
+                        "point_dayExactIsPresent",
                         "r"
                       ]
                     },
@@ -5199,7 +5199,7 @@
                     {
                       "op": "index",
                       "args": [
-                        "run_dayZero2IsPresent",
+                        "point_dayZero2IsPresent",
                         "r"
                       ]
                     },
@@ -5212,7 +5212,7 @@
                     {
                       "op": "index",
                       "args": [
-                        "run_dayZero4IsPresent",
+                        "point_dayZero4IsPresent",
                         "r"
                       ]
                     },
@@ -5224,7 +5224,7 @@
           }
         },
         {
-          "lhs": "run_dayRowIsPresent",
+          "lhs": "point_dayRowIsPresent",
           "rhs": {
             "op": "aggregate",
             "args": [],
@@ -5234,7 +5234,7 @@
             ],
             "ranges": {
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               },
               "d": {
                 "from": "nrdayallocation_rows"
@@ -5244,7 +5244,7 @@
               {
                 "on": [
                   [
-                    "run_dayEffectiveSCC",
+                    "point_dayEffectiveSCC",
                     "dal_SCC"
                   ]
                 ]
@@ -5253,7 +5253,7 @@
                 "on": [
                   [
                     "dal_dayID",
-                    "run_dayID"
+                    "point_dayID"
                   ]
                 ]
               }
@@ -5262,7 +5262,7 @@
           }
         },
         {
-          "lhs": "run_matchedDayFraction",
+          "lhs": "point_matchedDayFraction",
           "rhs": {
             "op": "aggregate",
             "args": [],
@@ -5272,7 +5272,7 @@
             ],
             "ranges": {
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               },
               "d": {
                 "from": "nrdayallocation_rows"
@@ -5282,7 +5282,7 @@
               {
                 "on": [
                   [
-                    "run_dayEffectiveSCC",
+                    "point_dayEffectiveSCC",
                     "dal_SCC"
                   ]
                 ]
@@ -5291,7 +5291,7 @@
                 "on": [
                   [
                     "dal_dayID",
-                    "run_dayID"
+                    "point_dayID"
                   ]
                 ]
               }
@@ -5306,7 +5306,7 @@
           }
         },
         {
-          "lhs": "run_dayFraction",
+          "lhs": "point_dayFraction",
           "rhs": {
             "op": "aggregate",
             "args": [],
@@ -5315,7 +5315,7 @@
             ],
             "ranges": {
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               }
             },
             "expr": {
@@ -5327,7 +5327,7 @@
                     {
                       "op": "index",
                       "args": [
-                        "run_dayRowIsPresent",
+                        "point_dayRowIsPresent",
                         "r"
                       ]
                     },
@@ -5337,7 +5337,7 @@
                 {
                   "op": "index",
                   "args": [
-                    "run_matchedDayFraction",
+                    "point_matchedDayFraction",
                     "r"
                   ]
                 },
@@ -5352,7 +5352,7 @@
           }
         },
         {
-          "lhs": "run_monthDayFactor",
+          "lhs": "point_monthDayFactor",
           "rhs": {
             "op": "aggregate",
             "args": [],
@@ -5361,7 +5361,7 @@
             ],
             "ranges": {
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               }
             },
             "expr": {
@@ -5370,7 +5370,7 @@
                 {
                   "op": "index",
                   "args": [
-                    "run_monthFraction",
+                    "point_monthFraction",
                     "r"
                   ]
                 },
@@ -5383,7 +5383,7 @@
                 {
                   "op": "index",
                   "args": [
-                    "run_dayFraction",
+                    "point_dayFraction",
                     "r"
                   ]
                 }
@@ -5392,7 +5392,7 @@
           }
         },
         {
-          "lhs": "run_daysInMonth",
+          "lhs": "point_daysInMonth",
           "rhs": {
             "op": "aggregate",
             "args": [],
@@ -5402,7 +5402,7 @@
             ],
             "ranges": {
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               },
               "n": {
                 "from": "days_per_month_rows"
@@ -5431,7 +5431,7 @@
           }
         },
         {
-          "lhs": "run_adjustmentTime",
+          "lhs": "point_adjustmentTime",
           "rhs": {
             "op": "aggregate",
             "args": [],
@@ -5440,7 +5440,7 @@
             ],
             "ranges": {
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               }
             },
             "expr": {
@@ -5450,7 +5450,7 @@
                 {
                   "op": "index",
                   "args": [
-                    "run_daysInMonth",
+                    "point_daysInMonth",
                     "r"
                   ]
                 }
@@ -5460,7 +5460,7 @@
         },
         {
           "_comment": "J17/J18 over the whole 930,816-row table. The composite equality is a `join.on`; the inclusive daytime window is a `filter`, because it is a genuine range predicate. The time-side loop symbol is `k`, never `t` (F4).",
-          "lhs": "run_daytimeHourCount",
+          "lhs": "point_daytimeHourCount",
           "rhs": {
             "op": "aggregate",
             "args": [],
@@ -5479,7 +5479,7 @@
                 "from": "runspecmonth_rows"
               },
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               }
             },
             "join": [
@@ -5487,7 +5487,7 @@
                 "on": [
                   [
                     "zone_countyID",
-                    "run_countyID"
+                    "point_countyID"
                   ]
                 ]
               },
@@ -5543,7 +5543,7 @@
           }
         },
         {
-          "lhs": "run_daytimeTemperatureSum",
+          "lhs": "point_daytimeTemperatureSum",
           "rhs": {
             "op": "aggregate",
             "args": [],
@@ -5562,7 +5562,7 @@
                 "from": "runspecmonth_rows"
               },
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               }
             },
             "join": [
@@ -5570,7 +5570,7 @@
                 "on": [
                   [
                     "zone_countyID",
-                    "run_countyID"
+                    "point_countyID"
                   ]
                 ]
               },
@@ -5632,7 +5632,7 @@
           }
         },
         {
-          "lhs": "run_meanTemperature",
+          "lhs": "point_meanTemperature",
           "rhs": {
             "op": "aggregate",
             "args": [],
@@ -5641,7 +5641,7 @@
             ],
             "ranges": {
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               }
             },
             "expr": {
@@ -5650,14 +5650,14 @@
                 {
                   "op": "index",
                   "args": [
-                    "run_daytimeTemperatureSum",
+                    "point_daytimeTemperatureSum",
                     "r"
                   ]
                 },
                 {
                   "op": "index",
                   "args": [
-                    "run_daytimeHourCount",
+                    "point_daytimeHourCount",
                     "r"
                   ]
                 }
@@ -5667,7 +5667,7 @@
         },
         {
           "_comment": "J19, J20, J21/J22/J23: the fuel scope, resolved one hop at a time and carried on a one-row relation so each hop is an equi-join.",
-          "lhs": "run_fuelYearID",
+          "lhs": "point_fuelYearID",
           "rhs": {
             "op": "aggregate",
             "args": [],
@@ -5680,7 +5680,7 @@
                 "from": "year_rows"
               },
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               }
             },
             "join": [
@@ -5688,7 +5688,7 @@
                 "on": [
                   [
                     "yr_yearID",
-                    "run_yearID"
+                    "point_yearID"
                   ]
                 ]
               }
@@ -5703,7 +5703,7 @@
           }
         },
         {
-          "lhs": "run_monthID",
+          "lhs": "point_monthID",
           "rhs": {
             "op": "aggregate",
             "args": [],
@@ -5713,7 +5713,7 @@
             ],
             "ranges": {
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               },
               "u": {
                 "from": "runspecmonth_rows"
@@ -5742,13 +5742,13 @@
                 "from": "fuel_scope_rows"
               },
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               }
             },
             "expr": {
               "op": "index",
               "args": [
-                "run_fuelYearID",
+                "point_fuelYearID",
                 "r"
               ]
             }
@@ -5768,13 +5768,13 @@
                 "from": "fuel_scope_rows"
               },
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               }
             },
             "expr": {
               "op": "index",
               "args": [
-                "run_monthID",
+                "point_monthID",
                 "r"
               ]
             }
@@ -5829,7 +5829,7 @@
           }
         },
         {
-          "lhs": "run_fuelRegionID",
+          "lhs": "point_fuelRegionID",
           "rhs": {
             "op": "aggregate",
             "args": [],
@@ -5845,7 +5845,7 @@
                 "from": "fuel_scope_rows"
               },
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               }
             },
             "join": [
@@ -5853,7 +5853,7 @@
                 "on": [
                   [
                     "rc_countyID",
-                    "run_countyID"
+                    "point_countyID"
                   ]
                 ]
               },
@@ -5893,13 +5893,13 @@
                 "from": "fuel_scope_rows"
               },
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               }
             },
             "expr": {
               "op": "index",
               "args": [
-                "run_fuelRegionID",
+                "point_fuelRegionID",
                 "r"
               ]
             }
@@ -5907,7 +5907,7 @@
         },
         {
           "_comment": "J21 x J22 x J23 in one contraction: the county's gasoline supply rows, their formulations, and the subtype that says which are gasoline. The oxygenate volumes are summed and converted to weight percent inside the sum, weighted by market share -- emsadj.f's `oxy`.",
-          "lhs": "run_oxygenWeightPercent",
+          "lhs": "point_oxygenWeightPercent",
           "rhs": {
             "op": "aggregate",
             "args": [],
@@ -5917,7 +5917,7 @@
             ],
             "ranges": {
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               },
               "s": {
                 "from": "nrfuelsupply_rows"
@@ -6358,7 +6358,7 @@
                 "from": "adjustment_rows"
               },
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               }
             },
             "expr": {
@@ -6386,7 +6386,7 @@
                     "temperature": {
                       "op": "index",
                       "args": [
-                        "run_meanTemperature",
+                        "point_meanTemperature",
                         "r"
                       ]
                     }
@@ -6407,7 +6407,7 @@
                     "oxygen_weight_percent": {
                       "op": "index",
                       "args": [
-                        "run_oxygenWeightPercent",
+                        "point_oxygenWeightPercent",
                         "r"
                       ]
                     }
@@ -6435,7 +6435,7 @@
                 "from": "adjustment_rows"
               },
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               }
             },
             "join": [
@@ -6450,7 +6450,7 @@
               {
                 "on": [
                   [
-                    "run_engineFuelKindID",
+                    "point_engineFuelKindID",
                     "adj_engineFuelKindID"
                   ]
                 ]
@@ -6568,7 +6568,7 @@
         },
         {
           "_comment": "The equipment point's four activity columns, selected out of 1,183 rows by the run's SCC.",
-          "lhs": "run_hpAvg",
+          "lhs": "point_hpAvg",
           "rhs": {
             "op": "aggregate",
             "args": [],
@@ -6578,7 +6578,7 @@
             ],
             "ranges": {
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               },
               "u": {
                 "from": "nrsourceusetype_rows"
@@ -6589,7 +6589,7 @@
                 "on": [
                   [
                     "sut_SCC",
-                    "run_SCC"
+                    "point_SCC"
                   ]
                 ]
               }
@@ -6604,7 +6604,7 @@
           }
         },
         {
-          "lhs": "run_hoursUsedPerYear",
+          "lhs": "point_hoursUsedPerYear",
           "rhs": {
             "op": "aggregate",
             "args": [],
@@ -6614,7 +6614,7 @@
             ],
             "ranges": {
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               },
               "u": {
                 "from": "nrsourceusetype_rows"
@@ -6625,7 +6625,7 @@
                 "on": [
                   [
                     "sut_SCC",
-                    "run_SCC"
+                    "point_SCC"
                   ]
                 ]
               }
@@ -6640,7 +6640,7 @@
           }
         },
         {
-          "lhs": "run_loadFactor",
+          "lhs": "point_loadFactor",
           "rhs": {
             "op": "aggregate",
             "args": [],
@@ -6650,7 +6650,7 @@
             ],
             "ranges": {
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               },
               "u": {
                 "from": "nrsourceusetype_rows"
@@ -6661,7 +6661,7 @@
                 "on": [
                   [
                     "sut_SCC",
-                    "run_SCC"
+                    "point_SCC"
                   ]
                 ]
               }
@@ -6676,7 +6676,7 @@
           }
         },
         {
-          "lhs": "run_medianLifeFullLoad",
+          "lhs": "point_medianLifeFullLoad",
           "rhs": {
             "op": "aggregate",
             "args": [],
@@ -6686,7 +6686,7 @@
             ],
             "ranges": {
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               },
               "u": {
                 "from": "nrsourceusetype_rows"
@@ -6697,7 +6697,7 @@
                 "on": [
                   [
                     "sut_SCC",
-                    "run_SCC"
+                    "point_SCC"
                   ]
                 ]
               }
@@ -6712,7 +6712,7 @@
           }
         },
         {
-          "lhs": "run_unitConversion",
+          "lhs": "point_unitConversion",
           "rhs": {
             "op": "aggregate",
             "args": [],
@@ -6721,7 +6721,7 @@
             ],
             "ranges": {
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               }
             },
             "expr": {
@@ -6738,14 +6738,14 @@
                 "hp_avg": {
                   "op": "index",
                   "args": [
-                    "run_hpAvg",
+                    "point_hpAvg",
                     "r"
                   ]
                 },
                 "load_factor": {
                   "op": "index",
                   "args": [
-                    "run_loadFactor",
+                    "point_loadFactor",
                     "r"
                   ]
                 },
@@ -6759,7 +6759,7 @@
                 "fuel_density": {
                   "op": "index",
                   "args": [
-                    "run_medianLifeFullLoad",
+                    "point_medianLifeFullLoad",
                     "r"
                   ]
                 },
@@ -6769,7 +6769,7 @@
           }
         },
         {
-          "lhs": "run_sccZero3",
+          "lhs": "point_sccZero3",
           "rhs": {
             "op": "aggregate",
             "args": [],
@@ -6778,7 +6778,7 @@
             ],
             "ranges": {
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               }
             },
             "expr": {
@@ -6789,7 +6789,7 @@
                 "scc": {
                   "op": "index",
                   "args": [
-                    "run_SCC",
+                    "point_SCC",
                     "r"
                   ]
                 },
@@ -6799,7 +6799,7 @@
           }
         },
         {
-          "lhs": "run_sccZero6",
+          "lhs": "point_sccZero6",
           "rhs": {
             "op": "aggregate",
             "args": [],
@@ -6808,7 +6808,7 @@
             ],
             "ranges": {
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               }
             },
             "expr": {
@@ -6819,7 +6819,7 @@
                 "scc": {
                   "op": "index",
                   "args": [
-                    "run_SCC",
+                    "point_SCC",
                     "r"
                   ]
                 },
@@ -6830,7 +6830,7 @@
         },
         {
           "_comment": "J8's ladder, scoped to the states this run can see. The exact SCC HAS a row -- at stateID 99 -- and it must not win, which is what the scope join enforces.",
-          "lhs": "run_growthExactIsPresent",
+          "lhs": "point_growthExactIsPresent",
           "rhs": {
             "op": "aggregate",
             "args": [],
@@ -6840,7 +6840,7 @@
             ],
             "ranges": {
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               },
               "g": {
                 "from": "nrgrowthpatternfinder_rows"
@@ -6853,7 +6853,7 @@
               {
                 "on": [
                   [
-                    "run_SCC",
+                    "point_SCC",
                     "gpf_SCC"
                   ]
                 ]
@@ -6871,7 +6871,7 @@
           }
         },
         {
-          "lhs": "run_growthZero3IsPresent",
+          "lhs": "point_growthZero3IsPresent",
           "rhs": {
             "op": "aggregate",
             "args": [],
@@ -6881,7 +6881,7 @@
             ],
             "ranges": {
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               },
               "g": {
                 "from": "nrgrowthpatternfinder_rows"
@@ -6894,7 +6894,7 @@
               {
                 "on": [
                   [
-                    "run_sccZero3",
+                    "point_sccZero3",
                     "gpf_SCC"
                   ]
                 ]
@@ -6912,7 +6912,7 @@
           }
         },
         {
-          "lhs": "run_growthEffectiveSCC",
+          "lhs": "point_growthEffectiveSCC",
           "rhs": {
             "op": "aggregate",
             "args": [],
@@ -6921,7 +6921,7 @@
             ],
             "ranges": {
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               }
             },
             "expr": {
@@ -6932,7 +6932,7 @@
                 "scc": {
                   "op": "index",
                   "args": [
-                    "run_SCC",
+                    "point_SCC",
                     "r"
                   ]
                 },
@@ -6942,7 +6942,7 @@
                     {
                       "op": "index",
                       "args": [
-                        "run_growthExactIsPresent",
+                        "point_growthExactIsPresent",
                         "r"
                       ]
                     },
@@ -6955,7 +6955,7 @@
                     {
                       "op": "index",
                       "args": [
-                        "run_growthZero3IsPresent",
+                        "point_growthZero3IsPresent",
                         "r"
                       ]
                     },
@@ -6967,7 +6967,7 @@
           }
         },
         {
-          "lhs": "run_growthStateRowIsPresent",
+          "lhs": "point_growthStateRowIsPresent",
           "rhs": {
             "op": "aggregate",
             "args": [],
@@ -6977,7 +6977,7 @@
             ],
             "ranges": {
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               },
               "g": {
                 "from": "nrgrowthpatternfinder_rows"
@@ -6990,7 +6990,7 @@
               {
                 "on": [
                   [
-                    "run_growthEffectiveSCC",
+                    "point_growthEffectiveSCC",
                     "gpf_SCC"
                   ]
                 ]
@@ -7008,7 +7008,7 @@
           }
         },
         {
-          "lhs": "run_growthEffectiveStateID",
+          "lhs": "point_growthEffectiveStateID",
           "rhs": {
             "op": "aggregate",
             "args": [],
@@ -7017,7 +7017,7 @@
             ],
             "ranges": {
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               }
             },
             "expr": {
@@ -7031,7 +7031,7 @@
                     {
                       "op": "index",
                       "args": [
-                        "run_growthStateRowIsPresent",
+                        "point_growthStateRowIsPresent",
                         "r"
                       ]
                     },
@@ -7045,7 +7045,7 @@
           }
         },
         {
-          "lhs": "run_growthPatternID",
+          "lhs": "point_growthPatternID",
           "rhs": {
             "op": "aggregate",
             "args": [],
@@ -7055,7 +7055,7 @@
             ],
             "ranges": {
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               },
               "g": {
                 "from": "nrgrowthpatternfinder_rows"
@@ -7065,11 +7065,11 @@
               {
                 "on": [
                   [
-                    "run_growthEffectiveSCC",
+                    "point_growthEffectiveSCC",
                     "gpf_SCC"
                   ],
                   [
-                    "run_growthEffectiveStateID",
+                    "point_growthEffectiveStateID",
                     "gpf_stateID"
                   ]
                 ]
@@ -7086,7 +7086,7 @@
         },
         {
           "_comment": "J9, at the two ends of the span. Both years are exact rows of nrgrowthindex for this pattern, so the ratio needs none of getgrw's interpolation.",
-          "lhs": "run_baseGrowthIndex",
+          "lhs": "point_baseGrowthIndex",
           "rhs": {
             "op": "aggregate",
             "args": [],
@@ -7096,7 +7096,7 @@
             ],
             "ranges": {
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               },
               "i": {
                 "from": "nrgrowthindex_rows"
@@ -7110,7 +7110,7 @@
                 "on": [
                   [
                     "gi_growthPatternID",
-                    "run_growthPatternID"
+                    "point_growthPatternID"
                   ]
                 ]
               },
@@ -7151,7 +7151,7 @@
           }
         },
         {
-          "lhs": "run_endGrowthIndex",
+          "lhs": "point_endGrowthIndex",
           "rhs": {
             "op": "aggregate",
             "args": [],
@@ -7161,7 +7161,7 @@
             ],
             "ranges": {
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               },
               "i": {
                 "from": "nrgrowthindex_rows"
@@ -7175,7 +7175,7 @@
                 "on": [
                   [
                     "gi_growthPatternID",
-                    "run_growthPatternID"
+                    "point_growthPatternID"
                   ]
                 ]
               },
@@ -7210,7 +7210,7 @@
           }
         },
         {
-          "lhs": "run_cumulativeGrowthRatio",
+          "lhs": "point_cumulativeGrowthRatio",
           "rhs": {
             "op": "aggregate",
             "args": [],
@@ -7219,7 +7219,7 @@
             ],
             "ranges": {
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               }
             },
             "expr": {
@@ -7228,14 +7228,14 @@
                 {
                   "op": "index",
                   "args": [
-                    "run_endGrowthIndex",
+                    "point_endGrowthIndex",
                     "r"
                   ]
                 },
                 {
                   "op": "index",
                   "args": [
-                    "run_baseGrowthIndex",
+                    "point_baseGrowthIndex",
                     "r"
                   ]
                 }
@@ -7318,7 +7318,7 @@
             ],
             "ranges": {
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               },
               "w": {
                 "from": "fold_year_rows"
@@ -7332,7 +7332,7 @@
                 "on": [
                   [
                     "gi_growthPatternID",
-                    "run_growthPatternID"
+                    "point_growthPatternID"
                   ]
                 ]
               }
@@ -7377,7 +7377,7 @@
             ],
             "ranges": {
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               },
               "w": {
                 "from": "fold_year_rows"
@@ -7391,7 +7391,7 @@
                 "on": [
                   [
                     "gi_growthPatternID",
-                    "run_growthPatternID"
+                    "point_growthPatternID"
                   ]
                 ]
               }
@@ -7437,7 +7437,7 @@
             ],
             "ranges": {
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               },
               "w": {
                 "from": "fold_year_rows"
@@ -7451,7 +7451,7 @@
                 "on": [
                   [
                     "gi_growthPatternID",
-                    "run_growthPatternID"
+                    "point_growthPatternID"
                   ]
                 ]
               }
@@ -7528,7 +7528,7 @@
             ],
             "ranges": {
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               },
               "w": {
                 "from": "fold_year_rows"
@@ -7542,7 +7542,7 @@
                 "on": [
                   [
                     "gi_growthPatternID",
-                    "run_growthPatternID"
+                    "point_growthPatternID"
                   ]
                 ]
               }
@@ -7619,7 +7619,7 @@
             ],
             "ranges": {
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               },
               "w": {
                 "from": "fold_year_rows"
@@ -7718,7 +7718,7 @@
             ],
             "ranges": {
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               },
               "w": {
                 "from": "fold_year_rows"
@@ -7771,7 +7771,7 @@
             ],
             "ranges": {
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               },
               "w": {
                 "from": "fold_year_rows"
@@ -7825,7 +7825,7 @@
         },
         {
           "_comment": "grwfac(1990, 1991) is fold row 2's factor: row 1 is the base year and takes no step. The literal 2 is guarded by the assertion that fold_yearID row 1 is runBaseYearID.",
-          "lhs": "run_popGrowthFactor",
+          "lhs": "point_popGrowthFactor",
           "rhs": {
             "op": "aggregate",
             "args": [],
@@ -7834,7 +7834,7 @@
             ],
             "ranges": {
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               }
             },
             "expr": {
@@ -7848,7 +7848,7 @@
           }
         },
         {
-          "lhs": "run_medianLifeYears",
+          "lhs": "point_medianLifeYears",
           "rhs": {
             "op": "aggregate",
             "args": [],
@@ -7857,7 +7857,7 @@
             ],
             "ranges": {
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               }
             },
             "expr": {
@@ -7868,21 +7868,21 @@
                 "median_life_full_load": {
                   "op": "index",
                   "args": [
-                    "run_medianLifeFullLoad",
+                    "point_medianLifeFullLoad",
                     "r"
                   ]
                 },
                 "load_factor": {
                   "op": "index",
                   "args": [
-                    "run_loadFactor",
+                    "point_loadFactor",
                     "r"
                   ]
                 },
                 "hours_used_per_year": {
                   "op": "index",
                   "args": [
-                    "run_hoursUsedPerYear",
+                    "point_hoursUsedPerYear",
                     "r"
                   ]
                 }
@@ -7891,7 +7891,7 @@
           }
         },
         {
-          "lhs": "run_medianLifePerYear",
+          "lhs": "point_medianLifePerYear",
           "rhs": {
             "op": "aggregate",
             "args": [],
@@ -7900,7 +7900,7 @@
             ],
             "ranges": {
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               }
             },
             "expr": {
@@ -7910,7 +7910,7 @@
                 {
                   "op": "index",
                   "args": [
-                    "run_medianLifeYears",
+                    "point_medianLifeYears",
                     "r"
                   ]
                 }
@@ -7929,7 +7929,7 @@
             ],
             "ranges": {
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               },
               "s": {
                 "from": "age_slot_rows"
@@ -7954,7 +7954,7 @@
                 {
                   "op": "index",
                   "args": [
-                    "run_medianLifePerYear",
+                    "point_medianLifePerYear",
                     "r"
                   ]
                 }
@@ -7973,7 +7973,7 @@
             ],
             "ranges": {
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               },
               "s": {
                 "from": "age_slot_rows"
@@ -8001,7 +8001,7 @@
                     {
                       "op": "index",
                       "args": [
-                        "run_medianLifePerYear",
+                        "point_medianLifePerYear",
                         "r"
                       ]
                     }
@@ -8025,7 +8025,7 @@
             ],
             "ranges": {
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               },
               "s": {
                 "from": "age_slot_rows"
@@ -8088,7 +8088,7 @@
             ],
             "ranges": {
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               },
               "s": {
                 "from": "age_slot_rows"
@@ -8150,7 +8150,7 @@
             ],
             "ranges": {
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               },
               "s": {
                 "from": "age_slot_rows"
@@ -8192,7 +8192,7 @@
             ],
             "ranges": {
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               },
               "s": {
                 "from": "age_slot_rows"
@@ -8216,7 +8216,7 @@
         },
         {
           "_comment": "nyrlif, as a min-semiring contraction with the 100% test as its filter, capped at MXAGYR for totality. The cap cannot bind: the median life is capped at MXAGYR/2 and the curve reaches 100% at twice the median life.",
-          "lhs": "run_equipmentLifeYears",
+          "lhs": "point_equipmentLifeYears",
           "rhs": {
             "op": "min",
             "args": [
@@ -8235,7 +8235,7 @@
                 ],
                 "ranges": {
                   "r": {
-                    "from": "run_rows"
+                    "from": "equipment_point_rows"
                   },
                   "s": {
                     "from": "age_slot_rows"
@@ -8273,7 +8273,7 @@
           }
         },
         {
-          "lhs": "run_salesGrowth",
+          "lhs": "point_salesGrowth",
           "rhs": {
             "op": "aggregate",
             "args": [],
@@ -8282,7 +8282,7 @@
             ],
             "ranges": {
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               }
             },
             "expr": {
@@ -8293,14 +8293,14 @@
                 "pop_growth_factor": {
                   "op": "index",
                   "args": [
-                    "run_popGrowthFactor",
+                    "point_popGrowthFactor",
                     "r"
                   ]
                 },
                 "median_life_years": {
                   "op": "index",
                   "args": [
-                    "run_medianLifeYears",
+                    "point_medianLifeYears",
                     "r"
                   ]
                 }
@@ -8319,7 +8319,7 @@
             ],
             "ranges": {
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               },
               "s": {
                 "from": "age_slot_rows"
@@ -8341,7 +8341,7 @@
                     {
                       "op": "index",
                       "args": [
-                        "run_equipmentLifeYears",
+                        "point_equipmentLifeYears",
                         "r"
                       ]
                     }
@@ -8355,7 +8355,7 @@
                     "sales_growth": {
                       "op": "index",
                       "args": [
-                        "run_salesGrowth",
+                        "point_salesGrowth",
                         "r"
                       ]
                     },
@@ -8365,7 +8365,7 @@
                         {
                           "op": "index",
                           "args": [
-                            "run_equipmentLifeYears",
+                            "point_equipmentLifeYears",
                             "r"
                           ]
                         },
@@ -8394,7 +8394,7 @@
           }
         },
         {
-          "lhs": "run_survivingEquipmentTotal",
+          "lhs": "point_survivingEquipmentTotal",
           "rhs": {
             "op": "aggregate",
             "args": [],
@@ -8404,7 +8404,7 @@
             ],
             "ranges": {
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               },
               "s": {
                 "from": "age_slot_rows"
@@ -8431,7 +8431,7 @@
             ],
             "ranges": {
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               },
               "s": {
                 "from": "age_slot_rows"
@@ -8451,7 +8451,7 @@
                 {
                   "op": "index",
                   "args": [
-                    "run_survivingEquipmentTotal",
+                    "point_survivingEquipmentTotal",
                     "r"
                   ]
                 }
@@ -8471,7 +8471,7 @@
             ],
             "ranges": {
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               },
               "w": {
                 "from": "fold_year_rows"
@@ -8490,7 +8490,7 @@
                 {
                   "op": "index",
                   "args": [
-                    "run_statePopulation",
+                    "point_statePopulation",
                     "r"
                   ]
                 },
@@ -8587,7 +8587,7 @@
             ],
             "ranges": {
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               },
               "w": {
                 "from": "fold_year_rows"
@@ -8625,7 +8625,7 @@
                     {
                       "op": "index",
                       "args": [
-                        "run_statePopulation",
+                        "point_statePopulation",
                         "r"
                       ]
                     }
@@ -8648,7 +8648,7 @@
             "reduce": "+",
             "ranges": {
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               },
               "w": {
                 "from": "fold_year_rows"
@@ -8698,7 +8698,7 @@
             ],
             "ranges": {
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               },
               "w": {
                 "from": "fold_year_rows"
@@ -8739,7 +8739,7 @@
             ],
             "ranges": {
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               },
               "s": {
                 "from": "age_slot_rows"
@@ -8868,7 +8868,7 @@
                 "from": "age_rows"
               },
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               }
             },
             "expr": {
@@ -8927,7 +8927,7 @@
             ],
             "ranges": {
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               },
               "g": {
                 "from": "age_rows"
@@ -8956,7 +8956,7 @@
                 "from": "age_rows"
               },
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               }
             },
             "expr": {
@@ -8974,21 +8974,21 @@
                 "hours_used_per_year": {
                   "op": "index",
                   "args": [
-                    "run_hoursUsedPerYear",
+                    "point_hoursUsedPerYear",
                     "r"
                   ]
                 },
                 "load_factor": {
                   "op": "index",
                   "args": [
-                    "run_loadFactor",
+                    "point_loadFactor",
                     "r"
                   ]
                 },
                 "median_life_full_load": {
                   "op": "index",
                   "args": [
-                    "run_medianLifeFullLoad",
+                    "point_medianLifeFullLoad",
                     "r"
                   ]
                 }
@@ -8998,7 +8998,7 @@
         },
         {
           "_comment": "The equipment chain for the .TECH file, with the hp bin as a genuine range filter alongside it.",
-          "lhs": "run_mixExactIsPresent",
+          "lhs": "point_mixExactIsPresent",
           "rhs": {
             "op": "aggregate",
             "args": [],
@@ -9008,7 +9008,7 @@
             ],
             "ranges": {
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               },
               "m": {
                 "from": "nrengtechfraction_rows"
@@ -9021,7 +9021,7 @@
               {
                 "on": [
                   [
-                    "run_SCC",
+                    "point_SCC",
                     "mix_SCC"
                   ]
                 ]
@@ -9051,7 +9051,7 @@
                     {
                       "op": "index",
                       "args": [
-                        "run_hpAvg",
+                        "point_hpAvg",
                         "r"
                       ]
                     }
@@ -9070,7 +9070,7 @@
                     {
                       "op": "index",
                       "args": [
-                        "run_hpAvg",
+                        "point_hpAvg",
                         "r"
                       ]
                     }
@@ -9082,7 +9082,7 @@
           }
         },
         {
-          "lhs": "run_mixZero3IsPresent",
+          "lhs": "point_mixZero3IsPresent",
           "rhs": {
             "op": "aggregate",
             "args": [],
@@ -9092,7 +9092,7 @@
             ],
             "ranges": {
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               },
               "m": {
                 "from": "nrengtechfraction_rows"
@@ -9105,7 +9105,7 @@
               {
                 "on": [
                   [
-                    "run_sccZero3",
+                    "point_sccZero3",
                     "mix_SCC"
                   ]
                 ]
@@ -9135,7 +9135,7 @@
                     {
                       "op": "index",
                       "args": [
-                        "run_hpAvg",
+                        "point_hpAvg",
                         "r"
                       ]
                     }
@@ -9154,7 +9154,7 @@
                     {
                       "op": "index",
                       "args": [
-                        "run_hpAvg",
+                        "point_hpAvg",
                         "r"
                       ]
                     }
@@ -9166,7 +9166,7 @@
           }
         },
         {
-          "lhs": "run_mixEffectiveSCC",
+          "lhs": "point_mixEffectiveSCC",
           "rhs": {
             "op": "aggregate",
             "args": [],
@@ -9175,7 +9175,7 @@
             ],
             "ranges": {
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               }
             },
             "expr": {
@@ -9186,7 +9186,7 @@
                 "scc": {
                   "op": "index",
                   "args": [
-                    "run_SCC",
+                    "point_SCC",
                     "r"
                   ]
                 },
@@ -9196,7 +9196,7 @@
                     {
                       "op": "index",
                       "args": [
-                        "run_mixExactIsPresent",
+                        "point_mixExactIsPresent",
                         "r"
                       ]
                     },
@@ -9209,7 +9209,7 @@
                     {
                       "op": "index",
                       "args": [
-                        "run_mixZero3IsPresent",
+                        "point_mixZero3IsPresent",
                         "r"
                       ]
                     },
@@ -9222,7 +9222,7 @@
         },
         {
           "_comment": "The same walk over nremissionrate, done independently (\u00a72.4): the two tables agree for this SCC and need not in general.",
-          "lhs": "run_rateExactIsPresent",
+          "lhs": "point_rateExactIsPresent",
           "rhs": {
             "op": "aggregate",
             "args": [],
@@ -9232,7 +9232,7 @@
             ],
             "ranges": {
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               },
               "e": {
                 "from": "nremissionrate_rows"
@@ -9242,7 +9242,7 @@
               {
                 "on": [
                   [
-                    "run_SCC",
+                    "point_SCC",
                     "emr_SCC"
                   ]
                 ]
@@ -9264,7 +9264,7 @@
                     {
                       "op": "index",
                       "args": [
-                        "run_hpAvg",
+                        "point_hpAvg",
                         "r"
                       ]
                     }
@@ -9283,7 +9283,7 @@
                     {
                       "op": "index",
                       "args": [
-                        "run_hpAvg",
+                        "point_hpAvg",
                         "r"
                       ]
                     }
@@ -9295,7 +9295,7 @@
           }
         },
         {
-          "lhs": "run_rateZero3IsPresent",
+          "lhs": "point_rateZero3IsPresent",
           "rhs": {
             "op": "aggregate",
             "args": [],
@@ -9305,7 +9305,7 @@
             ],
             "ranges": {
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               },
               "e": {
                 "from": "nremissionrate_rows"
@@ -9315,7 +9315,7 @@
               {
                 "on": [
                   [
-                    "run_sccZero3",
+                    "point_sccZero3",
                     "emr_SCC"
                   ]
                 ]
@@ -9337,7 +9337,7 @@
                     {
                       "op": "index",
                       "args": [
-                        "run_hpAvg",
+                        "point_hpAvg",
                         "r"
                       ]
                     }
@@ -9356,7 +9356,7 @@
                     {
                       "op": "index",
                       "args": [
-                        "run_hpAvg",
+                        "point_hpAvg",
                         "r"
                       ]
                     }
@@ -9368,7 +9368,7 @@
           }
         },
         {
-          "lhs": "run_rateEffectiveSCC",
+          "lhs": "point_rateEffectiveSCC",
           "rhs": {
             "op": "aggregate",
             "args": [],
@@ -9377,7 +9377,7 @@
             ],
             "ranges": {
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               }
             },
             "expr": {
@@ -9388,7 +9388,7 @@
                 "scc": {
                   "op": "index",
                   "args": [
-                    "run_SCC",
+                    "point_SCC",
                     "r"
                   ]
                 },
@@ -9398,7 +9398,7 @@
                     {
                       "op": "index",
                       "args": [
-                        "run_rateExactIsPresent",
+                        "point_rateExactIsPresent",
                         "r"
                       ]
                     },
@@ -9411,7 +9411,7 @@
                     {
                       "op": "index",
                       "args": [
-                        "run_rateZero3IsPresent",
+                        "point_rateZero3IsPresent",
                         "r"
                       ]
                     },
@@ -9440,7 +9440,7 @@
                 "from": "nrengtechfraction_rows"
               },
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               },
               "x": {
                 "from": "exhaust_process_group_rows"
@@ -9450,7 +9450,7 @@
               {
                 "on": [
                   [
-                    "run_mixEffectiveSCC",
+                    "point_mixEffectiveSCC",
                     "mix_SCC"
                   ]
                 ]
@@ -9480,7 +9480,7 @@
                     {
                       "op": "index",
                       "args": [
-                        "run_hpAvg",
+                        "point_hpAvg",
                         "r"
                       ]
                     }
@@ -9499,7 +9499,7 @@
                     {
                       "op": "index",
                       "args": [
-                        "run_hpAvg",
+                        "point_hpAvg",
                         "r"
                       ]
                     }
@@ -9546,7 +9546,7 @@
                 "from": "nrengtechfraction_rows"
               },
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               },
               "x": {
                 "from": "exhaust_process_group_rows"
@@ -9556,7 +9556,7 @@
               {
                 "on": [
                   [
-                    "run_mixEffectiveSCC",
+                    "point_mixEffectiveSCC",
                     "mix_SCC"
                   ]
                 ]
@@ -9586,7 +9586,7 @@
                     {
                       "op": "index",
                       "args": [
-                        "run_hpAvg",
+                        "point_hpAvg",
                         "r"
                       ]
                     }
@@ -9605,7 +9605,7 @@
                     {
                       "op": "index",
                       "args": [
-                        "run_hpAvg",
+                        "point_hpAvg",
                         "r"
                       ]
                     }
@@ -9658,7 +9658,7 @@
                 "from": "nrengtechfraction_rows"
               },
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               },
               "x": {
                 "from": "exhaust_process_group_rows"
@@ -9668,7 +9668,7 @@
               {
                 "on": [
                   [
-                    "run_mixEffectiveSCC",
+                    "point_mixEffectiveSCC",
                     "mix_SCC"
                   ]
                 ]
@@ -9698,7 +9698,7 @@
                     {
                       "op": "index",
                       "args": [
-                        "run_hpAvg",
+                        "point_hpAvg",
                         "r"
                       ]
                     }
@@ -9717,7 +9717,7 @@
                     {
                       "op": "index",
                       "args": [
-                        "run_hpAvg",
+                        "point_hpAvg",
                         "r"
                       ]
                     }
@@ -9828,7 +9828,7 @@
                 "from": "nrengtechfraction_rows"
               },
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               },
               "x": {
                 "from": "exhaust_process_group_rows"
@@ -9838,7 +9838,7 @@
               {
                 "on": [
                   [
-                    "run_mixEffectiveSCC",
+                    "point_mixEffectiveSCC",
                     "mix_SCC"
                   ]
                 ]
@@ -9884,7 +9884,7 @@
                     {
                       "op": "index",
                       "args": [
-                        "run_hpAvg",
+                        "point_hpAvg",
                         "r"
                       ]
                     }
@@ -9903,7 +9903,7 @@
                     {
                       "op": "index",
                       "args": [
-                        "run_hpAvg",
+                        "point_hpAvg",
                         "r"
                       ]
                     }
@@ -9969,14 +9969,14 @@
                 "from": "nremissionrate_rows"
               },
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               }
             },
             "join": [
               {
                 "on": [
                   [
-                    "run_rateEffectiveSCC",
+                    "point_rateEffectiveSCC",
                     "emr_SCC"
                   ]
                 ]
@@ -10014,7 +10014,7 @@
                     {
                       "op": "index",
                       "args": [
-                        "run_hpAvg",
+                        "point_hpAvg",
                         "r"
                       ]
                     }
@@ -10033,7 +10033,7 @@
                     {
                       "op": "index",
                       "args": [
-                        "run_hpAvg",
+                        "point_hpAvg",
                         "r"
                       ]
                     }
@@ -10153,7 +10153,7 @@
                 "from": "engine_tech_rows"
               },
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               }
             },
             "expr": {
@@ -10170,7 +10170,7 @@
                 {
                   "op": "index",
                   "args": [
-                    "run_unitConversion",
+                    "point_unitConversion",
                     "r"
                   ]
                 },
@@ -10193,28 +10193,28 @@
                 {
                   "op": "index",
                   "args": [
-                    "run_adjustmentTime",
+                    "point_adjustmentTime",
                     "r"
                   ]
                 },
                 {
                   "op": "index",
                   "args": [
-                    "run_hoursUsedPerYear",
+                    "point_hoursUsedPerYear",
                     "r"
                   ]
                 },
                 {
                   "op": "index",
                   "args": [
-                    "run_monthDayFactor",
+                    "point_monthDayFactor",
                     "r"
                   ]
                 },
                 {
                   "op": "index",
                   "args": [
-                    "run_countyPopulation",
+                    "point_countyPopulation",
                     "r"
                   ]
                 },
@@ -10355,13 +10355,13 @@
                 "from": "output_rows"
               },
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               }
             },
             "expr": {
               "op": "index",
               "args": [
-                "run_SCC",
+                "point_SCC",
                 "r"
               ]
             }
@@ -10527,13 +10527,13 @@
                 "from": "output_rows"
               },
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               }
             },
             "expr": {
               "op": "index",
               "args": [
-                "run_monthID",
+                "point_monthID",
                 "r"
               ]
             }
@@ -10621,7 +10621,7 @@
           }
         },
         {
-          "lhs": "run_nonroadFuelTypeID",
+          "lhs": "point_nonroadFuelTypeID",
           "rhs": {
             "op": "aggregate",
             "args": [],
@@ -10631,7 +10631,7 @@
             ],
             "ranges": {
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               },
               "s": {
                 "from": "nrscc_rows"
@@ -10642,7 +10642,7 @@
                 "on": [
                   [
                     "scc_SCC",
-                    "run_SCC"
+                    "point_SCC"
                   ]
                 ]
               }
@@ -10657,7 +10657,7 @@
           }
         },
         {
-          "lhs": "run_outputFuelTypeID",
+          "lhs": "point_outputFuelTypeID",
           "rhs": {
             "op": "aggregate",
             "args": [],
@@ -10667,7 +10667,7 @@
             ],
             "ranges": {
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               },
               "f": {
                 "from": "fuel_type_mapping_rows"
@@ -10677,7 +10677,7 @@
               {
                 "on": [
                   [
-                    "run_nonroadFuelTypeID",
+                    "point_nonroadFuelTypeID",
                     "ftm_nonroadFuelTypeID"
                   ]
                 ]
@@ -10749,13 +10749,13 @@
                 "from": "output_rows"
               },
               "r": {
-                "from": "run_rows"
+                "from": "equipment_point_rows"
               }
             },
             "expr": {
               "op": "index",
               "args": [
-                "run_outputFuelTypeID",
+                "point_outputFuelTypeID",
                 "r"
               ]
             }
@@ -10989,11 +10989,11 @@
           },
           "assertions": [
             {
-              "variable": "run_surrogateID",
+              "variable": "point_surrogateID",
               "time": 0.0,
               "expected": 8.0,
               "coords": {
-                "run_rows": 1
+                "equipment_point_rows": 1
               }
             }
           ]
@@ -11042,11 +11042,11 @@
               }
             },
             {
-              "variable": "run_allocationFraction",
+              "variable": "point_allocationFraction",
               "time": 0.0,
               "expected": 0.0032382986319147338,
               "coords": {
-                "run_rows": 1
+                "equipment_point_rows": 1
               }
             }
           ]
@@ -11063,19 +11063,19 @@
           },
           "assertions": [
             {
-              "variable": "run_rawStatePopulation",
+              "variable": "point_rawStatePopulation",
               "time": 0.0,
               "expected": 83.279223744292,
               "coords": {
-                "run_rows": 1
+                "equipment_point_rows": 1
               }
             },
             {
-              "variable": "run_statePopulation",
+              "variable": "point_statePopulation",
               "time": 0.0,
               "expected": 83.3,
               "coords": {
-                "run_rows": 1
+                "equipment_point_rows": 1
               }
             }
           ]
@@ -11092,11 +11092,11 @@
           },
           "assertions": [
             {
-              "variable": "run_countyPopulation",
+              "variable": "point_countyPopulation",
               "time": 0.0,
               "expected": 0.2697502760384973,
               "coords": {
-                "run_rows": 1
+                "equipment_point_rows": 1
               }
             }
           ]
@@ -11110,43 +11110,43 @@
           },
           "assertions": [
             {
-              "variable": "run_monthExactIsPresent",
+              "variable": "point_monthExactIsPresent",
               "time": 0.0,
               "expected": 0.0,
               "coords": {
-                "run_rows": 1
+                "equipment_point_rows": 1
               }
             },
             {
-              "variable": "run_monthZero2IsPresent",
+              "variable": "point_monthZero2IsPresent",
               "time": 0.0,
               "expected": 1.0,
               "coords": {
-                "run_rows": 1
+                "equipment_point_rows": 1
               }
             },
             {
-              "variable": "run_monthEffectiveSCC",
+              "variable": "point_monthEffectiveSCC",
               "time": 0.0,
               "expected": 2260007000.0,
               "coords": {
-                "run_rows": 1
+                "equipment_point_rows": 1
               }
             },
             {
-              "variable": "run_monthEffectiveStateID",
+              "variable": "point_monthEffectiveStateID",
               "time": 0.0,
               "expected": 26.0,
               "coords": {
-                "run_rows": 1
+                "equipment_point_rows": 1
               }
             },
             {
-              "variable": "run_dayEffectiveSCC",
+              "variable": "point_dayEffectiveSCC",
               "time": 0.0,
               "expected": 2260007000.0,
               "coords": {
-                "run_rows": 1
+                "equipment_point_rows": 1
               }
             }
           ]
@@ -11163,51 +11163,51 @@
           },
           "assertions": [
             {
-              "variable": "run_monthRowIsPresent",
+              "variable": "point_monthRowIsPresent",
               "time": 0.0,
               "expected": 1.0,
               "coords": {
-                "run_rows": 1
+                "equipment_point_rows": 1
               }
             },
             {
-              "variable": "run_monthFraction",
+              "variable": "point_monthFraction",
               "time": 0.0,
               "expected": 0.0833333,
               "coords": {
-                "run_rows": 1
+                "equipment_point_rows": 1
               }
             },
             {
-              "variable": "run_dayFraction",
+              "variable": "point_dayFraction",
               "time": 0.0,
               "expected": 0.166667,
               "coords": {
-                "run_rows": 1
+                "equipment_point_rows": 1
               }
             },
             {
-              "variable": "run_monthDayFactor",
+              "variable": "point_monthDayFactor",
               "time": 0.0,
               "expected": 0.09722237777770001,
               "coords": {
-                "run_rows": 1
+                "equipment_point_rows": 1
               }
             },
             {
-              "variable": "run_daysInMonth",
+              "variable": "point_daysInMonth",
               "time": 0.0,
               "expected": 31.0,
               "coords": {
-                "run_rows": 1
+                "equipment_point_rows": 1
               }
             },
             {
-              "variable": "run_adjustmentTime",
+              "variable": "point_adjustmentTime",
               "time": 0.0,
               "expected": 0.03225806451612903,
               "coords": {
-                "run_rows": 1
+                "equipment_point_rows": 1
               }
             }
           ]
@@ -11224,61 +11224,61 @@
           },
           "assertions": [
             {
-              "variable": "run_daytimeHourCount",
+              "variable": "point_daytimeHourCount",
               "time": 0.0,
               "expected": 13.0,
               "coords": {
-                "run_rows": 1
+                "equipment_point_rows": 1
               }
             },
             {
-              "variable": "run_daytimeTemperatureSum",
+              "variable": "point_daytimeTemperatureSum",
               "time": 0.0,
               "expected": 956.5000152587901,
               "coords": {
-                "run_rows": 1
+                "equipment_point_rows": 1
               }
             },
             {
-              "variable": "run_meanTemperature",
+              "variable": "point_meanTemperature",
               "time": 0.0,
               "expected": 73.57692425067616,
               "coords": {
-                "run_rows": 1
+                "equipment_point_rows": 1
               }
             }
           ]
         },
         {
           "id": "the_oxygen_content_survives_four_joins",
-          "description": "\u00a76.0: one gasoline supply row reaches this county-month -- formulation 9114, Gasohol E10, marketShare 1.0, 10 vol% ethanol at 0.3653 wt%/vol% -- giving oxy = 3.653. Four things would each give a plausible wrong number: dropping the regionCodeID = 2 join doubles it (the region appears twice), dropping the fuelYearID join reaches ~140 wt% (the capture carries 1990-2060), dropping the subtype join adds the diesel rows, and dropping the market-share weight gives 3.653 anyway HERE and not on a county with two formulations. The oxygen content is a binary32 quantity and carries a one-epsilon tolerance on its own assertion rather than on the test, because the same test pins `run_fuelRegionID = 270000000` -- a key, exact in binary32 as it happens, and a key must stay at the model's exact 1e-12 whether or not it rounds.",
+          "description": "\u00a76.0: one gasoline supply row reaches this county-month -- formulation 9114, Gasohol E10, marketShare 1.0, 10 vol% ethanol at 0.3653 wt%/vol% -- giving oxy = 3.653. Four things would each give a plausible wrong number: dropping the regionCodeID = 2 join doubles it (the region appears twice), dropping the fuelYearID join reaches ~140 wt% (the capture carries 1990-2060), dropping the subtype join adds the diesel rows, and dropping the market-share weight gives 3.653 anyway HERE and not on a county with two formulations. The oxygen content is a binary32 quantity and carries a one-epsilon tolerance on its own assertion rather than on the test, because the same test pins `point_fuelRegionID = 270000000` -- a key, exact in binary32 as it happens, and a key must stay at the model's exact 1e-12 whether or not it rounds.",
           "time_span": {
             "start": 0.0,
             "end": 0.0
           },
           "assertions": [
             {
-              "variable": "run_fuelYearID",
+              "variable": "point_fuelYearID",
               "time": 0.0,
               "expected": 2020.0,
               "coords": {
-                "run_rows": 1
+                "equipment_point_rows": 1
               }
             },
             {
-              "variable": "run_fuelRegionID",
+              "variable": "point_fuelRegionID",
               "time": 0.0,
               "expected": 270000000.0,
               "coords": {
-                "run_rows": 1
+                "equipment_point_rows": 1
               }
             },
             {
-              "variable": "run_oxygenWeightPercent",
+              "variable": "point_oxygenWeightPercent",
               "time": 0.0,
               "expected": 3.653,
               "coords": {
-                "run_rows": 1
+                "equipment_point_rows": 1
               },
               "tolerance": {
                 "rel": 1.1920929e-07
@@ -11298,11 +11298,11 @@
           },
           "assertions": [
             {
-              "variable": "run_engineFuelKindID",
+              "variable": "point_engineFuelKindID",
               "time": 0.0,
               "expected": 1.0,
               "coords": {
-                "run_rows": 1
+                "equipment_point_rows": 1
               }
             },
             {
@@ -11348,51 +11348,51 @@
           },
           "assertions": [
             {
-              "variable": "run_growthExactIsPresent",
+              "variable": "point_growthExactIsPresent",
               "time": 0.0,
               "expected": 0.0,
               "coords": {
-                "run_rows": 1
+                "equipment_point_rows": 1
               }
             },
             {
-              "variable": "run_growthEffectiveSCC",
+              "variable": "point_growthEffectiveSCC",
               "time": 0.0,
               "expected": 2260007000.0,
               "coords": {
-                "run_rows": 1
+                "equipment_point_rows": 1
               }
             },
             {
-              "variable": "run_growthEffectiveStateID",
+              "variable": "point_growthEffectiveStateID",
               "time": 0.0,
               "expected": 26.0,
               "coords": {
-                "run_rows": 1
+                "equipment_point_rows": 1
               }
             },
             {
-              "variable": "run_growthPatternID",
+              "variable": "point_growthPatternID",
               "time": 0.0,
               "expected": 2176.0,
               "coords": {
-                "run_rows": 1
+                "equipment_point_rows": 1
               }
             },
             {
-              "variable": "run_mixEffectiveSCC",
+              "variable": "point_mixEffectiveSCC",
               "time": 0.0,
               "expected": 2260007005.0,
               "coords": {
-                "run_rows": 1
+                "equipment_point_rows": 1
               }
             },
             {
-              "variable": "run_rateEffectiveSCC",
+              "variable": "point_rateEffectiveSCC",
               "time": 0.0,
               "expected": 2260007005.0,
               "coords": {
-                "run_rows": 1
+                "equipment_point_rows": 1
               }
             }
           ]
@@ -11409,27 +11409,27 @@
           },
           "assertions": [
             {
-              "variable": "run_medianLifeYears",
+              "variable": "point_medianLifeYears",
               "time": 0.0,
               "expected": 0.90051866,
               "coords": {
-                "run_rows": 1
+                "equipment_point_rows": 1
               }
             },
             {
-              "variable": "run_medianLifePerYear",
+              "variable": "point_medianLifePerYear",
               "time": 0.0,
               "expected": 1.1104711,
               "coords": {
-                "run_rows": 1
+                "equipment_point_rows": 1
               }
             },
             {
-              "variable": "run_equipmentLifeYears",
+              "variable": "point_equipmentLifeYears",
               "time": 0.0,
               "expected": 3.0,
               "coords": {
-                "run_rows": 1
+                "equipment_point_rows": 1
               },
               "tolerance": {
                 "rel": 1e-12
@@ -11440,7 +11440,7 @@
               "time": 0.0,
               "expected": 0.0,
               "coords": {
-                "run_rows": 1,
+                "equipment_point_rows": 1,
                 "age_slot_rows": 1
               }
             },
@@ -11449,7 +11449,7 @@
               "time": 0.0,
               "expected": 1.1104711,
               "coords": {
-                "run_rows": 1,
+                "equipment_point_rows": 1,
                 "age_slot_rows": 2
               }
             },
@@ -11458,7 +11458,7 @@
               "time": 0.0,
               "expected": 2.2209423,
               "coords": {
-                "run_rows": 1,
+                "equipment_point_rows": 1,
                 "age_slot_rows": 3
               }
             },
@@ -11467,7 +11467,7 @@
               "time": 0.0,
               "expected": 0.0,
               "coords": {
-                "run_rows": 1,
+                "equipment_point_rows": 1,
                 "age_slot_rows": 1
               },
               "tolerance": {
@@ -11479,7 +11479,7 @@
               "time": 0.0,
               "expected": 73.5,
               "coords": {
-                "run_rows": 1,
+                "equipment_point_rows": 1,
                 "age_slot_rows": 2
               },
               "tolerance": {
@@ -11491,7 +11491,7 @@
               "time": 0.0,
               "expected": 100.0,
               "coords": {
-                "run_rows": 1,
+                "equipment_point_rows": 1,
                 "age_slot_rows": 3
               },
               "tolerance": {
@@ -11503,7 +11503,7 @@
               "time": 0.0,
               "expected": 73.5,
               "coords": {
-                "run_rows": 1,
+                "equipment_point_rows": 1,
                 "age_slot_rows": 3
               },
               "tolerance": {
@@ -11515,7 +11515,7 @@
               "time": 0.0,
               "expected": 0.0,
               "coords": {
-                "run_rows": 1,
+                "equipment_point_rows": 1,
                 "age_slot_rows": 1
               }
             },
@@ -11524,7 +11524,7 @@
               "time": 0.0,
               "expected": 0.735,
               "coords": {
-                "run_rows": 1,
+                "equipment_point_rows": 1,
                 "age_slot_rows": 2
               }
             },
@@ -11533,7 +11533,7 @@
               "time": 0.0,
               "expected": 0.99999994,
               "coords": {
-                "run_rows": 1,
+                "equipment_point_rows": 1,
                 "age_slot_rows": 3
               }
             },
@@ -11542,7 +11542,7 @@
               "time": 0.0,
               "expected": 0.0,
               "coords": {
-                "run_rows": 1,
+                "equipment_point_rows": 1,
                 "age_slot_rows": 4
               }
             },
@@ -11551,7 +11551,7 @@
               "time": 0.0,
               "expected": 5.9604645e-08,
               "coords": {
-                "run_rows": 1,
+                "equipment_point_rows": 1,
                 "age_slot_rows": 3
               }
             },
@@ -11560,7 +11560,7 @@
               "time": 0.0,
               "expected": 0.8506725,
               "coords": {
-                "run_rows": 1,
+                "equipment_point_rows": 1,
                 "age_slot_rows": 1
               }
             },
@@ -11569,7 +11569,7 @@
               "time": 0.0,
               "expected": 0.1493275,
               "coords": {
-                "run_rows": 1,
+                "equipment_point_rows": 1,
                 "age_slot_rows": 2
               }
             },
@@ -11578,7 +11578,7 @@
               "time": 0.0,
               "expected": 0.0,
               "coords": {
-                "run_rows": 1,
+                "equipment_point_rows": 1,
                 "age_slot_rows": 3
               }
             }
@@ -11622,7 +11622,7 @@
               "time": 0.0,
               "expected": 1990.0,
               "coords": {
-                "run_rows": 1,
+                "equipment_point_rows": 1,
                 "fold_year_rows": 2
               },
               "tolerance": {
@@ -11634,7 +11634,7 @@
               "time": 0.0,
               "expected": 1999.0,
               "coords": {
-                "run_rows": 1,
+                "equipment_point_rows": 1,
                 "fold_year_rows": 2
               },
               "tolerance": {
@@ -11646,7 +11646,7 @@
               "time": 0.0,
               "expected": 321.0,
               "coords": {
-                "run_rows": 1,
+                "equipment_point_rows": 1,
                 "fold_year_rows": 2
               },
               "tolerance": {
@@ -11658,7 +11658,7 @@
               "time": 0.0,
               "expected": 1481.0,
               "coords": {
-                "run_rows": 1,
+                "equipment_point_rows": 1,
                 "fold_year_rows": 2
               },
               "tolerance": {
@@ -11670,7 +11670,7 @@
               "time": 0.0,
               "expected": 321.0,
               "coords": {
-                "run_rows": 1,
+                "equipment_point_rows": 1,
                 "fold_year_rows": 1
               }
             },
@@ -11679,7 +11679,7 @@
               "time": 0.0,
               "expected": 449.8889,
               "coords": {
-                "run_rows": 1,
+                "equipment_point_rows": 1,
                 "fold_year_rows": 2
               }
             },
@@ -11688,7 +11688,7 @@
               "time": 0.0,
               "expected": 1481.0,
               "coords": {
-                "run_rows": 1,
+                "equipment_point_rows": 1,
                 "fold_year_rows": 10
               }
             },
@@ -11697,7 +11697,7 @@
               "time": 0.0,
               "expected": 1000.0,
               "coords": {
-                "run_rows": 1,
+                "equipment_point_rows": 1,
                 "fold_year_rows": 11
               }
             },
@@ -11706,7 +11706,7 @@
               "time": 0.0,
               "expected": 1508.0,
               "coords": {
-                "run_rows": 1,
+                "equipment_point_rows": 1,
                 "fold_year_rows": 31
               }
             },
@@ -11715,7 +11715,7 @@
               "time": 0.0,
               "expected": 0.0,
               "coords": {
-                "run_rows": 1,
+                "equipment_point_rows": 1,
                 "fold_year_rows": 1
               }
             },
@@ -11724,7 +11724,7 @@
               "time": 0.0,
               "expected": 0.401523,
               "coords": {
-                "run_rows": 1,
+                "equipment_point_rows": 1,
                 "fold_year_rows": 2
               }
             },
@@ -11733,16 +11733,16 @@
               "time": 0.0,
               "expected": -0.32478055,
               "coords": {
-                "run_rows": 1,
+                "equipment_point_rows": 1,
                 "fold_year_rows": 11
               }
             },
             {
-              "variable": "run_popGrowthFactor",
+              "variable": "point_popGrowthFactor",
               "time": 0.0,
               "expected": 0.401523,
               "coords": {
-                "run_rows": 1
+                "equipment_point_rows": 1
               }
             }
           ]
@@ -11793,27 +11793,27 @@
           },
           "assertions": [
             {
-              "variable": "run_baseGrowthIndex",
+              "variable": "point_baseGrowthIndex",
               "time": 0.0,
               "expected": 321.0,
               "coords": {
-                "run_rows": 1
+                "equipment_point_rows": 1
               }
             },
             {
-              "variable": "run_endGrowthIndex",
+              "variable": "point_endGrowthIndex",
               "time": 0.0,
               "expected": 1508.0,
               "coords": {
-                "run_rows": 1
+                "equipment_point_rows": 1
               }
             },
             {
-              "variable": "run_cumulativeGrowthRatio",
+              "variable": "point_cumulativeGrowthRatio",
               "time": 0.0,
               "expected": 4.697819314641745,
               "coords": {
-                "run_rows": 1
+                "equipment_point_rows": 1
               }
             },
             {
@@ -11821,7 +11821,7 @@
               "time": 0.0,
               "expected": 4.697819314641745,
               "coords": {
-                "run_rows": 1
+                "equipment_point_rows": 1
               }
             }
           ]
@@ -11838,43 +11838,43 @@
           },
           "assertions": [
             {
-              "variable": "run_hpAvg",
+              "variable": "point_hpAvg",
               "time": 0.0,
               "expected": 6.81,
               "coords": {
-                "run_rows": 1
+                "equipment_point_rows": 1
               }
             },
             {
-              "variable": "run_hoursUsedPerYear",
+              "variable": "point_hoursUsedPerYear",
               "time": 0.0,
               "expected": 303.0,
               "coords": {
-                "run_rows": 1
+                "equipment_point_rows": 1
               }
             },
             {
-              "variable": "run_loadFactor",
+              "variable": "point_loadFactor",
               "time": 0.0,
               "expected": 0.7,
               "coords": {
-                "run_rows": 1
+                "equipment_point_rows": 1
               }
             },
             {
-              "variable": "run_medianLifeFullLoad",
+              "variable": "point_medianLifeFullLoad",
               "time": 0.0,
               "expected": 191.0,
               "coords": {
-                "run_rows": 1
+                "equipment_point_rows": 1
               }
             },
             {
-              "variable": "run_unitConversion",
+              "variable": "point_unitConversion",
               "time": 0.0,
               "expected": 4.766999999999999,
               "coords": {
-                "run_rows": 1
+                "equipment_point_rows": 1
               }
             },
             {
