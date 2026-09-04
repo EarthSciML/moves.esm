@@ -348,11 +348,30 @@ else
   fi
 fi
 
+# F28's control is another file the loop below does not run, and it is meant
+# to PASS. F28 is that a recurrence whose predecessor is named by a DATA COLUMN
+# -- `SampleVehicleTrip.priorTripID`, which is how TankTemperatureGenerator
+# TTG-4a chains a vehicle's trips -- has no direct spelling: `index(V, k -
+# index(lag, k))` is refused as `recurrence_not_wellfounded`, correctly and on
+# both paths. The control is the WORKAROUND: contract the lag over its bounded
+# range and select with an equality guard against the column. It is checked
+# rather than assumed because everything this repository can say about porting
+# TTG-4 rests on the workaround existing, and because it is the shape whose
+# `[1, 7]` range is read off a snapshot rather than off the model -- an
+# under-sized range would contribute nothing rather than raise.
+F28_CONTROL=docs/findings/F28_control_the_contracted_lag_workaround.esm
+if "$ESM" validate "$F28_CONTROL" >/dev/null 2>&1 && "$ESM" test "$F28_CONTROL" >/dev/null 2>&1; then
+  pass "F28 contracted-lag control passes: a data-named predecessor is reachable, at O(max lag) per cell"
+else
+  fail "F28 contracted-lag control — the one spelling this repository has for a data-named predecessor no longer works, which is what a TTG-4 port would be built on"
+fi
+
 mapfile -t REPROS < <(find docs/findings -name '*.esm' -not -name '.*' -not -name 'join_leaf.esm' \
   -not -name 'F3_lib_with_enum.esm' \
   -not -name 'F13_enum_leaf_*.esm' \
   -not -name 'F18_control_float32_key_override.esm' \
   -not -name 'F24b_repro_one_ingested_column_breaks_the_recurrence.esm' \
+  -not -name 'F28_control_the_contracted_lag_workaround.esm' \
   -not -name 'F25_repro_an_undeclared_operand_is_dropped_when_ingesting.esm' \
   2>/dev/null | sort)
 
@@ -619,7 +638,8 @@ if [[ ! -d "$SNAPSHOTS" ]]; then
   skip "oracles" "no snapshots at $SNAPSHOTS (set SNAPSHOTS=...)"
 else
   ORACLES=("./run-oracle.sh" "./run-oracle.sh --float64"
-           "./run-onroad-oracle.sh" "./run-leaks-oracle.sh")
+           "./run-onroad-oracle.sh" "./run-leaks-oracle.sh"
+           "./run-permeation-oracle.sh")
   for oracle in "${ORACLES[@]}"; do
     if [[ ! -x "${oracle%% *}" ]]; then
       fail "oracle ${oracle} — not executable"

@@ -1,13 +1,13 @@
 # Findings: conventions the format or the toolchain could not express
 
-Twenty-five things PLAN.md §3 Phase 1 through Phase 4 assumed, or that an author would
+Twenty-six things PLAN.md §3 Phase 1 through Phase 4 assumed, or that an author would
 reasonably assume, that did not hold. **Eleven are fixed upstream and retired**
 from the tripwire, listed at the bottom with their sections kept above so the
 workarounds they forced can be traced. The rest still hold at the pinned
 toolchain (`esm-version.lock`: EarthSciAST `de784f3f8`, EarthSciIO
 `d109951d4`, `--features esio,parallel`).
 
-F2, F3, F5, F13, F14, F20, F21 and F22 each have a minimal `.esm` repro in this
+F2, F3, F5, F13, F14, F20, F21, F22 and F28 each have a minimal `.esm` repro in this
 directory — F22 has two, one per construct; F8 is a CLI behaviour rather than a
 document, and is checked by command against the ordinary files of the repo. F23 has no repro at all, because the document that would carry it is `components/age_distribution.esm` itself and the finding is what that file does NOT declare. **Every repro is expected to fail**, and each one's inline test asserts the *intended* behaviour, so a repro
 that starts passing means the defect is fixed. `run-tests.sh` runs them as a
@@ -45,6 +45,8 @@ which of the two answers `esm test` gives instead — the dropped operand
 (`actual=2 expected=10`) or the variable's name — and that check is
 falsified in both directions.
 
+**F28's control is the fifth file the tripwire loop does not run**, and like F18's and F24b's it is meant to pass. F28 is a shape the format refuses; its control is the WORKAROUND that shape has to be rewritten into, and everything this repository can say about porting `TankTemperatureGenerator` TTG-4 rests on that workaround existing. It is checked rather than assumed, and it is two-sided by construction: with a constant lag of 1 in place of the contracted one, rows 4, 5 and 6 read 8, 16 and 32 where the chain says 4, 8 and 8, and three of its six assertions fail.
+
 F12's control is **gone**. It was kept until `components/age_distribution.esm`
 computed `agedist.f`'s fold and guarded it with its own assertions; it does, in
 55 places, so the control had nothing left to notice.
@@ -71,6 +73,7 @@ three of them do not load.
 | **F22** | A discrete event, and an implicit equation, do not evaluate on the ARRAY path (both work on the scalar path) | evaluation | no |
 | **F20** | A constant-folded scalar right-hand side loses the left-hand side's array shape | assertion | no |
 | **F21** | A scoped reference to a mounted model's variable resolves as an operand and a join key but not as an assertion `variable` | assertion | no |
+| **F28** | A recurrence whose predecessor is named by a DATA COLUMN has no direct spelling; the lag must be an offset of the frame symbol | validate + test | no |
 
 ---
 
@@ -1344,3 +1347,73 @@ authoring consequence.
 **Fix shape.** Resolve an assertion's `variable` through the same scope chain
 the equation binder already uses, which is the behaviour the schema's own
 description promises.
+
+## F28 — a recurrence whose predecessor is named by a data column
+
+`F28_a_data_named_predecessor_is_not_a_recurrence.esm`, with
+`F28_control_the_contracted_lag_workaround.esm` beside it.
+
+```
+index 0 of a causal self-read of 'f28_value' is not affine in its frame symbol
+'k'. A self-read names a position RELATIVE to the cell being written (`k - 1`,
+`k - a`, `k - a - 2`), which is what makes the recurrence axis and its
+direction decidable (esm-spec §4.3.1.1).
+```
+
+esm-spec §4.3.1.1 admits a self-read whose index argument is affine in the
+frame symbol with **coefficient 1** and an offset built from integer literals
+and index symbols. `index(V, k − index(lag, k))` looks like that and is not:
+`lag[k]` is a *value*, and the checker cannot resolve a range for it. Both
+`esm validate` and `esm test` refuse it, with the same diagnostic — the one
+place in this file where the two paths agree without having to be checked
+separately, which is worth noting next to F25.
+
+**This is correct behaviour, not a defect.** §4.3.1.1 splits its proof
+obligation deliberately: the *sign* of the lag need not be provable (that is
+what admits `agedist.f`'s straddling fold), but the *coefficient* must be,
+because without it neither the axis nor the direction of the recurrence is
+decidable. A data-column offset defeats exactly that half. It is recorded here
+because an author porting MOVES writes this expression, and because knowing the
+cost of the alternative before paying it is the point.
+
+**Where MOVES needs it.** `TankTemperatureGenerator` TTG-4a
+(`calculateHotSoakAndOperatingTankTemperatures`) walks a work queue: each trip,
+as its last segment is reached, enqueues the trip whose `priorTripID` is its own
+`tripID`, carrying the hot-soak end temperature forward as the next trip's
+starting `keyOnTemp`. The predecessor is named by a column. Measured on the
+`process-evap-permeation` snapshot: 26,300 of `SampleVehicleTrip`'s 37,216 rows
+carry a `priorTripID`, and `tripID − priorTripID` is 1 for 24,610 of them and
+2, 3, 4, 5, 6 or 7 for the other 1,690 — so a constant lag of 1 is wrong on
+1,690 rows and there is no other constant to write.
+
+**Impact, and it is the Phase 4 screening.** PLAN.md screened
+`process-evap-fvv` and `process-evap-permeation` as blocked by F12 and
+unblocked by its fix. F12's fix does unblock TTG-1, the quarter-hour
+recurrence, which `components/tank_temperature.esm` now computes. It does not
+unblock TTG-2/3/4 or TTG-7, and those are what the two fixtures actually stand
+on — `docs/evap-permeation.md` §8.1 measures which. The screening was not wrong
+about F12; it was incomplete about what was behind it.
+
+**The workaround, and its two costs.** Contract the lag over its bounded range
+and select the matching term with an equality guard against the data column:
+
+```jsonc
+"ranges": { "k": { "from": "rows" }, "a": [1, 7] },
+"reduce": "+",
+"expr": { "op": "ifelse", "args": [
+    { "op": "==", "args": [ {"op":"index","args":["lag","k"]}, "a" ] },
+    <a term reading index(V, k − a)>,
+    0.0 ] }
+```
+
+That is §4.3.1.1's straddling idiom and docs/esm-conventions.md §19.2's rule
+that the contracted index *is* the lag — the same shape `agedist.f`'s fold
+uses, pointed at a predecessor a column names rather than at the slot number.
+The control reproduces `[1, 2, 4, 4, 8, 8]` with it. It costs `max lag`
+evaluations per cell where the direct spelling would cost one, and the range's
+upper bound is a **metaparameter expression read off the data** rather than off
+the model: 7 is a property of this capture, and a lag beyond the declared range
+contributes the additive identity rather than raising. That second cost is this
+repository's characteristic failure in miniature, so an author using this
+spelling owes an assertion that the observed maximum lag is the one declared.
+

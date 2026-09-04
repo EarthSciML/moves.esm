@@ -1,0 +1,1533 @@
+{
+  "esm": "1.0.0",
+  "metadata": {
+    "name": "moves.tank_temperature",
+    "description": "TankTemperatureGenerator step TTG-1: the parked vehicle's hourly fuel-tank temperature, from the zone's 24 hourly ambient temperatures. Ports crates/moves-calculators/src/generators/tank_temperature_generator.rs:1483-1537 (`calculate_cold_soak_tank_temperature`, the port of TankTemperatureGenerator.java's `calculateColdSoakTankTemperature`), specified in docs/evap-permeation.md §2.6.\n\nWHY THIS FILE EXISTS, AND WHY IT IS ITS OWN COMPONENT. `ColdSoakTankTemperature` is an input table of BOTH remaining evaporative slices -- process 12 (fuel vapour venting, MultidayTankVaporVentingCalculator TVV-2 and TVV-3) reads it directly, and process 11 (permeation) reads it through `AverageTankTemperature`'s cold-soaking operating mode. It is one generator step, so by docs/esm-conventions.md §1 it is one file, and it is mounted rather than copied into either calculator.\n\nWHAT IS ACTUALLY BEING EXERCISED HERE. TTG-1b is a RECURRENCE, and until EarthSciAST a83cde55e the format had no spelling for one (finding F12). It has one now, and until this file the ONLY thing in this repository that had ever used it was `agedist.f`'s thirty-year fold in components/age_distribution.esm. A construct verified against its own motivating case is verified narrowly, so this file was written to be a DIFFERENT recurrence, and it is different in four ways that are each visible in the equations below:\n\n  (a) the fold's lag is a CONTRACTED index running 1..50 and the self-read appears once per contracted value; here the lag is the literal 1 and the self-read appears exactly once, with nothing contracted at all;\n  (b) the fold's axis is a declared 31-row year axis; here the axis is a DERIVED 96-cell quarter-hour grid whose hour and time-step columns are computed from the row number, and the recurrence's neighbours are quarter-hours of the SAME hour for three cells in four and the previous hour for the fourth;\n  (c) the fold's base case is the constant 0.0 under a `Y <= 1` guard; here the base case is COMPUTED -- row 1's carried value is `quarterHourTemperature[1] - firstQHTankTemperature`, which is zero only because those two are the same number, and which moves the instant either input moves. That is deliberate: a recurrence whose first cell is a literal is a recurrence with one fewer input to perturb it through, and F24 is what perturbing a recurrence is for;\n  (d) the fold's terms are independent of the answer once the survival run is fixed; here every term is a function of the answer so far -- `sumTempDelta` accumulates `quarterHourTemperature - (1.4 * sumTempDelta + first)`, a linear feedback with ratio -0.4. This is the shape that CANNOT be written as esm-spec §4.3.1's prefix scan at all, which is the sharpest available test that §4.3.1.1 is doing real work.\n\nNothing about (a)-(d) needed a new operator, a new schema field or a declaration; §4.3.1.1's causal self-reference took all four. That is the finding, and it is a positive one.\n\nWHAT THE NUMBERS ARE. The 24 ambient temperatures are the `ZoneMonthHour` rows of zone 261610 (Washtenaw County, MI), month 8, which are identical in all three evaporative snapshots. They are carried at the twelve digits the snapshot stores, which are a `real*4` value widened: 63.7999992371 is `float(63.8)`. The assertions below check this file's answers against the reference's OWN `QuarterHourTemperature`, `QuarterHourTankTemperature` and `ColdSoakTankTemperature` tables -- three separate captured intermediates, 96 + 96 + 24 rows -- so they are checks against MOVES and not against this file's author. Where a reference decimal is asserted the tolerance is `rel 1e-6`, which is that column's six-significant-figure storage floor and not accumulated error: half a unit in the sixth significant figure of a number just above 10 is 7.9e-07 relative, and the worst of the 24 cold-soak rows is 7.550e-07.\n\nTHE ARITHMETIC ORDER IS LOAD-BEARING AND IS NOT THE OBVIOUS ONE. Substituting `tankTemp = 1.4*sum + first` into `sum += temp - tankTemp` gives the two-term closed form `T[k+1] = 1.4*Q[k] - 0.4*T[k]`, which is algebraically identical, is shorter, and is WRONG to write here: esm-spec §4.3.1.1 rounds the carried value to the variable's `element_type` at every cell, so the two forms are the same computation only in exact arithmetic. In binary64 they agree to 2.8e-14 (measured over all 96 cells); in the `real*4` MOVES actually runs they do not. This file carries `sumTempDelta` -- the quantity the Java carries -- for that reason, and lib/evaporative.esm's `quarter_hour_delta_sum` is where that choice is written down once.\n\nWHAT THIS FILE DOES NOT COMPUTE. TTG-1 is the first of seven steps. TTG-2 through TTG-4 walk `SampleVehicleTrip`'s 37,216 sample trips through a work queue chained on `priorTripID` and then a minute-by-minute hot-soak trajectory; TTG-5's operating-mode-300 average tank temperature and TTG-7's cold-soak initial hour fractions are downstream of that walk. Those are NOT this shape -- the successor of a trip is named by a data column, not by an index one earlier along an axis -- and docs/findings/README.md F28 records what that means for the two remaining evaporative fixtures.",
+    "authors": [
+      "EarthSciML Authors and Contributors"
+    ],
+    "tags": [
+      "moves",
+      "onroad",
+      "evaporative",
+      "generator",
+      "recurrence"
+    ]
+  },
+  "enums": {
+    "hour": {
+      "OneAM": 1
+    }
+  },
+  "index_sets": {
+    "tt_hour_rows": {
+      "kind": "interval",
+      "size": 24
+    },
+    "tt_quarter_hour_rows": {
+      "kind": "interval",
+      "size": 96
+    },
+    "tt_first_cell_rows": {
+      "kind": "interval",
+      "size": 1
+    }
+  },
+  "coordinates": {
+    "tank_temperature_hour": {
+      "source": "tt_hourID",
+      "standard_name": "moves_hour_identifier"
+    }
+  },
+  "models": {
+    "TankTemperature": {
+      "expression_template_imports": [
+        {
+          "ref": "../lib/evaporative.esm",
+          "only": [
+            "quarter_hours_per_hour",
+            "quarter_hour_interpolated_temperature",
+            "quarter_hour_tank_temperature",
+            "quarter_hour_delta_sum",
+            "prior_quarter_hour_delta_sum"
+          ]
+        },
+        {
+          "ref": "../lib/conversion.esm",
+          "only": [
+            "hours_per_day"
+          ]
+        }
+      ],
+      "tolerance": {
+        "rel": 1e-12
+      },
+      "variables": {
+        "tt_hourID": {
+          "type": "unknown",
+          "shape": [
+            "tt_hour_rows"
+          ],
+          "description": "`ZoneMonthHour.hourID`, 1..24. The hour is carried as a COLUMN rather than being taken to be the row number, because every join below is on it and docs/esm-conventions.md §2 keeps a table a table. The fixture reads the same column from parquet and the rows arrive in whatever order the file holds them."
+        },
+        "tt_temperature": {
+          "type": "unknown",
+          "shape": [
+            "tt_hour_rows"
+          ],
+          "units": "degF",
+          "description": "`ZoneMonthHour.temperature` for zone 261610, month 8 -- the ambient air temperature the tank lags. The twelve digits are the snapshot's own: each is a `real*4` widened, so 63.7999992371 is what `float(63.8)` reads back as, and rounding them to 63.8 would move the last three digits of every cold-soak temperature below."
+        },
+        "tt_qhHourID": {
+          "type": "unknown",
+          "shape": [
+            "tt_quarter_hour_rows"
+          ],
+          "description": "The hour each quarter-hour cell belongs to, derived from the row number: `floor((k - 1) / 4) + 1`. The 96-cell axis is the (hourID, timeStepID) grid FLATTENED in the order TTG-1b sweeps it -- the Java's `ORDER BY hourID, timeStepID` -- which is what makes the recurrence's axis a real axis rather than a sort applied after the fact."
+        },
+        "tt_qhTimeStepID": {
+          "type": "unknown",
+          "shape": [
+            "tt_quarter_hour_rows"
+          ],
+          "description": "`timeStepID`, 1..4, the quarter within the hour: `k - 4 * (hourID - 1)`. Step 1 is the top of the hour, and TTG-1c keeps exactly those cells."
+        },
+        "tt_qhNextHourID": {
+          "type": "unknown",
+          "shape": [
+            "tt_quarter_hour_rows"
+          ],
+          "description": "The hour the interpolation ramps TOWARD: `hourID + 1`, and 1 at hour 24. The wrap is the reason lib/conversion.esm carries `hours_per_day` -- hour 24 is one row in 24, so a literal 25 here would be wrong in exactly 4 of 96 cells and every hour-1-to-23 assertion would still pass."
+        },
+        "tt_qhTemperatureAtHour": {
+          "type": "unknown",
+          "shape": [
+            "tt_quarter_hour_rows"
+          ],
+          "units": "degF",
+          "description": "`ZoneMonthHour.temperature` gathered at the cell's own hour. One half of the Java's self-join of `ZoneMonthHour` to itself."
+        },
+        "tt_qhTemperatureAtNextHour": {
+          "type": "unknown",
+          "shape": [
+            "tt_quarter_hour_rows"
+          ],
+          "units": "degF",
+          "description": "The same table gathered at the NEXT hour -- the other half of that self-join. Two contractions rather than one because the two differ only in their key column, and §3 keeps a key pair visible as a `join.on`."
+        },
+        "tt_qhTemperature": {
+          "type": "unknown",
+          "shape": [
+            "tt_quarter_hour_rows"
+          ],
+          "units": "degF",
+          "description": "TTG-1a's `QuarterHourTemperature`: the ambient temperature linearly interpolated to quarter-hour resolution. Checked against the reference's own 96-row `QuarterHourTemperature` table."
+        },
+        "tt_firstTankTemperature": {
+          "type": "unknown",
+          "units": "degF",
+          "description": "`firstQHTankTemperature`: the quarter-hour temperature at hour 1, step 1, and the value the whole recurrence is anchored to. The Java's `firstQuarterHourTankTemperature` query selects it by KEY, and so does this -- a filter on `hourID = 1 and timeStepID = 1` rather than `index(., 1)` -- because a month whose hour-1 row is missing produces no rows at all, and a row-number read would silently take some other hour's temperature instead."
+        },
+        "tt_qhDeltaSum": {
+          "type": "unknown",
+          "shape": [
+            "tt_quarter_hour_rows"
+          ],
+          "units": "degF",
+          "description": "`sumTempDelta`: the running sum of (ambient - tank) over the quarter-hour axis. THIS IS THE RECURRENCE (esm-spec §4.3.1.1) -- its body reads `index(tt_qhDeltaSum, k - 1)`, itself, exactly one cell earlier along its own and only output axis. Nothing is declared: the axis, the direction and the lag of 1 are all read off that one self-read. It is the state variable of a linear feedback, `S[k] = -0.4*S[k-1] + (Q[k] - first)`, not an accumulation of independent terms, so it is not expressible as §4.3.1's prefix scan."
+        },
+        "tt_qhTankTemperature": {
+          "type": "unknown",
+          "shape": [
+            "tt_quarter_hour_rows"
+          ],
+          "units": "degF",
+          "description": "TTG-1b's `QuarterHourTankTemperature`: `1.4 * sumTempDelta[k-1] + firstQHTankTemperature`. It reads the recurrence one cell BEHIND the cell it publishes, which is why it is a separate equation and not a column of the recurrence: at cell k the Java forms the tank temperature from the sum as it stood BEFORE k's own delta was added. Checked against the reference's own 96-row `QuarterHourTankTemperature` table."
+        },
+        "tt_qhTempDelta": {
+          "type": "unknown",
+          "shape": [
+            "tt_quarter_hour_rows"
+          ],
+          "units": "degF",
+          "description": "`tempDelta`: the increment the recurrence adds at this cell, `quarterHourTemperature - quarterHourTankTemperature`. The reference stores it as its own column of `QuarterHourTankTemperature`, so it is computed here rather than left implicit -- it is a second, independent check on the same recurrence, and it is the column that goes wrong first if the tank temperature is read one cell off."
+        },
+        "tt_coldSoakTankTemperature": {
+          "type": "unknown",
+          "shape": [
+            "tt_hour_rows"
+          ],
+          "units": "degF",
+          "description": "TTG-1c's `ColdSoakTankTemperature`: the step-1 cell of each hour, and the generator's actual output. This is what MultidayTankVaporVentingCalculator TVV-2/TVV-3 read and what `AverageTankTemperature`'s operating mode 151 is."
+        },
+        "tt_firstHourID": {
+          "type": "unknown",
+          "shape": [
+            "tt_first_cell_rows"
+          ],
+          "description": "The hour the recurrence is anchored at, 1. It is a ONE-ROW RELATION rather than an `==` inside a `filter`, because docs/esm-conventions.md §3 makes every equality a `join.on` with a key-pair list and admits no exception for an equality against a constant. The rule pays here twice over: the anchor selection and TTG-1c's step-1 selection become gates that DRIVE enumeration over 96 cells instead of two full scans of them, and a reader looking for what this step keys on finds it in the `join` field."
+        },
+        "tt_firstTimeStepID": {
+          "type": "unknown",
+          "shape": [
+            "tt_first_cell_rows"
+          ],
+          "description": "The time step both key selections use, 1 -- the top of the hour. TTG-1c keeps exactly the step-1 cells and the anchor is the step-1 cell of hour 1, so the two selections share this column rather than writing the constant twice."
+        }
+      },
+      "equations": [
+        {
+          "_comment": "The 24 hours of the zone's day. A `const` because a component's inputs are hand-checkable arrays (§12); fixtures/... reads the same column from the snapshot's parquet.",
+          "lhs": "tt_hourID",
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15,
+              16,
+              17,
+              18,
+              19,
+              20,
+              21,
+              22,
+              23,
+              24
+            ]
+          }
+        },
+        {
+          "_comment": "ZoneMonthHour.temperature, zone 261610, month 8, hours 1..24, at the snapshot's own twelve digits.",
+          "lhs": "tt_temperature",
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              63.7999992371,
+              62.9000015259,
+              62.0,
+              61.0999984741,
+              60.5,
+              59.9000015259,
+              59.5,
+              62.4000015259,
+              66.9000015259,
+              71.0,
+              74.3000030518,
+              76.9000015259,
+              78.9000015259,
+              80.4000015259,
+              81.4000015259,
+              81.9000015259,
+              81.9000015259,
+              81.0999984741,
+              79.1999969482,
+              76.1999969482,
+              71.6999969482,
+              68.5999984741,
+              66.5999984741,
+              65.0
+            ]
+          }
+        },
+        {
+          "_comment": "The anchor's key, as a one-row relation -- see the variables' descriptions for why this is not a `filter`.",
+          "lhs": "tt_firstHourID",
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              1
+            ]
+          }
+        },
+        {
+          "lhs": "tt_firstTimeStepID",
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              1
+            ]
+          }
+        },
+        {
+          "_comment": "The quarter-hour axis's hour column. `floor((k - 1) / 4) + 1`, with the 4 coming from lib/evaporative.esm so that the axis layout and the time-step column below cannot disagree about it.",
+          "lhs": "tt_qhHourID",
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "output_idx": [
+              "k"
+            ],
+            "ranges": {
+              "k": {
+                "from": "tt_quarter_hour_rows"
+              }
+            },
+            "expr": {
+              "op": "+",
+              "args": [
+                {
+                  "op": "floor",
+                  "args": [
+                    {
+                      "op": "/",
+                      "args": [
+                        {
+                          "op": "-",
+                          "args": [
+                            "k",
+                            1
+                          ]
+                        },
+                        {
+                          "op": "apply_expression_template",
+                          "args": [],
+                          "name": "quarter_hours_per_hour",
+                          "bindings": {}
+                        }
+                      ]
+                    }
+                  ]
+                },
+                1
+              ]
+            }
+          }
+        },
+        {
+          "_comment": "The quarter-hour axis's time-step column, from the hour column so the two are consistent by construction.",
+          "lhs": "tt_qhTimeStepID",
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "output_idx": [
+              "k"
+            ],
+            "ranges": {
+              "k": {
+                "from": "tt_quarter_hour_rows"
+              }
+            },
+            "expr": {
+              "op": "-",
+              "args": [
+                "k",
+                {
+                  "op": "*",
+                  "args": [
+                    {
+                      "op": "apply_expression_template",
+                      "args": [],
+                      "name": "quarter_hours_per_hour",
+                      "bindings": {}
+                    },
+                    {
+                      "op": "-",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "tt_qhHourID",
+                            "k"
+                          ]
+                        },
+                        1
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "_comment": "next(24) = 1. The Java writes the wrap as `if(hourID = 24, 1, hourID + 1)` in the self-join's ON clause; it is a computed column here so that the join below stays a plain equality (§3).",
+          "lhs": "tt_qhNextHourID",
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "output_idx": [
+              "k"
+            ],
+            "ranges": {
+              "k": {
+                "from": "tt_quarter_hour_rows"
+              }
+            },
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                {
+                  "op": "==",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "tt_qhHourID",
+                        "k"
+                      ]
+                    },
+                    {
+                      "op": "apply_expression_template",
+                      "args": [],
+                      "name": "hours_per_day",
+                      "bindings": {}
+                    }
+                  ]
+                },
+                {
+                  "op": "enum",
+                  "args": [
+                    "hour",
+                    "OneAM"
+                  ]
+                },
+                {
+                  "op": "+",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "tt_qhHourID",
+                        "k"
+                      ]
+                    },
+                    1
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "_comment": "J-TTG-1: quarter_hour.hourID = ZoneMonthHour.hourID.",
+          "lhs": "tt_qhTemperatureAtHour",
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "output_idx": [
+              "k"
+            ],
+            "ranges": {
+              "k": {
+                "from": "tt_quarter_hour_rows"
+              },
+              "h": {
+                "from": "tt_hour_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "tt_qhHourID",
+                    "tt_hourID"
+                  ]
+                ]
+              }
+            ],
+            "reduce": "+",
+            "expr": {
+              "op": "index",
+              "args": [
+                "tt_temperature",
+                "h"
+              ]
+            }
+          }
+        },
+        {
+          "_comment": "J-TTG-2: quarter_hour.nextHourID = ZoneMonthHour.hourID. The Java requires BOTH hours to have a temperature (its self-join is inner), which this reproduces: an hour whose successor is missing contracts to nothing.",
+          "lhs": "tt_qhTemperatureAtNextHour",
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "output_idx": [
+              "k"
+            ],
+            "ranges": {
+              "k": {
+                "from": "tt_quarter_hour_rows"
+              },
+              "h": {
+                "from": "tt_hour_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "tt_qhNextHourID",
+                    "tt_hourID"
+                  ]
+                ]
+              }
+            ],
+            "reduce": "+",
+            "expr": {
+              "op": "index",
+              "args": [
+                "tt_temperature",
+                "h"
+              ]
+            }
+          }
+        },
+        {
+          "_comment": "TTG-1a.",
+          "lhs": "tt_qhTemperature",
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "output_idx": [
+              "k"
+            ],
+            "ranges": {
+              "k": {
+                "from": "tt_quarter_hour_rows"
+              }
+            },
+            "expr": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "quarter_hour_interpolated_temperature",
+              "bindings": {
+                "hour_temperature": {
+                  "op": "index",
+                  "args": [
+                    "tt_qhTemperatureAtHour",
+                    "k"
+                  ]
+                },
+                "next_hour_temperature": {
+                  "op": "index",
+                  "args": [
+                    "tt_qhTemperatureAtNextHour",
+                    "k"
+                  ]
+                },
+                "time_step": {
+                  "op": "index",
+                  "args": [
+                    "tt_qhTimeStepID",
+                    "k"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "_comment": "firstQHTankTemperature, selected by KEY through a one-row anchor relation rather than by row number or by an `==` predicate -- see the variable's description. The two pairs are ONE `on` clause because §3 makes a composite key one clause with several pairs.",
+          "lhs": "tt_firstTankTemperature",
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "output_idx": [],
+            "ranges": {
+              "k": {
+                "from": "tt_quarter_hour_rows"
+              },
+              "f": {
+                "from": "tt_first_cell_rows"
+              }
+            },
+            "reduce": "+",
+            "expr": {
+              "op": "index",
+              "args": [
+                "tt_qhTemperature",
+                "k"
+              ]
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "tt_qhHourID",
+                    "tt_firstHourID"
+                  ],
+                  [
+                    "tt_qhTimeStepID",
+                    "tt_firstTimeStepID"
+                  ]
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "_comment": "TTG-1b's recurrence, as esm-spec §4.3.1.1's causal self-reference. The body reads `index(tt_qhDeltaSum, k - 1)` -- itself, one cell earlier along its own output axis -- and that single read is the whole declaration: the axis is `k`, the direction is ascending, the lag is 1. The self-read is guarded by `prior_quarter_hour_delta_sum`, because §4.3.1.1 point 6 makes a read of an unpublished cell a FAULT and not a zero ghost, and because an `ifelse` in a recurrence body selects its branch before evaluating it. Row 1's value is `quarterHourTemperature[1] - firstQHTankTemperature` and is COMPUTED; it is zero here only because those two are the same number, and it moves if either input moves.",
+          "lhs": "tt_qhDeltaSum",
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "output_idx": [
+              "k"
+            ],
+            "ranges": {
+              "k": {
+                "from": "tt_quarter_hour_rows"
+              }
+            },
+            "expr": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "quarter_hour_delta_sum",
+              "bindings": {
+                "prior_delta_sum": {
+                  "op": "apply_expression_template",
+                  "args": [],
+                  "name": "prior_quarter_hour_delta_sum",
+                  "bindings": {
+                    "previous_delta_sum": {
+                      "op": "index",
+                      "args": [
+                        "tt_qhDeltaSum",
+                        {
+                          "op": "-",
+                          "args": [
+                            "k",
+                            1
+                          ]
+                        }
+                      ]
+                    },
+                    "quarter_hour_row": "k"
+                  }
+                },
+                "quarter_hour_temperature": {
+                  "op": "index",
+                  "args": [
+                    "tt_qhTemperature",
+                    "k"
+                  ]
+                },
+                "first_tank_temperature": "tt_firstTankTemperature"
+              }
+            }
+          }
+        },
+        {
+          "_comment": "TTG-1b's published tank temperature, read from the recurrence one cell BEHIND -- the same guarded prior the recurrence itself uses.",
+          "lhs": "tt_qhTankTemperature",
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "output_idx": [
+              "k"
+            ],
+            "ranges": {
+              "k": {
+                "from": "tt_quarter_hour_rows"
+              }
+            },
+            "expr": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "quarter_hour_tank_temperature",
+              "bindings": {
+                "prior_delta_sum": {
+                  "op": "apply_expression_template",
+                  "args": [],
+                  "name": "prior_quarter_hour_delta_sum",
+                  "bindings": {
+                    "previous_delta_sum": {
+                      "op": "index",
+                      "args": [
+                        "tt_qhDeltaSum",
+                        {
+                          "op": "-",
+                          "args": [
+                            "k",
+                            1
+                          ]
+                        }
+                      ]
+                    },
+                    "quarter_hour_row": "k"
+                  }
+                },
+                "first_tank_temperature": "tt_firstTankTemperature"
+              }
+            }
+          }
+        },
+        {
+          "_comment": "The reference's own `tempDelta` column.",
+          "lhs": "tt_qhTempDelta",
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "output_idx": [
+              "k"
+            ],
+            "ranges": {
+              "k": {
+                "from": "tt_quarter_hour_rows"
+              }
+            },
+            "expr": {
+              "op": "-",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "tt_qhTemperature",
+                    "k"
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "tt_qhTankTemperature",
+                    "k"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "_comment": "TTG-1c: the step-1 cell of each hour. Two `on` clauses over DIFFERENT symbol pairs, which §3 says compose by conjunction -- the hour equality relates the quarter-hour axis to the hour axis, the step equality relates it to the one-row anchor relation.",
+          "lhs": "tt_coldSoakTankTemperature",
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "output_idx": [
+              "h"
+            ],
+            "ranges": {
+              "h": {
+                "from": "tt_hour_rows"
+              },
+              "k": {
+                "from": "tt_quarter_hour_rows"
+              },
+              "f": {
+                "from": "tt_first_cell_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "tt_qhHourID",
+                    "tt_hourID"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "tt_qhTimeStepID",
+                    "tt_firstTimeStepID"
+                  ]
+                ]
+              }
+            ],
+            "reduce": "+",
+            "expr": {
+              "op": "index",
+              "args": [
+                "tt_qhTankTemperature",
+                "k"
+              ]
+            }
+          }
+        }
+      ],
+      "tests": [
+        {
+          "id": "the_quarter_hour_axis_is_the_hour_by_time_step_grid_flattened",
+          "description": "The 96-cell axis is (hourID, timeStepID) in the order TTG-1b sweeps it -- the Java's `ORDER BY hourID, timeStepID`. Both columns are DERIVED from the row number, so if the divisor and the multiplier disagreed the grid would shear and every temperature below would be read from the wrong hour. The four cells checked are the two ends of hour 1, the first cell of hour 2 and the last cell of hour 24. What breaks if this is wrong: nothing raises. A sheared grid still produces 96 finite temperatures, which is the failure mode README.md's warning about zeros is about, one step upstream of a zero.",
+          "time_span": {
+            "start": 0.0,
+            "end": 0.0
+          },
+          "assertions": [
+            {
+              "variable": "tt_qhHourID",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "tt_quarter_hour_rows": 1
+              },
+              "tolerance": {
+                "rel": 1e-12
+              }
+            },
+            {
+              "variable": "tt_qhTimeStepID",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "tt_quarter_hour_rows": 1
+              },
+              "tolerance": {
+                "rel": 1e-12
+              }
+            },
+            {
+              "variable": "tt_qhHourID",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "tt_quarter_hour_rows": 4
+              },
+              "tolerance": {
+                "rel": 1e-12
+              }
+            },
+            {
+              "variable": "tt_qhTimeStepID",
+              "time": 0.0,
+              "expected": 4.0,
+              "coords": {
+                "tt_quarter_hour_rows": 4
+              },
+              "tolerance": {
+                "rel": 1e-12
+              }
+            },
+            {
+              "variable": "tt_qhHourID",
+              "time": 0.0,
+              "expected": 2.0,
+              "coords": {
+                "tt_quarter_hour_rows": 5
+              },
+              "tolerance": {
+                "rel": 1e-12
+              }
+            },
+            {
+              "variable": "tt_qhTimeStepID",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "tt_quarter_hour_rows": 5
+              },
+              "tolerance": {
+                "rel": 1e-12
+              }
+            },
+            {
+              "variable": "tt_qhHourID",
+              "time": 0.0,
+              "expected": 24.0,
+              "coords": {
+                "tt_quarter_hour_rows": 96
+              },
+              "tolerance": {
+                "rel": 1e-12
+              }
+            },
+            {
+              "variable": "tt_qhTimeStepID",
+              "time": 0.0,
+              "expected": 4.0,
+              "coords": {
+                "tt_quarter_hour_rows": 96
+              },
+              "tolerance": {
+                "rel": 1e-12
+              }
+            },
+            {
+              "variable": "tt_qhHourID",
+              "time": 0.0,
+              "expected": 24.0,
+              "reduce": "max",
+              "tolerance": {
+                "rel": 1e-12
+              }
+            },
+            {
+              "variable": "tt_qhTimeStepID",
+              "time": 0.0,
+              "expected": 4.0,
+              "reduce": "max",
+              "tolerance": {
+                "rel": 1e-12
+              }
+            }
+          ]
+        },
+        {
+          "id": "the_hour_axis_wraps_at_24_and_the_last_four_cells_prove_it",
+          "description": "TTG-1a ramps hour `h` toward hour `h + 1`, and hour 24 toward hour 1 -- `next(24) = 1`, not 25. Cells 93..96 are the only four in 96 that exercise the wrap, so an off-by-one there costs 4 cells and passes every other assertion in this file. Cell 96's quarter-hour temperature is 65 + 3*0.25*(63.7999992371 - 65) = 64.0999994278, which is the reference's own `QuarterHourTemperature` row (24, 4), 64.099999427795, to 5e-16 relative. The wrap is why lib/conversion.esm carries `hours_per_day` rather than this file writing a 24.",
+          "time_span": {
+            "start": 0.0,
+            "end": 0.0
+          },
+          "assertions": [
+            {
+              "variable": "tt_qhNextHourID",
+              "time": 0.0,
+              "expected": 2.0,
+              "coords": {
+                "tt_quarter_hour_rows": 1
+              },
+              "tolerance": {
+                "rel": 1e-12
+              }
+            },
+            {
+              "variable": "tt_qhNextHourID",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "tt_quarter_hour_rows": 93
+              },
+              "tolerance": {
+                "rel": 1e-12
+              }
+            },
+            {
+              "variable": "tt_qhNextHourID",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "tt_quarter_hour_rows": 96
+              },
+              "tolerance": {
+                "rel": 1e-12
+              }
+            },
+            {
+              "variable": "tt_qhTemperatureAtNextHour",
+              "time": 0.0,
+              "expected": 63.7999992371,
+              "coords": {
+                "tt_quarter_hour_rows": 96
+              },
+              "tolerance": {
+                "rel": 1e-12
+              }
+            },
+            {
+              "variable": "tt_qhTemperature",
+              "time": 0.0,
+              "expected": 64.099999427795,
+              "coords": {
+                "tt_quarter_hour_rows": 96
+              },
+              "tolerance": {
+                "rel": 1e-12
+              }
+            },
+            {
+              "variable": "tt_qhTemperature",
+              "time": 0.0,
+              "expected": 65.0,
+              "coords": {
+                "tt_quarter_hour_rows": 93
+              },
+              "tolerance": {
+                "rel": 1e-12
+              }
+            }
+          ]
+        },
+        {
+          "id": "TTG_1a_reproduces_the_reference_quarter_hour_temperatures",
+          "description": "Four cells of the reference's own 96-row `QuarterHourTemperature` table, which is a captured MOVES intermediate and not a number computed here: 63.799999237061, 63.574999809265, 63.125000953674 at hour 1 steps 1, 2 and 4, and 64.699999809265 at hour 24 step 2. That column is stored at twelve digits rather than the six the tank-temperature columns get, so it is asserted at rel 1e-12 -- the interpolation is exact to the last bit and there is no reason to allow it any slack.",
+          "time_span": {
+            "start": 0.0,
+            "end": 0.0
+          },
+          "assertions": [
+            {
+              "variable": "tt_qhTemperature",
+              "time": 0.0,
+              "expected": 63.799999237061,
+              "coords": {
+                "tt_quarter_hour_rows": 1
+              },
+              "tolerance": {
+                "rel": 1e-12
+              }
+            },
+            {
+              "variable": "tt_qhTemperature",
+              "time": 0.0,
+              "expected": 63.574999809265,
+              "coords": {
+                "tt_quarter_hour_rows": 2
+              },
+              "tolerance": {
+                "rel": 1e-12
+              }
+            },
+            {
+              "variable": "tt_qhTemperature",
+              "time": 0.0,
+              "expected": 63.35000038147,
+              "coords": {
+                "tt_quarter_hour_rows": 3
+              },
+              "tolerance": {
+                "rel": 1e-12
+              }
+            },
+            {
+              "variable": "tt_qhTemperature",
+              "time": 0.0,
+              "expected": 63.125000953674,
+              "coords": {
+                "tt_quarter_hour_rows": 4
+              },
+              "tolerance": {
+                "rel": 1e-12
+              }
+            },
+            {
+              "variable": "tt_qhTemperature",
+              "time": 0.0,
+              "expected": 62.900001525879,
+              "coords": {
+                "tt_quarter_hour_rows": 5
+              },
+              "tolerance": {
+                "rel": 1e-12
+              }
+            },
+            {
+              "variable": "tt_qhTemperature",
+              "time": 0.0,
+              "expected": 64.699999809265,
+              "coords": {
+                "tt_quarter_hour_rows": 94
+              },
+              "tolerance": {
+                "rel": 1e-12
+              }
+            }
+          ]
+        },
+        {
+          "id": "the_recurrence_is_anchored_to_hour_1_step_1",
+          "description": "`firstQHTankTemperature` is the hour-1 step-1 quarter-hour temperature, selected by KEY. It is the additive anchor of every one of the 96 cells -- `1.4 * sumTempDelta + first` -- so if the key selection picked a different row the whole trajectory would translate and the SHAPE would still look right. It is 63.7999992371, which is `float(63.8)` widened, and it is not 63.8: asserting the rounded decimal at rel 1e-12 would fail, which is the point of carrying the snapshot's twelve digits in the input array.",
+          "time_span": {
+            "start": 0.0,
+            "end": 0.0
+          },
+          "assertions": [
+            {
+              "variable": "tt_firstTankTemperature",
+              "time": 0.0,
+              "expected": 63.7999992371,
+              "tolerance": {
+                "rel": 1e-12
+              }
+            }
+          ]
+        },
+        {
+          "id": "TTG_1b_the_recurrence_reproduces_the_reference_tank_temperatures",
+          "description": "THIS IS THE RECURRENCE, checked against the reference's own 96-row `QuarterHourTankTemperature` table. Cells 1..6 are the first hour and a half, and cells 93 and 96 are the last hour -- 65.28768 and 64.3096, ninety-odd cells downstream of the anchor, so they are only reachable if every earlier cell was published before the sweep advanced. `esm-spec` §4.3.1.1 point 3 is what makes that true and points 1 and 4 are what forbid the vectorised evaluation that would not. The tolerance is rel 1e-6 because this column is stored at six significant figures: half a unit in the sixth digit of a number just above 10 is 7.9e-07 relative, and the worst of these eight cells is 1.812e-07. Cell 2 equals cell 1 EXACTLY (both 63.8) and that is not a coincidence or a rounding: row 1's carried delta is the anchor subtracted from the temperature it was taken from, so it is exactly zero, and 1.4 * 0 + first is first. A recurrence that had been dropped and laundered would also show 63.8 there -- which is why the assertion that matters is cell 96.",
+          "time_span": {
+            "start": 0.0,
+            "end": 0.0
+          },
+          "assertions": [
+            {
+              "variable": "tt_qhTankTemperature",
+              "time": 0.0,
+              "expected": 63.8,
+              "coords": {
+                "tt_quarter_hour_rows": 1
+              },
+              "tolerance": {
+                "rel": 1e-06
+              }
+            },
+            {
+              "variable": "tt_qhTankTemperature",
+              "time": 0.0,
+              "expected": 63.8,
+              "coords": {
+                "tt_quarter_hour_rows": 2
+              },
+              "tolerance": {
+                "rel": 1e-06
+              }
+            },
+            {
+              "variable": "tt_qhTankTemperature",
+              "time": 0.0,
+              "expected": 63.485,
+              "coords": {
+                "tt_quarter_hour_rows": 3
+              },
+              "tolerance": {
+                "rel": 1e-06
+              }
+            },
+            {
+              "variable": "tt_qhTankTemperature",
+              "time": 0.0,
+              "expected": 63.296005,
+              "coords": {
+                "tt_quarter_hour_rows": 4
+              },
+              "tolerance": {
+                "rel": 1e-06
+              }
+            },
+            {
+              "variable": "tt_qhTankTemperature",
+              "time": 0.0,
+              "expected": 63.056595,
+              "coords": {
+                "tt_quarter_hour_rows": 5
+              },
+              "tolerance": {
+                "rel": 1e-06
+              }
+            },
+            {
+              "variable": "tt_qhTankTemperature",
+              "time": 0.0,
+              "expected": 62.837364,
+              "coords": {
+                "tt_quarter_hour_rows": 6
+              },
+              "tolerance": {
+                "rel": 1e-06
+              }
+            },
+            {
+              "variable": "tt_qhTankTemperature",
+              "time": 0.0,
+              "expected": 65.28768,
+              "coords": {
+                "tt_quarter_hour_rows": 93
+              },
+              "tolerance": {
+                "rel": 1e-06
+              }
+            },
+            {
+              "variable": "tt_qhTankTemperature",
+              "time": 0.0,
+              "expected": 64.3096,
+              "coords": {
+                "tt_quarter_hour_rows": 96
+              },
+              "tolerance": {
+                "rel": 1e-06
+              }
+            }
+          ]
+        },
+        {
+          "id": "the_carried_value_itself_is_checked_and_not_only_what_is_published",
+          "description": "`sumTempDelta` is the state of the recurrence, and the two equations that read it read it one cell BEHIND the cell they write. So it gets its own assertions rather than being trusted through `tt_qhTankTemperature`. Cell 2's value is -0.22499942780000026 -- this document's own binary64 answer, which is `quarterHourTemperature[2] - quarterHourTankTemperature[2]` and is therefore already pinned by the two assertions above. Cell 95's is the reference's own last tank temperature INVERTED through the smoothing: (64.3096 - 63.7999992371) / 1.4 = 0.364000545, an independent route to the carried value that never reads this file's arithmetic. It gets rel 1e-4 rather than 1e-6 because the inversion divides a six-significant-figure storage error by 1.4 and then relates it to a number three hundred times smaller, which turns 8e-07 into 1e-04 -- that is amplification of the reference's own storage, not disagreement.",
+          "time_span": {
+            "start": 0.0,
+            "end": 0.0
+          },
+          "assertions": [
+            {
+              "variable": "tt_qhDeltaSum",
+              "time": 0.0,
+              "expected": -0.22499942780000026,
+              "coords": {
+                "tt_quarter_hour_rows": 2
+              },
+              "tolerance": {
+                "rel": 1e-12
+              }
+            },
+            {
+              "variable": "tt_qhDeltaSum",
+              "time": 0.0,
+              "expected": 0.36400054492857137,
+              "coords": {
+                "tt_quarter_hour_rows": 95
+              },
+              "tolerance": {
+                "rel": 0.0001
+              }
+            }
+          ]
+        },
+        {
+          "id": "the_delta_column_agrees_absolutely_because_it_is_a_cancellation",
+          "description": "The reference stores `tempDelta` alongside the tank temperature, and it is the one column here that does NOT agree relatively. It is the difference of two numbers near 63.8 that MOVES holds in a Java 32-bit float, so a 4e-06 absolute rounding on each operand survives into a result of magnitude 0.2 as a 2e-05 relative one. Cell 2 is -0.224998470000 stored against -0.2249994278 computed, 9.6e-07 apart absolutely and 4.3e-06 apart relatively; cell 96 is -0.209602360000 against -0.2095889194, 1.3e-05 apart. Asserting them at `abs 2e-05` is not a widened gate -- it is the correct gate for a cancellation, and the relative gate is the wrong one to apply. docs/esm-conventions.md §10 is the rule; this is its clearest instance in the repository, because the two operands are checked at rel 1e-12 and rel 1e-6 in the tests above and only their difference needs an absolute bound.",
+          "time_span": {
+            "start": 0.0,
+            "end": 0.0
+          },
+          "assertions": [
+            {
+              "variable": "tt_qhTempDelta",
+              "time": 0.0,
+              "expected": -0.22499847,
+              "coords": {
+                "tt_quarter_hour_rows": 2
+              },
+              "tolerance": {
+                "abs": 2e-05
+              }
+            },
+            {
+              "variable": "tt_qhTempDelta",
+              "time": 0.0,
+              "expected": -0.13499832,
+              "coords": {
+                "tt_quarter_hour_rows": 3
+              },
+              "tolerance": {
+                "abs": 2e-05
+              }
+            },
+            {
+              "variable": "tt_qhTempDelta",
+              "time": 0.0,
+              "expected": -0.17100525,
+              "coords": {
+                "tt_quarter_hour_rows": 4
+              },
+              "tolerance": {
+                "abs": 2e-05
+              }
+            },
+            {
+              "variable": "tt_qhTempDelta",
+              "time": 0.0,
+              "expected": -0.28768158,
+              "coords": {
+                "tt_quarter_hour_rows": 93
+              },
+              "tolerance": {
+                "abs": 2e-05
+              }
+            },
+            {
+              "variable": "tt_qhTempDelta",
+              "time": 0.0,
+              "expected": -0.20960236,
+              "coords": {
+                "tt_quarter_hour_rows": 96
+              },
+              "tolerance": {
+                "abs": 2e-05
+              }
+            }
+          ]
+        },
+        {
+          "id": "TTG_1c_reproduces_all_24_reference_cold_soak_tank_temperatures",
+          "description": "The generator's actual output, every row of it, against the reference's own `ColdSoakTankTemperature` table for zone 261610 month 8. Twenty-four assertions and not a sample, because this is the table both remaining evaporative slices read and because the recurrence's error grows along the axis: hour 1 is the anchor and cannot be wrong, hour 24 is 93 cells downstream. The worst of the 24 is 7.550e-07 relative, which is the column's six-significant-figure storage floor (63.0566 stands for 63.056601127648804) and not accumulated error -- the recurrence's feedback ratio is -0.4, so it CONTRACTS error rather than amplifying it, which is why 93 cells cost nothing. The tank lags the air: the maximum, 81.8977 at hour 17, is 3.6e-03 below the 81.9000015259 ambient maximum which occurs at hours 16 and 17, and the minimum, 59.5723 at hour 7, is 0.072 ABOVE the 59.5 ambient minimum at the same hour. That lag is the whole physical content of TTG-1 and it is what a dropped recurrence would destroy while still returning 24 plausible temperatures.",
+          "time_span": {
+            "start": 0.0,
+            "end": 0.0
+          },
+          "assertions": [
+            {
+              "variable": "tt_coldSoakTankTemperature",
+              "time": 0.0,
+              "expected": 63.8,
+              "coords": {
+                "tt_hour_rows": 1
+              },
+              "tolerance": {
+                "rel": 1e-06
+              }
+            },
+            {
+              "variable": "tt_coldSoakTankTemperature",
+              "time": 0.0,
+              "expected": 63.0566,
+              "coords": {
+                "tt_hour_rows": 2
+              },
+              "tolerance": {
+                "rel": 1e-06
+              }
+            },
+            {
+              "variable": "tt_coldSoakTankTemperature",
+              "time": 0.0,
+              "expected": 62.1606,
+              "coords": {
+                "tt_hour_rows": 3
+              },
+              "tolerance": {
+                "rel": 1e-06
+              }
+            },
+            {
+              "variable": "tt_coldSoakTankTemperature",
+              "time": 0.0,
+              "expected": 61.2607,
+              "coords": {
+                "tt_hour_rows": 4
+              },
+              "tolerance": {
+                "rel": 1e-06
+              }
+            },
+            {
+              "variable": "tt_coldSoakTankTemperature",
+              "time": 0.0,
+              "expected": 60.6085,
+              "coords": {
+                "tt_hour_rows": 5
+              },
+              "tolerance": {
+                "rel": 1e-06
+              }
+            },
+            {
+              "variable": "tt_coldSoakTankTemperature",
+              "time": 0.0,
+              "expected": 60.0072,
+              "coords": {
+                "tt_hour_rows": 6
+              },
+              "tolerance": {
+                "rel": 1e-06
+              }
+            },
+            {
+              "variable": "tt_coldSoakTankTemperature",
+              "time": 0.0,
+              "expected": 59.5723,
+              "coords": {
+                "tt_hour_rows": 7
+              },
+              "tolerance": {
+                "rel": 1e-06
+              }
+            },
+            {
+              "variable": "tt_coldSoakTankTemperature",
+              "time": 0.0,
+              "expected": 61.8973,
+              "coords": {
+                "tt_hour_rows": 8
+              },
+              "tolerance": {
+                "rel": 1e-06
+              }
+            },
+            {
+              "variable": "tt_coldSoakTankTemperature",
+              "time": 0.0,
+              "expected": 66.1041,
+              "coords": {
+                "tt_hour_rows": 9
+              },
+              "tolerance": {
+                "rel": 1e-06
+              }
+            },
+            {
+              "variable": "tt_coldSoakTankTemperature",
+              "time": 0.0,
+              "expected": 70.2662,
+              "coords": {
+                "tt_hour_rows": 10
+              },
+              "tolerance": {
+                "rel": 1e-06
+              }
+            },
+            {
+              "variable": "tt_coldSoakTankTemperature",
+              "time": 0.0,
+              "expected": 73.707,
+              "coords": {
+                "tt_hour_rows": 11
+              },
+              "tolerance": {
+                "rel": 1e-06
+              }
+            },
+            {
+              "variable": "tt_coldSoakTankTemperature",
+              "time": 0.0,
+              "expected": 76.4324,
+              "coords": {
+                "tt_hour_rows": 12
+              },
+              "tolerance": {
+                "rel": 1e-06
+              }
+            },
+            {
+              "variable": "tt_coldSoakTankTemperature",
+              "time": 0.0,
+              "expected": 78.54,
+              "coords": {
+                "tt_hour_rows": 13
+              },
+              "tolerance": {
+                "rel": 1e-06
+              }
+            },
+            {
+              "variable": "tt_coldSoakTankTemperature",
+              "time": 0.0,
+              "expected": 80.1298,
+              "coords": {
+                "tt_hour_rows": 14
+              },
+              "tolerance": {
+                "rel": 1e-06
+              }
+            },
+            {
+              "variable": "tt_coldSoakTankTemperature",
+              "time": 0.0,
+              "expected": 81.2191,
+              "coords": {
+                "tt_hour_rows": 15
+              },
+              "tolerance": {
+                "rel": 1e-06
+              }
+            },
+            {
+              "variable": "tt_coldSoakTankTemperature",
+              "time": 0.0,
+              "expected": 81.8084,
+              "coords": {
+                "tt_hour_rows": 16
+              },
+              "tolerance": {
+                "rel": 1e-06
+              }
+            },
+            {
+              "variable": "tt_coldSoakTankTemperature",
+              "time": 0.0,
+              "expected": 81.8977,
+              "coords": {
+                "tt_hour_rows": 17
+              },
+              "tolerance": {
+                "rel": 1e-06
+              }
+            },
+            {
+              "variable": "tt_coldSoakTankTemperature",
+              "time": 0.0,
+              "expected": 81.2392,
+              "coords": {
+                "tt_hour_rows": 18
+              },
+              "tolerance": {
+                "rel": 1e-06
+              }
+            },
+            {
+              "variable": "tt_coldSoakTankTemperature",
+              "time": 0.0,
+              "expected": 79.5342,
+              "coords": {
+                "tt_hour_rows": 19
+              },
+              "tolerance": {
+                "rel": 1e-06
+              }
+            },
+            {
+              "variable": "tt_coldSoakTankTemperature",
+              "time": 0.0,
+              "expected": 76.7305,
+              "coords": {
+                "tt_hour_rows": 20
+              },
+              "tolerance": {
+                "rel": 1e-06
+              }
+            },
+            {
+              "variable": "tt_coldSoakTankTemperature",
+              "time": 0.0,
+              "expected": 72.4966,
+              "coords": {
+                "tt_hour_rows": 21
+              },
+              "tolerance": {
+                "rel": 1e-06
+              }
+            },
+            {
+              "variable": "tt_coldSoakTankTemperature",
+              "time": 0.0,
+              "expected": 69.1598,
+              "coords": {
+                "tt_hour_rows": 22
+              },
+              "tolerance": {
+                "rel": 1e-06
+              }
+            },
+            {
+              "variable": "tt_coldSoakTankTemperature",
+              "time": 0.0,
+              "expected": 66.9623,
+              "coords": {
+                "tt_hour_rows": 23
+              },
+              "tolerance": {
+                "rel": 1e-06
+              }
+            },
+            {
+              "variable": "tt_coldSoakTankTemperature",
+              "time": 0.0,
+              "expected": 65.2877,
+              "coords": {
+                "tt_hour_rows": 24
+              },
+              "tolerance": {
+                "rel": 1e-06
+              }
+            },
+            {
+              "variable": "tt_coldSoakTankTemperature",
+              "time": 0.0,
+              "expected": 81.8977,
+              "reduce": "max",
+              "tolerance": {
+                "rel": 1e-06
+              }
+            },
+            {
+              "variable": "tt_coldSoakTankTemperature",
+              "time": 0.0,
+              "expected": 59.5723,
+              "reduce": "min",
+              "tolerance": {
+                "rel": 1e-06
+              }
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

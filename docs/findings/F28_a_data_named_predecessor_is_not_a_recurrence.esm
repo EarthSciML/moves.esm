@@ -1,0 +1,69 @@
+{
+  "esm": "1.0.0",
+  "metadata": {
+    "name": "moves.findings.f28",
+    "description": "F28: a recurrence whose predecessor is named by a DATA COLUMN has no direct spelling. esm-spec §4.3.1.1 admits a causal self-read whose index argument is affine in the frame symbol with COEFFICIENT 1 and an offset built from integer literals and index symbols -- `k - 1`, `k - a`, `k - a - 2`. `index(V, k - index(lag, k))` is syntactically of that shape and is REJECTED, because `lag[k]` is a value and not a symbol whose range the checker can resolve.\n\nWHY THIS IS THE FINDING THAT MATTERS FOR PHASE 4. PLAN.md screened the two remaining evaporative slices as blocked by F12, the missing recurrence spelling. F12 is fixed and components/tank_temperature.esm shows the construct takes TankTemperatureGenerator's quarter-hour recurrence unchanged. But the step behind it, TTG-4a (`calculateHotSoakAndOperatingTankTemperatures`), chains a vehicle's trips through a WORK QUEUE keyed on `priorTripID` -- a column of `SampleVehicleTrip` -- and that is this shape. Measured on the process-evap-permeation snapshot: 26,300 of 37,216 sample trips carry a `priorTripID`, and `tripID - priorTripID` is 1 for 24,610 of them and 2, 3, 4, 5, 6 or 7 for the other 1,690. So the lag is a per-row datum with no constant value, and writing it as a literal is wrong on 1,690 rows.\n\nWHAT THE REJECTION IS NOT. It is not silent and it is not a wrong answer -- both `esm validate` and `esm test` refuse it with `recurrence_not_wellfounded` naming the frame symbol, which is the correct behaviour under §4.3.1.1's rule that the COEFFICIENT must be provably 1 even though the SIGN of the lag need not be. It is recorded here because an author porting TTG-4 will write this expression, and because the workaround has a cost worth stating before it is paid.\n\nTHE WORKAROUND, WHICH WORKS: F28_control_the_contracted_lag_workaround.esm. Contract the lag over its bounded range and select the right one with an equality guard against the data column -- exactly esm-spec §4.3.1.1's straddling idiom and docs/esm-conventions.md §19.2's \"the contracted index is the lag\". It costs O(max lag) evaluations per cell and it needs the maximum lag known in advance FROM THE DATA, which is a fact about a snapshot rather than about a model: 7 here, unbounded in principle.\n\nThis repro is EXPECTED TO FAIL. Its assertions state the intended behaviour -- `v = [1, 2, 4, 4, 8, 8]` for `v[k] = 2 v[k - lag[k]]` with `lag = [0, 1, 1, 2, 1, 3]` -- so if it ever goes green the workaround above becomes dead weight and should be removed.",
+    "authors": ["EarthSciML Authors and Contributors"],
+    "tags": ["moves", "finding", "recurrence"]
+  },
+  "index_sets": { "f28_rows": { "kind": "interval", "size": 6 } },
+  "models": {
+    "F28": {
+      "tolerance": { "rel": 1e-12 },
+      "variables": {
+        "f28_lag": {
+          "type": "unknown",
+          "shape": ["f28_rows"],
+          "description": "How many rows back this row's predecessor is. Row 1 has none. The shape of `SampleVehicleTrip.tripID - priorTripID` in miniature: mostly 1, sometimes more."
+        },
+        "f28_value": {
+          "type": "unknown",
+          "shape": ["f28_rows"],
+          "description": "`v[k] = 2 * v[k - lag[k]]`, with `v = 1` where there is no predecessor."
+        }
+      },
+      "equations": [
+        { "lhs": "f28_lag", "rhs": { "op": "const", "args": [], "value": [0, 1, 1, 2, 1, 3] } },
+        {
+          "_comment": "The expression an author porting TTG-4a writes. Rejected: `k - index(f28_lag, k)` is not an offset of `k` that the checker can bound.",
+          "lhs": "f28_value",
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "output_idx": ["k"],
+            "ranges": { "k": { "from": "f28_rows" } },
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                { "op": "<=", "args": [{ "op": "index", "args": ["f28_lag", "k"] }, 0] },
+                1.0,
+                {
+                  "op": "*",
+                  "args": [
+                    2.0,
+                    { "op": "index", "args": ["f28_value", { "op": "-", "args": ["k", { "op": "index", "args": ["f28_lag", "k"] }] }] }
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "tests": [
+        {
+          "id": "a_data_named_predecessor_would_chain_like_this",
+          "description": "The intended answer. Row 4 reads row 2 and row 6 reads row 3, which is what a `priorTripID` chain does and what no constant lag reproduces.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "f28_value", "time": 0.0, "expected": 1.0, "coords": { "f28_rows": 1 } },
+            { "variable": "f28_value", "time": 0.0, "expected": 2.0, "coords": { "f28_rows": 2 } },
+            { "variable": "f28_value", "time": 0.0, "expected": 4.0, "coords": { "f28_rows": 3 } },
+            { "variable": "f28_value", "time": 0.0, "expected": 4.0, "coords": { "f28_rows": 4 } },
+            { "variable": "f28_value", "time": 0.0, "expected": 8.0, "coords": { "f28_rows": 5 } },
+            { "variable": "f28_value", "time": 0.0, "expected": 8.0, "coords": { "f28_rows": 6 } }
+          ]
+        }
+      ]
+    }
+  }
+}
