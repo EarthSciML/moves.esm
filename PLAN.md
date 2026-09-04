@@ -442,7 +442,9 @@ carry their precision, with an operation taking the wider of its operands.
 No integer arithmetic is needed: f64 is exact for every integer below
 9.0 × 10¹⁵, and every key here is at most 2.26 × 10⁹. And an exempt value
 flowing into an f32 quantity must be an explicit narrowing or a hard error —
-silent mixed precision would be the seventh instance of §5's failure mode.
+silent mixed precision would be a fresh instance of §5's failure mode
+(the count lives in README's "A warning about zeros"; this one has not
+happened, because the mixing is a compile error).
 
 ## 2. Target ladder
 

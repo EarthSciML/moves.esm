@@ -155,31 +155,52 @@ binary64 values was, and the SCC stays `2260007005` rather than collapsing to
 `2260006912`.
 
 **But that cohort is not what the element type settles here, and four files in
-this repo used to say it was.** `agedist.f`'s fold is a recurrence the format
-cannot spell (F12), so the fixture *carries* the grown fractions as a `const`
-whose third value is 5.89 × 10⁻⁸ — positive in either precision. Its twelve
+this repo used to say it was.** `agedist.f`'s fold was a recurrence the format
+could not then spell (F12), so the fixture *carries* the grown fractions as a
+`const` whose third value is 5.89 × 10⁻⁸ — positive in either precision. Its twelve
 rows never depended on the element type; the document had the right row set for
 a reason none of those four files stated, and no gate noticed. What the element
-type is needed for is the *other two* SCCs, once F12 lands and their folds are
-computed rather than carried. `docs/esm-conventions.md` §17.5 records this.
+type is needed for is the *other two* SCCs, once the fixture computes their
+folds rather than carrying them. `docs/esm-conventions.md` §17.5 records this.
 
 ## A warning about zeros
 
 This toolchain's characteristic failure is returning a plausible wrong value
-rather than raising. Six independent instances so far, each on a document that
-validates cleanly, with no error and no warning: a `data_sources` entry read by
-no provider; the same when the published `earthsciio` shadows the local
-checkout; an `aggregate` range symbol named `t`, which makes `join.on` match
-nothing; `skolem`/`distinct` materializing empty; an index set sized by `extent`
-discovery, which stayed at its placeholder; and `element_type: "Float32"`, which
-returned the binary64 answer — since fixed, and the entry stays because the
-*class* of failure is the point, not the individual bug.
+rather than raising. **This list is the authoritative count** — other documents
+in this repo cite an instance by its number here, and should not number one
+themselves. Eight independent instances so far, each on a document that
+validates cleanly, with no error and no warning:
 
-Four of the six returned `0`. One returned `NaN` — the same defect in a
+1. a `data_sources` entry read by no provider;
+2. the same when the published `earthsciio` shadows the local checkout;
+3. an `aggregate` range symbol named `t`, which makes `join.on` match nothing;
+4. `skolem`/`distinct` materializing empty;
+5. an index set sized by `extent` discovery, which stayed at its placeholder;
+6. `element_type: "Float32"`, which returned the binary64 answer;
+7. a CWD-anchored `url_template`, which resolves, succeeds, and reads a
+   *different file* — the same document converted from three directories gave
+   three different paths (F7/F15);
+8. a causal self-reference dropped on the ingesting path (F24).
+
+The fixed ones stay listed, because the *class* of failure is the point rather
+than the individual bug.
+
+Five of the eight returned `0`. One returned `NaN` — the same defect in a
 different shape, because an unbound *array* forcing reads as NaN where a scalar
-reads as zero. The last returns a number that is right to fifteen digits and
-wrong in the sixteenth, which is the hardest of all to see and changes how many
-rows exist.
+reads as zero. One returns a number right to fifteen digits and wrong in the
+sixteenth, which is the hardest of all to see and changes how many rows exist.
+And the eighth is the one to reason from: the runtime **did** return the loud
+`NaN`, and a `max(·, 0)` clamp destroyed it, because IEEE-754 `max` returns the
+non-NaN operand. That was the first sentinel manufactured by a clamp rather
+than returned by the runtime, and MOVES clamps everywhere — `agedist.f`'s fold
+body is `max(·, 0)`, and so is `prccty.f`'s skip test and half the scrappage
+arithmetic. In this port a NaN sentinel is not a defence.
+
+Number 7 is the only one caught before it shipped, and it is worth saying how:
+an author noticed that their own fix would *create* it. The CWD anchoring was
+already there and already wrong, but loud — a CWD-anchored `ref` fails. Making
+`url_template` resolve the same way would have converted a loud failure into a
+silent one.
 
 Zero is the worst possible sentinel here. It is a *legal* emission quantity, it
 flows through a sum without leaving a NaN to trace, and a per-pollutant
@@ -188,9 +209,9 @@ tolerance absorbs it.
 The defence is structural rather than vigilance, and is why the repo is shaped
 as it is: every inline test asserts a specific expected value rather than a
 bound, `run-oracle.sh` provides an independent implementation to attribute a
-disagreement to, and the exact key set catches the row-shaped version. Five of
-the six were found by running something real and checking the number against an
-independent source, not by reading code. Assume the next instance exists and
+disagreement to, and the exact key set catches the row-shaped version. Six of
+the eight were found by running something real and checking the number against
+an independent source, not by reading code. Assume the next instance exists and
 has not been found.
 
 **That defence is audited, not asserted.** A gate that cannot fail is worse
@@ -199,24 +220,38 @@ go red:
 
 | what | result |
 |---|---|
-| all 457 distinct assertions in `components/` and `runs/`, perturbed by 10⁻³ | **886 of 886 evaluations fail, 0 pass** |
+| all 585 declared assertions in `components/` and `runs/`, perturbed by 10⁻³ | **1,116 of 1,116 evaluations fail, 0 pass** |
 | the fixture's 84 perturbable assertions, at ×(1+10⁻⁵) | **84 of 84 fail** |
 | the same, at ×(1+4 × 10⁻⁷) | 80 fail; the 4 survivors are the one test whose `rel: 1e-6` is older than the float32 work |
 | the F18 control, override dropped / domain forced to Float64 | 2 of 3 fail / 1 of 3 fails |
 
 The zero-valued ones are the case that matters most and the easiest to get
-wrong. 68 of the 457 assert *exactly* zero — an earlier version of this
+wrong. 91 of the 585 assert *exactly* zero — an earlier version of this
 paragraph claimed none did — and a zero assertion whose tolerance hides a
-non-zero is decoration. Nudged to 10⁻³, all 68 go red.
+non-zero is decoration. They are nudged *additively*, because `x × (1 + ε)`
+leaves a zero exactly where it was: a purely multiplicative audit skips every
+one of them and still reports a clean sweep. Nudged to 10⁻³, all 91 go red.
+
+**That audit is now a checked-in tool rather than a claim about the past.**
+`tools/perturbation-audit.py` re-derives the whole table in one command, which
+matters because the earlier hand-run version had gone stale without saying so:
+it covered 457 assertions and 128 more were added after it, so for a while the
+sentence above was true only of the assertions that happened to predate it. The
+documents are perturbed **in place** and restored from git — not copied to a
+scratch directory — because two of them ingest, and a `url_template` resolves
+against its own document's directory (F15), so a copy elsewhere reads a
+different file or nothing. The tool is itself checked the same way it checks
+everything else: at a 10⁻¹³ nudge it must name survivors and exit non-zero, and
+it does.
 
 ## Status
 
 **Phases 0–2 are complete, Phase 3 has its specification and four components,
 and Phase 4 has its first slice — wired, and complete.** Eighteen components
 cover all seven NONROAD stages of `nr-logging-county`, four of the six onroad
-stages of `mixed-onroad`, and all of `process-evap-leaks`, with **728 distinct
+stages of `mixed-onroad`, and all of `process-evap-leaks`, with **782 distinct
 inline assertions** whose numbers each trace to a named section of a port
-specification — 490 in the components, 74 in the assemblies, 160 in the two
+specification — 511 in the components, 74 in the assemblies, 193 in the two
 wired fixtures and 4 in the gates.
 
 **`process-evap-leaks` is the first fixture with no shortfall at all**: 128 of
@@ -232,14 +267,14 @@ with `processID` 2** — every onroad fixture selects road type 4 and
 `BaseRateCalculator` discards the road-type-1 start rates — so a start-exhaust
 slice has nothing to validate against, which is also why eight fixtures have no
 output rows at all. Leaks was chosen instead because it needs neither the
-uncomputable drive-cycle distribution nor F12.
+uncomputable drive-cycle distribution nor the thirty-year fold.
 
-Running the component and assembly directories reports 1,074 against 564
+Running the component and assembly directories reports 1,116 against 585
 declared there, and the difference is worth knowing rather than quoting:
 mounting a component into an assembly **re-runs that component's own tests in
-the assembly's context**, so 510 of those 1,074 are re-executions. The
-nonroad assembly declares 9 assertions of its own and runs 275 — its ten
-mounted components' 266, plus its 9. That is not redundancy: a mount is
+the assembly's context**, so 531 of those 1,116 are re-executions. The
+nonroad assembly declares 9 assertions of its own and runs 296 — its ten
+mounted components' 287, plus its 9. That is not redundancy: a mount is
 precisely where this toolchain has been caught changing behaviour — dropped
 `join.on` key columns (F1), unmerged `index_sets` (F2), `enums` colliding
 first-wins and applying the wrong value (F13) — so re-running a component's
@@ -271,13 +306,22 @@ knowing: `lib/keys.esm`'s SCC ladders take their presence tests as
 reaches for first — `has_exact*scc + (1-has_exact)*sccZero2` — all five ladders
 would be `mixed_element_type` errors.
 
-**What stands between the NONROAD chain and the 144th row is F12 alone** —
-`agedist.f`'s thirty-year fold is a recurrence over an index axis that the
-format cannot spell, and the fixture's other two SCCs each need their own
-result from it. A closed form over the residual sequence is
-verified exact — 0 of 1,581 cells differ per equipment point, float32, six
-equipment points — but substituting it leaves a deconvolution, so the recurrence
-survives every reduction and the fix is a format addition.
+**`agedist.f`'s thirty-year fold is computed**, in
+`components/age_distribution.esm`, guarded by 55 of that file's assertions and
+verified against the reference fold at *zero* tolerance — 306 of 306 cells
+bit-exact across all six equipment points. The format gained a spelling for it
+(F12): an `aggregate` body that reads its own array-shaped left-hand side at a
+strictly earlier index is a causal self-reference, which needed no new operator
+and no new schema field.
+
+**What stands between the *fixture* and the 144th row is now two separable
+things, and neither is F12.** The first was F24 — a document that ingests took
+an evaluation path that dropped the recurrence silently — which is fixed
+upstream and verified here on the ingestion axis that build could not reach.
+The second is the equipment-point axis, which is ordinary authoring effort
+rather than a missing capability: the fold was authored into the fixture in
+full and taken back out when F24 proved it unevaluable there, so restoring it
+is a revert plus that axis.
 
 `mixed-onroad` has no fixture yet, and `docs/mixed-onroad.md` §7.4 says why
 rather than recording a shortfall: everything in that 250-row chain is
