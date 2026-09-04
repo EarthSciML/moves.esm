@@ -72,9 +72,9 @@ if [[ -z "${SNAPSHOTS:-}" ]]; then
   SNAPSHOTS="${SNAPSHOTS:-../moves.rs/characterization/snapshots}"
 fi
 
-# The two repros the tripwire loop cannot judge; see the F25 and F26 blocks below.
-F25="${F25:-docs/findings/F25_repro_an_undeclared_operand_is_dropped_when_ingesting.esm}"
-F26="${F26:-docs/findings/F26_repro_a_free_index_symbol_is_dropped_on_the_array_path.esm}"
+# The two unbound-name CONTROLS; see the block below for why they are not repros.
+F25="${F25:-docs/findings/F25_control_an_undeclared_operand_is_refused_when_ingesting.esm}"
+F26="${F26:-docs/findings/F26_control_a_free_index_symbol_is_refused_on_the_array_path.esm}"
 
 # The comparator is checked by its own falsification suite before it is trusted
 # to judge anything. This is not ceremony: two of its three gates are ones a
@@ -373,8 +373,8 @@ mapfile -t REPROS < <(find docs/findings -name '*.esm' -not -name '.*' -not -nam
   -not -name 'F18_control_float32_key_override.esm' \
   -not -name 'F24b_repro_one_ingested_column_breaks_the_recurrence.esm' \
   -not -name 'F28_control_the_contracted_lag_workaround.esm' \
-  -not -name 'F25_repro_an_undeclared_operand_is_dropped_when_ingesting.esm' \
-  -not -name 'F26_repro_a_free_index_symbol_is_dropped_on_the_array_path.esm' \
+  -not -name 'F25_control_an_undeclared_operand_is_refused_when_ingesting.esm' \
+  -not -name 'F26_control_a_free_index_symbol_is_refused_on_the_array_path.esm' \
   2>/dev/null | sort)
 
 if [[ ${#REPROS[@]} -eq 0 ]]; then
@@ -404,67 +404,47 @@ else
   done
 fi
 
-# F25 is the fourth file the loop above does not run, and for a reason none of
-# the other three have: its document is INTENDED to be invalid. The defect is
-# that `esm validate` rejects it and `esm test`, on the ingesting path, does
-# not -- so `validate` will never start passing, the loop's "both pass" test can
-# never fire, and it would report "still fails, as recorded" forever without
-# ever noticing the fix. What has to be watched is which of the two answers
-# `esm test` gives.
-if [[ -f "$F25" ]]; then
-  if grep -q 'characterization/snapshots' "$F25" && [[ ! -d "$SNAPSHOTS" ]]; then
-    skip "F25 undeclared-operand tripwire" "needs the snapshots; none at $SNAPSHOTS"
-  else
-    f25_out=$("$ESM" test "$F25" 2>&1 || true)
-    if grep -qi "undeclaredFloor" <<<"$f25_out"; then
-      # The name is only ever mentioned when the toolchain REFUSES the document,
-      # which is the intended behaviour and the thing this finding asks for.
-      fail "F25 IS FIXED — the ingesting path now names 'undeclaredFloor' instead of
-       dropping it. Remove the repro, retire F25 in docs/findings/README.md, and
-       delete this block. The undeclared-name check no longer depends on which
-       evaluation path a document takes."
-    elif grep -q 'actual=2 expected=10' <<<"$f25_out"; then
-      pass "F25 still fails, as recorded — an undeclared operand is dropped when ingesting"
-    else
-      fail "F25's repro gives neither recorded answer. It should either drop the
-       operand (actual=2 expected=10, the defect) or name 'undeclaredFloor' (the
-       fix). Something else changed underneath it:"
-      sed 's/^/         /' <<<"$f25_out"
-    fi
+# F25 and F26 are CONTROLS, not repros -- both defects are fixed upstream
+# (EarthSciAST a1dc9bb30) and both are kept for the same reason F24b is: they
+# cover the axis the upstream build cannot reach. That crate has no parquet
+# feature, so the fix was verified there against `build_pipeline` directly and
+# not against a live `data_sources` block. F25's document reads the real
+# snapshot, which is the only place that axis is exercised at all.
+#
+# They were ONE defect wearing two sets of clothes. A name unbound at evaluation
+# returned a NaN sentinel, and IEEE-754 `max`/`min` return the NON-NaN operand,
+# so a clamp does not propagate the sentinel -- it ABSORBS it, and the operand
+# vanishes with every downstream digit finite and plausible. F25 reached it
+# through a name declared nowhere; F26 through an index symbol used outside the
+# aggregate that binds it. One fix closed both.
+#
+# The polarity is inverted from a repro: the toolchain must REFUSE these, and
+# must NAME the identifier while doing it. A refusal whose message does not say
+# which name is unbound would leave the reader exactly where the sentinel did.
+# The field separator is `|` and not `:`, because the message these look for
+# CONTAINS a colon (`E_TREEWALK_UNBOUND_NAME: 'i'`) and the whole point of the
+# second field is to pin that exact text -- a bare `'i'` is short enough to
+# match somewhere incidental and would let a refusal that names nothing pass.
+for control in "$F25|Unknown variable 'undeclaredFloor'|ingesting a real snapshot table" \
+               "$F26|E_TREEWALK_UNBOUND_NAME: 'i'|a free index symbol on the array path"; do
+  doc="${control%%|*}"; rest="${control#*|}"
+  name="${rest%%|*}"; what="${rest#*|}"
+  [[ -f "$doc" ]] || continue
+  if grep -q 'characterization/snapshots' "$doc" && [[ ! -d "$SNAPSHOTS" ]]; then
+    skip "$(basename "$doc" .esm)" "needs the snapshots; none at $SNAPSHOTS"
+    continue
   fi
-fi
-
-# F26 is the fifth file the loop above does not run, and it is F25's twin: its
-# document is INTENDED to be invalid. An index symbol is bound only inside the
-# aggregate that declares it (esm-spec 4.3.1), so `index(a, i)` written outside
-# that aggregate names a variable `i` that does not exist and should be refused
-# at load. `esm validate` accepts it, and the two evaluation paths then
-# disagree: the tree walk raises E_TREEWALK_CONSTARRAY_OOB naming index 0,
-# while the ARRAY path -- the one every ingesting document takes -- silently
-# gives the free term the additive identity. So what is watched is `validate`,
-# which is where the fix belongs, and `simulate`, which is where the silence is.
-if [[ -f "$F26" ]]; then
-  if "$ESM" validate "$F26" >/dev/null 2>&1; then
-    f26_out=$("$ESM" simulate "$F26" --time 0 --observed b 2>&1 || true)
-    if grep -qE '^ *b\[1\] = 10( |$)' <<<"$f26_out"; then
-      pass "F26 still fails, as recorded — a free index symbol contributes zero on the array path"
-    elif grep -qE '^ *b\[1\] = 20( |$)' <<<"$f26_out"; then
-      fail "F26's array path now DOUBLES correctly while \`esm validate\` still accepts the
-       document. That is a worse state than the recorded one, not a fix: the free
-       symbol is being resolved to the enclosing aggregate's binder rather than
-       refused, so a genuine typo now silently means something. Check esm-spec 4.3.1
-       before retiring anything."
-    else
-      fail "F26's repro gives neither recorded answer. It should return b[1] = 10 (the
-       defect) or be refused by \`esm validate\` (the fix). Something else changed:"
-      sed 's/^/         /' <<<"$f26_out"
-    fi
+  out=$("$ESM" test "$doc" 2>&1 || true)
+  if grep -qF "$name" <<<"$out"; then
+    pass "unbound-name control: refused, naming it — $what"
   else
-    fail "F26 IS FIXED — \`esm validate\` now rejects an index symbol left free outside its
-       aggregate. Remove the repro, retire F26 in docs/findings/README.md, and delete
-       this block. The undefined-name rule no longer depends on where the symbol sits."
+    fail "unbound-name control ($(basename "$doc" .esm)) — the toolchain no longer refuses an
+       unbound name, or no longer says WHICH name. This is the defect class that
+       reached 109 of nr-logging-county's 144 cells past 343 green assertions
+       (F26) and 12 end-to-end rows past 120 (F25). Output was:"
+    sed 's/^/         /' <<<"$out"
   fi
-fi
+done
 
 # One limitation that is a CLI behaviour rather than a document, so it is
 # checked by command rather than by a repro file. (F7 was the other, and is

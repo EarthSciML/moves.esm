@@ -186,14 +186,26 @@ clean, with no error and no warning:
 9. an undeclared operand dropped rather than named, again only when the
    document ingests — `max(known, undeclared)` quietly becomes `max(known)`
    (F25);
-10. an index symbol left free outside its `aggregate` — an undefined name —
-    read as index zero and contributing the additive identity, again only on
-    the path an ingesting document takes (F26). It reached 109 of
-    `nr-logging-county`'s 144 output cells past 343 of 343 green assertions,
-    and was caught by diffing against the previous run.
+10. an index symbol used outside the `aggregate` that binds it, read as index
+    zero and contributing the additive identity, again only on the path an
+    ingesting document takes (F26). It reached 109 of `nr-logging-county`'s 144
+    output cells past 343 of 343 green assertions, and was caught by diffing
+    against a previous run — not by any gate.
 
 The fixed ones stay listed, because the *class* of failure is the point rather
 than the individual bug.
+
+**Eight, nine and ten were one defect, and one fix closed all three** — which is
+the strongest evidence this list has that it tracks a *class* rather than a run
+of unrelated bugs. A name unbound at evaluation returned `NaN`, and IEEE-754
+`max`/`min` return the **non-NaN** operand: a clamp does not propagate that
+sentinel, it absorbs it, and the operand disappears with every downstream digit
+finite. Eight arrived through an array not yet built, nine through a name
+declared nowhere, ten through a symbol used out of scope — three doors, one arm.
+It is now `E_TREEWALK_UNBOUND_NAME` on every route (EarthSciAST `a1dc9bb30`).
+Instrumented before the fix, that arm was read **zero times across 119 suites
+and 1,399 tests**: on every valid document in the corpus it was dead code
+returning a sentinel, which is why it survived three findings.
 
 Six of the ten returned `0`. One returned `NaN` — the same defect in a
 different shape, because an unbound *array* forcing reads as NaN where a scalar
@@ -219,12 +231,14 @@ tolerance absorbs it.
 The defence is structural rather than vigilance, and is why the repo is shaped
 as it is: every inline test asserts a specific expected value rather than a
 bound, `run-oracle.sh` provides an independent implementation to attribute a
-disagreement to, and the exact key set catches the row-shaped version. Seven of
-the nine were found by running something real and checking the number against
-an independent source, not by reading code.
+disagreement to, and the exact key set catches the row-shaped version. Eight of
+the ten were found by running something real and checking the number against an
+independent source, not by reading code — and number ten was found by neither,
+but by diffing one run against the previous one, which is the method this list
+did not have before.
 
-**Three of the ten are on the ingesting path, and that is now a place to look
-rather than a coincidence.** F24 lost a self-read there, F25 loses an
+**Three of the ten were on the ingesting path, which is why it is now the first
+place to look, and all three are now fixed upstream.** F24 lost a self-read there, F25 loses an
 undeclared operand there, and F26 loses an unbound index symbol there; all
 three are the same sentence: that route re-resolves names against a map built
 for the pipeline, and a name the map does not hold becomes an absence instead
@@ -282,11 +296,11 @@ it does.
 ## Status
 
 **Phases 0–2 are complete, Phase 3 has its specification and four components,
-and Phase 4 has its first slice — wired, and complete.** Eighteen components
+and Phase 4 has its first slice — wired, and complete.** Nineteen components
 cover all seven NONROAD stages of `nr-logging-county`, four of the six onroad
-stages of `mixed-onroad`, and all of `process-evap-leaks`, with **1,005 distinct
+stages of `mixed-onroad`, and all of `process-evap-leaks`, with **1,069 distinct
 inline assertions** whose numbers each trace to a named section of a port
-specification — 511 in the components, 74 in the assemblies, 416 in the two
+specification — 575 in the components, 74 in the assemblies, 416 in the two
 wired fixtures and 4 in the gates.
 
 **`process-evap-leaks` was the first fixture with no shortfall at all**: 128 of

@@ -66,49 +66,35 @@ rel = 2e-5
 # iterations until a `modfrc <= 0` skip changes sides (PLAN.md 1.6.1). They
 # carry 2.4e-5 g out of 5,146 g, so per-pollutant sums still agree to 2.6e-6.
 #
-# THAT PARAGRAPH USED TO SAY IT WITHOUT THE QUALIFIER, ABOUT THE FIXTURE
-# ITSELF, AND THAT WAS WRONG. The claim is true
-# of `run-oracle.sh`, which executes the fold; it is NOT true of
-# `fixtures/nr-logging-county.esm`, which does not. The fixture carries the
-# float32 fold's OUTPUT as a `const`: `age_grownModelYearFraction =
-# [3.7072685, 0.9905483, 5.8885583e-08]`. The borderline cohort therefore
-# arrives already positive and `age_isPopulated` reads it as populated in either
-# precision. Measured both ways: the fixture emitted twelve rows in binary64 and
-# emits the same twelve under `Float32`, same keys, values moved by <= 1.13e-07.
-# So the fixture has float32's ROW SET without having needed float32's
-# ARITHMETIC to get it --- the right answer for a different reason than this
-# file claimed, which is a thing to write down rather than smooth over
-# (docs/esm-conventions.md 17.5). PLAN.md 1.6.1a already had it right.
+# THAT PARAGRAPH USED TO SAY IT WITHOUT THE QUALIFIER, ABOUT THE FIXTURE ITSELF,
+# AND THAT WAS WRONG WHEN WRITTEN --- AND IS NOW TRUE. It was true of
+# `run-oracle.sh`, which executes the fold, and false of
+# `fixtures/nr-logging-county.esm`, which carried the fold's OUTPUT as a const
+# `[3.7072685, 0.9905483, 5.8885583e-08]`. The borderline cohort therefore
+# arrived already positive and `age_isPopulated` read it as populated in either
+# precision: the fixture had float32's ROW SET without having needed float32's
+# ARITHMETIC to get it.
 #
-# WHY IT IS STILL CARRIED, AND IT IS NO LONGER F12. agedist.f's thirty-year
-# recurrence HAS a spelling now (esm-spec 4.3.1.1, EarthSciAST a83cde55e), and
-# components/age_distribution.esm computes the fold with it and asserts the
-# result in 55 places. What stops the FIXTURE is finding F24: a document that
-# ingests `data_sources` is forced onto the build-pipeline evaluation path, and
-# on that path every causal self-read comes back unresolved, with no diagnostic.
-# The clamp in agedist.f's own body then launders the sentinel into a plausible
-# number --- measured, the grown fractions summed to 1.5e-06 instead of
-# 4.697819 --- which is the failure mode this whole file exists to make visible.
-# The repro is upstream's own canonical valid example; ours is
-# docs/findings/F24_repro_a_recurrence_is_dropped_on_the_ingesting_path.esm and
-# run-tests.sh checks it by running both commands.
+# THE FIXTURE NOW EXECUTES THE FOLD, so the qualifier is gone and the sentence
+# above applies to it directly. agedist.f's thirty-year recurrence is spelled as
+# esm-spec 4.3.1.1's causal self-reference (EarthSciAST a83cde55e) and evaluated
+# here over all six equipment points; all 306 grown fractions are bit-identical
+# to the reference's real*4 values, and the three this SCC needs come out at
+# 3.707268476486206, 0.990548312664032 and 5.888558263222876e-08 --- which ARE
+# binary32's 3.7072685, 0.9905483 and 5.8885583e-08, to the last bit. The row
+# set is now PRODUCED by the declared element type instead of resting on a
+# constant that was typed in, which is what makes the precision paragraph above
+# load-bearing rather than decorative.
 #
-# F24 IS FIXED UPSTREAM (EarthSciAST de784f3f8) AND THIS RECORD STILL STANDS.
-# `esm-version.lock` pins 6d0ec3b13, which predates the fix, so the defect
-# still reproduces here; and the upstream author verified the build-pipeline
-# path but could NOT verify the ingestion axis, that build having no parquet
-# reader. So the carried const stays until a reader-enabled binary is confirmed
-# against the real snapshot. run-tests.sh's F24 check is the tripwire: it fails,
-# with instructions, the moment `esm simulate` agrees with `esm test`.
-#
-# What DID change: every input the fold consumes is now computed in the fixture
-# from the real tables rather than absent --- the 197-row scrappage curve, the
-# year-over-year survivals including 7.3's 5.9604645e-08, nyrlif, the base
-# model-year fractions, and getgrw's thirty annual growth factors. So the
-# carried column is three numbers wide now instead of standing in for a whole
-# stage, and the survival factor its third value hangs off is ASSERTED rather
-# than assumed.
-#
+# What was blocking it was finding F24, and then F25/F26 behind it --- all three
+# the same unbound-name arm returning a NaN that agedist.f's own `max(., 0)`
+# laundered into a plausible number (measured at the time: grown fractions
+# summing to 1.5e-06 instead of 4.697819). All are fixed upstream and the pin
+# carries them (`esm-version.lock`: EarthSciAST a1dc9bb30). The ingestion axis
+# the upstream build could not reach --- it has no parquet feature --- is
+# verified here instead, by the two controls in docs/findings/ and by this
+# fixture computing the fold while reading the real snapshot.
+
 # The structural risk is real but is a PRECISION question, not a tolerance one,
 # and an earlier version of this comment also got the resolution wrong. It said
 # the .esm should emit every key its joins produce rather than copying Fortran's
