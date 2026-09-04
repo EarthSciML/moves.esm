@@ -690,17 +690,49 @@ finding F12 blocked, and permeation (process 11) needs
 `AverageTankTemperature`, which is the output of `TankTemperatureGenerator`'s
 quarter-hour recurrence — F12 again.
 
-**F12 is now fixed (EarthSciAST `a83cde55e`), so this screening is out of date
-in the port's favour: FVV and permeation are unblocked.** A recurrence over an
-index axis has a spelling — an `aggregate` body reading `index(V, k − c)` where
-`V` is the equation's own left-hand side — with an arbitrary bounded lag, a
-normative arithmetic order, and per-cell rounding to the variable's
-`element_type`. Both of those fixtures are 128 rows, both are cheaper than
-anything else remaining, and neither needs `W`. They are the next two slices
-after the `agedist` fold, and they are the first chance to exercise the
-construct on a *different* recurrence than the one it was designed against —
-which is worth having, because a feature verified only against its motivating
-case is verified narrowly.
+**F12 is now fixed (EarthSciAST `a83cde55e`).** A recurrence over an index axis
+has a spelling — an `aggregate` body reading `index(V, k − c)` where `V` is the
+equation's own left-hand side — with an arbitrary bounded lag, a normative
+arithmetic order, and per-cell rounding to the variable's `element_type`.
+
+**An earlier version of this paragraph then said FVV and permeation were
+therefore unblocked. That is half right, and the half that is wrong was
+measured rather than argued.** F12's fix does unblock the recurrence PLAN.md
+named: `TankTemperatureGenerator` TTG-1b, the quarter-hour cold-soak tank
+temperature, is computed in `components/tank_temperature.esm` and checked
+against three captured MOVES intermediates — 96 `QuarterHourTemperature` rows,
+96 `QuarterHourTankTemperature` rows and all 24 `ColdSoakTankTemperature` rows,
+64 assertions, worst 7.550e-07 against the reference's own six-significant-figure
+storage. It took the construct unchanged on a recurrence unlike the fold in four
+ways at once (`docs/esm-conventions.md` §20.1), which is exactly the
+verification-breadth argument below and it succeeded.
+
+What F12's fix does **not** unblock is what the two fixtures actually stand on.
+
+* **`process-evap-permeation` cannot see the recurrence at all.** Its
+  `opModeFraction` for the cold-soaking mode is exactly 0, so
+  `AverageTankTemperature` mode 151 — the quarter-hour recurrence's output — is
+  multiplied by zero: perturbing it by +50 °F leaves all 128 cells *unchanged*,
+  while the same perturbation of mode 300 moves the total from 32.26 g to
+  221.12 g (`docs/evap-permeation.md` §0.3, measured on the oracle). Mode 300 is
+  TTG-4a's walk over `SampleVehicleTrip`, whose predecessor is named by
+  `priorTripID` — a **data column**, which esm-spec §4.3.1.1's causal self-read
+  cannot take (finding **F28**, with a repro, a working workaround as a control,
+  and the workaround's two costs).
+* **`process-evap-fvv` can**, and is therefore the better next slice rather than
+  the equal one: `MultidayTankVaporVentingCalculator` TVV-3 reads
+  `ColdSoakTankTemperature` directly. It needs, in addition, TTG-7's
+  `ColdSoakInitialHourFraction` (F28 again), `TankFuelGenerator`'s
+  `AverageTankGasoline` (captured *empty* in all three evaporative snapshots, so
+  it must be computed), and the largest calculator SQL file in MOVES.
+  `docs/evap-permeation.md` §8.2 carries the bill.
+
+The screening was not wrong about F12; it was incomplete about what was behind
+it. `docs/evap-permeation.md` is the specification, `./run-permeation-oracle.sh`
+reproduces all 128 rows at 6.174e-06 with an exact key set — reading 192 of 288
+`AverageTankTemperature` cells and nothing else — and the recurrence-breadth
+question this pair was opened to answer is **answered**, by
+`components/tank_temperature.esm` rather than by either fixture.
 
 **Evap fuel leaks (process 13) needs neither.** Its base rate is
 `emissionRateByAge`, a default-database input table, so it replaces exactly the

@@ -1359,6 +1359,11 @@ for (my, fuel, engtech, regclass), frac in cohort.items():
 ref_sho = {(r["hourDayID"], r["ageID"]): float(r["SHO"]) for r in T("sho")}
 worst_sho = max(abs(sho[k] - v) / v for k, v in ref_sho.items())
 print("sho:           %3d rows, worst relative error %.3e" % (len(ref_sho), worst_sho))
+# ASSERTED, not merely printed. ./run-tests.sh reads this script's EXIT CODE, so
+# a regression that leaves the key set intact and moves every value would
+# otherwise be reported green with the evidence sitting in the log. Measured:
+# injecting a 2% error here used to leave the whole suite green.
+assert worst_sho < 1e-5, "sho: worst relative error %.3e exceeds 1e-5" % worst_sho
 
 out = pq.read_table(SNAP + "/tables/db__out_mixed_onroad__movesoutput.parquet").to_pylist()
 worst, worst_key = 0.0, None
@@ -1372,6 +1377,7 @@ print("emissionQuant: %3d rows, worst relative error %.3e at (day %d, MY %d, fue
       % (len(out), worst, *worst_key))
 assert len(rows) == len(out), (len(rows), len(out))
 assert set(rows) == {(o["dayID"], o["modelYearID"], o["fuelTypeID"]) for o in out}
+assert worst < 2e-5, "emissionQuant: worst relative error %.3e exceeds 2e-5" % worst
 print("key set:       %3d cohorts x %d day types = %d rows, exact"
       % (len(cohort), len(DAYS), len(rows)))
 ```

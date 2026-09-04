@@ -1380,7 +1380,7 @@ for (regclass, fuel, my, opmode), rate in wmbr.items():
         sccs[(d, fuel, my)] = onroad_scc(fuel, ST, LINK_ROAD, process_id)
 
 # --------------------------------------------------------------------- compare
-def worst(computed, reference, label, absolute=False):
+def worst(computed, reference, label, limit, absolute=False):
     """Compare two keyed relations, checking the ROW SET before any value.
 
     Missing and extra keys are counted SEPARATELY and either one fails. They are
@@ -1397,29 +1397,35 @@ def worst(computed, reference, label, absolute=False):
         label, len(extra), extra[:3])
     if absolute:
         w = max(abs(computed[k] - v) for k, v in reference.items())
-        print("%-26s %4d rows, 0 missing, 0 extra, worst ABSOLUTE error %.3e"
-              % (label + ":", len(reference), w))
+        kind = "ABSOLUTE"
     else:
         w = max(abs(computed[k] - v) / abs(v) for k, v in reference.items() if v)
-        print("%-26s %4d rows, 0 missing, 0 extra, worst relative error %.3e"
-              % (label + ":", len(reference), w))
+        kind = "relative"
+    print("%-26s %4d rows, 0 missing, 0 extra, worst %s error %.3e"
+          % (label + ":", len(reference), kind, w))
+    # `limit` is ASSERTED, not merely printed. ./run-tests.sh reads this
+    # script's EXIT CODE, and until it was measured this function reported a
+    # worst error of 2.000e-02 -- an injected 2% -- and exited 0, leaving the
+    # whole suite green with the evidence sitting in the log.
+    assert w <= limit, "%s: worst %s error %.3e exceeds the recorded %.1e" % (
+        label, kind, w, limit)
     return w
 
 
 worst({(k[1], k[2]): v for k, v in sho.items()},
-      {(r["hourDayID"], r["ageID"]): f(r["SHO"]) for r in T("sho")}, "SHO")
+      {(r["hourDayID"], r["ageID"]): f(r["SHO"]) for r in T("sho")}, "SHO", 1e-5)
 worst(source_hours,
-      {(r["hourDayID"], r["ageID"]): f(r["sourceHours"]) for r in T("sourcehours")}, "SourceHours")
+      {(r["hourDayID"], r["ageID"]): f(r["sourceHours"]) for r in T("sourcehours")}, "SourceHours", 1e-5)
 worst(dict(sbdfu),
       {(r["sourceTypeModelYearID"], r["sourceBinID"]): f(r["sourceBinActivityFraction"])
        for r in T("sourcebindistributionfuelusage_%d_%d_%d" % (PP % 100, COUNTY, YEAR))},
-      "sourceBinDistribution")
+      "sourceBinDistribution", 1e-5)
 worst(dict(frac_op),
       {r["hourDayID"]: f(r["fractionOfOperating"]) for r in T("fractionofoperating")},
-      "fractionOfOperating", absolute=True)
+      "fractionOfOperating", 1e-12, absolute=True)
 worst(omd,
       {(r["hourDayID"], r["opModeID"]): f(r["opModeFraction"]) for r in T("opmodedistributiontemp")},
-      "OpModeDistribution", absolute=True)
+      "OpModeDistribution", 1e-12, absolute=True)
 
 out = OUT("movesoutput")
 expected = {(o["dayID"], o["fuelTypeID"], o["modelYearID"]): f(o["emissionQuant"]) for o in out}
@@ -1428,7 +1434,7 @@ for o in out:
     k = (o["dayID"], o["fuelTypeID"], o["modelYearID"])
     assert sccs[k] == o["SCC"], (sccs[k], o["SCC"])
     assert o["processID"] == process_id and o["pollutantID"] == pollutant_id
-w = worst(dict(rows), expected, "emissionQuant")
+w = worst(dict(rows), expected, "emissionQuant", 2e-5)   # tolerance.toml's per-cell gate
 print("%-26s %d cohorts x %d day types = %d rows, exact; SCCs %s"
       % ("key set:", len(rows) // len(DAYS), len(DAYS), len(rows), sorted(set(sccs.values()))))
 print("%-26s %.6f g computed / %.6f g in MOVESOutput"

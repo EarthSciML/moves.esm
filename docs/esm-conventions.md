@@ -1449,3 +1449,136 @@ then asserted **two-sidedly**, with both edges naming what they mean, so it
 cannot drift unnoticed; and if the fixture's equation stops being a `const`, the
 script says the normalisation is now dead weight rather than silently dividing by
 two equal numbers.
+
+## 20. The recurrence's second shape, and what it did not need **[F12 verified twice]**
+
+§19 records what authoring `agedist.f`'s fold cost. This section records what
+authoring a *second, deliberately unlike* recurrence cost, because a construct
+verified only against the case it was designed for is verified narrowly and
+that is the whole reason `components/tank_temperature.esm` was written.
+
+### 20.1 Four ways it is a different recurrence, and none of them cost anything
+
+`TankTemperatureGenerator` TTG-1b differs from the fold on every axis that
+looked like it might matter:
+
+| | `agedist.f`'s fold | TTG-1b |
+|---|---|---|
+| self-reads per cell | one per contracted lag, `a ∈ [1, 50]` | exactly one |
+| the lag | a contracted index symbol | the literal 1 |
+| the axis | a declared 31-row year axis | a **derived** 96-cell quarter-hour grid whose hour and step columns are computed from the row number |
+| the base case | the constant `0.0` under `Y <= 1` | **computed**: `quarterHourTemperature[1] − firstQHTankTemperature` |
+| the terms | independent of the answer once the survival run is fixed | each term is a function of the answer so far |
+
+The last row is the one that matters, and it is the sharpest available test that
+§4.3.1.1 is doing work §4.3.1's prefix scan could not. TTG-1b carries
+`sumTempDelta`, whose increment is `quarterHourTemperature − (1.4·sumTempDelta +
+first)`: a linear feedback with ratio −0.4. There is no ordering of independent
+terms that produces it.
+
+**All four took the construct unchanged.** No new operator, no new schema field,
+no declaration, and the file passed `esm validate` and `esm test` on its first
+run. The one thing that had to be got right was §19.2's rule read backwards:
+where the fold needed a *contracted* index as its lag, this one needs no
+contraction at all, and an `aggregate` with an `output_idx` and no `reduce` is
+the right node for it.
+
+### 20.2 Prove the sweep is causal by perturbing an input, not by reading the code
+
+§19.4a says a NaN sentinel is not a defence in a model that clamps. The positive
+form of that rule is: **a recurrence is proved live by moving one of its inputs
+and watching where the answer moves — and, just as importantly, where it does
+not.** Measured on `components/tank_temperature.esm`, at the bit level, by
+perturbing one hour's ambient temperature by +10 °F and dumping all 24
+cold-soak outputs:
+
+| perturbed | hours bit-identical | first hour that moves |
+|---|---|---|
+| hour 12 | 1 … 11 | 12 |
+| hour 23 | 1 … 22 | 23 |
+
+That is esm-spec §4.3.1.1 points 1–3 — axis outermost, ascending, published
+before the sweep advances — observed rather than trusted. A vectorised or
+reordered evaluation would leak the perturbation backwards; a dead recurrence
+would confine it to the one cell. Neither happens.
+
+The decay is worth naming too: the feedback ratio is −0.4, so a perturbation
+falls below binary64's resolution about forty cells later. **A contracting
+recurrence hides its own errors**, which is why this file asserts all 24 outputs
+against the reference rather than sampling the ends — an error injected at hour
+3 would be invisible by hour 15.
+
+### 20.3 A guard is a template when two equations need the same one
+
+§4.3.1.1 point 6 makes a self-read of an unpublished cell a **fault**, not a
+zero ghost, so a base case is written as `ifelse(k <= 1, 0, index(V, k − 1))`
+inside the body. Here two equations need that guarded prior — the recurrence
+itself, and the equation that publishes the tank temperature one cell behind it
+— so it is `lib/evaporative.esm`'s `prior_quarter_hour_delta_sum` and not two
+copies. Factoring it is not tidiness. An `ifelse` in a recurrence body selects
+its branch *before* evaluating it, which is the property that keeps the guarded
+self-read from being evaluated at the first cell; one copy means one place where
+that property has to hold.
+
+And write the base case as the **computation** rather than as its value. Row 1's
+carried delta here is zero, but it is zero because two computed quantities are
+equal, not because a `0.0` was typed. Typing the `0.0` would have removed an
+input the recurrence can be perturbed through, and §20.2 is what those are for.
+
+### 20.4 A constant equality is still a `join.on`
+
+§3 admits no exception for an equality against a constant, and
+`tools/check-conventions.py` enforces that literally. TTG-1's two key selections
+— the anchor at `(hour 1, step 1)` and TTG-1c's step-1 cells — were first
+written as `==` inside a `filter` and were rejected. The spelling is a **one-row
+relation** carrying the constant, joined to. It reads better, it is what §3
+asks for, and it turns two full scans of a 96-cell axis into gates that drive
+enumeration.
+
+### 20.5 An absolute tolerance is sometimes the correct gate, not a widened one
+
+`QuarterHourTankTemperature.tempDelta` is the difference of two numbers near
+63.8 that MOVES holds in a Java 32-bit float. A 4e-06 absolute rounding on each
+operand survives into a result of magnitude 0.2 as a 2e-05 *relative* one, so
+the reference's stored −0.224998470000 and this document's −0.2249994278 agree
+to 9.6e-07 absolutely and only 4.3e-06 relatively.
+
+Asserting that column at `abs 2e-05` is not the tolerance-widening §7 of
+`README.md` forbids; the relative gate is simply the wrong gate for a
+cancellation. What makes it legitimate rather than convenient is that **both
+operands are pinned tightly either side of it** — the quarter-hour temperature
+at `rel 1e-12` and the tank temperature at `rel 1e-6` — so the loose gate covers
+exactly the cancellation and nothing else.
+
+---
+
+## 21. An oracle must ASSERT its tolerance, not print it **[measured]**
+
+`./run-tests.sh` reads each independent reproduction's **exit code**. Three of
+the four computed a worst relative error, printed it, and returned 0 whatever it
+was. Measured, not supposed: injecting a 2% error into
+`docs/evap-leaks.md` §6.5's emission product left `./run-leaks-oracle.sh`
+printing
+
+```
+emissionQuant:              128 rows, 0 missing, 0 extra, worst relative error 2.000e-02
+```
+
+and exiting **0**, so the suite reported `ok ./run-leaks-oracle.sh` with the
+evidence sitting four lines above the green tick. The same held for
+`./run-onroad-oracle.sh`. `./run-oracle.sh` was already right —
+`assert n == 144 and missing == 0 and extra == 0 and worst < 1e-5`, in both its
+arms — which is what makes this an omission rather than a design.
+
+The rule: **every relation an oracle compares carries a numeric limit, and the
+limit is asserted.** A key-set check is not a value check; a chain that emits
+exactly the right 128 keys with every number 2% wrong is the failure an oracle
+exists to catch, and it is also the failure a printed number cannot catch. The
+limits are the recorded ones — `tolerance.toml`'s per-cell gate for an emission
+quantity, the reference's own storage floor for a captured intermediate — and a
+number that will not fit inside one belongs in `tolerance.toml` with a reason,
+never in a widened literal.
+
+This is `README.md`'s warning about zeros in a different costume. The value was
+never wrong-and-silent; it was wrong-and-*printed*, which is worse, because a
+log that contains the answer reads as a log that checked it.
