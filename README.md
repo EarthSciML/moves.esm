@@ -373,7 +373,7 @@ missing 1991, 2000–2002 and 2006–2010 out of a 1983–2020 span), and a `rag
 index set does not evaluate (**F14**). The shape that works is a rectangular
 6 × 51 grid of (equipment point, age slot), a membership mask that is
 `prccty.f`'s skip written as TWO gates, and a prefix-count rank that compacts the
-survivors onto a flat 144-row output relation — `docs/esm-conventions.md` §20.
+survivors onto a flat 144-row output relation — `docs/esm-conventions.md` §22.
 It lands at 144 rows, key set exact, worst cell 4.561 × 10⁻⁶.
 
 Restoring the fold is also what turned up **F25**: the fixture passed 120 of 120

@@ -356,7 +356,7 @@ exactly what §1.6.2 said it would take.
 The rest of what had to be true is not about precision at all: the emitted key
 set is ragged, a `ragged` index set does not evaluate (F14), and the shape that
 works -- a rectangular grid, a membership mask, and a rank that compacts it onto
-a flat output relation -- is written up as `docs/esm-conventions.md` §20.
+a flat output relation -- is written up as `docs/esm-conventions.md` §22.
 
 ### 1.6.2 `element_type: "Float32"` was declared, documented, and ignored — **now honoured**
 

@@ -455,7 +455,7 @@ Seven things about ingest that were paid for once and should not be re-derived.
   percent, `adjtime` — are columns over a one-row `run_scope_rows`. That is the
   better shape anyway, and it survived the widening to six equipment points
   unchanged: what varies per point moved to a six-row `equipment_point_rows`
-  and the run scope stayed one row, so no run-level equation was touched. §20
+  and the run scope stayed one row, so no run-level equation was touched. §22
   is the rule that came out of doing it.
 * **`hp` is not a unit the registry knows.** `W`, `kW`, `degF`, `g`, `h`, `yr`
   and `1` are. So an emission factor in g/hp-hr carries no `units` and names the
@@ -503,7 +503,7 @@ verified here on the **ingestion** axis the upstream build could not reach.
 "widen the axis".** `prccty.f` loops over the `nrsourceusetype` rows the SCCs
 select — six of them here, with three sharing one SCC — so the output row is a
 SUM over points, the model-year set is the UNION of their `nyrlif`s, and the
-union is ragged and gappy. Widening the axis is the easy half; §20 is the other
+union is ragged and gappy. Widening the axis is the easy half; §22 is the other
 half.
 
 ## 12. Testing
@@ -1458,7 +1458,7 @@ cannot drift unnoticed; and if the fixture's equation stops being a `const`, the
 script says the normalisation is now dead weight rather than silently dividing by
 two equal numbers.
 
-## 20. A ragged key set on rectangular axes **[144 rows]**
+## 22. A ragged key set on rectangular axes **[144 rows]**
 
 The `nr-logging-county` output is 36 `(SCC, modelYearID)` cohorts over three
 SCCs whose model-year counts are 3, 29 and 4 — and the 29 are not contiguous.
