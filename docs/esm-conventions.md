@@ -452,8 +452,11 @@ Seven things about ingest that were paid for once and should not be re-derived.
   that ingests, a SCALAR variable is not materialized: the assertion errors and
   an expression that reads one evaluates to `NaN` (finding **F16**). So the
   fixture's run-level quantities — the ambient temperature, the oxygen weight
-  percent, `adjtime` — are columns over a one-row `run_rows`. That is the better
-  shape anyway: a second SCC widens `run_rows` and no equation changes.
+  percent, `adjtime` — are columns over a one-row `run_scope_rows`. That is the
+  better shape anyway, and it survived the widening to six equipment points
+  unchanged: what varies per point moved to a six-row `equipment_point_rows`
+  and the run scope stayed one row, so no run-level equation was touched. §20
+  is the rule that came out of doing it.
 * **`hp` is not a unit the registry knows.** `W`, `kW`, `degF`, `g`, `h`, `yr`
   and `1` are. So an emission factor in g/hp-hr carries no `units` and names the
   unit in its `description` — and because no factor in the roll-up product
@@ -476,44 +479,32 @@ it separately. The check that keeps an enumerated window honest is a total:
 `tech_fractionTotal` must be 1 for every cohort, so a code outside the window
 shows up as a number rather than as a missing row.
 
-### 11.2 What the fixture still does not cover **[Phase 3]**
+### 11.2 What the fixture covers **[Phase 3, complete]**
 
-Twelve of the snapshot's 144 rows: SCC `2260007005`, the §6.1 worked example,
-whose twelve cells agree with `MOVESOutput` to 4.0 × 10⁻⁶. The shortfall is
-recorded in `tolerance.toml` under `[shortfall."nr-logging-county"]` and
-`run-tests.sh` is green only while the comparison fails *exactly* that way — the
-tripwire polarity again.
+All 144 rows of the snapshot's `MOVESOutput`, over the three SCCs the RunSpec
+selects, at a worst cell of 4.561 × 10⁻⁶ relative and a worst per-pollutant sum
+of 2.079 × 10⁻⁶. `tolerance.toml` carries no `[shortfall]` record for it any
+more; `run-tests.sh` fails if one is left behind a comparison that passes.
 
-What stands between the fixture and the other 132 rows is now **two separable
-things**, where it used to be one.
+It was twelve rows for a long time, and the two things that stood between it and
+the other 132 are worth keeping written down, because only one of them was ever
+about the format.
 
-**The fold, and it is a toolchain blocker rather than a format one — and it is
-fixed upstream but not yet pinned here.** `agedist.f`'s thirty-year fold has a
-spelling, esm-spec §4.3.1.1's causal self-reference, and
-`components/age_distribution.esm` computes it, verified bit-exactly against the
-reference on all six equipment points. The fixture cannot *at the pinned
-toolchain*, because a document that ingests `data_sources` is forced onto the
-build-pipeline evaluation path and that path left a causal self-read unresolved
-(**F24**, fixed by EarthSciAST `de784f3f8`, which `6d0ec3b13` predates — and
-whose **ingestion** axis has not yet been confirmed against a reader-enabled
-build). So the three grown fractions still enter as data, and the day the
-rebuild lands `run-tests.sh`'s F24 check fails with instructions. What is
-no longer carried is everything that *feeds* them: the 197-row scrappage curve's
-step lookup, `yryrfrcscrp`, the survivals, `nyrlif`, the sales curve, the base
-model-year fractions, and `getgrw`'s whole indicator series with the thirty
-annual `grwfac` factors — 120 assertions against the Parquet, up from 87.
+**The fold was a toolchain blocker, and it is fixed.** `agedist.f`'s thirty-year
+fold has a spelling — esm-spec §4.3.1.1's causal self-reference — and the
+fixture computes it, six times, once per equipment point, reproducing the
+reference's real*4 grown fractions in all 306 cells. What had stopped it was
+**F24**: a document that ingests `data_sources` is forced onto the build-pipeline
+evaluation path, and that path left a causal self-read unresolved with
+`max(NaN, 0)` laundering the sentinel. Fixed by EarthSciAST `de784f3f8`, and
+verified here on the **ingestion** axis the upstream build could not reach.
 
-**The equipment-point axis, and that is ordinary authoring effort.** The other
-two SCCs are six equipment points between them, summed per output row, with a
-gappy model-year set that the `modfrc <= 0` skip decides. `run_rows` is already
-the axis every stage is written over, and `lib/population.esm`'s
-`agedist_cohort_term` already indexes by equipment point, so the shape is
-settled; what remains is widening the axis and deriving the 144-row output key
-set from the membership column rather than authoring it dense.
-
-Recording those as one blocker is what the old text did, and it read as "the
-format cannot do this" when the truthful version is "one upstream defect, and
-then work".
+**The equipment-point axis was ordinary authoring, and it was more work than
+"widen the axis".** `prccty.f` loops over the `nrsourceusetype` rows the SCCs
+select — six of them here, with three sharing one SCC — so the output row is a
+SUM over points, the model-year set is the UNION of their `nyrlif`s, and the
+union is ragged and gappy. Widening the axis is the easy half; §20 is the other
+half.
 
 ## 12. Testing
 
@@ -542,14 +533,16 @@ parquet, and the assertions are that document's own worked longhand.
   and two of §6.2's four printed deterioration factors, which are ~2 × 10⁻⁵ off
   the arithmetic in both precisions.
 * **A quantity the toolchain cannot compute *here* enters as data, with an
-  independent cross-check** **[Phase 2, narrowed]**. `agedist.f`'s thirty-year
-  fold is now computed by `components/age_distribution.esm`; only
-  `fixtures/nr-logging-county.esm` still carries it, because that document
-  ingests (**F24**). The carried column asserts that it sums to
+  independent cross-check — and nothing in this repo does any more**
+  **[Phase 2, retired]**. `agedist.f`'s thirty-year fold was the last one, and
+  both `components/age_distribution.esm` and `fixtures/nr-logging-county.esm`
+  now compute it (**F24** fixed upstream, and verified on the ingesting axis
+  here). The cross-check that made carrying it safe outlived the carrying and is
+  the better half of the convention: the grown fractions must sum to
   `G(2020)/G(1990)`, which the same document derives from `nrgrowthindex` by a
-  different route. A carried column without such a check is a number nobody is
-  testing — and the check is what made it safe to carry three values while the
-  stage around them became computed.
+  completely different route, and that check is now made **once per equipment
+  point** — six thirty-iteration recurrences landing within 5.3 × 10⁻⁷ of one
+  externally derived constant.
 * **A test names *what breaks if this is wrong*, not what it computes.** The
   composite-join test says a single-key join would give 131.86 instead of 60.74;
   the window test says the count would be 16 or 24 instead of 13. A description
@@ -632,7 +625,7 @@ visible place in the `.esm` rather than a silent substitution.
 | **F24** | a causal self-reference is dropped once the document ingests | `fixtures/nr-logging-county.esm`'s `age_grownModelYearFraction` is still a data column, cross-checked against the growth stage's cumulative ratio; `components/age_distribution.esm`, which does not ingest, computes it. (This row was **F12** — the fold had no spelling at all — until EarthSciAST `a83cde55e`) |
 | **F23** | a leaf's `domain.element_type` does not survive a top-level `{ref}` mount | `components/age_distribution.esm` stays in binary64 and pins BOTH precisions: its own answer exactly, the real\*4 value named beside it, and the invariant they share asserted |
 | **F15** | a `url_template` has no relative or environment form | the checked-in fixture cannot ingest; `run-tests.sh` materializes `.fixtures-run/` and asserts that the checked-in one still cannot |
-| **F16** | a scalar has no state in a document that ingests | every run-level quantity is a one-row relation over `run_rows` |
+| **F16** | a scalar has no state in a document that ingests | every run-level quantity is a one-row relation over `run_scope_rows` |
 | **F17** | a `join.on` between two large relations is not driven | `engine_tech_rows` gives the technology an axis, and `tech_fractionTotal` proves the window is a superset |
 
 The rule the three share: **say it in the document, at the point where a reader
@@ -828,7 +821,7 @@ and evaluates in it. This section is what that cost and what it did not. §10
 states the authoring rule and points here; this section is the operative
 detail.
 
-### 17.1 Nineteen variables, no rewritten expressions
+### 17.1 Twenty variables, no rewritten expressions
 
 The declaration is two kinds of edit to the model, and nothing else — no equation,
 index set, data source or `expected` value changed (§17.4 is the third kind of
@@ -839,10 +832,10 @@ edit, to ten assertion tolerances):
 ```
 
 ```json
-"runSCC": { "type": "parameter", "element_type": "Float64", "default": 2260007005.0, … }
+"point_SCC": { "type": "unknown", "element_type": "Float64", "shape": ["equipment_point_rows"], … }
 ```
 
-— the second repeated on the nineteen variables that hold an **SCC**, and on no
+— the second repeated on the twenty variables that hold an **SCC**, and on no
 others. The reference is `real*4` in its floating-point quantities and `INTEGER`
 in its keys (`docs/nonroad-logging-county.md` §7.1), and a per-variable
 `element_type` is the only vocabulary the format has for that split. `Float64`
@@ -850,12 +843,17 @@ is not a rounding preference here: `2260007005` is 135× binary32's exact-intege
 limit of 2²⁴ and rounds to `2260006912`, which is a **different equipment
 category**, so every `join.on` over it matches nothing (finding F18).
 
-Adding *only* the domain block, measured end to end on the real snapshot:
-**35 of 87 inline assertions pass**, `run_statePopulation` 83.3 → 0,
+Adding *only* the domain block, measured end to end on the real snapshot **at
+the twelve-row version of the fixture**, where the variables were still named
+`run_*`: **35 of 87 inline assertions pass**, `run_statePopulation` 83.3 → 0,
 `run_allocationFraction` 0.0032383 → 0, `run_surrogateID` 8 → 0, and every one
-of the twelve `emissionQuant` cells → exactly 0. Adding the nineteen overrides:
+of the twelve `emissionQuant` cells → exactly 0. Adding the overrides:
 **48 of 87**, with no zeros left and every remaining failure a rounding
-difference of at most 1.13 × 10⁻⁷.
+difference of at most 1.13 × 10⁻⁷. The measurement has not been repeated on the
+144-row version (it would now be 343 assertions over six equipment points); what
+keeps it live is `docs/findings/F18_control_float32_key_override.esm`, which
+`run-tests.sh` runs every time and which asserts both halves — an overridden key
+stays exact, and the domain is still `Float32`.
 
 **Not one operator had to be split.** That is the surprising part and it is
 worth knowing why, because the rule that makes it true is strict:
@@ -953,7 +951,7 @@ within a tolerance, one level up. So:
   it also pins `run_fuelRegionID = 270000000`.
 
 Check the loosening against what each test discriminates, not just against
-whether it passes. The tightest in this fixture is `run_monthFraction`: the
+whether it passes. The tightest in this fixture is `point_monthFraction`: the
 table's `0.0833333` sits 4.0 × 10⁻⁷ from the `defmth = 1/12` that a missed
 lookup would silently deliver, a factor of 3.3 outside one epsilon, so that
 test still tells them apart. A tolerance of 1 × 10⁻⁶ would not have.
@@ -1449,3 +1447,73 @@ then asserted **two-sidedly**, with both edges naming what they mean, so it
 cannot drift unnoticed; and if the fixture's equation stops being a `const`, the
 script says the normalisation is now dead weight rather than silently dividing by
 two equal numbers.
+
+## 20. A ragged key set on rectangular axes **[144 rows]**
+
+The `nr-logging-county` output is 36 `(SCC, modelYearID)` cohorts over three
+SCCs whose model-year counts are 3, 29 and 4 — and the 29 are not contiguous.
+That is the shape a `ragged` index set advertises, and a `ragged` set does not
+evaluate (finding **F14**). A rectangular `[SCC × modelYear]` output axis emits
+348 keys where the snapshot has 144, and `tolerance.toml`'s
+`require_exact_key_set` is not negotiable. This section is the shape that works,
+because the next NONROAD sector will need it and the reasoning does not survive
+being rediscovered.
+
+**Three layers, and none of them ragged.**
+
+1. **A rectangular grid, carried FLAT.** The cohorts live on
+   `equipment_point_rows × age_slot_rows` — six points by `MXAGYR` = 51 age
+   slots — and the relation is one 306-row axis with both coordinates as key
+   COLUMNS, decoded by `lib/keys.esm`'s `flat_relation_major` /
+   `flat_relation_minor`. Flat rather than two-dimensional for a hard reason: a
+   `join.on` key column is resolved through its declared axis to one of the
+   node's ranges, so it must be **1-D**. A `[point × slot]` array cannot be
+   joined on, and every stage downstream of the grid needs to join on it.
+   `block_size` is `max_equipment_ages`, applied by reference, so the layout
+   follows the model's own age bound rather than a 51 typed into the fixture.
+
+2. **A membership column, and it is usually more than one test.** The
+   port's suppression rule is `prccty.f`'s, and it is TWO gates: the loop bound
+   `idx < nyrlif` and the body's `modfrc <= 0` skip. Neither implies the other
+   — `agedist.f` keeps shifting cohorts past `nyrlif` without scrapping them
+   further, so a positive fraction can sit outside the bound, and a cohort
+   inside the bound can be exactly zero. Write both, and assert a counterexample
+   to each collapsing into the other; this fixture has one of each, in two
+   different SCCs. What the mask must NOT be is a filter on the emitted rows:
+   the row set has to be a consequence of the arithmetic, not a decision about
+   the arithmetic's output.
+
+3. **A rank, which is what makes the mask produce a row COUNT.** An inclusive
+   prefix count of the mask over the flat relation, **zeroed on non-members**,
+   gives every emitted cohort a dense 1…N and every suppressed one a 0 that no
+   output ordinal can match. The output relation is then a flat `N × pollutants`
+   axis whose rows join against that rank. Two properties follow and both are
+   worth stating: the join is an ordinary equi-join, and **N is nowhere written
+   down** — it is what the mask counts, so the test pins the count
+   (`cohort_ownerRank` at the last position of the relation) rather than the
+   number. A mask that admitted one cohort too many or too few would leave the
+   output axis the same length and every row still carrying a number; pinning
+   the count is what turns that into a failure.
+
+**Where a key and its quantity are contracted differently.** The output row is
+keyed by SCC and three equipment points share one, so exactly one cohort per
+`(SCC, model year)` may own the row — a **self-join** of the flat relation
+suppresses the rest — while the QUANTITY must sum every point that reaches that
+cohort. So `out_emissionQuant` joins on `(SCC, age slot)` and `cohort_ordinal`
+joins on the rank, and they are deliberately different joins on the same
+relation. Getting that wrong in the obvious direction — summing the owner
+alone — loses two thirds of one SCC's mass while keeping the key set exact,
+which no structural check would see.
+
+**And the axis a quantity is carried on is a claim about what it varies over.**
+`run_scope_rows` has one row and holds the county, the month, the fuel region,
+the ambient temperature and the gasoline oxygen; `equipment_point_rows` has six
+and holds everything that differs per point, the two-stroke/four-stroke
+distinction included. Both directions of getting it wrong were measured while
+this landed: `tamb` on the point axis is six identical contractions over a
+930,816-row table (14 s of a 31 s document), and `pp_adjustment` on the run axis
+would hand five four-stroke points a two-stroke correction. The dangerous
+mistake is neither of those but a third — an aggregate that RANGES over the
+point axis without naming it in `output_idx` sums six points into one number and
+returns a plausible answer. When an axis grows from one member to six, every
+aggregate that mentions it has to be re-read for that.

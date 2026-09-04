@@ -1825,11 +1825,19 @@ The two hand-worked examples give three tiers of inline test, all with
 
 `fixtures/nr-logging-county.esm` emitted twelve of these rows — §6.1's SCC —
 for as long as it computed one of the run's six equipment points. It now
-computes all six. Three things in the sections above turned out to be wrong,
-and they are recorded here rather than silently corrected, because the whole
-value of a hand-worked example is that someone can check it.
+computes all six.
 
-**§6.3's `nyrlif` for source type 1388 is 39, not 38.** `medianLifeYears` is
+Two numbers in the sections above were wrong, and this section exists to say so
+in the document that carries them. Neither is news: `docs/esm-conventions.md`
+§12 has recorded both since the components were written, under the rule that
+where this specification's prose and its cited code disagree the code wins. What
+changed is that the wrong figures had stayed in §6.2 and §6.3 with the
+correction living only downstream, which is the wrong way round for a document
+whose whole value is that a reader can check it. They are corrected in place
+now, with a note at each.
+
+**§6.3's `nyrlif` for source type 1388 is 39, not 38** (conventions §12,
+first instance). `medianLifeYears` is
 `750 / 0.8 / 50 = 18.75`, the default curve reaches 100 % at twice the median
 life, and `scrptime.f` sets `nyrlif = iage - 1` on the first age whose PRIOR
 age is already fully scrapped — which is 39 here. 38 is the oldest slot the
@@ -1839,7 +1847,8 @@ apart and the distinction is load-bearing: the loop bound is `idx < nyrlif`, so
 using 38 drops model year 1983 and four MOVESOutput rows.
 `the_fold_runs_once_per_equipment_point` pins all six: 3, 21, 21, 39, 3, 5.
 
-**Two of §6.2's four deterioration factors were arithmetic slips.**
+**Two of §6.2's four deterioration factors were arithmetic slips**
+(conventions §12, second instance).
 `1 + 0.797 × sqrt(0.6125)` is `1.6237512`, not `1.623713`, and
 `1 + 0.797 × sqrt(2)` is `2.1271282`, not `2.127187`. The middle two were
 right to six figures. The numbers never reached the port — the `.esm` computes
@@ -1847,8 +1856,9 @@ the factor from `nrdeterioration`'s A, B and cap — so nothing downstream was
 affected, and the table is corrected in place with a note. §6.6's template-level
 suggestion carried the same slip and is corrected with it.
 
-**The three counts §6.3 leads with are 1, 3 and 2 equipment points**, and the
-document now checks that rather than trusting the reader's transcription:
+**What IS new is that the equipment-point counts are now checked.** §6.3 leads
+with three points for 2265007010 and §6.2 with two for 2265007015; the `.esm`
+does not take that on trust:
 `scc_equipmentPointCount` contracts `nrsourceusetype` against
 `nrbaseyearequippopulation` per SCC and the test pins all six. An equipment
 point left OUT of a hand-written list is invisible in every other check,
