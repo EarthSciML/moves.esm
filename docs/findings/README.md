@@ -45,7 +45,7 @@ which of the two answers `esm test` gives instead — the dropped operand
 (`actual=2 expected=10`) or the variable's name — and that check is
 falsified in both directions.
 
-**F28's control is the fifth file the tripwire loop does not run**, and like F18's and F24b's it is meant to pass. F28 is a shape the format refuses; its control is the WORKAROUND that shape has to be rewritten into, and everything this repository can say about porting `TankTemperatureGenerator` TTG-4 rests on that workaround existing. It is checked rather than assumed, and it is two-sided by construction: with a constant lag of 1 in place of the contracted one, five of its six assertions fail.
+**F28's control is the fifth file the tripwire loop does not run**, and like F18's and F24b's it is meant to pass. F28 is a shape the format refuses; its control is the WORKAROUND that shape has to be rewritten into, and everything this repository can say about porting `TankTemperatureGenerator` TTG-4 rests on that workaround existing. It is checked rather than assumed, and it is two-sided by construction: with a constant lag of 1 in place of the contracted one, rows 4, 5 and 6 read 8, 16 and 32 where the chain says 4, 8 and 8, and three of its six assertions fail.
 
 F12's control is **gone**. It was kept until `components/age_distribution.esm`
 computed `agedist.f`'s fold and guarded it with its own assertions; it does, in
