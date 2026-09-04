@@ -168,8 +168,8 @@ folds rather than carrying them. `docs/esm-conventions.md` §17.5 records this.
 This toolchain's characteristic failure is returning a plausible wrong value
 rather than raising. **This list is the authoritative count** — other documents
 in this repo cite an instance by its number here, and should not number one
-themselves. Eight independent instances so far, each on a document that
-validates cleanly, with no error and no warning:
+themselves. Nine independent instances so far, each on a document that runs
+clean, with no error and no warning:
 
 1. a `data_sources` entry read by no provider;
 2. the same when the published `earthsciio` shadows the local checkout;
@@ -180,12 +180,15 @@ validates cleanly, with no error and no warning:
 7. a CWD-anchored `url_template`, which resolves, succeeds, and reads a
    *different file* — the same document converted from three directories gave
    three different paths (F7/F15);
-8. a causal self-reference dropped on the ingesting path (F24).
+8. a causal self-reference dropped on the ingesting path (F24);
+9. an undeclared operand dropped rather than named, again only when the
+   document ingests — `max(known, undeclared)` quietly becomes `max(known)`
+   (F25).
 
 The fixed ones stay listed, because the *class* of failure is the point rather
 than the individual bug.
 
-Five of the eight returned `0`. One returned `NaN` — the same defect in a
+Five of the nine returned `0`. One returned `NaN` — the same defect in a
 different shape, because an unbound *array* forcing reads as NaN where a scalar
 reads as zero. One returns a number right to fifteen digits and wrong in the
 sixteenth, which is the hardest of all to see and changes how many rows exist.
@@ -209,9 +212,15 @@ tolerance absorbs it.
 The defence is structural rather than vigilance, and is why the repo is shaped
 as it is: every inline test asserts a specific expected value rather than a
 bound, `run-oracle.sh` provides an independent implementation to attribute a
-disagreement to, and the exact key set catches the row-shaped version. Six of
-the eight were found by running something real and checking the number against
-an independent source, not by reading code. Assume the next instance exists and
+disagreement to, and the exact key set catches the row-shaped version. Seven of
+the nine were found by running something real and checking the number against
+an independent source, not by reading code.
+
+**Two of the nine are on the ingesting path, and that is now a place to look
+rather than a coincidence.** F24 lost a self-read there and F25 loses an
+undeclared name there, and both are the same sentence: that route re-resolves
+names against a map built for the pipeline, and a name the map does not hold
+becomes an absence instead of an error. Every fixture in this repo ingests. Assume the next instance exists and
 has not been found.
 
 **That defence is audited, not asserted.** A gate that cannot fail is worse
@@ -249,9 +258,9 @@ it does.
 **Phases 0–2 are complete, Phase 3 has its specification and four components,
 and Phase 4 has its first slice — wired, and complete.** Eighteen components
 cover all seven NONROAD stages of `nr-logging-county`, four of the six onroad
-stages of `mixed-onroad`, and all of `process-evap-leaks`, with **782 distinct
+stages of `mixed-onroad`, and all of `process-evap-leaks`, with **785 distinct
 inline assertions** whose numbers each trace to a named section of a port
-specification — 511 in the components, 74 in the assemblies, 193 in the two
+specification — 511 in the components, 74 in the assemblies, 196 in the two
 wired fixtures and 4 in the gates.
 
 **`process-evap-leaks` is the first fixture with no shortfall at all**: 128 of
@@ -314,14 +323,28 @@ bit-exact across all six equipment points. The format gained a spelling for it
 strictly earlier index is a causal self-reference, which needed no new operator
 and no new schema field.
 
-**What stands between the *fixture* and the 144th row is now two separable
-things, and neither is F12.** The first was F24 — a document that ingests took
-an evaluation path that dropped the recurrence silently — which is fixed
-upstream and verified here on the ingestion axis that build could not reach.
-The second is the equipment-point axis, which is ordinary authoring effort
-rather than a missing capability: the fold was authored into the fixture in
-full and taken back out when F24 proved it unevaluable there, so restoring it
-is a revert plus that axis.
+**The fixture computes it too, and carries nothing.** F24 — the reason it could
+not — is fixed upstream, pinned, and verified here on the ingestion axis that
+build could not reach. `fixtures/nr-logging-county.esm` now derives
+`age_grownModelYearFraction` from the snapshot rather than transcribing it, and
+reproduces the reference's three `real*4` values **to the last bit**:
+3.707268476486206 *is* binary32's 3.7072685, and 5.888558263222876 × 10⁻⁸ *is*
+binary32's 5.8885583 × 10⁻⁸. That third number is the whole of §7.3 — it is
+positive only because the age-3 survival is 5.96 × 10⁻⁸ in `real*4` where
+binary64 makes it exactly zero, and it decides whether this SCC has three model
+years or two. **The document's row set is now produced by its declared element
+type instead of resting on a constant that was typed in.**
+
+That leaves the equipment-point axis as the only thing between the fixture and
+144 rows, and it is ordinary authoring effort rather than a missing capability:
+2265007015 needs 16 rows over two points, 2265007010 needs 116 over three and a
+38-year `nyrlif`.
+
+Restoring the fold is also what turned up **F25**: the fixture passed 120 of 120
+with `minimumGrowthPopulation` undeclared, because on the ingesting path the
+operand was dropped rather than named, and the floor could not bind on this
+data anyway. `esm validate` rejected the same bytes. That is the second silent
+failure found on that path, after F24.
 
 `mixed-onroad` has no fixture yet, and `docs/mixed-onroad.md` §7.4 says why
 rather than recording a shortfall: everything in that 250-row chain is

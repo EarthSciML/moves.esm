@@ -72,6 +72,9 @@ if [[ -z "${SNAPSHOTS:-}" ]]; then
   SNAPSHOTS="${SNAPSHOTS:-../moves.rs/characterization/snapshots}"
 fi
 
+# The one repro the tripwire loop cannot judge; see the F25 block below.
+F25="${F25:-docs/findings/F25_repro_an_undeclared_operand_is_dropped_when_ingesting.esm}"
+
 # The comparator is checked by its own falsification suite before it is trusted
 # to judge anything. This is not ceremony: two of its three gates are ones a
 # passing-by-default bug would hide completely -- measured on this very
@@ -332,11 +335,12 @@ else
   fi
 fi
 
-mapfile -t REPROS < <(find docs/findings -name '*.esm' -not -name 'join_leaf.esm' \
+mapfile -t REPROS < <(find docs/findings -name '*.esm' -not -name '.*' -not -name 'join_leaf.esm' \
   -not -name 'F3_lib_with_enum.esm' \
   -not -name 'F13_enum_leaf_*.esm' \
   -not -name 'F18_control_float32_key_override.esm' \
   -not -name 'F24b_repro_one_ingested_column_breaks_the_recurrence.esm' \
+  -not -name 'F25_repro_an_undeclared_operand_is_dropped_when_ingesting.esm' \
   2>/dev/null | sort)
 
 if [[ ${#REPROS[@]} -eq 0 ]]; then
@@ -364,6 +368,36 @@ else
     fi
     [[ "$repro_run" != "$repro" ]] && rm -f "$repro_run"
   done
+fi
+
+# F25 is the fourth file the loop above does not run, and for a reason none of
+# the other three have: its document is INTENDED to be invalid. The defect is
+# that `esm validate` rejects it and `esm test`, on the ingesting path, does
+# not -- so `validate` will never start passing, the loop's "both pass" test can
+# never fire, and it would report "still fails, as recorded" forever without
+# ever noticing the fix. What has to be watched is which of the two answers
+# `esm test` gives.
+if [[ -f "$F25" ]]; then
+  if grep -q 'characterization/snapshots' "$F25" && [[ ! -d "$SNAPSHOTS" ]]; then
+    skip "F25 undeclared-operand tripwire" "needs the snapshots; none at $SNAPSHOTS"
+  else
+    f25_out=$("$ESM" test "$F25" 2>&1 || true)
+    if grep -qi "undeclaredFloor" <<<"$f25_out"; then
+      # The name is only ever mentioned when the toolchain REFUSES the document,
+      # which is the intended behaviour and the thing this finding asks for.
+      fail "F25 IS FIXED — the ingesting path now names 'undeclaredFloor' instead of
+       dropping it. Remove the repro, retire F25 in docs/findings/README.md, and
+       delete this block. The undeclared-name check no longer depends on which
+       evaluation path a document takes."
+    elif grep -q 'actual=2 expected=10' <<<"$f25_out"; then
+      pass "F25 still fails, as recorded — an undeclared operand is dropped when ingesting"
+    else
+      fail "F25's repro gives neither recorded answer. It should either drop the
+       operand (actual=2 expected=10, the defect) or name 'undeclaredFloor' (the
+       fix). Something else changed underneath it:"
+      sed 's/^/         /' <<<"$f25_out"
+    fi
+  fi
 fi
 
 # One limitation that is a CLI behaviour rather than a document, so it is

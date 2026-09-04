@@ -15,6 +15,12 @@ rounding versus a single final cast. That was right while both routes used the
 SAME grown model-year fraction -- the fixture carried `agedist.f`'s real*4
 result as a `const` and so did the assembly's stage-2c leaf.
 
+BOTH ROUTES NOW COMPUTE IT, and they still do not agree, for the reason set out
+below: the fixture computes it in the `Float32` it declares, the assembly in
+binary64. The fixture's answer is bit-identical to the real*4 constant it used
+to carry, which is the evidence that changing where the number comes from
+changed nothing else.
+
 The leaf now COMPUTES the fold (esm-spec §4.3.1.1), in the binary64 the assembly
 evaluates in, and for this equipment point the fold's answer depends on the
 precision: `age_percentScrapped` reaches exactly 100 at age 3, so the age-3
@@ -24,8 +30,8 @@ of an unclamped residual amplify that into a 5.3e-07 disagreement on
 
   (a) per-operation rounding versus a final cast   -- <= 1 ulp of binary32; and
   (b) ONE INPUT: the grown model-year fraction, 3.707270451304289 computed in
-      binary64 against 3.7072685 carried at real*4 -- about 8 ulps, and NOT
-      rounding. It is a cancellation residue amplified thirty times.
+      binary64 against 3.707268476486206 computed in binary32 -- about 8 ulps,
+      and NOT rounding. It is a cancellation residue amplified thirty times.
 
 RAISING THE BOUND TO 8 ULPS WOULD BE THE WRONG FIX, and it was considered. It
 would absorb (b) into the tolerance and with it any future divergence of the
@@ -57,6 +63,7 @@ LEAF = "components/age_distribution.esm"
 FIXTURE = "fixtures/nr-logging-county.esm"
 TEST_ID = "the_chain_reproduces_the_worked_examples_2020_rows"
 LEAF_TEST_ID = "the_grown_fractions_sum_to_the_cumulative_growth_ratio"
+FIXTURE_TEST_ID = "the_fold_reproduces_the_reference_fractions_exactly_in_float32"
 MODEL_YEAR = "2020"
 MAX_ULPS = 1.0
 # The recorded size of difference (b), in ulps of binary32, two-sided. Measured
@@ -107,30 +114,36 @@ def assembly_grown_fraction():
 
 
 def fixture_grown_fraction():
-    """`modfrc[2020]` as the fixture carries it -- agedist.f's real*4 answer.
+    """`modfrc[2020]` as the fixture COMPUTES it, in the binary32 it declares.
 
-    When finding F24 is fixed the fixture will COMPUTE this instead of carrying
-    it, and the equation will stop being a `const`. That is not a silent change
-    here: it exits with the reason and what to do, because at that point the two
-    routes agree on the fold again, difference (b) collapses to rounding, and
-    the normalisation this script performs should be deleted rather than left
-    dividing by two numbers that are the same.
+    This used to read a `const`, and to exit telling its reader to delete the
+    normalisation the day the fixture stopped carrying the fold. That day came,
+    and the instruction was WRONG -- kept here because the reasoning is the
+    useful part. It assumed "not carried any more" meant "both routes agree on
+    the fold again". They do not. The fixture computes it in `Float32` and the
+    assembly in binary64, and this script's own docstring says why those cannot
+    agree: the age-3 survival is exactly 0 in binary64 and 5.96e-08 in real*4,
+    and thirty unclamped iterations amplify the difference. So difference (b)
+    survives at the size it always had; what changed is its NAME. It was
+    "computed against transcribed", and it is now "computed against computed at
+    another precision" -- the mechanism the docstring already predicted rather
+    than a new one, so the normalisation is still exactly the right treatment.
+
+    Read from the fixture's own assertion, symmetrically with the leaf's above,
+    so that neither route's number is restated in this file.
     """
     doc = json.load(open(FIXTURE))
-    eqs = [e for e in doc["models"]["NrLoggingCounty"]["equations"]
-           if e["lhs"] == "age_grownModelYearFraction"]
-    if len(eqs) != 1:
-        sys.exit(f"{FIXTURE}: expected one age_grownModelYearFraction equation, found {len(eqs)}")
-    rhs = eqs[0]["rhs"]
-    if rhs.get("op") != "const":
-        print(f"{FIXTURE} no longer CARRIES agedist.f's fold: age_grownModelYearFraction "
-              f"is an `{rhs.get('op')}`, not a `const`.")
-        print("  If finding F24 is fixed and the fixture now computes the fold, the two")
-        print("  routes agree on it again and difference (b) in this script's docstring is")
-        print("  gone. Delete the normalisation and restore the plain one-ulp comparison.")
-        sys.exit(1)
-    return rhs["value"][0]
-
+    tests = doc["models"]["NrLoggingCounty"]["tests"]
+    hit = [t for t in tests if t["id"] == FIXTURE_TEST_ID]
+    if len(hit) != 1:
+        sys.exit(f"{FIXTURE}: expected exactly one test {FIXTURE_TEST_ID!r}, found {len(hit)}")
+    got = [a["expected"] for a in hit[0]["assertions"]
+           if a["variable"] == "age_grownModelYearFraction"
+           and a.get("coords", {}).get("age_rows") == 1]
+    if len(got) != 1:
+        sys.exit(f"{FIXTURE}: expected one age_grownModelYearFraction[1] assertion in "
+                 f"{FIXTURE_TEST_ID!r}, found {len(got)}")
+    return got[0]
 
 def fixture_values(csv_path):
     rows = [r for r in csv.DictReader(open(csv_path)) if r["modelYearID"] == MODEL_YEAR]
@@ -147,7 +160,7 @@ def main():
     gap_ulps = abs(a_mod - f_mod) / ulp32(f_mod)
     gap_rel = abs(a_mod - f_mod) / abs(f_mod)
     print(f"  modfrc[2020]: assembly (binary64 fold) {a_mod!r}")
-    print(f"                fixture  (carried real*4) {f_mod!r}")
+    print(f"                fixture  (binary32 fold)  {f_mod!r}")
     print(f"                differ by {gap_rel:.3e} relative = {gap_ulps:.2f} ulps of binary32")
     if gap_ulps < FOLD_GAP_ULPS_MIN:
         print(f"FAIL: the two routes' grown fractions now differ by {gap_ulps:.2f} ulps, less "
@@ -158,8 +171,9 @@ def main():
         return 1
     if gap_ulps > FOLD_GAP_ULPS_MAX:
         print(f"FAIL: the two routes' grown fractions differ by {gap_ulps:.2f} ulps, more than "
-              f"the {FOLD_GAP_ULPS_MAX:.0f} recorded. The binary64 fold, or the carried real*4 "
-              f"value, has moved by more than the age-3 cancellation residue explains, and this "
+              f"the {FOLD_GAP_ULPS_MAX:.0f} recorded. One of the two folds -- the assembly's in "
+              f"binary64 or the fixture's in binary32 -- has moved by more than the age-3 "
+              f"cancellation residue explains, and this "
               f"script's account of WHY the routes differ is no longer true.")
         return 1
 

@@ -1,6 +1,6 @@
 # Findings: conventions the format or the toolchain could not express
 
-Twenty-four things PLAN.md §3 Phase 1 through Phase 4 assumed, or that an author would
+Twenty-five things PLAN.md §3 Phase 1 through Phase 4 assumed, or that an author would
 reasonably assume, that did not hold. **Eleven are fixed upstream and retired**
 from the tripwire, listed at the bottom with their sections kept above so the
 workarounds they forced can be traced. The rest still hold at the pinned
@@ -36,6 +36,15 @@ working. Its twin F24a is gone — the cross-route agreement it checked is now
 pinned upstream by ten tests that re-materialize every recurrence fixture
 through the pipeline and compare on bits.
 
+**F25's repro is the fourth file the tripwire loop does not run**, and the only
+one excluded because its document is *meant* to be invalid. `esm validate`
+rejects it and always will; the defect is that `esm test` does not, on one
+evaluation path. So "both stages pass" can never fire, and the loop would report
+"still fails, as recorded" forever without noticing a fix. `run-tests.sh` checks
+which of the two answers `esm test` gives instead — the dropped operand
+(`actual=2 expected=10`) or the variable's name — and that check is
+falsified in both directions.
+
 F12's control is **gone**. It was kept until `components/age_distribution.esm`
 computed `agedist.f`'s fold and guarded it with its own assertions; it does, in
 55 places, so the control had nothing left to notice.
@@ -58,6 +67,7 @@ three of them do not load.
 | **F17** | A `join.on` between two LARGE data relations is not driven | — | **yes** |
 | **F18** | An ingested value the declared `element_type` cannot represent is narrowed silently (the key-collapse half is **resolved**, by a per-variable override) | ingest | **yes** |
 | **F23** | A leaf's `domain.element_type` does not survive a top-level `models` `{ref}` mount | — | **yes** |
+| **F25** | An undeclared operand is dropped rather than named, on the ingesting path only | — | **yes** |
 | **F22** | A discrete event, and an implicit equation, do not evaluate on the ARRAY path (both work on the scalar path) | evaluation | no |
 | **F20** | A constant-folded scalar right-hand side loses the left-hand side's array shape | assertion | no |
 | **F21** | A scoped reference to a mounted model's variable resolves as an operand and a join key but not as an assertion `variable` | assertion | no |
@@ -908,7 +918,61 @@ curve landing exactly on 100 %**, not of the fold.
 
 ---
 
-## F24 — a causal self-reference is dropped once the document ingests — **fixed upstream, not yet pinned**
+## F25 — an undeclared operand is dropped rather than named, on the ingesting path
+
+An equation references a name declared nowhere in the document. `esm validate`
+refuses it with a structural error naming the equation. `esm test` refuses it
+too — **on the ordinary path**. On the ingesting path it evaluates instead,
+drops the operand, and returns a plausible number.
+
+The repro is two-sided, and that is what makes this a finding rather than a
+wish. The check already exists and already says the right thing; one evaluation
+path does not reach it. Measured at the pinned toolchain, on the same equation,
+the same undeclared name and the same assertion:
+
+| document | `esm test` |
+|---|---|
+| with `data_sources` removed | **ERROR** — `Unknown variable 'undeclaredFloor' referenced in expression` |
+| ingesting one column the equation never reads | **`actual=2`** — a clean run, and `max(known, undeclaredFloor)` evaluated as `known` |
+
+So `max` did not fault on a missing operand and did not treat it as zero, either
+of which would have been visible. The operand simply was not there, and its
+absence is the only evidence that anything happened.
+
+**How it was found, which is the argument for the order `run-tests.sh` runs its
+stages in.** `fixtures/nr-logging-county.esm` gained `agedist.f`'s fold, whose
+running-total recurrence applies NONROAD's MINGRWIND floor as
+`max(running_total, minimumGrowthPopulation)`. The declaration did not come
+across with the equations. The fixture then reported **120 of 120 assertions
+passing** — including twelve end-to-end emission rows agreeing with the
+reference snapshot to 4 × 10⁻⁶ — while `esm validate` rejected the same bytes.
+
+The floor cannot bind on this data: the smallest base population on any of the
+fixture's equipment points is 0.5, against a floor of 10⁻⁴. So losing it changed
+no digit *here*, and would change the answer for a state with almost no
+equipment — which is exactly what that parameter's own description had said it
+was carried to prevent. Agreeing by accident on the data in front of you is the
+thing this repository is built to refuse, and only `validate` running **before**
+`test` caught it.
+
+**It is the ninth instance of the failure class README's "A warning about zeros"
+enumerates, and the second found on the ingesting path after F24.** That is an
+argument for looking there first rather than a coincidence: the ingesting route
+re-resolves names against a map built for the pipeline, and a name that map does
+not hold has now twice become an absence rather than an error. F24 was the same
+sentence about a self-read.
+
+The repro asserts **10**, not the 2 the toolchain returns. Pinning 2 would pin
+the buggy answer and go green, which is the mistake the repro exists not to
+make. It fails today as `actual=2 expected=10`, and on the day the ingesting
+path reaches the check it fails as an ERROR naming `undeclaredFloor` — red
+either way until fixed, with the message saying which stage caught it. It also
+asserts the ingested column itself, so a failure can never be read as the ingest
+not having happened.
+
+---
+
+## F24 — a causal self-reference is dropped once the document ingests — **fixed upstream, pinned, and verified on the ingesting axis**
 
 Two repros, and the second one is the finding.
 
