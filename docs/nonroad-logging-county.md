@@ -1423,11 +1423,16 @@ Because `B = 0.5` and `cap = 2`, the deterioration factor genuinely varies with
 age here — e.g. for tech 134, THC:
 
 ```
-MY2020: 1 + 0.797 × 0.6125^0.5 = 1.623713
-MY2019: 1 + 0.797 × 1.2250^0.5 = 1.882109
-MY2018: 1 + 0.797 × 1.8375^0.5 = 2.080366
-MY2017: 1 + 0.797 × min(2.45, 2)^0.5 = 1 + 0.797 × 2^0.5 = 2.127187
+MY2020: 1 + 0.797 × 0.6125^0.5 = 1.6237512
+MY2019: 1 + 0.797 × 1.2250^0.5 = 1.8821174
+MY2018: 1 + 0.797 × 1.8375^0.5 = 2.0803687
+MY2017: 1 + 0.797 × min(2.45, 2)^0.5 = 1 + 0.797 × 2^0.5 = 2.1271282
 ```
+
+(This table read `1.623713` and `2.127187` for the first and last until the
+`.esm` computed them: `sqrt(0.6125)` is `0.78262378` and `sqrt(2)` is
+`1.41421356`, so the products are `0.62375116` and `1.12712821`. Two arithmetic
+slips in the specification, not in the port — §6.7.)
 
 Note MY2017 uses the **capped age 2.0 inside the square root**, not a capped
 multiplier — the distinction §4.1 flags.
@@ -1464,7 +1469,10 @@ one that exercises the parts A and B do not:
   8.117 / 12.62 / 20.56), all in the `6 ≤ hp ≤ 25` bin of `2265000000`, with
   `medianLifeFullLoad` 400 / 400 / **750** and `hoursUsedPerYear = 50`,
   `loadFactor = 0.8`. The third point's `medianLifeYears = 750/0.8/50 = 18.75`
-  gives `nyrlif = 38`, which is what stretches the model-year span back to 1983.
+  gives `nyrlif = 39` — the other two get 21 — and slot 38 is the oldest the
+  skip leaves populated, which is what stretches the model-year span back to
+  1983. (This bullet read `nyrlif = 38` until the `.esm` computed it; 38 is the
+  span, 39 is `scrptime.f`'s answer. §6.7.)
 - **The gappy model-year set.** MY 1991, 2000, 2001, 2002 and 2006–2010 are
   absent from the snapshot. They are the years where `agedist`'s unclamped
   residual `mdyrfrc[0] = totpopfrc − frcsum` came out ≤ 0, because the truncated
@@ -1800,7 +1808,7 @@ Output:
 The two hand-worked examples give three tiers of inline test, all with
 `const`-array inputs and no data dependency:
 
-1. **Template level.** `deterioration_factor(0.797, 0.5, 2.0, 2.45) = 2.127187`
+1. **Template level.** `deterioration_factor(0.797, 0.5, 2.0, 2.45) = 2.1271282`
    (the cap-inside-the-power case);
    `exhaust_temperature_adjustment(-0.00892, -0.00873, 73.576927) = 1.0127747`;
    `oxygenate_adjustment(-0.115, 3.653) = 1.420095`;
@@ -1810,6 +1818,84 @@ The two hand-worked examples give three tiers of inline test, all with
    pattern 2176 ⇒ `[3.7072685, 0.9905483, 5.8886e-08]`.
 3. **Chain level.** The 12 rows of §6.1 as literal expected values — one SCC,
    one tech, no summation, so a mismatch localises immediately.
+
+---
+
+### 6.7 What the `.esm` found when it computed all 144 rows
+
+`fixtures/nr-logging-county.esm` emitted twelve of these rows — §6.1's SCC —
+for as long as it computed one of the run's six equipment points. It now
+computes all six. Three things in the sections above turned out to be wrong,
+and they are recorded here rather than silently corrected, because the whole
+value of a hand-worked example is that someone can check it.
+
+**§6.3's `nyrlif` for source type 1388 is 39, not 38.** `medianLifeYears` is
+`750 / 0.8 / 50 = 18.75`, the default curve reaches 100 % at twice the median
+life, and `scrptime.f` sets `nyrlif = iage - 1` on the first age whose PRIOR
+age is already fully scrapped — which is 39 here. 38 is the oldest slot the
+`modfrc <= 0` skip leaves populated, and so it is the right number for the
+model-year SPAN (1983…2020) that the bullet was describing. The two are one
+apart and the distinction is load-bearing: the loop bound is `idx < nyrlif`, so
+using 38 drops model year 1983 and four MOVESOutput rows.
+`the_fold_runs_once_per_equipment_point` pins all six: 3, 21, 21, 39, 3, 5.
+
+**Two of §6.2's four deterioration factors were arithmetic slips.**
+`1 + 0.797 × sqrt(0.6125)` is `1.6237512`, not `1.623713`, and
+`1 + 0.797 × sqrt(2)` is `2.1271282`, not `2.127187`. The middle two were
+right to six figures. The numbers never reached the port — the `.esm` computes
+the factor from `nrdeterioration`'s A, B and cap — so nothing downstream was
+affected, and the table is corrected in place with a note. §6.6's template-level
+suggestion carried the same slip and is corrected with it.
+
+**The three counts §6.3 leads with are 1, 3 and 2 equipment points**, and the
+document now checks that rather than trusting the reader's transcription:
+`scc_equipmentPointCount` contracts `nrsourceusetype` against
+`nrbaseyearequippopulation` per SCC and the test pins all six. An equipment
+point left OUT of a hand-written list is invisible in every other check,
+because its rows simply never appear.
+
+#### The shape the `.esm` had to take, which §6.3 does not describe
+
+The emitted key set is ragged — 3, 29 and 4 model years — and a `ragged` index
+set does not evaluate (docs/findings F14), while a rectangular
+`[SCC × modelYear]` output axis emits 348 keys where the snapshot has 144. The
+document gets the ragged set out of rectangular machinery in three layers:
+
+1. **A rectangular grid.** Cohorts live on `equipment_point_rows × age_slot_rows`
+   = 6 × 51, carried FLAT as a 306-row relation with both coordinates as key
+   columns (`lib/keys.esm`'s `flat_relation_major` / `flat_relation_minor`),
+   because a `join.on` key column must be a 1-D array over one of the node's
+   ranges.
+2. **A mask.** `slot_isPopulated` is `prccty.f`'s skip, and it is TWO tests, not
+   one: `idx < nyrlif` and `modfrc <= 0`. Neither implies the other and this
+   fixture is the counterexample to each collapsing into the other — SCC
+   2260007005 has `5.93e-08` sitting in slot 4, a positive number outside its
+   `nyrlif` of 3, while SCC 2265007015's hp-5.5 point has exactly `0.0` in slot
+   3, inside its `nyrlif` of 3. Drop the bound and the first SCC gains 48 model
+   years; drop the skip and §7.3's measurement applies, 44 extra rows.
+3. **A compaction.** `cohort_ownerRank` is an inclusive prefix count of the
+   mask over the flat relation, with a self-join suppressing the second and
+   third equipment point of an SCC that already owns that model year. It
+   compacts the survivors onto a dense `1…36`, which the 144-row output
+   relation joins against. **36 is nowhere written down**: it is what the mask
+   counts, and the test pins the count rather than the number.
+
+The quantity is contracted separately from the key: `out_emissionQuant` joins on
+(SCC, age slot) and sums EVERY equipment point that reaches that cohort, while
+`cohort_ordinal` picks the one row the key set has. That is what makes
+2265007015's model year 2020 the sum of two points and its 2017 the hp-9.0
+point alone.
+
+One shape note that is not about raggedness. The run-level environment — county,
+month, fuel region, ambient temperature, gasoline oxygen — lives on a ONE-ROW
+`run_scope_rows` relation, and only what varies per equipment point lives on the
+six-row one. Both directions of getting that wrong were tried: `tamb` on the
+point axis is six identical contractions over a 930,816-row table and costs 14
+of the document's 31 seconds, and `pp_adjustment` on the run axis would hand
+five four-stroke points a two-stroke correction. The dangerous mistake is
+neither of those but a third: an aggregate that RANGES over the point axis
+without putting it in `output_idx` sums six points into one number and returns
+a plausible answer.
 
 ---
 
