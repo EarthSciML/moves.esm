@@ -63,8 +63,8 @@ three of them do not load.
 | **F8** | A layered template library does not round-trip to a self-contained form | re-load | no |
 | **F13** | `enums` merge first-wins across a mount; a colliding value is applied | — | **yes** |
 | **F14** | A `ragged` index set ignores its member factor | evaluation | **yes** |
-| **F16** | A SCALAR variable is not materialized in a document that ingests data | assertion | no |
-| **F17** | A `join.on` between two LARGE data relations is not driven | — | **yes** |
+| **F16** | A SCALAR variable is not materialized in a document that ingests data — **fixed in Rust**; open because Julia and Python still resolve a pointwise assertion against state rows (`BEHAV-06-B-008`) | assertion | no |
+| **F17** | A `join.on` between two LARGE data relations is not driven — **the headline is gone**: the bisected shape runs 0.06 s driven on the merge-base binary, so earlier driver work fixed it. What remains open is gate selection and ordering, measured identical on both binaries | — | **yes** |
 | **F18** | An ingested value the declared `element_type` cannot represent is narrowed silently (the key-collapse half is **resolved**, by a per-variable override) | ingest | **yes** |
 | **F23** | A leaf's `domain.element_type` does not survive a top-level `models` `{ref}` mount | — | **yes** |
 | **F25** | An undeclared operand is dropped rather than named, on the ingesting path only | — | **yes** |
@@ -746,7 +746,7 @@ scalar observeds that the `const` path keeps. The two paths should agree, and
 the `const` one is right.
 
 
-## F17 — a `join.on` between two large relations is not driven
+## F17 — a `join.on` between two large relations is not driven — **headline fixed; gate selection and ordering remain**
 
 No repro file; `fixtures/nr-logging-county.esm` is the repro, and its history is
 the measurement. **Silent, in the way that matters least often and costs most:
