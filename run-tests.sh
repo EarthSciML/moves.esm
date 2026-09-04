@@ -638,7 +638,8 @@ if [[ ! -d "$SNAPSHOTS" ]]; then
   skip "oracles" "no snapshots at $SNAPSHOTS (set SNAPSHOTS=...)"
 else
   ORACLES=("./run-oracle.sh" "./run-oracle.sh --float64"
-           "./run-onroad-oracle.sh" "./run-leaks-oracle.sh")
+           "./run-onroad-oracle.sh" "./run-leaks-oracle.sh"
+           "./run-permeation-oracle.sh")
   for oracle in "${ORACLES[@]}"; do
     if [[ ! -x "${oracle%% *}" ]]; then
       fail "oracle ${oracle} — not executable"
