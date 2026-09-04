@@ -553,6 +553,16 @@ parquet, and the assertions are that document's own worked longhand.
 * **`parameter_overrides` are keyed by bare local name** (§6.6.2 rule 3), which
   is what lets the same test text run against a leaf alone and against the same
   leaf mounted.
+* **A test costs a whole evaluation of the document, so the number of TESTS is
+  the runtime and the number of assertions is free.** Measured on
+  `fixtures/nr-logging-county.esm` at 144 rows: one `simulate` is 17 s, and
+  `esm test` is 29 × that — `--filter` narrows what is REPORTED, not what is
+  evaluated (8 m 11 s filtered to one test, against 8 m 32 s for all of them).
+  The whole suite is 12 m 22 s, up from 4 m 47 s at twelve output rows. The
+  consequence for authoring is not "write fewer tests" — each of the 29 is a
+  distinct claim and merging them would make a failure less diagnosable — but
+  it does mean a test added for a single extra assertion is an expensive way to
+  buy it, and that profiling belongs on `simulate` rather than on `test`.
 
 ## 13. What `./run-tests.sh` guarantees
 
