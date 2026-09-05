@@ -467,6 +467,7 @@ Snapshot `MOVESOutput` row counts, the honest measure of fixture size:
 | 250 | **`mixed-onroad`**, `expand-day` | onroad base-rate |
 | 336 | **`process-refueling`** | onroad evap |
 | 744–750 | **`process-brakewear`** (750), **`process-tirewear`** (750), `expand-criteria` | onroad |
+| 872 | **`process-nox-speciation`** | onroad speciation |
 | 1,080 | `chain-tog-speciation`, `chain-nonhaptog` | speciation chains |
 | 1,936–2,355 | `nr-lawn-garden-county`, `nr-construction-state` | NONROAD |
 | 15,801–23,108 | `nr-industrial-county`, `nr-agriculture-state`, `nr-railroad-support-nation`, … | NONROAD, large |
