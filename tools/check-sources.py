@@ -77,8 +77,25 @@ def fail(doc: str, source: str, detail: str) -> None:
     problems.append(f"{doc}: {source}: {detail}")
 
 
-def resolve(url: str) -> pathlib.Path | None:
-    """Resolve a `url_template`. Only `${MOVES_SNAPSHOTS}` is substituted."""
+def resolve(url: str, doc_dir: pathlib.Path) -> pathlib.Path | None:
+    """Resolve a `url_template` the way the RUNTIME does, against `doc_dir`.
+
+    `doc_dir` is the directory of the document that DECLARED the template, not
+    the process working directory and not the repo root. That is esm-spec
+    §4.7's rule for a `ref`, extended to `url_template` when finding F15
+    landed, and this function used to get it wrong: it returned a bare relative
+    `Path`, which Python then resolves against the CWD.
+
+    The consequence was 64 false "file does not exist" reports against two
+    fixtures whose paths are correct and which ingest those very files
+    successfully on every suite run. It went unnoticed because this checker is
+    not wired into `run-tests.sh` -- it now is.
+
+    That is the same defect as findings F7 and F15, in the tool this repository
+    wrote to catch data-source mistakes. Worth stating plainly: a CWD-anchored
+    path is the failure this repo has now met four times, and the fourth was
+    its own checker.
+    """
     # The runtime requires an explicit scheme (a bare path fails with
     # "bad url ... missing scheme"); strip it to reach the file on disk.
     if url.startswith("file://"):
@@ -87,10 +104,13 @@ def resolve(url: str) -> pathlib.Path | None:
         url = url.replace("${MOVES_SNAPSHOTS}", str(SNAPSHOTS))
     if "{" in url:  # a runtime substitution this checker cannot resolve
         return None
-    return pathlib.Path(url)
+    path = pathlib.Path(url)
+    # Lexical, against the declaring document's directory (RFC 3986 §5.2.4 dot
+    # segments, never `realpath`), which is what F15 made normative.
+    return path if path.is_absolute() else (doc_dir / path).resolve()
 
 
-def check_source(doc_name: str, name: str, entry: dict) -> None:
+def check_source(doc_name: str, doc_dir: pathlib.Path, name: str, entry: dict) -> None:
     import pyarrow.parquet as pq
 
     ro = entry.get("reader_options") or {}
@@ -106,7 +126,7 @@ def check_source(doc_name: str, name: str, entry: dict) -> None:
         return  # only parquet is checkable here
 
     url = (entry.get("source") or {}).get("url_template", "")
-    path = resolve(url)
+    path = resolve(url, doc_dir)
     if path is None:
         return  # carries a substitution only the runtime can fill
     if not path.exists():
@@ -191,7 +211,7 @@ def main() -> int:
         d = json.loads(doc.read_text())
         for name, entry in (d.get("data_sources") or {}).items():
             n += 1
-            check_source(doc.relative_to(HERE).as_posix(), name, entry)
+            check_source(doc.relative_to(HERE).as_posix(), doc.parent, name, entry)
 
     for line in notes:
         print(f"  note: {line}")
