@@ -1843,12 +1843,18 @@ things are new, and one long-standing claim turned out to be false.
   so there is one `bracket_low_fraction` and no complement template that could
   drift from it.
 
-* **§25, the first clause is the one that costs.** Two applications in one
-  document. Each self-join writes the offset-second pair **first** (3.2 rows per
-  value) rather than the schedule pair (1,298). And `cohMode_rate` puts all six
-  key pairs in ONE clause rather than six, because six clauses would let the
-  evaluator drive on the operating mode — ~2,300 `emissionrate` rows per output
-  cell instead of two.
+* **§25, the first clause is the one that costs — and so is the NUMBER of
+  clauses.** Two applications in one document. Each self-join writes the
+  offset-second pair **first** (3.2 rows per value) rather than the schedule pair
+  (1,298). And `cohMode_rate` puts all six key pairs in ONE clause rather than
+  six, which is a stronger version of the same rule: a composite key of six pairs
+  is one gate admitting **3,772** leaves, where six gates of one pair each is a
+  gate whose selectivity is that of whichever single pair resolves first — 8.5 ×
+  10⁶ at best and 5.6 × 10⁸ at worst, with the written order landing on
+  1.58 × 10⁸. **Measured**, the same document with that one clause split into six
+  and nothing else changed: 298.36 s and 287.08 s against 6.61 / 6.62 / 6.98 s, a
+  factor of 43, emitted CSV byte-identical. ~1.8 µs per admitted leaf, which is
+  §25's own ~2 µs. `docs/mixed-onroad.md` §10.3 has the full table.
 
 ### 26.2 Three things that are new
 

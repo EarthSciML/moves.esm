@@ -2057,12 +2057,35 @@ per-second contraction over 60 modes with **no join gate at all** — 3.8 × 10�
 leaves of pure arithmetic — and it does not dominate anything.
 
 The F17 shape is one stage later, at `cohMode_rate`: the 164-row cohort grid
-meeting `emissionrate`'s 69,200 rows. The remedy is the one F17 records, applied
-to a composite key rather than to an axis: **all six key pairs go in ONE `on`
-clause**, so the gate is a single composite key admitting about two rate rows
-per output cell. Six separate clauses would let the evaluator drive on whichever
-it resolved first — the operating mode, say, which admits ~2,300 rate rows per
-cell instead of two, and turns 10⁴ leaves into 10⁸.
+meeting `emissionrate`'s 69,200 rows over 164 × 60 = 9,840 output cells. The
+remedy is the one F17 records, applied to a composite key rather than to an
+axis: **all six key pairs go in ONE `on` clause**, so the gate is a single
+composite key.
+
+Leaf counts, computed from the parquet exactly as
+`docs/esm-conventions.md` §25 computes J11's — for a clause that binds only the
+cohort axis the mode axis is scanned, and vice versa:
+
+| `cohMode_rate`'s gate | leaves admitted |
+|---|---:|
+| **one clause, all six pairs** (as written) | **3,772** |
+| six clauses, `shortModYrGroupID` first | 8,511,600 |
+| six clauses, `opModeID` first | 11,348,800 |
+| six clauses, `regClassID` first | 91,315,200 |
+| six clauses, `fuelTypeID` first (the order the pairs are written in) | 158,030,400 |
+| six clauses, `engTechID` first | 379,430,400 |
+| six clauses, `polProcessID` first | 561,273,600 |
+
+**Measured**, the same document with that one clause split into six and nothing
+else changed, `esm simulate --time 0` with every `out_*` observed: **298.36 s and
+287.08 s**, against 6.61 / 6.62 / 6.98 s — a factor of **43**, for an emitted CSV
+that is byte-identical. Subtracting the baseline gives ~1.8 µs per admitted leaf
+over 1.58 × 10⁸ of them, which is F17's own ~2 µs and is the strongest evidence
+available that the leaf count is the whole model of the cost.
+
+So §25's rule generalises: it is not only *which* clause is first, it is *how
+many clauses there are*. A composite key of six pairs is one gate; six gates of
+one pair each is a gate whose selectivity is the least selective of the six.
 
 The 60-wide `operating_mode_rows` axis *is* F17's remedy in one other place:
 `dsa_modeSeconds` gives the mode axis its own `on` clause rather than leaving it
