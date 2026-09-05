@@ -254,8 +254,10 @@ exercises both. §6.6 asserts both arms.
   (`baserategenerator/mod.rs:158-160`), and `ratesopmodedistribution` is
   declared, loaded and never consulted.
 * **`baserate_1_2020` (250 rows)** is the reference's own intermediate, not an
-  input. §7.3 uses it as the pivot that isolates the one uncomputed relation;
-  a document that read it would be transcribing the answer.
+  input. §7.3 uses it as the pivot that isolated the one uncomputed relation,
+  and no document reads it as one — but `fixtures/mixed-onroad.esm` does assert
+  eight of its cells as an EXPECTED value (§10.4), which is the opposite
+  direction: delete the assertion and no number changes.
 
 ### 1.5 The two recurrences that collapse, and why that is luck
 
@@ -622,8 +624,10 @@ Write the collapsed weight as one relation:
 W[hourDayID, opModeID] = SUM over avgSpeedBinID b of opModeFraction[om, b] x avgSpeedFraction[b]
 ```
 
-**`W` is the one relation this port does not compute.** §7.3 measures it, §8.1
-says what computing it takes.
+**`W` was the one relation this port did not compute.** §7.3 measures it, §8.1
+records what it took, and §10 is the port. It is computed in
+`fixtures/mixed-onroad.esm` and in §6.5's reproduction, and `cohDay_meanBaseRate`
+above is asserted against `baserate_1_2020`'s own cells.
 
 **(c) S15 — the calculator's adjustments, in order.**
 `baseratecalculator/adjust.rs:317-623`. For polProcessID 9101:
@@ -1051,9 +1055,24 @@ group:
 
 `opModeID 0` in `baserate_1_2020` is **not** mode 0. See §2.3(b).
 
+Mode 0 is also the one identifier in this port that cannot be an `enums` member:
+the schema requires a positive integer, so `fixtures/mixed-onroad.esm` carries
+the Braking mode as a literal `0.0` with a comment. `docs/findings/README.md`
+F32.
+
 `sourceusetypephysicsmapping` carries `opModeIDOffset = 1000`, which is how
-`SourceTypePhysics` relabels the physics-remapped modes; the offset is relevant
-only to §8.1's uncomputed `W`.
+`SourceTypePhysics`'s row-correction pass (`sourcetypephysics.rs:320-390`)
+relabels a temporary source type's normal operating modes. **It does not reach
+this chain**, and the evidence is the answer rather than an argument: that pass
+rewrites tables keyed by `(sourceTypeID, opModeID)`, `emissionrate` is keyed by
+a packed source bin and carries no source type, and
+`fixtures/mixed-onroad.esm` reproduces all 250 rows to 8.320 × 10⁻⁶ applying no
+offset anywhere. `fixtures/mixed-onroad.esm` therefore does not read the
+column at all — it projects six of `sourceusetypephysicsmapping`'s eleven,
+and this is the one whose absence is worth naming. A run with a temporary source
+type in play would need both it and the correction pass;
+`run_physicsRowsSelected` is the assertion that says this run has one mapping row
+and no remapping to do.
 
 ### 5.6 Physical and dimensioning constants
 
@@ -1124,7 +1143,7 @@ sho[92, 40]             = 2.965828229003e+03 x 0.001645627794
 
 sourceBinActivityFraction[211980, fuel 1] = 0.953329
 evSalesFactor(1980, 1, 20)                = 1                (evFraction 0 in 1980)
-meanBaseRate[92, 1980, 1]                 = 3.871710e+05 kJ/hr    <== S14, not computed here
+meanBaseRate[92, 1980, 1]                 = 3.871710e+05 kJ/hr    <== S14; §10
 ACFactor x meanBaseRateACAdj              = 0 x 56 676.3 = 0
 temperature factor                        = 1
 evEfficiency divisor                      = 1                (fuel != 9)
@@ -1210,16 +1229,21 @@ emissionQuant [MMBTU]   = (3 144.90 / 0.893) x (54.728314588378 / 2) / 1 055 055
 ### 6.5 The reproduction script
 
 Extracted and run by `./run-onroad-oracle.sh`. It reads only the tables of
-§1.2, computes S1–S12 and S16–S18, takes S13–S14 from `baserate_1_2020`, and
-prints its worst relative error against `sho` and against `MOVESOutput`.
+§1.2 and §10.1, computes S1–S18 — including `W` and the base rate, which it used
+to read from `baserate_1_2020` — and **asserts** its worst relative error against
+`sho` and against `MOVESOutput`.
 
 ```python
 #!/usr/bin/env python3
 """Independent reproduction of the mixed-onroad chain from the snapshot's own
-input tables. The activity half (S1-S9), the cohort structure (S10-S12) and
-the output stage (S16-S18) are computed here; the base rate (S13-S14) is read
-from `baserate_1_2020`, because the operating-mode distribution it needs is
-not derivable from any captured table (see the specification, section 8.1).
+input tables, and from NOTHING else. Every stage is computed here: the activity
+half (S1-S9), the cohort structure and the fuel-usage rebase (S10-S12), the
+drive-cycle operating-mode weights and the base rate (S13-S14), and the output
+stage (S16-S18).
+
+It used to read `baserate_1_2020.meanBaseRate`, because the operating-mode
+distribution the base rate needs is computed inside the MOVES worker and dropped
+(section 8.1). Section 10 says how it is computed instead.
 
 Purpose: attribution. When a `.esm` disagrees with the snapshot, a third
 implementation says whether the document or the specification is wrong."""
@@ -1237,6 +1261,7 @@ def T(n):
 
 # ---------------------------------------------------------------- run scope
 YEAR, MONTH, HOUR, ZONE, ROAD, ST = 2020, 8, 9, 261610, 4, 21
+COUNTY, ELECTRICITY = 26161, 9
 DAYS = [r["dayID"] for r in T("runspecday")]
 HD = {r["dayID"]: r["hourDayID"] for r in T("hourday") if r["hourID"] == HOUR}
 POLPROC = 100 * 91 + 1
@@ -1246,6 +1271,7 @@ KJ_PER_MMBTU = 1055.0559e6 / 1000.0
 base = max(r["yearID"] for r in T("year")
            if r["yearID"] <= YEAR and str(r["isBaseYear"]).upper() == "Y")
 assert base == YEAR, "the population and VMT folds do not collapse for %d" % base
+FUELYEAR = {r["yearID"]: r["fuelYearID"] for r in T("year")}[YEAR]
 
 # ------------------------------------------------- S2: sourceTypeAgePopulation
 stpop = {r["sourceTypeID"]: float(r["sourceTypePopulation"])
@@ -1326,16 +1352,187 @@ for r in T("samplevehiclepopulation"):
     key = (r["modelYearID"], r["fuelTypeID"], r["engTechID"], r["regClassID"])
     cohort[key] = cohort.get(key, 0.0) + frac
 
-# ----------------------------------------- S13, S14: read, not computed
-base_rate = {(r["hourDayID"], r["modelYearID"], r["fuelTypeID"]):
-             float(r["meanBaseRate"]) for r in T("baserate_1_2020")}
+# ------------------------------- S13(a): the drive-cycle operating-mode weights
+# `W[hourDayID, opModeID]`, the one relation no captured table carries: MOVES 5
+# computes it inside the worker and drops it (section 8.1). Ported from
+# crates/moves-calculators/src/generators/baserategenerator/drivecycle.rs.
+seconds = collections.defaultdict(dict)
+for r in T("driveschedulesecond"):
+    seconds[r["driveScheduleID"]][r["second"]] = float(r["speed"])
+physics = [r for r in T("sourceusetypephysicsmapping")
+           if r["realSourceTypeID"] == ST and float(r["sourceMass"]) > 0.0
+           and float(r["fixedMassFactor"]) > 0.0]
+assert len(physics) == 1, "the physics mapping is not a single row for source type %d" % ST
+PH = physics[0]
+opmode = {r["opModeID"]: r for r in T("operatingmode")}
+BRAKE1 = float(opmode[0]["brakeRate1Sec"])
+BRAKE3 = float(opmode[0]["brakeRate3Sec"])
+# readOperatingMode (inputs.rs:408-419). Dropping 26 and 36 leaves 21 modes that
+# are disjoint AND exhaustive over speed >= 1, which is why the classification
+# below can be a single match rather than an ordered first-match.
+binned = sorted((m for m in opmode if 1 < m < 100 and m not in (26, 36)))
+MS = 0.44704
+
+
+def bound(mode, column):
+    v = opmode[mode][column]
+    return None if v is None else float(v)
+
+
+def drive_cycle_distribution(sid):
+    """calculateDriveCycleOpModeDistribution at national scale (is_project False)."""
+    sp = seconds[sid]
+    lo, hi = min(sp), max(sp)
+    mode, acc = {}, {}
+    for s, v in sp.items():
+        if v < 1.0:                       # 0 mph and 0 < v < 1 mph are both Idling
+            mode[s] = 1
+    for s in range(lo + 1, hi + 1):
+        if s in sp and s - 1 in sp:
+            acc[s] = sp[s] - sp[s - 1]
+    if lo + 1 in acc:
+        acc[lo] = acc[lo + 1]             # the first second copies the second's
+    total = collections.Counter()
+    for s in range(lo, hi + 1):
+        if s not in sp:
+            continue
+        m = mode.get(s)
+        if m is None:
+            a = acc.get(s, 0.0)
+            three = (s - 1 in sp and s - 2 in sp and a < BRAKE3
+                     and acc.get(s - 1, 0.0) < BRAKE3 and acc.get(s - 2, 0.0) < BRAKE3)
+            if a <= BRAKE1 or three:
+                m = 0
+            else:
+                v = sp[s] * MS
+                a_ms = (v - sp[s - 1] * MS) if s - 1 in sp else (
+                    (sp[s + 1] * MS - v) if s == lo and s + 1 in sp else 0.0)
+                vsp = (float(PH["rollingTermA"]) * v
+                       + float(PH["rotatingTermB"]) * v * v
+                       + float(PH["dragTermC"]) * v * (v * v)
+                       + float(PH["sourceMass"]) * v * a_ms) / float(PH["fixedMassFactor"])
+                for k in binned:
+                    lov, hiv = bound(k, "VSPLower"), bound(k, "VSPUpper")
+                    los, his = bound(k, "speedLower"), bound(k, "speedUpper")
+                    if lov is not None and vsp < lov: continue
+                    if hiv is not None and vsp >= hiv: continue
+                    if los is not None and sp[s] < los: continue
+                    if his is not None and sp[s] >= his: continue
+                    m = k
+                    break
+        if m is not None and s > 0:        # the `second > 0` guard, drivecycle.rs:327
+            total[m] += 1
+    n = sum(total.values())
+    return {k: v / n for k, v in total.items()}
+
+
+cycles = sorted(r["driveScheduleID"] for r in T("drivescheduleassoc")
+                if r["sourceTypeID"] == ST and r["roadTypeID"] == ROAD)
+cycle_speed = {r["driveScheduleID"]: float(r["averageSpeed"]) for r in T("driveschedule")}
+assert len({cycle_speed[c] for c in cycles}) == len(cycles), "two cycles share a speed"
+cycle_dist = {c: drive_cycle_distribution(c) for c in cycles}
+
+bin_modes = {}                             # findDriveCycles, drivecycle.rs:110-176
+for b, bs in binspeed.items():
+    low = max((cycle_speed[c] for c in cycles if cycle_speed[c] <= bs), default=None)
+    high = min((cycle_speed[c] for c in cycles if cycle_speed[c] >= bs), default=None)
+    span = (high if high is not None else 100000.0) - (low if low is not None else -100.0)
+    if span <= 0.0:      lf = 1.0
+    elif low is None:    lf = 0.0
+    elif high is None:   lf = 1.0
+    else:                lf = (high - bs) / span
+    d = collections.defaultdict(float)
+    for c, f in ((low, lf), (high, 1.0 - lf)):
+        if c is None or f == 0.0:
+            continue
+        sid = next(s for s in cycles if cycle_speed[s] == c)
+        for m, v in cycle_dist[sid].items():
+            d[m] += f * v
+    bin_modes[b] = d
+
+W = collections.defaultdict(float)
+for r in T("avgspeeddistribution"):
+    if r["sourceTypeID"] != ST or r["roadTypeID"] != ROAD:
+        continue
+    for m, v in bin_modes[r["avgSpeedBinID"]].items():
+        W[(r["hourDayID"], m)] += v * float(r["avgSpeedFraction"])
+for d in DAYS:
+    t = sum(v for (h, _), v in W.items() if h == HD[d])
+    assert abs(t - 1.0) < 1e-5, "W does not sum to 1 for hourDayID %d: %.9f" % (HD[d], t)
+
+# ---------------------- S12(b): the fuel-usage rebase, source_bin_..._generator.rs:1534
+# NOT the identity: `fuelusagefraction` sends 98.2134% of an E85 bin's activity
+# to the gasoline supply, and the base rate is weighted by the rebased
+# distribution (sbweighted.rs:148-165). Omitting it is a 55x error on E85.
+usage = [r for r in T("fuelusagefraction")
+         if r["countyID"] == COUNTY and r["fuelYearID"] == FUELYEAR]
+sbaf = collections.defaultdict(float)
+for (my, fuel, engtech, regclass), frac in cohort.items():
+    for u in usage:
+        if u["sourceBinFuelTypeID"] != fuel:
+            continue
+        if u["modelYearGroupID"] != 0 and u["modelYearGroupID"] != my:
+            continue
+        used = (my, u["fuelSupplyFuelTypeID"], engtech, regclass)
+        if used not in cohort:            # the used bin must exist, :1551-1557
+            continue
+        sbaf[used] += float(u["usageFraction"]) * frac
+
+# ------------------------------------------ S13(b): the source-bin-weighted rate
+def slot(bin_id, scale):                  # section 4.4; never pack, only unpack
+    return (bin_id // scale) % 100
+
+
+rate = {}
+for r in T("emissionrate"):
+    if r["polProcessID"] != POLPROC:
+        continue
+    b = r["sourceBinID"]
+    rate[(slot(b, 10**16), slot(b, 10**14), slot(b, 10**12), slot(b, 10**10),
+          r["opModeID"])] = float(r["meanBaseRate"])
+
+fleetgroup = {r["regClassID"]: r["fleetAvgGroupID"] for r in T("regulatoryclass")}
+evfrac = {(r["modelYearID"], r["fleetAvgGroupID"]): float(r["evFraction"])
+          for r in T("evsalesfraction")}
+fleetadj = [r for r in T("fleetavgadjustment") if r["polProcessID"] == POLPROC]
+
+
+def ev_sales_factor(my, fuel, regclass):
+    """sbweighted.rs:369-405 -- back-scale the ICE fleet for EV sales."""
+    if fuel == ELECTRICITY:
+        return 1.0
+    g = fleetgroup[regclass]
+    e = evfrac.get((my, g))
+    row = next((r for r in fleetadj if r["fleetAvgGroupID"] == g
+                and r["beginModelYearID"] <= my <= r["endModelYearID"]), None)
+    if e is None or row is None:
+        return 1.0
+    m = float(row["evMultiplier"])
+    den = (1.0 - e) + e * m
+    v = 1.0 / (1.0 - e * m / den)
+    cap = row["adjustmentCap"]
+    return min(v, float(cap)) if cap is not None and float(cap) > 0.0 else v
+
+
+# ------------------------------------------------- S14: the collapsed base rate
+sbweighted = collections.defaultdict(float)
+for (my, fuel, engtech, regclass), frac in sbaf.items():
+    smy = shortgroup[mygroup[(POLPROC, my)]]
+    ev = ev_sales_factor(my, fuel, regclass)
+    for om in {k[4] for k in rate}:
+        r = rate.get((fuel, engtech, regclass, smy, om))
+        if r is not None:
+            sbweighted[(my, fuel, om)] += frac * r * ev
+base_rate = collections.defaultdict(float)
+for (my, fuel, om), v in sbweighted.items():
+    for d in DAYS:
+        base_rate[(HD[d], my, fuel)] += v * W[(HD[d], om)]
 
 # ------------------------------ S15(f): the EV energy-efficiency divisor
 agegroup = {r["ageID"]: r["ageGroupID"] for r in T("agecategory")}
 eveff = {r["ageGroupID"]: float(r["batteryEfficiency"]) * float(r["chargingEfficiency"])
          for r in T("evefficiency")
          if r["polProcessID"] == POLPROC and r["sourceTypeID"] == ST}
-ELECTRICITY = 9
 
 # ------------------------------------------------------- S16, S17, S18
 realdays = {r["dayID"]: float(r["noOfRealDays"]) for r in T("dayofanyweek")}
@@ -1386,7 +1583,7 @@ Result:
 
 ```
 sho:            82 rows, worst relative error 4.138e-06
-emissionQuant: 250 rows, worst relative error 8.231e-06 at (day 5, MY 2002, fuel 5)
+emissionQuant: 250 rows, worst relative error 8.320e-06 at (day 5, MY 2015, fuel 5)
 key set:       125 cohorts x 2 day types = 250 rows, exact
 ```
 
@@ -1466,7 +1663,7 @@ cell: both of its clamp decisions have margins ~5 000× the input precision.
 which is fortunate, because F18 says a document carrying ten-digit identifier
 columns cannot declare `Float32` at all, and this one carries an 18-digit one.
 
-### 7.3 The measured decomposition that isolates the uncomputed relation
+### 7.3 The measured decomposition that isolated the uncomputed relation
 
 §2.3(b) claims the base rate factorises as
 
@@ -1511,7 +1708,26 @@ Those 46 numbers are *not* reproduced in this document, deliberately. They were
 obtained by fitting to the reference's own intermediate, so they are not an
 independent derivation, and a `.esm` that carried them would be transcribing
 the answer — the thing `docs/esm-conventions.md` §12 forbids for exactly this
-reason. `W` has to be computed, and §8.1 says how.
+reason.
+
+**`W` is now computed**, twice and independently: by §6.5's reproduction script
+and by `fixtures/mixed-onroad.esm`, both from `driveschedulesecond`,
+`driveschedule`, `drivescheduleassoc`, `operatingmode`,
+`sourceusetypephysicsmapping`, `avgspeedbin` and `avgspeeddistribution`. §10 is
+the port. The measurement that closes this section is the one that says the
+factorisation was not an artefact of the fit: **computing `W` moved the worst
+`MOVESOutput` cell from 8.231 × 10⁻⁶ to 8.320 × 10⁻⁶**, which is nowhere, and
+the residual is still §7.1's six-significant-figure column storage.
+
+Two things about the fitted numbers are worth keeping now that the computed ones
+exist. The fit's `SUM W` came out 0.999447 and 0.999176; the computed weights
+sum to **1.0000004** and **0.9999999**, which is `avgspeedFraction`'s own total
+to its stored precision. So the fit was about 6 × 10⁻⁴ low on the total — an
+ill-conditioning of a 23-unknown non-negative fit over 125 highly collinear rate
+vectors, not a property of `W` — and a document that had transcribed the fitted
+vector would have been wrong by that much with every residual still inside the
+gate. That is the second reason not to transcribe a fitted answer, and it is a
+better one than the first.
 
 ### 7.4 Recommended tolerance, and the honest state of the comparison
 
@@ -1533,18 +1749,32 @@ over NONROAD's 4.0 × 10⁻⁶ there, and in both cases the constraint is the
 reference's 6-significant-figure storage rather than either implementation.
 
 **What the key set gate means for this fixture.** The 250-row key set *is*
-computable — §2.2's `stmyFraction > 0` rule reproduces all 125 cohorts exactly,
-and the oracle asserts it. What is not computable is the *value* in each cell.
-That is a failure shape the `[shortfall]` mechanism cannot express: its record
-is `emitted_rows` / `missing_keys` / `extra_keys`, and this would be 250 rows
-with the right keys and wrong numbers.
+computable — §2.2's `stmyFraction > 0` rule reproduces all 125 cohorts exactly.
+So is the value in each cell, now that §10's `W` is computed.
 
-**So this specification does not wire a `fixtures/mixed-onroad.esm`.** A
-document that emitted 250 correctly-keyed rows carrying an uncomputed rate
-would fail the per-cell gate for a reason no exact record could pin, and one
-that read `baserate_1_2020` would pass the gate by transcribing the reference.
-Neither is a fidelity test. §9 says what the components deliver instead, and
-§8.1 says what has to land before the comparison is worth running.
+**Measured, `fixtures/mixed-onroad.esm` against the snapshot's `MOVESOutput`:**
+
+```
+rows: 250 actual / 250 expected
+identity: 19 columns, 4 varying (dayID, fuelTypeID, modelYearID, SCC); 15 constant
+key set: 250 shared, 0 missing, 0 extra
+worst cell: rel=8.320e-06 over 250 cells        (tolerance 2e-05)
+worst per-pollutant emissionQuant sum: rel=9.675e-08 (onroad tolerance 1e-03)
+```
+
+`tolerance.toml` carries **no `[shortfall]` record** for this fixture and must
+not acquire one: `run-tests.sh` fails if a record is left behind a comparison
+that passes.
+
+This section used to argue that the fixture should not be wired at all, and the
+argument is kept because it is the right one for the state it described. A
+document that emitted 250 correctly-keyed rows carrying an *uncomputed* rate
+would fail the per-cell gate for a reason no exact record could pin — the
+`[shortfall]` mechanism records `emitted_rows` / `missing_keys` /
+`extra_keys`, and that failure is 250 rows with the right keys and wrong
+numbers — and a document that read `baserate_1_2020` would pass the gate by
+transcribing the reference. Neither is a fidelity test. The way out was to
+compute the missing relation, not to widen anything.
 
 ### 7.5 Precision-sensitive operations, ranked
 
@@ -1561,10 +1791,16 @@ Neither is a fidelity test. §9 says what the components deliver instead, and
 
 ## 8. Gaps, uncertainties and things I could not verify
 
-### 8.1 `W[hourDayID, opModeID]` — the one relation this port does not compute
+### 8.1 `W[hourDayID, opModeID]` — **computed; see §10**
 
-**What it is.** The speed-bin-weighted, drive-cycle operating-mode
-distribution for running exhaust. `crates/moves-calculators/src/generators/baserategenerator/drivecycle.rs:354-622`,
+This section recorded `W` as the one relation this port did not compute, and
+listed the five things computing it would take. All five are now in
+`fixtures/mixed-onroad.esm` and in §6.5's reproduction, and §10 is the port.
+The list was right about all five inputs and it is kept here, corrected, because
+three of the things it said about the *toolchain* have stopped being true.
+
+**What it is.** The speed-bin-weighted, drive-cycle operating-mode distribution
+for running exhaust. `crates/moves-calculators/src/generators/baserategenerator/drivecycle.rs:354-622`,
 with the weighting at `:388-401`:
 
 ```rust
@@ -1581,51 +1817,48 @@ the external generator and contributes no rows
 (`rates_op_mode_distribution.rs:1-58`). The `ratesopmodedistribution` table in
 the snapshot therefore covers roadTypeID 1 / polProcessIDs 602 and 9102 only
 (18 rows, §1.4), and no captured table carries the process-1 distribution. It
-is computed inside the worker and dropped.
+is computed inside the worker and dropped. **That part is unchanged, and it is
+why `W` had to be computed rather than read.**
 
-**What computing it requires.** Five things, all present in the snapshot:
+**The five inputs, all present in the snapshot:**
 
 1. `drivescheduleassoc` (11 rows) → the drive schedules for
    `(sourceTypeID 21, roadTypeID 4)`, and the bracketing of each `avgSpeedBin`
-   between two schedules with a `schedule_fraction`
-   (`drivecycle.rs:359`).
+   between two schedules with a `schedule_fraction` (`drivecycle.rs:359`).
 2. `driveschedulesecond` (63,602 rows) → the second-by-second speed trace.
-3. Acceleration, `a[s] = v[s] − v[s−1]` — a **neighbouring-row read**, which
-   finding F11 says needs a second relation over a second index set. The
-   braking modes additionally need a 3-second lookback
-   (`operatingmode.brakeRate3Sec`), i.e. three more.
+3. Acceleration, and the three-second brake lookback. §10.2 is what this costs.
 4. `sourceusetypephysicsmapping` (1 row: rollingTermA 0.156461,
    rotatingTermB 0.00200193, dragTermC 0.000492646, sourceMass 1.4788,
-   fixedMassFactor 1.4788, opModeIDOffset 1000) → VSP per second. The mapping
-   is per `(sourceTypeID, regClassID, model-year range)`, so the distribution is
+   fixedMassFactor 1.4788, opModeIDOffset 1000) → VSP per second. The mapping is
+   per `(sourceTypeID, regClassID, model-year range)`, so the distribution is
    **model-year dependent** in general; this fixture's single row spans
-   1950–2060, so here it is not.
+   1950–2060, so here it is not, and `run_physicsRowsSelected` asserts that the
+   collapse is a fact about the data rather than an assumption.
 5. `operatingmode` (60 rows) → the classification. `VSPLower`/`VSPUpper` and
    `speedLower`/`speedUpper` are a genuine range predicate — a `filter`, not a
-   `join.on` — and then a count per mode over total seconds.
+   `join.on`.
 
-**Is it expressible?** Every piece has a spelling: the VSP polynomial is
-arithmetic, the neighbouring-row reads are F11's documented workaround, the
-mode classification is a `filter` over inclusive/exclusive bounds, and the
-per-schedule normalisation is `share_of_group` (§4.2). What it is *not* is
-small: a 63,602-row relation joined to a 60-row one under a range predicate,
-which is precisely the "big table meets big table" shape finding **F17**
-measures as undriven. The `engine_tech_rows` remedy F17 records — give the
-thing the tables meet at an axis — applies directly: `operating_mode_rows` is
-23 members and each side joins to it separately.
+**Three things this section said that are no longer true.**
 
-**Why it is not in this phase.** No captured intermediate to verify it
-against. The 46 numbers of §7.3 were fitted to the reference's own base rates,
-so checking a computed `W` against them is not independent evidence; it is
-checking the port against a rearrangement of the port's target. Landing `W`
-without an independent check would put a 63,602-row VSP computation into the
-tree with nothing to catch a wrong sign — and this project's characteristic
-failure is a plausible wrong number on a document that validates.
+* *"the neighbouring-row reads are F11's documented workaround"* — **F11 is
+  fixed** (EarthSciAST `107a15152`), so they are not a workaround at all. They
+  are four ordinary self-joins with an explicit `join.syms`; §10.2 measures
+  them.
+* *"a 63,602-row relation joined to a 60-row one under a range predicate, which
+  is precisely the shape finding F17 measures as undriven"* — the range
+  predicate is **not a join** and never was. The classification is a per-second
+  contraction over the 60-row mode relation with no gate at all, 3.8 × 10⁶
+  leaves; the F17 shape appears one stage later, at the emission-rate lookup,
+  and §10.3 says what was done about it.
+* *"the per-schedule normalisation is `share_of_group` (§4.2)"* — correct, and
+  it is the one prediction in the list that needed no change.
 
-The honest sequence is: compute `W`, check it against `MOVESOutput` end to end
-(which §7.3 shows is a sufficient check, because the factorisation is exact and
-everything else is verified), and only then wire the fixture. That is one
-coherent piece of work and it is Phase 4's.
+**And one thing it said that was right, and that the sequence honoured.** "No
+captured intermediate to verify it against… landing `W` without an independent
+check would put a 63,602-row VSP computation into the tree with nothing to catch
+a wrong sign." The check is the one this section prescribed: compute `W`, check
+it against `MOVESOutput` end to end, and only then wire the fixture. §7.3 has
+the number that closes it and §7.4 has the comparison.
 
 ### 8.2 Things verified empirically but not in canonical code
 
@@ -1636,10 +1869,25 @@ coherent piece of work and it is Phase 4's.
 * **The absence of `weeksPerMonth` on the output.** Inferred from
   `plan.rs:455-478` (`Hour` timestep → `PortionOfWeekPerDay`) *and* confirmed
   numerically: including it would multiply every row by 4.43.
-* **`sourceBinActivityFraction` equalling `stmyFraction` exactly** on all 125
+* ~~**`sourceBinActivityFraction` equalling `stmyFraction` exactly** on all 125
   rows. This means the `fuelusagefraction` remap is effectively the identity
   for this county/year, which follows from its 5 rows but was not traced
-  through `county_year_distribution` line by line.
+  through `county_year_distribution` line by line.~~ **This was WRONG, and it is
+  the one claim in this document that measurement has overturned.** It was true
+  of `sourcebindistribution` (the *equipped* distribution, which does equal
+  `stmyFraction` on all 125 rows) and asserted of
+  `sourcebindistributionfuelusage_1_26161_2020` (the *used* one, which the base
+  rate is actually weighted by, `sbweighted.rs:148-165`). Measured against that
+  table, the raw `stmyFraction` is wrong by **5.497 × 10¹** on the E85 rows:
+  `fuelusagefraction` sends 0.982134 of every E85 bin's activity to the gasoline
+  supply, so MY 1998's E85 fraction is 1.611 × 10⁻⁴ and not 9.019 × 10⁻³. End to
+  end the error is the same 5.497 × 10¹ on the worst `MOVESOutput` cell. The
+  remap is computed in §6.5 and in `fixtures/mixed-onroad.esm`, and
+  `components/onroad_source_bin_distribution.esm` had it right all along and
+  says so at length — this section was the stale half. The lesson is the one
+  §1.1 already states: cross-check the Rust *and this document* against the
+  snapshot, because an inference from a table's shape ("5 rows, four of them
+  identity pairs") is not a measurement of what the chain does with it.
 
 ### 8.3 An inconsistency in `moves.rs` worth reporting upstream
 
@@ -1712,8 +1960,10 @@ Described from code only, and each would need its own verification:
    components replace with carried columns, plus the output-row-to-cohort join
    that has no counterpart in a leaf, and asserts the residuals.
    *Built: 163 assertions under the mount.*
-6. **Still to build: `W[hourDayID, opModeID]`** (§8.1), and then the fixture
-   (§7.4).
+6. **`lib/drive_cycle.esm` and `fixtures/mixed-onroad.esm`** — `W` (§10) and
+   then the whole chain against the snapshot's own tables. *Built: 48
+   assertions, and 250 of 250 `MOVESOutput` rows at a worst cell of
+   8.320 × 10⁻⁶ (§7.4).*
 
 **Six rules carried over from Phase 2 that still apply.**
 
@@ -1733,8 +1983,167 @@ Described from code only, and each would need its own verification:
   Never materialise the packed id, and never declare `Float32` (finding F18).
 * **Two clamps that both evaluate to zero here** (§2.3(d), §2.3(e)) and are
   both reachable one hour away. Assert both arms.
-* **One relation that is not computed** (§8.1). It has a name, a shape, a
+* **One relation that was not computed** (§8.1). It had a name, a shape, a
   source line, an exact size (46 numbers), and a measured proof that everything
-  around it is right (§7.3). Say so in the document, at the point where a
-  reader would otherwise assume the number was computed —
-  `docs/esm-conventions.md` §15.
+  around it was right (§7.3) — which is what made it safe to leave out and what
+  made it possible to put back. It is computed now; §10 is the port and §7.3 is
+  the measurement that says computing it changed the answer by nothing.
+
+---
+
+## 10. `W[hourDayID, opModeID]`, computed
+
+`W[hd, om] = SUM over avgSpeedBinID b of opModeFraction[om, b] x
+avgSpeedFraction[hd, b]` — 46 non-zero numbers over two day types and the 23
+operating modes §5.5 lists. Ported from
+`crates/moves-calculators/src/generators/baserategenerator/drivecycle.rs`, whose
+three functions map onto three stages.
+
+### 10.1 The shape, stage by stage
+
+| stage | Rust | `.esm` |
+|---|---|---|
+| the per-second classification | `calculate_drive_cycle_op_mode_distribution`, `:190-337` | `dss_opModeID` over `drive_second_rows` |
+| the per-schedule distribution | `:330-337` | `dsa_modeFraction[schedule, mode]` |
+| the bracketing of a speed bin | `find_drive_cycles`, `:110-176` | `asb_scheduleFraction[bin, schedule]` |
+| the combination | `:388-401` | `asb_modeFraction[bin, mode]` |
+| the speed-bin weighting | `aggregate.rs:365-417` | `dc_W[day, mode]` |
+
+Two decisions in that table are not transcription and are worth stating.
+
+**The classification is a SUM, not a first match.** `drivecycle.rs:305-322`
+walks the operating modes in ascending id and `break`s on the first whose four
+bounds admit the second, so the answer depends on iteration order — unless the
+modes are disjoint, which they are. `readOperatingMode` (`inputs.rs:408-419`)
+keeps `1 < opModeID < 100` **excluding 26 and 36**, and those two exclusions are
+exactly what makes the survivors disjoint: 26 spans `12 <= VSP` over
+`25 <= speed < 50` and 27–30 partition the same interval finely, and likewise 36
+against 37–40. With them out, the 21 survivors partition `speed >= 1`
+completely, so `SUM over modes of opModeID x indicator` is the matching mode's
+id and `SUM of indicator` is 1. The document computes both:
+`dss_binnedModeMatches` is the second, and a table change that broke the
+disjointness shows up there as a 2 rather than as a plausible wrong mode.
+
+**The bracketing schedules are identified by SPEED, not by an argmax over ids.**
+`asb_slowerSpeed` is a `max_product` reduction under a `<=` filter and
+`asb_fasterSpeed` a `min_sum` under `>=`; the weight is then attached to
+whichever schedule carries that speed. The format has no argmax, and the
+substitution is safe only while no two selected schedules share a speed — so
+`asb_scheduleFractionTotal` sums the weights per bin and must be 1. A duplicated
+bracket speed makes it 2 and a bin with no bracket makes it 0. That is finding
+F17's `tech_fractionTotal` discipline applied to a different kind of window.
+
+### 10.2 The four neighbouring-second reads, and what they cost
+
+`a[s] = v[s] − v[s−1]` needs the previous second, the three-second brake test
+needs `a[s−1]` and `a[s−2]` (so `v[s−2]` and `v[s−3]`), and a schedule's *first*
+second copies its successor's acceleration (so `v[s+1]`). Each is
+`driveschedulesecond` joined to **itself** — two `aggregate` ranges over one
+index set — which finding **F11** refused until EarthSciAST `107a15152`. Each
+value column has a companion presence column carrying `1` through the same join,
+because an inner join fills an unmatched row with the semiring identity and a
+`sum_product` 0 is indistinguishable from a genuine speed of 0.
+
+That distinction is not academic here. **185 of the 63,602 rows have no
+predecessor**: 49 because their schedule starts at that second, and 136 because
+19 of the 49 schedules have interior gaps. The Rust indexes a dense `Vec` and
+returns `None` for a gap; the port has to test presence for the same reason.
+
+**Measured**, on the pinned toolchain, `esm simulate fixtures/mixed-onroad.esm
+--time 0` with every `out_*` observed, three runs each:
+
+| | wall clock |
+|---|---|
+| the fixture as written | 6.61 s, 6.62 s, 6.98 s |
+| the same document with the eight self-join aggregates replaced by constants | 5.18 s, 5.23 s, 5.26 s |
+
+So the four self-joins and their four presence companions cost about **1.4 s
+together, ~0.18 s each**, at 63,602 × 63,602 = **4.045 × 10⁹ candidate pairs**
+per join. They are driven. F11's own report measured 0.31 s for one join at this
+exact size and inferred ~3.6 × 10³ s undriven; this is the same shape reached
+from the other side, inside a document that does something with the answer.
+
+The clause order matters and is deliberate: the offset-second pair is written
+**first** in each `on` list, so it is the clause the evaluator resolves and
+drives on (`docs/esm-conventions.md` §25). It admits about 3.2 rows per value
+where the `driveScheduleID` pair admits 1,298.
+
+### 10.3 Where the F17 shape actually is
+
+§8.1 predicted that the 63,602-row relation meeting the 60-row `operatingmode`
+relation would be F17's "big table meets big table". It is not: that step is a
+per-second contraction over 60 modes with **no join gate at all** — 3.8 × 10⁶
+leaves of pure arithmetic — and it does not dominate anything.
+
+The F17 shape is one stage later, at `cohMode_rate`: the 164-row cohort grid
+meeting `emissionrate`'s 69,200 rows over 164 × 60 = 9,840 output cells. The
+remedy is the one F17 records, applied to a composite key rather than to an
+axis: **all six key pairs go in ONE `on` clause**, so the gate is a single
+composite key.
+
+Leaf counts, computed from the parquet exactly as
+`docs/esm-conventions.md` §25 computes J11's — for a clause that binds only the
+cohort axis the mode axis is scanned, and vice versa:
+
+| `cohMode_rate`'s gate | leaves admitted |
+|---|---:|
+| **one clause, all six pairs** (as written) | **3,772** |
+| six clauses, `shortModYrGroupID` first | 8,511,600 |
+| six clauses, `opModeID` first | 11,348,800 |
+| six clauses, `regClassID` first | 91,315,200 |
+| six clauses, `fuelTypeID` first (the order the pairs are written in) | 158,030,400 |
+| six clauses, `engTechID` first | 379,430,400 |
+| six clauses, `polProcessID` first | 561,273,600 |
+
+**Measured**, the same document with that one clause split into six and nothing
+else changed, `esm simulate --time 0` with every `out_*` observed: **298.36 s and
+287.08 s**, against 6.61 / 6.62 / 6.98 s — a factor of **43**, for an emitted CSV
+that is byte-identical. Subtracting the baseline gives ~1.8 µs per admitted leaf
+over 1.58 × 10⁸ of them, which is F17's own ~2 µs and is the strongest evidence
+available that the leaf count is the whole model of the cost.
+
+So §25's rule generalises: it is not only *which* clause is first, it is *how
+many clauses there are*. A composite key of six pairs is one gate; six gates of
+one pair each is a gate whose selectivity is the least selective of the six.
+
+The 60-wide `operating_mode_rows` axis *is* F17's remedy in one other place:
+`dsa_modeSeconds` gives the mode axis its own `on` clause rather than leaving it
+a scanned output loop.
+
+### 10.4 What the fixture checks about `W`, and what it cannot
+
+`W` has no captured intermediate. `baserate_1_2020` is the next thing
+downstream that does, and it is `SUM over om of W[hd, om] x
+sbWeightedMeanBaseRate[MY, fuel, om]` — so the fixture asserts **eight of its
+cells directly**, over four cohorts spanning four orders of magnitude and both
+day types, plus five of its `meanBaseRateACAdj` cells. §7.3 is what makes that a
+check on `W`: the base rate factorises exactly around it, so a wrong `W` is a
+wrong number in every one of those cells and nothing else in the chain can
+absorb it.
+
+Two structural properties are asserted as well, and neither needs a reference:
+the weights sum to `avgSpeedFraction`'s own total (1 to its six stored
+significant figures, hence an **absolute** 10⁻⁵ gate and not a relative one,
+`docs/esm-conventions.md` §20.5), and they cover exactly 23 operating modes.
+
+**Which of the two kinds of check actually catches a wrong `W`, measured.**
+Perturb the classification in a sum-preserving way — `dss_vsp` × 1.001, so a
+handful of seconds cross a VSP boundary into a neighbouring mode:
+
+| | value |
+|---|---|
+| `dc_WTotal` | 1.0000004 and 0.9999999 — **unchanged** |
+| `dc_WModeCount` | 23 and 23 — **unchanged** |
+| inline assertions | **17 fail**: nine base-rate cells and all four worked examples |
+| the comparator | 250 of 250 cells over tolerance |
+
+So the structural tests check that `W` is a *distribution*; only a value checks
+that it is the *right* distribution. A second sabotage — 1 % taken off every
+binned mode's weight, which is not sum-preserving — is caught by both, at a
+worst cell of 1.054 × 10⁻². Both were run before this section was written.
+
+Three independent routes now agree on those 46 numbers: §6.5's Python, the
+`.esm` fixture, and the snapshot's `MOVESOutput`. The first two agree to
+**2.4 × 10⁻¹⁶** cell by cell — one ulp — which is what says the two ports are
+the same arithmetic and not two arithmetics that happen to land inside a 10⁻⁵
+gate.

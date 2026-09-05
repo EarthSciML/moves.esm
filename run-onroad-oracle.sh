@@ -10,20 +10,24 @@
 #
 #   ./run-onroad-oracle.sh
 #
-# What it proves, and what it does not. It computes the activity chain
+# What it proves. It computes the WHOLE chain -- the activity half
 # (specification §2.1, steps S1-S9), the cohort structure and its row-set rule
-# (§2.2, S10-S12) and the output stage (§2.4, S16-S18) from the snapshot's own
-# INPUT tables, and reproduces all 82 rows of `sho` and all 250 rows of
-# `MOVESOutput` to ~1e-5 -- which is the reference's own 6-significant-figure
-# column storage (§7.1), not accumulated error.
+# (§2.2, S10-S12), the drive-cycle operating-mode weights and the base rate
+# (§2.3, S13-S14) and the output stage (§2.4, S16-S18) -- from the snapshot's
+# own INPUT tables, and reproduces all 82 rows of `sho` and all 250 rows of
+# `MOVESOutput` to ~1e-5, which is the reference's own 6-significant-figure
+# column storage (§7.1) and not accumulated error.
 #
-# It takes ONE quantity from the reference: `baserate_1_2020.meanBaseRate`.
-# That is deliberate and it is the whole point of §8.1 -- the operating-mode
-# distribution the base rate needs is computed inside the MOVES worker and
-# dropped, so no captured table carries it. So this oracle is an attribution
-# tool for the two thirds of the chain the `.esm` components cover, and it is
-# NOT a substitute for the fixture comparison, which cannot run until §8.1
-# lands. The output says so.
+# IT TAKES NOTHING FROM THE REFERENCE. It used to read one quantity --
+# `baserate_1_2020.meanBaseRate` -- because §8.1's `W[hourDayID, opModeID]` is
+# computed inside the MOVES worker and dropped, and no captured table carries
+# it. §10 says how W is computed instead; the number that matters is that
+# computing it moved the worst cell from 8.231e-06 to 8.320e-06, i.e. nowhere,
+# which is what an exact factorisation looks like from the outside.
+#
+# It remains an ATTRIBUTION tool and not a substitute for the fixture
+# comparison: when a `.esm` disagrees with the snapshot, a third implementation
+# says whether the document or the specification is wrong.
 
 set -uo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")"
@@ -91,4 +95,3 @@ if ! out=$("$PYTHON" "$WORK/repro.py" "$SNAP_ABS" 2>&1); then
   exit 1
 fi
 sed 's/^/  /' <<<"$out"
-echo "  NOTE: the base rate is read from baserate_1_2020; see $SPEC §8.1."
