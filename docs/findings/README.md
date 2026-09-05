@@ -1039,7 +1039,13 @@ the parquet tables are re-read per test as well.
 
 **What it would be worth here, and where the suite's time actually goes.**
 Every component of `./run-tests.sh`, timed separately at the same commit on the
-same (loaded) machine, against a 609.70 s whole-suite wall clock:
+same machine, against a 609.70 s whole-suite wall clock. **The machine was
+shared with another agent throughout and the whole-suite number moves with it**
+— three runs of `./run-tests.sh` on the same afternoon gave 821 s (before the
+J11 reorder), 610 s and 508 s (after), at 1-minute load averages of 9.3, 10.5
+and 6.8 — so read the shares below rather than the absolute seconds, and read
+the interleaved per-document A/B in `docs/esm-conventions.md` §25 for anything
+load-bearing:
 
 | component | tests | wall clock |
 |---|---:|---:|
