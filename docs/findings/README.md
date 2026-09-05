@@ -1044,19 +1044,25 @@ same (loaded) machine, against a 609.70 s whole-suite wall clock:
 | component | tests | wall clock |
 |---|---:|---:|
 | `esm test fixtures/nr-logging-county.esm` | 29 | 322.15 s |
-| `esm test ./components ./lib ./runs` (34 documents) | 112 | 176.18 s |
+| `esm test ./components ./lib ./runs` (34 documents) | 140 | 176.18 s |
 | `esm test fixtures/process-evap-leaks.esm` | 10 | 45.36 s |
 | the `join.on` scaling gate (both documents) | 2 | 3.75 s |
 | `esm validate`, all 42 documents | — | 1.56 s |
 | `esm round-trip`, all 41 | — | 1.43 s |
 | everything else (tripwire, comparator self-test, fixture emit + compare, four oracles, chain cross-check) | — | ~59 s |
 
-**90% of the suite is `esm test`, and 151 of its 153 tests are one evaluation
-each of a document that would have answered all of them from one.** Memoising
-the build would take the first row to ~11 s and the second to ~53 s (34 builds
-instead of 112), which is `./run-tests.sh` in about three minutes — without
-touching a single assertion. Nothing else in the table is worth optimising: the
-whole non-`test` half of the suite is under a minute.
+**90% of the suite is `esm test`, and every one of its 181 tests is a separate
+build and evaluation.** Counting how many DISTINCT builds those tests actually
+need — one per (`parameter_overrides`, `initial_conditions`,
+`expression_template_imports`, `time_span`) group, per model, computed over the
+tree — gives **42**: 1 for `nr-logging-county`, 1 for `process-evap-leaks`, 2
+for the gates, and 38 across `components/`, `lib/` and `runs/`, where the tests
+that carry a `parameter_overrides` block rightly keep their own. A memo keyed on
+exactly that would remove **139 of the 181 evaluations**. **Inferred, not
+measured**, by scaling each row above by its own ratio: 322 s → ~11 s,
+176 s → ~48 s, 45 s → ~5 s, so `./run-tests.sh` in a little over two minutes,
+without touching a single assertion. Nothing else in the table is worth
+optimising: the whole non-`test` half of the suite is under a minute.
 
 ---
 
