@@ -254,8 +254,10 @@ exercises both. §6.6 asserts both arms.
   (`baserategenerator/mod.rs:158-160`), and `ratesopmodedistribution` is
   declared, loaded and never consulted.
 * **`baserate_1_2020` (250 rows)** is the reference's own intermediate, not an
-  input. §7.3 uses it as the pivot that isolates the one uncomputed relation;
-  a document that read it would be transcribing the answer.
+  input. §7.3 uses it as the pivot that isolated the one uncomputed relation,
+  and no document reads it as one — but `fixtures/mixed-onroad.esm` does assert
+  eight of its cells as an EXPECTED value (§10.4), which is the opposite
+  direction: delete the assertion and no number changes.
 
 ### 1.5 The two recurrences that collapse, and why that is luck
 
@@ -622,8 +624,10 @@ Write the collapsed weight as one relation:
 W[hourDayID, opModeID] = SUM over avgSpeedBinID b of opModeFraction[om, b] x avgSpeedFraction[b]
 ```
 
-**`W` is the one relation this port does not compute.** §7.3 measures it, §8.1
-says what computing it takes.
+**`W` was the one relation this port did not compute.** §7.3 measures it, §8.1
+records what it took, and §10 is the port. It is computed in
+`fixtures/mixed-onroad.esm` and in §6.5's reproduction, and `cohDay_meanBaseRate`
+above is asserted against `baserate_1_2020`'s own cells.
 
 **(c) S15 — the calculator's adjustments, in order.**
 `baseratecalculator/adjust.rs:317-623`. For polProcessID 9101:
@@ -1051,9 +1055,24 @@ group:
 
 `opModeID 0` in `baserate_1_2020` is **not** mode 0. See §2.3(b).
 
+Mode 0 is also the one identifier in this port that cannot be an `enums` member:
+the schema requires a positive integer, so `fixtures/mixed-onroad.esm` carries
+the Braking mode as a literal `0.0` with a comment. `docs/findings/README.md`
+F32.
+
 `sourceusetypephysicsmapping` carries `opModeIDOffset = 1000`, which is how
-`SourceTypePhysics` relabels the physics-remapped modes; the offset is relevant
-only to §8.1's uncomputed `W`.
+`SourceTypePhysics`'s row-correction pass (`sourcetypephysics.rs:320-390`)
+relabels a temporary source type's normal operating modes. **It does not reach
+this chain**, and the evidence is the answer rather than an argument: that pass
+rewrites tables keyed by `(sourceTypeID, opModeID)`, `emissionrate` is keyed by
+a packed source bin and carries no source type, and
+`fixtures/mixed-onroad.esm` reproduces all 250 rows to 8.320 × 10⁻⁶ applying no
+offset anywhere. `fixtures/mixed-onroad.esm` therefore does not read the
+column at all — it projects six of `sourceusetypephysicsmapping`'s eleven,
+and this is the one whose absence is worth naming. A run with a temporary source
+type in play would need both it and the correction pass;
+`run_physicsRowsSelected` is the assertion that says this run has one mapping row
+and no remapping to do.
 
 ### 5.6 Physical and dimensioning constants
 
@@ -1124,7 +1143,7 @@ sho[92, 40]             = 2.965828229003e+03 x 0.001645627794
 
 sourceBinActivityFraction[211980, fuel 1] = 0.953329
 evSalesFactor(1980, 1, 20)                = 1                (evFraction 0 in 1980)
-meanBaseRate[92, 1980, 1]                 = 3.871710e+05 kJ/hr    <== S14, not computed here
+meanBaseRate[92, 1980, 1]                 = 3.871710e+05 kJ/hr    <== S14; §10
 ACFactor x meanBaseRateACAdj              = 0 x 56 676.3 = 0
 temperature factor                        = 1
 evEfficiency divisor                      = 1                (fuel != 9)
@@ -1644,7 +1663,7 @@ cell: both of its clamp decisions have margins ~5 000× the input precision.
 which is fortunate, because F18 says a document carrying ten-digit identifier
 columns cannot declare `Float32` at all, and this one carries an 18-digit one.
 
-### 7.3 The measured decomposition that isolates the uncomputed relation
+### 7.3 The measured decomposition that isolated the uncomputed relation
 
 §2.3(b) claims the base rate factorises as
 
