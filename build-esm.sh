@@ -49,6 +49,16 @@ AST="${AST:-../EarthSciAST}"
 # should not have a silent one of its own. Overridable, and checked below.
 IO="${IO:-$AST/../EarthSciIO}"
 
+# Where the built binary lands. Default is the canonical ./esm that CLAUDE.md
+# keeps untracked in the repo root and that run-tests.sh runs. Override it to
+# build a comparison binary without disturbing the one the suite uses:
+#
+#   OUT=./esm.mybranch AST=../EarthSciAST/.moves/mybranch IO=../EarthSciIO ./build-esm.sh
+#
+# Note the IO= : the default above is relative to $AST and is WRONG for a git
+# worktree, where $AST is nested a level or two deeper.
+OUT="${OUT:-./esm}"
+
 if [[ ! -d "$AST/pkg/earthsci-ast-rs" ]]; then
   echo "error: no EarthSciAST crate at '$AST/pkg/earthsci-ast-rs' (set AST=...)" >&2
   exit 2
@@ -103,8 +113,19 @@ echo "building esm from $AST ..."
   fi
 ) || exit $?
 
-cp "$AST/pkg/earthsci-ast-rs/target/release/esm" ./esm
-echo "installed ./esm ($(./esm --version))"
+cp "$AST/pkg/earthsci-ast-rs/target/release/esm" "$OUT"
+echo "installed $OUT ($("$OUT" --version))"
+
+# The lock documents THE canonical binary, so a build to any other path leaves
+# it alone. Without this, three concurrent upstream branches building for
+# comparison each rewrote ./esm and esm-version.lock in turn -- and the lock's
+# whole job is to make a fidelity result attributable to a revision. Observed:
+# agents worked around it by hand, leaving esm.base, esm.f31 and esm.f32 beside
+# the real binary, which is the same race with worse names.
+if [[ "$OUT" != "./esm" ]]; then
+  echo "note: not the canonical ./esm, so esm-version.lock is left unchanged"
+  exit 0
+fi
 
 cat > esm-version.lock <<EOF
 # The EarthSciAST commit that ./esm was built from. Written by build-esm.sh.
