@@ -1,0 +1,1483 @@
+{
+  "esm": "1.0.0",
+  "metadata": {
+    "name": "TankFuelAndVentingEquations",
+    "description": "TankFuelGenerator's `AverageTankGasoline`, TVV-8's temperature/RVP adjustment, and TVV-5's two venting-equation forms. Ports docs/evap-fvv.md 2.5, 2.10 and 2.13.\n\nWHY THESE THREE ARE ONE COMPONENT. They are the three pieces of `process-evap-fvv` that the leaks and permeation slices do not already have, and two of them are joined by one number: `AverageTankGasoline.RVP` is what TVV-8 interpolates the adjustment polynomial at. Splitting them would put the producer and the only consumer that reaches MOVESOutput in different files.\n\nWHAT IS CHECKED AND WHAT IT IS CHECKED AGAINST. `averageTankGasoline` is captured EMPTY in all three evaporative snapshots -- TankFuelGenerator runs master-side and its output never reaches a SQL worker -- so there is no reference row for it, and the assertions here are against values recomputable by hand from the coefficient tables in docs/evap-fvv.md 2.5 and 2.10. What ties them to the snapshot is the fixture: `fixtures/process-evap-fvv.esm` uses this RVP and matches all 128 rows of MOVESOutput to 7.5e-06, and docs/evap-fvv.md 7.2 measures that a port which skipped this component lands 2.79 per cent high.\n\nWHY THE VENTING EQUATIONS ARE HERE AND NOT IN THE FIXTURE. docs/evap-fvv.md 0.3 measures that this fixture's `opModeFraction` for the cold-soak mode is exactly 0, so doubling TVV-5's equation leaves all 128 output cells BIT-IDENTICAL. A fixture-level check of them would pass with the equations deleted. They are therefore checked here, at probe canister loads chosen so that the blend weight and the clamp are each discriminating, and the fixture makes no claim about them at all.\n\nTHE COEFFICIENTS ARE DATA AND THE FORMS ARE TEMPLATES. `cumTVVCoeffs` holds 2,188 rows and eighteen distinct equation labels; factored, those are two forms for the venting term and one for the leak term, which live in lib/evaporative.esm as `tvv_quadratic_root`, `tvv_blend` and `tvv_leak_linear`. The eighteen coefficient rows stay data. docs/evap-fvv.md 2.10 carries the table and says where it came from, because it is the one thing the snapshot does not contain: the execution database holds the labels only, and the expressions they abbreviate live in the MOVES default database.",
+    "authors": [
+      "EarthSciML Authors and Contributors"
+    ],
+    "tags": [
+      "moves",
+      "onroad",
+      "evaporative",
+      "fuel",
+      "tank-vapor-venting"
+    ]
+  },
+  "models": {
+    "TankFuelAndVentingEquations": {
+      "expression_template_imports": [
+        {
+          "ref": "../lib/evaporative.esm",
+          "only": [
+            "cubic_in",
+            "knot_interpolate",
+            "tank_fuel_k_gasoline",
+            "tank_fuel_k_ethanol",
+            "tank_fuel_gas_portion_rvp",
+            "tank_fuel_reddy_rvp",
+            "tank_fuel_zone_evap_temp",
+            "tank_fuel_rvp_loss_ratio",
+            "tvv_quadratic_root",
+            "tvv_blend",
+            "tvv_leak_linear",
+            "tvv_cumulative_vented"
+          ]
+        }
+      ],
+      "tolerance": {
+        "rel": 1e-12
+      },
+      "variables": {
+        "tfgFormulationRVP": {
+          "type": "parameter",
+          "units": "1",
+          "default": 8.0,
+          "description": "fuelFormulation.RVP for formulation 9114, the one gasoline formulation this region supplies at a positive market share (docs/evap-fvv.md 2.5, TFG-1a). Carries RVP, in psi; declared unitless because these are empirical polynomials whose coefficients would need fractional inverse powers of it (docs/esm-conventions.md 11)."
+        },
+        "tfgFormulationRVPE85": {
+          "type": "parameter",
+          "units": "1",
+          "default": 7.7,
+          "description": "fuelFormulation.RVP for formulation 27002, the E85 formulation. Carries RVP, in psi; declared unitless because these are empirical polynomials whose coefficients would need fractional inverse powers of it (docs/esm-conventions.md 11)."
+        },
+        "tfgEtohVolume": {
+          "type": "parameter",
+          "units": "1",
+          "default": 10.0,
+          "description": "fuelFormulation.ETOHVolume, per cent by volume, the same for both surviving formulations. Carries per cent by volume; declared unitless because these are empirical polynomials whose coefficients would need fractional inverse powers of it (docs/esm-conventions.md 11)."
+        },
+        "tfgMarketShare": {
+          "type": "parameter",
+          "units": "1",
+          "default": 1.0,
+          "description": "fuelSupply.marketShare. One formulation per fuel type at share 1, which is why this fixture cannot discriminate TFG's weighting scheme (docs/evap-fvv.md 8.1)."
+        },
+        "tfgYearMultiplicity": {
+          "type": "parameter",
+          "units": "1",
+          "default": 1.0,
+          "description": "The count of Year rows sharing the fuel year whose yearID is in RunSpecYear. It multiplies every share, so it cancels out of the three ratios and does NOT cancel out of gasoholMarketShare."
+        },
+        "tfgZoneMinTemperature": {
+          "type": "parameter",
+          "units": "1",
+          "default": 59.5,
+          "description": "min(zoneMonthHour.temperature) over zone 261610, month 8. Carries degrees Fahrenheit; declared unitless because these are empirical polynomials whose coefficients would need fractional inverse powers of it (docs/esm-conventions.md 11)."
+        },
+        "tfgZoneMaxTemperature": {
+          "type": "parameter",
+          "units": "1",
+          "default": 81.900001525879,
+          "description": "max(zoneMonthHour.temperature) over zone 261610, month 8. The stored value is a float32 widened to double, hence the trailing digits. Carries degrees Fahrenheit; declared unitless because these are empirical polynomials whose coefficients would need fractional inverse powers of it (docs/esm-conventions.md 11)."
+        },
+        "tfgCommingleFactor": {
+          "type": "parameter",
+          "units": "1",
+          "default": 1.0,
+          "description": "TFG-3a's step function at gasoholMarketShare = 1.0. The function is NOT monotonic (it peaks at 1.040 in the 0.5 band), so it is a table and is carried here as the one entry this fixture selects."
+        },
+        "tfgKGasoline": {
+          "type": "unknown",
+          "units": "1",
+          "description": "docs/evap-fvv.md 2.5, TankFuelGenerator."
+        },
+        "tfgKEthanol": {
+          "type": "unknown",
+          "units": "1",
+          "description": "docs/evap-fvv.md 2.5, TankFuelGenerator."
+        },
+        "tfgGasPortionRVP": {
+          "type": "unknown",
+          "units": "1",
+          "description": "docs/evap-fvv.md 2.5, TankFuelGenerator. Carries RVP, in psi; declared unitless because these are empirical polynomials whose coefficients would need fractional inverse powers of it (docs/esm-conventions.md 11)."
+        },
+        "tfgGasPortionRVPE85": {
+          "type": "unknown",
+          "units": "1",
+          "description": "docs/evap-fvv.md 2.5, TankFuelGenerator. Carries RVP, in psi; declared unitless because these are empirical polynomials whose coefficients would need fractional inverse powers of it (docs/esm-conventions.md 11)."
+        },
+        "tfgShareSum": {
+          "type": "unknown",
+          "units": "1",
+          "description": "docs/evap-fvv.md 2.5, TankFuelGenerator."
+        },
+        "tfgLinearAverageRVP": {
+          "type": "unknown",
+          "units": "1",
+          "description": "docs/evap-fvv.md 2.5, TankFuelGenerator. Carries RVP, in psi; declared unitless because these are empirical polynomials whose coefficients would need fractional inverse powers of it (docs/esm-conventions.md 11)."
+        },
+        "tfgAverageEtohVolume": {
+          "type": "unknown",
+          "units": "1",
+          "description": "docs/evap-fvv.md 2.5, TankFuelGenerator."
+        },
+        "tfgAverageGasPortionRVP": {
+          "type": "unknown",
+          "units": "1",
+          "description": "docs/evap-fvv.md 2.5, TankFuelGenerator. Carries RVP, in psi; declared unitless because these are empirical polynomials whose coefficients would need fractional inverse powers of it (docs/esm-conventions.md 11)."
+        },
+        "tfgNoWeatheringReddyRVP": {
+          "type": "unknown",
+          "units": "1",
+          "description": "docs/evap-fvv.md 2.5, TankFuelGenerator. Carries RVP, in psi; declared unitless because these are empirical polynomials whose coefficients would need fractional inverse powers of it (docs/esm-conventions.md 11)."
+        },
+        "tfgCommingledRVP": {
+          "type": "unknown",
+          "units": "1",
+          "description": "docs/evap-fvv.md 2.5, TankFuelGenerator. Carries RVP, in psi; declared unitless because these are empirical polynomials whose coefficients would need fractional inverse powers of it (docs/esm-conventions.md 11)."
+        },
+        "tfgZoneEvapTemp": {
+          "type": "unknown",
+          "units": "1",
+          "description": "docs/evap-fvv.md 2.5, TankFuelGenerator."
+        },
+        "tfgRVPLossRatioUnclamped": {
+          "type": "unknown",
+          "units": "1",
+          "description": "docs/evap-fvv.md 2.5, TankFuelGenerator."
+        },
+        "tfgRVPLossRatio": {
+          "type": "unknown",
+          "units": "1",
+          "description": "docs/evap-fvv.md 2.5, TankFuelGenerator."
+        },
+        "tfgWeatheredGasPortionRVP": {
+          "type": "unknown",
+          "units": "1",
+          "description": "docs/evap-fvv.md 2.5, TankFuelGenerator. Carries RVP, in psi; declared unitless because these are empirical polynomials whose coefficients would need fractional inverse powers of it (docs/esm-conventions.md 11)."
+        },
+        "tfgWeatheredReddyRVP": {
+          "type": "unknown",
+          "units": "1",
+          "description": "docs/evap-fvv.md 2.5, TankFuelGenerator. Carries RVP, in psi; declared unitless because these are empirical polynomials whose coefficients would need fractional inverse powers of it (docs/esm-conventions.md 11)."
+        },
+        "tfgRVP": {
+          "type": "unknown",
+          "units": "1",
+          "description": "docs/evap-fvv.md 2.5, TankFuelGenerator. Carries RVP, in psi; declared unitless because these are empirical polynomials whose coefficients would need fractional inverse powers of it (docs/esm-conventions.md 11)."
+        },
+        "tfgAverageGasPortionRVPE85": {
+          "type": "unknown",
+          "units": "1",
+          "description": "docs/evap-fvv.md 2.5, TankFuelGenerator. Carries RVP, in psi; declared unitless because these are empirical polynomials whose coefficients would need fractional inverse powers of it (docs/esm-conventions.md 11)."
+        },
+        "tfgNoWeatheringReddyRVPE85": {
+          "type": "unknown",
+          "units": "1",
+          "description": "docs/evap-fvv.md 2.5, TankFuelGenerator. Carries RVP, in psi; declared unitless because these are empirical polynomials whose coefficients would need fractional inverse powers of it (docs/esm-conventions.md 11)."
+        },
+        "tfgRVPLossRatioE85": {
+          "type": "unknown",
+          "units": "1",
+          "description": "docs/evap-fvv.md 2.5, TankFuelGenerator."
+        },
+        "tfgWeatheredReddyRVPE85": {
+          "type": "unknown",
+          "units": "1",
+          "description": "docs/evap-fvv.md 2.5, TankFuelGenerator. Carries RVP, in psi; declared unitless because these are empirical polynomials whose coefficients would need fractional inverse powers of it (docs/esm-conventions.md 11)."
+        },
+        "tfgRVPE85": {
+          "type": "unknown",
+          "units": "1",
+          "description": "docs/evap-fvv.md 2.5, TankFuelGenerator. Carries RVP, in psi; declared unitless because these are empirical polynomials whose coefficients would need fractional inverse powers of it (docs/esm-conventions.md 11)."
+        },
+        "adjTemperature": {
+          "type": "parameter",
+          "units": "1",
+          "default": 59.5,
+          "description": "zoneMonthHour.temperature at hour 7 -- the AMBIENT temperature, not a tank temperature. TVV-8's operating-mode adjustment is the one adjustment in this calculator that reads no tank temperature at all. Carries degrees Fahrenheit; declared unitless because these are empirical polynomials whose coefficients would need fractional inverse powers of it (docs/esm-conventions.md 11)."
+        },
+        "etaTerm3": {
+          "type": "parameter",
+          "units": "1",
+          "default": 4.621007e-06,
+          "description": "evapTemperatureAdjustment.tempAdjustTerm3, processID 12."
+        },
+        "etaTerm2": {
+          "type": "parameter",
+          "units": "1",
+          "default": -0.000685671113,
+          "description": "evapTemperatureAdjustment.tempAdjustTerm2."
+        },
+        "etaTerm1": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0301193154,
+          "description": "evapTemperatureAdjustment.tempAdjustTerm1."
+        },
+        "etaConstant": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.373111185,
+          "description": "evapTemperatureAdjustment.tempAdjustConstant."
+        },
+        "knotLowRVP": {
+          "type": "parameter",
+          "units": "1",
+          "default": 8.0,
+          "description": "evapRVPTemperatureAdjustment.RVP, the greatest knot <= averageTankGasoline.RVP for fuel type 1."
+        },
+        "knotHighRVP": {
+          "type": "parameter",
+          "units": "1",
+          "default": 9.0,
+          "description": "The least knot > it."
+        },
+        "knotLowTerm3": {
+          "type": "parameter",
+          "units": "1",
+          "default": -9.18358e-07,
+          "description": "adjustTerm3 at the RVP 8 knot."
+        },
+        "knotLowTerm2": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0001588737,
+          "description": "adjustTerm2 at the RVP 8 knot."
+        },
+        "knotLowTerm1": {
+          "type": "parameter",
+          "units": "1",
+          "default": -0.01018146,
+          "description": "adjustTerm1 at the RVP 8 knot."
+        },
+        "knotLowConstant": {
+          "type": "parameter",
+          "units": "1",
+          "default": 1.209675,
+          "description": "adjustConstant at the RVP 8 knot."
+        },
+        "knotHighTerm3": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "description": "adjustTerm3 at the RVP 9 knot -- the reference formulation, whose polynomial is the constant 1."
+        },
+        "knotHighTerm2": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "description": "adjustTerm2 at the RVP 9 knot."
+        },
+        "knotHighTerm1": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "description": "adjustTerm1 at the RVP 9 knot."
+        },
+        "knotHighConstant": {
+          "type": "parameter",
+          "units": "1",
+          "default": 1.0,
+          "description": "adjustConstant at the RVP 9 knot."
+        },
+        "knotE85LowRVP": {
+          "type": "parameter",
+          "units": "1",
+          "default": 7.0,
+          "description": "For fuel type 5 at RVP 7.7 the bracket is a DIFFERENT pair of knots, 7 and 8, which is what worked example C in docs/evap-fvv.md 6.3 distinguishes."
+        },
+        "knotE85HighRVP": {
+          "type": "parameter",
+          "units": "1",
+          "default": 8.0,
+          "description": "See knotE85LowRVP."
+        },
+        "knotE85LowTerm3": {
+          "type": "parameter",
+          "units": "1",
+          "default": -1.542224e-06,
+          "description": "adjustTerm3 at the RVP 7 knot."
+        },
+        "knotE85LowTerm2": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0002731214,
+          "description": "adjustTerm2 at the RVP 7 knot."
+        },
+        "knotE85LowTerm1": {
+          "type": "parameter",
+          "units": "1",
+          "default": -0.01823073,
+          "description": "adjustTerm1 at the RVP 7 knot."
+        },
+        "knotE85LowConstant": {
+          "type": "parameter",
+          "units": "1",
+          "default": 1.390541,
+          "description": "adjustConstant at the RVP 7 knot."
+        },
+        "tvvCanisterLoad": {
+          "type": "parameter",
+          "units": "1",
+          "default": 50.0,
+          "description": "A probe canister load Xn, in grams, chosen so that BOTH inner roots are positive and DIFFER (11.1396 and 2.8885) -- at a load where both clamp to zero the blend weight would be untested. tvvCanisterLoadClamped is the negative control at the other end. The venting chain is multiplied by an opModeFraction of exactly zero on this fixture (docs/evap-fvv.md 0.3), so its equations have no cell of MOVESOutput to be checked against; they are checked here instead, against values a reader can recompute by hand from 2.10's coefficients. Carries grams; declared unitless because these are empirical polynomials whose coefficients would need fractional inverse powers of it (docs/esm-conventions.md 11)."
+        },
+        "tvvT0a": {
+          "type": "parameter",
+          "units": "1",
+          "default": 1.25,
+          "description": "docs/evap-fvv.md 2.10, coefficient a of equation label T0."
+        },
+        "tvvT0b1": {
+          "type": "parameter",
+          "units": "1",
+          "default": -1.0,
+          "description": "docs/evap-fvv.md 2.10, coefficient b1 of equation label T0."
+        },
+        "tvvT0b0": {
+          "type": "parameter",
+          "units": "1",
+          "default": 85.0,
+          "description": "docs/evap-fvv.md 2.10, coefficient b0 of equation label T0."
+        },
+        "tvvT0c2": {
+          "type": "parameter",
+          "units": "1",
+          "default": -0.25,
+          "description": "docs/evap-fvv.md 2.10, coefficient c2 of equation label T0."
+        },
+        "tvvT0c1": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.2,
+          "description": "docs/evap-fvv.md 2.10, coefficient c1 of equation label T0."
+        },
+        "tvvT0c0": {
+          "type": "parameter",
+          "units": "1",
+          "default": 70.0,
+          "description": "docs/evap-fvv.md 2.10, coefficient c0 of equation label T0."
+        },
+        "tvvT2a": {
+          "type": "parameter",
+          "units": "1",
+          "default": 1.9,
+          "description": "docs/evap-fvv.md 2.10, coefficient a of equation label T2."
+        },
+        "tvvT2b1": {
+          "type": "parameter",
+          "units": "1",
+          "default": -1.34,
+          "description": "docs/evap-fvv.md 2.10, coefficient b1 of equation label T2."
+        },
+        "tvvT2b0": {
+          "type": "parameter",
+          "units": "1",
+          "default": 115.0,
+          "description": "docs/evap-fvv.md 2.10, coefficient b0 of equation label T2."
+        },
+        "tvvT2c2": {
+          "type": "parameter",
+          "units": "1",
+          "default": -0.125,
+          "description": "docs/evap-fvv.md 2.10, coefficient c2 of equation label T2."
+        },
+        "tvvT2c1": {
+          "type": "parameter",
+          "units": "1",
+          "default": 2.7,
+          "description": "docs/evap-fvv.md 2.10, coefficient c1 of equation label T2."
+        },
+        "tvvT2c0": {
+          "type": "parameter",
+          "units": "1",
+          "default": 23.0,
+          "description": "docs/evap-fvv.md 2.10, coefficient c0 of equation label T2."
+        },
+        "tvvT3Weight": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.8,
+          "description": "The blend weight of equation label T3: 0.8*T0_inner + 0.2*T2_inner."
+        },
+        "tvvL3Coefficient": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.524,
+          "description": "The coefficient of leak equation label L3, one of the two of the twelve that stmyTVVEquations uses on this snapshot."
+        },
+        "tvvTVGDaily": {
+          "type": "parameter",
+          "units": "1",
+          "default": 3.0,
+          "description": "A probe TVGdaily."
+        },
+        "tvvLeakFraction": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.625384011966,
+          "description": "stmyTVVEquations.leakFraction at (sourceType 21, modelYear 1980, fuel 1)."
+        },
+        "tvvRegClassFraction": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.953329286533,
+          "description": "stmyTVVEquations.regClassFractionOfSourceTypeModelYearFuel at the same row."
+        },
+        "adjTempFloored": {
+          "type": "unknown",
+          "units": "1",
+          "description": "docs/evap-fvv.md 2.10 and 2.13. Carries degrees Fahrenheit; declared unitless because these are empirical polynomials whose coefficients would need fractional inverse powers of it (docs/esm-conventions.md 11)."
+        },
+        "adjTempAdjustment": {
+          "type": "unknown",
+          "units": "1",
+          "description": "docs/evap-fvv.md 2.10 and 2.13."
+        },
+        "adjRvpTerm0": {
+          "type": "unknown",
+          "units": "1",
+          "description": "docs/evap-fvv.md 2.10 and 2.13."
+        },
+        "adjRvpTerm1": {
+          "type": "unknown",
+          "units": "1",
+          "description": "docs/evap-fvv.md 2.10 and 2.13."
+        },
+        "adjRvpTerm2": {
+          "type": "unknown",
+          "units": "1",
+          "description": "docs/evap-fvv.md 2.10 and 2.13."
+        },
+        "adjRvpTerm3": {
+          "type": "unknown",
+          "units": "1",
+          "description": "docs/evap-fvv.md 2.10 and 2.13."
+        },
+        "adjRvpAdjustment": {
+          "type": "unknown",
+          "units": "1",
+          "description": "docs/evap-fvv.md 2.10 and 2.13."
+        },
+        "adjOperatingAdjustment": {
+          "type": "unknown",
+          "units": "1",
+          "description": "docs/evap-fvv.md 2.10 and 2.13."
+        },
+        "adjE85RvpTerm0": {
+          "type": "unknown",
+          "units": "1",
+          "description": "docs/evap-fvv.md 2.10 and 2.13."
+        },
+        "adjE85RvpTerm1": {
+          "type": "unknown",
+          "units": "1",
+          "description": "docs/evap-fvv.md 2.10 and 2.13."
+        },
+        "adjE85RvpTerm2": {
+          "type": "unknown",
+          "units": "1",
+          "description": "docs/evap-fvv.md 2.10 and 2.13."
+        },
+        "adjE85RvpTerm3": {
+          "type": "unknown",
+          "units": "1",
+          "description": "docs/evap-fvv.md 2.10 and 2.13."
+        },
+        "adjE85RvpAdjustment": {
+          "type": "unknown",
+          "units": "1",
+          "description": "docs/evap-fvv.md 2.10 and 2.13."
+        },
+        "adjE85OperatingAdjustment": {
+          "type": "unknown",
+          "units": "1",
+          "description": "docs/evap-fvv.md 2.10 and 2.13."
+        },
+        "tvvInnerT0": {
+          "type": "unknown",
+          "units": "1",
+          "description": "docs/evap-fvv.md 2.10 and 2.13."
+        },
+        "tvvInnerT2": {
+          "type": "unknown",
+          "units": "1",
+          "description": "docs/evap-fvv.md 2.10 and 2.13."
+        },
+        "tvvEquationT0": {
+          "type": "unknown",
+          "units": "1",
+          "description": "docs/evap-fvv.md 2.10 and 2.13."
+        },
+        "tvvEquationT3": {
+          "type": "unknown",
+          "units": "1",
+          "description": "docs/evap-fvv.md 2.10 and 2.13."
+        },
+        "tvvLeakEquationL3": {
+          "type": "unknown",
+          "units": "1",
+          "description": "docs/evap-fvv.md 2.10 and 2.13."
+        },
+        "tvvCumulative": {
+          "type": "unknown",
+          "units": "1",
+          "description": "docs/evap-fvv.md 2.10 and 2.13."
+        },
+        "tvvCanisterLoadClamped": {
+          "type": "parameter",
+          "units": "1",
+          "default": 12.5,
+          "description": "A probe load at which both inner roots are NEGATIVE (-0.4649 and -0.3816), so tvv_blend's max(0, .) is what produces the answer. Without this control the clamp would be dead text in every assertion. Carries grams; declared unitless because these are empirical polynomials whose coefficients would need fractional inverse powers of it (docs/esm-conventions.md 11)."
+        },
+        "tvvInnerT0Clamped": {
+          "type": "unknown",
+          "units": "1",
+          "description": "docs/evap-fvv.md 2.10. The clamp's negative control."
+        },
+        "tvvInnerT2Clamped": {
+          "type": "unknown",
+          "units": "1",
+          "description": "docs/evap-fvv.md 2.10. The clamp's negative control."
+        },
+        "tvvEquationT3Clamped": {
+          "type": "unknown",
+          "units": "1",
+          "description": "docs/evap-fvv.md 2.10. The clamp's negative control."
+        }
+      },
+      "equations": [
+        {
+          "_comment": "TFG-1a and TFG-1d coincide here only because one formulation at share 1 makes the average ethanol volume equal the formulation's own. On a two-formulation supply they would differ, and the assertion below would not move.",
+          "lhs": "tfgKGasoline",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "tank_fuel_k_gasoline",
+            "bindings": {
+              "etoh_volume": "tfgEtohVolume"
+            }
+          }
+        },
+        {
+          "lhs": "tfgKEthanol",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "tank_fuel_k_ethanol",
+            "bindings": {
+              "etoh_volume": "tfgEtohVolume"
+            }
+          }
+        },
+        {
+          "lhs": "tfgGasPortionRVP",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "tank_fuel_gas_portion_rvp",
+            "bindings": {
+              "rvp": "tfgFormulationRVP",
+              "etoh_volume": "tfgEtohVolume",
+              "k_gasoline": "tfgKGasoline",
+              "k_ethanol": "tfgKEthanol"
+            }
+          }
+        },
+        {
+          "lhs": "tfgGasPortionRVPE85",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "tank_fuel_gas_portion_rvp",
+            "bindings": {
+              "rvp": "tfgFormulationRVPE85",
+              "etoh_volume": "tfgEtohVolume",
+              "k_gasoline": "tfgKGasoline",
+              "k_ethanol": "tfgKEthanol"
+            }
+          }
+        },
+        {
+          "_comment": "TFG-1b's denominator: the share sum over EVERY surviving row, including rows whose numerator operand is NULL. One row here.",
+          "lhs": "tfgShareSum",
+          "rhs": {
+            "op": "*",
+            "args": [
+              "tfgMarketShare",
+              "tfgYearMultiplicity"
+            ]
+          }
+        },
+        {
+          "lhs": "tfgLinearAverageRVP",
+          "rhs": {
+            "op": "/",
+            "args": [
+              {
+                "op": "*",
+                "args": [
+                  "tfgFormulationRVP",
+                  "tfgMarketShare",
+                  "tfgYearMultiplicity"
+                ]
+              },
+              "tfgShareSum"
+            ]
+          }
+        },
+        {
+          "lhs": "tfgAverageEtohVolume",
+          "rhs": {
+            "op": "/",
+            "args": [
+              {
+                "op": "*",
+                "args": [
+                  "tfgEtohVolume",
+                  "tfgMarketShare",
+                  "tfgYearMultiplicity"
+                ]
+              },
+              "tfgShareSum"
+            ]
+          }
+        },
+        {
+          "lhs": "tfgAverageGasPortionRVP",
+          "rhs": {
+            "op": "/",
+            "args": [
+              {
+                "op": "*",
+                "args": [
+                  "tfgGasPortionRVP",
+                  "tfgMarketShare",
+                  "tfgYearMultiplicity"
+                ]
+              },
+              "tfgShareSum"
+            ]
+          }
+        },
+        {
+          "_comment": "TFG-1e. Recombining the portion tfgGasPortionRVP stripped out must return the formulation's own RVP; the assertion checks exactly that round trip, which is what makes TFG-3b's ratio meaningful.",
+          "lhs": "tfgNoWeatheringReddyRVP",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "tank_fuel_reddy_rvp",
+            "bindings": {
+              "etoh_volume": "tfgAverageEtohVolume",
+              "gas_portion_rvp": "tfgAverageGasPortionRVP",
+              "k_gasoline": "tfgKGasoline",
+              "k_ethanol": "tfgKEthanol"
+            }
+          }
+        },
+        {
+          "lhs": "tfgCommingledRVP",
+          "rhs": {
+            "op": "*",
+            "args": [
+              "tfgLinearAverageRVP",
+              "tfgCommingleFactor"
+            ]
+          }
+        },
+        {
+          "lhs": "tfgZoneEvapTemp",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "tank_fuel_zone_evap_temp",
+            "bindings": {
+              "min_temperature": "tfgZoneMinTemperature",
+              "max_temperature": "tfgZoneMaxTemperature"
+            }
+          }
+        },
+        {
+          "_comment": "The SAME expression as tank_fuel_rvp_loss_ratio WITHOUT its max(0, .). Carried only so the clamp has a negative control: if the two were equal the clamp would be untested, and on this fixture the clamp is the one part of TFG that is load-bearing (docs/evap-fvv.md 2.5).",
+          "lhs": "tfgRVPLossRatioUnclamped",
+          "rhs": {
+            "op": "/",
+            "args": [
+              {
+                "op": "+",
+                "args": [
+                  -2.4908,
+                  {
+                    "op": "*",
+                    "args": [
+                      0.026196,
+                      "tfgZoneEvapTemp"
+                    ]
+                  },
+                  {
+                    "op": "*",
+                    "args": [
+                      0.00076898,
+                      "tfgZoneEvapTemp",
+                      "tfgAverageGasPortionRVP"
+                    ]
+                  }
+                ]
+              },
+              {
+                "op": "+",
+                "args": [
+                  -0.086,
+                  {
+                    "op": "*",
+                    "args": [
+                      0.070592,
+                      "tfgAverageGasPortionRVP"
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "lhs": "tfgRVPLossRatio",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "tank_fuel_rvp_loss_ratio",
+            "bindings": {
+              "zone_evap_temp": "tfgZoneEvapTemp",
+              "gas_portion_rvp": "tfgAverageGasPortionRVP"
+            }
+          }
+        },
+        {
+          "lhs": "tfgWeatheredGasPortionRVP",
+          "rhs": {
+            "op": "*",
+            "args": [
+              "tfgAverageGasPortionRVP",
+              {
+                "op": "-",
+                "args": [
+                  1.0,
+                  {
+                    "op": "*",
+                    "args": [
+                      "tfgRVPLossRatio",
+                      0.049
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "lhs": "tfgWeatheredReddyRVP",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "tank_fuel_reddy_rvp",
+            "bindings": {
+              "etoh_volume": "tfgAverageEtohVolume",
+              "gas_portion_rvp": "tfgWeatheredGasPortionRVP",
+              "k_gasoline": "tfgKGasoline",
+              "k_ethanol": "tfgKEthanol"
+            }
+          }
+        },
+        {
+          "_comment": "TFG-3b. averageTankGasoline.RVP for fuel type 1. This is the number the whole component exists to produce: docs/evap-fvv.md 0.3 measures that perturbing it by +2 moves the fixture's total from 558.97 g to 612.56 g, while perturbing anything in the venting chain moves nothing at all.",
+          "lhs": "tfgRVP",
+          "rhs": {
+            "op": "/",
+            "args": [
+              {
+                "op": "*",
+                "args": [
+                  "tfgWeatheredReddyRVP",
+                  "tfgCommingledRVP"
+                ]
+              },
+              "tfgNoWeatheringReddyRVP"
+            ]
+          }
+        },
+        {
+          "lhs": "tfgAverageGasPortionRVPE85",
+          "rhs": {
+            "op": "/",
+            "args": [
+              {
+                "op": "*",
+                "args": [
+                  "tfgGasPortionRVPE85",
+                  "tfgMarketShare",
+                  "tfgYearMultiplicity"
+                ]
+              },
+              "tfgShareSum"
+            ]
+          }
+        },
+        {
+          "lhs": "tfgNoWeatheringReddyRVPE85",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "tank_fuel_reddy_rvp",
+            "bindings": {
+              "etoh_volume": "tfgAverageEtohVolume",
+              "gas_portion_rvp": "tfgAverageGasPortionRVPE85",
+              "k_gasoline": "tfgKGasoline",
+              "k_ethanol": "tfgKEthanol"
+            }
+          }
+        },
+        {
+          "lhs": "tfgRVPLossRatioE85",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "tank_fuel_rvp_loss_ratio",
+            "bindings": {
+              "zone_evap_temp": "tfgZoneEvapTemp",
+              "gas_portion_rvp": "tfgAverageGasPortionRVPE85"
+            }
+          }
+        },
+        {
+          "lhs": "tfgWeatheredReddyRVPE85",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "tank_fuel_reddy_rvp",
+            "bindings": {
+              "etoh_volume": "tfgAverageEtohVolume",
+              "gas_portion_rvp": {
+                "op": "*",
+                "args": [
+                  "tfgAverageGasPortionRVPE85",
+                  {
+                    "op": "-",
+                    "args": [
+                      1.0,
+                      {
+                        "op": "*",
+                        "args": [
+                          "tfgRVPLossRatioE85",
+                          0.049
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              "k_gasoline": "tfgKGasoline",
+              "k_ethanol": "tfgKEthanol"
+            }
+          }
+        },
+        {
+          "lhs": "tfgRVPE85",
+          "rhs": {
+            "op": "/",
+            "args": [
+              {
+                "op": "*",
+                "args": [
+                  "tfgWeatheredReddyRVPE85",
+                  {
+                    "op": "*",
+                    "args": [
+                      "tfgFormulationRVPE85",
+                      "tfgCommingleFactor"
+                    ]
+                  }
+                ]
+              },
+              "tfgNoWeatheringReddyRVPE85"
+            ]
+          }
+        },
+        {
+          "_comment": "TVV-8 floors the temperature at 40 degF for the tempAdjustment polynomial but NOT for the rvpAdjustment one, which instead takes the value 1 below 40. Two different treatments of the same threshold, and this fixture is at 59.5 degF so it exercises neither guard.",
+          "lhs": "adjTempFloored",
+          "rhs": {
+            "op": "max",
+            "args": [
+              "adjTemperature",
+              40.0
+            ]
+          }
+        },
+        {
+          "lhs": "adjTempAdjustment",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "cubic_in",
+            "bindings": {
+              "term3": "etaTerm3",
+              "term2": "etaTerm2",
+              "term1": "etaTerm1",
+              "constant": "etaConstant",
+              "x": "adjTempFloored"
+            }
+          }
+        },
+        {
+          "lhs": "adjRvpTerm0",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "knot_interpolate",
+            "bindings": {
+              "low_value": "knotLowTerm3",
+              "high_value": "knotHighTerm3",
+              "low_knot": "knotLowRVP",
+              "high_knot": "knotHighRVP",
+              "x": "tfgRVP"
+            }
+          }
+        },
+        {
+          "lhs": "adjRvpTerm1",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "knot_interpolate",
+            "bindings": {
+              "low_value": "knotLowTerm2",
+              "high_value": "knotHighTerm2",
+              "low_knot": "knotLowRVP",
+              "high_knot": "knotHighRVP",
+              "x": "tfgRVP"
+            }
+          }
+        },
+        {
+          "lhs": "adjRvpTerm2",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "knot_interpolate",
+            "bindings": {
+              "low_value": "knotLowTerm1",
+              "high_value": "knotHighTerm1",
+              "low_knot": "knotLowRVP",
+              "high_knot": "knotHighRVP",
+              "x": "tfgRVP"
+            }
+          }
+        },
+        {
+          "lhs": "adjRvpTerm3",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "knot_interpolate",
+            "bindings": {
+              "low_value": "knotLowConstant",
+              "high_value": "knotHighConstant",
+              "low_knot": "knotLowRVP",
+              "high_knot": "knotHighRVP",
+              "x": "tfgRVP"
+            }
+          }
+        },
+        {
+          "_comment": "The SECOND call site of cubic_in, with different coefficients and a different argument. That there are two is what makes cubic_in a template rather than an inlined polynomial.",
+          "lhs": "adjRvpAdjustment",
+          "rhs": {
+            "op": "ifelse",
+            "args": [
+              {
+                "op": ">=",
+                "args": [
+                  "adjTemperature",
+                  40.0
+                ]
+              },
+              {
+                "op": "apply_expression_template",
+                "args": [],
+                "name": "cubic_in",
+                "bindings": {
+                  "term3": "adjRvpTerm0",
+                  "term2": "adjRvpTerm1",
+                  "term1": "adjRvpTerm2",
+                  "constant": "adjRvpTerm3",
+                  "x": "adjTemperature"
+                }
+              },
+              1.0
+            ]
+          }
+        },
+        {
+          "_comment": "TVV-8's adjustment for operating mode 300, fuel type 1. docs/evap-fvv.md 7.2: dropping it -- which is what a port that skipped TankFuelGenerator gets -- lands the fixture 2.79 per cent high.",
+          "lhs": "adjOperatingAdjustment",
+          "rhs": {
+            "op": "*",
+            "args": [
+              "adjTempAdjustment",
+              "adjRvpAdjustment"
+            ]
+          }
+        },
+        {
+          "lhs": "adjE85RvpTerm0",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "knot_interpolate",
+            "bindings": {
+              "low_value": "knotE85LowTerm3",
+              "high_value": "knotLowTerm3",
+              "low_knot": "knotE85LowRVP",
+              "high_knot": "knotE85HighRVP",
+              "x": "tfgRVPE85"
+            }
+          }
+        },
+        {
+          "lhs": "adjE85RvpTerm1",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "knot_interpolate",
+            "bindings": {
+              "low_value": "knotE85LowTerm2",
+              "high_value": "knotLowTerm2",
+              "low_knot": "knotE85LowRVP",
+              "high_knot": "knotE85HighRVP",
+              "x": "tfgRVPE85"
+            }
+          }
+        },
+        {
+          "lhs": "adjE85RvpTerm2",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "knot_interpolate",
+            "bindings": {
+              "low_value": "knotE85LowTerm1",
+              "high_value": "knotLowTerm1",
+              "low_knot": "knotE85LowRVP",
+              "high_knot": "knotE85HighRVP",
+              "x": "tfgRVPE85"
+            }
+          }
+        },
+        {
+          "lhs": "adjE85RvpTerm3",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "knot_interpolate",
+            "bindings": {
+              "low_value": "knotE85LowConstant",
+              "high_value": "knotLowConstant",
+              "low_knot": "knotE85LowRVP",
+              "high_knot": "knotE85HighRVP",
+              "x": "tfgRVPE85"
+            }
+          }
+        },
+        {
+          "lhs": "adjE85RvpAdjustment",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "cubic_in",
+            "bindings": {
+              "term3": "adjE85RvpTerm0",
+              "term2": "adjE85RvpTerm1",
+              "term1": "adjE85RvpTerm2",
+              "constant": "adjE85RvpTerm3",
+              "x": "adjTemperature"
+            }
+          }
+        },
+        {
+          "lhs": "adjE85OperatingAdjustment",
+          "rhs": {
+            "op": "*",
+            "args": [
+              "adjTempAdjustment",
+              "adjE85RvpAdjustment"
+            ]
+          }
+        },
+        {
+          "lhs": "tvvInnerT0",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "tvv_quadratic_root",
+            "bindings": {
+              "canister_load": "tvvCanisterLoad",
+              "a": "tvvT0a",
+              "b1": "tvvT0b1",
+              "b0": "tvvT0b0",
+              "c2": "tvvT0c2",
+              "c1": "tvvT0c1",
+              "c0": "tvvT0c0"
+            }
+          }
+        },
+        {
+          "lhs": "tvvInnerT2",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "tvv_quadratic_root",
+            "bindings": {
+              "canister_load": "tvvCanisterLoad",
+              "a": "tvvT2a",
+              "b1": "tvvT2b1",
+              "b0": "tvvT2b0",
+              "c2": "tvvT2c2",
+              "c1": "tvvT2c1",
+              "c0": "tvvT2c0"
+            }
+          }
+        },
+        {
+          "_comment": "T0, T1 and T2 are the DEGENERATE weight = 1 case of the blend, which is why one template covers all six labels (docs/evap-fvv.md 2.10, Form 2).",
+          "lhs": "tvvEquationT0",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "tvv_blend",
+            "bindings": {
+              "inner_p": "tvvInnerT0",
+              "inner_q": "tvvInnerT0",
+              "weight": 1.0
+            }
+          }
+        },
+        {
+          "lhs": "tvvInnerT2Clamped",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "tvv_quadratic_root",
+            "bindings": {
+              "canister_load": "tvvCanisterLoadClamped",
+              "a": "tvvT2a",
+              "b1": "tvvT2b1",
+              "b0": "tvvT2b0",
+              "c2": "tvvT2c2",
+              "c1": "tvvT2c1",
+              "c0": "tvvT2c0"
+            }
+          }
+        },
+        {
+          "lhs": "tvvInnerT0Clamped",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "tvv_quadratic_root",
+            "bindings": {
+              "canister_load": "tvvCanisterLoadClamped",
+              "a": "tvvT0a",
+              "b1": "tvvT0b1",
+              "b0": "tvvT0b0",
+              "c2": "tvvT0c2",
+              "c1": "tvvT0c1",
+              "c0": "tvvT0c0"
+            }
+          }
+        },
+        {
+          "lhs": "tvvEquationT3",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "tvv_blend",
+            "bindings": {
+              "inner_p": "tvvInnerT0",
+              "inner_q": "tvvInnerT2",
+              "weight": "tvvT3Weight"
+            }
+          }
+        },
+        {
+          "_comment": "The negative control for tvv_blend's clamp: the same expression at a load where both inner roots are negative. 0.8*(-0.4649) + 0.2*(-0.3816) is -0.4483, and the assertion expects 0.",
+          "lhs": "tvvEquationT3Clamped",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "tvv_blend",
+            "bindings": {
+              "inner_p": "tvvInnerT0Clamped",
+              "inner_q": "tvvInnerT2Clamped",
+              "weight": "tvvT3Weight"
+            }
+          }
+        },
+        {
+          "lhs": "tvvLeakEquationL3",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "tvv_leak_linear",
+            "bindings": {
+              "coefficient": "tvvL3Coefficient",
+              "tvg_daily": "tvvTVGDaily"
+            }
+          }
+        },
+        {
+          "lhs": "tvvCumulative",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "tvv_cumulative_vented",
+            "bindings": {
+              "reg_class_fraction": "tvvRegClassFraction",
+              "leak_fraction": "tvvLeakFraction",
+              "tvv_equation": "tvvEquationT0",
+              "leak_equation": "tvvLeakEquationL3"
+            }
+          }
+        }
+      ],
+      "tests": [
+        {
+          "id": "tfg_strips_and_recombines_the_ethanol_term_exactly",
+          "description": "TFG-1a's gasPortionRVP removes the ethanol contribution from a formulation's RVP and TFG-1e's Reddy recombination puts it back. tfgNoWeatheringReddyRVP must therefore return the formulation's own 8.0 psi EXACTLY, and 7.7 for E85. That round trip is the only thing making TFG-3b's final ratio (weathered Reddy x commingled / unweathered Reddy) a rescaling rather than a rescrambling. What breaks if this is wrong: kGasoline and kEthanol are evaluated at the AVERAGE ethanol volume in TFG-1d and at the FORMULATION's in TFG-1a; on this fixture the two coincide because there is one formulation at market share 1, so a port that used the wrong one would pass here and fail on any multi-formulation supply (docs/evap-fvv.md 8.1).",
+          "time_span": {
+            "start": 0.0,
+            "end": 0.0
+          },
+          "assertions": [
+            {
+              "variable": "tfgKGasoline",
+              "time": 0.0,
+              "expected": 1.0433
+            },
+            {
+              "variable": "tfgKEthanol",
+              "time": 0.0,
+              "expected": 6.66159041209328
+            },
+            {
+              "variable": "tfgGasPortionRVP",
+              "time": 0.0,
+              "expected": 6.888222419479373
+            },
+            {
+              "variable": "tfgGasPortionRVPE85",
+              "time": 0.0,
+              "expected": 6.568723393951401
+            },
+            {
+              "variable": "tfgNoWeatheringReddyRVP",
+              "time": 0.0,
+              "expected": 8.0
+            },
+            {
+              "variable": "tfgNoWeatheringReddyRVPE85",
+              "time": 0.0,
+              "expected": 7.7
+            }
+          ]
+        },
+        {
+          "id": "tfg_weathering_is_clamped_off_and_the_clamp_is_what_decides_the_answer",
+          "description": "TFG-2a puts zone 261610 at 78.344292 degF, and at that temperature TFG-2c's ratio is NEGATIVE (-0.058739) for both fuel types. tank_fuel_rvp_loss_ratio's max(0, .) is therefore the operative step: it turns -0.0587 into 0, the gasoline portion passes through unweathered, and averageTankGasoline.RVP comes out at exactly the supplied formulations' 8.0 and 7.7. tfgRVPLossRatioUnclamped is the same expression WITHOUT the clamp and is asserted at the negative value, so the clamp is checked from both sides rather than being an untested guard. What breaks if this is wrong: dropping the clamp weathers the RVP by 0.049 x -0.0587, RVP rises to about 8.02, and docs/evap-fvv.md 7.2 shows the fixture's total moves with it.",
+          "time_span": {
+            "start": 0.0,
+            "end": 0.0
+          },
+          "assertions": [
+            {
+              "variable": "tfgZoneEvapTemp",
+              "time": 0.0,
+              "expected": 78.34429184515731
+            },
+            {
+              "variable": "tfgRVPLossRatioUnclamped",
+              "time": 0.0,
+              "expected": -0.05873938402269431
+            },
+            {
+              "variable": "tfgRVPLossRatio",
+              "time": 0.0,
+              "expected": 0.0
+            },
+            {
+              "variable": "tfgWeatheredGasPortionRVP",
+              "time": 0.0,
+              "expected": 6.888222419479373
+            },
+            {
+              "variable": "tfgRVP",
+              "time": 0.0,
+              "expected": 8.0
+            },
+            {
+              "variable": "tfgRVPE85",
+              "time": 0.0,
+              "expected": 7.700000000000001
+            }
+          ]
+        },
+        {
+          "id": "tvv8_adjustment_is_two_cubics_and_the_second_needs_the_generated_rvp",
+          "description": "TVV-8's operating-mode adjustment is evapTemperatureAdjustment's cubic in max(T, 40) TIMES the cubic whose coefficients are evapRVPTemperatureAdjustment's four terms interpolated at averageTankGasoline.RVP. At RVP 8.0 the interpolation sits exactly ON the RVP-8 knot, so adjRvpTerm0..3 reproduce that knot's terms unchanged -- which is the check that knot_interpolate's bracket selection picked the right pair. The product 0.691871 is the factor docs/evap-fvv.md 7.2 measures: omit it and the fixture lands 2.79 per cent high, uniformly within each fuel type. What breaks if this is wrong: nothing else in this calculator reads averageTankGasoline on a path that reaches MOVESOutput (0.3), so getting this wrong is the only way TankFuelGenerator can corrupt the answer -- and the only way it can be seen to matter.",
+          "time_span": {
+            "start": 0.0,
+            "end": 0.0
+          },
+          "assertions": [
+            {
+              "variable": "adjTempFloored",
+              "time": 0.0,
+              "expected": 59.5
+            },
+            {
+              "variable": "adjTempAdjustment",
+              "time": 0.0,
+              "expected": 0.7111547353908751
+            },
+            {
+              "variable": "adjRvpTerm0",
+              "time": 0.0,
+              "expected": -9.18358e-07
+            },
+            {
+              "variable": "adjRvpTerm1",
+              "time": 0.0,
+              "expected": 0.0001588737
+            },
+            {
+              "variable": "adjRvpTerm2",
+              "time": 0.0,
+              "expected": -0.01018146
+            },
+            {
+              "variable": "adjRvpTerm3",
+              "time": 0.0,
+              "expected": 1.209675
+            },
+            {
+              "variable": "adjRvpAdjustment",
+              "time": 0.0,
+              "expected": 0.97288334030975
+            },
+            {
+              "variable": "adjOperatingAdjustment",
+              "time": 0.0,
+              "expected": 0.691870594444171
+            }
+          ]
+        },
+        {
+          "id": "the_two_fuel_types_bracket_different_rvp_knots",
+          "description": "Fuel 1 at RVP 8.0 brackets knots 8 and 9; fuel 5 at RVP 7.7 brackets knots 7 and 8. The two adjustments differ in the third significant figure (0.691871 against 0.686534), and worked example C of docs/evap-fvv.md 6.3 is the only cell class in the fixture that separates them. What breaks if this is wrong: a port that interpolated both fuel types against one knot pair would be 0.8 per cent wrong on the 46 E85 cells and exactly right on the 82 gasoline ones, which is the shape of error a per-cell tolerance catches and a total does not.",
+          "time_span": {
+            "start": 0.0,
+            "end": 0.0
+          },
+          "assertions": [
+            {
+              "variable": "adjE85RvpTerm0",
+              "time": 0.0,
+              "expected": -1.1055177999999994e-06
+            },
+            {
+              "variable": "adjE85RvpTerm1",
+              "time": 0.0,
+              "expected": 0.00019314800999999988
+            },
+            {
+              "variable": "adjE85RvpTerm2",
+              "time": 0.0,
+              "expected": -0.01259624099999999
+            },
+            {
+              "variable": "adjE85RvpTerm3",
+              "time": 0.0,
+              "expected": 1.2639348
+            },
+            {
+              "variable": "adjE85RvpAdjustment",
+              "time": 0.0,
+              "expected": 0.9653790441112251
+            },
+            {
+              "variable": "adjE85OperatingAdjustment",
+              "time": 0.0,
+              "expected": 0.6865338786668143
+            }
+          ]
+        },
+        {
+          "id": "tvv5_is_two_forms_and_eighteen_coefficient_rows",
+          "description": "MOVES stores TVV-5's venting equations as VARCHAR in cumTVVCoeffs, and the execution database carries them already rewritten to eighteen labels T0..T5 and L0..L11 with no expression anywhere (docs/evap-fvv.md 2.10). Factored, they are TWO forms: a quadratic root and a convex blend of two of them, plus one linear leak term. This test evaluates the blend at a load where both roots are POSITIVE and differ (11.1396 and 2.8885, so the 0.8/0.2 weight is discriminating) and, in tvvEquationT3Clamped, at a load where both are negative, so max(0, .) is what returns the answer. T0 is asserted through the SAME template at weight 1, which is the claim that one expression covers all six labels. What breaks if this is wrong: nothing in MOVESOutput -- 0.3 measures that doubling this equation leaves all 128 cells bit-identical -- which is exactly why it has to be checked here.",
+          "time_span": {
+            "start": 0.0,
+            "end": 0.0
+          },
+          "assertions": [
+            {
+              "variable": "tvvInnerT0",
+              "time": 0.0,
+              "expected": 11.13961017995307
+            },
+            {
+              "variable": "tvvInnerT2",
+              "time": 0.0,
+              "expected": 2.8884911612775226
+            },
+            {
+              "variable": "tvvEquationT0",
+              "time": 0.0,
+              "expected": 11.13961017995307
+            },
+            {
+              "variable": "tvvEquationT3",
+              "time": 0.0,
+              "expected": 9.489386376217961
+            },
+            {
+              "variable": "tvvInnerT0Clamped",
+              "time": 0.0,
+              "expected": -0.46493385323944947
+            },
+            {
+              "variable": "tvvInnerT2Clamped",
+              "time": 0.0,
+              "expected": -0.381633318892302
+            },
+            {
+              "variable": "tvvEquationT3Clamped",
+              "time": 0.0,
+              "expected": 0.0
+            },
+            {
+              "variable": "tvvLeakEquationL3",
+              "time": 0.0,
+              "expected": 1.572
+            },
+            {
+              "variable": "tvvCumulative",
+              "time": 0.0,
+              "expected": 4.915537153425309
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

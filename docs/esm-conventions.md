@@ -1671,6 +1671,74 @@ point axis without naming it in `output_idx` sums six points into one number and
 returns a plausible answer. When an axis grows from one member to six, every
 aggregate that mentions it has to be re-read for that.
 
+## 23. Measure whether the fixture can SEE a stage before you check it there **[three slices]**
+
+`process-evap-permeation` established that a stage multiplied by an
+`opModeFraction` of exactly zero cannot be checked at the fixture, because the
+check would pass with the stage deleted. `process-evap-fvv` is the second
+instance, and the second instance is what makes it a rule rather than an
+anecdote — the whole venting half of the largest calculator in MOVES, nine
+steps and a soak-day recurrence, is zero-weighted there.
+
+**The rule: before writing a fixture assertion on a stage, perturb one of that
+stage's inputs and compare every output cell BIT FOR BIT against the
+unperturbed run.** Not "within tolerance" — identical bytes. If the cells do not
+move, the assertion you were about to write is decoration, and three things
+follow:
+
+1. **The check belongs in a component**, at probe values chosen so that each
+   part of the expression is discriminating. A blend weight tested where both
+   branches clamp to zero is as dead as the fixture assertion would have been;
+   `components/tank_fuel_venting.esm` carries a canister load where both inner
+   roots are positive and differ, *and* a second one where both are negative so
+   the clamp is what returns the answer.
+2. **The measurement belongs in the specification**, as a table of perturbations
+   with their worst-cell effect, so the next reader does not re-derive it. See
+   `docs/evap-fvv.md` §0.3.
+3. **The fixture says what it does not contain, and why.** A fixture whose
+   metadata is silent about an absent check reads exactly like one where the
+   check passed.
+
+The corollary is the one that saves the most time: **a zero WEIGHT and a zero
+RATE are different failures, and only one of them is a bug.** So the oracle
+asserts *both* that the zero-weighted chain produced non-zero numbers and that
+they contributed nothing. Without the first assertion the second is vacuous —
+a chain that computes nothing at all would also "contribute nothing", and would
+look identical in the log.
+
+## 24. Factor the FORM from the COEFFICIENTS when the reference packs them together **[2,188 rows → 2 forms]**
+
+MOVES stores `MultidayTankVaporVentingCalculator`'s venting equations in a
+`VARCHAR` column of `cumTVVCoeffs`, 2,188 rows of it. It is tempting to read
+that as a special case — "an expression that arrived as data" — and to reach for
+either a hand-translation or a finding. Both are wrong. Those strings are
+equations that an engine evaluates, which is the same category of thing an
+`.esm` expression is; that MOVES keeps them in a table rather than in source is
+an implementation detail with no semantic weight, and they get ported like any
+other model logic.
+
+**What porting them means, though, is factoring.** MOVES packs the structural
+form and the numeric coefficients into one string. The port must not:
+
+* the **forms** become `expression_templates` in `lib/`, spelled once and
+  imported by reference;
+* the **coefficients** stay data.
+
+Done that way, `cumTVVCoeffs`'s eighteen distinct equation labels are **two
+forms** — a quadratic root, and a convex blend of two of them, of which the
+unblended labels are the degenerate weight-1 case — plus one linear leak term,
+and eighteen coefficient rows. 2,188 rows of table remain 2,188 rows of table.
+The size of the set changes how many coefficient rows there are; it never
+changes what the right answer is, and volume alone is not a finding.
+
+**Say where the coefficient table came from when the snapshot does not contain
+it.** This one does not: MOVES's Java rewrites the expressions into sequential
+abbreviations (`T0`…`T5`, `L0`…`L11`) in the execution database before a
+snapshot is taken, so what is captured is eighteen labels and no expression
+anywhere. The expansion lives in the MOVES *default* database. Recording that in
+the specification (`docs/evap-fvv.md` §2.10) rather than burying it in a
+component is what lets a later reader check the numbers against a default
+database instead of against us.
 ## 25. In a multi-clause `join`, the FIRST clause is the one that costs **[measured, F17]**
 
 **The rule.** When an `aggregate` carries more than one `on` clause, write the

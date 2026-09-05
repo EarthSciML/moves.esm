@@ -296,12 +296,12 @@ it does.
 ## Status
 
 **Phases 0–2 are complete, Phase 3 has its specification and four components,
-and Phase 4 has its first slice — wired, and complete.** Nineteen components
+and Phase 4 has two slices — both wired, and both complete.** Twenty components
 cover all seven NONROAD stages of `nr-logging-county`, four of the six onroad
-stages of `mixed-onroad`, and all of `process-evap-leaks`, with **1,069 distinct
-inline assertions** whose numbers each trace to a named section of a port
-specification — 575 in the components, 74 in the assemblies, 416 in the two
-wired fixtures and 4 in the gates.
+stages of `mixed-onroad`, and all of `process-evap-leaks` and
+`process-evap-fvv`, with **1,228 distinct inline assertions** whose numbers each
+trace to a named section of a port specification — 610 in the components, 74 in
+the assemblies, 540 in the three wired fixtures and 4 in the gates.
 
 **`process-evap-leaks` was the first fixture with no shortfall at all**: 128 of
 128 rows against the snapshot `MOVESOutput`, key set exact — 128 shared, 0
@@ -309,7 +309,31 @@ missing, 0 extra, verified against the Parquet directly on all 20 identity
 columns — worst cell 7.294 × 10⁻⁶ against a 2 × 10⁻⁵ gate that was not
 widened, and 0 cells over it. Its oracle reads *nothing* from the reference.
 
-Choosing that slice corrected this plan. `PLAN.md` had said Phase 4's cheapest
+**`process-evap-fvv` is the second, and it corrected the choice of the third.**
+128 of 128 rows, key set exact, worst cell 7.495 × 10⁻⁶ against the same
+un-widened 2 × 10⁻⁵ gate, and its oracle also reads *nothing* from the
+reference — where `./run-permeation-oracle.sh` has to read 192
+`AverageTankTemperature` cells. It adds `TankFuelGenerator`, whose
+`AverageTankGasoline` is captured **empty** in all three evaporative snapshots
+and therefore has to be computed rather than read.
+
+What it establishes is mostly negative and is the more useful half.
+`docs/evap-permeation.md` §0.3 had argued FVV would be the slice that finally
+exercised a recurrence on the fixture path, because
+`MultidayTankVaporVentingCalculator` reads `ColdSoakTankTemperature` directly.
+It does — and the whole venting half of that calculator lands in operating mode
+151, whose `opModeFraction` is exactly 0 here as it was there. Measured by
+computing the venting chain in full and then perturbing it: 2,688 non-zero
+cold-soak base rates, and **all 128 output cells bit-identical** under a +50 °F
+perturbation of `ColdSoakTankTemperature`, a doubling of the venting equation,
+a tripling of the soak recurrence's carry and a ×7 of the cold-soak fraction.
+The mechanism is structural — `fractionOfOperating` is identically 1 at an
+on-network link, so `1 − fractionOfOperating` zeroes every soak mode — so **no
+evaporative process would have answered the recurrence question**; a run
+selecting road type 1 would. `docs/evap-fvv.md` §8.3 says so, and
+`docs/esm-conventions.md` §23 is the rule that came out of it.
+
+Choosing the leaks slice corrected this plan. `PLAN.md` had said Phase 4's cheapest
 slice was start exhaust, because its operating-mode distribution is in the
 snapshot. Measured across all 39 snapshots, `MOVESOutput` contains **zero rows
 with `processID` 2** — every onroad fixture selects road type 4 and

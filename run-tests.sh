@@ -147,6 +147,24 @@ else
   printf '%s\n' "$out"
 fi
 
+# Every `data_sources` entry is checked against the parquet it names: that the
+# file exists, that every `float_columns` entry is really a column, that none is
+# already a float, and that no projected decimal-text column was left out. This
+# stage is NEW, and adding it is how the checker's own bug was found: it
+# resolved a relative `url_template` against the process working directory
+# instead of the declaring document's directory, so it reported 64 false
+# "file does not exist" failures against two fixtures that ingest those very
+# files on every run. That is findings F7 and F15 again -- a CWD-anchored path
+# -- in the tool this repository wrote to catch data-source mistakes, and it
+# went unnoticed for exactly one reason: nothing ran it.
+head2 "data sources"
+if out=$(python3 tools/check-sources.py 2>&1); then
+  printf '%s\n' "$out"
+else
+  fail "data sources"
+  printf '%s\n' "$out"
+fi
+
 # --- 3. inline tests ------------------------------------------------------
 #
 # `esm test` searches a directory recursively and prints its own per-test
@@ -653,7 +671,7 @@ if [[ ! -d "$SNAPSHOTS" ]]; then
 else
   ORACLES=("./run-oracle.sh" "./run-oracle.sh --float64"
            "./run-onroad-oracle.sh" "./run-leaks-oracle.sh"
-           "./run-permeation-oracle.sh")
+           "./run-permeation-oracle.sh" "./run-fvv-oracle.sh")
   for oracle in "${ORACLES[@]}"; do
     if [[ ! -x "${oracle%% *}" ]]; then
       fail "oracle ${oracle} — not executable"

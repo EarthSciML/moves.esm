@@ -152,13 +152,29 @@ Three consequences, and they are the useful output of this slice:
    with the recurrence deleted. That is finding F24's lesson arriving from the
    other direction — there the clamp laundered the sentinel, here a zero weight
    would have.
-2. **`process-evap-fvv` is the better next slice, not the equal one.**
+2. **`process-evap-fvv` is the better next slice, not the equal one — and
+   this was WRONG, corrected here after measurement.**
    `MultidayTankVaporVentingCalculator` TVV-2 and TVV-3 read
    `ColdSoakTankTemperature` *directly* — TVV-3's tank vapour generated is
    `tankSize·(1 − fill)·tvgTermA·exp(tvgTermB·RVP)·(exp(tvgTermC·t2) −
    exp(tvgTermC·t1))` with `t1`, `t2` the cold-soak tank temperatures of two
-   hours — so TTG-1 is numerically load-bearing there and is not here. What FVV
-   needs in addition is §8.2.
+   hours — so TTG-1 is numerically load-bearing there in a way it is not here.
+   **The conclusion does not follow.** TVV-8 fills `WeightedMeanBaseRate` from
+   two disjoint inserts, and everything downstream of `ColdSoakTankTemperature`
+   lands in the cold-soak one, which writes operating mode **151** — carrying
+   the same `opModeFraction` of exactly zero as here, and for the same reason.
+   `docs/evap-fvv.md` §0.3 computes the whole venting chain and measures it:
+   2,688 non-zero cold-soak base rates, the largest 0.42 g/h, and all 128
+   output cells **bit-identical** under a +50 °F perturbation of
+   `ColdSoakTankTemperature`, a doubling of TVV-5's equation, a tripling of the
+   soak recurrence's carry and a ×7 of TTG-7's fraction.
+
+   The mechanism is structural, not particular to a process: E2 weights every
+   soak mode by `1 − fractionOfOperating`, and `fractionOfOperating` is
+   identically 1 at an **on-network** link because A10 sets `SourceHours = SHO`
+   there. All three evaporative snapshots have one link, on road type 4. So no
+   evaporative process would have answered the recurrence question; a run
+   selecting road type 1 would. `docs/evap-fvv.md` §8.3 states that.
 3. **PLAN.md's screening is corrected in place**, not footnoted.
 
 ---
@@ -823,6 +839,26 @@ should carry its bill with it:
   in `cumTVVCoeffs` (2,188 rows, present in the snapshot). The soak-day
   recurrence itself is an ordinary index-axis fold over soaking days 1, 2, 3…
   and needs nothing F12 did not deliver.
+
+**§8.2 is corrected by `docs/evap-fvv.md`, which did the work.** Three
+statements above did not survive contact with the snapshot:
+
+* **`TankFuelGenerator`'s `AverageTankGasoline` is needed, but not by TVV-3.**
+  Its RVP does reach TVV-3, and TVV-3 is zero-weighted. The place it is
+  load-bearing is TVV-8's temperature / RVP adjustment on operating mode 300,
+  which is on the *other* side of the calculator; omitting it is a 2.79 %
+  error. See `docs/evap-fvv.md` §2.5 and §2.13.
+* **TTG-7 "cannot be reached past" is true and does not matter.** It is
+  computed forward through TVV-7 from the captured 534-row table, and
+  multiplying it by 7 changes nothing at all.
+* **TVV-5 does not evaluate strings.** The MOVES *default* database stores SQL
+  expressions there, but `alterReplacementsAndSections` rewrites them in the
+  *execution* database as sequential abbreviations before the snapshot is
+  taken, so `cumTVVCoeffs` here holds exactly six `tvvEquation` labels
+  (`T0`…`T5`) and twelve `leakEquation` labels (`L0`…`L11`) and no expression
+  anywhere. Factored, those eighteen are **two forms and eighteen coefficient
+  rows**; `docs/evap-fvv.md` §2.10 carries both tables and
+  `lib/evaporative.esm` carries the forms.
 
 So FVV is one further generator (`TankFuelGenerator`), one F28-shaped step
 (TTG-7) and the largest calculator SQL file in MOVES. It is the next slice; it
