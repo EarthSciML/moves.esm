@@ -1,20 +1,24 @@
 # Findings: conventions the format or the toolchain could not express
 
 Twenty-eight things PLAN.md §3 Phase 1 through Phase 4 assumed, or that an author would
-reasonably assume, that did not hold. **Thirteen are fixed upstream and retired**
+reasonably assume, that did not hold. **Fifteen are fixed upstream and retired**
 from the tripwire, listed at the bottom with their sections kept above so the
 workarounds they forced can be traced. The rest still hold at the pinned
-toolchain (`esm-version.lock`: EarthSciAST `a1dc9bb30`, EarthSciIO
+toolchain (`esm-version.lock`: EarthSciAST `9e282da40`, EarthSciIO
 `d109951d4`, `--features esio,parallel`).
 
 F2, F3, F5, F13, F14, F20, F21, F22, F28 and F32 each have a minimal `.esm` repro in this
 directory — F22 has two, one per construct; F8 is a CLI behaviour rather than a
 document, and is checked by command against the ordinary files of the repo.
-**F17 and F31 are cost findings and deliberately have no repro file**: a repro
+**F17 and F31 were cost findings and deliberately have no repro file**: a repro
 for either would assert the RIGHT answer and pass, and the tripwire stage below
-reads a passing file in this directory as "the defect is fixed". Their repros are
-reproduced inline in their sections instead, with the timings that make them
-findings, and are meant to be carried upstream rather than run here. F23 has no repro at all, because the document that would carry it is `components/age_distribution.esm` itself and the finding is what that file does NOT declare. **Every repro is expected to fail**, and each one's inline test asserts the *intended* behaviour, so a repro
+reads a passing file in this directory as "the defect is fixed". Their repros
+were reproduced inline in their sections instead, with the timings that made them
+findings. Both are now fixed upstream and retired — and F17 turned out not to be
+a cost finding at all, which is why the rule that a performance repro cannot be
+a tripwire is worth keeping even though both of its instances are gone: the
+thing that had no repro was hiding a WRONG ANSWER, and only a document that
+reordered its own join clauses would have found it. F23 has no repro at all, because the document that would carry it is `components/age_distribution.esm` itself and the finding is what that file does NOT declare. **Every repro is expected to fail**, and each one's inline test asserts the *intended* behaviour, so a repro
 that starts passing means the defect is fixed. `run-tests.sh` runs them as a
 **tripwire stage**: it fails if any repro goes green, with a message naming the
 convention that then becomes available. That is the opposite of the usual
@@ -79,7 +83,6 @@ three of them do not load.
 | **F13** | `enums` merge first-wins across a mount; a colliding value is applied | — | **yes** |
 | **F14** | A `ragged` index set ignores its member factor | evaluation | **yes** |
 | **F16** | A SCALAR variable is not materialized in a document that ingests data — **fixed in Rust**; open because Julia and Python still resolve a pointwise assertion against state rows (`BEHAV-06-B-008`) | assertion | no |
-| **F17** | A `join.on` between two LARGE data relations is not driven — **the headline is gone**: the bisected shape runs 0.06 s driven on the merge-base binary, so earlier driver work fixed it. What remains open is gate selection and ordering, measured identical on both binaries | — | **yes** |
 | **F18** | An ingested value the declared `element_type` cannot represent is narrowed silently (the key-collapse half is **resolved**, by a per-variable override) | ingest | **yes** |
 | **F23** | A leaf's `domain.element_type` does not survive a top-level `models` `{ref}` mount | — | **yes** |
 | **F22** | A discrete event, and an implicit equation, do not evaluate on the ARRAY path (both work on the scalar path) | evaluation | no |
@@ -817,7 +820,7 @@ scalar observeds that the `const` path keeps. The two paths should agree, and
 the `const` one is right.
 
 
-## F17 — a `join.on` between two large relations is not driven — **headline fixed; gate selection and ordering remain**
+## F17 — a `join.on` between two large relations is not driven — **fixed**
 
 No repro file; `fixtures/nr-logging-county.esm` is the repro, and its history is
 the measurement. **Silent, in the way that matters least often and costs most:
@@ -969,7 +972,7 @@ meet, which is the control that the difference is the driver and not the shape.
 
 ---
 
-## F31 — `esm test` evaluates the whole document once per test, and `--filter` narrows only the report
+## F31 — `esm test` evaluates the whole document once per test, and `--filter` narrows only the report — **fixed**
 
 No repro file, for F17's reason: a performance repro asserts the RIGHT answer,
 so it passes, and the tripwire stage reads a passing file in `docs/findings/` as
@@ -1364,6 +1367,20 @@ instructions, the moment `esm simulate` agrees with `esm test` on F24a.
 Retired from the tripwire; the repros are gone because the fixing commits carry
 their own regression tests. Kept here so the workarounds they forced can be
 traced.
+
+- **F17** — EarthSciAST `fe86d784b` — a multi-clause `join` now chooses its driving gate by **selectivity** rather than by document position, and then drives the **conjunction** by intersecting partner lists. Normative as CONFORMANCE_SPEC §5.24 and `BEHAV-11-001..008`. J11 in its worst clause order goes 272,523,600 leaves to **4,455** (floor 2,601; the 1.71× gap is a second contracted axis the floor does not count) and the whole document 515.88 s to **3.71 s**; `mixed-onroad`'s `cohMode_rate` spelled as six clauses goes 158,030,400 leaves to **3,772**, which is exactly what the hand-fused composite key costs — so **that workaround is retirable**. Part 1 alone is a *wash* on `nr-logging-county` as written: resolving every clause costs equijoins that first-clause-wins skipped, and 13.9% fewer leaves does not pay for them. Essentially all of the win is the intersection.
+
+  **But the finding was not what it said it was, and the correction is the important part.** F17 was filed as a COST finding — the answer is right, the run does not end. Reordering three `join` clauses on `out_emissionQuant` changes **32 of 144 emitted rows on the merge-base binary**, which makes it a silent WRONG ANSWER finding that had been sitting under a performance headline. Root cause: every resolved `on` pair is also lowered into the node's `filter` so a non-driving clause is still tested per leaf — that is the whole of §5.5.8's "which clause drives cannot change the result" — but `precision_infer::annotate_models` runs at `problem.rs` stage (1c)/(3b) while `join::resolve_aggregate_joins` runs inside the array compile at stage (4). The lowered `left == right` is built *after* annotation, carries no marker, and evaluated at the document's **working precision**. This document works in binary32, where the spacing at SCC magnitudes is **256** and `2265007010` and `2265007015` are the same number. The gate compared exact `i64` keys and separated them; the filter did not, so two cohorts' emissions were summed into the wrong output row (1.784 + 0.480 = 2.264). Fixed by marking the comparison binary64 where it is built (`8bb234629`), and now normative in §5.5.8: **a key comparison is exact, not the document's precision.** Every fidelity number this repository has published for `nr-logging-county` was correct only because the SCC clause happened to be written first.
+
+- **F31** — EarthSciAST `9e282da40` — `run_model_tests` reuses the built problem across consecutive tests that share it, keyed on `expression_template_imports`, `time_span`, `parameter_overrides` and `initial_conditions` (floats by bit pattern), and `--filter` now selects **work** rather than rows. Normative as CONFORMANCE_SPEC §5.25 and `BEHAV-12-001..007`. Measured with both binaries built from `a1dc9bb30`, so this is the change in isolation: `esm test fixtures/nr-logging-county.esm` **301.9 / 306.6 s → 11.0 / 16.2 s**; `run-tests.sh` user time **712.5 / 707.0 s → 251.6 / 235.5 s** (wall clock is not usable — `real ≫ user` at loadavg 9→21, starved by concurrent agents); `esm test ./runs --filter <one of fifteen>` **153.2 s → 0.98 s**, 156×. Over the tree, 200 tests need 44 distinct builds.
+
+  **Combined with F17, measured on the pinned binary `9e282da40`**: the whole
+  suite is **58.34 s wall / 68.23 s user**, against 712.5 s user before either
+  landed — and all four fixtures report the same worst cells to the digit
+  (4.561e-06, 8.320e-06, 7.495e-06, 7.294e-06), which is what makes the speedup
+  a speedup rather than a change of answer.
+
+  Two things in it that a naive memo would have got wrong. `assertions` and `tolerance` are **deliberately not in the key** — they feed the *solve*, not the build, so keying on them would be correct and would collapse the hit rate to nearly zero; only the build is memoised and every test still solves. And `take_inspection` uses `std::mem::take`, so it **drains**: without re-arming, the second test of a state-free document — which is every MOVES fixture, where `solve` returns `NotDynamic` and never refills the record — reads what the first test left behind. That is the silent class F5/F13/F14/F24 belong to, and it is covered by a test that fails on a wrong **number** rather than merely on a wrong build count.
 
 - **F11** — EarthSciAST `107a15152` — a relation can be joined to itself, and driven. The root cause was neither the validator nor the join kernel: resolving an `on` key column to a loop symbol goes through the column's *axis*, and that map is one-to-many the moment two ranges draw `{from}` one index set, so both reference bindings declined to pick. The kernel could always have done it — `equijoin` addresses range symbols by *name* and never consults an axis. It was a genuine underdetermination in the format: `["a","b"]` and `["b","a"]` are both consistent and compute transposed results. Resolved with no new syntax in the common case (candidates in the node's canonical range order, left key earlier and right later), **refused** at three or more, with an explicit `join.syms` overriding — and narrowed to the data-column step, so a key naming an index set still errors rather than becoming a tautology and an ungated product. Measured at the downstream scale: 63,602 rows, 4.045e9 candidate pairs, **0.31 s driven**. **F17 is separate and its headline is already gone** — its exact bisected shape runs 0.06 s driven on the *merge-base* binary, so earlier driver work fixed it; what remains is gate selection and ordering, measured identical on both binaries.
 - **F24** — EarthSciAST `de784f3f8` — a causal self-reference was dropped on the build-pipeline path, and **silently**. One root cause, not two axes: `prepare::eval_observed` evaluated every observed wholesale with no recurrence scope, and both `esm simulate` (which turns the pipeline on to materialize array observeds) and any ingesting document reach that one function. The self-read resolved against a map that does not yet hold the array being built, fell through to an unbound-name `NaN`, and **`max(NaN, 0.0)` returned `0.0`** — the shape `agedist.f`'s own body has. Measured downstream, the grown fractions summed to **1.5e-06 instead of 4.697819**. Fixed by making the sweep **one function both routes call** — two copies is precisely how one route came to work and the other to be dead — with `recurrence_unsupported_form` under any path that misses it, so a future miss fails loudly. The correction to the *verification* matters more: the conformance tier and all nine fixtures had been exercised under `esm test` only, so ten new tests re-materialize each fixture through the pipeline and re-check every assertion **on bits against the same pin**, because "both routes produced something plausible" is the state that persisted here. Normative as `CONFORMANCE_SPEC` §5.19.3b and `BEHAV-04-G-009`. The ingestion axis could not be verified upstream — no parquet reader in that build — and is verified here instead: `F24b` goes 5/5 against the real snapshot, and is kept as a **control** for exactly that reason.

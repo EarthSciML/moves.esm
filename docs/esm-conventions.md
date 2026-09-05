@@ -1751,22 +1751,46 @@ anywhere. The expansion lives in the MOVES *default* database. Recording that in
 the specification (`docs/evap-fvv.md` §2.10) rather than burying it in a
 component is what lets a later reader check the numbers against a default
 database instead of against us.
-## 25. In a multi-clause `join`, the FIRST clause is the one that costs **[measured, F17]**
+## 25. A multi-clause `join` no longer needs hand-ordering — and the reason it used to is worth keeping **[retired, F17 fixed]**
 
-**The rule.** When an `aggregate` carries more than one `on` clause, write the
-most selective clause first, and say in a `_comment` that the order is a cost
-decision rather than a reading order. Reordering the clause list of such a node
-for legibility is not free and not visible: the answer does not move a bit and
-the run time moves by a factor of tens.
+**The rule is RETIRED.** EarthSciAST `fe86d784b` chooses the driving gate by
+selectivity rather than document position and then drives the **conjunction**,
+intersecting the partner lists (CONFORMANCE_SPEC §5.24). Clause order in an `on`
+list is now a reading order again. `mixed-onroad`'s `cohMode_rate` is the
+measurement: its six key pairs hand-fused into one composite clause admit 3,772
+leaves, and the same six written as six separate clauses now admit **3,772** —
+where before they admitted 158,030,400 and cost 298 s against 6.6 s.
 
-**Why.** CONFORMANCE_SPEC §5.5.8 says every gate on a node restricts the
-admitted set but only ONE need DRIVE enumeration, and that "which one drives is
-a binding's choice". The Rust reference's choice is the first clause in document
-order that it can resolve (`resolve_join_gate` returns on its first hit); the
-rest are lowered into the per-leaf equality `filter`, which is what keeps a
-non-driving clause exact. So the node's cost is one number — how many leaves the
-FIRST clause's match set admits — and the author picks it by where they typed
-the clause.
+**Read the rest of this section anyway**, because the rule was load-bearing for
+something nobody knew it was load-bearing for, and that is the transferable
+part.
+
+**What the rule used to say.** Write the most selective clause first, and say in
+a `_comment` that the order is a cost decision rather than a reading order.
+CONFORMANCE_SPEC §5.5.8 said every gate restricts the admitted set but only ONE
+need DRIVE, and that "which one drives is a binding's choice" — the Rust
+reference's choice being the first resolvable clause in document order
+(`resolve_join_gate` returned on its first hit), the rest lowered into the
+per-leaf equality `filter`, which is what keeps a non-driving clause exact.
+
+**And the lowering was not exact.** `precision_infer` runs at `problem.rs` stage
+(1c)/(3b); join resolution runs inside the array compile at stage (4). The
+lowered `left == right` was therefore built *after* precision annotation, carried
+no marker, and evaluated at the **document's** working precision. This
+repository's NONROAD fixture works in binary32, where the spacing at SCC
+magnitudes is 256 and `2265007010` and `2265007015` are the same number. So the
+driving gate separated them on exact `i64` keys and the per-leaf filter did not:
+**reordering three clauses on `out_emissionQuant` changed 32 of 144 emitted
+rows**, summing two cohorts' emissions into the wrong output row. That is now
+fixed, and §5.5.8 says normatively that a key comparison is exact rather than
+the document's precision.
+
+**The lesson that outlives the rule: a convention adopted for COST can be
+holding up CORRECTNESS, and you will not know which.** This one was written
+after measuring run time, with "the answer does not move a bit" stated as an
+observation — and that observation was true only for the orders that had been
+tried. A rule whose justification is performance still deserves a correctness
+check on the thing it is silently choosing.
 
 **Measured on `fixtures/nr-logging-county.esm`, J11 `tech_fraction`**, four
 clauses permuted and nothing else changed, one `esm simulate --time 0` of the
