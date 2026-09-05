@@ -1,0 +1,78 @@
+{
+  "esm": "1.0.0",
+  "metadata": {
+    "name": "moves.drive_cycle",
+    "description": "Template library: the four shapes the running-exhaust drive-cycle operating-mode distribution needs, from docs/mixed-onroad.md §8.1 and §10. Ports crates/moves-calculators/src/generators/baserategenerator/drivecycle.rs.\n\n`mph_to_meters_per_second` is the 0.44704 of drivecycle.rs:222. It is a named constant rather than a literal because it appears in three places -- the speed a VSP polynomial takes, the acceleration that polynomial takes, and nothing else -- and a port with three copies of it has three chances to disagree with itself. It is NOT a general unit conversion the registry could supply: `speed` arrives in mph and the physics coefficients are calibrated in SI, so the number is part of the ported equation.\n\n`vehicle_specific_power` is drivecycle.rs:294-302, spelled to match its association: the Go used math.Pow(x,2) and math.Pow(x,3), the Rust reduces those to `v*v` and `v*(v*v)` for bit-level fidelity, and this body keeps the same nesting. The divisor is `fixedMassFactor` and the caller is responsible for the `sourceMass > 0 && fixedMassFactor > 0` guard, which is a row predicate on `sourceusetypephysicsmapping` rather than arithmetic.\n\n`in_half_open_range` is drivecycle.rs:305-322: a lower bound that is inclusive, an upper bound that is exclusive, and EITHER BOUND ABSENT meaning unbounded. In the snapshot the four bound columns of `operatingmode` are decimal TEXT with NULLs -- mode 11 has no VSPLower, mode 16 no VSPUpper, mode 33 no speedUpper -- so `float_columns` delivers them as NaN. The absence test is written `bound == bound`, which is 0 exactly for NaN, rather than relying on a comparison against NaN being false: the Rust says `if let Some(lo)`, an explicit presence test, and this says the same thing rather than a coincidence of IEEE ordering.\n\n`bracket_low_fraction` is drivecycle.rs:127-142, the weight the SLOWER of the two drive schedules bracketing an average-speed bin contributes. The faster one contributes `1 - this`, in every one of the four branches -- span<=0 gives (1,0), no slower schedule gives (0,1), no faster schedule gives (1,0), and otherwise the two are (high-bin)/span and (bin-low)/span, which sum to 1 by construction -- so there is one template and not two, and a caller that spelled the complement independently could not drift from it. The -100 and 100000 are the Rust's own sentinels (:113-116) and are kept because the branch order tests the SPAN first: with no slower schedule the span is computed against -100 and is positive, and it is the `best_low_id < 0` test and not the span that selects (0,1).\n\nAs with every library here, an `enums` block does not cross a template import (esm-spec §9.3, finding F3), so identifiers arrive as parameters the call site binds.",
+    "authors": ["EarthSciML Authors and Contributors"],
+    "tags": ["moves", "onroad", "drive-cycle", "operating-mode", "template-library"]
+  },
+  "expression_templates": {
+    "mph_to_meters_per_second": {
+      "params": [],
+      "body": 0.44704
+    },
+    "vehicle_specific_power": {
+      "params": ["rolling_term_a", "rotating_term_b", "drag_term_c", "source_mass",
+                 "fixed_mass_factor", "speed_ms", "acceleration_ms"],
+      "body": {
+        "op": "/",
+        "args": [
+          { "op": "+", "args": [
+            { "op": "*", "args": ["rolling_term_a", "speed_ms"] },
+            { "op": "+", "args": [
+              { "op": "*", "args": ["rotating_term_b", { "op": "*", "args": ["speed_ms", "speed_ms"] }] },
+              { "op": "+", "args": [
+                { "op": "*", "args": ["drag_term_c",
+                  { "op": "*", "args": ["speed_ms", { "op": "*", "args": ["speed_ms", "speed_ms"] }] }] },
+                { "op": "*", "args": ["source_mass",
+                  { "op": "*", "args": ["speed_ms", "acceleration_ms"] }] }
+              ] }
+            ] }
+          ] },
+          "fixed_mass_factor"
+        ]
+      }
+    },
+    "in_half_open_range": {
+      "params": ["value", "lower", "upper"],
+      "body": {
+        "op": "ifelse",
+        "args": [
+          { "op": "and", "args": [
+            { "op": "==", "args": ["lower", "lower"] },
+            { "op": "<", "args": ["value", "lower"] } ] },
+          0.0,
+          { "op": "ifelse", "args": [
+            { "op": "and", "args": [
+              { "op": "==", "args": ["upper", "upper"] },
+              { "op": ">=", "args": ["value", "upper"] } ] },
+            0.0,
+            1.0 ] }
+        ]
+      }
+    },
+    "bracket_low_fraction": {
+      "params": ["bin_speed", "low_speed", "high_speed", "has_low", "has_high"],
+      "body": {
+        "op": "ifelse",
+        "args": [
+          { "op": "<=", "args": [
+            { "op": "-", "args": [
+              { "op": "ifelse", "args": ["has_high", "high_speed", 100000.0] },
+              { "op": "ifelse", "args": ["has_low", "low_speed", -100.0] } ] },
+            0.0 ] },
+          1.0,
+          { "op": "ifelse", "args": [
+            "has_low",
+            { "op": "ifelse", "args": [
+              "has_high",
+              { "op": "/", "args": [
+                { "op": "-", "args": ["high_speed", "bin_speed"] },
+                { "op": "-", "args": ["high_speed", "low_speed"] } ] },
+              1.0 ] },
+            0.0 ] }
+        ]
+      }
+    }
+  }
+}

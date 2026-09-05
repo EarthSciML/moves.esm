@@ -1210,16 +1210,21 @@ emissionQuant [MMBTU]   = (3 144.90 / 0.893) x (54.728314588378 / 2) / 1 055 055
 ### 6.5 The reproduction script
 
 Extracted and run by `./run-onroad-oracle.sh`. It reads only the tables of
-§1.2, computes S1–S12 and S16–S18, takes S13–S14 from `baserate_1_2020`, and
-prints its worst relative error against `sho` and against `MOVESOutput`.
+§1.2 and §10.1, computes S1–S18 — including `W` and the base rate, which it used
+to read from `baserate_1_2020` — and **asserts** its worst relative error against
+`sho` and against `MOVESOutput`.
 
 ```python
 #!/usr/bin/env python3
 """Independent reproduction of the mixed-onroad chain from the snapshot's own
-input tables. The activity half (S1-S9), the cohort structure (S10-S12) and
-the output stage (S16-S18) are computed here; the base rate (S13-S14) is read
-from `baserate_1_2020`, because the operating-mode distribution it needs is
-not derivable from any captured table (see the specification, section 8.1).
+input tables, and from NOTHING else. Every stage is computed here: the activity
+half (S1-S9), the cohort structure and the fuel-usage rebase (S10-S12), the
+drive-cycle operating-mode weights and the base rate (S13-S14), and the output
+stage (S16-S18).
+
+It used to read `baserate_1_2020.meanBaseRate`, because the operating-mode
+distribution the base rate needs is computed inside the MOVES worker and dropped
+(section 8.1). Section 10 says how it is computed instead.
 
 Purpose: attribution. When a `.esm` disagrees with the snapshot, a third
 implementation says whether the document or the specification is wrong."""
@@ -1237,6 +1242,7 @@ def T(n):
 
 # ---------------------------------------------------------------- run scope
 YEAR, MONTH, HOUR, ZONE, ROAD, ST = 2020, 8, 9, 261610, 4, 21
+COUNTY, ELECTRICITY = 26161, 9
 DAYS = [r["dayID"] for r in T("runspecday")]
 HD = {r["dayID"]: r["hourDayID"] for r in T("hourday") if r["hourID"] == HOUR}
 POLPROC = 100 * 91 + 1
@@ -1246,6 +1252,7 @@ KJ_PER_MMBTU = 1055.0559e6 / 1000.0
 base = max(r["yearID"] for r in T("year")
            if r["yearID"] <= YEAR and str(r["isBaseYear"]).upper() == "Y")
 assert base == YEAR, "the population and VMT folds do not collapse for %d" % base
+FUELYEAR = {r["yearID"]: r["fuelYearID"] for r in T("year")}[YEAR]
 
 # ------------------------------------------------- S2: sourceTypeAgePopulation
 stpop = {r["sourceTypeID"]: float(r["sourceTypePopulation"])
@@ -1326,16 +1333,187 @@ for r in T("samplevehiclepopulation"):
     key = (r["modelYearID"], r["fuelTypeID"], r["engTechID"], r["regClassID"])
     cohort[key] = cohort.get(key, 0.0) + frac
 
-# ----------------------------------------- S13, S14: read, not computed
-base_rate = {(r["hourDayID"], r["modelYearID"], r["fuelTypeID"]):
-             float(r["meanBaseRate"]) for r in T("baserate_1_2020")}
+# ------------------------------- S13(a): the drive-cycle operating-mode weights
+# `W[hourDayID, opModeID]`, the one relation no captured table carries: MOVES 5
+# computes it inside the worker and drops it (section 8.1). Ported from
+# crates/moves-calculators/src/generators/baserategenerator/drivecycle.rs.
+seconds = collections.defaultdict(dict)
+for r in T("driveschedulesecond"):
+    seconds[r["driveScheduleID"]][r["second"]] = float(r["speed"])
+physics = [r for r in T("sourceusetypephysicsmapping")
+           if r["realSourceTypeID"] == ST and float(r["sourceMass"]) > 0.0
+           and float(r["fixedMassFactor"]) > 0.0]
+assert len(physics) == 1, "the physics mapping is not a single row for source type %d" % ST
+PH = physics[0]
+opmode = {r["opModeID"]: r for r in T("operatingmode")}
+BRAKE1 = float(opmode[0]["brakeRate1Sec"])
+BRAKE3 = float(opmode[0]["brakeRate3Sec"])
+# readOperatingMode (inputs.rs:408-419). Dropping 26 and 36 leaves 21 modes that
+# are disjoint AND exhaustive over speed >= 1, which is why the classification
+# below can be a single match rather than an ordered first-match.
+binned = sorted((m for m in opmode if 1 < m < 100 and m not in (26, 36)))
+MS = 0.44704
+
+
+def bound(mode, column):
+    v = opmode[mode][column]
+    return None if v is None else float(v)
+
+
+def drive_cycle_distribution(sid):
+    """calculateDriveCycleOpModeDistribution at national scale (is_project False)."""
+    sp = seconds[sid]
+    lo, hi = min(sp), max(sp)
+    mode, acc = {}, {}
+    for s, v in sp.items():
+        if v < 1.0:                       # 0 mph and 0 < v < 1 mph are both Idling
+            mode[s] = 1
+    for s in range(lo + 1, hi + 1):
+        if s in sp and s - 1 in sp:
+            acc[s] = sp[s] - sp[s - 1]
+    if lo + 1 in acc:
+        acc[lo] = acc[lo + 1]             # the first second copies the second's
+    total = collections.Counter()
+    for s in range(lo, hi + 1):
+        if s not in sp:
+            continue
+        m = mode.get(s)
+        if m is None:
+            a = acc.get(s, 0.0)
+            three = (s - 1 in sp and s - 2 in sp and a < BRAKE3
+                     and acc.get(s - 1, 0.0) < BRAKE3 and acc.get(s - 2, 0.0) < BRAKE3)
+            if a <= BRAKE1 or three:
+                m = 0
+            else:
+                v = sp[s] * MS
+                a_ms = (v - sp[s - 1] * MS) if s - 1 in sp else (
+                    (sp[s + 1] * MS - v) if s == lo and s + 1 in sp else 0.0)
+                vsp = (float(PH["rollingTermA"]) * v
+                       + float(PH["rotatingTermB"]) * v * v
+                       + float(PH["dragTermC"]) * v * (v * v)
+                       + float(PH["sourceMass"]) * v * a_ms) / float(PH["fixedMassFactor"])
+                for k in binned:
+                    lov, hiv = bound(k, "VSPLower"), bound(k, "VSPUpper")
+                    los, his = bound(k, "speedLower"), bound(k, "speedUpper")
+                    if lov is not None and vsp < lov: continue
+                    if hiv is not None and vsp >= hiv: continue
+                    if los is not None and sp[s] < los: continue
+                    if his is not None and sp[s] >= his: continue
+                    m = k
+                    break
+        if m is not None and s > 0:        # the `second > 0` guard, drivecycle.rs:327
+            total[m] += 1
+    n = sum(total.values())
+    return {k: v / n for k, v in total.items()}
+
+
+cycles = sorted(r["driveScheduleID"] for r in T("drivescheduleassoc")
+                if r["sourceTypeID"] == ST and r["roadTypeID"] == ROAD)
+cycle_speed = {r["driveScheduleID"]: float(r["averageSpeed"]) for r in T("driveschedule")}
+assert len({cycle_speed[c] for c in cycles}) == len(cycles), "two cycles share a speed"
+cycle_dist = {c: drive_cycle_distribution(c) for c in cycles}
+
+bin_modes = {}                             # findDriveCycles, drivecycle.rs:110-176
+for b, bs in binspeed.items():
+    low = max((cycle_speed[c] for c in cycles if cycle_speed[c] <= bs), default=None)
+    high = min((cycle_speed[c] for c in cycles if cycle_speed[c] >= bs), default=None)
+    span = (high if high is not None else 100000.0) - (low if low is not None else -100.0)
+    if span <= 0.0:      lf = 1.0
+    elif low is None:    lf = 0.0
+    elif high is None:   lf = 1.0
+    else:                lf = (high - bs) / span
+    d = collections.defaultdict(float)
+    for c, f in ((low, lf), (high, 1.0 - lf)):
+        if c is None or f == 0.0:
+            continue
+        sid = next(s for s in cycles if cycle_speed[s] == c)
+        for m, v in cycle_dist[sid].items():
+            d[m] += f * v
+    bin_modes[b] = d
+
+W = collections.defaultdict(float)
+for r in T("avgspeeddistribution"):
+    if r["sourceTypeID"] != ST or r["roadTypeID"] != ROAD:
+        continue
+    for m, v in bin_modes[r["avgSpeedBinID"]].items():
+        W[(r["hourDayID"], m)] += v * float(r["avgSpeedFraction"])
+for d in DAYS:
+    t = sum(v for (h, _), v in W.items() if h == HD[d])
+    assert abs(t - 1.0) < 1e-5, "W does not sum to 1 for hourDayID %d: %.9f" % (HD[d], t)
+
+# ---------------------- S12(b): the fuel-usage rebase, source_bin_..._generator.rs:1534
+# NOT the identity: `fuelusagefraction` sends 98.2134% of an E85 bin's activity
+# to the gasoline supply, and the base rate is weighted by the rebased
+# distribution (sbweighted.rs:148-165). Omitting it is a 55x error on E85.
+usage = [r for r in T("fuelusagefraction")
+         if r["countyID"] == COUNTY and r["fuelYearID"] == FUELYEAR]
+sbaf = collections.defaultdict(float)
+for (my, fuel, engtech, regclass), frac in cohort.items():
+    for u in usage:
+        if u["sourceBinFuelTypeID"] != fuel:
+            continue
+        if u["modelYearGroupID"] != 0 and u["modelYearGroupID"] != my:
+            continue
+        used = (my, u["fuelSupplyFuelTypeID"], engtech, regclass)
+        if used not in cohort:            # the used bin must exist, :1551-1557
+            continue
+        sbaf[used] += float(u["usageFraction"]) * frac
+
+# ------------------------------------------ S13(b): the source-bin-weighted rate
+def slot(bin_id, scale):                  # section 4.4; never pack, only unpack
+    return (bin_id // scale) % 100
+
+
+rate = {}
+for r in T("emissionrate"):
+    if r["polProcessID"] != POLPROC:
+        continue
+    b = r["sourceBinID"]
+    rate[(slot(b, 10**16), slot(b, 10**14), slot(b, 10**12), slot(b, 10**10),
+          r["opModeID"])] = float(r["meanBaseRate"])
+
+fleetgroup = {r["regClassID"]: r["fleetAvgGroupID"] for r in T("regulatoryclass")}
+evfrac = {(r["modelYearID"], r["fleetAvgGroupID"]): float(r["evFraction"])
+          for r in T("evsalesfraction")}
+fleetadj = [r for r in T("fleetavgadjustment") if r["polProcessID"] == POLPROC]
+
+
+def ev_sales_factor(my, fuel, regclass):
+    """sbweighted.rs:369-405 -- back-scale the ICE fleet for EV sales."""
+    if fuel == ELECTRICITY:
+        return 1.0
+    g = fleetgroup[regclass]
+    e = evfrac.get((my, g))
+    row = next((r for r in fleetadj if r["fleetAvgGroupID"] == g
+                and r["beginModelYearID"] <= my <= r["endModelYearID"]), None)
+    if e is None or row is None:
+        return 1.0
+    m = float(row["evMultiplier"])
+    den = (1.0 - e) + e * m
+    v = 1.0 / (1.0 - e * m / den)
+    cap = row["adjustmentCap"]
+    return min(v, float(cap)) if cap is not None and float(cap) > 0.0 else v
+
+
+# ------------------------------------------------- S14: the collapsed base rate
+sbweighted = collections.defaultdict(float)
+for (my, fuel, engtech, regclass), frac in sbaf.items():
+    smy = shortgroup[mygroup[(POLPROC, my)]]
+    ev = ev_sales_factor(my, fuel, regclass)
+    for om in {k[4] for k in rate}:
+        r = rate.get((fuel, engtech, regclass, smy, om))
+        if r is not None:
+            sbweighted[(my, fuel, om)] += frac * r * ev
+base_rate = collections.defaultdict(float)
+for (my, fuel, om), v in sbweighted.items():
+    for d in DAYS:
+        base_rate[(HD[d], my, fuel)] += v * W[(HD[d], om)]
 
 # ------------------------------ S15(f): the EV energy-efficiency divisor
 agegroup = {r["ageID"]: r["ageGroupID"] for r in T("agecategory")}
 eveff = {r["ageGroupID"]: float(r["batteryEfficiency"]) * float(r["chargingEfficiency"])
          for r in T("evefficiency")
          if r["polProcessID"] == POLPROC and r["sourceTypeID"] == ST}
-ELECTRICITY = 9
 
 # ------------------------------------------------------- S16, S17, S18
 realdays = {r["dayID"]: float(r["noOfRealDays"]) for r in T("dayofanyweek")}
@@ -1386,7 +1564,7 @@ Result:
 
 ```
 sho:            82 rows, worst relative error 4.138e-06
-emissionQuant: 250 rows, worst relative error 8.231e-06 at (day 5, MY 2002, fuel 5)
+emissionQuant: 250 rows, worst relative error 8.320e-06 at (day 5, MY 2015, fuel 5)
 key set:       125 cohorts x 2 day types = 250 rows, exact
 ```
 
