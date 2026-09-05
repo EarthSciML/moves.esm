@@ -921,29 +921,31 @@ them. What follows is ordered by what blocks what.
    end. §2's ladder is the order; the 744–1,456-row band is the next rung and
    the 15,801–23,108-row NONROAD fixtures are where §1.3's gate stops being
    theoretical.
-2. **F31 — `esm test` rebuilds the whole document once per test.** Not a
-   correctness blocker, but it is now the dominant cost of working on this
-   repository: the suite is ~20 minutes and one fixture accounts for ~9 of them
-   by being evaluated 29 times. 181 tests need 42 distinct builds. There is no
-   document-level or harness-level form of the fix. In flight upstream.
-3. **F17's remainder — gate selection and ordering.** The headline is long
-   fixed; what is open is that document order picks the driving clause. Measured
-   on `mixed-onroad`'s `cohMode_rate`, the spread across single-clause choices is
-   66× and the conjunction is **2,256×** better than the best of them (§10.3),
-   so this is mostly about driving conjunctively rather than about ranking. It
-   is also the difference between a fixture that needs a hand-fused composite key
-   and one that does not, which is an authoring cost every later slice pays. In
-   flight upstream.
-4. **F32 — an `enums` member cannot be zero.** `opModeID 0` is Braking and 5.6%
-   of the weekday operating-mode distribution; it is written as a bare literal in
-   `fixtures/mixed-onroad.esm` because it cannot be named. Negative values matter
-   for the same reason (`polProcessID -1`). In flight upstream.
-5. **F28 — a data-named predecessor is not a recurrence**, which is what
+2. **Retire F32's workaround, once the binary is repinned.** F32 is FIXED
+   upstream — an `enums` member may now be any integer — so `opModeID 0`
+   (Braking, 5.6 % of the weekday operating-mode distribution) can be named
+   instead of written as a bare literal in `fixtures/mixed-onroad.esm`, and
+   `polProcessID -1` with it. This needs `./esm` rebuilt from upstream `main`
+   and `esm-version.lock` repinned, which is gated on that merge being pushed.
+   Until then the tripwire in `docs/findings/` still fails, correctly.
+3. **F33 — a `Float32` document is evaluated in binary64 by Julia and Python,
+   silently.** Not a new contract: `CONFORMANCE_SPEC` §5.18 is normative and
+   §5.18.2 closes by naming this exact failure ("a binding that cannot honour a
+   clause MUST refuse it"). Julia implements the refusal for time integration
+   and not for the algebraic and relational path §5.18.2(3) explicitly says
+   still runs in binary32; `element_type` is read nowhere in its evaluator, and
+   Python reads it at one site. Measured on a two-clause `Float32` document with
+   integer keys straddling a binary32 collision: Rust answers 8, Julia and
+   Python answer 4. Three executing bindings, two answers, no diagnostic. It
+   does not block this port — Rust is the binding this repository runs — but it
+   means a cross-binding fidelity claim cannot be made for any float32 document
+   here, which is all of the NONROAD side.
+4. **F28 — a data-named predecessor is not a recurrence**, which is what
    `process-evap-permeation` stands on: mode 300 is TTG-4a's walk over
    `SampleVehicleTrip`, whose predecessor is named by `priorTripID`, a data
    column. The specification, the oracle (128 rows at 6.174e-06) and the
    workaround control all exist; the fixture does not.
-6. **An off-network snapshot**, without which the evaporative soak chain cannot
+5. **An off-network snapshot**, without which the evaporative soak chain cannot
    be checked anywhere. Three consecutive slices failed to reach it for one
    structural reason — `fractionOfOperating` is identically 1 at an on-network
    link, and all 39 snapshots select road type 4 — so this needs a RunSpec on

@@ -1,6 +1,6 @@
 # Findings: conventions the format or the toolchain could not express
 
-Twenty-eight things PLAN.md §3 Phase 1 through Phase 4 assumed, or that an author would
+Twenty-nine things PLAN.md §3 Phase 1 through Phase 5 assumed, or that an author would
 reasonably assume, that did not hold. **Fifteen are fixed upstream and retired**
 from the tripwire, listed at the bottom with their sections kept above so the
 workarounds they forced can be traced. The rest still hold at the pinned
@@ -10,11 +10,14 @@ toolchain (`esm-version.lock`: EarthSciAST `9e282da40`, EarthSciIO
 F2, F3, F5, F13, F14, F20, F21, F22, F28 and F32 each have a minimal `.esm` repro in this
 directory — F22 has two, one per construct; F8 is a CLI behaviour rather than a
 document, and is checked by command against the ordinary files of the repo.
-**F17 and F31 were cost findings and deliberately have no repro file**: a repro
-for either would assert the RIGHT answer and pass, and the tripwire stage below
-reads a passing file in this directory as "the defect is fixed". Their repros
-were reproduced inline in their sections instead, with the timings that made them
-findings. Both are now fixed upstream and retired — and F17 turned out not to be
+**F17, F31 and F33 deliberately have no repro file**: a repro
+for any of them would assert the RIGHT answer and pass, and the tripwire stage
+below reads a passing file in this directory as "the defect is fixed". F17 and
+F31 were cost findings, where the right answer arrives too slowly rather than
+wrong; F33 is about bindings this repository does not execute, so its repro
+would pass on `./esm` for a reason that has nothing to do with the defect. Each
+was reproduced inline in its own section instead, with the measurements that
+made it a finding. F17 and F31 are now fixed upstream and retired — and F17 turned out not to be
 a cost finding at all, which is why the rule that a performance repro cannot be
 a tripwire is worth keeping even though both of its instances are gone: the
 thing that had no repro was hiding a WRONG ANSWER, and only a document that
@@ -90,6 +93,7 @@ three of them do not load.
 | **F21** | A scoped reference to a mounted model's variable resolves as an operand and a join key but not as an assertion `variable` | assertion | no |
 | **F28** | A recurrence whose predecessor is named by a DATA COLUMN has no direct spelling; the lag must be an offset of the frame symbol | validate + test | no |
 | **F32** | An `enums` member cannot be ZERO; the schema requires a positive integer, and MOVES's Braking operating mode is 0 | validate | no |
+| **F33** | A `Float32` document's relational path is evaluated in binary64 by Julia and Python, with no diagnostic — §5.18 is normative and unimplemented | evaluation | no |
 
 ---
 
@@ -1359,6 +1363,71 @@ the **ingestion** axis, because that build has no parquet reader. So
 axis is confirmed against a reader-enabled binary on the real snapshot.
 `run-tests.sh`'s F24 check is already the tripwire for that: it fails, with
 instructions, the moment `esm simulate` agrees with `esm test` on F24a.
+
+---
+
+## F33 — a `Float32` document is evaluated in binary64 by Julia and Python, silently
+
+**No repro file, for the reason F17 and F31 had none:** the repro's natural
+polarity is backwards here. This repository runs the Rust binding, which
+*honours* `element_type` — so a document asserting binary32 behaviour PASSES on
+`./esm`, and the tripwire loop would report it as a fixed defect on the first
+run. The finding is about the other bindings, and nothing in this tree executes
+them.
+
+**Not a new contract. An unimplemented one.** CONFORMANCE_SPEC §5.18 is
+normative, and §5.18.2 closes by naming exactly this failure:
+
+> A binding that cannot honour a clause MUST refuse it. Evaluating part of a
+> document in a precision it did not ask for, and saying nothing, is the defect
+> this section exists to prevent.
+
+Julia implements the refusal §5.18.2(3) requires for time integration
+(`E_TREEWALK_FLOAT32_STATE`, `tree_walk/compile.jl:1417`, whose message says
+why: "the compiled RHS's literals and const data are Float64"). But §5.18.2(3)
+is explicit that the rest still runs — "Algebraic, observed and relational
+evaluation — which is what an inline `tests` block and `observed_field` read —
+is unaffected and runs in binary32." That path is binary64 in both bindings,
+and neither says so.
+
+How far from honoured, measured by where `element_type` is READ:
+
+| binding | sites reading it during evaluation |
+|---|---|
+| Julia | **none** — parsed and round-tripped (`types.jl`), read nowhere else |
+| Python | **one** — `simulation_array.py:686`, feeding `rounding_for_element_type` into the recurrence sweep. Aggregates and joins are float64. |
+| Rust | honours it per operation |
+| Go, TypeScript | N/A — no evaluator at all |
+
+**The measurement.** A `Float32` document with two join clauses over integer
+keys straddling a binary32 collision (`2265007010` / `2265007015`; binary32
+spacing at that magnitude is 256), key columns left at the document default:
+Rust answers **8**, Julia **4**, Python **4**. Three executing bindings, two
+answers, no diagnostic on any of them.
+
+**Why this is not F18.** F18 is Rust's, and is about INGEST — it already records
+this exact collision and measures 214 equipment categories collapsing to 48.
+Rust's 8 above *is* F18, with the per-variable `Float64` override as its
+resolution. F33 is the other bindings' side: not narrowing when the document
+said to, and not refusing either.
+
+**Why this is not F17.** F17 was Rust lowering a join's `on` pair into a filter
+that inherited the working precision. Julia and Python never build a comparison
+expression from a join at all — each pair is a gate of integer bucket codes
+compared with integer `==` — so they are structurally immune. Rust was alone in
+lowering the comparison, which is why it was alone in getting it wrong.
+
+**What it costs this port.** Nothing directly: Rust is the binding this
+repository runs, and its answers are the ones every fixture is checked against.
+What it costs is a claim — no cross-binding fidelity statement can be made for
+any float32 document here, which is the whole NONROAD side. Julia and Python
+are right on the collision probe by *not* implementing the declaration, and
+that is the least durable way to be right: the same non-implementation makes
+them wrong wherever binary32 rounding is what the reference actually does, and
+§5.18.1 opens by measuring precisely that case.
+
+Recorded upstream in `ESM_COMPLIANCE_VALIDATION_MATRIX.md` under BEHAV-11-007's
+binding-status note.
 
 ---
 
