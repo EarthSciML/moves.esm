@@ -202,6 +202,27 @@ fi
 #
 # All 785 currently go red under a 10^-3 nudge, the 102 zero-valued ones
 # additively. It refuses to start on a dirty tree.
+#
+# `tools/clause-order-audit.py` is its structural dual and is out of the suite
+# for the same two reasons -- it perturbs in place, and the property it checks
+# changes only when a join is added:
+#
+#   ./tools/clause-order-audit.py                # all four dirs, 5 reorderings
+#
+# That one moves the numbers and requires every assertion to go red; this one
+# moves the ORDER of every `join` list and every composite `on` list and
+# requires NOTHING to move -- byte-identity of each fixture's emitted relation,
+# not "the assertions still pass", because an assertion has a tolerance and a
+# wrong answer inside it is the case worth catching. 135 clause lists and 172
+# `on` lists currently survive all five reorderings byte-identically.
+#
+# It is checked two-sided, which matters because its first version emitted
+# `runs/` -- which declares no `out_*` variables -- found nothing to observe,
+# and reported a clean sweep over an empty set. An empty or short baseline is
+# now a refusal. Run against the pre-F17 binary, reversing the three clauses of
+# `nr-logging-county`'s equation 182 moves 32 of its 144 rows (first cell
+# 1.7840874 -> 2.2641311) and the audit exits 1, which is exactly the defect
+# F17 turned out to be.
 
 # --- 4. round-trip --------------------------------------------------------
 #
