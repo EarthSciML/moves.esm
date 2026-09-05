@@ -462,6 +462,26 @@ instead — from 63,602 second-by-second drive-schedule speeds, in the fixture a
 in the oracle independently, agreeing cell by cell to one ulp. Computing it moved
 the worst cell from 8.231 × 10⁻⁶ to 8.320 × 10⁻⁶. §10 is the port.
 
+`process-brakewear` is the fifth, and the first rung of Phase 5: **750 of 750
+rows, key set exact, worst cell 8.250 × 10⁻⁶** against the same 2 × 10⁻⁵ gate.
+It is the first fixture that emits more than one pollutant-process — 250 rows of
+running-exhaust Total Energy, 250 of PM2.5 brake wear and 250 of PM10 brake wear
+— and brake wear turns out to be a rate on `mixed-onroad`'s own
+`BaseRateCalculator` spine rather than a different model, so the activity chain,
+the cohort structure and the 46 drive-cycle weights are reused unchanged. Three
+things were new. One cohort key, the source bin's `shortModYrGroupID`, *differs*
+between the pollutant-processes (2020 → 40 for energy, → 6 for brake wear), and
+a `join.on` key column must be one-dimensional, so the rate stage rides a flat
+`polProcess × cohort` relation. PM10 brake wear is *chained*: it has no rate of
+its own — its own path evaluates to exactly 0 — and its quantity arrives through
+a self-join on `runspecchainedto` and `pm10emissionratio`. And retargeting
+`mixed-onroad` onto the new snapshot found a latent defect in it: the
+temperature-adjustment lookup's `regClassID 0` wildcard step was missing, which
+66.9 °F hid behind a clamp and 59.5 °F exposes as a 1.56 % error on 84 rows.
+Both fixtures now share `lib/adjustments.esm`'s `exact_else_wildcard`, and
+`mixed-onroad`'s 250 numbers are unchanged to the last digit.
+`docs/process-brakewear.md` is the specification.
+
 See `PLAN.md` for the plan of record and `docs/findings/README.md` for what the
 toolchain still cannot do — thirteen open findings, and twelve retired
 because they were fixed.

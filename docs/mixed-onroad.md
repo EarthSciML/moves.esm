@@ -677,6 +677,21 @@ every one of the 250 rows changes.
 lookup `unwrap_or_default()`s to all-zero terms (`adjust.rs:515`), and the
 standard quadratic `1 + (T−75)(a + b(T−75))` is exactly 1.
 
+> **CORRECTION (Phase 5).** That row is keyed `regClassID` **0**, which is a
+> WILDCARD, and this fixture's passenger car is regulatory class 20.
+> `adjust.rs:495-520` looks the row up by the exact `regClassID` first and by
+> the `regClassID 0` row second; `fixtures/mixed-onroad.esm` implemented only
+> the first step, so the terms below arrived as 0, the raw adjustment as 0
+> rather than −0.00419, and the clamp returned this same 1 **for the wrong
+> reason**. The arithmetic in this section was right and the document was not.
+> Fixed: the precedence is `lib/adjustments.esm`'s `exact_else_wildcard` and
+> both this fixture and `fixtures/process-brakewear.esm` instantiate it, with
+> an inline test that pins `coh_hasTempAdjustExact` at 0 and the raw adjustment
+> at −0.0041922. Every number in this fixture is unchanged — 250/250, worst
+> cell 8.320 × 10⁻⁶ — which is exactly why it went unnoticed. It is a 1.56 %
+> error at `process-brakewear`'s 59.5 °F, where the clamp does not fire, and
+> that is where it was found (`docs/process-brakewear.md` §2.5).
+
 For fuel 9 the dedicated EV branch runs (`adjust.rs:107-124`):
 
 ```

@@ -1948,3 +1948,101 @@ disagreed in writing for a phase.
 specification is not exempt from the repository's own cross-check discipline
 just because it is prose. §6.5's reproduction now computes the remap, so the
 claim is exercised on every run rather than asserted once.
+
+---
+
+## 27. What the multi-pollutant slice changed **[Phase 5, 750 rows]**
+
+`fixtures/process-brakewear.esm` is the first document in this port to emit more
+than one pollutant-process: 750 `MOVESOutput` rows over 9101 (Total Energy ×
+Running Exhaust), 11609 (PM2.5 Brakewear) and 10609 (PM10 Brakewear, chained),
+key set exact, worst cell 8.250 × 10⁻⁶. Two rules gained a reason, two things are
+new, and one existing fixture turned out to be wrong in a way only a second
+snapshot could show.
+
+### 27.1 Two rules that gained a new reason
+
+* **§2, tables stay tables — now for a *derived* relation with two key
+  factors.** Everything the base rate needs is keyed by the cohort AND the
+  pollutant-process, and a `join.on` key column must be one-dimensional
+  (`join.rs` resolves a key through a declared 1-D variable's single axis). So a
+  two-dimensional `ppCoh_shortModYrGroupID[polProcess, cohort]` is not
+  expressible as a key at all, and the rate stage rides a flat
+  `rate_rows = n_polProcess × (n_agecategory × n_fuelType)` relation whose
+  columns are read back from the two factor relations by ordinal joins.
+
+  **The rule that follows: when a stage's keys acquire a second factor, cross
+  the relations rather than widening the columns.** Widening is the reflex, and
+  it stops at the first join. `docs/process-brakewear.md` §2.2 has the key that
+  forced it — `pollutantprocessmodelyear` maps model year 2020 to
+  `shortModYrGroupID` **40** for 9101 and **6** for 11609, so the same cohort
+  meets a different `emissionrate.sourceBinID` on each path.
+
+* **§3 / §20.4, a constant equality is still a `join.on`.** The
+  temperature-adjustment lookup's wildcard arm is `ta_regClassID == 0`, and it is
+  spelled as a join against a one-row relation carrying that 0
+  (`run_regClassWildcardID`), not as an `==` in a filter — which
+  `tools/check-conventions.py` would have rejected anyway.
+
+### 27.2 Two things that are new
+
+* **A chained pollutant is a self-join on the rate relation, and it needs no
+  branch.** MOVES's chained calculators (`PM10BrakeTireCalculator`,
+  `HCSpeciation`, the TOG/NonHAPTOG chains, air toxics) compute one pollutant by
+  scaling another. `runspecchainedto` names the edge and a ratio table carries
+  the factor, so the document reads both and writes neither. What makes it one
+  expression over all blocks rather than a branch is that **three quantities are
+  zero for three independent reasons**, each measured:
+
+  ```
+  chain key   = 0  on an unchained row   (the LEFT JOIN onto runspecchainedto misses)
+  ratio       = 0  on an unchained row   (the ratio table carries only the chained id)
+  direct rate = 0  on the CHAINED row    (emissionrate carries no row for it — J22 is inner)
+  ```
+
+  so `quant = direct + ratio × Σ(chained-from direct)` is a union everywhere. A
+  document that instead tested "is this block chained?" would be writing down the
+  answer `runspecchainedto` already gives.
+
+* **A wildcard lookup is a precedence over two aggregates, and it is a
+  template.** `lib/adjustments.esm`'s `exact_else_wildcard(has_exact,
+  exact_value, wildcard_value)`. MOVES writes this shape repeatedly — the exact
+  key, then a designated wildcard row, then the aggregate's own additive identity
+  — and each arm is a separate aggregate over the same table with a different key
+  pair, so the only thing a template can carry is the precedence between their
+  results. That is enough: a document that computes only the exact arm now reads
+  as obviously incomplete beside one that instantiates this.
+
+### 27.3 Retargeting an existing fixture is an audit, and it found a defect
+
+`fixtures/process-brakewear.esm` began as `fixtures/mixed-onroad.esm` with its
+snapshot path, database name and hour changed and nothing else. That retarget
+alone should have reproduced 250 of the 750 rows exactly, because the energy
+block *is* `mixed-onroad`'s chain at hour 7. It reproduced them at a worst cell
+of **1.539 × 10⁻²**, all of it on fuel 9, at exactly `1/1.015625`.
+
+The cause was §27.2's wildcard: `temperatureadjustment`'s one row is keyed
+`regClassID` 0, `mixed-onroad` implemented only the exact-class lookup, and at
+66.9 °F its `adj < 0` clamp returned the correct factor of 1 **for the wrong
+reason**. At 59.5 °F the adjustment is +0.015625 and does not clamp. Both
+fixtures now instantiate the template, `mixed-onroad`'s 250 numbers are unchanged
+to the last digit, and both carry an inline test that pins the exact-class
+lookup's absence rather than the factor it happens to produce.
+
+**The rule:** a fixture that agrees with its reference has been checked at one
+point of its input space, and a clamped stage is checked at *no* point when the
+clamp fires (§23 says the same about a stage multiplied by zero). **Moving one
+scope dimension — an hour, a month, a county — onto a neighbouring snapshot is
+the cheapest available audit of everything the first fixture could not see**, and
+it should be the first move on a new rung rather than the last.
+
+### 27.4 What the new slice still cannot check
+
+Stated here because §23's discipline applies to this fixture too. Brake wear's
+`emissionrate` covers **five** of `W`'s 23 operating modes (0, 1, 11, 21, 33),
+carrying 12.84 % of the weekend weight and 19.89 % of the weekday weight. So a
+perturbation of `W` confined to the other eighteen modes moves the 500
+particulate rows not at all. The energy block remains the complete check on `W`;
+the particulate blocks check something different — that the *same* weights,
+contracted against a rate table five orders of magnitude smaller, still reproduce
+`baserate_9_2020` to 2 × 10⁻⁶.
