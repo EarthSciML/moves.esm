@@ -90,6 +90,8 @@ else
   sed 's/^/       /' <<<"$out"
 fi
 
+COVERAGE_DAG=../moves.rs/characterization/calculator-chains/calculator-dag.json
+
 # --- collect documents ----------------------------------------------------
 #
 # docs/findings/ is excluded from stages 1–3: those files are deliberate repros
@@ -163,6 +165,30 @@ if out=$(python3 tools/check-sources.py 2>&1); then
 else
   fail "data sources"
   printf '%s\n' "$out"
+fi
+
+# Every port specification's `| Calculator path |` row is checked against
+# ../moves.rs's calculator-dag.json -- the module inventory built from the
+# pinned MOVES CalculatorInfo.txt. A spec may not name a module MOVES does not
+# have, nor claim one the DAG records as dead, nor declare a calculator path
+# without the snapshot row that says which fixture the claim is about.
+#
+# This is the gate under the coverage figure. That number was assembled by hand
+# from memory more than once, and a hand-assembled number cannot be told from a
+# stale one; tools/calculator-coverage.py derives it from the specs, and this
+# stage is what keeps the specs' claims answerable to MOVES rather than to
+# whoever wrote them. It needs ../moves.rs, so it skips rather than fails when
+# the sibling checkout is absent.
+head2 "calculator coverage"
+if [[ -f "$COVERAGE_DAG" ]]; then
+  if out=$(python3 tools/calculator-coverage.py --check 2>&1); then
+    printf '%s\n' "$out"
+  else
+    fail "calculator coverage"
+    printf '%s\n' "$out"
+  fi
+else
+  skip "calculator coverage" "no $COVERAGE_DAG"
 fi
 
 # --- 3. inline tests ------------------------------------------------------

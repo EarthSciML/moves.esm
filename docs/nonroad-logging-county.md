@@ -22,6 +22,17 @@ Paths are relative to `../moves.rs` unless noted.
 
 `characterization/fixtures/nr-logging-county.xml`:
 
+| | |
+|---|---|
+| snapshot | `../moves.rs/characterization/snapshots/nr-logging-county` |
+| Calculator path | **`NonroadEmissionCalculator`** → output aggregation |
+
+The NONROAD chain has no generators: `NonroadEmissionCalculator` reads the
+fixture's own tables directly, which is why this table is one row where the
+onroad specifications' is five or six. `tools/calculator-coverage.py` reads
+both rows above.
+
+
 | RunSpec element | Value | Note |
 |---|---|---|
 | model | `NONROAD` | no onroad calculators fire |

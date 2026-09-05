@@ -886,8 +886,8 @@ reference completely, with an exact key set and no `[shortfall]`:
 all against `tolerance.toml`'s 2e-05, which has never been widened for any of
 them. What follows is ordered by what blocks what.
 
-1. **Scale out (Phase 5).** This is now the main line, and its first rung is
-   **landed**: `fixtures/process-brakewear.esm` matches all 750 rows with an
+1. **Scale out (Phase 5).** This is now the main line, and three rungs are
+   landed. The first: `fixtures/process-brakewear.esm` matches all 750 rows with an
    exact key set, worst cell 8.250e-06, no `[shortfall]` and nothing read from
    the reference. Three things came out of it that the remaining rungs inherit.
 
@@ -938,7 +938,7 @@ them. What follows is ordered by what blocks what.
    the 15,801–23,108-row NONROAD fixtures are where §1.3's gate stops being
    theoretical.
 
-   **`process-refueling` is the second rung and it is landed**: 336 of 336 rows,
+   **`process-refueling` is the third rung and it is landed**: 336 of 336 rows,
    key set exact, worst cell 7.434e-06. It is the first fixture whose calculator
    does not compute a rate on the running-exhaust spine at all —
    `RefuelingLossCalculator` chains off `BaseRateCalculator`'s **total-energy
@@ -1000,3 +1000,32 @@ model years leaves them agreeing to **2e-16** by construction. The loose
 per-pollutant gate `moves.rs` uses across implementations would pass every
 realistic failure this port can produce. Only the exact key set and the
 per-cell check see them.
+
+### 6.2 How much of MOVES this is
+
+Run `tools/calculator-coverage.py`. The number is not recorded here, because a
+number recorded here is a number that stops being true the next time a rung
+lands and gives no sign of it. What is recorded is where it comes from:
+
+- **The denominator** is `../moves.rs/characterization/calculator-chains/calculator-dag.json`,
+  built by `moves-calculator-info` from the pinned MOVES `CalculatorInfo.txt`
+  and a scan of 62 Java files. 65 modules, of which **48 are live** — 30
+  calculators and 16 generators, plus two of the `Unknown` kind. A module is
+  live if MOVES registers it, subscribes it, or chains to it; that rule is in
+  the tool, not in prose, and it excludes `DummyCalculator` by name as the one
+  test stub the rule would otherwise admit.
+- **The numerator** is the `| Calculator path |` row each specification in
+  `docs/` already carries. The spec's own claim, in the spec, moving in the
+  same commit as the work.
+- **The evidence** is the oracle. A claim counts only when an oracle names that
+  spec, `run-tests.sh` runs that oracle, and a fixture in `fixtures/` names the
+  same snapshot. `docs/evap-permeation.md` is the case that makes this worth
+  enforcing: the specification is complete and `./run-permeation-oracle.sh`
+  reproduces all 128 rows, but F28 blocks the fixture, so the tool reports
+  `EvaporativePermeationCalculator` as **claimed and not counted**. A
+  specification is not a port.
+
+`run-tests.sh` gates this: a spec may not name a module MOVES does not have,
+nor claim one the DAG records as dead, nor declare a calculator path without
+the snapshot row that says what the claim is about. Those are the three ways
+the figure could quietly start lying.

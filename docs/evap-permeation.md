@@ -41,6 +41,7 @@ Sources, in the order they were trusted:
 | `MOVESOutput` rows | **128** |
 | pollutant / process | THC (1) × Evap Permeation (11); `polProcessID` **111** |
 | calculator | `EvaporativePermeationCalculator`, a direct master-loop subscriber (process 11, `MONTH` granularity) |
+| Calculator path | `TotalActivityGenerator` → `SourceBinDistributionGenerator` → `EvaporativeEmissionsOperatingModeDistributionGenerator` → `TankTemperatureGenerator` → **`EvaporativePermeationCalculator`** → output aggregation |
 | year / month / hour | 2020 / 8 / 7 |
 | day types | 2 (weekend) and 5 (weekday) — `hourDayID` 72 and 75 |
 | county / zone / link | 26161 (Washtenaw, MI) / 261610 / 2616104 |
