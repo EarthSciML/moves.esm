@@ -1019,8 +1019,10 @@ differ:
 **And the whole ELECTRICITY branch of the energy spine is invisible here**,
 which is the one entry on this list that no earlier fixture would have predicted.
 `mixed-onroad` and `process-brakewear` both emit electricity rows, so for them
-the EV temperature factor of 1.015625 and the EV efficiency divisor move 84 and
-42 output cells respectively. This fixture emits **none**: a refueling row sums
+the EV temperature factor and the EV efficiency divisor move real output cells —
+`docs/process-brakewear.md` §2.5 measures the missing wildcard step as a 1.56 %
+error on 84 of that fixture's rows. This fixture emits **no** electricity row at
+all: a refueling row sums
 the energy of its own `(modelYearID, fuelTypeID)` cohort, and every electricity
 cohort is dropped by REFEC-7's fuel-type join, so fuel-9 energy never reaches an
 emitted cell at all. Perturbing either the EV temperature terms or

@@ -2166,8 +2166,12 @@ its floor takes the sentinel branch instead.
 
 The branch is the one no earlier slice would have predicted, because it is a
 stage that two earlier fixtures *do* see: the electricity cohorts' EV
-temperature factor and EV efficiency divisor move 84 and 42 output cells in
-`mixed-onroad` and `process-brakewear`, and **zero** here. A refueling row sums
+temperature factor and EV efficiency divisor move real output cells in
+`mixed-onroad` and `process-brakewear` — the missing wildcard step was a 1.56 %
+error on 84 of brake wear's rows — and move **zero** here, measured by
+perturbing each stage's own input and diffing all 336 emitted cells byte for
+byte (`docs/process-refueling.md` §7.2, with two positive controls beside the
+three zeros). A refueling row sums
 the energy of its own `(modelYearID, fuelTypeID)` cohort and every electricity
 cohort is dropped by REFEC-7's fuel-type join, so fuel-9 energy never reaches an
 emitted cell. **A stage a neighbouring fixture checks is not thereby checked in
