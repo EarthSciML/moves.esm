@@ -137,6 +137,35 @@ def out_fields(path):
     )
 
 
+def stamp(outdir):
+    """Record which binary produced this directory's CSVs.
+
+    They are overwritten in place on every run, so a directory can hold a
+    baseline from one binary beside a mode from another if two runs are
+    interleaved or one is killed part-way. That is not hypothetical: a run
+    against the pre-F17 binary replaced one fixture's `.base.csv` while the
+    other three stayed post-fix, and comparing across them by hand would have
+    read a real difference as agreement or the reverse. The stamp makes a mixed
+    directory visible instead of silent.
+    """
+    version = run(ESM, "--version").stdout.strip() or "unknown"
+    lock = "no esm-version.lock"
+    path = os.path.join(ROOT, "esm-version.lock")
+    if os.path.exists(path):
+        for line in open(path):
+            if line.startswith("commit"):
+                lock = line.split("=", 1)[1].strip()
+                break
+    with open(os.path.join(outdir, "PROVENANCE"), "w") as fh:
+        fh.write("binary   = %s\n" % ESM)
+        fh.write("version  = %s\n" % version)
+        fh.write("lock     = %s\n" % lock)
+        fh.write("note     = every CSV beside this file was emitted by that "
+                 "binary in ONE run; a hand comparison against a CSV from a "
+                 "different run must check this first\n")
+    return version, lock
+
+
 def emit(runs, outdir, tag):
     """Return {run: sha256 of its emitted CSV}, or {run: '<error>'}."""
     digests = {}
@@ -184,8 +213,10 @@ def main():
 
     outdir = OUTDIR
     os.makedirs(outdir, exist_ok=True)
+    version, lock = stamp(outdir)
     print("clause-order audit of %s" % ", ".join(DIRS))
     print("  %d documents, %d of them runnable (fixtures)" % (len(docs), len(runs)))
+    print("  %s, %s (esm-version.lock %s)" % (ESM, version, lock[:9]))
 
     base_digests = emit(runs, outdir, "base")
     base_tests = test_table()
