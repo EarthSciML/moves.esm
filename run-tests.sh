@@ -656,7 +656,7 @@ fi
 
 # --- independent oracles ----------------------------------------------------
 
-# The four reproductions that live inside the port specifications. Each is
+# The reproductions that live inside the port specifications. Each is
 # EXTRACTED from its §6.5 fence at run time and run against the snapshot, so a
 # specification whose code has quietly stopped working cannot keep looking
 # authoritative -- and each one ASSERTS, so a drift in the snapshot or in a
@@ -679,7 +679,8 @@ if [[ ! -d "$SNAPSHOTS" ]]; then
 else
   ORACLES=("./run-oracle.sh" "./run-oracle.sh --float64"
            "./run-onroad-oracle.sh" "./run-leaks-oracle.sh"
-           "./run-permeation-oracle.sh" "./run-fvv-oracle.sh")
+           "./run-permeation-oracle.sh" "./run-fvv-oracle.sh"
+           "./run-brakewear-oracle.sh")
   for oracle in "${ORACLES[@]}"; do
     if [[ ! -x "${oracle%% *}" ]]; then
       fail "oracle ${oracle} — not executable"

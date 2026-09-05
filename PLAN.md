@@ -466,10 +466,17 @@ Snapshot `MOVESOutput` row counts, the honest measure of fixture size:
 | 144 | **`nr-logging-county`** | NONROAD |
 | 250 | **`mixed-onroad`**, `expand-day` | onroad base-rate |
 | 336 | `process-refueling` | onroad evap |
-| 744–750 | `expand-criteria`, `process-brakewear`, `process-tirewear` | onroad |
+| 744–750 | **`process-brakewear`** (750), `expand-criteria`, `process-tirewear` | onroad |
 | 1,080 | `chain-tog-speciation`, `chain-nonhaptog` | speciation chains |
 | 1,936–2,355 | `nr-lawn-garden-county`, `nr-construction-state` | NONROAD |
 | 15,801–23,108 | `nr-industrial-county`, `nr-agriculture-state`, `nr-railroad-support-nation`, … | NONROAD, large |
+
+`process-brakewear` is the first rung of Phase 5 and the first fixture that
+emits **more than one pollutant-process**: 250 rows of running-exhaust Total
+Energy (`mixed-onroad`'s chain at a different hour), 250 of PM2.5 brake wear on
+the same `BaseRateCalculator` spine, and 250 of PM10 brake wear *chained* off
+the PM2.5 rows by a tabulated ratio. `docs/process-brakewear.md` is the
+specification and `./run-brakewear-oracle.sh` the independent reproduction.
 
 Eight fixtures have 0 output rows (`process-apu*`, `process-extended-idle*`,
 `process-crankcase-extidle*`, `process-crankcase-start*`) — cheap structural
@@ -863,8 +870,8 @@ per CLAUDE.md.
 ## 6. Immediate next steps
 
 Phases 0, 1, 2 and 3 are done and merged, and Phase 4 has two of its slices
-wired. Four fixtures match the reference completely, with an exact key set and
-no `[shortfall]`:
+wired, and Phase 5's first rung is landed. Five fixtures match the reference
+completely, with an exact key set and no `[shortfall]`:
 
 | fixture | rows | worst cell | phase |
 |---|---:|---|---|
@@ -872,11 +879,41 @@ no `[shortfall]`:
 | `mixed-onroad` | 250 / 250 | 8.320e-06 | 3 |
 | `process-evap-leaks` | 128 / 128 | 7.294e-06 | 4 |
 | `process-evap-fvv` | 128 / 128 | 7.495e-06 | 4 |
+| `process-brakewear` | 750 / 750 | 8.250e-06 | 5 |
 
 all against `tolerance.toml`'s 2e-05, which has never been widened for any of
 them. What follows is ordered by what blocks what.
 
-1. **Scale out (Phase 5).** This is now the main line, and it is unblocked:
+1. **Scale out (Phase 5).** This is now the main line, and its first rung is
+   **landed**: `fixtures/process-brakewear.esm` matches all 750 rows with an
+   exact key set, worst cell 8.250e-06, no `[shortfall]` and nothing read from
+   the reference. Three things came out of it that the remaining rungs inherit.
+
+   * **A rate relation, not a wider cohort relation.** A run emitting several
+     pollutant-processes cannot key its rate columns on the cohort alone,
+     because `shortModYrGroupID` — one of the six components packed into
+     `emissionrate.sourceBinID` — differs between them: 9101 resolves model year
+     2020 to short group 40 and 11609 to 6. A `join.on` key column must be
+     one-dimensional, so the rate stage rides a flat
+     `rate_rows = polProcess x cohort` relation (`docs/esm-conventions.md` §2).
+     Every later multi-pollutant fixture — the speciation chains, air toxics,
+     PM exhaust — meets this on its first line.
+   * **A chained pollutant is a self-join, not a second rate.** `runspecchainedto`
+     and `pm10emissionratio` carry the whole of `PM10BrakeTireCalculator`; the
+     chained block's own rate path evaluates to exactly 0 because
+     `emissionrate` has no 10609 row. The same expression serves chained and
+     unchained blocks with no branch, because the chain key and the ratio are
+     both 0 on an unchained row.
+   * **A latent defect in `mixed-onroad`, found by moving one hour.** The
+     temperature-adjustment lookup has a `regClassID 0` wildcard step that
+     `fixtures/mixed-onroad.esm` did not implement; at 66.9 °F the clamp hid it,
+     at 59.5 °F it is a 1.56 % error on 84 rows. Fixed in both fixtures via a
+     new `lib/adjustments.esm` template, with `mixed-onroad`'s 250 numbers
+     unchanged to the last digit. **Retargeting an existing fixture onto a
+     neighbouring snapshot is a cheap and effective audit** and should be the
+     first move on every later rung.
+
+   The rest of the phase is unblocked for the same reason it was:
    `W` was the last uncomputed relation, so every fixture that emits processID 1
    — brake wear, tire wear, PM exhaust, crankcase running, both speciation
    chains, air toxics — and refueling, which chains off `BaseRateCalculator`'s
