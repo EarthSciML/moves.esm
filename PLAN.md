@@ -862,29 +862,59 @@ per CLAUDE.md.
 
 ## 6. Immediate next steps
 
-Phases 0 and 1 are done and merged. What follows is ordered by what blocks what.
+Phases 0, 1, 2 and 3 are done and merged, and Phase 4 has two of its slices
+wired. Four fixtures match the reference completely, with an exact key set and
+no `[shortfall]`:
 
-1. **Wire a `PrepareProvider` into the `esm` binary** (§1.5) — the one hard
-   blocker. Until it lands, no `.esm` can read a `data_sources` entry, so the
-   144-row comparison cannot run at all. In flight upstream.
-2. **Fix F1 and F4** (`docs/findings/README.md`). F4 is a silent wrong answer —
-   an `aggregate` range symbol named `t` makes `join.on` match nothing and the
-   reduction returns 0, with no error and a document that validates. F1 blocks
-   the nested subsystem mount that CLAUDE.md's compositional rule assumes, so
-   every relational leaf currently mounts as a top-level `{ref}` instead. Both
-   in flight upstream.
-3. **Author the Phase 2 chain** — unblocked *except* for the fixture
-   comparison, because each stage's inline tests take their numbers from the
-   specification's worked examples (§6.1–§6.3) and run today against `const`
-   arrays. In flight.
-4. **Finish the parquet work in EarthSciIO** — the cross-language conformance
-   corpus case. In flight.
-5. **Julia's `join.on` gate** — `BEHAV-10-B-001` and `-004`. In flight. Python
-   needs only `-004`.
+| fixture | rows | worst cell | phase |
+|---|---:|---|---|
+| `nr-logging-county` | 144 / 144 | 4.561e-06 | 2 |
+| `mixed-onroad` | 250 / 250 | 8.320e-06 | 3 |
+| `process-evap-leaks` | 128 / 128 | 7.294e-06 | 4 |
+| `process-evap-fvv` | 128 / 128 | 7.495e-06 | 4 |
 
-Then Phase 3 (`mixed-onroad`, 250 rows), which is the first onroad slice and
-the first test of whether the conventions survive contact with the rates-first
-base-rate path rather than a self-contained NONROAD chain.
+all against `tolerance.toml`'s 2e-05, which has never been widened for any of
+them. What follows is ordered by what blocks what.
+
+1. **Scale out (Phase 5).** This is now the main line, and it is unblocked:
+   `W` was the last uncomputed relation, so every fixture that emits processID 1
+   — brake wear, tire wear, PM exhaust, crankcase running, both speciation
+   chains, air toxics — and refueling, which chains off `BaseRateCalculator`'s
+   total-energy output, can be attempted against a spine that is checked end to
+   end. §2's ladder is the order; the 744–1,456-row band is the next rung and
+   the 15,801–23,108-row NONROAD fixtures are where §1.3's gate stops being
+   theoretical.
+2. **F31 — `esm test` rebuilds the whole document once per test.** Not a
+   correctness blocker, but it is now the dominant cost of working on this
+   repository: the suite is ~20 minutes and one fixture accounts for ~9 of them
+   by being evaluated 29 times. 181 tests need 42 distinct builds. There is no
+   document-level or harness-level form of the fix. In flight upstream.
+3. **F17's remainder — gate selection and ordering.** The headline is long
+   fixed; what is open is that document order picks the driving clause. Measured
+   on `mixed-onroad`'s `cohMode_rate`, the spread across single-clause choices is
+   66× and the conjunction is **2,256×** better than the best of them (§10.3),
+   so this is mostly about driving conjunctively rather than about ranking. It
+   is also the difference between a fixture that needs a hand-fused composite key
+   and one that does not, which is an authoring cost every later slice pays. In
+   flight upstream.
+4. **F32 — an `enums` member cannot be zero.** `opModeID 0` is Braking and 5.6%
+   of the weekday operating-mode distribution; it is written as a bare literal in
+   `fixtures/mixed-onroad.esm` because it cannot be named. Negative values matter
+   for the same reason (`polProcessID -1`). In flight upstream.
+5. **F28 — a data-named predecessor is not a recurrence**, which is what
+   `process-evap-permeation` stands on: mode 300 is TTG-4a's walk over
+   `SampleVehicleTrip`, whose predecessor is named by `priorTripID`, a data
+   column. The specification, the oracle (128 rows at 6.174e-06) and the
+   workaround control all exist; the fixture does not.
+6. **An off-network snapshot**, without which the evaporative soak chain cannot
+   be checked anywhere. Three consecutive slices failed to reach it for one
+   structural reason — `fractionOfOperating` is identically 1 at an on-network
+   link, and all 39 snapshots select road type 4 — so this needs a RunSpec on
+   road type 1 generated in `moves.rs`, not another slice here. See
+   `docs/evap-fvv.md` §8.3 and `docs/esm-conventions.md` §23.
+
+Phase 6 (control strategies) stays deferred: none of the 39 fixtures exercises
+them, so it is scope beyond reproducing the examples.
 
 ### 6.1 What the fidelity gate now consists of
 
