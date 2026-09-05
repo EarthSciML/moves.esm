@@ -2070,13 +2070,35 @@ a scanned output loop.
 
 ### 10.4 What the fixture checks about `W`, and what it cannot
 
-`W` has no captured intermediate, so the fixture asserts the two properties that
-do not need one — the weights sum to `avgSpeedFraction`'s own total (1 to its
-six stored significant figures, hence an **absolute** 10⁻⁵ gate and not a
-relative one, `docs/esm-conventions.md` §20.5), and they cover exactly 23
-operating modes — and then lets the end-to-end comparison be the value check.
-§7.3 argues that is sufficient: the base rate factorises exactly around `W`, so
-a wrong `W` is a wrong `MOVESOutput`.
+`W` has no captured intermediate. `baserate_1_2020` is the next thing
+downstream that does, and it is `SUM over om of W[hd, om] x
+sbWeightedMeanBaseRate[MY, fuel, om]` — so the fixture asserts **eight of its
+cells directly**, over four cohorts spanning four orders of magnitude and both
+day types, plus five of its `meanBaseRateACAdj` cells. §7.3 is what makes that a
+check on `W`: the base rate factorises exactly around it, so a wrong `W` is a
+wrong number in every one of those cells and nothing else in the chain can
+absorb it.
+
+Two structural properties are asserted as well, and neither needs a reference:
+the weights sum to `avgSpeedFraction`'s own total (1 to its six stored
+significant figures, hence an **absolute** 10⁻⁵ gate and not a relative one,
+`docs/esm-conventions.md` §20.5), and they cover exactly 23 operating modes.
+
+**Which of the two kinds of check actually catches a wrong `W`, measured.**
+Perturb the classification in a sum-preserving way — `dss_vsp` × 1.001, so a
+handful of seconds cross a VSP boundary into a neighbouring mode:
+
+| | value |
+|---|---|
+| `dc_WTotal` | 1.0000004 and 0.9999999 — **unchanged** |
+| `dc_WModeCount` | 23 and 23 — **unchanged** |
+| inline assertions | **17 fail**: nine base-rate cells and all four worked examples |
+| the comparator | 250 of 250 cells over tolerance |
+
+So the structural tests check that `W` is a *distribution*; only a value checks
+that it is the *right* distribution. A second sabotage — 1 % taken off every
+binned mode's weight, which is not sum-preserving — is caught by both, at a
+worst cell of 1.054 × 10⁻². Both were run before this section was written.
 
 Three independent routes now agree on those 46 numbers: §6.5's Python, the
 `.esm` fixture, and the snapshot's `MOVESOutput`. The first two agree to

@@ -303,7 +303,10 @@ complete.** Twenty components cover all seven NONROAD stages of
 `nr-logging-county`, S1–S12 and S15–S18 of `mixed-onroad`, and all of
 `process-evap-leaks` and `process-evap-fvv`; `fixtures/mixed-onroad.esm` covers
 the whole onroad chain, including the drive-cycle operating-mode distribution no
-component can carry, against the snapshot's own tables.
+component can carry, against the snapshot's own tables. **1,289 distinct inline
+assertions** whose numbers each trace to a named section of a port
+specification — 610 in the components, 74 in the assemblies, 601 in the four
+wired fixtures and 4 in the gates.
 
 **`process-evap-leaks` was the first fixture with no shortfall at all**: 128 of
 128 rows against the snapshot `MOVESOutput`, key set exact — 128 shared, 0
@@ -334,6 +337,27 @@ on-network link, so `1 − fractionOfOperating` zeroes every soak mode — so **
 evaporative process would have answered the recurrence question**; a run
 selecting road type 1 would. `docs/evap-fvv.md` §8.3 says so, and
 `docs/esm-conventions.md` §23 is the rule that came out of it.
+
+**`mixed-onroad` is the third, and it closed the one gap the port had left.**
+250 of 250 rows, key set exact, worst cell 8.320 × 10⁻⁶ against the same
+un-widened 2 × 10⁻⁵ gate, worst per-pollutant sum 9.675 × 10⁻⁸. It had no
+fixture for a phase, and `docs/mixed-onroad.md` §7.4 argued that rather than
+recording a shortfall: 46 numbers in that chain — the speed-bin-weighted
+drive-cycle operating-mode distribution — are computed inside the MOVES worker
+and dropped, so no captured table carries them, and a document emitting 250
+correctly-keyed rows with an uncomputed rate fails the per-cell gate for a shape
+`[shortfall]`'s counts cannot express while one reading `baserate_1_2020` passes
+by transcribing the answer.
+
+So the 46 numbers were computed, from `driveschedulesecond`'s 63,602
+second-by-second speeds — twice, in the Python oracle and in the `.esm`, which
+agree cell by cell to one ulp. What made it possible was one upstream fix: the
+four neighbouring-second reads are `driveschedulesecond` joined to itself, which
+finding **F11** refused. Measured by bisection against the same document with
+those joins stubbed, they cost ~1.4 s at 4.045 × 10⁹ candidate pairs each. And
+the number that says the whole exercise was honest: computing them instead of
+reading the reference moved the oracle's worst cell from 8.231 × 10⁻⁶ to
+8.320 × 10⁻⁶.
 
 Choosing the leaks slice corrected this plan. `PLAN.md` had said Phase 4's cheapest
 slice was start exhaust, because its operating-mode distribution is in the

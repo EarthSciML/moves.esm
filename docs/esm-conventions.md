@@ -813,14 +813,14 @@ reads the XML for a single dimension and quietly emits 62 rows.
 `the_scope_columns_come_from_the_execution_database` asserts monthID 8 and
 hourID 9 against the XML's 7 and 8 for that reason.
 
-### 16.6 What Phase 3 did not do, and why it is in the specification
+### 16.6 What Phase 3 deferred, and why the deferral is in the specification **[since resolved, §26]**
 
-`mixed-onroad` has **no fixture**, and that is a decision rather than an
-unfinished edge. `docs/mixed-onroad.md` §7.3 shows that everything in the
-250-row chain is computable from the snapshot's input tables except one
+`mixed-onroad` had **no fixture** for a phase, and that was a decision rather
+than an unfinished edge. `docs/mixed-onroad.md` §7.3 showed that everything in
+the 250-row chain was computable from the snapshot's input tables except one
 relation of 46 numbers — the speed-bin-weighted drive-cycle operating-mode
 distribution, which canonical MOVES computes inside its worker and drops. §7.4
-gives the reasoning: a document emitting 250 correctly-keyed rows carrying an
+gave the reasoning: a document emitting 250 correctly-keyed rows carrying an
 uncomputed rate fails the per-cell gate for a shape `[shortfall]`'s
 `emitted_rows` / `missing_keys` / `extra_keys` record cannot express, and a
 document reading the reference's own `baserate_1_2020` passes the gate by
@@ -829,11 +829,23 @@ stage that says what it did not compare is worth more than a green one that
 read nothing — applies to *whether to add the stage* as much as to what it
 reports.
 
-What replaces it: the four components check every stage that can be checked
-without the snapshot, against numbers §6 read out of it; and
-`./run-onroad-oracle.sh` extracts §6.5 and reproduces all 82 rows of `sho` and
-all 250 of `MOVESOutput` from the snapshot to 4.1 × 10⁻⁶ and 8.2 × 10⁻⁶, with
-the base rate read from the reference and the output saying so on every run.
+**The relation is computed now and the fixture is wired** — §26, and
+`docs/mixed-onroad.md` §10 — so this subsection is history. It is kept for the
+shape of the decision rather than for its verdict, because the next port will
+meet the same fork: an uncomputed relation in an otherwise complete chain is a
+choice between three things, and only one of them is honest. Emit the rows with
+a placeholder and record a shortfall — but `[shortfall]` counts rows and this
+failure has the right rows. Read the reference's intermediate — but then the
+fixture measures nothing. Or **compute the relation**, which is what §7.3's
+decomposition was for: it isolated exactly what was missing, proved everything
+around it was right, and thereby made the third option a bounded piece of work
+rather than an open-ended one.
+
+What stood in for the fixture in the meantime, and still runs: the four
+components check every stage that can be checked without the snapshot, against
+numbers §6 read out of it; and `./run-onroad-oracle.sh` extracts §6.5 and
+reproduces all 82 rows of `sho` and all 250 of `MOVESOutput` from the snapshot's
+own input tables, now taking nothing at all from the reference.
 
 ## 17. Declaring the working precision **[float32]**
 
