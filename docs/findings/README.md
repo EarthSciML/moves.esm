@@ -1374,8 +1374,20 @@ polarity is backwards here. This repository runs the Rust binding, which
 run. The finding is about the other bindings, and nothing in this tree executes
 them.
 
-**Not a new contract. An unimplemented one.** CONFORMANCE_SPEC §5.18 is
-normative, and §5.18.2 closes by naming exactly this failure:
+**Not a new contract, not an unrecorded one, and not a discovery.** Upstream
+already knows: `ESM_COMPLIANCE_VALIDATION_MATRIX.md`'s **PREC-11-A** binding
+status says outright that "Julia, Python, Go and TypeScript parse and round-trip
+`domain.element_type` but do not honour it — a `Float32` document evaluates in
+binary64 there, which is the divergence this row exists to record", and it sets
+out what each binding would need in four parts (an active-precision mode
+threaded to every evaluation site, per-operation rounding including the
+vectorized fast paths, ingress rounding, and §5.18.2's three refusals). This
+entry is filed here for what that costs THIS port, not to report it as news, and
+the only genuinely new things in it are the measurement below and the fact that
+Julia and Python turn out to be structurally immune to F17.
+
+CONFORMANCE_SPEC §5.18 is normative, and §5.18.2 closes by naming the failure
+mode:
 
 > A binding that cannot honour a clause MUST refuse it. Evaluating part of a
 > document in a precision it did not ask for, and saying nothing, is the defect
@@ -1425,8 +1437,12 @@ that is the least durable way to be right: the same non-implementation makes
 them wrong wherever binary32 rounding is what the reference actually does, and
 §5.18.1 opens by measuring precisely that case.
 
-Recorded upstream in `ESM_COMPLIANCE_VALIDATION_MATRIX.md` under BEHAV-11-007's
-binding-status note.
+Recorded upstream twice: as the PREC-11-A binding status above, which predates
+this investigation, and — new — under BEHAV-11-007's note, which had GUESSED
+that Julia, Python and TypeScript each lower an `on` pair to an equality
+predicate "the same way" Rust did. They do not lower one at all, which is why
+they are immune to F17; that note now carries the measured per-binding verdicts
+instead of the guess.
 
 ---
 

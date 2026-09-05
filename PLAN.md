@@ -922,9 +922,10 @@ them. What follows is ordered by what blocks what.
    the 15,801–23,108-row NONROAD fixtures are where §1.3's gate stops being
    theoretical.
 2. **F33 — a `Float32` document is evaluated in binary64 by Julia and Python,
-   silently.** Not a new contract: `CONFORMANCE_SPEC` §5.18 is normative and
-   §5.18.2 closes by naming this exact failure ("a binding that cannot honour a
-   clause MUST refuse it"). Julia implements the refusal for time integration
+   silently.** Not a new contract and not a new observation: `CONFORMANCE_SPEC`
+   §5.18 is normative, §5.18.2 closes by naming this exact failure ("a binding
+   that cannot honour a clause MUST refuse it"), and upstream's PREC-11-A
+   binding status already records the gap and what closing it would take. Julia implements the refusal for time integration
    and not for the algebraic and relational path §5.18.2(3) explicitly says
    still runs in binary32; `element_type` is read nowhere in its evaluator, and
    Python reads it at one site. Measured on a two-clause `Float32` document with
