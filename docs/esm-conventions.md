@@ -1875,11 +1875,18 @@ things are new, and one long-standing claim turned out to be false.
   "dss_driveScheduleID"]]` cannot otherwise tell which side is which, and the
   second pair's two sides are the same column name.
 
-  What this retires: `fixtures/process-evap-leaks.esm`'s
-  `cohort_equipped_rows` — a whole second copy of the cohort relation over a
-  second index set, carried only because the fuel-usage rebase pairs a row with
-  another row of its own relation. `fixtures/mixed-onroad.esm` does the same
-  rebase as a three-clause self-join and needs no second relation.
+  What this makes RETIRABLE, and it is not yet retired:
+  `fixtures/process-evap-leaks.esm`'s `cohort_equipped_rows` and
+  `components/onroad_source_bin_distribution.esm`'s `eq_*` relation — in both
+  cases a whole second copy of a relation over a second index set, carried only
+  because the fuel-usage rebase pairs a row with another row of its own
+  relation, and in both cases with a `_comment` citing F11 as the reason.
+  `fixtures/mixed-onroad.esm` does the same rebase as a three-clause self-join
+  and needs no second relation, so the workaround has a replacement that is known
+  to work at this scale. Removing it from those two documents is a separate
+  change with its own verification and has not been made here; this section is
+  the record that it is now possible, which is exactly what the tripwire stage's
+  polarity exists to surface.
 
 * **A rank turns a mask into a row count, and now it needs no self-join
   either.** §22's mechanism, spelled with the cheaper of its two forms: the
