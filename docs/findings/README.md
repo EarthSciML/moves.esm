@@ -1,6 +1,6 @@
 # Findings: conventions the format or the toolchain could not express
 
-Twenty-six things PLAN.md §3 Phase 1 through Phase 4 assumed, or that an author would
+Twenty-seven things PLAN.md §3 Phase 1 through Phase 4 assumed, or that an author would
 reasonably assume, that did not hold. **Thirteen are fixed upstream and retired**
 from the tripwire, listed at the bottom with their sections kept above so the
 workarounds they forced can be traced. The rest still hold at the pinned
@@ -9,7 +9,12 @@ toolchain (`esm-version.lock`: EarthSciAST `a1dc9bb30`, EarthSciIO
 
 F2, F3, F5, F13, F14, F20, F21, F22 and F28 each have a minimal `.esm` repro in this
 directory — F22 has two, one per construct; F8 is a CLI behaviour rather than a
-document, and is checked by command against the ordinary files of the repo. F23 has no repro at all, because the document that would carry it is `components/age_distribution.esm` itself and the finding is what that file does NOT declare. **Every repro is expected to fail**, and each one's inline test asserts the *intended* behaviour, so a repro
+document, and is checked by command against the ordinary files of the repo.
+**F17 and F31 are cost findings and deliberately have no repro file**: a repro
+for either would assert the RIGHT answer and pass, and the tripwire stage below
+reads a passing file in this directory as "the defect is fixed". Their repros are
+reproduced inline in their sections instead, with the timings that make them
+findings, and are meant to be carried upstream rather than run here. F23 has no repro at all, because the document that would carry it is `components/age_distribution.esm` itself and the finding is what that file does NOT declare. **Every repro is expected to fail**, and each one's inline test asserts the *intended* behaviour, so a repro
 that starts passing means the defect is fixed. `run-tests.sh` runs them as a
 **tripwire stage**: it fails if any repro goes green, with a message naming the
 convention that then becomes available. That is the opposite of the usual
@@ -861,6 +866,209 @@ rather than on a fixed one, and choose a join ORDER over the clause set instead
 of taking them as written. A second gate document, contracting two large
 relations, would pin it.
 
+### The remainder, measured: only the FIRST clause drives, and which one it is costs 47×
+
+The "gate selection" half above is no longer a suspicion. `docs/esm-conventions.md`
+§12 recorded one, honestly hedged — that `tech_fraction`'s `tech_engTechID ↔
+mix_engTechID` join "does not appear to drive over the 100-wide technology
+axis". It does not, and here is why and by how much.
+
+**Cause, read off the reference.** `resolve_join_gate`
+(`pkg/earthsci-ast-rs/src/simulate_array/eval.rs`) walks the node's `join` list
+and `return`s on the **first** clause it can resolve. That is conforming —
+CONFORMANCE_SPEC §5.5.8 says only one gate need drive and "which one drives is a
+binding's choice" — and every other clause is then lowered into the per-leaf
+equality `filter`, which is what keeps the answer right. So an aggregate's cost
+is fixed by *one* clause: the number of leaves that clause's match set admits.
+
+`tech_fraction` (J11) has four clauses and two output axes. Written as it was,
+`cohort_mixEffectiveSCC ↔ mix_SCC` was first and drove; the technology axis was
+therefore an ordinary 100-wide output loop, re-walking the SCC's mix rows once
+per technology code.
+
+**The measurement.** One `esm simulate --time 0` of the whole fixture, the four
+clauses of J11 permuted and nothing else changed. Emitted rows byte-identical in
+every row (`diff` against the unpermuted run's CSV). "Leaves it admits" is
+computed from the parquet, not fitted: for the driving clause, the number of
+`nrengtechfraction` rows sharing each bound output cell's key value, summed over
+those cells and multiplied by the size of the output axis the clause does NOT
+bind (the 100-wide technology axis for three of the four; the 306-wide cohort
+axis for the technology clause):
+
+| clause driving J11 | leaves it admits | whole-document `simulate` | per leaf |
+|---|---:|---:|---:|
+| `tech_engTechID ↔ mix_engTechID` | 2,320,704 | **11.52 s** | 2.03 µs |
+| `cohort_mixEffectiveSCC ↔ mix_SCC` (as written) | 5,977,200 | **20.41 s** | 2.27 µs |
+| `cohort_mixYearID ↔ mix_modelYearID` | 24,107,900 | **57.16 s** | 2.09 µs |
+| `mix_processGroupID ↔ epg_processGroupID` | 272,523,600 | **541.00 s** | 1.96 µs |
+
+Subtracting the 6.81 s the rest of the document costs (the same run with J11
+stubbed to a constant), the cost per admitted leaf is ~2 µs and **flat across
+four orders of magnitude of leaf count**. Nothing else explains the 47× spread:
+the driving clause's selectivity *is* the runtime, and document order picks it.
+
+**And the best order is still ~900× off the relational cost.** The four
+clauses together admit **2,601** (cohort, mix-row) tuples over all 306 cohorts.
+Driving on the technology clause walks 2,320,704 leaves to find them. A driver
+that intersected the clauses instead of picking one would run J11 in
+milliseconds.
+
+**What this repository did about it, and what it did not.** The clause list of
+J11 is now written technology-first, which is worth ~9 s on every one of the 30
+evaluations `run-tests.sh` makes of this fixture. That is a workaround written
+against a binding's free choice, and it is recorded as one:
+`docs/esm-conventions.md` §25 and a `_comment` on the clause list itself. It is
+not a fix — the next author to reorder those clauses for legibility will make
+the suite take an hour, and nothing will tell them.
+
+**Fix shape, sharpened.** Two things, in this order of value:
+1. **Choose the driving clause by selectivity, not by document position.** Every
+   input needed is already in hand at `resolve_join_gate` — each candidate
+   clause's match set is built from data the evaluator has, and its size is the
+   cost. Building all of them and driving on the smallest would have picked
+   technology-first here without the document saying anything.
+2. **Drive conjunctively.** Restrict the contracted axis to the *intersection* of
+   the partner sets of every clause that binds it, rather than to one clause's.
+   That is the 2,601-vs-2,320,704 gap, and it is what makes a MOVES roll-up cost
+   what the SQL costs.
+
+**The second gate document this finding asks for, in a form small enough to
+carry upstream.** Two `on` clauses on one aggregate, one per output axis, over a
+relation keyed `(cohort, technology)` — `tech_fraction` with the data taken out.
+`c_key[c] = c` over 300 cohorts, `t_key[cc] = 99 + cc` over a technology axis of
+width `T`, and a 9,300-row relation laid out as 31 consecutive rows per cohort
+carrying technology codes 100…130, so the ANSWER (every row lands in exactly one
+cell; the grand total is `M(M+1)/2`) is invariant to `T` and to clause order:
+
+```jsonc
+{ "lhs": "result",
+  "rhs": { "op": "aggregate", "args": [], "semiring": "sum_product",
+    "output_idx": ["c", "cc"],
+    "ranges": { "c": {"from": "outc"}, "cc": {"from": "tech"}, "m": {"from": "rel"} },
+    "join": [ { "on": [["c_key",  "rel_ckey"]] },     // written first ⇒ drives
+              { "on": [["t_key",  "rel_tkey"]] } ],   // never drives; `tech` is scanned
+    "expr": { "op": "index", "args": ["rel_val", "m"] } } }
+```
+
+`esm simulate --time 0`, one document per cell, the cohort clause written first
+against the technology clause written first:
+
+| `T` (width of the second output axis) | cohort clause first | technology clause first |
+|---:|---:|---:|
+| 31 | 0.17 s | 1.56 s |
+| 100 | 0.53 s | 1.71 s |
+| 300 | 1.59 s | 1.56 s |
+| 1000 | **5.58 s** | **1.62 s** |
+
+Linear in `T` in the first column and flat in the second, for one answer. The
+axis is scanned when its own clause is not the one that drives, and driven when
+it is; at `T` = 300 the two orders admit the same leaf count and the two columns
+meet, which is the control that the difference is the driver and not the shape.
+
+
+---
+
+## F31 — `esm test` evaluates the whole document once per test, and `--filter` narrows only the report
+
+No repro file, for F17's reason: a performance repro asserts the RIGHT answer,
+so it passes, and the tripwire stage reads a passing file in `docs/findings/` as
+"the defect is fixed". `fixtures/nr-logging-county.esm` is the repro — 29 tests,
+343 assertions — and a synthetic confirms the shape.
+
+**A document's `tests` section costs one full build and evaluation PER TEST,
+whether or not the tests differ in anything the build depends on.** Read off the
+reference: `run_model_tests` (`pkg/earthsci-ast-rs/src/pde_inline_tests.rs`) is
+`for t in tests { … esm_problem(run_file, span, popts) … }` — a fresh
+`ProblemOptions`, a fresh call to the `build_providers` factory (so every
+`data_sources` table is re-read from parquet), a fresh build of the whole
+build-time observed graph, once around the loop. Nothing is memoised across
+iterations. And `--filter` is applied in `run_test`
+(`pkg/earthsci-ast-rs/src/bin/esm.rs`) to the `Vec<PdeAssertionResult>` that
+`run_pde_tests_with_providers` has ALREADY returned: it selects rows to print,
+after every test has been evaluated.
+
+**Measured, synthetic.** N copies of one identical test on a document whose
+single evaluation costs ~1.6 s — same `time_span`, same assertion times, no
+`parameter_overrides`, no `initial_conditions`, no per-test template imports, so
+every build in the loop is the same build:
+
+| tests in the document | `esm test` wall clock |
+|---:|---:|
+| 1 | 3.47 s |
+| 2 | 5.66 s |
+| 4 | 12.21 s |
+| 8 | 24.64 s |
+| 16 | 53.24 s |
+| 16, `--filter` to one of them | **49.17 s** |
+
+Linear, ~3.3 s per additional test, and filtering fifteen of the sixteen away
+saves 8%.
+
+**Measured, on this repository.** `fixtures/nr-logging-county.esm`,
+`/usr/bin/time` around each invocation, two samples of each interleaved so they
+see the same machine:
+
+| invocation | run 1 | run 2 |
+|---|---:|---:|
+| `esm test fixtures/nr-logging-county.esm` (all 29 tests) | 532.74 s | 545.72 s |
+| … `--filter the_surrogate_is_read_and_not_declared` (one test) | 566.71 s | 539.03 s |
+
+The filtered run is not faster; in one of the two samples it is *slower*, which
+is the spread and not an effect. `esm simulate --time 0` on the same document is
+16.30 / 16.52 / 17.70 s, and 29 × 16.8 s = 487 s. The suite's dominant cost is
+therefore not the fixture — it is the fixture, twenty-nine times.
+
+**Why it is worth a finding rather than an authoring rule.** The document cannot
+avoid it without giving something up. Merging the 29 tests into one would buy a
+28× speedup and cost 29 statements of *what breaks if this is wrong* — the thing
+`docs/esm-conventions.md` §12 says a test is for. Splitting `esm test`
+invocations buys nothing, because each invocation still evaluates everything.
+There is no document-level or harness-level form of this fix; it is upstream or
+it is paid.
+
+**Fix shape.** Memoise the built problem across consecutive tests of one model,
+keyed on everything the build actually depends on — `parameter_overrides`,
+`initial_conditions`, `expression_template_imports`, `time_span`, and the
+provider set — and reuse it when the key is unchanged, rebuilding when it is
+not. The key is cheap and the check is exact; no test would share a build it
+should not. Every test of BOTH fixtures in this repository (29 and 10) has an
+empty key, as do 39 of the 45 component and run tests, so the memo would hit on
+the first try in the only place where it matters. A second, smaller win sits
+behind the same seam: `build_providers` is a factory called inside the loop, so
+the parquet tables are re-read per test as well.
+
+**What it would be worth here, and where the suite's time actually goes.**
+Every component of `./run-tests.sh`, timed separately at the same commit on the
+same machine, against a 609.70 s whole-suite wall clock. **The machine was
+shared with another agent throughout and the whole-suite number moves with it**
+— three runs of `./run-tests.sh` on the same afternoon gave 821 s (before the
+J11 reorder), 610 s and 508 s (after), at 1-minute load averages of 9.3, 10.5
+and 6.8 — so read the shares below rather than the absolute seconds, and read
+the interleaved per-document A/B in `docs/esm-conventions.md` §25 for anything
+load-bearing:
+
+| component | tests | wall clock |
+|---|---:|---:|
+| `esm test fixtures/nr-logging-county.esm` | 29 | 322.15 s |
+| `esm test ./components ./lib ./runs` (34 documents) | 140 | 176.18 s |
+| `esm test fixtures/process-evap-leaks.esm` | 10 | 45.36 s |
+| the `join.on` scaling gate (both documents) | 2 | 3.75 s |
+| `esm validate`, all 42 documents | — | 1.56 s |
+| `esm round-trip`, all 41 | — | 1.43 s |
+| everything else (tripwire, comparator self-test, fixture emit + compare, four oracles, chain cross-check) | — | ~59 s |
+
+**90% of the suite is `esm test`, and every one of its 181 tests is a separate
+build and evaluation.** Counting how many DISTINCT builds those tests actually
+need — one per (`parameter_overrides`, `initial_conditions`,
+`expression_template_imports`, `time_span`) group, per model, computed over the
+tree — gives **42**: 1 for `nr-logging-county`, 1 for `process-evap-leaks`, 2
+for the gates, and 38 across `components/`, `lib/` and `runs/`, where the tests
+that carry a `parameter_overrides` block rightly keep their own. A memo keyed on
+exactly that would remove **139 of the 181 evaluations**. **Inferred, not
+measured**, by scaling each row above by its own ratio: 322 s → ~11 s,
+176 s → ~48 s, 45 s → ~5 s, so `./run-tests.sh` in a little over two minutes,
+without touching a single assertion. Nothing else in the table is worth
+optimising: the whole non-`test` half of the suite is under a minute.
 
 ---
 

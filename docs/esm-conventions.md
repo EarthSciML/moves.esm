@@ -103,6 +103,10 @@ Three reasons this is a rule and not a preference:
    `gates/equijoin_undriven_control.esm`, which is that shape on purpose; it is
    allow-listed by name.
 
+**Which clause you write FIRST decides what the node costs**, because only one
+gate drives and the reference drives the first it can resolve. That is §25, and
+it is worth a factor of 47 on this repository's largest aggregate.
+
 **A composite key is one clause with several pairs**, not several clauses.
 §5.5.8: a combination is admitted iff *every* listed pair agrees, and "the
 canonical composite key is the §5.5.1 rule-4 `skolem` tuple of the per-pair
@@ -554,15 +558,22 @@ parquet, and the assertions are that document's own worked longhand.
   is what lets the same test text run against a leaf alone and against the same
   leaf mounted.
 * **A test costs a whole evaluation of the document, so the number of TESTS is
-  the runtime and the number of assertions is free.** Measured on
-  `fixtures/nr-logging-county.esm` at 144 rows: one `simulate` is 17 s, and
-  `esm test` is 29 × that — `--filter` narrows what is REPORTED, not what is
-  evaluated (8 m 11 s filtered to one test, against 8 m 32 s for all of them).
-  The whole suite is 12 m 22 s, up from 4 m 47 s at twelve output rows. The
-  consequence for authoring is not "write fewer tests" — each of the 29 is a
+  the runtime and the number of assertions is free** — and this is now a
+  finding, **F31**, rather than a suspicion. `run_model_tests` builds a fresh
+  problem, re-reads every `data_sources` table and re-evaluates the whole
+  build-time observed graph once per test, and `--filter` selects rows from the
+  results AFTER all of them have been evaluated. Measured on
+  `fixtures/nr-logging-county.esm` at 144 rows: `simulate` is 16.3 / 16.5 /
+  17.7 s over three runs, `esm test` is 532.7 / 545.7 s for all 29 tests and
+  566.7 / 539.0 s filtered to ONE of them — not faster, and slower in one of the
+  two samples. A 16-copies-of-one-test synthetic is linear
+  at ~3.3 s per test and saves 8% when fifteen of the sixteen are filtered away.
+  The consequence for authoring is not "write fewer tests" — each of the 29 is a
   distinct claim and merging them would make a failure less diagnosable — but
   it does mean a test added for a single extra assertion is an expensive way to
-  buy it, and that profiling belongs on `simulate` rather than on `test`.
+  buy it, and that profiling belongs on `simulate` rather than on `test`. The
+  fix is upstream and has no document-level or harness-level form: read F31
+  before spending time on one.
 
 ## 13. What `./run-tests.sh` guarantees
 
@@ -1659,3 +1670,62 @@ mistake is neither of those but a third — an aggregate that RANGES over the
 point axis without naming it in `output_idx` sums six points into one number and
 returns a plausible answer. When an axis grows from one member to six, every
 aggregate that mentions it has to be re-read for that.
+
+## 25. In a multi-clause `join`, the FIRST clause is the one that costs **[measured, F17]**
+
+**The rule.** When an `aggregate` carries more than one `on` clause, write the
+most selective clause first, and say in a `_comment` that the order is a cost
+decision rather than a reading order. Reordering the clause list of such a node
+for legibility is not free and not visible: the answer does not move a bit and
+the run time moves by a factor of tens.
+
+**Why.** CONFORMANCE_SPEC §5.5.8 says every gate on a node restricts the
+admitted set but only ONE need DRIVE enumeration, and that "which one drives is
+a binding's choice". The Rust reference's choice is the first clause in document
+order that it can resolve (`resolve_join_gate` returns on its first hit); the
+rest are lowered into the per-leaf equality `filter`, which is what keeps a
+non-driving clause exact. So the node's cost is one number — how many leaves the
+FIRST clause's match set admits — and the author picks it by where they typed
+the clause.
+
+**Measured on `fixtures/nr-logging-county.esm`, J11 `tech_fraction`**, four
+clauses permuted and nothing else changed, one `esm simulate --time 0` of the
+whole document each, emitted rows byte-identical in all four:
+
+| driving clause | leaves admitted | whole document |
+|---|---:|---:|
+| `tech_engTechID ↔ mix_engTechID` (as written now) | 2,320,704 | **11.5 s** |
+| `cohort_mixEffectiveSCC ↔ mix_SCC` (as written before) | 5,977,200 | 20.4 s |
+| `cohort_mixYearID ↔ mix_modelYearID` | 24,107,900 | 57.2 s |
+| `mix_processGroupID ↔ epg_processGroupID` | 272,523,600 | 541.0 s |
+
+~2 µs per admitted leaf, flat across four orders of magnitude — the driving
+clause's selectivity *is* the run time. The load-bearing pair re-measured
+interleaved, three passes each so both see the same machine: SCC-first 21.25 /
+18.52 / 20.05 s against technology-first 10.99 / 11.48 / 11.24 s, emitted CSV
+byte-identical. The four clauses together admit 2,601
+tuples, so even the best order is ~900× above the relational cost; that gap is
+upstream's (F17) and not the document's.
+
+**How to pick without measuring.** The leaf count is
+`Σ_output-cell |rows of the relation sharing that cell's key value|`, which for
+J11 is (rows per key value) × (the product of the output axes the clause does
+NOT bind). Per cohort, over the 100-wide technology axis:
+
+| clause | rows per key value | × ungated tech axis | leaves per cohort |
+|---|---:|---:|---:|
+| `engTechID` | 7,584 across all 100 codes | binds it | **7,584** |
+| `SCC` | 195 (weighted over the two SCCs the cohorts take) | × 100 | 19,533 |
+| `modelYearID` | 788 (weighted; `1900` alone carries 1,135) | × 100 | 78,784 |
+| `processGroupID` | 8,906 (the key has TWO values) | × 100 | 890,600 |
+
+Two things fall out. A clause that binds an output axis pays that axis nothing,
+which is why the technology clause wins by more than its key selectivity alone
+suggests; and a 2-valued key is the worst driver there is while reading like the
+most natural first clause, which is the trap.
+
+**This is a workaround and it is written down as one.** The document should not
+have to know which clause a binding drives on, and a binding that chose by
+selectivity — or intersected the clauses instead of choosing — would make this
+section obsolete. Until then, a `_comment` on the clause list is the only thing
+standing between the next author and a nine-minute `tech_fraction`.
