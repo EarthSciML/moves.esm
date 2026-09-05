@@ -465,7 +465,7 @@ Snapshot `MOVESOutput` row counts, the honest measure of fixture size:
 | 128 | `process-evap-permeation`, `-leaks`, `-fvv` | onroad evap |
 | 144 | **`nr-logging-county`** | NONROAD |
 | 250 | **`mixed-onroad`**, `expand-day` | onroad base-rate |
-| 336 | `process-refueling` | onroad evap |
+| 336 | **`process-refueling`** | onroad evap |
 | 744–750 | **`process-brakewear`** (750), `expand-criteria`, `process-tirewear` | onroad |
 | 1,080 | `chain-tog-speciation`, `chain-nonhaptog` | speciation chains |
 | 1,936–2,355 | `nr-lawn-garden-county`, `nr-construction-state` | NONROAD |
@@ -870,7 +870,7 @@ per CLAUDE.md.
 ## 6. Immediate next steps
 
 Phases 0, 1, 2 and 3 are done and merged, and Phase 4 has two of its slices
-wired, and Phase 5's first rung is landed. Five fixtures match the reference
+wired, and Phase 5 has two rungs landed. Six fixtures match the reference
 completely, with an exact key set and no `[shortfall]`:
 
 | fixture | rows | worst cell | phase |
@@ -880,6 +880,7 @@ completely, with an exact key set and no `[shortfall]`:
 | `process-evap-leaks` | 128 / 128 | 7.294e-06 | 4 |
 | `process-evap-fvv` | 128 / 128 | 7.495e-06 | 4 |
 | `process-brakewear` | 750 / 750 | 8.250e-06 | 5 |
+| `process-refueling` | 336 / 336 | 7.434e-06 | 5 |
 
 all against `tolerance.toml`'s 2e-05, which has never been widened for any of
 them. What follows is ordered by what blocks what.
@@ -916,11 +917,24 @@ them. What follows is ordered by what blocks what.
    The rest of the phase is unblocked for the same reason it was:
    `W` was the last uncomputed relation, so every fixture that emits processID 1
    — brake wear, tire wear, PM exhaust, crankcase running, both speciation
-   chains, air toxics — and refueling, which chains off `BaseRateCalculator`'s
-   total-energy output, can be attempted against a spine that is checked end to
+   chains, air toxics — can be attempted against a spine that is checked end to
    end. §2's ladder is the order; the 744–1,456-row band is the next rung and
    the 15,801–23,108-row NONROAD fixtures are where §1.3's gate stops being
    theoretical.
+
+   **`process-refueling` is the second rung and it is landed**: 336 of 336 rows,
+   key set exact, worst cell 7.434e-06. It is the first fixture whose calculator
+   does not compute a rate on the running-exhaust spine at all —
+   `RefuelingLossCalculator` chains off `BaseRateCalculator`'s **total-energy
+   output** and uses it as ACTIVITY, converting energy to fuel volume through the
+   fuel's energy content and density. Three things it adds are in
+   `docs/esm-conventions.md` §29: an energy output consumed in kilojoules
+   *before* the output processor's unit rebase; a rank that runs across the whole
+   rate relation because the two emitted blocks are different sizes (64 cohorts
+   and 104); and a NULL-bearing input column that has to be guarded with a VALUE
+   rather than an indicator, because `0 × NaN` is NaN.
+   `docs/process-refueling.md` is the specification and
+   `./run-refueling-oracle.sh` the independent reproduction.
 2. **F33 — a `Float32` document is evaluated in binary64 by Julia and Python,
    silently.** Not a new contract: `CONFORMANCE_SPEC` §5.18 is normative and
    §5.18.2 closes by naming this exact failure ("a binding that cannot honour a

@@ -2059,3 +2059,119 @@ particulate rows not at all. The energy block remains the complete check on `W`;
 the particulate blocks check something different — that the *same* weights,
 contracted against a rate table five orders of magnitude smaller, still reproduce
 `baserate_9_2020` to 2 × 10⁻⁶.
+
+---
+
+## 29. What the chained-off-energy slice changed **[Phase 5, 336 rows]**
+
+`fixtures/process-refueling.esm` is the first document in this port whose
+calculator computes no rate on the running-exhaust spine at all.
+`RefuelingLossCalculator` chains off `BaseRateCalculator`'s **Total Energy
+Consumption output** and uses it as *activity*, converting energy to fuel volume
+through the fuel's energy content and density: 336 rows over 118 (THC ×
+Refueling Displacement Vapor Loss) and 119 (THC × Refueling Spillage Loss), key
+set exact, worst cell 7.434 × 10⁻⁶. Every rule in §1–§28 held. Three gained a
+reason and four things are new.
+
+### 29.1 Three rules that gained a new reason
+
+* **§2, tables stay tables — a piece of DDL is a relation.** The spillage
+  section of `RefuelingLossCalculator.sql` `ALTER`s a `fuelTypeID` column onto
+  its county-year extract, duplicates the gasoline row as E85 and `INSERT`s
+  zero-adjustment rows for three more fuels. That is five rows of model logic
+  written as schema changes, and §24's rule — MOVES keeping something outside
+  source is an implementation detail with no semantic weight — covers it: it is
+  a five-row `const` relation with the key built from `enums`, joined to, not a
+  branch. It is *inert* in this run and written anyway, because its two arms
+  differ the moment a Stage II county is run.
+
+* **§3's semi-join, for a right-hand side that is not unique.** `regioncounty`
+  maps one county to one fuel region **twice**, once per `regionCodeID`. Reading
+  the region as a value — `Σ regionID` over the matches — gives 540000000 and
+  joins to nothing. The shape is `bool_and_or` with a numeric body, and the rule
+  generalises: **before reading a lookup as a value, check that its right-hand
+  side is unique on the key you are joining by**; a duplicate is silent and its
+  wrong answer is plausible.
+
+* **§27.1's flat `(pollutant-process × cohort)` rate relation, for a run whose
+  pollutant-processes are in THREE roles.** Seven here: two the calculator
+  produces, three it consumes, two it must not touch (Total Organic Gases on the
+  same two processes, produced downstream by speciation). All seven ride the one
+  relation and the roles are computed columns on it.
+
+### 29.2 Four things that are new
+
+**A chained calculator's INPUT is an output of another calculator, and the units
+are the worker's, not the run's.** MOVES rebases kilojoules to the RunSpec's
+energy unit in the *output processor*, after every chained calculator has run
+(`moves-framework/src/execution/engine.rs:1078-1086`). So the refueling rows
+consume raw kilojoules and the 1,055,055.9 divisor is applied only to the
+emitted row — where, both refueling pollutants being mass, it is exactly 1. The
+document computes that 1 through the same `rspp_isEnergy` test that gives the
+three energy rows 1,055,055.9, so the 1 is a measurement. **The general rule:
+when a stage consumes another stage's output, find where the unit conversion
+happens relative to the two, and compute the factor rather than assuming it** —
+a factor of 10⁶ applied one step early still passes every ratio check between
+blocks that share it.
+
+**A per-block ordinal is only available when the blocks are the same size.**
+§22's rank is one layer of three, and `process-brakewear` could decompose an
+output row number into (block, day, cohort-rank) because its three blocks were
+125 cohorts each. Refueling's are **64 and 104** — `refuelingcontroltechnology`
+carries two fuel types and `sourcetypetechadjustment` is keyed without fuel at
+all — so there is no block length to divide by. The shape that works is **one
+rank across the whole rate relation**, zeroed on non-members, with the
+pollutant-process read *back* through the rank join like every other key. It is
+strictly more general than the block decomposition and costs one aggregate; the
+block form is worth keeping only where the reader gains from the block being
+addressable.
+
+**A NULL column must be guarded with a VALUE, not with an indicator.** A NULL
+arrives from the parquet reader as NaN (§11), and `0 × NaN` is NaN — so
+multiplying a presence flag into a sum does *not* remove a missing cell, it
+poisons the whole aggregate. The SQL's own `WHERE energyContent > 0` written as
+`ifelse(x > 0, x, 0)` does remove it, because `ifelse` selects its branch before
+evaluating it (§20.3, arrived at there for a recurrence's base case). This is
+the ninth instance of the plausible-wrong-value failure this repository tracks
+and the second where a clamp-shaped construct is the defence rather than the
+cause: §19.4a's `max(NaN, 0)` destroyed a sentinel, and here `ifelse` is what
+stops one propagating. **Write the extract's `WHERE` as a value at the column
+that can be NULL, not as a factor at the point of use.**
+
+**Two independent chains can produce the same zero, and which one the document
+models is a choice with a stated condition.** The run's start-exhaust and
+extended-idle energy contribute exactly nothing. The reference discards them
+with a **road-type join** — those rates are emitted off-network and the RunSpec
+selects road type 4. The port discards them one step later, with an
+**operating-mode contraction** — their rates are on modes 101–108 and 200 and
+`dc_W` covers the 23 running modes. The two agree *only because no off-network
+road type is selected*, so the document computes that condition
+(`run_offNetworkRoadTypeCount` = 0, beside a `run_selectedRoadTypeCount` of 1)
+and asserts the pair of exact zeros as a total rather than at a sample
+(`pp_energyTotal`). The independent oracle deliberately models the **other**
+mechanism, so a future snapshot that separated them fails in one of the two and
+not in both. **Where a port reproduces an effect by a different route than the
+reference, write down what makes the two routes equivalent and assert it.**
+
+### 29.3 What the slice cannot check, and where it moved instead
+
+§23 applied, and the answer is larger than in any earlier slice: **five** stages
+of this calculator are unobservable at this fixture's inputs. Both Stage II
+program reductions are exactly 0 in the county and year, so the two `(1 − P)`
+factors are 1; the refueling temperature never leaves gasoline's `[45, 90]`
+window; the tank-temperature difference never leaves `[0, 20]`; and the vapour
+floor that *binds* is never reached, because the one fuel whose raw rate is below
+its floor takes the sentinel branch instead.
+
+All five moved to `components/refueling_loss_rate.esm`, on five probe
+coefficient sets and three control cases at values chosen so both branches
+differ — which is §23's point 1 applied without exception. What is worth
+recording is the shape of the split that resulted: **the fixture keeps
+everything relational and the component keeps everything arithmetic.** The
+fixture checks the market-share-weighted RVP over a real fuel supply with two
+inner-join misses in it, the reg-class wildcard's row count, the control-blend
+at both endpoints and in between, and the two exact zeros of the energy spine —
+none of which a `const` component could pose. The component checks four clamps
+and a sentinel — none of which the fixture's own inputs reach. Neither half is a
+weaker version of the other, and a slice that produced only one of them would
+have been checked at half its surface.

@@ -1,0 +1,1015 @@
+{
+  "esm": "1.0.0",
+  "metadata": {
+    "name": "moves.refueling_loss_rate",
+    "description": "RefuelingLossCalculator's rate stages -- REFEC-1 through REFEC-8 of RefuelingLossCalculator.sql, ported from crates/moves-calculators/src/calculators/refueling_loss_calculator.rs -- on five hand-checkable probe coefficient sets and three control-technology cases.\n\nThis component exists because of docs/esm-conventions.md 23. In the `process-refueling` snapshot four of these stages are checked at NO point of their input space: Washtenaw County's countyyear row carries both Stage II program adjustments as exactly 0, every refuelingcontroltechnology row the run reaches carries refuelingTechAdjustment 0 and controlledRefuelingRate 0, and gasoline's own refueling temperature never leaves the [45, 90] window or the [0, 20] tank-difference window. Perturbing any of those in the fixture moves no output cell, so an assertion written there would be decoration. The probe rows below put each of them on the live side of its clamp, at values chosen so both branches differ.\n\nWhat it does NOT contain is the REFEC-2 averageRVP aggregation and the REFEC-7 energy join, which are relational rather than arithmetic and are exercised against the real fuel supply in fixtures/process-refueling.esm.",
+    "authors": [
+      "EarthSciML Authors and Contributors"
+    ],
+    "tags": [
+      "moves",
+      "onroad",
+      "refueling",
+      "evaporative",
+      "calculator"
+    ]
+  },
+  "index_sets": {
+    "factor_rows": {
+      "kind": "interval",
+      "size": 5
+    },
+    "control_rows": {
+      "kind": "interval",
+      "size": 3
+    }
+  },
+  "models": {
+    "RefuelingLossRate": {
+      "expression_template_imports": [
+        {
+          "ref": "../lib/refueling.esm",
+          "only": [
+            "refueling_temperature",
+            "tank_temperature_dif",
+            "displaced_vapor_rate",
+            "floored_vapor_rate",
+            "adjusted_vapor_rate",
+            "adjusted_spill_rate",
+            "refueling_emission_quantity"
+          ]
+        }
+      ],
+      "tolerance": {
+        "rel": 1e-12
+      },
+      "variables": {
+        "prb_temperature": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "factor_rows"
+          ],
+          "description": "The ambient hourly temperature each probe row is evaluated at, degF. Row 1 is the fixture's own 59.5; rows 3 and 5 sit outside gasoline's [45, 90] window on either side so the clamp is exercised in both directions; row 4 is a set with the window DISABLED, where the ambient temperature is used unchanged."
+        },
+        "prb_vaporTermA": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "factor_rows"
+          ],
+          "description": "refuelingfactors.vaporTermA -- the constant term of the displaced-vapour exponential."
+        },
+        "prb_vaporTermB": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "factor_rows"
+          ],
+          "description": "refuelingfactors.vaporTermB -- the tankTemperatureDif coefficient."
+        },
+        "prb_vaporTermC": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "factor_rows"
+          ],
+          "description": "refuelingfactors.vaporTermC -- the refuelingTemperature coefficient."
+        },
+        "prb_vaporTermD": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "factor_rows"
+          ],
+          "description": "refuelingfactors.vaporTermD -- the averageRVP coefficient."
+        },
+        "prb_vaporTermE": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "factor_rows"
+          ],
+          "description": "refuelingfactors.vaporTermE -- the refuelingTemperature coefficient of tankTemperatureDif."
+        },
+        "prb_vaporTermF": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "factor_rows"
+          ],
+          "description": "refuelingfactors.vaporTermF -- the constant term of tankTemperatureDif."
+        },
+        "prb_vaporLowTLimit": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "factor_rows"
+          ],
+          "description": "refuelingfactors.vaporLowTLimit. A (0, 0) PAIR disables the 2008 California study relation entirely -- rows 2 and 4 carry it, which is diesel's and electricity's real value in every snapshot, so the disabling arm is not a hypothetical."
+        },
+        "prb_vaporHighTLimit": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "factor_rows"
+          ],
+          "description": "refuelingfactors.vaporHighTLimit."
+        },
+        "prb_tankTDiffLimit": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "factor_rows"
+          ],
+          "description": "refuelingfactors.tankTDiffLimit -- the upper bound of tankTemperatureDif."
+        },
+        "prb_minimumRefuelingVaporLoss": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "factor_rows"
+          ],
+          "description": "refuelingfactors.minimumRefuelingVaporLoss. A value <= -1 is a SENTINEL meaning `floor the rate to zero`, not a floor of -1; row 2 carries diesel's -1 and row 4 carries a floor of 1.8 that actually binds, so the two arms are separated."
+        },
+        "prb_averageRVP": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "factor_rows"
+          ],
+          "description": "The market-share-weighted Reid vapour pressure of the (month, fuel type) supply, from REFEC-2."
+        },
+        "prb_refuelingTemperature": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "factor_rows"
+          ],
+          "description": "REFEC-1: the 2008 California study relation 20.30 + 0.81 t, with t clamped to [vaporLowTLimit, vaporHighTLimit] -- and the ambient temperature unchanged when both limits are zero."
+        },
+        "prb_tankTemperatureDif": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "factor_rows"
+          ],
+          "description": "REFEC-1: vaporTermE x refuelingTemperature + vaporTermF, clamped to [0, tankTDiffLimit]. Row 3 hits the upper clamp (raw 22.3576) and row 4 the lower (raw -4.06), so neither arm is inferred."
+        },
+        "prb_displacedVaporRateRaw": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "factor_rows"
+          ],
+          "description": "REFEC-2 before the floor: exp(A + B dif + C T + D rvp), grams of vapour per gallon."
+        },
+        "prb_displacedVaporRate": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "factor_rows"
+          ],
+          "description": "REFEC-2 after the floor."
+        },
+        "ctl_displacedVaporRate": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "control_rows"
+          ],
+          "description": "The REFEC-2 rate the control-technology step adjusts. Rows 1 and 2 carry row 1 of the factor probe rounded to 3.0 so the adjustment arithmetic is checkable by hand."
+        },
+        "ctl_controlledRefuelingRate": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "control_rows"
+          ],
+          "description": "refuelingcontroltechnology.controlledRefuelingRate -- the displaced-vapour rate of a FULLY controlled vehicle. Zero in every row of the process-refueling snapshot, so row 1's 0.5 is the only place this port sees the term at all."
+        },
+        "ctl_vaporProgramAdjust": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "control_rows"
+          ],
+          "description": "countyyear.refuelingVaporProgramAdjust -- the Stage II vapour-recovery reduction P. It is EXACTLY ZERO in Washtenaw County in 2020, so row 1's 0.2 is the only exercise of the (1 - P) factor anywhere in this port (docs/process-refueling.md 7.2)."
+        },
+        "ctl_techAdjust": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "control_rows"
+          ],
+          "description": "refuelingcontroltechnology.refuelingTechAdjustment -- the onboard-refueling-vapour-recovery penetration T, which blends the uncontrolled and controlled rates. Row 1's 0.5 is a half-penetrated fleet; the snapshot's own values are 0 for every model year the run emits."
+        },
+        "ctl_spillRate": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "control_rows"
+          ],
+          "description": "refuelingfactors.refuelingSpillRate -- the unadjusted spillage base rate, grams per gallon."
+        },
+        "ctl_spillProgramAdjust": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "control_rows"
+          ],
+          "description": "countyyear.refuelingSpillProgramAdjust as the spillage county-year fan-out delivers it. Zero in the snapshot; row 1's 0.3 is this port's only exercise of it."
+        },
+        "ctl_spillTechAdjust": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "control_rows"
+          ],
+          "description": "sourcetypetechadjustment.refuelingTechAdjustment for process 19."
+        },
+        "ctl_energy": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "control_rows"
+          ],
+          "description": "The Total Energy Consumption the refueling row chains off, in kilojoules -- BaseRateCalculator's MOVESWorkerOutput quantity before the output stage's kJ-to-MillionBTU rebase."
+        },
+        "ctl_energyContent": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "control_rows"
+          ],
+          "description": "The market-weighted fuel energy content, kJ per gram. Row 3 carries ELECTRICITY's 0: fuelsubtype.energyContent is NULL for subtype 90 and the SQL extract keeps only rows > 0."
+        },
+        "ctl_fuelDensity": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "control_rows"
+          ],
+          "description": "fueltype.fuelDensity, grams per gallon. Row 3 carries electricity's 0 for the same reason."
+        },
+        "ctl_hasFuelDivisor": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "control_rows"
+          ],
+          "description": "REFEC-7's INNER JOIN onto RefuelingFuelType: whether the (fuelType, month) cell survived `energyContent > 0 AND fuelDensity > 0`. Row 3 is the electricity miss, and it is why the energy chain emits 250 rows and the spillage block only 208."
+        },
+        "ctl_adjustedVaporRate": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "control_rows"
+          ],
+          "description": "REFEC-3/4: displacedVaporRate (1-P)(1-T) + controlledRefuelingRate (1-P) T. One convex blend covering an uncontrolled fleet, a fully controlled one and everything between, with no branch."
+        },
+        "ctl_adjustedSpillRate": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "control_rows"
+          ],
+          "description": "REFEC-5/6: (1 - Pspill) ((1 - T) refuelingSpillRate)."
+        },
+        "ctl_fuelVolumeDivisor": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "control_rows"
+          ],
+          "description": "energyContent x fuelDensity -- kJ per gallon, so energy divided by it is GALLONS and the loss rates are grams per gallon. Zero on the electricity row, which is what `refueling_emission_quantity` has to be guarded against."
+        },
+        "ctl_displacementQuantity": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "control_rows"
+          ],
+          "description": "REFEC-8 for process 18: adjustedVaporRate x energy / (energyContent x fuelDensity), grams of THC."
+        },
+        "ctl_spillageQuantity": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "control_rows"
+          ],
+          "description": "REFEC-8 for process 19, the same product with the spillage rate."
+        }
+      },
+      "equations": [
+        {
+          "lhs": "prb_temperature",
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              59.5,
+              59.5,
+              95.0,
+              30.0,
+              20.0
+            ]
+          }
+        },
+        {
+          "lhs": "prb_vaporTermA",
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              -1.2798,
+              0.0,
+              -1.2798,
+              0.0,
+              -1.2798
+            ]
+          }
+        },
+        {
+          "lhs": "prb_vaporTermB",
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              -0.0049,
+              0.0,
+              -0.0049,
+              0.0,
+              -0.0049
+            ]
+          }
+        },
+        {
+          "lhs": "prb_vaporTermC",
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              0.0203,
+              0.0,
+              0.0203,
+              0.0,
+              0.0203
+            ]
+          }
+        },
+        {
+          "lhs": "prb_vaporTermD",
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              0.1315,
+              0.0,
+              0.1315,
+              0.0,
+              0.1315
+            ]
+          }
+        },
+        {
+          "lhs": "prb_vaporTermE",
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              0.418,
+              0.0,
+              0.418,
+              0.418,
+              0.418
+            ]
+          }
+        },
+        {
+          "lhs": "prb_vaporTermF",
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              -16.6,
+              0.0,
+              -16.6,
+              -16.6,
+              -16.6
+            ]
+          }
+        },
+        {
+          "lhs": "prb_vaporLowTLimit",
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              45.0,
+              0.0,
+              45.0,
+              0.0,
+              45.0
+            ]
+          }
+        },
+        {
+          "lhs": "prb_vaporHighTLimit",
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              90.0,
+              0.0,
+              90.0,
+              0.0,
+              90.0
+            ]
+          }
+        },
+        {
+          "lhs": "prb_tankTDiffLimit",
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              20.0,
+              0.0,
+              20.0,
+              20.0,
+              20.0
+            ]
+          }
+        },
+        {
+          "lhs": "prb_minimumRefuelingVaporLoss",
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              1.8,
+              -1.0,
+              1.8,
+              1.8,
+              1.8
+            ]
+          }
+        },
+        {
+          "lhs": "prb_averageRVP",
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              8.0,
+              0.0,
+              8.0,
+              0.0,
+              7.7
+            ]
+          }
+        },
+        {
+          "_comment": "REFEC-1, refueling_loss_calculator.rs:2096-2105.",
+          "lhs": "prb_refuelingTemperature",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "refueling_temperature",
+            "bindings": {
+              "temperature": "prb_temperature",
+              "low_limit": "prb_vaporLowTLimit",
+              "high_limit": "prb_vaporHighTLimit"
+            }
+          }
+        },
+        {
+          "_comment": "REFEC-1, refueling_loss_calculator.rs:2108-2115.",
+          "lhs": "prb_tankTemperatureDif",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "tank_temperature_dif",
+            "bindings": {
+              "term_e": "prb_vaporTermE",
+              "term_f": "prb_vaporTermF",
+              "refueling_temperature": "prb_refuelingTemperature",
+              "limit": "prb_tankTDiffLimit"
+            }
+          }
+        },
+        {
+          "_comment": "REFEC-2, refueling_loss_calculator.rs:2122-2129.",
+          "lhs": "prb_displacedVaporRateRaw",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "displaced_vapor_rate",
+            "bindings": {
+              "term_a": "prb_vaporTermA",
+              "term_b": "prb_vaporTermB",
+              "term_c": "prb_vaporTermC",
+              "term_d": "prb_vaporTermD",
+              "tank_temperature_dif": "prb_tankTemperatureDif",
+              "refueling_temperature": "prb_refuelingTemperature",
+              "average_rvp": "prb_averageRVP"
+            }
+          }
+        },
+        {
+          "_comment": "REFEC-2's floor, refueling_loss_calculator.rs:2133-2143.",
+          "lhs": "prb_displacedVaporRate",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "floored_vapor_rate",
+            "bindings": {
+              "rate": "prb_displacedVaporRateRaw",
+              "minimum": "prb_minimumRefuelingVaporLoss"
+            }
+          }
+        },
+        {
+          "lhs": "ctl_displacedVaporRate",
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              3.0,
+              3.0,
+              3.0
+            ]
+          }
+        },
+        {
+          "lhs": "ctl_controlledRefuelingRate",
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              0.5,
+              0.0,
+              0.0
+            ]
+          }
+        },
+        {
+          "lhs": "ctl_vaporProgramAdjust",
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              0.2,
+              0.0,
+              0.0
+            ]
+          }
+        },
+        {
+          "lhs": "ctl_techAdjust",
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              0.5,
+              0.0,
+              0.0
+            ]
+          }
+        },
+        {
+          "lhs": "ctl_spillRate",
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              0.31,
+              0.31,
+              0.31
+            ]
+          }
+        },
+        {
+          "lhs": "ctl_spillProgramAdjust",
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              0.3,
+              0.0,
+              0.0
+            ]
+          }
+        },
+        {
+          "lhs": "ctl_spillTechAdjust",
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              0.5,
+              0.0,
+              0.0
+            ]
+          }
+        },
+        {
+          "lhs": "ctl_energy",
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              1000.0,
+              1000.0,
+              1000.0
+            ]
+          }
+        },
+        {
+          "lhs": "ctl_energyContent",
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              41.696,
+              41.696,
+              0.0
+            ]
+          }
+        },
+        {
+          "lhs": "ctl_fuelDensity",
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              2829.0,
+              2829.0,
+              0.0
+            ]
+          }
+        },
+        {
+          "lhs": "ctl_hasFuelDivisor",
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              1.0,
+              1.0,
+              0.0
+            ]
+          }
+        },
+        {
+          "_comment": "REFEC-3/4, refueling_loss_calculator.rs:2188-2193.",
+          "lhs": "ctl_adjustedVaporRate",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "adjusted_vapor_rate",
+            "bindings": {
+              "displaced_rate": "ctl_displacedVaporRate",
+              "controlled_rate": "ctl_controlledRefuelingRate",
+              "program_adjust": "ctl_vaporProgramAdjust",
+              "tech_adjust": "ctl_techAdjust"
+            }
+          }
+        },
+        {
+          "_comment": "REFEC-5/6, refueling_loss_calculator.rs:2248-2249.",
+          "lhs": "ctl_adjustedSpillRate",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "adjusted_spill_rate",
+            "bindings": {
+              "spill_rate": "ctl_spillRate",
+              "program_adjust": "ctl_spillProgramAdjust",
+              "tech_adjust": "ctl_spillTechAdjust"
+            }
+          }
+        },
+        {
+          "lhs": "ctl_fuelVolumeDivisor",
+          "rhs": {
+            "op": "*",
+            "args": [
+              "ctl_energyContent",
+              "ctl_fuelDensity"
+            ]
+          }
+        },
+        {
+          "_comment": "REFEC-7/8, refueling_loss_calculator.rs:2372.",
+          "lhs": "ctl_displacementQuantity",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "refueling_emission_quantity",
+            "bindings": {
+              "rate": "ctl_adjustedVaporRate",
+              "energy": "ctl_energy",
+              "fuel_volume_divisor": "ctl_fuelVolumeDivisor",
+              "has_divisor": "ctl_hasFuelDivisor"
+            }
+          }
+        },
+        {
+          "_comment": "REFEC-7/8, refueling_loss_calculator.rs:2393.",
+          "lhs": "ctl_spillageQuantity",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "refueling_emission_quantity",
+            "bindings": {
+              "rate": "ctl_adjustedSpillRate",
+              "energy": "ctl_energy",
+              "fuel_volume_divisor": "ctl_fuelVolumeDivisor",
+              "has_divisor": "ctl_hasFuelDivisor"
+            }
+          }
+        }
+      ],
+      "tests": [
+        {
+          "id": "the_california_relation_applies_only_when_both_limits_are_set",
+          "description": "REFEC-1's first branch. With gasoline's (45, 90) window the refueling temperature is 20.30 + 0.81 t and the ambient 59.5 degF becomes 68.495; with a (0, 0) pair the relation is DISABLED and the ambient temperature is used unchanged. Get that branch backwards for diesel and its tank-temperature difference moves by 30 degF -- which is invisible in the process-refueling snapshot, because diesel's vapour terms are all zero and its rate is floored to 0 anyway.",
+          "time_span": {
+            "start": 0.0,
+            "end": 0.0
+          },
+          "assertions": [
+            {
+              "variable": "prb_refuelingTemperature",
+              "time": 0.0,
+              "coords": {
+                "factor_rows": 1
+              },
+              "expected": 68.495
+            },
+            {
+              "variable": "prb_refuelingTemperature",
+              "time": 0.0,
+              "coords": {
+                "factor_rows": 2
+              },
+              "expected": 59.5
+            },
+            {
+              "variable": "prb_refuelingTemperature",
+              "time": 0.0,
+              "coords": {
+                "factor_rows": 4
+              },
+              "expected": 30.0
+            }
+          ]
+        },
+        {
+          "id": "the_temperature_clamp_is_exercised_on_both_sides",
+          "description": "t is clamped to [vaporLowTLimit, vaporHighTLimit] BEFORE the relation is applied, not after. At 95 degF the clamp gives 90 and 20.30 + 0.81 x 90 = 93.2; at 20 degF it gives 45 and 20.30 + 0.81 x 45 = 56.75. Clamping the RESULT instead would give 97.25 and 36.5.",
+          "time_span": {
+            "start": 0.0,
+            "end": 0.0
+          },
+          "assertions": [
+            {
+              "variable": "prb_refuelingTemperature",
+              "time": 0.0,
+              "coords": {
+                "factor_rows": 3
+              },
+              "expected": 93.2
+            },
+            {
+              "variable": "prb_refuelingTemperature",
+              "time": 0.0,
+              "coords": {
+                "factor_rows": 5
+              },
+              "expected": 56.75
+            }
+          ]
+        },
+        {
+          "id": "the_tank_temperature_difference_clamps_at_both_ends",
+          "description": "0.418 T - 16.6 is 22.3576 at row 3's 93.2 degF and -4.06 at row 4's 30 degF, so the [0, tankTDiffLimit] clamp returns 20 and 0. Row 1 is the in-range case, 12.03091, which is what the process-refueling fixture actually uses. A port that dropped the clamp would be 12 % high on the vapour exponent at row 3 and would put a NEGATIVE difference into it at row 4.",
+          "time_span": {
+            "start": 0.0,
+            "end": 0.0
+          },
+          "assertions": [
+            {
+              "variable": "prb_tankTemperatureDif",
+              "time": 0.0,
+              "coords": {
+                "factor_rows": 1
+              },
+              "expected": 12.030909999999999
+            },
+            {
+              "variable": "prb_tankTemperatureDif",
+              "time": 0.0,
+              "coords": {
+                "factor_rows": 3
+              },
+              "expected": 20.0
+            },
+            {
+              "variable": "prb_tankTemperatureDif",
+              "time": 0.0,
+              "coords": {
+                "factor_rows": 4
+              },
+              "expected": 0.0
+            },
+            {
+              "variable": "prb_tankTemperatureDif",
+              "time": 0.0,
+              "coords": {
+                "factor_rows": 5
+              },
+              "expected": 7.1214999999999975
+            }
+          ]
+        },
+        {
+          "id": "the_minimum_vapor_loss_is_a_sentinel_and_a_floor",
+          "description": "A minimumRefuelingVaporLoss <= -1 means `this fuel displaces no vapour`, so the rate goes to 0 and NOT to -1: row 2's raw rate is exp(0) = 1 and its floored rate is 0. Row 4's floor of 1.8 binds on the same raw 1 and returns 1.8. Row 1's 3.0152931 is above its floor and passes through, and it is the number the fixture's gasoline rows carry.",
+          "time_span": {
+            "start": 0.0,
+            "end": 0.0
+          },
+          "assertions": [
+            {
+              "variable": "prb_displacedVaporRateRaw",
+              "time": 0.0,
+              "coords": {
+                "factor_rows": 2
+              },
+              "expected": 1.0
+            },
+            {
+              "variable": "prb_displacedVaporRate",
+              "time": 0.0,
+              "coords": {
+                "factor_rows": 2
+              },
+              "expected": 0.0
+            },
+            {
+              "variable": "prb_displacedVaporRateRaw",
+              "time": 0.0,
+              "coords": {
+                "factor_rows": 4
+              },
+              "expected": 1.0
+            },
+            {
+              "variable": "prb_displacedVaporRate",
+              "time": 0.0,
+              "coords": {
+                "factor_rows": 4
+              },
+              "expected": 1.8
+            },
+            {
+              "variable": "prb_displacedVaporRateRaw",
+              "time": 0.0,
+              "coords": {
+                "factor_rows": 1
+              },
+              "expected": 3.0152931048711182
+            },
+            {
+              "variable": "prb_displacedVaporRate",
+              "time": 0.0,
+              "coords": {
+                "factor_rows": 1
+              },
+              "expected": 3.0152931048711182
+            },
+            {
+              "variable": "prb_displacedVaporRate",
+              "time": 0.0,
+              "coords": {
+                "factor_rows": 3
+              },
+              "expected": 4.788226057849173
+            },
+            {
+              "variable": "prb_displacedVaporRate",
+              "time": 0.0,
+              "coords": {
+                "factor_rows": 5
+              },
+              "expected": 2.3393652923705472
+            }
+          ]
+        },
+        {
+          "id": "the_two_stage_ii_program_adjustments_are_live_here_and_nowhere_else",
+          "description": "Washtenaw County's countyyear row carries refuelingVaporProgramAdjust = refuelingSpillProgramAdjust = 0, so in the process-refueling fixture BOTH (1 - P) factors are exactly 1 and a document that omitted them would agree with the snapshot on all 336 rows (docs/esm-conventions.md 23). This test is where they are checked: at P = 0.2 and T = 0.5 the blend is 3.0 x 0.8 x 0.5 + 0.5 x 0.8 x 0.5 = 1.4, and at P = 0.3 and T = 0.5 the spillage rate is 0.7 x 0.5 x 0.31 = 0.1085. Row 2 is the snapshot's own inert case beside them, where the blend returns the uncontrolled rate unchanged.",
+          "time_span": {
+            "start": 0.0,
+            "end": 0.0
+          },
+          "assertions": [
+            {
+              "variable": "ctl_adjustedVaporRate",
+              "time": 0.0,
+              "coords": {
+                "control_rows": 1
+              },
+              "expected": 1.4000000000000001
+            },
+            {
+              "variable": "ctl_adjustedVaporRate",
+              "time": 0.0,
+              "coords": {
+                "control_rows": 2
+              },
+              "expected": 3.0
+            },
+            {
+              "variable": "ctl_adjustedSpillRate",
+              "time": 0.0,
+              "coords": {
+                "control_rows": 1
+              },
+              "expected": 0.1085
+            },
+            {
+              "variable": "ctl_adjustedSpillRate",
+              "time": 0.0,
+              "coords": {
+                "control_rows": 2
+              },
+              "expected": 0.31
+            }
+          ]
+        },
+        {
+          "id": "a_fuel_with_no_energy_content_yields_no_refueling_row",
+          "description": "REFEC-7 joins each energy row to RefuelingFuelType, whose extract keeps only `energyContent > 0 AND fuelDensity > 0`. Electricity has NULL for both, so the join misses and the row is DROPPED -- which is the whole of why the fixture's spillage block is 208 rows and not 250, even though sourcetypetechadjustment gives every model year a spillage rate. Row 3 pins that zero, and rows 1 and 2 beside it pin the same expression on a fuel that does have a divisor, so the zero is the join missing and not the arithmetic failing.",
+          "time_span": {
+            "start": 0.0,
+            "end": 0.0
+          },
+          "assertions": [
+            {
+              "variable": "ctl_fuelVolumeDivisor",
+              "time": 0.0,
+              "coords": {
+                "control_rows": 1
+              },
+              "expected": 117957.984
+            },
+            {
+              "variable": "ctl_displacementQuantity",
+              "time": 0.0,
+              "coords": {
+                "control_rows": 1
+              },
+              "expected": 0.011868632817597155
+            },
+            {
+              "variable": "ctl_displacementQuantity",
+              "time": 0.0,
+              "coords": {
+                "control_rows": 2
+              },
+              "expected": 0.02543278460913676
+            },
+            {
+              "variable": "ctl_spillageQuantity",
+              "time": 0.0,
+              "coords": {
+                "control_rows": 1
+              },
+              "expected": 0.0009198190433637795
+            },
+            {
+              "variable": "ctl_displacementQuantity",
+              "time": 0.0,
+              "coords": {
+                "control_rows": 3
+              },
+              "expected": 0.0
+            },
+            {
+              "variable": "ctl_spillageQuantity",
+              "time": 0.0,
+              "coords": {
+                "control_rows": 3
+              },
+              "expected": 0.0
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
