@@ -1761,6 +1761,19 @@ measurement: its six key pairs hand-fused into one composite clause admit 3,772
 leaves, and the same six written as six separate clauses now admit **3,772** —
 where before they admitted 158,030,400 and cost 298 s against 6.6 s.
 
+**But the fixture still spells it as one composite clause, and that is not an
+oversight.** The retirement was written from the leaf counts and then the
+unfusing was actually measured: six clauses emit a byte-identical relation, so
+the fusion carries nothing for correctness — and `esm simulate` on the whole
+fixture is **2.8 s fused against 5.1 s unfused**, three runs each, a consistent
+**1.85×**. Equal leaves are not equal cost. Resolving six clauses builds six
+equijoins where one composite builds one, which is the same effect that makes
+selectivity ordering alone a wash on `nr-logging-county`. So the composite key
+survives its own justification: it is now a measured authoring choice, not an
+instance of this rule. **A workaround outliving the defect that forced it is
+worth re-measuring rather than reflex-deleting** — the number that justified it
+originally was not the number that justifies it now.
+
 **Read the rest of this section anyway**, because the rule was load-bearing for
 something nobody knew it was load-bearing for, and that is the transferable
 part.
