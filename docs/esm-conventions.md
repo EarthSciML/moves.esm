@@ -2156,12 +2156,24 @@ reference, write down what makes the two routes equivalent and assert it.**
 ### 29.3 What the slice cannot check, and where it moved instead
 
 §23 applied, and the answer is larger than in any earlier slice: **five** stages
-of this calculator are unobservable at this fixture's inputs. Both Stage II
+of this calculator, and one whole branch of the spine it chains off, are
+unobservable at this fixture's inputs. Both Stage II
 program reductions are exactly 0 in the county and year, so the two `(1 − P)`
 factors are 1; the refueling temperature never leaves gasoline's `[45, 90]`
 window; the tank-temperature difference never leaves `[0, 20]`; and the vapour
 floor that *binds* is never reached, because the one fuel whose raw rate is below
 its floor takes the sentinel branch instead.
+
+The branch is the one no earlier slice would have predicted, because it is a
+stage that two earlier fixtures *do* see: the electricity cohorts' EV
+temperature factor and EV efficiency divisor move 84 and 42 output cells in
+`mixed-onroad` and `process-brakewear`, and **zero** here. A refueling row sums
+the energy of its own `(modelYearID, fuelTypeID)` cohort and every electricity
+cohort is dropped by REFEC-7's fuel-type join, so fuel-9 energy never reaches an
+emitted cell. **A stage a neighbouring fixture checks is not thereby checked in
+this one**, and the direction of that is not predictable from the two run
+scopes: this fixture's hour is the one that makes the EV arm live, and it is
+also the one where nothing depends on it.
 
 All five moved to `components/refueling_loss_rate.esm`, on five probe
 coefficient sets and three control cases at values chosen so both branches

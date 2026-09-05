@@ -24,7 +24,7 @@ restated; what is specified here is the five things that are new:
 1. the activity is an **energy output**, in kilojoules, and the unit rebase that
    would turn it into Million BTU happens **after** every chained calculator has
    run (§2.2);
-2. the run carries **seven** pollant-processes in three roles — two the
+2. the run carries **seven** pollutant-processes in three roles — two the
    calculator produces, three it consumes, and two it must not touch (§2.1);
 3. two of the three energy pollutant-processes contribute **exactly zero**, for
    a reason that is a road-type join in the reference and an operating-mode
@@ -1016,6 +1016,37 @@ differ:
 | the Stage II vapour reduction `(1 − P)` | `countyyear.refuelingVaporProgramAdjust` = 0 | probe at `P` = 0.2 |
 | the Stage II spillage reduction `(1 − Pspill)` and the fuel-type fan-out it rides | `countyyear.refuelingSpillProgramAdjust` = 0, so both arms of `retainsProgramAdjust` give 0 | probe at `Pspill` = 0.3 |
 
+**And the whole ELECTRICITY branch of the energy spine is invisible here**,
+which is the one entry on this list that no earlier fixture would have predicted.
+`mixed-onroad` and `process-brakewear` both emit electricity rows, so for them
+the EV temperature factor of 1.015625 and the EV efficiency divisor move 84 and
+42 output cells respectively. This fixture emits **none**: a refueling row sums
+the energy of its own `(modelYearID, fuelTypeID)` cohort, and every electricity
+cohort is dropped by REFEC-7's fuel-type join, so fuel-9 energy never reaches an
+emitted cell at all. Perturbing either the EV temperature terms or
+`evefficiency` moves no row of this fixture's 336. The fixture asserts both at
+the rate-relation column — where they are still computed and still worth pinning
+— and says so in the test's own description; the checks that BITE are
+`components/onroad_energy_output.esm`'s and `fixtures/process-brakewear.esm`'s.
+The same is true of the A/C increment, for a different reason: its factor is
+exactly 0 at this heat index, as it is at `mixed-onroad`'s.
+
+Measured, §23's way — perturb one input of the stage and compare **every**
+emitted cell byte for byte against the unperturbed run:
+
+| perturbation | rows that move, of 336 |
+|---|---:|
+| `rt_evTemperatureAdjustRaw` := 1.0 (the EV arm's own value) | **0** |
+| `rt_batteryEfficiency` := 0.5 (the EV divisor's own input) | **0** |
+| `rtMode_acIncrement` := 1.0 (the A/C increment) | **0** |
+| `rt_refuelingSpillRate` := 2.0 — *positive control* | 208 |
+| `rt_evTemperatureFactor` := 2.0 — *positive control*, and it is one because this variable is the WHOLE temperature factor, not the EV arm | 336 |
+
+The two controls are what make the three zeros mean something: the harness does
+see a change when there is one, and the second control is the trap — perturbing
+the *factor* rather than the EV arm's own input moves everything, because the
+same variable carries the standard quadratic's 1 for the other three fuels.
+
 Three more are inert for a *structural* reason rather than a zero weight, and
 they are checked in the same component:
 
@@ -1058,7 +1089,8 @@ count, and the energy spine's two exact zeros.
   emitted rows only through the electricity cohorts' energy, and those cohorts
   are dropped by REFEC-7 — so unlike in `mixed-onroad` and `process-brakewear`
   it moves **no** row of this fixture's output. That is a narrowing, not a
-  resolution.
+  resolution, and it cuts both ways: the EV temperature arm this snapshot's
+  59.5 °F makes live is equally invisible here (§7.2).
 * **The auxiliary-power energy process (91) is in the consumed set and not in
   the run.** `rspp_isEnergySource` admits it and nothing exercises it. A
   hotelling RunSpec on source type 62 would be needed, and none of the 39
