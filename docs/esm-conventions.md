@@ -2059,3 +2059,66 @@ particulate rows not at all. The energy block remains the complete check on `W`;
 the particulate blocks check something different — that the *same* weights,
 contracted against a rate table five orders of magnitude smaller, still reproduce
 `baserate_9_2020` to 2 × 10⁻⁶.
+
+## 28. A shared spine does not imply a shared distribution **[Phase 5, 750 rows]**
+
+`fixtures/process-tirewear.esm` is the second multi-pollutant fixture and, on
+paper, `process-brakewear` with three identifiers changed: same 750 rows, same
+three blocks, same `BaseRateCalculator` spine, same chained PM10 pollutant, and a
+snapshot whose resolved scope is `process-brakewear`'s to the row. It is not.
+Key set exact, worst cell 8.151 × 10⁻⁶. `docs/process-tirewear.md` is the
+specification; two things are worth stating here.
+
+* **A stage that every neighbouring fixture shares can still be
+  process-specific, and the reference will say so with a hard-coded id.**
+  `RatesOpModeDistribution` is written by *two* generators.
+  `BaseRateGenerator` drives the drive cycles itself only for processes 1 and 9
+  (`mod.rs:156-161`); process 10 is served by
+  `AverageSpeedOperatingModeDistributionGenerator`, which binds
+  `TIREWEAR_PROCESS = ProcessId(10)` and errors out for anything else. So tire
+  wear's operating modes are 400–416, binned on average speed alone, and
+  `avgspeedbin.opModeIDTirewear` — one nullable column of a sixteen-row table —
+  is the entire model. `W` therefore acquires a pollutant-process axis, and the
+  selector is a **process** test with both constants named as enum members,
+  because that is what the reference is on both sides.
+
+  **The rule:** when a fixture shares a spine with a landed one, check whether
+  each stage's *inputs* are keyed by the new pollutant-process before assuming
+  the stage is. `docs/process-brakewear.md` §3.2 asked exactly this question of
+  brake wear and answered "no, `W` is unchanged" — correctly, and one process
+  later the answer is "yes".
+
+* **Do not exploit a disjointness the data happens to have.** Tire wear's rate
+  modes (400–416) and the drive cycle's (0, 1, 11–40) do not overlap, so a single
+  39-mode `W` carrying both families would reproduce all 750 rows. That would be
+  writing down a coincidence rather than the rule, and — the part that is
+  checkable — it would make the two structural assertions that distinguish the
+  designs *unstatable*: `pp_WModeCount` is 23 on the energy block and 16 on both
+  tire-wear blocks, and `pp_WTotal` is 1 on each family; a union's answers are 39
+  and 2. §23's discipline applied to the document rather than to the fixture: a
+  stage that is only right because another stage happens to be zero is checked at
+  no point.
+
+### 28.1 The retarget audit, when the neighbouring snapshot is not neighbouring
+
+§27.3 made retargeting the first move on a new rung. Done here it was **clean**:
+`mixed-onroad` and `process-brakewear`, pointed at the `process-tirewear`
+snapshot with nothing changed but the paths, both reproduced all 250 energy rows
+at 7.106 × 10⁻⁶, and `process-brakewear`'s retarget emitted the correct 750-row
+key set with the correct SCCs.
+
+**A clean audit is a result, and this one is a weaker result than §27.3's.** That
+snapshot's scope *is* `process-brakewear`'s — same month, hour, day types,
+county and fuels, with `sho`, `avgspeeddistribution`, `driveschedulesecond`,
+`sourcetypeagedistribution` and `hourvmtfraction` byte-identical between the
+two. No scope dimension moved, so no clamped stage could have been exposed; the
+audit confirms the §27.3 fix rather than extending it. The refinement to the
+rule: **a retarget audits what the two snapshots DISAGREE about.** Move an hour,
+a month or a county and it audits the stages those dimensions drive; keep the
+scope and change the pollutant set, as here, and it audits the pollutant
+generalisation instead — which is a real check, and a different one.
+
+What it did do immediately was name the work. The retargeted `process-brakewear`
+returned **exactly 0** — the additive identity, not a wrong number — on all 500
+particulate rows, because `dc_W` has no weight on modes 400–416. One run, and the
+whole of §28's first bullet was visible before a line was written.

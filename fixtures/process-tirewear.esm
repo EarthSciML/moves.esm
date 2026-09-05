@@ -1,25 +1,26 @@
 {
   "esm": "1.0.0",
   "metadata": {
-    "name": "process-brakewear fixture",
-    "description": "The `process-brakewear` fixture: 750 rows of MOVESOutput -- brake-wear PM10 and PM2.5 AND running-exhaust Total Energy Consumption for passenger cars on urban restricted-access roads in Washtenaw County, August, 7am, 2020 -- computed from the snapshot's own INPUT tables. It ports docs/process-brakewear.md end to end and reuses the whole of docs/mixed-onroad.md's spine: the activity chain S1-S9, the cohort structure and the fuel-usage rebase S10-S12, the drive-cycle operating-mode weights `dc_W` and the base rate S13-S14, the calculator's adjustments S15 and the output row S16-S18. Brake wear is a rate on the same `BaseRateCalculator` spine, not a different model.\n\nWHAT IS NEW HERE, AND WHY THE DOCUMENT HAS A RELATION MIXED-ONROAD DOES NOT. mixed-onroad emits one pollutant-process, so `run_polProcessID` is a run-level scalar and every rate column is keyed by the cohort alone. This fixture emits three, and one cohort key -- the source bin's `shortModYrGroupID` -- DIFFERS between them: `pollutantprocessmodelyear` maps model year 2020 to short group 40 for 9101 and to 6 for 11609. A join key column has to be one-dimensional, so the rate stage is carried on a flat relation whose rows ARE the pollutant-process crossed with the cohort candidate grid -- `rate_rows`, 3 x 164, every factor a discovered extent, all its key columns one-dimensional (docs/esm-conventions.md 2). That is the whole structural difference; the arithmetic on it is mixed-onroad's, parameterised.\n\nCOMPUTED, from the input tables and nothing else: every number. `dc_W`, the speed-bin-weighted drive-cycle operating-mode distribution, is computed from `driveschedulesecond`'s 63,602 second-by-second speeds exactly as in mixed-onroad, and it is the SAME 46 weights for brake wear as for energy -- see docs/process-brakewear.md 3.2, where the mode-501 branch that would make them differ is shown to be project-scale-only. NO REFERENCE TABLE IS AN INPUT. `baserate_1_2020`, `baserate_9_2020`, `sourcebindistribution`, `sho` and `MOVESOutput` are all generator or expected output, and none of them is a `data_sources` entry here -- nothing flows from them into a number. Values out of the first three DO appear as `expected` in the inline tests below, which is the opposite direction and the whole point of a fixture.\n\nTHE PM10 BLOCK IS A CHAIN, NOT A SECOND RATE. `runspecchainedto` says 10609 <- 11609 and `pm10emissionratio` carries the ratio; the document reads both and never writes `106 = ratio x 116`. Its own rate path evaluates to EXACTLY 0 -- `emissionrate` has no 10609 row, so J22's inner join leaves the rate at the additive identity -- and its whole quantity arrives through a self-join of the rate relation on (chained-from pollutant-process, cohort). On an unchained row the chain key is 0 and the ratio is 0, so the same expression serves all three blocks with no branch.\n\nTWO CLAMPS, AND THIS TIME ONE OF THEM DOES NOT FIRE. At 59.5 degF the A/C activity term is -0.29698 and clamps to 0, as at mixed-onroad's 66.9 degF. The EV temperature term is +0.015625 and does NOT -- so the 84 energy/electricity rows carry a factor of 1.015625, and the arm docs/mixed-onroad.md 2.3(e) could only check in components/onroad_energy_output.esm is checked in a fixture here. Reaching it needed a lookup precedence mixed-onroad did not have: the one `temperatureadjustment` row is keyed regClassID 0, a WILDCARD, and adjust.rs:495-520 looks up the exact regulatory class first and that row second. mixed-onroad implements only the first step, gets zero terms, and reaches the same 1 by the clamp instead -- correct there, 1.56 % low here. The precedence is now lib/adjustments.esm's `exact_else_wildcard` and both fixtures instantiate it.\n\nDECLARED: one number, `n_outputCohort` = 125, the length of each output block's cohort run. WHICH 125 of the 164 candidates survive is a result of the chain and is never written down: `coh_rank` numbers them by an inclusive prefix count and the output row joins to that rank (docs/esm-conventions.md 22). Three counts keep it honest and one of them is new: `cohortSurvivorCount` recomputes 125, `pp_selectedCohortCount` recomputes it SEPARATELY for each pollutant-process -- 125, 0, 125, the zero being the chained one -- and `run_chainedRowCount` counts the 125 rows that arrive through the chain. The comparator's exact key set fails on any row whose rank found no cohort.\n\nTHE PACKED IDENTIFIER IS NEVER BUILT, ONLY UNPACKED. `emissionrate`'s 60,388 rows carry `sourceBinID` = 1e18 + fuel x 1e16 + engTech x 1e14 + regClass x 1e12 + shortModYrGroup x 1e10, past 2^53. `lib/onroad_activity.esm`'s `source_bin_slot` reads the four components out; nothing here composes one, and no element type is declared for the same reason (finding F18).",
+    "name": "moves.fixture.process_tirewear",
+    "description": "The `process-tirewear` fixture: 750 rows of MOVESOutput -- tire-wear PM10 and PM2.5 AND running-exhaust Total Energy Consumption for passenger cars on urban restricted-access roads in Washtenaw County, August, 7am, 2020 -- computed from the snapshot's own INPUT tables. It ports docs/process-tirewear.md end to end and reuses the whole of docs/mixed-onroad.md's spine and docs/process-brakewear.md's rate relation: the activity chain S1-S9, the cohort structure and the fuel-usage rebase S10-S12, the base rate S13-S14, the calculator's adjustments S15 and the output row S16-S18.\n\nWHAT IS NEW HERE IS ONE STAGE, AND IT IS THE ONE A READER WOULD EXPECT TO BE SHARED. Tire wear's `emissionrate` rows live on operating modes 400-416, which are binned on AVERAGE SPEED alone -- `operatingmode` gives them speedLower/speedUpper and no VSP bounds -- and the drive-cycle classification never produces one. They come from a second generator: `AverageSpeedOperatingModeDistributionGenerator` handles process 10 and nothing else (avg_speed_op_mode_distribution.rs:110-116), `BaseRateGenerator` drives the cycles itself only for processes 1 and 9 (mod.rs:156-161), and `avgspeedbin.opModeIDTirewear` -- one nullable column of a sixteen-row table -- is the whole of the tire-wear operating-mode model. So W acquires a POLLUTANT-PROCESS AXIS here: `pp_W[p, k, m]` is one aggregate over the same speed-bin weights with the mode fraction selected per pollutant-process, not two relations and a branch downstream. Retargeting `process-brakewear` onto this snapshot reproduces its 250 energy rows and returns EXACTLY 0 on all 500 particulate rows, which is the measurement that says so (docs/process-tirewear.md 6.4).\n\nA UNION WOULD HAVE WORKED AND IS NOT WHAT THIS DOES. The two mode families are disjoint in `emissionrate`, so a single 39-mode W carrying both would reproduce all 750 rows -- and would be writing down a coincidence of the data rather than the rule, and would make `pp_WModeCount` (23 and 16) and `pp_WTotal` (1 on each family) unstatable. Those two assertions are the only place in the suite where the difference is visible, which is exactly why they are here.\n\nTHE SHORT MODEL-YEAR GROUP IS 0 ON EVERY TIRE-WEAR ROW, and that is the third value the rate relation exists to carry. `pollutantprocessmodelyear` maps model year 2020 to short group 40 for 9101 (a two-digit year), to 6 for brake wear's 11609 (a decade band) and to 0 for 11710 -- modelYearGroup 0, whose `modelyeargroup` row is named \"Doesn't Matter\" -- and all 31 of `emissionrate`'s 11710 source bins carry 00 in that slot. A document that computed one short group per COHORT would meet 527 tire-wear rate rows with a source bin of 40 or 80 and produce a rate of exactly zero. Hence `rate_rows`, the pollutant-process crossed with the cohort candidate grid -- 3 x 164, every factor a discovered extent, all its key columns one-dimensional (docs/esm-conventions.md 2).\n\nNO REFERENCE TABLE IS AN INPUT. `baserate_1_2020`, `baserate_10_2020`, `sourcebindistribution`, `sho` and `MOVESOutput` are generator or expected output and none is a `data_sources` entry here. `ratesopmodedistribution` needed a decision rather than a look-up: it is captured NON-EMPTY in this snapshot, 32 rows, and those rows are precisely what the tire-wear arm computes -- so reading them would transcribe the answer to the one question this fixture exists to ask, and it reads them nowhere. Values out of the generator tables DO appear as `expected` in the inline tests below, which is the opposite direction.\n\nTHE PM10 BLOCK IS A CHAIN, NOT A SECOND RATE, and it is a WEAKER check than brake wear's. `runspecchainedto` says 10710 <- 11710 and `pm10emissionratio` carries the ratio; the document reads both and never writes `107 = ratio x 117`. Its own rate path evaluates to exactly 0 and its whole quantity arrives through a self-join of the rate relation on (chained-from pollutant-process, cohort). But the ratio table here is four rows, one model-year range and one value, 6.6667, so a document that dropped the range predicate AND the fuel key would still reproduce all 250 PM10 rows. J36 is carried in full anyway and docs/process-tirewear.md 7.2 records that its discriminating half is checked by `process-brakewear` and by nothing here.\n\nWHAT THE TIRE-WEAR ROWS DO CHECK, and it is the mirror of brake wear's. Brake wear's rate table covered five of W's 23 drive-cycle modes, 12.8 % of the weekend weight. Tire wear's covers all sixteen live speed-bin modes -- 100 % -- so a perturbation of any speed bin moves all 500 particulate rows. What they do not touch at all is the drive-cycle physics: `driveschedulesecond`'s 63,602 speeds, the VSP polynomial, the braking thresholds and the bracketing weights are still exercised by the 250 energy rows alone.\n\nDECLARED: one number, `n_outputCohort` = 125, the length of each output block's cohort run. WHICH 125 of the 164 candidates survive is a result of the chain and is never written down (docs/esm-conventions.md 22). `cohortSurvivorCount`, `pp_selectedCohortCount` (125, 0, 125) and `run_chainedRowCount` keep it honest.\n\nTHE PACKED IDENTIFIER IS NEVER BUILT, ONLY UNPACKED. `emissionrate`'s 57,567 rows carry `sourceBinID` = 1e18 + fuel x 1e16 + engTech x 1e14 + regClass x 1e12 + shortModYrGroup x 1e10, past 2^53. `lib/onroad_activity.esm`'s `source_bin_slot` reads the four components out; nothing here composes one, and no element type is declared for the same reason (finding F18).",
     "authors": [
       "EarthSciML Authors and Contributors"
     ],
     "tags": [
       "moves",
       "onroad",
-      "brakewear",
-      "pm",
       "fixture",
-      "process-brakewear"
+      "tirewear",
+      "pm10",
+      "chained-calculator",
+      "multi-pollutant"
     ]
   },
   "data_sources": {
-    "bw_runspecyear": {
+    "tw_runspecyear": {
       "kind": "static",
       "source": {
-        "url_template": "../../moves.rs/characterization/snapshots/process-brakewear/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecyear.parquet"
+        "url_template": "../../moves.rs/characterization/snapshots/process-tirewear/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecyear.parquet"
       },
       "extent": {
         "metaparameter": "n_runspecyear"
@@ -32,10 +33,10 @@
         "esio_format": "parquet"
       }
     },
-    "bw_runspecmonth": {
+    "tw_runspecmonth": {
       "kind": "static",
       "source": {
-        "url_template": "../../moves.rs/characterization/snapshots/process-brakewear/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecmonth.parquet"
+        "url_template": "../../moves.rs/characterization/snapshots/process-tirewear/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecmonth.parquet"
       },
       "extent": {
         "metaparameter": "n_runspecmonth"
@@ -48,10 +49,10 @@
         "esio_format": "parquet"
       }
     },
-    "bw_runspechour": {
+    "tw_runspechour": {
       "kind": "static",
       "source": {
-        "url_template": "../../moves.rs/characterization/snapshots/process-brakewear/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspechour.parquet"
+        "url_template": "../../moves.rs/characterization/snapshots/process-tirewear/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspechour.parquet"
       },
       "extent": {
         "metaparameter": "n_runspechour"
@@ -64,10 +65,10 @@
         "esio_format": "parquet"
       }
     },
-    "bw_runspecday": {
+    "tw_runspecday": {
       "kind": "static",
       "source": {
-        "url_template": "../../moves.rs/characterization/snapshots/process-brakewear/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecday.parquet"
+        "url_template": "../../moves.rs/characterization/snapshots/process-tirewear/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecday.parquet"
       },
       "extent": {
         "metaparameter": "n_runspecday"
@@ -80,10 +81,10 @@
         "esio_format": "parquet"
       }
     },
-    "bw_runspecsourcetype": {
+    "tw_runspecsourcetype": {
       "kind": "static",
       "source": {
-        "url_template": "../../moves.rs/characterization/snapshots/process-brakewear/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecsourcetype.parquet"
+        "url_template": "../../moves.rs/characterization/snapshots/process-tirewear/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecsourcetype.parquet"
       },
       "extent": {
         "metaparameter": "n_runspecsourcetype"
@@ -96,10 +97,10 @@
         "esio_format": "parquet"
       }
     },
-    "bw_runspecroadtype": {
+    "tw_runspecroadtype": {
       "kind": "static",
       "source": {
-        "url_template": "../../moves.rs/characterization/snapshots/process-brakewear/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecroadtype.parquet"
+        "url_template": "../../moves.rs/characterization/snapshots/process-tirewear/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecroadtype.parquet"
       },
       "extent": {
         "metaparameter": "n_runspecroadtype"
@@ -112,10 +113,10 @@
         "esio_format": "parquet"
       }
     },
-    "bw_runspecsourcefueltype": {
+    "tw_runspecsourcefueltype": {
       "kind": "static",
       "source": {
-        "url_template": "../../moves.rs/characterization/snapshots/process-brakewear/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecsourcefueltype.parquet"
+        "url_template": "../../moves.rs/characterization/snapshots/process-tirewear/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecsourcefueltype.parquet"
       },
       "extent": {
         "metaparameter": "n_runspecsourcefueltype"
@@ -129,10 +130,10 @@
         "esio_format": "parquet"
       }
     },
-    "bw_link": {
+    "tw_link": {
       "kind": "static",
       "source": {
-        "url_template": "../../moves.rs/characterization/snapshots/process-brakewear/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__link.parquet"
+        "url_template": "../../moves.rs/characterization/snapshots/process-tirewear/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__link.parquet"
       },
       "extent": {
         "metaparameter": "n_link"
@@ -146,10 +147,10 @@
         "esio_format": "parquet"
       }
     },
-    "bw_year": {
+    "tw_year": {
       "kind": "static",
       "source": {
-        "url_template": "../../moves.rs/characterization/snapshots/process-brakewear/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__year.parquet"
+        "url_template": "../../moves.rs/characterization/snapshots/process-tirewear/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__year.parquet"
       },
       "extent": {
         "metaparameter": "n_year"
@@ -163,10 +164,10 @@
         "esio_format": "parquet"
       }
     },
-    "bw_sourcetypeyear": {
+    "tw_sourcetypeyear": {
       "kind": "static",
       "source": {
-        "url_template": "../../moves.rs/characterization/snapshots/process-brakewear/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__sourcetypeyear.parquet"
+        "url_template": "../../moves.rs/characterization/snapshots/process-tirewear/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__sourcetypeyear.parquet"
       },
       "reader_options": {
         "float_columns": [
@@ -184,10 +185,10 @@
         "esio_format": "parquet"
       }
     },
-    "bw_sourcetypeagedistribution": {
+    "tw_sourcetypeagedistribution": {
       "kind": "static",
       "source": {
-        "url_template": "../../moves.rs/characterization/snapshots/process-brakewear/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__sourcetypeagedistribution.parquet"
+        "url_template": "../../moves.rs/characterization/snapshots/process-tirewear/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__sourcetypeagedistribution.parquet"
       },
       "reader_options": {
         "float_columns": [
@@ -205,10 +206,10 @@
         "esio_format": "parquet"
       }
     },
-    "bw_sourcetypeage": {
+    "tw_sourcetypeage": {
       "kind": "static",
       "source": {
-        "url_template": "../../moves.rs/characterization/snapshots/process-brakewear/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__sourcetypeage.parquet"
+        "url_template": "../../moves.rs/characterization/snapshots/process-tirewear/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__sourcetypeage.parquet"
       },
       "reader_options": {
         "float_columns": [
@@ -228,10 +229,10 @@
         "esio_format": "parquet"
       }
     },
-    "bw_sourceusetype": {
+    "tw_sourceusetype": {
       "kind": "static",
       "source": {
-        "url_template": "../../moves.rs/characterization/snapshots/process-brakewear/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__sourceusetype.parquet"
+        "url_template": "../../moves.rs/characterization/snapshots/process-tirewear/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__sourceusetype.parquet"
       },
       "extent": {
         "metaparameter": "n_sourceusetype"
@@ -244,10 +245,10 @@
         "esio_format": "parquet"
       }
     },
-    "bw_hpmsvtypeyear": {
+    "tw_hpmsvtypeyear": {
       "kind": "static",
       "source": {
-        "url_template": "../../moves.rs/characterization/snapshots/process-brakewear/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__hpmsvtypeyear.parquet"
+        "url_template": "../../moves.rs/characterization/snapshots/process-tirewear/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__hpmsvtypeyear.parquet"
       },
       "reader_options": {
         "float_columns": [
@@ -265,10 +266,10 @@
         "esio_format": "parquet"
       }
     },
-    "bw_roadtypedistribution": {
+    "tw_roadtypedistribution": {
       "kind": "static",
       "source": {
-        "url_template": "../../moves.rs/characterization/snapshots/process-brakewear/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__roadtypedistribution.parquet"
+        "url_template": "../../moves.rs/characterization/snapshots/process-tirewear/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__roadtypedistribution.parquet"
       },
       "reader_options": {
         "float_columns": [
@@ -286,10 +287,10 @@
         "esio_format": "parquet"
       }
     },
-    "bw_roadtype": {
+    "tw_roadtype": {
       "kind": "static",
       "source": {
-        "url_template": "../../moves.rs/characterization/snapshots/process-brakewear/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__roadtype.parquet"
+        "url_template": "../../moves.rs/characterization/snapshots/process-tirewear/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__roadtype.parquet"
       },
       "extent": {
         "metaparameter": "n_roadtype"
@@ -302,10 +303,10 @@
         "esio_format": "parquet"
       }
     },
-    "bw_monthvmtfraction": {
+    "tw_monthvmtfraction": {
       "kind": "static",
       "source": {
-        "url_template": "../../moves.rs/characterization/snapshots/process-brakewear/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__monthvmtfraction.parquet"
+        "url_template": "../../moves.rs/characterization/snapshots/process-tirewear/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__monthvmtfraction.parquet"
       },
       "reader_options": {
         "float_columns": [
@@ -323,10 +324,10 @@
         "esio_format": "parquet"
       }
     },
-    "bw_dayvmtfraction": {
+    "tw_dayvmtfraction": {
       "kind": "static",
       "source": {
-        "url_template": "../../moves.rs/characterization/snapshots/process-brakewear/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__dayvmtfraction.parquet"
+        "url_template": "../../moves.rs/characterization/snapshots/process-tirewear/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__dayvmtfraction.parquet"
       },
       "reader_options": {
         "float_columns": [
@@ -344,10 +345,10 @@
         "esio_format": "parquet"
       }
     },
-    "bw_hourvmtfraction": {
+    "tw_hourvmtfraction": {
       "kind": "static",
       "source": {
-        "url_template": "../../moves.rs/characterization/snapshots/process-brakewear/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__hourvmtfraction.parquet"
+        "url_template": "../../moves.rs/characterization/snapshots/process-tirewear/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__hourvmtfraction.parquet"
       },
       "reader_options": {
         "float_columns": [
@@ -365,10 +366,10 @@
         "esio_format": "parquet"
       }
     },
-    "bw_monthofanyyear": {
+    "tw_monthofanyyear": {
       "kind": "static",
       "source": {
-        "url_template": "../../moves.rs/characterization/snapshots/process-brakewear/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__monthofanyyear.parquet"
+        "url_template": "../../moves.rs/characterization/snapshots/process-tirewear/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__monthofanyyear.parquet"
       },
       "extent": {
         "metaparameter": "n_monthofanyyear"
@@ -382,10 +383,10 @@
         "esio_format": "parquet"
       }
     },
-    "bw_avgspeedbin": {
+    "tw_avgspeedbin": {
       "kind": "static",
       "source": {
-        "url_template": "../../moves.rs/characterization/snapshots/process-brakewear/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__avgspeedbin.parquet"
+        "url_template": "../../moves.rs/characterization/snapshots/process-tirewear/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__avgspeedbin.parquet"
       },
       "reader_options": {
         "float_columns": [
@@ -404,10 +405,10 @@
         "esio_format": "parquet"
       }
     },
-    "bw_avgspeeddistribution": {
+    "tw_avgspeeddistribution": {
       "kind": "static",
       "source": {
-        "url_template": "../../moves.rs/characterization/snapshots/process-brakewear/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__avgspeeddistribution.parquet"
+        "url_template": "../../moves.rs/characterization/snapshots/process-tirewear/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__avgspeeddistribution.parquet"
       },
       "reader_options": {
         "float_columns": [
@@ -426,10 +427,10 @@
         "esio_format": "parquet"
       }
     },
-    "bw_zoneroadtype": {
+    "tw_zoneroadtype": {
       "kind": "static",
       "source": {
-        "url_template": "../../moves.rs/characterization/snapshots/process-brakewear/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__zoneroadtype.parquet"
+        "url_template": "../../moves.rs/characterization/snapshots/process-tirewear/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__zoneroadtype.parquet"
       },
       "reader_options": {
         "float_columns": [
@@ -447,10 +448,10 @@
         "esio_format": "parquet"
       }
     },
-    "bw_drivescheduleassoc": {
+    "tw_drivescheduleassoc": {
       "kind": "static",
       "source": {
-        "url_template": "../../moves.rs/characterization/snapshots/process-brakewear/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__drivescheduleassoc.parquet"
+        "url_template": "../../moves.rs/characterization/snapshots/process-tirewear/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__drivescheduleassoc.parquet"
       },
       "extent": {
         "metaparameter": "n_drivescheduleassoc"
@@ -463,10 +464,10 @@
         "esio_format": "parquet"
       }
     },
-    "bw_driveschedule": {
+    "tw_driveschedule": {
       "kind": "static",
       "source": {
-        "url_template": "../../moves.rs/characterization/snapshots/process-brakewear/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__driveschedule.parquet"
+        "url_template": "../../moves.rs/characterization/snapshots/process-tirewear/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__driveschedule.parquet"
       },
       "reader_options": {
         "float_columns": [
@@ -484,10 +485,10 @@
         "esio_format": "parquet"
       }
     },
-    "bw_driveschedulesecond": {
+    "tw_driveschedulesecond": {
       "kind": "static",
       "source": {
-        "url_template": "../../moves.rs/characterization/snapshots/process-brakewear/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__driveschedulesecond.parquet"
+        "url_template": "../../moves.rs/characterization/snapshots/process-tirewear/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__driveschedulesecond.parquet"
       },
       "reader_options": {
         "float_columns": [
@@ -505,10 +506,10 @@
         "esio_format": "parquet"
       }
     },
-    "bw_operatingmode": {
+    "tw_operatingmode": {
       "kind": "static",
       "source": {
-        "url_template": "../../moves.rs/characterization/snapshots/process-brakewear/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__operatingmode.parquet"
+        "url_template": "../../moves.rs/characterization/snapshots/process-tirewear/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__operatingmode.parquet"
       },
       "reader_options": {
         "float_columns": [
@@ -531,10 +532,10 @@
         "esio_format": "parquet"
       }
     },
-    "bw_sourceusetypephysicsmapping": {
+    "tw_sourceusetypephysicsmapping": {
       "kind": "static",
       "source": {
-        "url_template": "../../moves.rs/characterization/snapshots/process-brakewear/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__sourceusetypephysicsmapping.parquet"
+        "url_template": "../../moves.rs/characterization/snapshots/process-tirewear/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__sourceusetypephysicsmapping.parquet"
       },
       "reader_options": {
         "float_columns": [
@@ -556,10 +557,10 @@
         "esio_format": "parquet"
       }
     },
-    "bw_samplevehiclepopulation": {
+    "tw_samplevehiclepopulation": {
       "kind": "static",
       "source": {
-        "url_template": "../../moves.rs/characterization/snapshots/process-brakewear/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__samplevehiclepopulation.parquet"
+        "url_template": "../../moves.rs/characterization/snapshots/process-tirewear/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__samplevehiclepopulation.parquet"
       },
       "reader_options": {
         "float_columns": [
@@ -577,10 +578,10 @@
         "esio_format": "parquet"
       }
     },
-    "bw_pollutantprocessmodelyear": {
+    "tw_pollutantprocessmodelyear": {
       "kind": "static",
       "source": {
-        "url_template": "../../moves.rs/characterization/snapshots/process-brakewear/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__pollutantprocessmodelyear.parquet"
+        "url_template": "../../moves.rs/characterization/snapshots/process-tirewear/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__pollutantprocessmodelyear.parquet"
       },
       "extent": {
         "metaparameter": "n_pollutantprocessmodelyear"
@@ -593,10 +594,10 @@
         "esio_format": "parquet"
       }
     },
-    "bw_modelyeargroup": {
+    "tw_modelyeargroup": {
       "kind": "static",
       "source": {
-        "url_template": "../../moves.rs/characterization/snapshots/process-brakewear/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__modelyeargroup.parquet"
+        "url_template": "../../moves.rs/characterization/snapshots/process-tirewear/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__modelyeargroup.parquet"
       },
       "extent": {
         "metaparameter": "n_modelyeargroup"
@@ -609,10 +610,10 @@
         "esio_format": "parquet"
       }
     },
-    "bw_fuelusagefraction": {
+    "tw_fuelusagefraction": {
       "kind": "static",
       "source": {
-        "url_template": "../../moves.rs/characterization/snapshots/process-brakewear/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__fuelusagefraction.parquet"
+        "url_template": "../../moves.rs/characterization/snapshots/process-tirewear/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__fuelusagefraction.parquet"
       },
       "reader_options": {
         "float_columns": [
@@ -630,10 +631,10 @@
         "esio_format": "parquet"
       }
     },
-    "bw_agecategory": {
+    "tw_agecategory": {
       "kind": "static",
       "source": {
-        "url_template": "../../moves.rs/characterization/snapshots/process-brakewear/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__agecategory.parquet"
+        "url_template": "../../moves.rs/characterization/snapshots/process-tirewear/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__agecategory.parquet"
       },
       "extent": {
         "metaparameter": "n_agecategory"
@@ -647,10 +648,10 @@
         "esio_format": "parquet"
       }
     },
-    "bw_emissionrate": {
+    "tw_emissionrate": {
       "kind": "static",
       "source": {
-        "url_template": "../../moves.rs/characterization/snapshots/process-brakewear/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__emissionrate.parquet"
+        "url_template": "../../moves.rs/characterization/snapshots/process-tirewear/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__emissionrate.parquet"
       },
       "reader_options": {
         "float_columns": [
@@ -664,14 +665,14 @@
         "tags": [
           "rates"
         ],
-        "note": "60,388 rows over TWO pollutant-processes: 57,040 for 9101 across 23 operating modes and 3,348 for 11609 across six (0, 1, 11, 21, 33 and 501). The eighteen modes 11609 does not carry contribute nothing, by the inner join, and mode 501 -- `brakewear;stopped` -- carries a rate that no national-scale drive cycle ever reaches (docs/process-brakewear.md 3.2).",
+        "note": "57,567 rows over TWO pollutant-processes: 57,040 for 9101 across 23 operating modes and 527 for 11710 across seventeen (400-416). THE TWO MODE FAMILIES ARE DISJOINT AND THAT IS NOT A COINCIDENCE THIS DOCUMENT RELIES ON: tire wear's modes are binned on average speed alone and are produced by a different generator (see `pp_W`), so a rate row of one pollutant-process is contracted only against its own family's weights. Of the seventeen, mode 400 -- `tirewear;idle` -- carries meanBaseRate exactly 0.0 in all 31 of its rows and is never reached at Inventory scale either (docs/process-tirewear.md 3.2). Read whole, keyed six ways by J22.",
         "esio_format": "parquet"
       }
     },
-    "bw_evsalesfraction": {
+    "tw_evsalesfraction": {
       "kind": "static",
       "source": {
-        "url_template": "../../moves.rs/characterization/snapshots/process-brakewear/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__evsalesfraction.parquet"
+        "url_template": "../../moves.rs/characterization/snapshots/process-tirewear/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__evsalesfraction.parquet"
       },
       "reader_options": {
         "float_columns": [
@@ -689,10 +690,10 @@
         "esio_format": "parquet"
       }
     },
-    "bw_fleetavgadjustment": {
+    "tw_fleetavgadjustment": {
       "kind": "static",
       "source": {
-        "url_template": "../../moves.rs/characterization/snapshots/process-brakewear/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__fleetavgadjustment.parquet"
+        "url_template": "../../moves.rs/characterization/snapshots/process-tirewear/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__fleetavgadjustment.parquet"
       },
       "reader_options": {
         "float_columns": [
@@ -707,14 +708,14 @@
         "tags": [
           "rates"
         ],
-        "note": "11 rows, all polProcessID 9101. Brakewear has none, so its EV-sales back-scaling factor is 1 -- computed, through coh/rt_hasFleetAvgAdjustment, not written down.",
+        "note": "11 rows, all polProcessID 9101. Tire wear has none, so its EV-sales back-scaling factor is 1 -- computed, through rt_hasFleetAvgAdjustment, not written down.",
         "esio_format": "parquet"
       }
     },
-    "bw_regulatoryclass": {
+    "tw_regulatoryclass": {
       "kind": "static",
       "source": {
-        "url_template": "../../moves.rs/characterization/snapshots/process-brakewear/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__regulatoryclass.parquet"
+        "url_template": "../../moves.rs/characterization/snapshots/process-tirewear/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__regulatoryclass.parquet"
       },
       "extent": {
         "metaparameter": "n_regulatoryclass"
@@ -727,10 +728,10 @@
         "esio_format": "parquet"
       }
     },
-    "bw_fullacadjustment": {
+    "tw_fullacadjustment": {
       "kind": "static",
       "source": {
-        "url_template": "../../moves.rs/characterization/snapshots/process-brakewear/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__fullacadjustment.parquet"
+        "url_template": "../../moves.rs/characterization/snapshots/process-tirewear/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__fullacadjustment.parquet"
       },
       "reader_options": {
         "float_columns": [
@@ -744,14 +745,14 @@
         "tags": [
           "adjustment"
         ],
-        "note": "23 rows, all polProcessID 9101. Brakewear has none, so its A/C increment is exactly 0 through the LEFT-JOIN treatment of J23 rather than through an assumption.",
+        "note": "23 rows, all polProcessID 9101. Tire wear has none, so its A/C increment is exactly 0 through the LEFT-JOIN treatment of J23 rather than through an assumption.",
         "esio_format": "parquet"
       }
     },
-    "bw_monthgrouphour": {
+    "tw_monthgrouphour": {
       "kind": "static",
       "source": {
-        "url_template": "../../moves.rs/characterization/snapshots/process-brakewear/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__monthgrouphour.parquet"
+        "url_template": "../../moves.rs/characterization/snapshots/process-tirewear/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__monthgrouphour.parquet"
       },
       "reader_options": {
         "float_columns": [
@@ -771,10 +772,10 @@
         "esio_format": "parquet"
       }
     },
-    "bw_zonemonthhour": {
+    "tw_zonemonthhour": {
       "kind": "static",
       "source": {
-        "url_template": "../../moves.rs/characterization/snapshots/process-brakewear/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__zonemonthhour.parquet"
+        "url_template": "../../moves.rs/characterization/snapshots/process-tirewear/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__zonemonthhour.parquet"
       },
       "reader_options": {
         "float_columns": [
@@ -793,10 +794,10 @@
         "esio_format": "parquet"
       }
     },
-    "bw_sourcetypemodelyear": {
+    "tw_sourcetypemodelyear": {
       "kind": "static",
       "source": {
-        "url_template": "../../moves.rs/characterization/snapshots/process-brakewear/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__sourcetypemodelyear.parquet"
+        "url_template": "../../moves.rs/characterization/snapshots/process-tirewear/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__sourcetypemodelyear.parquet"
       },
       "reader_options": {
         "float_columns": [
@@ -814,10 +815,10 @@
         "esio_format": "parquet"
       }
     },
-    "bw_temperatureadjustment": {
+    "tw_temperatureadjustment": {
       "kind": "static",
       "source": {
-        "url_template": "../../moves.rs/characterization/snapshots/process-brakewear/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__temperatureadjustment.parquet"
+        "url_template": "../../moves.rs/characterization/snapshots/process-tirewear/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__temperatureadjustment.parquet"
       },
       "reader_options": {
         "float_columns": [
@@ -832,14 +833,14 @@
         "tags": [
           "adjustment"
         ],
-        "note": "1 row: polProcessID 9101, fuelTypeID 9, regClassID 0, model years 1950-2060. regClassID 0 is a WILDCARD, and reaching it is what makes the EV temperature factor 1.015625 here rather than 1: the lookup is by exact regClassID first and by the 0 row second (adjust.rs:495-520). No 11609 row, so brakewear's own temperature factor is the standard quadratic with zero terms, exactly 1.",
+        "note": "1 row: polProcessID 9101, fuelTypeID 9, regClassID 0, model years 1950-2060. regClassID 0 is a WILDCARD, and reaching it is what makes the EV temperature factor 1.015625 here rather than 1: the lookup is by exact regClassID first and by the 0 row second (adjust.rs:495-520), which is lib/adjustments.esm's `exact_else_wildcard`. No 11710 row, so tire wear's own temperature factor is the standard quadratic with zero terms, exactly 1.",
         "esio_format": "parquet"
       }
     },
-    "bw_evefficiency": {
+    "tw_evefficiency": {
       "kind": "static",
       "source": {
-        "url_template": "../../moves.rs/characterization/snapshots/process-brakewear/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__evefficiency.parquet"
+        "url_template": "../../moves.rs/characterization/snapshots/process-tirewear/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__evefficiency.parquet"
       },
       "reader_options": {
         "float_columns": [
@@ -854,14 +855,14 @@
         "tags": [
           "adjustment"
         ],
-        "note": "7 rows, all polProcessID 9101. Brakewear has none, so no divisor applies to its electricity rows; `rt_appliesEvDivisor` is what says so, and without it lib/onroad_activity.esm's `ev_energy_divisor` would divide a brakewear electricity rate by its 1e-300 floor.",
+        "note": "7 rows, all polProcessID 9101. Tire wear has none, so no divisor applies to its electricity rows; `rt_appliesEvDivisor` is what says so, and without it lib/onroad_activity.esm's `ev_energy_divisor` would divide a tire-wear electricity rate by its 1e-300 floor and return an infinity.",
         "esio_format": "parquet"
       }
     },
-    "bw_hourday": {
+    "tw_hourday": {
       "kind": "static",
       "source": {
-        "url_template": "../../moves.rs/characterization/snapshots/process-brakewear/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__hourday.parquet"
+        "url_template": "../../moves.rs/characterization/snapshots/process-tirewear/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__hourday.parquet"
       },
       "extent": {
         "metaparameter": "n_hourday"
@@ -874,10 +875,10 @@
         "esio_format": "parquet"
       }
     },
-    "bw_dayofanyweek": {
+    "tw_dayofanyweek": {
       "kind": "static",
       "source": {
-        "url_template": "../../moves.rs/characterization/snapshots/process-brakewear/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__dayofanyweek.parquet"
+        "url_template": "../../moves.rs/characterization/snapshots/process-tirewear/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__dayofanyweek.parquet"
       },
       "reader_options": {
         "float_columns": [
@@ -895,10 +896,10 @@
         "esio_format": "parquet"
       }
     },
-    "bw_movesoutput": {
+    "tw_movesoutput": {
       "kind": "static",
       "source": {
-        "url_template": "../../moves.rs/characterization/snapshots/process-brakewear/tables/db__out_process_brakewear__movesoutput.parquet"
+        "url_template": "../../moves.rs/characterization/snapshots/process-tirewear/tables/db__out_process_tirewear__movesoutput.parquet"
       },
       "reader_options": {
         "float_columns": [
@@ -910,14 +911,14 @@
           "oracle",
           "expected-output"
         ],
-        "note": "The 750-row expected output -- 250 rows each for pollutants 91, 106 and 116, shipped in the same snapshot so no canonical MOVES, MariaDB or JVM is needed to develop against it. DECLARED AND CONSUMED BY NOTHING -- reading it would transcribe the answer and its extent would transcribe the answer's shape. compare-output.py reads it directly under tolerance.toml.",
+        "note": "The 750-row expected output -- 250 rows each for pollutants 91, 107 and 117, shipped in the same snapshot so no canonical MOVES, MariaDB or JVM is needed to develop against it. DECLARED AND CONSUMED BY NOTHING -- reading it would transcribe the answer and its extent would transcribe the answer's shape. compare-output.py reads it directly under tolerance.toml.",
         "esio_format": "parquet"
       }
     },
-    "bw_runspecpollutantprocess": {
+    "tw_runspecpollutantprocess": {
       "kind": "static",
       "source": {
-        "url_template": "../../moves.rs/characterization/snapshots/process-brakewear/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecpollutantprocess.parquet"
+        "url_template": "../../moves.rs/characterization/snapshots/process-tirewear/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecpollutantprocess.parquet"
       },
       "extent": {
         "metaparameter": "n_runspecpollutantprocess"
@@ -926,14 +927,14 @@
         "tags": [
           "scope"
         ],
-        "note": "3 rows: 9101 (Total Energy x Running Exhaust), 11609 (PM2.5 Brakewear x Brakewear) and 10609 (PM10 Brakewear x Brakewear). This relation is the fixture's SECOND output-block axis and the only place the run's pollutant/process scope is written down -- it comes from the execution database and never from the RunSpec XML (docs/mixed-onroad.md 0.1).",
+        "note": "3 rows: 9101 (Total Energy x Running Exhaust), 10710 (PM10 Tirewear, chained) and 11710 (PM2.5 Tirewear x Tirewear). This relation is the fixture's SECOND output-block axis and the only place the run's pollutant/process scope is written down -- it comes from here and never from the RunSpec XML. It is also what `pp_W` is keyed by: the PROCESS half of each id decides which of the two operating-mode generators wrote its weights.",
         "esio_format": "parquet"
       }
     },
-    "bw_runspecchainedto": {
+    "tw_runspecchainedto": {
       "kind": "static",
       "source": {
-        "url_template": "../../moves.rs/characterization/snapshots/process-brakewear/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecchainedto.parquet"
+        "url_template": "../../moves.rs/characterization/snapshots/process-tirewear/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecchainedto.parquet"
       },
       "extent": {
         "metaparameter": "n_runspecchainedto"
@@ -943,14 +944,14 @@
           "scope",
           "chain"
         ],
-        "note": "1 row: 10609 <- 11609. MOVES's own statement that PM10 Brakewear is a CHAINED pollutant, computed by scaling its PM2.5 sibling rather than from a rate of its own (PM10BrakeTireCalculator). The document reads the chain from here rather than writing `106 = ratio x 116` anywhere.",
+        "note": "1 row: 10710 <- 11710. MOVES's own statement that PM10 Tirewear is a CHAINED pollutant, computed by scaling its PM2.5 sibling rather than from a rate of its own (PM10BrakeTireCalculator). The document reads the chain from here rather than writing `107 = ratio x 117`.",
         "esio_format": "parquet"
       }
     },
-    "bw_pm10emissionratio": {
+    "tw_pm10emissionratio": {
       "kind": "static",
       "source": {
-        "url_template": "../../moves.rs/characterization/snapshots/process-brakewear/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__pm10emissionratio.parquet"
+        "url_template": "../../moves.rs/characterization/snapshots/process-tirewear/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__pm10emissionratio.parquet"
       },
       "reader_options": {
         "float_columns": [
@@ -964,7 +965,7 @@
         "tags": [
           "chain"
         ],
-        "note": "8 rows: PM10/PM2.5 for polProcessID 10609 over the four fuel types and two model-year ranges (1940-2010 and 2011-2060). The ratio is 8.0 for the older range and 2.60985 (1.42475 for electricity) for the newer -- so a document that dropped the range predicate would be wrong by a factor of three on half the rows.",
+        "note": "4 rows: PM10/PM2.5 for polProcessID 10710 over the four fuel types, model years 1940-2060, and the ratio is 6.6667 on ALL FOUR. So unlike process-brakewear's eight-row table -- two model-year ranges carrying three distinct values -- this one cannot tell a correct lookup from one that dropped the range predicate and the fuel key. J36 carries both anyway, because the join is the port and this snapshot is one point of its input space; docs/process-tirewear.md 7.2 records which half of it is checked here and which by process-brakewear.",
         "esio_format": "parquet"
       }
     }
@@ -1474,7 +1475,7 @@
     },
     "process": {
       "RunningExhaust": 1,
-      "Brakewear": 9
+      "Tirewear": 10
     },
     "fuel_type": {
       "Electricity": 9
@@ -1484,7 +1485,8 @@
       "Idling": 1,
       "HighestBinnedMode": 40,
       "CoarseModerateSpeedHighVSP": 26,
-      "CoarseHighSpeedHighVSP": 36
+      "CoarseHighSpeedHighVSP": 36,
+      "TirewearIdle": 400
     },
     "source_bin_slot": {
       "ShortModelYearGroup": 10,
@@ -1497,7 +1499,7 @@
     }
   },
   "models": {
-    "ProcessBrakewear": {
+    "ProcessTirewear": {
       "expression_template_imports": [
         {
           "ref": "../lib/identifiers.esm",
@@ -1557,7 +1559,7 @@
           "description": "runspecyear.yearID.",
           "update": {
             "kind": "data",
-            "source": "bw_runspecyear",
+            "source": "tw_runspecyear",
             "from": {
               "file_variable": "yearID"
             }
@@ -1573,7 +1575,7 @@
           "description": "runspecmonth.monthID.",
           "update": {
             "kind": "data",
-            "source": "bw_runspecmonth",
+            "source": "tw_runspecmonth",
             "from": {
               "file_variable": "monthID"
             }
@@ -1589,7 +1591,7 @@
           "description": "runspechour.hourID.",
           "update": {
             "kind": "data",
-            "source": "bw_runspechour",
+            "source": "tw_runspechour",
             "from": {
               "file_variable": "hourID"
             }
@@ -1605,7 +1607,7 @@
           "description": "runspecday.dayID.",
           "update": {
             "kind": "data",
-            "source": "bw_runspecday",
+            "source": "tw_runspecday",
             "from": {
               "file_variable": "dayID"
             }
@@ -1621,7 +1623,7 @@
           "description": "runspecsourcetype.sourceTypeID.",
           "update": {
             "kind": "data",
-            "source": "bw_runspecsourcetype",
+            "source": "tw_runspecsourcetype",
             "from": {
               "file_variable": "sourceTypeID"
             }
@@ -1637,7 +1639,7 @@
           "description": "runspecroadtype.roadTypeID.",
           "update": {
             "kind": "data",
-            "source": "bw_runspecroadtype",
+            "source": "tw_runspecroadtype",
             "from": {
               "file_variable": "roadTypeID"
             }
@@ -1653,7 +1655,7 @@
           "description": "runspecsourcefueltype.sourceTypeID.",
           "update": {
             "kind": "data",
-            "source": "bw_runspecsourcefueltype",
+            "source": "tw_runspecsourcefueltype",
             "from": {
               "file_variable": "sourceTypeID"
             }
@@ -1669,7 +1671,7 @@
           "description": "runspecsourcefueltype.fuelTypeID, in file order: the cohort grid's fuel blocks are defined against that order.",
           "update": {
             "kind": "data",
-            "source": "bw_runspecsourcefueltype",
+            "source": "tw_runspecsourcefueltype",
             "from": {
               "file_variable": "fuelTypeID"
             }
@@ -1685,7 +1687,7 @@
           "description": "link.linkID.",
           "update": {
             "kind": "data",
-            "source": "bw_link",
+            "source": "tw_link",
             "from": {
               "file_variable": "linkID"
             }
@@ -1701,7 +1703,7 @@
           "description": "link.countyID.",
           "update": {
             "kind": "data",
-            "source": "bw_link",
+            "source": "tw_link",
             "from": {
               "file_variable": "countyID"
             }
@@ -1717,7 +1719,7 @@
           "description": "link.zoneID.",
           "update": {
             "kind": "data",
-            "source": "bw_link",
+            "source": "tw_link",
             "from": {
               "file_variable": "zoneID"
             }
@@ -1733,7 +1735,7 @@
           "description": "link.roadTypeID.",
           "update": {
             "kind": "data",
-            "source": "bw_link",
+            "source": "tw_link",
             "from": {
               "file_variable": "roadTypeID"
             }
@@ -1749,7 +1751,7 @@
           "description": "year.yearID.",
           "update": {
             "kind": "data",
-            "source": "bw_year",
+            "source": "tw_year",
             "from": {
               "file_variable": "yearID"
             }
@@ -1765,7 +1767,7 @@
           "description": "year.fuelYearID: the key the fuel-usage rebase is scoped by.",
           "update": {
             "kind": "data",
-            "source": "bw_year",
+            "source": "tw_year",
             "from": {
               "file_variable": "fuelYearID"
             }
@@ -1781,7 +1783,7 @@
           "description": "year.isBaseYear, Y/N text decoded by a `codes` map on the binding -- a text column is a hard error at the ingest boundary without one. S1 uses it, and it is Y for 2020, which is why \u00a71.5's two folds collapse.",
           "update": {
             "kind": "data",
-            "source": "bw_year",
+            "source": "tw_year",
             "from": {
               "file_variable": "isBaseYear",
               "codes": {
@@ -1804,7 +1806,7 @@
           "description": "sourcetypeyear.yearID.",
           "update": {
             "kind": "data",
-            "source": "bw_sourcetypeyear",
+            "source": "tw_sourcetypeyear",
             "from": {
               "file_variable": "yearID"
             }
@@ -1820,7 +1822,7 @@
           "description": "sourcetypeyear.sourceTypeID.",
           "update": {
             "kind": "data",
-            "source": "bw_sourcetypeyear",
+            "source": "tw_sourcetypeyear",
             "from": {
               "file_variable": "sourceTypeID"
             }
@@ -1836,7 +1838,7 @@
           "description": "sourcetypeyear.sourceTypePopulation.",
           "update": {
             "kind": "data",
-            "source": "bw_sourcetypeyear",
+            "source": "tw_sourcetypeyear",
             "from": {
               "file_variable": "sourceTypePopulation"
             }
@@ -1852,7 +1854,7 @@
           "description": "sourcetypeagedistribution.sourceTypeID.",
           "update": {
             "kind": "data",
-            "source": "bw_sourcetypeagedistribution",
+            "source": "tw_sourcetypeagedistribution",
             "from": {
               "file_variable": "sourceTypeID"
             }
@@ -1868,7 +1870,7 @@
           "description": "sourcetypeagedistribution.yearID.",
           "update": {
             "kind": "data",
-            "source": "bw_sourcetypeagedistribution",
+            "source": "tw_sourcetypeagedistribution",
             "from": {
               "file_variable": "yearID"
             }
@@ -1884,7 +1886,7 @@
           "description": "sourcetypeagedistribution.ageID.",
           "update": {
             "kind": "data",
-            "source": "bw_sourcetypeagedistribution",
+            "source": "tw_sourcetypeagedistribution",
             "from": {
               "file_variable": "ageID"
             }
@@ -1900,7 +1902,7 @@
           "description": "sourcetypeagedistribution.ageFraction.",
           "update": {
             "kind": "data",
-            "source": "bw_sourcetypeagedistribution",
+            "source": "tw_sourcetypeagedistribution",
             "from": {
               "file_variable": "ageFraction"
             }
@@ -1916,7 +1918,7 @@
           "description": "sourcetypeage.sourceTypeID.",
           "update": {
             "kind": "data",
-            "source": "bw_sourcetypeage",
+            "source": "tw_sourcetypeage",
             "from": {
               "file_variable": "sourceTypeID"
             }
@@ -1932,7 +1934,7 @@
           "description": "sourcetypeage.ageID.",
           "update": {
             "kind": "data",
-            "source": "bw_sourcetypeage",
+            "source": "tw_sourcetypeage",
             "from": {
               "file_variable": "ageID"
             }
@@ -1948,7 +1950,7 @@
           "description": "sourcetypeage.relativeMAR: S3's mileage-accumulation weight.",
           "update": {
             "kind": "data",
-            "source": "bw_sourcetypeage",
+            "source": "tw_sourcetypeage",
             "from": {
               "file_variable": "relativeMAR"
             }
@@ -1964,7 +1966,7 @@
           "description": "sourcetypeage.functioningACFraction: S15(d)'s third factor, multiplied by the clamped zero.",
           "update": {
             "kind": "data",
-            "source": "bw_sourcetypeage",
+            "source": "tw_sourcetypeage",
             "from": {
               "file_variable": "functioningACFraction"
             }
@@ -1980,7 +1982,7 @@
           "description": "sourceusetype.sourceTypeID.",
           "update": {
             "kind": "data",
-            "source": "bw_sourceusetype",
+            "source": "tw_sourceusetype",
             "from": {
               "file_variable": "sourceTypeID"
             }
@@ -1996,7 +1998,7 @@
           "description": "sourceusetype.HPMSVtypeID: S3's normalisation group.",
           "update": {
             "kind": "data",
-            "source": "bw_sourceusetype",
+            "source": "tw_sourceusetype",
             "from": {
               "file_variable": "HPMSVtypeID"
             }
@@ -2012,7 +2014,7 @@
           "description": "hpmsvtypeyear.HPMSVtypeID.",
           "update": {
             "kind": "data",
-            "source": "bw_hpmsvtypeyear",
+            "source": "tw_hpmsvtypeyear",
             "from": {
               "file_variable": "HPMSVtypeID"
             }
@@ -2028,7 +2030,7 @@
           "description": "hpmsvtypeyear.yearID.",
           "update": {
             "kind": "data",
-            "source": "bw_hpmsvtypeyear",
+            "source": "tw_hpmsvtypeyear",
             "from": {
               "file_variable": "yearID"
             }
@@ -2044,7 +2046,7 @@
           "description": "hpmsvtypeyear.HPMSBaseYearVMT.",
           "update": {
             "kind": "data",
-            "source": "bw_hpmsvtypeyear",
+            "source": "tw_hpmsvtypeyear",
             "from": {
               "file_variable": "HPMSBaseYearVMT"
             }
@@ -2060,7 +2062,7 @@
           "description": "roadtypedistribution.sourceTypeID.",
           "update": {
             "kind": "data",
-            "source": "bw_roadtypedistribution",
+            "source": "tw_roadtypedistribution",
             "from": {
               "file_variable": "sourceTypeID"
             }
@@ -2076,7 +2078,7 @@
           "description": "roadtypedistribution.roadTypeID.",
           "update": {
             "kind": "data",
-            "source": "bw_roadtypedistribution",
+            "source": "tw_roadtypedistribution",
             "from": {
               "file_variable": "roadTypeID"
             }
@@ -2092,7 +2094,7 @@
           "description": "roadtypedistribution.roadTypeVMTFraction.",
           "update": {
             "kind": "data",
-            "source": "bw_roadtypedistribution",
+            "source": "tw_roadtypedistribution",
             "from": {
               "file_variable": "roadTypeVMTFraction"
             }
@@ -2108,7 +2110,7 @@
           "description": "roadtype.roadTypeID.",
           "update": {
             "kind": "data",
-            "source": "bw_roadtype",
+            "source": "tw_roadtype",
             "from": {
               "file_variable": "roadTypeID"
             }
@@ -2124,7 +2126,7 @@
           "description": "roadtype.isAffectedByOnroad: the gate that excludes the NONROAD pseudo-road type 100.",
           "update": {
             "kind": "data",
-            "source": "bw_roadtype",
+            "source": "tw_roadtype",
             "from": {
               "file_variable": "isAffectedByOnroad"
             }
@@ -2140,7 +2142,7 @@
           "description": "monthvmtfraction.sourceTypeID.",
           "update": {
             "kind": "data",
-            "source": "bw_monthvmtfraction",
+            "source": "tw_monthvmtfraction",
             "from": {
               "file_variable": "sourceTypeID"
             }
@@ -2156,7 +2158,7 @@
           "description": "monthvmtfraction.monthID.",
           "update": {
             "kind": "data",
-            "source": "bw_monthvmtfraction",
+            "source": "tw_monthvmtfraction",
             "from": {
               "file_variable": "monthID"
             }
@@ -2172,7 +2174,7 @@
           "description": "monthvmtfraction.monthVMTFraction.",
           "update": {
             "kind": "data",
-            "source": "bw_monthvmtfraction",
+            "source": "tw_monthvmtfraction",
             "from": {
               "file_variable": "monthVMTFraction"
             }
@@ -2188,7 +2190,7 @@
           "description": "dayvmtfraction.sourceTypeID.",
           "update": {
             "kind": "data",
-            "source": "bw_dayvmtfraction",
+            "source": "tw_dayvmtfraction",
             "from": {
               "file_variable": "sourceTypeID"
             }
@@ -2204,7 +2206,7 @@
           "description": "dayvmtfraction.monthID.",
           "update": {
             "kind": "data",
-            "source": "bw_dayvmtfraction",
+            "source": "tw_dayvmtfraction",
             "from": {
               "file_variable": "monthID"
             }
@@ -2220,7 +2222,7 @@
           "description": "dayvmtfraction.roadTypeID.",
           "update": {
             "kind": "data",
-            "source": "bw_dayvmtfraction",
+            "source": "tw_dayvmtfraction",
             "from": {
               "file_variable": "roadTypeID"
             }
@@ -2236,7 +2238,7 @@
           "description": "dayvmtfraction.dayID.",
           "update": {
             "kind": "data",
-            "source": "bw_dayvmtfraction",
+            "source": "tw_dayvmtfraction",
             "from": {
               "file_variable": "dayID"
             }
@@ -2252,7 +2254,7 @@
           "description": "dayvmtfraction.dayVMTFraction.",
           "update": {
             "kind": "data",
-            "source": "bw_dayvmtfraction",
+            "source": "tw_dayvmtfraction",
             "from": {
               "file_variable": "dayVMTFraction"
             }
@@ -2268,7 +2270,7 @@
           "description": "hourvmtfraction.sourceTypeID.",
           "update": {
             "kind": "data",
-            "source": "bw_hourvmtfraction",
+            "source": "tw_hourvmtfraction",
             "from": {
               "file_variable": "sourceTypeID"
             }
@@ -2284,7 +2286,7 @@
           "description": "hourvmtfraction.roadTypeID.",
           "update": {
             "kind": "data",
-            "source": "bw_hourvmtfraction",
+            "source": "tw_hourvmtfraction",
             "from": {
               "file_variable": "roadTypeID"
             }
@@ -2300,7 +2302,7 @@
           "description": "hourvmtfraction.dayID.",
           "update": {
             "kind": "data",
-            "source": "bw_hourvmtfraction",
+            "source": "tw_hourvmtfraction",
             "from": {
               "file_variable": "dayID"
             }
@@ -2316,7 +2318,7 @@
           "description": "hourvmtfraction.hourID.",
           "update": {
             "kind": "data",
-            "source": "bw_hourvmtfraction",
+            "source": "tw_hourvmtfraction",
             "from": {
               "file_variable": "hourID"
             }
@@ -2332,7 +2334,7 @@
           "description": "hourvmtfraction.hourVMTFraction.",
           "update": {
             "kind": "data",
-            "source": "bw_hourvmtfraction",
+            "source": "tw_hourvmtfraction",
             "from": {
               "file_variable": "hourVMTFraction"
             }
@@ -2348,7 +2350,7 @@
           "description": "monthofanyyear.monthID.",
           "update": {
             "kind": "data",
-            "source": "bw_monthofanyyear",
+            "source": "tw_monthofanyyear",
             "from": {
               "file_variable": "monthID"
             }
@@ -2364,7 +2366,7 @@
           "description": "monthofanyyear.noOfDays: 31 for August, so weeksPerMonth is 4.428571.",
           "update": {
             "kind": "data",
-            "source": "bw_monthofanyyear",
+            "source": "tw_monthofanyyear",
             "from": {
               "file_variable": "noOfDays"
             }
@@ -2380,7 +2382,7 @@
           "description": "monthofanyyear.monthGroupID: J29's key into the A/C activity terms.",
           "update": {
             "kind": "data",
-            "source": "bw_monthofanyyear",
+            "source": "tw_monthofanyyear",
             "from": {
               "file_variable": "monthGroupID"
             }
@@ -2396,7 +2398,7 @@
           "description": "avgspeedbin.avgSpeedBinID.",
           "update": {
             "kind": "data",
-            "source": "bw_avgspeedbin",
+            "source": "tw_avgspeedbin",
             "from": {
               "file_variable": "avgSpeedBinID"
             }
@@ -2412,9 +2414,25 @@
           "description": "avgspeedbin.avgBinSpeed, in mph.",
           "update": {
             "kind": "data",
-            "source": "bw_avgspeedbin",
+            "source": "tw_avgspeedbin",
             "from": {
               "file_variable": "avgBinSpeed"
+            }
+          }
+        },
+        "asb_opModeIDTirewear": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "avgspeedbin_rows"
+          ],
+          "description": "avgspeedbin.opModeIDTirewear -- 401 for bin 1 up to 416 for bin 16. THIS COLUMN IS THE WHOLE OF THE TIRE-WEAR OPERATING-MODE DISTRIBUTION (avg_speed_op_mode_distribution.rs:386-420): a speed bin already carries its tire-wear mode, so `AverageSpeedOperatingModeDistributionGenerator` emits one opModeFraction = 1 row per bin and never consults a drive schedule. The column is nullable in the schema and populated in all 16 rows here; a NULL would be stored as operating mode 0 by the Java's INSERT IGNORE, which the port records as an edge case the default database does not reach.",
+          "update": {
+            "kind": "data",
+            "source": "tw_avgspeedbin",
+            "from": {
+              "file_variable": "opModeIDTirewear"
             }
           }
         },
@@ -2428,7 +2446,7 @@
           "description": "avgspeeddistribution.sourceTypeID.",
           "update": {
             "kind": "data",
-            "source": "bw_avgspeeddistribution",
+            "source": "tw_avgspeeddistribution",
             "from": {
               "file_variable": "sourceTypeID"
             }
@@ -2444,7 +2462,7 @@
           "description": "avgspeeddistribution.roadTypeID.",
           "update": {
             "kind": "data",
-            "source": "bw_avgspeeddistribution",
+            "source": "tw_avgspeeddistribution",
             "from": {
               "file_variable": "roadTypeID"
             }
@@ -2460,7 +2478,7 @@
           "description": "avgspeeddistribution.hourDayID.",
           "update": {
             "kind": "data",
-            "source": "bw_avgspeeddistribution",
+            "source": "tw_avgspeeddistribution",
             "from": {
               "file_variable": "hourDayID"
             }
@@ -2476,7 +2494,7 @@
           "description": "avgspeeddistribution.avgSpeedBinID.",
           "update": {
             "kind": "data",
-            "source": "bw_avgspeeddistribution",
+            "source": "tw_avgspeeddistribution",
             "from": {
               "file_variable": "avgSpeedBinID"
             }
@@ -2492,7 +2510,7 @@
           "description": "avgspeeddistribution.avgSpeedFraction: S6's weight and W's.",
           "update": {
             "kind": "data",
-            "source": "bw_avgspeeddistribution",
+            "source": "tw_avgspeeddistribution",
             "from": {
               "file_variable": "avgSpeedFraction"
             }
@@ -2508,7 +2526,7 @@
           "description": "zoneroadtype.zoneID.",
           "update": {
             "kind": "data",
-            "source": "bw_zoneroadtype",
+            "source": "tw_zoneroadtype",
             "from": {
               "file_variable": "zoneID"
             }
@@ -2524,7 +2542,7 @@
           "description": "zoneroadtype.roadTypeID.",
           "update": {
             "kind": "data",
-            "source": "bw_zoneroadtype",
+            "source": "tw_zoneroadtype",
             "from": {
               "file_variable": "roadTypeID"
             }
@@ -2540,7 +2558,7 @@
           "description": "zoneroadtype.SHOAllocFactor.",
           "update": {
             "kind": "data",
-            "source": "bw_zoneroadtype",
+            "source": "tw_zoneroadtype",
             "from": {
               "file_variable": "SHOAllocFactor"
             }
@@ -2556,7 +2574,7 @@
           "description": "drivescheduleassoc.sourceTypeID.",
           "update": {
             "kind": "data",
-            "source": "bw_drivescheduleassoc",
+            "source": "tw_drivescheduleassoc",
             "from": {
               "file_variable": "sourceTypeID"
             }
@@ -2572,7 +2590,7 @@
           "description": "drivescheduleassoc.roadTypeID.",
           "update": {
             "kind": "data",
-            "source": "bw_drivescheduleassoc",
+            "source": "tw_drivescheduleassoc",
             "from": {
               "file_variable": "roadTypeID"
             }
@@ -2588,7 +2606,7 @@
           "description": "drivescheduleassoc.driveScheduleID.",
           "update": {
             "kind": "data",
-            "source": "bw_drivescheduleassoc",
+            "source": "tw_drivescheduleassoc",
             "from": {
               "file_variable": "driveScheduleID"
             }
@@ -2604,7 +2622,7 @@
           "description": "driveschedule.driveScheduleID.",
           "update": {
             "kind": "data",
-            "source": "bw_driveschedule",
+            "source": "tw_driveschedule",
             "from": {
               "file_variable": "driveScheduleID"
             }
@@ -2620,7 +2638,7 @@
           "description": "driveschedule.averageSpeed, in mph.",
           "update": {
             "kind": "data",
-            "source": "bw_driveschedule",
+            "source": "tw_driveschedule",
             "from": {
               "file_variable": "averageSpeed"
             }
@@ -2636,7 +2654,7 @@
           "description": "driveschedulesecond.driveScheduleID.",
           "update": {
             "kind": "data",
-            "source": "bw_driveschedulesecond",
+            "source": "tw_driveschedulesecond",
             "from": {
               "file_variable": "driveScheduleID"
             }
@@ -2652,7 +2670,7 @@
           "description": "driveschedulesecond.second.",
           "update": {
             "kind": "data",
-            "source": "bw_driveschedulesecond",
+            "source": "tw_driveschedulesecond",
             "from": {
               "file_variable": "second"
             }
@@ -2668,7 +2686,7 @@
           "description": "driveschedulesecond.speed, in mph.",
           "update": {
             "kind": "data",
-            "source": "bw_driveschedulesecond",
+            "source": "tw_driveschedulesecond",
             "from": {
               "file_variable": "speed"
             }
@@ -2684,7 +2702,7 @@
           "description": "operatingmode.opModeID.",
           "update": {
             "kind": "data",
-            "source": "bw_operatingmode",
+            "source": "tw_operatingmode",
             "from": {
               "file_variable": "opModeID"
             }
@@ -2700,7 +2718,7 @@
           "description": "operatingmode.VSPLower, NaN where absent.",
           "update": {
             "kind": "data",
-            "source": "bw_operatingmode",
+            "source": "tw_operatingmode",
             "from": {
               "file_variable": "VSPLower"
             }
@@ -2716,7 +2734,7 @@
           "description": "operatingmode.VSPUpper, NaN where absent.",
           "update": {
             "kind": "data",
-            "source": "bw_operatingmode",
+            "source": "tw_operatingmode",
             "from": {
               "file_variable": "VSPUpper"
             }
@@ -2732,7 +2750,7 @@
           "description": "operatingmode.speedLower, NaN where absent.",
           "update": {
             "kind": "data",
-            "source": "bw_operatingmode",
+            "source": "tw_operatingmode",
             "from": {
               "file_variable": "speedLower"
             }
@@ -2748,7 +2766,7 @@
           "description": "operatingmode.speedUpper, NaN where absent.",
           "update": {
             "kind": "data",
-            "source": "bw_operatingmode",
+            "source": "tw_operatingmode",
             "from": {
               "file_variable": "speedUpper"
             }
@@ -2764,7 +2782,7 @@
           "description": "operatingmode.brakeRate1Sec: -2 mph/s on the Braking row, and the reason this document reads the threshold rather than writing it.",
           "update": {
             "kind": "data",
-            "source": "bw_operatingmode",
+            "source": "tw_operatingmode",
             "from": {
               "file_variable": "brakeRate1Sec"
             }
@@ -2780,7 +2798,7 @@
           "description": "operatingmode.brakeRate3Sec: -1 mph/s, the three-consecutive-seconds threshold.",
           "update": {
             "kind": "data",
-            "source": "bw_operatingmode",
+            "source": "tw_operatingmode",
             "from": {
               "file_variable": "brakeRate3Sec"
             }
@@ -2796,7 +2814,7 @@
           "description": "sourceusetypephysicsmapping.realSourceTypeID.",
           "update": {
             "kind": "data",
-            "source": "bw_sourceusetypephysicsmapping",
+            "source": "tw_sourceusetypephysicsmapping",
             "from": {
               "file_variable": "realSourceTypeID"
             }
@@ -2812,7 +2830,7 @@
           "description": "sourceusetypephysicsmapping.rollingTermA.",
           "update": {
             "kind": "data",
-            "source": "bw_sourceusetypephysicsmapping",
+            "source": "tw_sourceusetypephysicsmapping",
             "from": {
               "file_variable": "rollingTermA"
             }
@@ -2828,7 +2846,7 @@
           "description": "sourceusetypephysicsmapping.rotatingTermB.",
           "update": {
             "kind": "data",
-            "source": "bw_sourceusetypephysicsmapping",
+            "source": "tw_sourceusetypephysicsmapping",
             "from": {
               "file_variable": "rotatingTermB"
             }
@@ -2844,7 +2862,7 @@
           "description": "sourceusetypephysicsmapping.dragTermC.",
           "update": {
             "kind": "data",
-            "source": "bw_sourceusetypephysicsmapping",
+            "source": "tw_sourceusetypephysicsmapping",
             "from": {
               "file_variable": "dragTermC"
             }
@@ -2860,7 +2878,7 @@
           "description": "sourceusetypephysicsmapping.sourceMass.",
           "update": {
             "kind": "data",
-            "source": "bw_sourceusetypephysicsmapping",
+            "source": "tw_sourceusetypephysicsmapping",
             "from": {
               "file_variable": "sourceMass"
             }
@@ -2876,7 +2894,7 @@
           "description": "sourceusetypephysicsmapping.fixedMassFactor: the VSP divisor.",
           "update": {
             "kind": "data",
-            "source": "bw_sourceusetypephysicsmapping",
+            "source": "tw_sourceusetypephysicsmapping",
             "from": {
               "file_variable": "fixedMassFactor"
             }
@@ -2892,7 +2910,7 @@
           "description": "samplevehiclepopulation.sourceTypeID.",
           "update": {
             "kind": "data",
-            "source": "bw_samplevehiclepopulation",
+            "source": "tw_samplevehiclepopulation",
             "from": {
               "file_variable": "sourceTypeID"
             }
@@ -2908,7 +2926,7 @@
           "description": "samplevehiclepopulation.modelYearID.",
           "update": {
             "kind": "data",
-            "source": "bw_samplevehiclepopulation",
+            "source": "tw_samplevehiclepopulation",
             "from": {
               "file_variable": "modelYearID"
             }
@@ -2924,7 +2942,7 @@
           "description": "samplevehiclepopulation.fuelTypeID.",
           "update": {
             "kind": "data",
-            "source": "bw_samplevehiclepopulation",
+            "source": "tw_samplevehiclepopulation",
             "from": {
               "file_variable": "fuelTypeID"
             }
@@ -2940,7 +2958,7 @@
           "description": "samplevehiclepopulation.engTechID.",
           "update": {
             "kind": "data",
-            "source": "bw_samplevehiclepopulation",
+            "source": "tw_samplevehiclepopulation",
             "from": {
               "file_variable": "engTechID"
             }
@@ -2956,7 +2974,7 @@
           "description": "samplevehiclepopulation.regClassID.",
           "update": {
             "kind": "data",
-            "source": "bw_samplevehiclepopulation",
+            "source": "tw_samplevehiclepopulation",
             "from": {
               "file_variable": "regClassID"
             }
@@ -2972,7 +2990,7 @@
           "description": "samplevehiclepopulation.stmyFraction: the row rule and the activity weight in one column.",
           "update": {
             "kind": "data",
-            "source": "bw_samplevehiclepopulation",
+            "source": "tw_samplevehiclepopulation",
             "from": {
               "file_variable": "stmyFraction"
             }
@@ -2988,7 +3006,7 @@
           "description": "pollutantprocessmodelyear.polProcessID.",
           "update": {
             "kind": "data",
-            "source": "bw_pollutantprocessmodelyear",
+            "source": "tw_pollutantprocessmodelyear",
             "from": {
               "file_variable": "polProcessID"
             }
@@ -3004,7 +3022,7 @@
           "description": "pollutantprocessmodelyear.modelYearID.",
           "update": {
             "kind": "data",
-            "source": "bw_pollutantprocessmodelyear",
+            "source": "tw_pollutantprocessmodelyear",
             "from": {
               "file_variable": "modelYearID"
             }
@@ -3020,7 +3038,7 @@
           "description": "pollutantprocessmodelyear.modelYearGroupID.",
           "update": {
             "kind": "data",
-            "source": "bw_pollutantprocessmodelyear",
+            "source": "tw_pollutantprocessmodelyear",
             "from": {
               "file_variable": "modelYearGroupID"
             }
@@ -3036,7 +3054,7 @@
           "description": "modelyeargroup.modelYearGroupID.",
           "update": {
             "kind": "data",
-            "source": "bw_modelyeargroup",
+            "source": "tw_modelyeargroup",
             "from": {
               "file_variable": "modelYearGroupID"
             }
@@ -3052,7 +3070,7 @@
           "description": "modelyeargroup.shortModYrGroupID: the two-digit code in the packed bin's fifth slot.",
           "update": {
             "kind": "data",
-            "source": "bw_modelyeargroup",
+            "source": "tw_modelyeargroup",
             "from": {
               "file_variable": "shortModYrGroupID"
             }
@@ -3068,7 +3086,7 @@
           "description": "fuelusagefraction.countyID.",
           "update": {
             "kind": "data",
-            "source": "bw_fuelusagefraction",
+            "source": "tw_fuelusagefraction",
             "from": {
               "file_variable": "countyID"
             }
@@ -3084,7 +3102,7 @@
           "description": "fuelusagefraction.fuelYearID.",
           "update": {
             "kind": "data",
-            "source": "bw_fuelusagefraction",
+            "source": "tw_fuelusagefraction",
             "from": {
               "file_variable": "fuelYearID"
             }
@@ -3100,7 +3118,7 @@
           "description": "fuelusagefraction.modelYearGroupID: 0 in every row, a WILDCARD (source_bin_distribution_generator.rs:1547 tests `== 0 ||`), which is why the rebase carries no model-year-group key pair and `fuelUsageWildcardCount` licenses the omission.",
           "update": {
             "kind": "data",
-            "source": "bw_fuelusagefraction",
+            "source": "tw_fuelusagefraction",
             "from": {
               "file_variable": "modelYearGroupID"
             }
@@ -3116,7 +3134,7 @@
           "description": "fuelusagefraction.sourceBinFuelTypeID: the fuel the vehicle is EQUIPPED for.",
           "update": {
             "kind": "data",
-            "source": "bw_fuelusagefraction",
+            "source": "tw_fuelusagefraction",
             "from": {
               "file_variable": "sourceBinFuelTypeID"
             }
@@ -3132,7 +3150,7 @@
           "description": "fuelusagefraction.fuelSupplyFuelTypeID: the fuel it actually BURNS.",
           "update": {
             "kind": "data",
-            "source": "bw_fuelusagefraction",
+            "source": "tw_fuelusagefraction",
             "from": {
               "file_variable": "fuelSupplyFuelTypeID"
             }
@@ -3148,7 +3166,7 @@
           "description": "fuelusagefraction.usageFraction.",
           "update": {
             "kind": "data",
-            "source": "bw_fuelusagefraction",
+            "source": "tw_fuelusagefraction",
             "from": {
               "file_variable": "usageFraction"
             }
@@ -3164,7 +3182,7 @@
           "description": "agecategory.ageID, 0..40.",
           "update": {
             "kind": "data",
-            "source": "bw_agecategory",
+            "source": "tw_agecategory",
             "from": {
               "file_variable": "ageID"
             }
@@ -3180,7 +3198,7 @@
           "description": "agecategory.ageGroupID: the key S15(f) selects an EV efficiency on.",
           "update": {
             "kind": "data",
-            "source": "bw_agecategory",
+            "source": "tw_agecategory",
             "from": {
               "file_variable": "ageGroupID"
             }
@@ -3196,7 +3214,7 @@
           "description": "emissionrate.sourceBinID, packed and about 1.01e18. Never composed here, only unpacked.",
           "update": {
             "kind": "data",
-            "source": "bw_emissionrate",
+            "source": "tw_emissionrate",
             "from": {
               "file_variable": "sourceBinID"
             }
@@ -3212,7 +3230,7 @@
           "description": "emissionrate.polProcessID.",
           "update": {
             "kind": "data",
-            "source": "bw_emissionrate",
+            "source": "tw_emissionrate",
             "from": {
               "file_variable": "polProcessID"
             }
@@ -3228,7 +3246,7 @@
           "description": "emissionrate.opModeID.",
           "update": {
             "kind": "data",
-            "source": "bw_emissionrate",
+            "source": "tw_emissionrate",
             "from": {
               "file_variable": "opModeID"
             }
@@ -3244,7 +3262,7 @@
           "description": "emissionrate.meanBaseRate, kJ per source-hour at this operating mode.",
           "update": {
             "kind": "data",
-            "source": "bw_emissionrate",
+            "source": "tw_emissionrate",
             "from": {
               "file_variable": "meanBaseRate"
             }
@@ -3260,7 +3278,7 @@
           "description": "evsalesfraction.modelYearID.",
           "update": {
             "kind": "data",
-            "source": "bw_evsalesfraction",
+            "source": "tw_evsalesfraction",
             "from": {
               "file_variable": "modelYearID"
             }
@@ -3276,7 +3294,7 @@
           "description": "evsalesfraction.fleetAvgGroupID.",
           "update": {
             "kind": "data",
-            "source": "bw_evsalesfraction",
+            "source": "tw_evsalesfraction",
             "from": {
               "file_variable": "fleetAvgGroupID"
             }
@@ -3292,7 +3310,7 @@
           "description": "evsalesfraction.evFraction.",
           "update": {
             "kind": "data",
-            "source": "bw_evsalesfraction",
+            "source": "tw_evsalesfraction",
             "from": {
               "file_variable": "evFraction"
             }
@@ -3308,7 +3326,7 @@
           "description": "fleetavgadjustment.polProcessID.",
           "update": {
             "kind": "data",
-            "source": "bw_fleetavgadjustment",
+            "source": "tw_fleetavgadjustment",
             "from": {
               "file_variable": "polProcessID"
             }
@@ -3324,7 +3342,7 @@
           "description": "fleetavgadjustment.beginModelYearID: the lower end of J25's range predicate.",
           "update": {
             "kind": "data",
-            "source": "bw_fleetavgadjustment",
+            "source": "tw_fleetavgadjustment",
             "from": {
               "file_variable": "beginModelYearID"
             }
@@ -3340,7 +3358,7 @@
           "description": "fleetavgadjustment.endModelYearID.",
           "update": {
             "kind": "data",
-            "source": "bw_fleetavgadjustment",
+            "source": "tw_fleetavgadjustment",
             "from": {
               "file_variable": "endModelYearID"
             }
@@ -3356,7 +3374,7 @@
           "description": "fleetavgadjustment.fleetAvgGroupID.",
           "update": {
             "kind": "data",
-            "source": "bw_fleetavgadjustment",
+            "source": "tw_fleetavgadjustment",
             "from": {
               "file_variable": "fleetAvgGroupID"
             }
@@ -3372,7 +3390,7 @@
           "description": "fleetavgadjustment.evMultiplier.",
           "update": {
             "kind": "data",
-            "source": "bw_fleetavgadjustment",
+            "source": "tw_fleetavgadjustment",
             "from": {
               "file_variable": "evMultiplier"
             }
@@ -3388,7 +3406,7 @@
           "description": "fleetavgadjustment.adjustmentCap: NULL in every row, so NaN, and `cap > 0` reads that as absent -- which is exactly sbweighted.rs:398's `if cap > 0.0` guard.",
           "update": {
             "kind": "data",
-            "source": "bw_fleetavgadjustment",
+            "source": "tw_fleetavgadjustment",
             "from": {
               "file_variable": "adjustmentCap"
             }
@@ -3404,7 +3422,7 @@
           "description": "regulatoryclass.regClassID.",
           "update": {
             "kind": "data",
-            "source": "bw_regulatoryclass",
+            "source": "tw_regulatoryclass",
             "from": {
               "file_variable": "regClassID"
             }
@@ -3420,7 +3438,7 @@
           "description": "regulatoryclass.fleetAvgGroupID.",
           "update": {
             "kind": "data",
-            "source": "bw_regulatoryclass",
+            "source": "tw_regulatoryclass",
             "from": {
               "file_variable": "fleetAvgGroupID"
             }
@@ -3436,7 +3454,7 @@
           "description": "fullacadjustment.sourceTypeID.",
           "update": {
             "kind": "data",
-            "source": "bw_fullacadjustment",
+            "source": "tw_fullacadjustment",
             "from": {
               "file_variable": "sourceTypeID"
             }
@@ -3452,7 +3470,7 @@
           "description": "fullacadjustment.polProcessID.",
           "update": {
             "kind": "data",
-            "source": "bw_fullacadjustment",
+            "source": "tw_fullacadjustment",
             "from": {
               "file_variable": "polProcessID"
             }
@@ -3468,7 +3486,7 @@
           "description": "fullacadjustment.opModeID.",
           "update": {
             "kind": "data",
-            "source": "bw_fullacadjustment",
+            "source": "tw_fullacadjustment",
             "from": {
               "file_variable": "opModeID"
             }
@@ -3484,7 +3502,7 @@
           "description": "fullacadjustment.fullACAdjustment.",
           "update": {
             "kind": "data",
-            "source": "bw_fullacadjustment",
+            "source": "tw_fullacadjustment",
             "from": {
               "file_variable": "fullACAdjustment"
             }
@@ -3500,7 +3518,7 @@
           "description": "monthgrouphour.monthGroupID.",
           "update": {
             "kind": "data",
-            "source": "bw_monthgrouphour",
+            "source": "tw_monthgrouphour",
             "from": {
               "file_variable": "monthGroupID"
             }
@@ -3516,7 +3534,7 @@
           "description": "monthgrouphour.hourID.",
           "update": {
             "kind": "data",
-            "source": "bw_monthgrouphour",
+            "source": "tw_monthgrouphour",
             "from": {
               "file_variable": "hourID"
             }
@@ -3532,7 +3550,7 @@
           "description": "monthgrouphour.ACActivityTermA, -3.63154 here.",
           "update": {
             "kind": "data",
-            "source": "bw_monthgrouphour",
+            "source": "tw_monthgrouphour",
             "from": {
               "file_variable": "ACActivityTermA"
             }
@@ -3548,7 +3566,7 @@
           "description": "monthgrouphour.ACActivityTermB, 0.072465.",
           "update": {
             "kind": "data",
-            "source": "bw_monthgrouphour",
+            "source": "tw_monthgrouphour",
             "from": {
               "file_variable": "ACActivityTermB"
             }
@@ -3564,7 +3582,7 @@
           "description": "monthgrouphour.ACActivityTermC, -0.000276.",
           "update": {
             "kind": "data",
-            "source": "bw_monthgrouphour",
+            "source": "tw_monthgrouphour",
             "from": {
               "file_variable": "ACActivityTermC"
             }
@@ -3580,7 +3598,7 @@
           "description": "zonemonthhour.monthID.",
           "update": {
             "kind": "data",
-            "source": "bw_zonemonthhour",
+            "source": "tw_zonemonthhour",
             "from": {
               "file_variable": "monthID"
             }
@@ -3596,7 +3614,7 @@
           "description": "zonemonthhour.zoneID.",
           "update": {
             "kind": "data",
-            "source": "bw_zonemonthhour",
+            "source": "tw_zonemonthhour",
             "from": {
               "file_variable": "zoneID"
             }
@@ -3612,7 +3630,7 @@
           "description": "zonemonthhour.hourID.",
           "update": {
             "kind": "data",
-            "source": "bw_zonemonthhour",
+            "source": "tw_zonemonthhour",
             "from": {
               "file_variable": "hourID"
             }
@@ -3628,7 +3646,7 @@
           "description": "zonemonthhour.heatIndex, 66.900001525879 degF -- the single number both of this fixture's clamps turn on.",
           "update": {
             "kind": "data",
-            "source": "bw_zonemonthhour",
+            "source": "tw_zonemonthhour",
             "from": {
               "file_variable": "heatIndex"
             }
@@ -3644,7 +3662,7 @@
           "description": "sourcetypemodelyear.modelYearID.",
           "update": {
             "kind": "data",
-            "source": "bw_sourcetypemodelyear",
+            "source": "tw_sourcetypemodelyear",
             "from": {
               "file_variable": "modelYearID"
             }
@@ -3660,7 +3678,7 @@
           "description": "sourcetypemodelyear.sourceTypeID.",
           "update": {
             "kind": "data",
-            "source": "bw_sourcetypemodelyear",
+            "source": "tw_sourcetypemodelyear",
             "from": {
               "file_variable": "sourceTypeID"
             }
@@ -3676,7 +3694,7 @@
           "description": "sourcetypemodelyear.ACPenetrationFraction.",
           "update": {
             "kind": "data",
-            "source": "bw_sourcetypemodelyear",
+            "source": "tw_sourcetypemodelyear",
             "from": {
               "file_variable": "ACPenetrationFraction"
             }
@@ -3692,7 +3710,7 @@
           "description": "temperatureadjustment.polProcessID.",
           "update": {
             "kind": "data",
-            "source": "bw_temperatureadjustment",
+            "source": "tw_temperatureadjustment",
             "from": {
               "file_variable": "polProcessID"
             }
@@ -3708,7 +3726,7 @@
           "description": "temperatureadjustment.fuelTypeID.",
           "update": {
             "kind": "data",
-            "source": "bw_temperatureadjustment",
+            "source": "tw_temperatureadjustment",
             "from": {
               "file_variable": "fuelTypeID"
             }
@@ -3724,7 +3742,7 @@
           "description": "temperatureadjustment.regClassID.",
           "update": {
             "kind": "data",
-            "source": "bw_temperatureadjustment",
+            "source": "tw_temperatureadjustment",
             "from": {
               "file_variable": "regClassID"
             }
@@ -3740,7 +3758,7 @@
           "description": "temperatureadjustment.minModelYearID: J32's range predicate.",
           "update": {
             "kind": "data",
-            "source": "bw_temperatureadjustment",
+            "source": "tw_temperatureadjustment",
             "from": {
               "file_variable": "minModelYearID"
             }
@@ -3756,7 +3774,7 @@
           "description": "temperatureadjustment.maxModelYearID.",
           "update": {
             "kind": "data",
-            "source": "bw_temperatureadjustment",
+            "source": "tw_temperatureadjustment",
             "from": {
               "file_variable": "maxModelYearID"
             }
@@ -3772,7 +3790,7 @@
           "description": "temperatureadjustment.tempAdjustTermA, 0.00225 on the one 9101 row. A cohort with NO row gets 0 from the aggregate's additive identity, which is exactly the Rust's unwrap_or_default and makes the quadratic 1.",
           "update": {
             "kind": "data",
-            "source": "bw_temperatureadjustment",
+            "source": "tw_temperatureadjustment",
             "from": {
               "file_variable": "tempAdjustTermA"
             }
@@ -3788,7 +3806,7 @@
           "description": "temperatureadjustment.tempAdjustTermB, 0.00028.",
           "update": {
             "kind": "data",
-            "source": "bw_temperatureadjustment",
+            "source": "tw_temperatureadjustment",
             "from": {
               "file_variable": "tempAdjustTermB"
             }
@@ -3804,7 +3822,7 @@
           "description": "evefficiency.polProcessID.",
           "update": {
             "kind": "data",
-            "source": "bw_evefficiency",
+            "source": "tw_evefficiency",
             "from": {
               "file_variable": "polProcessID"
             }
@@ -3820,7 +3838,7 @@
           "description": "evefficiency.sourceTypeID.",
           "update": {
             "kind": "data",
-            "source": "bw_evefficiency",
+            "source": "tw_evefficiency",
             "from": {
               "file_variable": "sourceTypeID"
             }
@@ -3836,7 +3854,7 @@
           "description": "evefficiency.regClassID.",
           "update": {
             "kind": "data",
-            "source": "bw_evefficiency",
+            "source": "tw_evefficiency",
             "from": {
               "file_variable": "regClassID"
             }
@@ -3852,7 +3870,7 @@
           "description": "evefficiency.ageGroupID.",
           "update": {
             "kind": "data",
-            "source": "bw_evefficiency",
+            "source": "tw_evefficiency",
             "from": {
               "file_variable": "ageGroupID"
             }
@@ -3868,7 +3886,7 @@
           "description": "evefficiency.batteryEfficiency.",
           "update": {
             "kind": "data",
-            "source": "bw_evefficiency",
+            "source": "tw_evefficiency",
             "from": {
               "file_variable": "batteryEfficiency"
             }
@@ -3884,7 +3902,7 @@
           "description": "evefficiency.chargingEfficiency, 0.94 in every row.",
           "update": {
             "kind": "data",
-            "source": "bw_evefficiency",
+            "source": "tw_evefficiency",
             "from": {
               "file_variable": "chargingEfficiency"
             }
@@ -3900,7 +3918,7 @@
           "description": "hourday.hourDayID.",
           "update": {
             "kind": "data",
-            "source": "bw_hourday",
+            "source": "tw_hourday",
             "from": {
               "file_variable": "hourDayID"
             }
@@ -3916,7 +3934,7 @@
           "description": "hourday.dayID.",
           "update": {
             "kind": "data",
-            "source": "bw_hourday",
+            "source": "tw_hourday",
             "from": {
               "file_variable": "dayID"
             }
@@ -3932,7 +3950,7 @@
           "description": "hourday.hourID. The packed hourDayID is looked up from (dayID, hourID), so hourID x 10 + dayID appears nowhere in this document.",
           "update": {
             "kind": "data",
-            "source": "bw_hourday",
+            "source": "tw_hourday",
             "from": {
               "file_variable": "hourID"
             }
@@ -3948,7 +3966,7 @@
           "description": "dayofanyweek.dayID.",
           "update": {
             "kind": "data",
-            "source": "bw_dayofanyweek",
+            "source": "tw_dayofanyweek",
             "from": {
               "file_variable": "dayID"
             }
@@ -3964,7 +3982,7 @@
           "description": "dayofanyweek.noOfRealDays: 2 and 5. S16's divisor.",
           "update": {
             "kind": "data",
-            "source": "bw_dayofanyweek",
+            "source": "tw_dayofanyweek",
             "from": {
               "file_variable": "noOfRealDays"
             }
@@ -4636,7 +4654,16 @@
             "avgspeedbin_rows",
             "operating_mode_rows"
           ],
-          "description": "drivecycle.rs:388-401: the schedule-fraction-weighted combination, i.e. the operating-mode distribution of one average-speed bin."
+          "description": "drivecycle.rs:388-401: the schedule-fraction-weighted combination, i.e. the operating-mode distribution of one average-speed bin. This is the VSP/braking classification, and it is what `BaseRateGenerator` uses for the processes it drives itself -- Running Exhaust and Brakewear (mod.rs:158-161). Tire wear is NOT one of them; see `asb_tireModeFraction`."
+        },
+        "asb_tireModeFraction": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "avgspeedbin_rows",
+            "operating_mode_rows"
+          ],
+          "description": "The tire-wear operating-mode distribution of one average-speed bin: 1 at the mode `opModeIDTirewear` names and 0 everywhere else. avg_speed_op_mode_distribution.rs:49-53 -- 'tire-wear operating-mode distributions are degenerate: every emitted row carries opModeFraction = 1'. It is a `join.on` between `asb_opModeIDTirewear` and `om_opModeID` rather than an `==` in a filter, so the 1 is the additive identity of a matched row and the 0 is the additive identity of an unmatched one (docs/esm-conventions.md 3, 20.4)."
         },
         "day_ordinal": {
           "type": "unknown",
@@ -4654,30 +4681,42 @@
           ],
           "description": "The packed hour-day key, LOOKED UP from (dayID, hourID)."
         },
-        "dc_W": {
+        "pp_W": {
           "type": "unknown",
           "units": "1",
           "shape": [
+            "runspecpollutantprocess_rows",
             "runspecday_rows",
             "operating_mode_rows"
           ],
-          "description": "W. \u00a72.3(b): the speed-bin-weighted drive-cycle operating-mode distribution that the base rate collapses opModeID and avgSpeedBinID into -- 46 non-zero numbers over two day types and 23 modes. \u00a78.1 recorded this as the one relation this port did not compute; it is computed here."
+          "description": "W, and IT IS KEYED BY THE POLLUTANT-PROCESS HERE -- the one structural difference between this fixture and `process-brakewear`. `BaseRateGenerator` is invoked per process and `RatesOpModeDistribution` is written by two different generators: for Running Exhaust and Brakewear it drives the drive cycles itself (mod.rs:156-161, `should_process_drive_cycles = process_id == 1 || process_id == 9`), and for Tirewear it reads what `AverageSpeedOperatingModeDistributionGenerator` wrote (avg_speed_op_mode_distribution.rs:110-116, `TIREWEAR_PROCESS = ProcessId(10)`). Both give the same shape -- Sum over the speed bins of avgSpeedFraction x opModeFraction, aggregate.rs:365-417 -- and differ only in which mode fraction they carry, so this is ONE aggregate with the mode fraction selected per pollutant-process rather than two relations and a branch downstream."
         },
-        "dc_WTotal": {
+        "pp_WTotal": {
           "type": "unknown",
           "units": "1",
           "shape": [
+            "runspecpollutantprocess_rows",
             "runspecday_rows"
           ],
-          "description": "W summed over operating modes. It is the avgSpeedFraction column's own total, so it is 1 to the reference's six-significant-figure storage and not exactly -- 1.0000004 for the weekend and 0.9999999 for the weekday, which is why its test carries an absolute tolerance rather than a relative one (docs/esm-conventions.md \u00a720.5)."
+          "description": "W summed over operating modes, per pollutant-process. It is the avgSpeedFraction column's own total on EITHER mode family -- both distributions partition the same 16 speed bins -- so it is 1 to the reference's six-significant-figure storage and not exactly, which is why its test carries an absolute tolerance rather than a relative one (docs/esm-conventions.md 20.5). That the two families give the same total is the check that the tire-wear arm is a re-binning of the same activity and not a second one."
         },
-        "dc_WModeCount": {
+        "pp_WModeCount": {
           "type": "unknown",
           "units": "1",
           "shape": [
+            "runspecpollutantprocess_rows",
             "runspecday_rows"
           ],
-          "description": "How many operating modes carry a non-zero weight. 23 for each day type, which is exactly the set \u00a75.5 says carries a 9101 rate -- 0, 1, 11-16, 21-25, 27-30, 33, 35 and 37-40. A classification that admitted mode 26 or 36, or that lost the braking arm, would change this count before it changed any number."
+          "description": "How many operating modes carry a non-zero weight, per pollutant-process. 23 on the 9101 rows -- 0, 1, 11-16, 21-25, 27-30, 33, 35 and 37-40, the drive-cycle set -- and 16 on both tire-wear rows: modes 401 to 416, one per speed bin. SIXTEEN AND NOT SEVENTEEN IS THE TIRE-WEAR ANALOGUE OF BRAKEWEAR'S 23-AND-NOT-24. Operating mode 400, `tirewear;idle`, exists in `operatingmode`, is associated with 11710 by `opmodepolprocassoc` and carries an `emissionrate` row -- but no speed bin names it, because `buildOpModeClause` assigns 400 only to a PROJECT link whose linkAvgSpeed is below 0.1 mph (avg_speed_op_mode_distribution.rs:118-125). A 17 here would mean the classification had taken the project-scale branch."
+        },
+        "pp_tireIdleWeight": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecpollutantprocess_rows",
+            "runspecday_rows"
+          ],
+          "description": "The weight operating mode 400 carries, stated directly rather than inferred from `pp_WModeCount`. Exactly 0, for the reason that variable's description gives. Brakewear's mode 501 needed the same statement and got it as a mode count; this fixture makes it a number as well, because tire wear's whole rate table lives in the 400 family and an idle mode inside it is easier to acquire by accident than one outside."
         },
         "ac_ordinal": {
           "type": "unknown",
@@ -5198,10 +5237,10 @@
           "shape": [
             "runspecpollutantprocess_rows"
           ],
-          "description": "runspecpollutantprocess.polProcessID: 9101, 10609 and 11609. The run's whole pollutant scope.",
+          "description": "runspecpollutantprocess.polProcessID: 9101, 10710 and 11710. The run's whole pollutant scope.",
           "update": {
             "kind": "data",
-            "source": "bw_runspecpollutantprocess",
+            "source": "tw_runspecpollutantprocess",
             "from": {
               "file_variable": "polProcessID"
             }
@@ -5214,10 +5253,10 @@
           "shape": [
             "runspecchainedto_rows"
           ],
-          "description": "runspecchainedto.outputPolProcessID -- the CHAINED pollutant-process, 10609.",
+          "description": "runspecchainedto.outputPolProcessID -- the CHAINED pollutant-process, 10710.",
           "update": {
             "kind": "data",
-            "source": "bw_runspecchainedto",
+            "source": "tw_runspecchainedto",
             "from": {
               "file_variable": "outputPolProcessID"
             }
@@ -5230,10 +5269,10 @@
           "shape": [
             "runspecchainedto_rows"
           ],
-          "description": "runspecchainedto.inputPolProcessID -- what it is computed FROM, 11609.",
+          "description": "runspecchainedto.inputPolProcessID -- what it is computed FROM, 11710.",
           "update": {
             "kind": "data",
-            "source": "bw_runspecchainedto",
+            "source": "tw_runspecchainedto",
             "from": {
               "file_variable": "inputPolProcessID"
             }
@@ -5246,10 +5285,10 @@
           "shape": [
             "pm10emissionratio_rows"
           ],
-          "description": "pm10emissionratio.polProcessID, 10609 on every row.",
+          "description": "pm10emissionratio.polProcessID, 10710 on every row.",
           "update": {
             "kind": "data",
-            "source": "bw_pm10emissionratio",
+            "source": "tw_pm10emissionratio",
             "from": {
               "file_variable": "polProcessID"
             }
@@ -5265,7 +5304,7 @@
           "description": "pm10emissionratio.sourceTypeID, 21 on every row.",
           "update": {
             "kind": "data",
-            "source": "bw_pm10emissionratio",
+            "source": "tw_pm10emissionratio",
             "from": {
               "file_variable": "sourceTypeID"
             }
@@ -5281,7 +5320,7 @@
           "description": "pm10emissionratio.fuelTypeID.",
           "update": {
             "kind": "data",
-            "source": "bw_pm10emissionratio",
+            "source": "tw_pm10emissionratio",
             "from": {
               "file_variable": "fuelTypeID"
             }
@@ -5297,7 +5336,7 @@
           "description": "pm10emissionratio.minModelYearID -- 1940 or 2011.",
           "update": {
             "kind": "data",
-            "source": "bw_pm10emissionratio",
+            "source": "tw_pm10emissionratio",
             "from": {
               "file_variable": "minModelYearID"
             }
@@ -5313,7 +5352,7 @@
           "description": "pm10emissionratio.maxModelYearID -- 2010 or 2060.",
           "update": {
             "kind": "data",
-            "source": "bw_pm10emissionratio",
+            "source": "tw_pm10emissionratio",
             "from": {
               "file_variable": "maxModelYearID"
             }
@@ -5329,7 +5368,7 @@
           "description": "pm10emissionratio.PM10PM25Ratio, the whole of PM10BrakeTireCalculator's arithmetic.",
           "update": {
             "kind": "data",
-            "source": "bw_pm10emissionratio",
+            "source": "tw_pm10emissionratio",
             "from": {
               "file_variable": "PM10PM25Ratio"
             }
@@ -5345,7 +5384,7 @@
           "description": "zonemonthhour.temperature, 59.5 degF at hour 7. The temperature adjustment reads THIS column and the A/C activity term and the EV suppression read `heatIndex`; the two are equal in every row of this snapshot, so the distinction costs nothing here and is made because adjust.rs:495-535 makes it.",
           "update": {
             "kind": "data",
-            "source": "bw_zonemonthhour",
+            "source": "tw_zonemonthhour",
             "from": {
               "file_variable": "temperature"
             }
@@ -5365,7 +5404,7 @@
           "shape": [
             "runspecpollutantprocess_rows"
           ],
-          "description": "The pollutant half of the packed identifier: 91, 106, 116."
+          "description": "The pollutant half of the packed identifier: 91, 107, 117."
         },
         "rspp_processID": {
           "type": "unknown",
@@ -5373,7 +5412,15 @@
           "shape": [
             "runspecpollutantprocess_rows"
           ],
-          "description": "The process half: 1 (Running Exhaust) and 9 (Brakewear)."
+          "description": "The process half: 1 (Running Exhaust) and 10 (Tirewear)."
+        },
+        "rspp_usesAvgSpeedModes": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecpollutantprocess_rows"
+          ],
+          "description": "Which generator wrote this pollutant-process's `RatesOpModeDistribution`, and therefore which operating-mode family its weights live on. It is a PROCESS test because the reference makes it one on both sides: `BaseRateGenerator` drives the drive cycles itself only for processes 1 and 9 (mod.rs:156-161) and `AverageSpeedOperatingModeDistributionGenerator` handles process 10 and errors out for anything else (avg_speed_op_mode_distribution.rs:110-116, and its executeLoop logs 'AvgSpeedOMDG called for unknown process'). Both constants are ported as enum members rather than as digits. 0 on the 9101 row and 1 on both tire-wear rows."
         },
         "rspp_isEnergy": {
           "type": "unknown",
@@ -5381,7 +5428,7 @@
           "shape": [
             "runspecpollutantprocess_rows"
           ],
-          "description": "Whether S18's kilojoule-to-MillionBTU conversion applies. engine.rs:1286-1310 applies it to pollutants 91, 92 and 93 and to nothing else, so the two brakewear pollutants stay in grams. THIS FIXTURE IS THE FIRST TO NEED THE TEST: mixed-onroad emits one pollutant and divides unconditionally."
+          "description": "Whether S18's kilojoule-to-MillionBTU conversion applies. engine.rs:1286-1310 applies it to pollutants 91, 92 and 93 and to nothing else, so the two tire-wear pollutants stay in grams. The membership rule is lib/onroad_activity.esm's `is_energy_pollutant` rather than three inline comparisons, and 92 and 93 are named there even though this run selects neither."
         },
         "rspp_unitDivisor": {
           "type": "unknown",
@@ -5397,7 +5444,7 @@
           "shape": [
             "runspecpollutantprocess_rows"
           ],
-          "description": "A LEFT JOIN onto runspecchainedto: 11609 for the chained 10609 and 0 -- the additive identity, which is no pollutant-process -- for the two that carry a rate of their own. That 0 is what makes the chain term vanish on an unchained row without a branch."
+          "description": "A LEFT JOIN onto runspecchainedto: 11710 for the chained 10710 and 0 -- the additive identity, which is no pollutant-process -- for the two that carry a rate of their own. That 0 is what makes the chain term vanish on an unchained row without a branch."
         },
         "ppmy_shortModYrGroupID": {
           "type": "unknown",
@@ -5405,7 +5452,7 @@
           "shape": [
             "pollutantprocessmodelyear_rows"
           ],
-          "description": "modelyeargroup.shortModYrGroupID resolved AT the pollutantprocessmodelyear row. It has to be here rather than on the cohort because a join key column must be one-dimensional, and the cohort's short group now depends on the pollutant-process as well: 9101 maps model year 2020 to short group 40 (a two-digit year) and 11609 maps it to 6 (one of six decade bands). Same cohort, different source bin."
+          "description": "modelyeargroup.shortModYrGroupID resolved AT the pollutantprocessmodelyear row. It has to be here rather than on the cohort because a join key column must be one-dimensional, and the cohort's short group depends on the pollutant-process as well: 9101 maps model year 2020 to short group 40 (a two-digit year) and 11710 maps every model year to 0, modelYearGroup 0's \"Doesn't Matter\". Same cohort, different source bin -- and a third encoding beside brake wear's decade bands."
         },
         "rt_ordinal": {
           "type": "unknown",
@@ -5573,7 +5620,7 @@
           "shape": [
             "rate_rows"
           ],
-          "description": "S10's two inner joins as one semi-join (J18, J19), now per pollutant-process: pollutantprocessmodelyear must carry this (polProcessID, modelYearID) and its group must be a modelyeargroup row. The two computed pollutant-processes agree on which model years pass -- `pp_selectedCohortCount` is what checks that rather than assuming it -- and the CHAINED one passes none, because 10609 has no pollutantprocessmodelyear rows at all."
+          "description": "S10's two inner joins as one semi-join (J18, J19), per pollutant-process: pollutantprocessmodelyear must carry this (polProcessID, modelYearID) and its group must be a modelyeargroup row. Model-year group 0 IS a modelyeargroup row, which is why the tire-wear path passes this test at all. The two computed pollutant-processes agree on which model years pass -- `pp_selectedCohortCount` is what checks it."
         },
         "rt_isSelected": {
           "type": "unknown",
@@ -5597,7 +5644,7 @@
           "shape": [
             "cohort_rows"
           ],
-          "description": "How many of the run's pollutant-processes select this cohort candidate. It is 0 or 2 on every one of the 164 -- 9101 and 11609 agree, and the chained 10609 selects none -- which is what lets ONE cohort rank serve all three output blocks. `run_cohortSelectionTotal` and `pp_selectedCohortCount` are the two tests that hold that claim up."
+          "description": "How many of the run's pollutant-processes select this cohort candidate. It is 0 or 2 on every one of the 164 -- 9101 and 11710 agree, and the chained 10710 selects none -- which is what lets ONE cohort rank serve all three output blocks. `run_cohortSelectionTotal` and `pp_selectedCohortCount` are the same fact at two granularities."
         },
         "coh_isSelected": {
           "type": "unknown",
@@ -5679,7 +5726,7 @@
             "rate_rows",
             "operating_mode_rows"
           ],
-          "description": "J23, as a LEFT JOIN: the value and the existence are separate aggregates because a missing row is a factor of ONE and the additive identity is zero. Brakewear has no fullacadjustment rows, so its whole A/C column is a computed zero."
+          "description": "J23, as a LEFT JOIN: the value and the existence are separate aggregates because a missing row is a factor of ONE and the additive identity is zero. Tire wear has no fullacadjustment rows, so its whole A/C column is a computed zero."
         },
         "rtMode_hasACAdjustment": {
           "type": "unknown",
@@ -5705,7 +5752,7 @@
           "shape": [
             "rate_rows"
           ],
-          "description": "J25: two key pairs plus an inclusive model-year RANGE filter. `fleetavgadjustment` carries 9101 rows only, so brakewear's multiplier is absent and its back-scaling factor is 1."
+          "description": "J25: two key pairs plus lib/keys.esm's `model_year_in_range`. `fleetavgadjustment` carries 9101 rows only, so tire wear's multiplier is absent and its back-scaling factor is 1."
         },
         "rt_adjustmentCap": {
           "type": "unknown",
@@ -5747,7 +5794,7 @@
             "rate_rows",
             "runspecday_rows"
           ],
-          "description": "S14 (J26): W contracts the operating mode away. This is `baserate_1_2020.meanBaseRate` for the energy rows and `baserate_9_2020.meanBaseRate` for the brakewear ones, computed rather than read -- and W is the SAME 46 numbers for both, because a national-scale drive cycle never reaches operating mode 501 (docs/process-brakewear.md 3.2)."
+          "description": "S14 (J26): the operating mode is contracted away against the weights of THIS RATE ROW'S OWN pollutant-process, reached through J41. This is `baserate_1_2020.meanBaseRate` on the energy rows and `baserate_10_2020.meanBaseRate` on the tire-wear ones, computed rather than read -- and the two are collapsed against DIFFERENT weight vectors: 23 drive-cycle modes for 9101 and 16 speed-bin modes for 11710. The two rate tables are seven orders of magnitude apart, 392,141 kJ per source-hour against 0.0000197 g, so a wrong weight is a wrong number in every cell."
         },
         "rtDay_meanBaseRateACAdj": {
           "type": "unknown",
@@ -5765,6 +5812,14 @@
             "run_rows"
           ],
           "description": "adjust.rs:495-520 looks a temperatureadjustment row up by the exact regClassID and then by regClassID 0. A one-row relation carrying that 0 so the second lookup is a `join.on` like every other join in this port, rather than an `==` hidden in a filter (docs/esm-conventions.md 20.4)."
+        },
+        "run_tirewearIdleOpModeID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "run_rows"
+          ],
+          "description": "400, from the operating_mode enum. A one-row relation for the same reason `run_regClassWildcardID` is one: `pp_tireIdleWeight` selects that mode with a `join.on` and not with an `==` in a filter (docs/esm-conventions.md 20.4)."
         },
         "rt_tempAdjustTermAExact": {
           "type": "unknown",
@@ -5812,7 +5867,7 @@
           "shape": [
             "rate_rows"
           ],
-          "description": "The A term actually used: the exact-class row if there is one, the regClassID 0 wildcard otherwise, and zero if neither -- which for the two brakewear pollutant-processes is the case, so their temperature factor is exactly 1."
+          "description": "The A term actually used: the exact-class row if there is one, the regClassID 0 wildcard otherwise, and zero if neither -- which for the two tire-wear pollutant-processes is the case, so their temperature factor is exactly 1."
         },
         "rt_tempAdjustTermB": {
           "type": "unknown",
@@ -5820,7 +5875,7 @@
           "shape": [
             "rate_rows"
           ],
-          "description": "The B term actually used: the exact-class row if there is one, the regClassID 0 wildcard otherwise, and zero if neither -- which for the two brakewear pollutant-processes is the case, so their temperature factor is exactly 1."
+          "description": "The B term actually used: the exact-class row if there is one, the regClassID 0 wildcard otherwise, and zero if neither -- which for the two tire-wear pollutant-processes is the case, so their temperature factor is exactly 1."
         },
         "run_temperature": {
           "type": "unknown",
@@ -5836,7 +5891,7 @@
           "shape": [
             "rate_rows"
           ],
-          "description": "adjust.rs:107: the dedicated EV branch is gated on process 1, fuel 9 AND pollutant 91 together. Brakewear's electricity rows go down the standard-quadratic arm instead, which with no temperatureadjustment row is exactly 1."
+          "description": "adjust.rs:107: the dedicated EV branch is gated on process 1, fuel 9 AND pollutant 91 together. Tire wear's electricity rows go down the standard-quadratic arm instead, which with no temperatureadjustment row is exactly 1."
         },
         "rt_evTemperatureAdjustRaw": {
           "type": "unknown",
@@ -5876,7 +5931,7 @@
           "shape": [
             "rate_rows"
           ],
-          "description": "Whether evefficiency carries a row for this pollutant-process at all. It does for 9101 and NOT for 11609, and the difference is load-bearing: without this test lib/onroad_activity.esm's `ev_energy_divisor` would divide the brakewear electricity rate by its own 1e-300 floor and return an infinity."
+          "description": "Whether evefficiency carries a row for this pollutant-process at all. It does for 9101 and NOT for 11710, and the difference is load-bearing: without this test lib/onroad_activity.esm's `ev_energy_divisor` would divide the tire-wear electricity rate by its own 1e-300 floor and return an infinity."
         },
         "rt_appliesEvDivisor": {
           "type": "unknown",
@@ -5935,7 +5990,7 @@
           "shape": [
             "rate_rows"
           ],
-          "description": "J36, PM10BrakeTireCalculator.sql: PM10PM25Ratio for the CHAINED pollutant-process, on this cohort's fuel type and source type, in the model-year range that brackets its model year. Zero on the two unchained rate paths, because `pm10emissionratio` carries polProcessID 10609 and nothing else -- so the chain term below vanishes on them without a branch."
+          "description": "J36, PM10BrakeTireCalculator.sql: PM10PM25Ratio for the CHAINED pollutant-process, on this cohort's fuel type and source type, in the model-year range that brackets its model year (lib/keys.esm's `model_year_in_range`). Zero on the two unchained rate paths, because `pm10emissionratio` carries polProcessID 10710 and nothing else -- so the chain term vanishes there with no branch. 6.6667 on every chained row here, which is why docs/process-tirewear.md 7.2 says this fixture cannot see the fuel key or the range."
         },
         "rtDay_quantDirect": {
           "type": "unknown",
@@ -5944,7 +5999,7 @@
             "rate_rows",
             "runspecday_rows"
           ],
-          "description": "S17 and S18: rate x activity, in the output's own units. Exactly zero on the chained pollutant-process, because `emissionrate` carries no 10609 row and the inner join of J22 leaves its rate at the additive identity."
+          "description": "S17 and S18: rate x activity, in the output's own units. Exactly zero on the chained pollutant-process, because `emissionrate` carries no 10710 row and the inner join of J22 leaves its rate at the additive identity."
         },
         "rtDay_quantChained": {
           "type": "unknown",
@@ -6050,7 +6105,7 @@
           "shape": [
             "output_rows"
           ],
-          "description": "Its pollutant: 91, 106 or 116."
+          "description": "Its pollutant: 91, 107 or 117."
         },
         "out_processID": {
           "type": "unknown",
@@ -6090,7 +6145,7 @@
           "shape": [
             "output_rows"
           ],
-          "description": "S18: Million BTU for pollutant 91 and grams for 106 and 116. THE compared column."
+          "description": "S18: Million BTU for pollutant 91 and grams for 107 and 117. THE compared column."
         }
       },
       "equations": [
@@ -7064,6 +7119,30 @@
           }
         },
         {
+          "lhs": "run_tirewearIdleOpModeID",
+          "rhs": {
+            "op": "makearray",
+            "args": [],
+            "regions": [
+              [
+                [
+                  1,
+                  1
+                ]
+              ]
+            ],
+            "values": [
+              {
+                "op": "enum",
+                "args": [
+                  "operating_mode",
+                  "TirewearIdle"
+                ]
+              }
+            ]
+          }
+        },
+        {
           "lhs": "rspp_ordinal",
           "rhs": {
             "op": "aggregate",
@@ -7099,6 +7178,30 @@
             "bindings": {
               "pol_process_id": "rspp_polProcessID"
             }
+          }
+        },
+        {
+          "_comment": "Which of the two RatesOpModeDistribution generators wrote this pollutant-process's weights. Both the reference's constants are process ids and both are named here as enum members.",
+          "lhs": "rspp_usesAvgSpeedModes",
+          "rhs": {
+            "op": "ifelse",
+            "args": [
+              {
+                "op": "==",
+                "args": [
+                  "rspp_processID",
+                  {
+                    "op": "enum",
+                    "args": [
+                      "process",
+                      "Tirewear"
+                    ]
+                  }
+                ]
+              },
+              1.0,
+              0.0
+            ]
           }
         },
         {
@@ -9818,17 +9921,53 @@
           }
         },
         {
-          "_comment": "W. aggregate.rs:365-417's inner sum over avgSpeedBinID, keyed by the run's hour-day and the operating mode.",
-          "lhs": "dc_W",
+          "_comment": "The tire-wear operating-mode distribution of one speed bin. avg_speed_op_mode_distribution.rs:386-420: `opModeIDTirewear` already names the mode, every emitted row carries opModeFraction = 1, and no drive schedule is consulted. The 1 arrives as a matched row of a `join.on` and the 0 as an unmatched one, so mode 400 -- which no speed bin names -- is 0 by the same mechanism that gives 401 its 1.",
+          "lhs": "asb_tireModeFraction",
           "rhs": {
             "op": "aggregate",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
+              "b",
+              "m"
+            ],
+            "ranges": {
+              "b": {
+                "from": "avgspeedbin_rows"
+              },
+              "m": {
+                "from": "operating_mode_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "asb_opModeIDTirewear",
+                    "om_opModeID"
+                  ]
+                ]
+              }
+            ],
+            "expr": 1.0
+          }
+        },
+        {
+          "_comment": "W. aggregate.rs:365-417's inner sum over avgSpeedBinID, keyed by the run's hour-day, the operating mode AND the pollutant-process. The pollutant-process axis is what this fixture adds: `BaseRateGenerator` runs once per process and takes its RatesOpModeDistribution from a different generator for tire wear than for running exhaust, so the mode fraction -- and only the mode fraction -- is selected per pollutant-process. Everything else about the weight, including the speed-bin weighting itself, is shared.",
+          "lhs": "pp_W",
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "p",
               "k",
               "m"
             ],
             "ranges": {
+              "p": {
+                "from": "runspecpollutantprocess_rows"
+              },
               "k": {
                 "from": "runspecday_rows"
               },
@@ -9882,11 +10021,37 @@
                   ]
                 },
                 {
-                  "op": "index",
+                  "op": "ifelse",
                   "args": [
-                    "asb_modeFraction",
-                    "b",
-                    "m"
+                    {
+                      "op": ">",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "rspp_usesAvgSpeedModes",
+                            "p"
+                          ]
+                        },
+                        0.5
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "asb_tireModeFraction",
+                        "b",
+                        "m"
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "asb_modeFraction",
+                        "b",
+                        "m"
+                      ]
+                    }
                   ]
                 }
               ]
@@ -9894,15 +10059,19 @@
           }
         },
         {
-          "lhs": "dc_WTotal",
+          "lhs": "pp_WTotal",
           "rhs": {
             "op": "aggregate",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
+              "p",
               "k"
             ],
             "ranges": {
+              "p": {
+                "from": "runspecpollutantprocess_rows"
+              },
               "k": {
                 "from": "runspecday_rows"
               },
@@ -9913,7 +10082,8 @@
             "expr": {
               "op": "index",
               "args": [
-                "dc_W",
+                "pp_W",
+                "p",
                 "k",
                 "m"
               ]
@@ -9921,15 +10091,19 @@
           }
         },
         {
-          "lhs": "dc_WModeCount",
+          "lhs": "pp_WModeCount",
           "rhs": {
             "op": "aggregate",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
+              "p",
               "k"
             ],
             "ranges": {
+              "p": {
+                "from": "runspecpollutantprocess_rows"
+              },
               "k": {
                 "from": "runspecday_rows"
               },
@@ -9946,7 +10120,8 @@
                     {
                       "op": "index",
                       "args": [
-                        "dc_W",
+                        "pp_W",
+                        "p",
                         "k",
                         "m"
                       ]
@@ -9956,6 +10131,52 @@
                 },
                 1.0,
                 0.0
+              ]
+            }
+          }
+        },
+        {
+          "_comment": "The weight operating mode 400 carries. A `join.on` against the one-row relation holding the enum's 400, not an `==` in a filter (docs/esm-conventions.md 20.4).",
+          "lhs": "pp_tireIdleWeight",
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "p",
+              "k"
+            ],
+            "ranges": {
+              "p": {
+                "from": "runspecpollutantprocess_rows"
+              },
+              "k": {
+                "from": "runspecday_rows"
+              },
+              "m": {
+                "from": "operating_mode_rows"
+              },
+              "n": {
+                "from": "run_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "run_tirewearIdleOpModeID",
+                    "om_opModeID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "pp_W",
+                "p",
+                "k",
+                "m"
               ]
             }
           }
@@ -13324,6 +13545,7 @@
           }
         },
         {
+          "_comment": "S14's collapse of opModeID, now reading the weights of the rate row's OWN pollutant-process. J37's key pair again -- the rate relation's pollutant-process factor -- so nothing here restates which family of operating modes tire wear lives on.",
           "lhs": "rtDay_meanBaseRate",
           "rhs": {
             "op": "aggregate",
@@ -13342,15 +13564,29 @@
               },
               "m": {
                 "from": "operating_mode_rows"
+              },
+              "p": {
+                "from": "runspecpollutantprocess_rows"
               }
             },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rt_polProcOrdinal",
+                    "rspp_ordinal"
+                  ]
+                ]
+              }
+            ],
             "expr": {
               "op": "*",
               "args": [
                 {
                   "op": "index",
                   "args": [
-                    "dc_W",
+                    "pp_W",
+                    "p",
                     "k",
                     "m"
                   ]
@@ -13386,8 +13622,21 @@
               },
               "m": {
                 "from": "operating_mode_rows"
+              },
+              "p": {
+                "from": "runspecpollutantprocess_rows"
               }
             },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rt_polProcOrdinal",
+                    "rspp_ordinal"
+                  ]
+                ]
+              }
+            ],
             "expr": {
               "op": "*",
               "args": [
@@ -13397,7 +13646,8 @@
                     {
                       "op": "index",
                       "args": [
-                        "dc_W",
+                        "pp_W",
+                        "p",
                         "k",
                         "m"
                       ]
@@ -16040,7 +16290,7 @@
         },
         {
           "id": "the_three_pollutant_processes_and_the_chain_between_them",
-          "description": "The run's whole pollutant scope, unpacked from `runspecpollutantprocess` and `runspecchainedto` rather than written down. 9101 is Total Energy x Running Exhaust and is the only ENERGY pollutant here, so it is the only one S18 divides by 1,055,055.9; 11609 is PM2.5 Brakewear x Brakewear and carries its own emissionrate rows; 10609 is PM10 Brakewear, which carries NONE and is chained from 11609. `rspp_chainInputPolProcessID` is 11609 on the middle row and 0 on the other two, and that 0 -- the additive identity of the LEFT JOIN, which is no pollutant-process -- is what makes the chain term vanish without a branch.",
+          "description": "The run's whole pollutant scope, unpacked from `runspecpollutantprocess` and `runspecchainedto` rather than written down. 9101 is Total Energy x Running Exhaust and is the only ENERGY pollutant here, so it is the only one S18 divides by 1,055,055.9; 11710 is PM2.5 Tirewear x Tirewear and carries its own emissionrate rows; 10710 is PM10 Tirewear, which carries NONE and is chained from 11710. `rspp_chainInputPolProcessID` is 11710 on the middle row and 0 on the other two, and that 0 -- the additive identity of the LEFT JOIN, which is no pollutant-process -- is what makes the chain term vanish without a branch.\n\nTHE PROCESS IDS ARE 1 AND 10 AND THAT MATTERS TWICE. It is the process, not the pollutant, that decides which generator wrote a pollutant-process's operating-mode weights (`rspp_usesAvgSpeedModes`), and it is the process digit that the SCC and the output's own processID column carry -- 2201210410 against brake wear's 2201210409, one digit apart.",
           "time_span": {
             "start": 0.0,
             "end": 0.0
@@ -16057,7 +16307,7 @@
             {
               "variable": "rspp_pollutantID",
               "time": 0.0,
-              "expected": 106.0,
+              "expected": 107.0,
               "coords": {
                 "runspecpollutantprocess_rows": 2
               }
@@ -16065,7 +16315,7 @@
             {
               "variable": "rspp_pollutantID",
               "time": 0.0,
-              "expected": 116.0,
+              "expected": 117.0,
               "coords": {
                 "runspecpollutantprocess_rows": 3
               }
@@ -16081,7 +16331,7 @@
             {
               "variable": "rspp_processID",
               "time": 0.0,
-              "expected": 9.0,
+              "expected": 10.0,
               "coords": {
                 "runspecpollutantprocess_rows": 2
               }
@@ -16089,7 +16339,7 @@
             {
               "variable": "rspp_processID",
               "time": 0.0,
-              "expected": 9.0,
+              "expected": 10.0,
               "coords": {
                 "runspecpollutantprocess_rows": 3
               }
@@ -16153,7 +16403,7 @@
             {
               "variable": "rspp_chainInputPolProcessID",
               "time": 0.0,
-              "expected": 11609.0,
+              "expected": 11710.0,
               "coords": {
                 "runspecpollutantprocess_rows": 2
               }
@@ -16236,7 +16486,7 @@
         },
         {
           "id": "the_cohort_row_set_is_the_same_125_for_both_rate_paths",
-          "description": "125 of the 164 candidates survive `stmyFraction > 0`, and all 125 reach an emissionrate row, for BOTH computed pollutant-processes -- which is the claim that lets one cohort rank serve all three output blocks and is asserted rather than assumed. `pp_selectedCohortCount` is 125, 0, 125: the middle zero is the chained pollutant, which has no pollutantprocessmodelyear rows and therefore no source-bin distribution of its own, and whose 125 output rows come from the chain instead -- `run_chainedRowCount` counts them. `run_cohortSelectionTotal` at 250 is the same fact summed, and would still be 250 if the two rate paths selected DIFFERENT 125s, which is why the per-pollutant-process counts are asserted beside it.",
+          "description": "125 of the 164 candidates survive `stmyFraction > 0`, and all 125 reach an emissionrate row, for BOTH computed pollutant-processes -- which is the claim that lets one cohort rank serve all three output blocks and is asserted rather than assumed. `pp_selectedCohortCount` is 125, 0, 125: the middle zero is the chained pollutant, which has no pollutantprocessmodelyear rows and therefore no source-bin distribution of its own, and whose 125 output rows come from the chain instead -- `run_chainedRowCount` counts them. `run_cohortSelectionTotal` at 250 is the same fact summed, and would still be 250 if the two rate paths selected DIFFERENT 125s, which is why the per-pollutant-process counts are asserted beside it.\n\nTHAT THE TWO RATE PATHS AGREE ON THE 125 IS NOT THE SAME CLAIM HERE AS IN process-brakewear, AND IT IS LESS OBVIOUS. There the two paths met different source bins because their shortModYrGroupIDs differed; here 11710's is 0 on every model year, so its 31 emissionrate source bins are distinguished by regulatory class, engine technology and fuel alone. A cohort that reached a 9101 rate and no 11710 rate would show up as a count below 125 rather than as a missing output row, because the output relation's rank is built once.",
           "time_span": {
             "start": 0.0,
             "end": 0.0
@@ -16317,8 +16567,8 @@
           ]
         },
         {
-          "id": "the_drive_cycle_weights_are_a_distribution_over_the_twenty_three_running_modes",
-          "description": "W, checked on the two properties that do not require the reference. It is a DISTRIBUTION: the weights sum to the avgSpeedFraction column's own total, which is 1 to that column's six stored significant figures and not exactly, so the gate is ABSOLUTE at 1e-5 and not relative (docs/esm-conventions.md 20.5). And it covers exactly 23 operating modes.\n\nTHE MODE COUNT IS THE BRAKEWEAR-SPECIFIC ASSERTION HERE. `emissionrate` carries a 11609 rate for operating mode 501, `brakewear;stopped`, and `opmodepolprocassoc` associates it with 11609 -- so a reader may reasonably expect brakewear's weight vector to be 24 modes wide. It is not: drivecycle.rs:235-237 assigns a zero-speed second to mode 501 only at PROJECT scale and to mode 1 otherwise, this run is Inventory scale, and 24 here would mean the classification had taken the wrong branch. docs/process-brakewear.md 3.2 has the measurement.",
+          "id": "the_two_operating_mode_families_are_two_binnings_of_one_activity",
+          "description": "W, checked on the properties that do not require the reference, for BOTH mode families. It is a DISTRIBUTION on either: the weights sum to the avgSpeedFraction column's own total, which is 1 to that column's six stored significant figures and not exactly, so the gate is ABSOLUTE at 1e-5 and not relative (docs/esm-conventions.md 20.5). That the drive-cycle family and the tire-wear family reach the SAME total is what says the second is a re-binning of the same activity and not a second one -- if the tire-wear arm had missed a speed bin its total would be short by that bin's fraction and nothing else in this document would notice.\n\nTHE MODE COUNTS ARE THE TIRE-WEAR-SPECIFIC ASSERTION HERE. 23 on the 9101 rows, the drive-cycle set. 16 -- NOT 17 -- on both tire-wear rows. Operating mode 400, `tirewear;idle`, is in `operatingmode`, is associated with 11710 by `opmodepolprocassoc`, and carries 31 `emissionrate` rows, so a reader may reasonably expect a 17-wide vector. No speed bin names it: `avgspeedbin.opModeIDTirewear` runs 401 to 416, and 400 is reachable only through `buildOpModeClause`'s `when linkAvgSpeed < 0.1 then 400`, which is the PROJECT-domain branch (avg_speed_op_mode_distribution.rs:118-125). This run is Inventory scale. `pp_tireIdleWeight` says the same thing as a number rather than as a count. This is tire wear's mode 501 -- docs/process-tirewear.md 3.2 has the measurement, and unlike brake wear's it also matters that mode 400's rate is exactly 0.",
           "time_span": {
             "start": 0.0,
             "end": 0.0
@@ -16328,42 +16578,133 @@
           },
           "assertions": [
             {
-              "variable": "dc_WTotal",
+              "variable": "pp_WTotal",
               "time": 0.0,
               "expected": 1.0,
               "coords": {
+                "runspecpollutantprocess_rows": 1,
                 "runspecday_rows": 1
               }
             },
             {
-              "variable": "dc_WTotal",
+              "variable": "pp_WTotal",
               "time": 0.0,
               "expected": 1.0,
               "coords": {
+                "runspecpollutantprocess_rows": 1,
                 "runspecday_rows": 2
               }
             },
             {
-              "variable": "dc_WModeCount",
+              "variable": "pp_WTotal",
               "time": 0.0,
-              "expected": 23.0,
+              "expected": 1.0,
               "coords": {
+                "runspecpollutantprocess_rows": 3,
                 "runspecday_rows": 1
               }
             },
             {
-              "variable": "dc_WModeCount",
+              "variable": "pp_WTotal",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "runspecpollutantprocess_rows": 3,
+                "runspecday_rows": 2
+              }
+            },
+            {
+              "variable": "pp_WModeCount",
               "time": 0.0,
               "expected": 23.0,
               "coords": {
+                "runspecpollutantprocess_rows": 1,
+                "runspecday_rows": 1
+              }
+            },
+            {
+              "variable": "pp_WModeCount",
+              "time": 0.0,
+              "expected": 23.0,
+              "coords": {
+                "runspecpollutantprocess_rows": 1,
                 "runspecday_rows": 2
+              }
+            },
+            {
+              "variable": "pp_WModeCount",
+              "time": 0.0,
+              "expected": 16.0,
+              "coords": {
+                "runspecpollutantprocess_rows": 2,
+                "runspecday_rows": 1
+              }
+            },
+            {
+              "variable": "pp_WModeCount",
+              "time": 0.0,
+              "expected": 16.0,
+              "coords": {
+                "runspecpollutantprocess_rows": 3,
+                "runspecday_rows": 1
+              }
+            },
+            {
+              "variable": "pp_WModeCount",
+              "time": 0.0,
+              "expected": 16.0,
+              "coords": {
+                "runspecpollutantprocess_rows": 3,
+                "runspecday_rows": 2
+              }
+            },
+            {
+              "variable": "pp_tireIdleWeight",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "runspecpollutantprocess_rows": 3,
+                "runspecday_rows": 1
+              }
+            },
+            {
+              "variable": "pp_tireIdleWeight",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "runspecpollutantprocess_rows": 3,
+                "runspecday_rows": 2
+              }
+            },
+            {
+              "variable": "rspp_usesAvgSpeedModes",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "runspecpollutantprocess_rows": 1
+              }
+            },
+            {
+              "variable": "rspp_usesAvgSpeedModes",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "runspecpollutantprocess_rows": 2
+              }
+            },
+            {
+              "variable": "rspp_usesAvgSpeedModes",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "runspecpollutantprocess_rows": 3
               }
             }
           ]
         },
         {
           "id": "the_activity_chain_reproduces_the_worked_examples",
-          "description": "docs/process-brakewear.md 6.1-6.2, at the four named stages a wrong factor shows up at. The activity half is shared by all three pollutants -- brake wear is weighted by the same source-hours-operating as running-exhaust energy -- so an error here moves all 750 rows. travelFraction normalised over the whole HPMS group is 1.609175e-03 for the oldest cohort; over source type 21 alone it is 4.10e-03 and every row is 2.55x high. averageSpeed is the ARITHMETIC mean. The four `sho` values are the snapshot's own, to its six stored significant figures.",
+          "description": "docs/process-tirewear.md 6.1 and 6.3, at the four named stages a wrong factor shows up at. The activity half is shared by all three pollutants -- tire wear is weighted by the same source-hours-operating as running-exhaust energy -- so an error here moves all 750 rows. It is also byte-identical to `process-brakewear`'s: `sho`, `avgspeeddistribution`, `driveschedulesecond`, `sourcetypeagedistribution` and `hourvmtfraction` are the same rows in both snapshots, which is why the retarget audit of docs/process-tirewear.md 6.4 reproduced 250 rows and found nothing new. travelFraction normalised over the whole HPMS group is 1.609175e-03 for the oldest cohort; over source type 21 alone it is 4.10e-03 and every row is 2.55x high. averageSpeed is the ARITHMETIC mean. The four `sho` values are the snapshot's own, to its six stored significant figures.",
           "time_span": {
             "start": 0.0,
             "end": 0.0
@@ -16448,7 +16789,7 @@
         },
         {
           "id": "the_collapsed_base_rate_reproduces_both_of_the_references_generator_tables",
-          "description": "`rtDay_meanBaseRate` IS `baserate_1_2020.meanBaseRate` on the 9101 rows and `baserate_9_2020.meanBaseRate` on the 11609 rows -- the reference's own S14 intermediates, computed here. This is the most direct check of W available, and the brakewear half is the check this fixture adds: the base rate factorises exactly around W, the two rate paths share the same 46 weights, and the two rate tables are five orders of magnitude apart -- 392,141 kJ per source-hour against 0.0323 g -- so a wrong W is a wrong number in every one of these cells and no shared scale factor can hide behind it.\n\n`rtDay_meanBaseRateACAdj` is the INCREMENTAL A/C load of sbweighted.rs:459. It reaches emissionQuant multiplied by an A/C factor this document computes to be exactly 0, so the OUTPUT cannot see it -- but the generator tables carry it in their own column, so it is checked here anyway, on both paths: 30,166.7 for 9101 and an exact 0 for 11609, which is what an absent `fullacadjustment` row has to produce.\n\nThe tolerance is the reference's six-significant-figure column storage.",
+          "description": "`rtDay_meanBaseRate` IS `baserate_1_2020.meanBaseRate` on the 9101 rows and `baserate_10_2020.meanBaseRate` on the 11710 rows -- the reference's own S14 intermediates, computed here. It is the most direct check of the weights available, and it is the check this fixture adds, because THE TWO BLOCKS ARE CONTRACTED AGAINST DIFFERENT WEIGHT VECTORS. The 9101 cells collapse 23 drive-cycle operating modes; the 11710 cells collapse 16 speed-bin modes that no drive schedule ever produces. A document that used one vector for both -- the reflex, since the two mode families are disjoint in `emissionrate` and a union would still give the right answer here -- would reproduce all ten of these cells and would be writing down a coincidence. What it would not reproduce is `pp_WModeCount`, which is why that assertion sits beside these.\n\nThe two rate tables are seven orders of magnitude apart -- 392,141 kJ per source-hour against 0.0000197 g -- so a wrong weight is a wrong number in every one of these cells and no shared scale factor can hide behind it.\n\n`rtDay_meanBaseRateACAdj` is the INCREMENTAL A/C load of sbweighted.rs:459. It reaches emissionQuant multiplied by an A/C factor this document computes to be exactly 0, so the OUTPUT cannot see it -- but the generator tables carry it in their own column, so it is checked here anyway, on both paths: 30,166.7 for 9101 and an exact 0 for 11710, which is what an absent `fullacadjustment` row has to produce.\n\nThe tolerance is the reference's six-significant-figure column storage.",
           "time_span": {
             "start": 0.0,
             "end": 0.0
@@ -16487,9 +16828,9 @@
             {
               "variable": "rtDay_meanBaseRate",
               "time": 0.0,
-              "expected": 139.555,
+              "expected": 187.636,
               "coords": {
-                "rate_rows": 88,
+                "rate_rows": 89,
                 "runspecday_rows": 1
               }
             },
@@ -16505,7 +16846,7 @@
             {
               "variable": "rtDay_meanBaseRate",
               "time": 0.0,
-              "expected": 0.0232629,
+              "expected": 0.0599881,
               "coords": {
                 "rate_rows": 329,
                 "runspecday_rows": 1
@@ -16514,7 +16855,7 @@
             {
               "variable": "rtDay_meanBaseRate",
               "time": 0.0,
-              "expected": 0.043285,
+              "expected": 0.055599,
               "coords": {
                 "rate_rows": 329,
                 "runspecday_rows": 2
@@ -16523,7 +16864,7 @@
             {
               "variable": "rtDay_meanBaseRate",
               "time": 0.0,
-              "expected": 0.0322581,
+              "expected": 0.0596743,
               "coords": {
                 "rate_rows": 369,
                 "runspecday_rows": 1
@@ -16532,16 +16873,16 @@
             {
               "variable": "rtDay_meanBaseRate",
               "time": 0.0,
-              "expected": 1.38268e-05,
+              "expected": 4.58408e-05,
               "coords": {
-                "rate_rows": 416,
+                "rate_rows": 417,
                 "runspecday_rows": 1
               }
             },
             {
               "variable": "rtDay_meanBaseRate",
               "time": 0.0,
-              "expected": 1.98517e-05,
+              "expected": 1.82925e-05,
               "coords": {
                 "rate_rows": 472,
                 "runspecday_rows": 2
@@ -16605,7 +16946,7 @@
         },
         {
           "id": "the_short_model_year_group_is_a_property_of_the_pollutant_process",
-          "description": "The one cohort key that differs between the two rate paths, and the reason the rate relation exists at all. `pollutantprocessmodelyear` maps model year 2020 to modelYearGroup 2020 for 9101, whose `shortModYrGroupID` is 40 -- a two-digit year -- and to modelYearGroup 20112020 for 11609, whose short group is 6, one of six decade bands. Model year 1980 maps to 80 and to 1. A document that computed one short group per COHORT would read 60,388 emissionrate rows with the wrong source bin on 3,348 of them and produce a brakewear rate of exactly zero.",
+          "description": "The one cohort key that differs between the two rate paths, and the reason the rate relation exists at all. `pollutantprocessmodelyear` maps model year 2020 to modelYearGroup 2020 for 9101, whose `shortModYrGroupID` is 40 -- a two-digit year -- and model year 1980 to 80. For 11710 it maps EVERY model year to modelYearGroup 0, whose `modelyeargroup` row is named \"Doesn't Matter\" and whose short group is 0, and all 31 of `emissionrate`'s 11710 source bins carry 00 in that slot. So tire wear's encoding is neither brake wear's decade bands nor running exhaust's two-digit years but a third thing -- a constant -- and a document that computed one short group per COHORT would read the 527 tire-wear rate rows with a source bin of 40 or 80 and produce a tire-wear rate of exactly zero. Same defect as brake wear's, reached by a different encoding, which is why the fix is structural rather than a special case.",
           "time_span": {
             "start": 0.0,
             "end": 0.0
@@ -16630,7 +16971,15 @@
             {
               "variable": "rt_shortModYrGroupID",
               "time": 0.0,
-              "expected": 6.0,
+              "expected": 20.0,
+              "coords": {
+                "rate_rows": 144
+              }
+            },
+            {
+              "variable": "rt_shortModYrGroupID",
+              "time": 0.0,
+              "expected": 0.0,
               "coords": {
                 "rate_rows": 329
               }
@@ -16638,7 +16987,7 @@
             {
               "variable": "rt_shortModYrGroupID",
               "time": 0.0,
-              "expected": 1.0,
+              "expected": 0.0,
               "coords": {
                 "rate_rows": 369
               }
@@ -16646,7 +16995,7 @@
             {
               "variable": "rt_shortModYrGroupID",
               "time": 0.0,
-              "expected": 4.0,
+              "expected": 0.0,
               "coords": {
                 "rate_rows": 472
               }
@@ -16655,7 +17004,7 @@
         },
         {
           "id": "the_EV_temperature_arm_is_live_at_this_hour_and_the_AC_arm_is_not",
-          "description": "The two clamps of S15, at 59.5 degF. The A/C activity quadratic is -0.29698 and still clamps to 0 -- further from its boundary than mixed-onroad's -0.0189, not closer -- so the A/C factor is again exactly 0.\n\nTHE EV TEMPERATURE ARM DOES NOT CLAMP, AND THAT IS WHAT THIS FIXTURE ADDS. (59.5 - 72)(0.00225 + 0.00028 x (59.5 - 72)) = +0.015625, positive, so the factor is 1.015625 and the 84 energy/electricity rows carry it. Two things had to be right to get there and neither is visible in mixed-onroad, where both arms return 1: the temperatureadjustment row is keyed regClassID 0, a WILDCARD, and reaching it needs the two-step precedence of lib/adjustments.esm's `exact_else_wildcard` -- with the exact-class lookup alone the terms come out 0, the raw adjustment 0, and the answer is 1 for the wrong reason and 1.56 % low; and the branch is gated on pollutant 91 AND process 1 together (adjust.rs:107), so a brakewear electricity cohort takes the standard quadratic instead and its factor is exactly 1. `rt_hasTempAdjustExact` is asserted at 0 to pin the first of those.",
+          "description": "The two clamps of S15, at 59.5 degF -- the same hour as `process-brakewear`, and asserted here because a shared spine that is only checked in one fixture is checked in none of them once that fixture moves. The A/C activity quadratic is -0.29698 and clamps to 0, so the A/C factor is again exactly 0.\n\nThe EV temperature arm does NOT clamp: (59.5 - 72)(0.00225 + 0.00028 x (59.5 - 72)) = +0.015625, so the factor is 1.015625 and the 84 energy/electricity rows carry it. Two things have to be right to get there and neither is visible in a run whose hour makes the arm clamp: the `temperatureadjustment` row is keyed regClassID 0, a WILDCARD, and reaching it needs the two-step precedence of lib/adjustments.esm's `exact_else_wildcard` -- `rt_hasTempAdjustExact` is asserted at 0 to pin that the exact-class lookup finds nothing, so the answer comes from the wildcard arm and not from a clamp; and the branch is gated on pollutant 91 AND process 1 together (adjust.rs:107), so a TIRE-WEAR electricity cohort takes the standard quadratic instead and its factor is exactly 1. That last assertion is the one that changes meaning here: the gate now has to reject process 10 rather than process 9.",
           "time_span": {
             "start": 0.0,
             "end": 0.0
@@ -16787,8 +17136,8 @@
           ]
         },
         {
-          "id": "the_PM10_chain_is_a_ratio_lookup_with_a_model_year_range",
-          "description": "PM10BrakeTireCalculator, entirely. `pm10emissionratio` gives 8.0 for model years 1940-2010 and 2.60985 for 2011-2060 on the three combustion fuels, 1.42475 on electricity -- so a document that dropped the range predicate would be a factor of three out on half the rows and one that dropped the fuel key would be 83 % out on the electricity ones. The ratio is 0 on the two unchained rate paths, because `pm10emissionratio` carries polProcessID 10609 and nothing else, and that zero is what makes `rtDay_quantChained` vanish there without a branch. `rtDay_quantDirect` is asserted at exactly 0 on a chained row for the mirror reason: `emissionrate` has no 10609 row, so J22's inner join leaves its rate at the additive identity and the chained block's whole quantity comes through the chain.",
+          "id": "the_PM10_chain_is_a_ratio_lookup_and_here_it_is_a_single_constant",
+          "description": "PM10BrakeTireCalculator, entirely, on the tire-wear edge. `pm10emissionratio` carries four rows here -- one per fuel type, polProcessID 10710, model years 1940-2060 -- and all four hold the SAME 6.6667. The ratio is 0 on the two unchained rate paths, because the table carries 10710 and nothing else, and that zero is what makes `rtDay_quantChained` vanish there without a branch. `rtDay_quantDirect` is asserted at exactly 0 on a chained row for the mirror reason: `emissionrate` has no 10710 row, so J22's inner join leaves its rate at the additive identity and the chained block's whole quantity comes through the chain.\n\nTHIS IS A WEAKER CHECK OF THE LOOKUP THAN process-brakewear's, AND SAYING SO IS THE POINT (docs/esm-conventions.md 23). There the eight rows were two model-year ranges over four fuels carrying three distinct values, so dropping the range predicate was a factor of three and dropping the fuel key was 83 %. Here a document that dropped BOTH would still reproduce all 250 PM10 rows. What these assertions can still see is that the ratio is looked up per rate row rather than hoisted to the run -- 0 on the unchained paths and 6.6667 on the chained one -- and docs/process-tirewear.md 7.2 records that the discriminating half of the join is checked by `process-brakewear` and by nothing here.",
           "time_span": {
             "start": 0.0,
             "end": 0.0
@@ -16813,7 +17162,7 @@
             {
               "variable": "rt_chainRatio",
               "time": 0.0,
-              "expected": 2.60985,
+              "expected": 6.6667,
               "coords": {
                 "rate_rows": 165
               }
@@ -16821,7 +17170,7 @@
             {
               "variable": "rt_chainRatio",
               "time": 0.0,
-              "expected": 8.0,
+              "expected": 6.6667,
               "coords": {
                 "rate_rows": 205
               }
@@ -16829,7 +17178,7 @@
             {
               "variable": "rt_chainRatio",
               "time": 0.0,
-              "expected": 2.60985,
+              "expected": 6.6667,
               "coords": {
                 "rate_rows": 206
               }
@@ -16837,7 +17186,7 @@
             {
               "variable": "rt_chainRatio",
               "time": 0.0,
-              "expected": 1.42475,
+              "expected": 6.6667,
               "coords": {
                 "rate_rows": 288
               }
@@ -16845,7 +17194,7 @@
             {
               "variable": "rt_chainRatio",
               "time": 0.0,
-              "expected": 8.0,
+              "expected": 6.6667,
               "coords": {
                 "rate_rows": 308
               }
@@ -16872,7 +17221,7 @@
         },
         {
           "id": "the_worked_examples_reach_MOVESOutput_in_all_three_blocks",
-          "description": "docs/process-brakewear.md 6.1-6.5, asserted against the numbers MOVESOutput stores rather than against this document's own. Four rows per block, chosen so that every factor is exercised somewhere and the two chained blocks can be checked against each other: (MY 1980, gasoline, weekend) is the largest base rate; (MY 2020, gasoline, weekday) the largest activity; (MY 2000, electricity, weekday) is the row the EV efficiency divisor and the live EV temperature factor both act on, and it is the smallest cell in the fixture. 0.314488 / 0.039311 is exactly 8 and 0.829639 / 0.317888 is 2.60984, so the two PM blocks check the chain against each other as well as against the reference. The SCCs are exact integers and are asserted exactly -- 2201210401 for the energy block and 2201210409 for both PM blocks, one digit apart, and an SCC off by that digit relabels a whole process and still passes a per-pollutant sum.",
+          "description": "docs/process-tirewear.md 6.1-6.5, asserted against the numbers MOVESOutput stores rather than against this document's own. Four rows per block, chosen so that every factor is exercised somewhere and the two chained blocks can be checked against each other: (MY 1980, gasoline, weekend) is the largest 9101 base rate; (MY 2020, gasoline, weekday) the largest activity; (MY 2000, electricity, weekday) is the row the EV efficiency divisor and the live EV temperature factor both act on, and it is the smallest cell in the fixture. 5.46494 / 0.819737 is 6.66670 and 0.484812 / 0.0727215 is 6.66670, so the two PM blocks check the chain against each other as well as against the reference. The SCCs are exact integers and are asserted exactly -- 2201210401 for the energy block and 2201210410 for both PM blocks, and an SCC whose process digits read 09 instead of 10 relabels tire wear as brake wear and still passes a per-pollutant sum.",
           "time_span": {
             "start": 0.0,
             "end": 0.0
@@ -16916,7 +17265,7 @@
             {
               "variable": "out_emissionQuant",
               "time": 0.0,
-              "expected": 0.829639,
+              "expected": 5.46494,
               "coords": {
                 "output_rows": 251
               }
@@ -16924,7 +17273,7 @@
             {
               "variable": "out_emissionQuant",
               "time": 0.0,
-              "expected": 0.314488,
+              "expected": 0.484812,
               "coords": {
                 "output_rows": 291
               }
@@ -16932,7 +17281,7 @@
             {
               "variable": "out_emissionQuant",
               "time": 0.0,
-              "expected": 5.87559,
+              "expected": 19.2786,
               "coords": {
                 "output_rows": 376
               }
@@ -16940,7 +17289,7 @@
             {
               "variable": "out_emissionQuant",
               "time": 0.0,
-              "expected": 0.00265617,
+              "expected": 0.00203964,
               "coords": {
                 "output_rows": 500
               }
@@ -16948,7 +17297,7 @@
             {
               "variable": "out_emissionQuant",
               "time": 0.0,
-              "expected": 0.317888,
+              "expected": 0.819737,
               "coords": {
                 "output_rows": 501
               }
@@ -16956,7 +17305,7 @@
             {
               "variable": "out_emissionQuant",
               "time": 0.0,
-              "expected": 0.039311,
+              "expected": 0.0727215,
               "coords": {
                 "output_rows": 541
               }
@@ -16964,7 +17313,7 @@
             {
               "variable": "out_emissionQuant",
               "time": 0.0,
-              "expected": 2.25131,
+              "expected": 2.89178,
               "coords": {
                 "output_rows": 626
               }
@@ -16972,7 +17321,7 @@
             {
               "variable": "out_emissionQuant",
               "time": 0.0,
-              "expected": 0.000332022,
+              "expected": 0.000305944,
               "coords": {
                 "output_rows": 750
               }
@@ -16988,7 +17337,7 @@
             {
               "variable": "out_pollutantID",
               "time": 0.0,
-              "expected": 106.0,
+              "expected": 107.0,
               "coords": {
                 "output_rows": 251
               }
@@ -16996,7 +17345,7 @@
             {
               "variable": "out_pollutantID",
               "time": 0.0,
-              "expected": 116.0,
+              "expected": 117.0,
               "coords": {
                 "output_rows": 501
               }
@@ -17012,7 +17361,7 @@
             {
               "variable": "out_processID",
               "time": 0.0,
-              "expected": 9.0,
+              "expected": 10.0,
               "coords": {
                 "output_rows": 251
               }
@@ -17076,7 +17425,7 @@
             {
               "variable": "out_SCC",
               "time": 0.0,
-              "expected": 2201210409.0,
+              "expected": 2201210410.0,
               "coords": {
                 "output_rows": 251
               }
@@ -17084,7 +17433,7 @@
             {
               "variable": "out_SCC",
               "time": 0.0,
-              "expected": 2209210409.0,
+              "expected": 2209210410.0,
               "coords": {
                 "output_rows": 750
               }
