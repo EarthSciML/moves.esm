@@ -1,13 +1,13 @@
 # Findings: conventions the format or the toolchain could not express
 
 Twenty-nine things PLAN.md §3 Phase 1 through Phase 5 assumed, or that an author would
-reasonably assume, that did not hold. **Fifteen are fixed upstream and retired**
+reasonably assume, that did not hold. **Sixteen are fixed upstream and retired**
 from the tripwire, listed at the bottom with their sections kept above so the
 workarounds they forced can be traced. The rest still hold at the pinned
-toolchain (`esm-version.lock`: EarthSciAST `9e282da40`, EarthSciIO
+toolchain (`esm-version.lock`: EarthSciAST `3a01c56fc`, EarthSciIO
 `d109951d4`, `--features esio,parallel`).
 
-F2, F3, F5, F13, F14, F20, F21, F22, F28 and F32 each have a minimal `.esm` repro in this
+F2, F3, F5, F13, F14, F20, F21, F22 and F28 each have a minimal `.esm` repro in this
 directory — F22 has two, one per construct; F8 is a CLI behaviour rather than a
 document, and is checked by command against the ordinary files of the repo.
 **F17, F31 and F33 deliberately have no repro file**: a repro
@@ -92,7 +92,6 @@ three of them do not load.
 | **F20** | A constant-folded scalar right-hand side loses the left-hand side's array shape | assertion | no |
 | **F21** | A scoped reference to a mounted model's variable resolves as an operand and a join key but not as an assertion `variable` | assertion | no |
 | **F28** | A recurrence whose predecessor is named by a DATA COLUMN has no direct spelling; the lag must be an offset of the frame symbol | validate + test | no |
-| **F32** | An `enums` member cannot be ZERO; the schema requires a positive integer, and MOVES's Braking operating mode is 0 | validate | no |
 | **F33** | A `Float32` document's relational path is evaluated in binary64 by Julia and Python, with no diagnostic — §5.18 is normative and unimplemented | evaluation | no |
 
 ---
@@ -1441,6 +1440,14 @@ traced.
 
   **But the finding was not what it said it was, and the correction is the important part.** F17 was filed as a COST finding — the answer is right, the run does not end. Reordering three `join` clauses on `out_emissionQuant` changes **32 of 144 emitted rows on the merge-base binary**, which makes it a silent WRONG ANSWER finding that had been sitting under a performance headline. Root cause: every resolved `on` pair is also lowered into the node's `filter` so a non-driving clause is still tested per leaf — that is the whole of §5.5.8's "which clause drives cannot change the result" — but `precision_infer::annotate_models` runs at `problem.rs` stage (1c)/(3b) while `join::resolve_aggregate_joins` runs inside the array compile at stage (4). The lowered `left == right` is built *after* annotation, carries no marker, and evaluated at the document's **working precision**. This document works in binary32, where the spacing at SCC magnitudes is **256** and `2265007010` and `2265007015` are the same number. The gate compared exact `i64` keys and separated them; the filter did not, so two cohorts' emissions were summed into the wrong output row (1.784 + 0.480 = 2.264). Fixed by marking the comparison binary64 where it is built (`8bb234629`), and now normative in §5.5.8: **a key comparison is exact, not the document's precision.** Every fidelity number this repository has published for `nr-logging-county` was correct only because the SCC clause happened to be written first.
 
+- **F32** — EarthSciAST `cf48b9e36` — an `enums` member may be ANY integer; `EnumDeclaration.additionalProperties` is `{"type": "integer"}`. Normative as CONFORMANCE_SPEC §5.26. Verified two-sided on the shared fixture `tests/valid/enums_zero_and_negative.esm`: the pre-merge binary rejects it with `0 is less than the minimum of 1` and `-1 is less than the minimum of 1`, the post-merge binary validates it and evaluates all three assertions, and the third — `Braking + 10*Idling + Unassociated = 9` — is there so a clamp or a dropped sign cannot pass. All five bindings load, lower and EVALUATE 0 and −1.
+
+  **The gate was not where the finding said it was, in two of the five.** Rust's `document.rs` mention is a doc COMMENT and never checked; Go never checked at all. What actually rejects in TypeScript is `generated-validator.js`, a precompiled Ajv standalone validator that no reading of the schema sources would have found. So the real enforcement surface was the schema plus one generated artifact, and the finding's own list of sites was wrong about two entries and missing the one that mattered.
+
+  Two things were found alongside and deliberately NOT folded in: member-value uniqueness is checked by Python and Julia and by **nobody else** — Rust, TS and Go never checked it, including for positive values, which predates F32 entirely (§5.26.5) — and a lowered member is a numeric literal with no precision of its own, so under `element_type: "Float32"` two members that collide in binary32 compare equal (§5.26.4). The second is the same class as F17, and it narrows what F17's fix actually bought: a comparison is made exact by a stored key's declared binary64 `element_type`, so **two literals give it nothing to key on**.
+
+  Downstream, `fixtures/mixed-onroad.esm` and `fixtures/process-brakewear.esm` now carry `operating_mode.Braking = 0` as a named member instead of a bare `0.0` literal.
+
 - **F31** — EarthSciAST `9e282da40` — `run_model_tests` reuses the built problem across consecutive tests that share it, keyed on `expression_template_imports`, `time_span`, `parameter_overrides` and `initial_conditions` (floats by bit pattern), and `--filter` now selects **work** rather than rows. Normative as CONFORMANCE_SPEC §5.25 and `BEHAV-12-001..007`. Measured with both binaries built from `a1dc9bb30`, so this is the change in isolation: `esm test fixtures/nr-logging-county.esm` **301.9 / 306.6 s → 11.0 / 16.2 s**; `run-tests.sh` user time **712.5 / 707.0 s → 251.6 / 235.5 s** (wall clock is not usable — `real ≫ user` at loadavg 9→21, starved by concurrent agents); `esm test ./runs --filter <one of fifteen>` **153.2 s → 0.98 s**, 156×. Over the tree, 200 tests need 44 distinct builds.
 
   **Combined with F17, measured on the pinned binary `9e282da40`**: the whole
@@ -1776,9 +1783,11 @@ repository's characteristic failure in miniature, so an author using this
 spelling owes an assertion that the observed maximum lag is the one declared.
 
 
-## F32 — an `enums` member cannot be zero
+## F32 — an `enums` member cannot be zero **[fixed upstream, retired]**
 
-`F32_an_enum_member_cannot_be_zero.esm`. Found authoring Phase 3's drive-cycle
+**FIXED.** The repro is gone, per the rule at the top of this file. What follows
+is what the finding said while it held, kept because the workaround it forced
+reached into two fixtures. Found authoring Phase 3's drive-cycle
 operating-mode distribution.
 
 ```
@@ -1800,11 +1809,13 @@ modelYearGroupID = 0` and `fuelusagefraction.modelYearGroupID = 0` (a wildcard
 the fuel-usage rebase tests for) are three more, in three other tables.
 
 So `docs/esm-conventions.md` §4's rule — an identifier value is written once, in
-an `enums` block, and referenced by name — has an exception it cannot state.
-`fixtures/mixed-onroad.esm` carries `run_brakingOpModeID` as a bare `0.0`
-literal with a comment, and three equations key on it: the two braking-rate
+an `enums` block, and referenced by name — had an exception it could not state.
+`fixtures/mixed-onroad.esm` carried `run_brakingOpModeID` as a bare `0.0`
+literal with a comment, and three equations keyed on it: the two braking-rate
 lookups into `operatingmode` and the classification's braking arm. A reader who
-renumbers operating modes has to find a literal rather than an enum member.
+renumbered operating modes had to find a literal rather than an enum member.
+**Both fixtures now name it** — `operating_mode.Braking = 0` — and §4's rule has
+no exception again.
 
 **Falsified, so the failure is attributable.** The same document with
 `"Braking": 99` validates. The zero is the whole of it, not the `makearray`, not
@@ -1816,7 +1827,8 @@ reports four further errors of the form `Variable 'operating_mode' referenced in
 equation is not declared`. Those are downstream of the first and disappear with
 it; they are not a second defect.
 
-**Fix shape.** Drop the `minimum` from `EnumDeclaration.additionalProperties`,
+**Fixed as proposed**, in EarthSciAST `cf48b9e36` (CONFORMANCE_SPEC §5.26): drop
+the `minimum` from `EnumDeclaration.additionalProperties`,
 or widen it to the whole integer range. Negative values matter for the same
 reason: `opmodepolprocassoc.polProcessID = -1` marks the unassociated
 drive-cycle operating modes — 24 of that table's 27 rows in the

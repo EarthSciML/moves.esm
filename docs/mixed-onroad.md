@@ -1070,10 +1070,11 @@ group:
 
 `opModeID 0` in `baserate_1_2020` is **not** mode 0. See §2.3(b).
 
-Mode 0 is also the one identifier in this port that cannot be an `enums` member:
-the schema requires a positive integer, so `fixtures/mixed-onroad.esm` carries
-the Braking mode as a literal `0.0` with a comment. `docs/findings/README.md`
-F32.
+Mode 0 was the one identifier in this port that could not be an `enums` member:
+the schema required a positive integer, so `fixtures/mixed-onroad.esm` carried
+the Braking mode as a literal `0.0` with a comment. **Fixed upstream** — an
+`enums` member may now be any integer — and both fixtures name it as
+`operating_mode.Braking`. `docs/findings/README.md` F32.
 
 `sourceusetypephysicsmapping` carries `opModeIDOffset = 1000`, which is how
 `SourceTypePhysics`'s row-correction pass (`sourcetypephysics.rs:320-390`)

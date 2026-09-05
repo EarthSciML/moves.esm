@@ -921,14 +921,7 @@ them. What follows is ordered by what blocks what.
    end. §2's ladder is the order; the 744–1,456-row band is the next rung and
    the 15,801–23,108-row NONROAD fixtures are where §1.3's gate stops being
    theoretical.
-2. **Retire F32's workaround, once the binary is repinned.** F32 is FIXED
-   upstream — an `enums` member may now be any integer — so `opModeID 0`
-   (Braking, 5.6 % of the weekday operating-mode distribution) can be named
-   instead of written as a bare literal in `fixtures/mixed-onroad.esm`, and
-   `polProcessID -1` with it. This needs `./esm` rebuilt from upstream `main`
-   and `esm-version.lock` repinned, which is gated on that merge being pushed.
-   Until then the tripwire in `docs/findings/` still fails, correctly.
-3. **F33 — a `Float32` document is evaluated in binary64 by Julia and Python,
+2. **F33 — a `Float32` document is evaluated in binary64 by Julia and Python,
    silently.** Not a new contract: `CONFORMANCE_SPEC` §5.18 is normative and
    §5.18.2 closes by naming this exact failure ("a binding that cannot honour a
    clause MUST refuse it"). Julia implements the refusal for time integration
@@ -940,12 +933,12 @@ them. What follows is ordered by what blocks what.
    does not block this port — Rust is the binding this repository runs — but it
    means a cross-binding fidelity claim cannot be made for any float32 document
    here, which is all of the NONROAD side.
-4. **F28 — a data-named predecessor is not a recurrence**, which is what
+3. **F28 — a data-named predecessor is not a recurrence**, which is what
    `process-evap-permeation` stands on: mode 300 is TTG-4a's walk over
    `SampleVehicleTrip`, whose predecessor is named by `priorTripID`, a data
    column. The specification, the oracle (128 rows at 6.174e-06) and the
    workaround control all exist; the fixture does not.
-5. **An off-network snapshot**, without which the evaporative soak chain cannot
+4. **An off-network snapshot**, without which the evaporative soak chain cannot
    be checked anywhere. Three consecutive slices failed to reach it for one
    structural reason — `fractionOfOperating` is identically 1 at an on-network
    link, and all 39 snapshots select road type 4 — so this needs a RunSpec on
