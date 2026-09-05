@@ -466,7 +466,7 @@ Snapshot `MOVESOutput` row counts, the honest measure of fixture size:
 | 144 | **`nr-logging-county`** | NONROAD |
 | 250 | **`mixed-onroad`**, `expand-day` | onroad base-rate |
 | 336 | `process-refueling` | onroad evap |
-| 744–750 | **`process-brakewear`** (750), `expand-criteria`, `process-tirewear` | onroad |
+| 744–750 | **`process-brakewear`** (750), **`process-tirewear`** (750), `expand-criteria` | onroad |
 | 1,080 | `chain-tog-speciation`, `chain-nonhaptog` | speciation chains |
 | 1,936–2,355 | `nr-lawn-garden-county`, `nr-construction-state` | NONROAD |
 | 15,801–23,108 | `nr-industrial-county`, `nr-agriculture-state`, `nr-railroad-support-nation`, … | NONROAD, large |
@@ -870,7 +870,7 @@ per CLAUDE.md.
 ## 6. Immediate next steps
 
 Phases 0, 1, 2 and 3 are done and merged, and Phase 4 has two of its slices
-wired, and Phase 5's first rung is landed. Five fixtures match the reference
+wired, and Phase 5's first two rungs are landed. Six fixtures match the reference
 completely, with an exact key set and no `[shortfall]`:
 
 | fixture | rows | worst cell | phase |
@@ -880,6 +880,7 @@ completely, with an exact key set and no `[shortfall]`:
 | `process-evap-leaks` | 128 / 128 | 7.294e-06 | 4 |
 | `process-evap-fvv` | 128 / 128 | 7.495e-06 | 4 |
 | `process-brakewear` | 750 / 750 | 8.250e-06 | 5 |
+| `process-tirewear` | 750 / 750 | 8.151e-06 | 5 |
 
 all against `tolerance.toml`'s 2e-05, which has never been widened for any of
 them. What follows is ordered by what blocks what.
@@ -912,6 +913,21 @@ them. What follows is ordered by what blocks what.
      unchanged to the last digit. **Retargeting an existing fixture onto a
      neighbouring snapshot is a cheap and effective audit** and should be the
      first move on every later rung.
+
+   **`process-tirewear` is the second rung and is landed**: 750 / 750, exact key
+   set, worst cell 8.151e-06, no `[shortfall]`, nothing read from the reference,
+   and the same worst cell at the same key from the independent reproduction in
+   `docs/process-tirewear.md` §6.5. It inherits all three of the above and adds
+   one. **The `BaseRateCalculator` spine is shared but the operating-mode
+   distribution is not.** Tire wear's rates live on modes 400–416, binned on
+   average speed alone and written by a second generator
+   (`AverageSpeedOperatingModeDistributionGenerator`, process 10) rather than by
+   the drive cycles, so `W` acquires a pollutant-process axis. Retargeting
+   `process-brakewear` onto that snapshot reproduced its 250 energy rows at
+   7.106e-06 and returned *exactly 0* on all 500 particulate rows: the audit
+   found no defect — this snapshot's scope is `process-brakewear`'s to the row,
+   so it could not — but it named the work in one measurement.
+   `docs/esm-conventions.md` §28 and `docs/process-tirewear.md` §2.3.
 
    The rest of the phase is unblocked for the same reason it was:
    `W` was the last uncomputed relation, so every fixture that emits processID 1

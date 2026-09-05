@@ -701,7 +701,7 @@ else
   ORACLES=("./run-oracle.sh" "./run-oracle.sh --float64"
            "./run-onroad-oracle.sh" "./run-leaks-oracle.sh"
            "./run-permeation-oracle.sh" "./run-fvv-oracle.sh"
-           "./run-brakewear-oracle.sh")
+           "./run-brakewear-oracle.sh" "./run-tirewear-oracle.sh")
   for oracle in "${ORACLES[@]}"; do
     if [[ ! -x "${oracle%% *}" ]]; then
       fail "oracle ${oracle} — not executable"
