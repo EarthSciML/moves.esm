@@ -254,9 +254,22 @@ Reproduced to **7.550e-07** on all 24 hours; the peak (TVV-2's `peakHourID`) is
 
 ### 2.5 `TankFuelGenerator` — `AverageTankGasoline` (TFG-1a … TFG-3b)
 
-`tank_fuel_generator.rs:405-755`. The table is captured empty (§1.1) so every
-column of it is computed here. Constants: `ethanolRVP = 2.3`,
-`weatheringConstant = 0.049`, `regionCodeID = 1`.
+`tank_fuel_generator.rs:405-755`, checked against the canonical
+`TankFuelGenerator.java` (589 lines) statement by statement. The table is
+captured empty (§1.1) so every column of it is computed here. Constants:
+`ethanolRVP = 2.3`, `weatheringConstant = 0.049`, `regionCodeID = 1`.
+
+Two things the canonical Java settles that the Rust alone would leave open:
+
+* **`RunSpecMonthGroup` is joined in TFG-1a only**, not in TFG-1b or TFG-1c. An
+  unselected month group can therefore form a `TFGFuelSupplyAverage` group,
+  and it is TFG-2b's `inner join … using (monthGroupID)` against `TFGZone` —
+  built solely from `RunSpecMonth` — that drops it. Applying the filter in the
+  average instead, which `moves.rs` and this port both do, gives the identical
+  row set within a selected month group.
+* **`cleanDataLoop` deletes the generator's own `isUserInput = 'N'` rows after
+  its consumers run**, so what TFG-3b's `insert ignore` blocks against is, in
+  steady state, the user-input rows only. There are none here.
 
 **TFG-0 — resolve the fuel region.** The first `regionCounty` row with
 `regionCodeID = 1` and `countyID = 26161` for which some `Year` row has
@@ -1689,6 +1702,19 @@ Everything in §0.3's zero-effect table, and in addition:
 Every one of these was confirmed by sabotage rather than by reading: forcing
 `peakHourID` to 24, for instance, leaves `./run-fvv-oracle.sh` at exit 0 with
 every number unchanged, which is §0.3 arriving from a fourth direction.
+
+The gates that *are* live were sabotaged the same way and go red:
+
+| sabotage | result |
+|---|---|
+| oracle: `rvpAdjustment := 1` (a port that skipped `TankFuelGenerator`) | exit 1, `emissionQuant: worst error 3.5866e-02 … exceeds 2.0e-05` |
+| oracle: TTG-1's rise coefficient 1.4 → 1.5 | exit 1, `ColdSoakTankTemperature: worst error 9.7913e-04 … exceeds 1.0e-06` |
+| oracle: drop TVV-9's `÷ noOfRealDays` | exit 1, `worst error 4.0000e+00` |
+| oracle: TFG commingling factor forced to 1.04 | exit 1, `worst error 8.9229e-03` |
+| oracle: bypass the `opModeFraction` join (all modes weighted 1) | exit 1, `worst error 6.2425e+00` |
+| oracle: silence the cold-soak base rate entirely | exit 1, **`the venting chain produced no cold-soak base rate at all`** — §0.3's measurement refusing to be vacuous |
+| `run-tests.sh`'s oracle loop, with a 1 % error injected into the spec's §6.5 | `FAIL ./run-fvv-oracle.sh` |
+| fixture: `tfgAdjustment × 1.01` | 20 of 124 assertions red |
 
 The three TFG mechanisms are the ones most worth a probe test rather than a
 fixture check, because unlike the venting chain they are *upstream of a
