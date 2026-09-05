@@ -47,6 +47,17 @@ def documents() -> list[pathlib.Path]:
         rel = p.relative_to(ROOT).as_posix()
         if any(rel == d or rel.startswith(d + "/") for d in EXCLUDED_DIRS):
             continue
+        # A hidden .esm is transient by convention -- a probe, a materialized
+        # copy, a half-written scratch file -- and is not part of the document
+        # set. run-tests.sh says so where it collects DOCS, and says why: a
+        # concurrent probe that exists now and is gone a stage later makes the
+        # harness report on its own bookkeeping. This checker did NOT apply the
+        # rule, so a concurrent benchmark dropping fifteen `.f17-*.esm` variants
+        # into fixtures/ produced fifteen convention findings against documents
+        # that were never authored. Same rule, same reason, one place it was
+        # missing.
+        if p.name.startswith("."):
+            continue
         out.append(p)
     return out
 

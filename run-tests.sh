@@ -504,7 +504,15 @@ fi
 RUNDIR=".fixtures-run"
 
 head2 "fixtures"
-mapfile -t FIXTURES < <(find fixtures -name '*.esm' 2>/dev/null | sort)
+# `-not -name '.*'` for the reason given where DOCS is collected: a hidden .esm
+# is transient by convention and not part of the document set. This stage was
+# the one place the rule was NOT applied, and it is the worst place to omit it
+# -- a hidden file here does not fail the round-trip, it fails as `fixture
+# .probe - no snapshot at .../.probe`, which reads like a missing snapshot
+# rather than like a scratch file. Observed: a concurrent benchmark left fifteen
+# `.f17-*.esm` variants in fixtures/, any one of which would have turned the
+# suite red without a fixture being wrong.
+mapfile -t FIXTURES < <(find fixtures -name '*.esm' -not -name '.*' 2>/dev/null | sort)
 
 if [[ ${#FIXTURES[@]} -eq 0 ]]; then
   say "  none"
