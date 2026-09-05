@@ -1037,9 +1037,26 @@ the first try in the only place where it matters. A second, smaller win sits
 behind the same seam: `build_providers` is a factory called inside the loop, so
 the parquet tables are re-read per test as well.
 
-**What it would be worth here.** The fixture stage would go from ~8 m 30 s to
-one evaluation plus 343 assertion reads, and `./run-tests.sh` from ~12 minutes
-to about four — without touching a single assertion.
+**What it would be worth here, and where the suite's time actually goes.**
+Every component of `./run-tests.sh`, timed separately at the same commit on the
+same (loaded) machine, against a 609.70 s whole-suite wall clock:
+
+| component | tests | wall clock |
+|---|---:|---:|
+| `esm test fixtures/nr-logging-county.esm` | 29 | 322.15 s |
+| `esm test ./components ./lib ./runs` (34 documents) | 112 | 176.18 s |
+| `esm test fixtures/process-evap-leaks.esm` | 10 | 45.36 s |
+| the `join.on` scaling gate (both documents) | 2 | 3.75 s |
+| `esm validate`, all 42 documents | — | 1.56 s |
+| `esm round-trip`, all 41 | — | 1.43 s |
+| everything else (tripwire, comparator self-test, fixture emit + compare, four oracles, chain cross-check) | — | ~59 s |
+
+**90% of the suite is `esm test`, and 151 of its 153 tests are one evaluation
+each of a document that would have answered all of them from one.** Memoising
+the build would take the first row to ~11 s and the second to ~53 s (34 builds
+instead of 112), which is `./run-tests.sh` in about three minutes — without
+touching a single assertion. Nothing else in the table is worth optimising: the
+whole non-`test` half of the suite is under a minute.
 
 ---
 

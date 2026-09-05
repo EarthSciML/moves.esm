@@ -1700,7 +1700,10 @@ whole document each, emitted rows byte-identical in all four:
 | `mix_processGroupID ↔ epg_processGroupID` | 272,523,600 | 541.0 s |
 
 ~2 µs per admitted leaf, flat across four orders of magnitude — the driving
-clause's selectivity *is* the run time. The four clauses together admit 2,601
+clause's selectivity *is* the run time. The load-bearing pair re-measured
+interleaved, three passes each so both see the same machine: SCC-first 21.25 /
+18.52 / 20.05 s against technology-first 10.99 / 11.48 / 11.24 s, emitted CSV
+byte-identical. The four clauses together admit 2,601
 tuples, so even the best order is ~900× above the relational cost; that gap is
 upstream's (F17) and not the document's.
 
