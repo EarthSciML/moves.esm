@@ -1797,3 +1797,105 @@ have to know which clause a binding drives on, and a binding that chose by
 selectivity — or intersected the clauses instead of choosing — would make this
 section obsolete. Until then, a `_comment` on the clause list is the only thing
 standing between the next author and a nine-minute `tech_fraction`.
+
+## 26. What the drive-cycle slice changed **[Phase 3 completed, 250 rows]**
+
+`W[hourDayID, opModeID]` — 46 numbers, `docs/mixed-onroad.md` §10 — was the last
+uncomputed relation in the onroad chain, and computing it landed
+`fixtures/mixed-onroad.esm`: 250 of 250 `MOVESOutput` rows, key set exact, worst
+cell 8.320 × 10⁻⁶ against a 2 × 10⁻⁵ gate. Four rules gained a reason, three
+things are new, and one long-standing claim turned out to be false.
+
+### 26.1 Four rules that gained a new reason
+
+* **§2, tables stay tables.** The 63,602-row `driveschedulesecond` relation is a
+  table and its neighbouring-second reads are joins on `(driveScheduleID,
+  second − k)`, not array offsets. That is not a stylistic choice here: every
+  schedule starts at second 0 and 19 of the 49 have **interior gaps**, so 185
+  rows have no predecessor and a positional read would silently pair a row with
+  a different schedule's second. The presence columns are what make the gap
+  visible; §3's "a `filter` carries a genuine predicate" and this are the same
+  rule seen from two sides.
+
+* **§3, every equality is a `join.on`.** The drive-cycle bracketing is the
+  counter-example that proves it: `speed <= binSpeed` really is a range
+  predicate, so it is a `filter` under a `max_product` reduction, exactly as
+  `latest_at_or_before_key` is. `docs/mixed-onroad.md` §8.1 had predicted this
+  step would be F17's "big table meets big table" shape; it is not a join at
+  all, and predicting a cost from a table's row count rather than from the
+  gate's shape was the error.
+
+* **§6, a reused shape is a template.** `lib/drive_cycle.esm` carries four, and
+  one of them is a template for a reason worth repeating: the *faster* bracketing
+  schedule's weight is `1 −` the slower's in **every one of the four branches**,
+  so there is one `bracket_low_fraction` and no complement template that could
+  drift from it.
+
+* **§25, the first clause is the one that costs.** Two applications in one
+  document. Each self-join writes the offset-second pair **first** (3.2 rows per
+  value) rather than the schedule pair (1,298). And `cohMode_rate` puts all six
+  key pairs in ONE clause rather than six, because six clauses would let the
+  evaluator drive on the operating mode — ~2,300 `emissionrate` rows per output
+  cell instead of two.
+
+### 26.2 Three things that are new
+
+* **A self-join is now an ordinary join, and it needs `join.syms`.** Finding
+  **F11** is fixed (EarthSciAST `107a15152`). Two `aggregate` ranges over one
+  index set can carry an `on` clause; candidates are ordered by the node's
+  canonical range order (output symbols first, then contracted symbols in
+  ascending code-point order), the left key is read at the earlier and the right
+  at the later, **three or more candidates is refused**, and an explicit
+  `"syms": [left, right]` overrides and is required at three. Measured at this
+  repository's largest scale — 63,602 rows, 4.045 × 10⁹ candidate pairs — the
+  eight self-joins of `fixtures/mixed-onroad.esm` cost **~1.4 s together, about
+  0.18 s each**, by bisection against the same document with them stubbed to
+  constants (6.6 s against 5.2 s, three runs each).
+
+  The convention: **write `syms` even when the default would pick the same
+  pair.** A reader of `[["dss_priorSecond", "dss_second"], ["dss_driveScheduleID",
+  "dss_driveScheduleID"]]` cannot otherwise tell which side is which, and the
+  second pair's two sides are the same column name.
+
+  What this retires: `fixtures/process-evap-leaks.esm`'s
+  `cohort_equipped_rows` — a whole second copy of the cohort relation over a
+  second index set, carried only because the fuel-usage rebase pairs a row with
+  another row of its own relation. `fixtures/mixed-onroad.esm` does the same
+  rebase as a three-clause self-join and needs no second relation.
+
+* **A rank turns a mask into a row count, and now it needs no self-join
+  either.** §22's mechanism, spelled with the cheaper of its two forms: the
+  inclusive prefix count is an ungated `aggregate` over two ranges of one index
+  set under a `filter` of `x <= c`, 164 × 164 leaves. It is a `filter` and not a
+  join because `<=` is a genuine predicate — the same rule as §3, arrived at
+  from the opposite direction.
+
+* **A first-match-wins loop is a SUM when the cases are disjoint, and the
+  disjointness is a computed check.** The reference walks 21 operating modes and
+  `break`s on the first match; the port sums `opModeID × indicator`, which is the
+  same number only because `readOperatingMode` excludes modes 26 and 36 and the
+  survivors then partition `speed >= 1`. The document computes `SUM of indicator`
+  as well and asserts it is 1, so a table change that broke the disjointness
+  shows up as a 2 rather than as a plausible wrong mode. **Do not substitute a
+  sum for an ordered search without carrying that second sum.**
+
+### 26.3 One claim that measurement overturned, and how it survived so long
+
+`docs/mixed-onroad.md` §8.2 recorded that "`sourceBinActivityFraction` equals
+`stmyFraction` exactly on all 125 rows", and concluded the `fuelusagefraction`
+remap was "effectively the identity for this county/year". It is not: the remap
+is a factor of **55** on the E85 rows, end to end, and the conclusion had been
+inferred from the table's shape (5 rows, four of them identity pairs) rather
+than measured against the chain.
+
+It survived because the observation it rested on was TRUE of a different table —
+`sourcebindistribution`, the *equipped* distribution — and the base rate is
+weighted by `sourcebindistributionfuelusage_1_26161_2020`, the *used* one.
+`components/onroad_source_bin_distribution.esm` had the remap right and said so
+at length; nothing compared the component with the specification, so the two
+disagreed in writing for a phase.
+
+**The rule:** an inference about what a table *does* is not a measurement, and a
+specification is not exempt from the repository's own cross-check discipline
+just because it is prose. §6.5's reproduction now computes the remap, so the
+claim is exercised on every run rather than asserted once.

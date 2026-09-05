@@ -632,36 +632,56 @@ registers (`CriteriaRunningCalculator` is superseded and registers nothing):
 aggregation. The adjustment sequence — temperature, humidity, fuel effects,
 I/M, A/C, activity weighting — is where the Phase 1 templates pay off.
 
-**Status: specified and four of six stages built.** The port specification is
-`docs/mixed-onroad.md`, written to the method of its NONROAD companion: the
-input inventory from four cross-checked sources, the eighteen-step chain with
-source lines, thirty-five joins with their exact key pairs, four worked
-examples and an executable oracle (`./run-onroad-oracle.sh`). Four components
-and an assembly cover S1–S12 and S15–S18, with 296 assertions.
-`docs/esm-conventions.md` §16 records what the onroad graph changed: every
-Phase 1/2 rule held, four gained a second reason, three things are new.
+**Status: complete.** The port specification is `docs/mixed-onroad.md`, written
+to the method of its NONROAD companion: the input inventory from four
+cross-checked sources, the eighteen-step chain with source lines, thirty-five
+joins with their exact key pairs, four worked examples and an executable oracle
+(`./run-onroad-oracle.sh`). Four components and an assembly cover S1–S12 and
+S15–S18 with 296 assertions; `fixtures/mixed-onroad.esm` covers the whole chain
+against the snapshot's own tables with 48 more.
 
-**One relation is not computed, and this changes the phase's exit criterion.**
+**Measured, `fixtures/mixed-onroad.esm` against the snapshot's `MOVESOutput`:**
+250 of 250 rows, key set exact (0 missing, 0 extra), worst cell **8.320 × 10⁻⁶**
+against a 2 × 10⁻⁵ gate, worst per-pollutant sum 9.675 × 10⁻⁸ against 10⁻³.
+`tolerance.toml` carries no `[shortfall]` record for it. `docs/esm-conventions.md`
+§16 records what the onroad graph changed and §26 what the drive-cycle slice
+changed.
+
+**The relation that was not computed, and how the exit criterion was met.**
 `W[hourDayID, opModeID]` — the speed-bin-weighted drive-cycle operating-mode
 distribution, 46 numbers — is computed inside the MOVES worker and dropped, so
 no captured table carries it, and `ratesopmodedistribution` covers only the
-off-network road type and start exhaust. §7.3 isolates it by solving for it
+off-network road type and start exhaust. §7.3 isolated it by solving for it
 (125 equations, 23 unknowns, residual 7.1 × 10⁻⁶ at the reference's own
-six-significant-figure storage floor), which proves the base rate factorises
-exactly around it and everything either side is right. §8.1 says what computing
-it takes: second-by-second VSP over `driveschedulesecond`'s 63,602 rows with
-`sourceusetypephysicsmapping`'s road-load coefficients, three F11
-neighbouring-row relations for acceleration and the 3-second brake lookback,
-and a range-predicate classification against `operatingmode`. Every piece has a
-spelling; it is F17's "big table meets big table" shape and needs
-`operating_mode_rows` as an axis.
+six-significant-figure storage floor), which proved the base rate factorises
+exactly around it and everything either side was right. It is computed now, from
+`driveschedulesecond`'s 63,602 second-by-second speeds and
+`sourceusetypephysicsmapping`'s road-load coefficients, in both the Python
+oracle and the `.esm` fixture; `docs/mixed-onroad.md` §10 is the port.
 
-**No fixture yet, and §7.4 argues that rather than recording a shortfall.** A
-document emitting 250 correctly-keyed rows with an uncomputed rate fails the
-per-cell gate for a shape `[shortfall]`'s exact counts cannot express; one
-reading the reference's own `baserate_1_2020` passes by transcribing the
-answer. So the exit criterion becomes: land `W`, check it end to end against
-`MOVESOutput` (§7.3 shows that is a sufficient check), then wire the fixture.
+**Three numbers from doing it.** Computing `W` instead of reading
+`baserate_1_2020` moved the oracle's worst cell from 8.231 × 10⁻⁶ to
+8.320 × 10⁻⁶ — nowhere — which is what §7.3's "the factorisation is exact"
+looks like from the outside. The two independent routes agree cell by cell to
+2.4 × 10⁻¹⁶, one ulp. And the four neighbouring-second self-joins that finding
+**F11** used to refuse cost ~1.4 s together at 4.045 × 10⁹ candidate pairs each,
+measured by bisection against the same document with them stubbed.
+
+**Two things §8.1 predicted about the toolchain were wrong, and are corrected in
+place.** The neighbouring-row reads are not F11's workaround — F11 is fixed
+(EarthSciAST `107a15152`) and they are ordinary self-joins with `join.syms`. And
+the mode classification is not F17's "big table meets big table" shape: it is an
+ungated per-second contraction over 60 modes, and the F17 shape is one stage
+later at the `emissionrate` lookup, where the remedy is one composite `on`
+clause rather than six.
+
+**§7.4's argument for not wiring a fixture is kept rather than deleted**, because
+it was right for the state it described. A document emitting 250 correctly-keyed
+rows with an uncomputed rate fails the per-cell gate for a shape `[shortfall]`'s
+exact counts cannot express; one reading the reference's own `baserate_1_2020`
+passes by transcribing the answer. The way out was to compute the missing
+relation, not to widen anything.
+
 That is one coherent piece of work, and it is not the only route into Phase 4.
 An earlier version of this paragraph said Phase 4's cheapest slice is start
 exhaust, "because its operating-mode distribution IS in the snapshot". **That

@@ -100,8 +100,11 @@ and not to comparing two implementations.
 `./run-oracle.sh` extracts and runs the independent float32 reproduction
 embedded in `docs/nonroad-logging-county.md` §6.5, and
 `./run-onroad-oracle.sh` does the same for `docs/mixed-onroad.md` §6.5 — all
-82 rows of `sho` to 4.1 × 10⁻⁶ and all 250 of `MOVESOutput` to 8.2 × 10⁻⁶, with
-the base rate read from the reference and the output saying so. It reproduces all 144 rows of
+82 rows of `sho` to 4.1 × 10⁻⁶ and all 250 of `MOVESOutput` to 8.3 × 10⁻⁶, and
+it takes **nothing** from the reference: it used to read `baserate_1_2020`,
+because the drive-cycle operating-mode distribution the base rate needs is
+computed inside the MOVES worker and dropped, and it computes that instead
+(§10). It reproduces all 144 rows of
 `nr-logging-county` to 4.9 × 10⁻⁶. Its purpose is attribution: when a document
 disagrees with the snapshot, a third implementation is what tells you whether
 the document is wrong or the specification is. `--float64` runs the same chain
@@ -295,13 +298,12 @@ it does.
 
 ## Status
 
-**Phases 0–2 are complete, Phase 3 has its specification and four components,
-and Phase 4 has two slices — both wired, and both complete.** Twenty components
-cover all seven NONROAD stages of `nr-logging-county`, four of the six onroad
-stages of `mixed-onroad`, and all of `process-evap-leaks` and
-`process-evap-fvv`, with **1,228 distinct inline assertions** whose numbers each
-trace to a named section of a port specification — 610 in the components, 74 in
-the assemblies, 540 in the three wired fixtures and 4 in the gates.
+**Phases 0–3 are complete, and Phase 4 has two slices — both wired, and both
+complete.** Twenty components cover all seven NONROAD stages of
+`nr-logging-county`, S1–S12 and S15–S18 of `mixed-onroad`, and all of
+`process-evap-leaks` and `process-evap-fvv`; `fixtures/mixed-onroad.esm` covers
+the whole onroad chain, including the drive-cycle operating-mode distribution no
+component can carry, against the snapshot's own tables.
 
 **`process-evap-leaks` was the first fixture with no shortfall at all**: 128 of
 128 rows against the snapshot `MOVESOutput`, key set exact — 128 shared, 0
@@ -420,17 +422,21 @@ operand was dropped rather than named, and the floor could not bind on this
 data anyway. `esm validate` rejected the same bytes. That is the second silent
 failure found on that path, after F24.
 
-`mixed-onroad` has no fixture yet, and `docs/mixed-onroad.md` §7.4 says why
-rather than recording a shortfall: everything in that 250-row chain is
-computable from the snapshot's input tables except one relation of 46 numbers,
-the drive-cycle operating-mode distribution, which canonical MOVES computes
-inside its worker and drops. §7.3 isolates it by solving for it and shows the
-base rate factorises exactly around it. A document emitting 250
-correctly-keyed rows with an uncomputed rate would fail the per-cell gate for
-a reason no `[shortfall]` record can express; one reading the reference's own
-`baserate_1_2020` would pass by transcribing the answer. Neither is a fidelity
-test, so the four components check what can be checked without the snapshot
-and `run-onroad-oracle.sh` checks the rest against it.
+`mixed-onroad` is the fourth fixture with no shortfall: **250 of 250 rows, key
+set exact, worst cell 8.320 × 10⁻⁶ against the same 2 × 10⁻⁵ gate, worst
+per-pollutant sum 9.675 × 10⁻⁸.** It was the last chain in the port with an
+uncomputed relation, and the shape of that gap is worth keeping: everything in
+those 250 rows was computable from the snapshot's input tables *except* 46
+numbers — the drive-cycle operating-mode distribution, which canonical MOVES
+computes inside its worker and drops. `docs/mixed-onroad.md` §7.3 isolated it by
+solving for it and showed the base rate factorises exactly around it, and §7.4
+argued that a document emitting 250 correctly-keyed rows with an uncomputed rate
+would fail the per-cell gate for a reason no `[shortfall]` record can express,
+while one reading the reference's own `baserate_1_2020` would pass by
+transcribing the answer. So neither was wired, and the relation was computed
+instead — from 63,602 second-by-second drive-schedule speeds, in the fixture and
+in the oracle independently, agreeing cell by cell to one ulp. Computing it moved
+the worst cell from 8.231 × 10⁻⁶ to 8.320 × 10⁻⁶. §10 is the port.
 
 See `PLAN.md` for the plan of record and `docs/findings/README.md` for what the
 toolchain still cannot do — thirteen open findings, and twelve retired

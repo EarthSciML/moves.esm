@@ -1,13 +1,13 @@
 # Findings: conventions the format or the toolchain could not express
 
-Twenty-seven things PLAN.md §3 Phase 1 through Phase 4 assumed, or that an author would
+Twenty-eight things PLAN.md §3 Phase 1 through Phase 4 assumed, or that an author would
 reasonably assume, that did not hold. **Thirteen are fixed upstream and retired**
 from the tripwire, listed at the bottom with their sections kept above so the
 workarounds they forced can be traced. The rest still hold at the pinned
 toolchain (`esm-version.lock`: EarthSciAST `a1dc9bb30`, EarthSciIO
 `d109951d4`, `--features esio,parallel`).
 
-F2, F3, F5, F13, F14, F20, F21, F22 and F28 each have a minimal `.esm` repro in this
+F2, F3, F5, F13, F14, F20, F21, F22, F28 and F32 each have a minimal `.esm` repro in this
 directory — F22 has two, one per construct; F8 is a CLI behaviour rather than a
 document, and is checked by command against the ordinary files of the repo.
 **F17 and F31 are cost findings and deliberately have no repro file**: a repro
@@ -86,6 +86,7 @@ three of them do not load.
 | **F20** | A constant-folded scalar right-hand side loses the left-hand side's array shape | assertion | no |
 | **F21** | A scoped reference to a mounted model's variable resolves as an operand and a join key but not as an assertion `variable` | assertion | no |
 | **F28** | A recurrence whose predecessor is named by a DATA COLUMN has no direct spelling; the lag must be an offset of the frame symbol | validate + test | no |
+| **F32** | An `enums` member cannot be ZERO; the schema requires a positive integer, and MOVES's Braking operating mode is 0 | validate | no |
 
 ---
 
@@ -1687,4 +1688,55 @@ the model: 7 is a property of this capture, and a lag beyond the declared range
 contributes the additive identity rather than raising. That second cost is this
 repository's characteristic failure in miniature, so an author using this
 spelling owes an assertion that the observed maximum lag is the one declared.
+
+
+## F32 — an `enums` member cannot be zero
+
+`F32_an_enum_member_cannot_be_zero.esm`. Found authoring Phase 3's drive-cycle
+operating-mode distribution.
+
+```
+Schema errors:
+  ✗ /enums/operating_mode/Braking: 0 is less than the minimum of 1
+```
+
+`esm-schema.json`'s `EnumDeclaration.additionalProperties` is
+`{"type": "integer", "minimum": 1}`, so an identifier whose value is 0 cannot be
+named. The refusal is at `validate`, loud, and names the member — the right
+failure mode.
+
+**Impact.** MOVES has several zero-valued identifiers and one of them is not a
+sentinel. `operatingmode.opModeID = 0` is **Braking**: a decelerating second is
+classified into it, it carries its own `emissionrate` row, and it is 2.0 % of
+`mixed-onroad`'s weekend and 5.6 % of its weekday operating-mode distribution.
+`regulatoryclass.regClassID = 0` ("Doesn't Matter"), `modelyeargroup.
+modelYearGroupID = 0` and `fuelusagefraction.modelYearGroupID = 0` (a wildcard
+the fuel-usage rebase tests for) are three more, in three other tables.
+
+So `docs/esm-conventions.md` §4's rule — an identifier value is written once, in
+an `enums` block, and referenced by name — has an exception it cannot state.
+`fixtures/mixed-onroad.esm` carries `run_brakingOpModeID` as a bare `0.0`
+literal with a comment, and three equations key on it: the two braking-rate
+lookups into `operatingmode` and the classification's braking arm. A reader who
+renumbers operating modes has to find a literal rather than an enum member.
+
+**Falsified, so the failure is attributable.** The same document with
+`"Braking": 99` validates. The zero is the whole of it, not the `makearray`, not
+the document-level `enums` block and not the `enum` op.
+
+**One secondary observation**, recorded because it would mislead a reader of the
+error output: once the schema rejects the `enums` block, the structural pass
+reports four further errors of the form `Variable 'operating_mode' referenced in
+equation is not declared`. Those are downstream of the first and disappear with
+it; they are not a second defect.
+
+**Fix shape.** Drop the `minimum` from `EnumDeclaration.additionalProperties`,
+or widen it to the whole integer range. Negative values matter for the same
+reason: `opmodepolprocassoc.polProcessID = -1` marks the unassociated
+drive-cycle operating modes — 24 of that table's 27 rows in the
+`process-evap-leaks` snapshot — and a MOVES table that uses −1 as a real code is
+not unusual. An `enums` member is not an index: it resolves to a NUMBER used in
+arithmetic and in `join.on` key comparisons, and the two 1-based constructs in
+the format (index-set coordinates and `makearray` regions) are validated
+separately.
 
