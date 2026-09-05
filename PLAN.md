@@ -1009,11 +1009,28 @@ lands and gives no sign of it. What is recorded is where it comes from:
 
 - **The denominator** is `../moves.rs/characterization/calculator-chains/calculator-dag.json`,
   built by `moves-calculator-info` from the pinned MOVES `CalculatorInfo.txt`
-  and a scan of 62 Java files. 65 modules, of which **48 are live** — 30
-  calculators and 16 generators, plus two of the `Unknown` kind. A module is
-  live if MOVES registers it, subscribes it, or chains to it; that rule is in
-  the tool, not in prose, and it excludes `DummyCalculator` by name as the one
-  test stub the rule would otherwise admit.
+  and a scan of 62 Java files. 65 modules, of which **35 are live** — 19
+  calculators and 16 generators.
+
+  The liveness rule differs by kind, because the evidence does. A calculator
+  is live iff it registers at least one `(pollutant, process)` pair;
+  registration is what MOVES consults to decide whether a calculator
+  contributes at all. Subscription is *not* sufficient, and reading it as
+  sufficient is the trap: **twelve** calculators subscribe to the master loop,
+  register nothing, are chained from nothing and have no dependents — the
+  classes `BaseRateCalculator`'s rates-first approach superseded, left in the
+  tree with their `Subscribe` directive intact. `docs/process-brakewear.md`
+  §8 already says this of `BasicBrakeWearPMEmissionCalculator`. Counting them
+  would put twelve modules in the denominator that no fixture can ever
+  exercise, because MOVES never calls them. A further seven neither subscribe
+  nor register — an abstract base, the well-to-pump pair, and the PM crankcase
+  variant `SulfatePMCalculator` displaced. The tool prints both lists, split
+  by reason, so the exclusion is auditable rather than buried in a predicate.
+
+  A generator registers nothing by nature, so for generators subscription and
+  being chained from something are the evidence. Modules of kind `Unknown` are
+  excluded: `MasterLoopTest` is a test harness and `ProjectTAG` is
+  project-scale tagging.
 - **The numerator** is the `| Calculator path |` row each specification in
   `docs/` already carries. The spec's own claim, in the spec, moving in the
   same commit as the work.

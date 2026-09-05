@@ -75,19 +75,48 @@ def load_dag():
 
 
 def is_live(mod, dag):
-    """A module MOVES actually runs.
+    """A module the pinned MOVES build actually computes with.
 
-    Registrations are the direct evidence. A generator has none -- it is pulled
-    in by whatever depends on it -- so `subscribes_directly` and being named in
-    someone's `chained_downstream` both count. `DummyCalculator` satisfies that
-    test and is still a test stub, so it is excluded by name; it is the only
-    such case in the file.
+    The test differs by kind, because the evidence differs by kind.
+
+    A CALCULATOR is live iff it registers at least one (pollutant, process)
+    pair. Registration is what MOVES consults to decide whether a calculator
+    contributes to a run; a calculator that registers none contributes nothing,
+    whatever else it declares.
+
+    Subscription is NOT sufficient, and reading it as sufficient is the trap.
+    Twelve calculators subscribe to the master loop, register zero pairs, are
+    named in nobody's `chained_downstream`, and have no dependents: they are
+    the classes `BaseRateCalculator`'s rates-first approach superseded, left in
+    the tree with their `Subscribe` directive intact.
+    `docs/process-brakewear.md` says exactly this of one of them --
+    "`CalculatorInfo.txt` registers (116, 9) to `BaseRateCalculator`, and
+    `calculator-dag.json` records `registrations_count: 0` for the legacy
+    class" -- and `moves.rs` says it in the module docs of
+    `criteria_running_calculator`, `criteria_start_calculator` and
+    `basicstartpm`. Counting them would put twelve modules in the denominator
+    that no fixture can ever exercise, because MOVES itself never calls them.
+
+    `DummyCalculator` is one of those twelve rather than a special case, so
+    this rule needs no by-name exclusion. An earlier version of this function
+    had one, which is what a wrong rule looks like from the inside: the
+    exception that had to be carved out was the rule disagreeing with reality.
+
+    A GENERATOR registers nothing by nature -- it is pulled in by whatever
+    depends on it -- so for generators subscription and being chained from
+    something are the evidence.
+
+    Modules of kind `Unknown` are excluded: `MasterLoopTest` is a test harness
+    and `ProjectTAG` is project-scale tagging, and neither is model arithmetic
+    a fixture could reproduce.
     """
-    if mod["name"] == "DummyCalculator":
-        return False
-    if mod["registrations_count"] > 0 or mod["subscribes_directly"]:
-        return True
-    return any(mod["name"] in o.get("chained_downstream", []) for o in dag.values())
+    if mod["kind"] == "Calculator":
+        return mod["registrations_count"] > 0
+    if mod["kind"] == "Generator":
+        return (mod["subscribes_directly"]
+                or any(mod["name"] in o.get("chained_downstream", [])
+                       for o in dag.values()))
+    return False
 
 
 def specs():
@@ -232,6 +261,25 @@ def main():
         for mod, where in sorted(claimed.items()):
             if mod not in covered:
                 print("    %-42s %s" % (mod, ", ".join(where)))
+    print()
+    # The exclusion is the largest single judgement this tool makes -- it
+    # removes twelve calculators from the denominator -- so it is printed
+    # rather than left implicit in is_live().
+    dead = [(n, m) for n, m in sorted(dag.items())
+            if m["kind"] == "Calculator" and n not in live]
+    # Two different reasons, and saying "superseded" for both would be wrong:
+    # a class that still subscribes has been displaced by BaseRateCalculator,
+    # whereas one that subscribes to nothing was never wired in at all
+    # (GenericCalculatorBase is the abstract base; the WTP pair is well-to-pump).
+    print("  not in the denominator, because MOVES never calls them:")
+    for label, which in (
+            ("superseded -- subscribes, registers no pollutant-process pair",
+             [n for n, m in dead if m["subscribes_directly"]]),
+            ("unwired -- no subscription and no registration",
+             [n for n, m in dead if not m["subscribes_directly"]])):
+        print("    %s:" % label)
+        for n in which:
+            print("      %s" % n)
     print()
     print("  not yet ported:")
     for kind in ("Calculator", "Generator"):
