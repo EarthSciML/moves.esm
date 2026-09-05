@@ -1046,3 +1046,29 @@ lands and gives no sign of it. What is recorded is where it comes from:
 nor claim one the DAG records as dead, nor declare a calculator path without
 the snapshot row that says what the claim is about. Those are the three ways
 the figure could quietly start lying.
+
+`--ladder` answers the other recurring question — which snapshot to port next —
+from the same data. Rung order had been chosen from memory, and it went wrong
+twice in one afternoon: once naming a superseded class as the prize, once
+crediting NONROAD calculators to ONROAD snapshots because registration is
+model-blind. Two rules make it measured instead:
+
+- **The pairs come from the OUTPUT, not the RunSpec.** A RunSpec selects
+  pollutant-process pairs; it does not promise MOVES emitted rows for them.
+  `process-refueling`, `process-evap-leaks` and `process-evap-fvv` all select
+  pollutant 86, for which `HCSpeciationCalculator` is registered, and **not one
+  of them has a single output row for it**. Read from the RunSpec, all three
+  look like they would unlock that calculator; read from the output, it
+  contributed nothing — which is also why those three fixtures match every row
+  without implementing it.
+- **Eight snapshots emit no rows at all** — `process-extended-idle`,
+  `process-apu`, `process-crankcase-start`, `process-crankcase-extidle` and
+  each one's `-single` variant — with `MOVESOutput` *and* `MOVESWorkerOutput`
+  both empty. They are structural gates over the run scope, not verification
+  rungs: a fixture cannot be checked against no rows. Reading the output
+  disposes of them without a special case.
+
+The remaining calculator no snapshot exercises is
+`CO2AERunningStartExtendedIdleCalculator` (8 registrations) — the same shape of
+gap as the missing off-network snapshot in item 4 above, and it needs a RunSpec
+generated in `moves.rs` rather than a fixture here.

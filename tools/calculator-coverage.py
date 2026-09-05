@@ -41,6 +41,7 @@ Usage:
 """
 
 import argparse
+import glob
 import json
 import os
 import re
@@ -52,6 +53,39 @@ DAG = os.environ.get(
     os.path.join(ROOT, "..", "moves.rs", "characterization",
                  "calculator-chains", "calculator-dag.json"),
 )
+
+# The three live calculators that belong to the NONROAD side.
+#
+# This has to be written down rather than derived, and it is worth saying why,
+# because three plausible automatic signals were tried and all three fail:
+#
+#   * `calculator-dag.json`'s registrations are keyed on (pollutant, process)
+#     alone and say nothing about the model, so a NONROAD calculator appears
+#     as a candidate on any ONROAD RunSpec that happens to select a pair it
+#     shares -- which is most of them.
+#   * `java_path` does not separate them: only `NonroadEmissionCalculator`
+#     lives under `master/nonroad/`; both `NR*` classes sit in the same
+#     `implementation/ghg/` package as the onroad calculators.
+#   * The snapshot's own tables do not either. `nr*`-prefixed tables ship
+#     populated in the default database regardless of model -- `mixed-onroad`,
+#     an ONROAD snapshot, carries 89 of them holding 381,789 rows.
+#
+# What IS authoritative is the RunSpec's own `<model>` element, which is what
+# MOVES reads to decide which model runs. That covers the snapshot side; this
+# list covers the calculator side. The evidence for each name:
+# `NonroadEmissionCalculator` is the onroad DAG's hook into the NONROAD
+# simulation (its module doc, and the only `master/nonroad/` java_path), and
+# both `NR*` calculators read exclusively `nr*`-prefixed input tables that no
+# onroad calculator reads (`nrATRatio`, `nrHCSpeciation`, `nrMethaneTHCRatio`
+# and their siblings, from the `INPUT_TABLES` each declares).
+#
+# Three names is small enough to check by hand and stable enough to keep. If a
+# fourth appears, `--ladder` will silently credit it to onroad snapshots.
+NONROAD_CALCULATORS = {
+    "NonroadEmissionCalculator",
+    "NRAirToxicsCalculator",
+    "NRHCSpeciationCalculator",
+}
 
 # A `| Calculator path | ... |` table row, and the `| RunSpec | ... |` row that
 # says which snapshot the spec is about. Both are existing conventions in
@@ -170,12 +204,149 @@ def fixtures():
     return out
 
 
+def ladder(dag, live, covered):
+    """What each snapshot would newly unlock, measured from its OUTPUT.
+
+    Rung order is the recurring decision on this port, and answering it from
+    memory has gone wrong twice: once recommending a snapshot for a calculator
+    that is one of the superseded twelve, and once crediting NONROAD
+    calculators to ONROAD snapshots because registration is model-blind. Both
+    were plausible and both were wrong, so the answer is derived here.
+
+    THE PAIRS COME FROM THE OUTPUT, NOT THE RUNSPEC. A RunSpec selects
+    pollutant-process pairs; it does not promise MOVES emitted rows for them.
+    Three already-ported snapshots make the difference concrete: process-
+    refueling, process-evap-leaks and process-evap-fvv each select pollutant 86
+    (and two of them 87), for which `HCSpeciationCalculator` is registered --
+    and their MOVESOutput contains no row for any of those pairs. Reading the
+    RunSpec would report all three as unlocking HCSpeciationCalculator; reading
+    the output shows it contributed nothing there, which is also why those
+    fixtures match 100 % of their rows without implementing it.
+
+    Reading the output also disposes of the zero-row snapshots without a
+    special case: process-extended-idle, both process-apu and all four
+    process-crankcase-{start,extidle}* have an empty MOVESOutput AND an empty
+    MOVESWorkerOutput, so they emit no pairs and unlock nothing. They are
+    structural gates over the run scope, not verification rungs -- a fixture
+    cannot be checked against no rows.
+
+    Row counts and pairs come from the output parquet: the count from the
+    footer via `read_metadata`, the pairs from the two key columns only.
+    """
+    ch = os.path.join(ROOT, "..", "moves.rs", "characterization")
+    reg = {}
+    with open(DAG) as fh:
+        for r in json.load(fh)["registrations"]:
+            reg.setdefault((r["pollutant_id"], r["process_id"]),
+                           set()).add(r["calculator"])
+
+    ported = set()
+    for name in os.listdir(os.path.join(ROOT, "fixtures")):
+        if name.endswith(".esm") and not name.startswith("."):
+            with open(os.path.join(ROOT, "fixtures", name)) as fh:
+                ported |= set(re.findall(r"snapshots/([a-z0-9-]+)", fh.read()))
+
+    rows = []
+    for xml in sorted(glob.glob(os.path.join(ch, "fixtures", "*.xml"))):
+        name = os.path.basename(xml)[:-4]
+        snap = os.path.join(ch, "snapshots", name)
+        if not os.path.isdir(snap):
+            continue
+        with open(xml) as fh:
+            models = set(re.findall(r'<model value="(\w+)"', fh.read()))
+        model = "/".join(sorted(models)) or "?"
+
+        n, pairs, note = None, set(), ""
+        try:
+            import pyarrow.parquet as pq
+            with open(os.path.join(snap, "provenance.json")) as fh:
+                db = json.load(fh)["output_database"]
+            path = os.path.join(snap, "tables",
+                                "db__%s__movesoutput.parquet" % db)
+            n = pq.read_metadata(path).num_rows
+            if n:
+                t = pq.read_table(path, columns=["pollutantID", "processID"])
+                d = t.to_pydict()
+                pairs = {(d["pollutantID"][i], d["processID"][i])
+                         for i in range(t.num_rows)}
+        except Exception as exc:
+            note = type(exc).__name__
+
+        cands = set()
+        for pr in pairs:
+            cands |= reg.get(pr, set())
+        if models == {"ONROAD"}:
+            cands -= NONROAD_CALCULATORS
+        elif models == {"NONROAD"}:
+            cands &= NONROAD_CALCULATORS
+        rows.append({
+            "name": name, "model": model, "rows": n, "pairs": sorted(pairs),
+            "cands": {c for c in cands if c in live},
+            "ported": name in ported, "note": note,
+        })
+
+    todo = [r for r in rows if not r["ported"]]
+    print("ladder -- what each unported snapshot would newly unlock")
+    print("  pairs and rows read from MOVESOutput, not from the RunSpec")
+    print()
+    print("  %-30s %-8s %6s %5s  %s"
+          % ("snapshot", "model", "rows", "pairs", "unlocks"))
+    ranked = sorted(todo, key=lambda r: (-len(r["cands"] - covered),
+                                         r["rows"] if r["rows"] else 1 << 30))
+    for r in ranked:
+        new = sorted(r["cands"] - covered)
+        if not new:
+            continue
+        print("  %-30s %-8s %6s %5d  +%d %s"
+              % (r["name"], r["model"],
+                 r["rows"] if r["rows"] is not None else "?",
+                 len(r["pairs"]), len(new), ", ".join(new)))
+
+    empty = [r for r in todo if r["rows"] == 0]
+    if empty:
+        print()
+        print("  emit NO rows -- structural gates over the run scope, not")
+        print("  verification rungs; a fixture cannot be checked against none:")
+        for r in empty:
+            print("    %s" % r["name"])
+
+    rest = [r for r in ranked if r["rows"] and not (r["cands"] - covered)]
+    if rest:
+        print()
+        print("  emit rows, but unlock no calculator not already covered --")
+        print("  these test axis generalization rather than new arithmetic:")
+        for r in rest:
+            print("    %-28s %-8s %6s %5d" % (r["name"], r["model"],
+                                              r["rows"], len(r["pairs"])))
+
+    reachable = set()
+    for r in rows:
+        reachable |= r["cands"]
+    missing = sorted(n for n, m in live.items()
+                     if m["kind"] == "Calculator" and n not in reachable)
+    if missing:
+        print()
+        print("  live, but NO snapshot in the corpus emits a row it owns --")
+        print("  porting it needs a new RunSpec generated in moves.rs:")
+        for n in missing:
+            print("    %-42s %d registrations"
+                  % (n, dag[n]["registrations_count"]))
+    bad = [r for r in rows if r["note"]]
+    if bad:
+        print()
+        print("  no MOVESOutput read: %s"
+              % ", ".join("%s (%s)" % (r["name"], r["note"]) for r in bad))
+    return 0
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--check", action="store_true",
                     help="exit non-zero if any spec's claim has rotted")
     ap.add_argument("--markdown", action="store_true",
                     help="emit the table body for PLAN.md")
+    ap.add_argument("--ladder", action="store_true",
+                    help="what each unported snapshot would newly unlock")
     args = ap.parse_args()
 
     dag = load_dag()
@@ -215,6 +386,9 @@ def main():
         rows.append((name, s["snapshot"], len(s["modules"]), backed,
                      fixture.get(s["snapshot"]),
                      ", ".join(oracle.get(name, [])) or "-"))
+
+    if args.ladder:
+        return ladder(dag, live, set(covered))
 
     if args.check:
         for e in errors:
