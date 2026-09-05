@@ -564,8 +564,9 @@ parquet, and the assertions are that document's own worked longhand.
   build-time observed graph once per test, and `--filter` selects rows from the
   results AFTER all of them have been evaluated. Measured on
   `fixtures/nr-logging-county.esm` at 144 rows: `simulate` is 16.3 / 16.5 /
-  17.7 s over three runs, `esm test` is 532.7 s for all 29 tests and 539.0 /
-  566.7 s filtered to ONE of them. A 16-copies-of-one-test synthetic is linear
+  17.7 s over three runs, `esm test` is 532.7 / 545.7 s for all 29 tests and
+  566.7 / 539.0 s filtered to ONE of them — not faster, and slower in one of the
+  two samples. A 16-copies-of-one-test synthetic is linear
   at ~3.3 s per test and saves 8% when fifteen of the sixteen are filtered away.
   The consequence for authoring is not "write fewer tests" — each of the 29 is a
   distinct claim and merging them would make a failure less diagnosable — but

@@ -1004,10 +1004,18 @@ every build in the loop is the same build:
 Linear, ~3.3 s per additional test, and filtering fifteen of the sixteen away
 saves 8%.
 
-**Measured, on this repository.** `fixtures/nr-logging-county.esm`:
-`esm simulate --time 0` is 16.30 / 16.52 / 17.70 s over three runs; `esm test`
-on the same document is 532.74 s for all 29 tests and 566.71 s filtered to one.
-29 × 16.8 s = 487 s, which is that number. The suite's dominant cost is
+**Measured, on this repository.** `fixtures/nr-logging-county.esm`,
+`/usr/bin/time` around each invocation, two samples of each interleaved so they
+see the same machine:
+
+| invocation | run 1 | run 2 |
+|---|---:|---:|
+| `esm test fixtures/nr-logging-county.esm` (all 29 tests) | 532.74 s | 545.72 s |
+| … `--filter the_surrogate_is_read_and_not_declared` (one test) | 566.71 s | 539.03 s |
+
+The filtered run is not faster; in one of the two samples it is *slower*, which
+is the spread and not an effect. `esm simulate --time 0` on the same document is
+16.30 / 16.52 / 17.70 s, and 29 × 16.8 s = 487 s. The suite's dominant cost is
 therefore not the fixture — it is the fixture, twenty-nine times.
 
 **Why it is worth a finding rather than an authoring rule.** The document cannot
