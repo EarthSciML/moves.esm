@@ -482,6 +482,29 @@ Both fixtures now share `lib/adjustments.esm`'s `exact_else_wildcard`, and
 `mixed-onroad`'s 250 numbers are unchanged to the last digit.
 `docs/process-brakewear.md` is the specification.
 
+`process-tirewear` is the sixth, and Phase 5's second rung: **750 of 750 rows,
+key set exact, worst cell 8.151 × 10⁻⁶** against the same 2 × 10⁻⁵ gate. On
+paper it is `process-brakewear` with three identifiers changed — same three
+blocks, same chained PM10 pollutant, same rate relation, and a snapshot whose
+resolved scope is `process-brakewear`'s to the row, with five of its activity
+tables byte-identical. It is not. **Tire wear is the one running process whose
+operating mode depends on average speed and not on drive-cycle physics**: its
+`emissionrate` rows live on modes 400–416, and `RatesOpModeDistribution` is
+written for them by a second generator —
+`AverageSpeedOperatingModeDistributionGenerator` handles process 10, while
+`BaseRateGenerator` drives the cycles itself only for processes 1 and 9 — with
+`avgspeedbin.opModeIDTirewear`, one nullable column of a sixteen-row table,
+carrying the whole model. So `W` acquires a pollutant-process axis. The two mode
+families are disjoint in `emissionrate`, so a single 39-mode weight vector would
+have reproduced every one of the 750 numbers; it would also have made the two
+assertions that tell the designs apart unstatable, which is why the fixture does
+not do that. The retarget audit that opened the rung was **clean** — both
+existing onroad fixtures reproduce all 250 energy rows at 7.106 × 10⁻⁶ — and
+`docs/esm-conventions.md` §28.1 records why a snapshot at the same scope could
+not have found anything, and what it named instead: the retargeted
+`process-brakewear` returns *exactly 0* on all 500 particulate rows.
+`docs/process-tirewear.md` is the specification.
+
 See `PLAN.md` for the plan of record and `docs/findings/README.md` for what the
 toolchain still cannot do — thirteen open findings, and twelve retired
 because they were fixed.

@@ -43,7 +43,7 @@ differs is the place a reader would least expect a difference:
 | Output | `db__out_process_tirewear__movesoutput`, **750 rows** |
 | Output units | energy in Million BTU, particulate in **grams**, `outputtimestep` **Hour** |
 | Calculator path | `TotalActivityGenerator` → `SourceBinDistributionGenerator` → **`AverageSpeedOperatingModeDistributionGenerator`** → `BaseRateGenerator` → `BaseRateCalculator` → `PM10BrakeTireCalculator` → output aggregation |
-| Snapshot | 372 tables, **237 non-empty** |
+| Snapshot | 372 tables, **238 non-empty** |
 
 ### 0.1 The scope is `process-brakewear`'s, exactly
 
