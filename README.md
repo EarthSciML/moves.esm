@@ -505,6 +505,34 @@ not have found anything, and what it named instead: the retargeted
 `process-brakewear` returns *exactly 0* on all 500 particulate rows.
 `docs/process-tirewear.md` is the specification.
 
+`process-refueling` is the seventh, and Phase 5's third rung: **336 of 336
+rows, key set exact, worst cell 7.434 × 10⁻⁶** against the same 2 × 10⁻⁵ gate.
+It is the first fixture whose calculator computes no rate on the
+running-exhaust spine at all. `RefuelingLossCalculator` is *chained*: it
+subscribes to no MasterLoop stage, hangs off `BaseRateCalculator`, and uses that
+calculator's **Total Energy Consumption output** as its activity —
+`emissionQuant = lossRate × energy ÷ (energyContent × fuelDensity)`, where the
+divisor is kilojoules per gallon, so the quotient is gallons delivered and both
+loss rates are grams per gallon. Four things were new. The chained input is in
+**kilojoules**, because MOVES rebases energy to the run's output unit in the
+output processor *after* the calculator chain, so a document that divided by
+1,055,055.9 first would be that factor low on all 336 rows and would still pass
+a ratio check between its two blocks. The two blocks are **different sizes** —
+64 cohorts and 104, because `refuelingcontroltechnology` carries two fuel types
+and electricity is dropped from both by an inner join on a NULL energy content —
+so the output relation has one rank across the whole rate relation and no
+per-block cohort ordinal. That NULL is the third: it arrives as NaN, `0 × NaN`
+is NaN, so the extract's own `WHERE energyContent > 0` has to be written as a
+*value* rather than as a presence factor. And two of the run's three energy
+pollutant-processes contribute exactly zero by a **different route** in the port
+(an operating-mode contraction) than in the reference (a road-type join), which
+are equivalent only because no off-network road type is selected — a condition
+the fixture computes and asserts rather than assumes.
+`docs/process-refueling.md` is the specification, and five stages this snapshot
+cannot exercise — both Stage II program reductions, both temperature clamps and
+the vapour floor that binds — are checked in
+`components/refueling_loss_rate.esm` instead.
+
 See `PLAN.md` for the plan of record and `docs/findings/README.md` for what the
 toolchain still cannot do — thirteen open findings, and twelve retired
 because they were fixed.

@@ -1,0 +1,368 @@
+{
+  "esm": "1.0.0",
+  "metadata": {
+    "name": "moves.refueling",
+    "description": "Template library: the forms of `RefuelingLossCalculator.sql`'s \"Processing\" section, ported from crates/moves-calculators/src/calculators/refueling_loss_calculator.rs. Refueling is the first calculator in this port that does not compute a rate on the running-exhaust spine at all -- it chains off `BaseRateCalculator`'s Total Energy Consumption output and converts energy to fuel VOLUME through the fuel's energy content and density, then multiplies by a per-gallon loss rate (docs/process-refueling.md \u00a72).\n\nThe library carries the FORMS and nothing else; every coefficient stays in `refuelingfactors`, `refuelingcontroltechnology`, `sourcetypetechadjustment` and `countyyear` where MOVES keeps it (docs/esm-conventions.md \u00a724). That split is what makes the eight templates below cover both refueling processes and all four fuel types with no branch on either.\n\nTwo of them are guards rather than physics, and both are load-bearing. `positive_else_zero` is the SQL's own `WHERE energyContent > 0 AND fuelDensity > 0` written as a VALUE: electricity's `fuelsubtype.energyContent` and `fueltype.fuelDensity` are both NULL, a NULL arrives from the parquet reader as NaN (docs/esm-conventions.md \u00a711), and `0 * NaN` is NaN -- so a plain presence INDICATOR would poison the market-share sum for every other fuel through the aggregate. `ifelse` selects its branch before evaluating it, which is what makes this the fix and a multiplication not. `refueling_emission_quantity` carries the same reason at the other end of the chain: it is REFEC-7's INNER JOIN onto `RefuelingFuelType`, and without it electricity's zero divisor is a 0/0.\n\n`refueling_temperature` is the one place a literal is physics rather than a key: `20.30 + 0.81 * t` is the 2008 California refueling study's relation, written inline in RefuelingLossCalculator.sql, and it applies only when BOTH temperature limits are set -- a `(0, 0)` pair disables it and the ambient temperature is used unchanged. Diesel and electricity carry `(0, 0)`, so the disabling arm is live in every run.",
+    "authors": [
+      "EarthSciML Authors and Contributors"
+    ],
+    "tags": [
+      "moves",
+      "onroad",
+      "refueling",
+      "evaporative",
+      "template-library"
+    ]
+  },
+  "expression_templates": {
+    "positive_else_zero": {
+      "params": [
+        "value"
+      ],
+      "body": {
+        "op": "ifelse",
+        "args": [
+          {
+            "op": ">",
+            "args": [
+              "value",
+              0.0
+            ]
+          },
+          "value",
+          0.0
+        ]
+      }
+    },
+    "refueling_temperature": {
+      "params": [
+        "temperature",
+        "low_limit",
+        "high_limit"
+      ],
+      "body": {
+        "op": "ifelse",
+        "args": [
+          {
+            "op": "and",
+            "args": [
+              {
+                "op": "!=",
+                "args": [
+                  "high_limit",
+                  0.0
+                ]
+              },
+              {
+                "op": "!=",
+                "args": [
+                  "low_limit",
+                  0.0
+                ]
+              }
+            ]
+          },
+          {
+            "op": "+",
+            "args": [
+              20.3,
+              {
+                "op": "*",
+                "args": [
+                  0.81,
+                  {
+                    "op": "min",
+                    "args": [
+                      {
+                        "op": "max",
+                        "args": [
+                          "low_limit",
+                          "temperature"
+                        ]
+                      },
+                      "high_limit"
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          "temperature"
+        ]
+      }
+    },
+    "tank_temperature_dif": {
+      "params": [
+        "term_e",
+        "term_f",
+        "refueling_temperature",
+        "limit"
+      ],
+      "body": {
+        "op": "ifelse",
+        "args": [
+          {
+            "op": ">=",
+            "args": [
+              {
+                "op": "+",
+                "args": [
+                  {
+                    "op": "*",
+                    "args": [
+                      "term_e",
+                      "refueling_temperature"
+                    ]
+                  },
+                  "term_f"
+                ]
+              },
+              "limit"
+            ]
+          },
+          "limit",
+          {
+            "op": "ifelse",
+            "args": [
+              {
+                "op": "<=",
+                "args": [
+                  {
+                    "op": "+",
+                    "args": [
+                      {
+                        "op": "*",
+                        "args": [
+                          "term_e",
+                          "refueling_temperature"
+                        ]
+                      },
+                      "term_f"
+                    ]
+                  },
+                  0.0
+                ]
+              },
+              0.0,
+              {
+                "op": "+",
+                "args": [
+                  {
+                    "op": "*",
+                    "args": [
+                      "term_e",
+                      "refueling_temperature"
+                    ]
+                  },
+                  "term_f"
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "displaced_vapor_rate": {
+      "params": [
+        "term_a",
+        "term_b",
+        "term_c",
+        "term_d",
+        "tank_temperature_dif",
+        "refueling_temperature",
+        "average_rvp"
+      ],
+      "body": {
+        "op": "exp",
+        "args": [
+          {
+            "op": "+",
+            "args": [
+              "term_a",
+              {
+                "op": "+",
+                "args": [
+                  {
+                    "op": "*",
+                    "args": [
+                      "term_b",
+                      "tank_temperature_dif"
+                    ]
+                  },
+                  {
+                    "op": "+",
+                    "args": [
+                      {
+                        "op": "*",
+                        "args": [
+                          "term_c",
+                          "refueling_temperature"
+                        ]
+                      },
+                      {
+                        "op": "*",
+                        "args": [
+                          "term_d",
+                          "average_rvp"
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "floored_vapor_rate": {
+      "params": [
+        "rate",
+        "minimum"
+      ],
+      "body": {
+        "op": "ifelse",
+        "args": [
+          {
+            "op": "<=",
+            "args": [
+              "minimum",
+              -1.0
+            ]
+          },
+          0.0,
+          {
+            "op": "max",
+            "args": [
+              "rate",
+              "minimum"
+            ]
+          }
+        ]
+      }
+    },
+    "adjusted_vapor_rate": {
+      "params": [
+        "displaced_rate",
+        "controlled_rate",
+        "program_adjust",
+        "tech_adjust"
+      ],
+      "body": {
+        "op": "+",
+        "args": [
+          {
+            "op": "*",
+            "args": [
+              {
+                "op": "*",
+                "args": [
+                  "displaced_rate",
+                  {
+                    "op": "-",
+                    "args": [
+                      1.0,
+                      "program_adjust"
+                    ]
+                  }
+                ]
+              },
+              {
+                "op": "-",
+                "args": [
+                  1.0,
+                  "tech_adjust"
+                ]
+              }
+            ]
+          },
+          {
+            "op": "*",
+            "args": [
+              {
+                "op": "*",
+                "args": [
+                  "controlled_rate",
+                  {
+                    "op": "-",
+                    "args": [
+                      1.0,
+                      "program_adjust"
+                    ]
+                  }
+                ]
+              },
+              "tech_adjust"
+            ]
+          }
+        ]
+      }
+    },
+    "adjusted_spill_rate": {
+      "params": [
+        "spill_rate",
+        "program_adjust",
+        "tech_adjust"
+      ],
+      "body": {
+        "op": "*",
+        "args": [
+          {
+            "op": "-",
+            "args": [
+              1.0,
+              "program_adjust"
+            ]
+          },
+          {
+            "op": "*",
+            "args": [
+              {
+                "op": "-",
+                "args": [
+                  1.0,
+                  "tech_adjust"
+                ]
+              },
+              "spill_rate"
+            ]
+          }
+        ]
+      }
+    },
+    "refueling_emission_quantity": {
+      "params": [
+        "rate",
+        "energy",
+        "fuel_volume_divisor",
+        "has_divisor"
+      ],
+      "body": {
+        "op": "ifelse",
+        "args": [
+          {
+            "op": ">",
+            "args": [
+              "has_divisor",
+              0.5
+            ]
+          },
+          {
+            "op": "/",
+            "args": [
+              {
+                "op": "*",
+                "args": [
+                  "rate",
+                  "energy"
+                ]
+              },
+              "fuel_volume_divisor"
+            ]
+          },
+          0.0
+        ]
+      }
+    }
+  }
+}
