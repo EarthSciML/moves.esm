@@ -1611,7 +1611,46 @@ each fuel type at exactly 0.972879747…0.972888089 (fuel 1) and
 0.965375393…0.965386279 (fuel 5). A constant per-fuel-type ratio is what
 identified the missing factor as the RVP adjustment and nothing else.
 
-### 7.3 Fidelity notes carried from `moves.rs`
+### 7.3 What the fixture takes, measured
+
+`fixtures/process-evap-fvv.esm` is `fixtures/process-evap-leaks.esm`'s activity,
+cohort and operating-mode stages repointed at this snapshot, plus
+`TankFuelGenerator` and TVV-8's adjustment authored here. That the first three
+stages really are shared and not merely similar is a measurement rather than a
+claim: **55 of the leaks fixture's assertions passed on the FVV tables the
+moment the paths were repointed**, and the 18 that failed were exactly the
+process ID, the SCC's process suffix, the four base rates and the eight
+emission cells — every one of which is a quantity this slice computes
+differently.
+
+The document ends at **124 assertions, all passing**, and its eight worked
+cells agree with `MOVESOutput` at a worst relative error of **7.495e-06** — the
+same worst cell as §6.5's oracle, reached by a different route through a
+different implementation.
+
+Three things the fixture had to be told, each found by asserting rather than by
+reading:
+
+* **Every `DECIMAL` column of the snapshot arrives as text**, and a source
+  whose bound columns are all decimals fails extent discovery outright
+  (`loader variable '…' decoded as strings`). The remedy is the data source's
+  `reader_options.float_columns`, which the leaks fixture already carried for
+  `emissionRateByAge`; the five new fuel sources carry it too.
+* **Diesel and electricity have no `evapRVPTemperatureAdjustment` rows at
+  all**, so V30's two bracket aggregates return the `min_sum` / `max_sum`
+  semiring identities −∞ and +∞ and `knot_interpolate` evaluates `0 × ∞` = NaN.
+  That NaN never reached an output cell — the cohort join takes fuel types 1
+  and 5 — but a NaN in a live variable is precisely `README.md`'s "warning
+  about zeros", so the two knots are made finite and the adjustment is the
+  identity there. MOVES reaches the same place differently: the block that
+  builds the terms truncates and refills `averageTankGasoline` from this join,
+  so a fuel type with no knots leaves the table entirely (§2.13).
+* **`t` is a reserved index symbol.** An `aggregate` that binds it is refused at
+  load with an explanation, rather than silently reading the independent
+  variable. That is the toolchain working, not a finding, and it is recorded
+  here because the natural name for `fuelSubtype`'s index is `t`.
+
+### 7.4 Fidelity notes carried from `moves.rs`
 
 * The SQL stores every working-table measure in a 32-bit `FLOAT` while MariaDB
   evaluates in `DOUBLE`. Both `moves.rs` and this port compute in `f64` end to
