@@ -27,6 +27,13 @@ snapshots is a string of decimal text despite the sidecar metadata calling it
 float64, so `float_columns` is mandatory rather than an optimization, and
 forgetting one column is both easy and silent.
 
+  5. a row count stated at the START of the entry's `note` matches the file.
+     Fixtures are authored by copying a sibling's spine, so a note travels
+     with the structure while the table under it changes; four notes were
+     wrong this way when the check was added, two of them still naming
+     `brakewear` inside the NOx fixture. Numerics passing says nothing about
+     whether the prose describes this snapshot.
+
     tools/check-sources.py             # every .esm that declares data_sources
     SNAPSHOTS=... tools/check-sources.py
 """
@@ -68,6 +75,8 @@ SNAPSHOTS = _find_snapshots()
 # NOT matched: it is a key, not a measurement, and coercing it to float would
 # lose exactness on a join.
 DECIMAL_TEXT = re.compile(r"^-?\d+\.\d+$")
+# A row-count claim opening a `data_sources` note: "222 rows.", "1 row,".
+ROW_CLAIM = re.compile(r"(\d{1,3}(?:,\d{3})+|\d+)\s+rows?\b")
 
 problems: list[str] = []
 notes: list[str] = []
@@ -183,6 +192,43 @@ def check_source(doc_name: str, doc_dir: pathlib.Path, name: str, entry: dict) -
                          f"not in float_columns — harmless while unread "
                          f"({', '.join(soft[:4])}{', …' if len(soft) > 4 else ''})")
 
+
+    # 5. a leading row-count claim in the note must match the Parquet.
+    #
+    #    By convention nearly every note here opens by stating the table's
+    #    size -- "222 rows. Model year to model-year GROUP..." -- and 409 of
+    #    them across nine fixtures did so when this check was written. That
+    #    convention is what makes the check possible AND what makes it
+    #    necessary, because a fixture is authored by copying a sibling's spine
+    #    and the note travels with the structure while the table underneath it
+    #    changes.
+    #
+    #    It found four wrong ones the day it was added, all inherited:
+    #    process-nox-speciation carried brakewear's counts for
+    #    pollutantprocessmodelyear (222 where its own table has 444),
+    #    fleetavgadjustment (11 where it has 9) and temperatureadjustment (1
+    #    where it has 4) -- two of them still saying the word "brakewear"
+    #    inside the NOx fixture -- and process-refueling carried the same 222
+    #    against a 777-row table. Every one of those fixtures matched its
+    #    snapshot to the row and to 1e-6, which is the point: numbers passing
+    #    says nothing about whether the prose describes THIS snapshot, and
+    #    nothing else in this suite reads the prose at all.
+    #
+    #    Only a claim that OPENS the note is checked. Numbers later in a note
+    #    are about subsets, other tables, or other fixtures ("222 in the
+    #    brakewear and tirewear slices"), and checking those would be a
+    #    guessing game with false alarms. A note that opens with a count is
+    #    making a claim about the file this entry names, and nothing else.
+    m = ROW_CLAIM.match((entry.get("metadata") or {}).get("note", "").strip())
+    if m:
+        claimed = int(m.group(1).replace(",", ""))
+        actual = pq.read_metadata(path).num_rows
+        if claimed != actual:
+            fail(doc_name, name,
+                 f"the note opens by claiming {m.group(1)} row(s), but "
+                 f"{path.name} has {actual}. A note that travels with copied "
+                 f"structure describes the snapshot it was written for, not "
+                 f"this one")
 
 def main() -> int:
     # Every document that declares `data_sources`, wherever it lives. The
