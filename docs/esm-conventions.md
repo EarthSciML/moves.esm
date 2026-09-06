@@ -2394,3 +2394,89 @@ any emitted number. It is written in the source's order because that is the
 port, and the document says so rather than letting a green comparison imply
 otherwise. A fixture at an hour above about 68 °F on the heat index would test
 it; this one cannot.
+
+---
+
+## 31. When the blocks are ragged, rank GLOBALLY **[Phase 5, 1,368 rows]**
+
+§22 built a rank because a `ragged` index set does not evaluate (finding
+**F14**) and a rectangular axis emits keys the snapshot does not have. Three
+onroad fixtures then reused that shape at a level up: the output relation is
+pollutant-process-major blocks of `n_outputCohort × n_runspecday`, and an output
+row is addressed as *(block, day, cohort rank)*.
+
+**That layout carries a hidden precondition, and `process-crankcase-running` is
+the first fixture to violate it: every block must span the same cohorts.** Its
+six pollutant-processes do not. `crankcaseEmissionRatio` has no fuelTypeID 9
+row and `CrankcaseEmissionCalculator.sql`'s join is an `INNER JOIN`, so the
+twenty electricity cohorts emit a process-1 row and no process-15 row: three
+blocks of 124 and three of 104.
+
+**The fix is not a second rank, or a per-block offset table. It is to stop
+letting the layout carry the pollutant-process at all.**
+
+```
+rt_emits[b]         -- does this rate row become an output row?
+rt_prefixEmitted[b] = SUM over x <= b of rt_emits[x]     -- inclusive prefix count
+rt_outputRank[b]    = rt_emits[b] x rt_prefixEmitted[b]  -- dense 1..N over ALL blocks
+output row o        = (major(o, n_runspecday), minor(o, n_runspecday))
+                    = (rank, day)
+```
+
+The rank runs over the whole rate relation rather than restarting per block, so
+a short block simply contributes fewer ranks. The output relation is
+`N × n_runspecday` — one flat product, two coordinates, no pollutant-process
+factor — and every identity column of the output row, the pollutant-process
+included, is read back through the rank join from the rate row it reaches. Which
+rows emit is a consequence of the arithmetic; nothing about the shape of the
+answer is written into the layout.
+
+Three things follow, and each was worth the change on its own.
+
+1. **The mask is where the two calculators meet.** `rt_emits` has exactly two
+   arms and they are the two MOVES modules this fixture ports:
+
+   ```
+   rt_emits = isChained ? (chainSourceEmits AND hasChainRatio) : survives
+   ```
+
+   An exhaust row emits when `BaseRateCalculator` selects *and* rates its
+   cohort; a crankcase row emits when its exhaust row did *and*
+   `CrankcaseEmissionCalculatorNonPM`'s ratio table has a row for it. The
+   `INNER JOIN` that drops a row and the `if let Some` that returns a factor of
+   one are different things and they sit in the same expression, one in the
+   mask and one in the value — which is the distinction §22's point 2 makes,
+   restated for a chain.
+
+2. **The per-block count becomes an assertion instead of a declaration.** With
+   rectangular blocks, `n_outputCohort` is a metaparameter and a wrong block
+   size is a length error somebody notices. With a global rank the only
+   declared number is the TOTAL, so the split has to be measured separately:
+   `pp_emittedCohortCount` counts the mask per pollutant-process and pins
+   124/104/124/104/124/104. **1,368 rows is equally consistent with six blocks
+   of 114**, and the comparator's exact-key-set check would not distinguish
+   them either, because the union of six 114-cohort blocks over the same key
+   space can be made to match. A slice whose blocks are ragged must assert the
+   raggedness; the row count is not evidence of it, and neither is the key set.
+
+3. **Fewer moving parts, not more.** The rectangular form needed a block
+   offset, a within-block day ordinal, a within-block cohort ordinal and a
+   repacked `(block, cohort)` key. The global form needs `flat_relation_major`
+   and `flat_relation_minor` from `lib/keys.esm`, once. The ragged case is
+   *simpler* than the rectangular one — which is the argument for using it even
+   where the blocks happen to be equal, and the reason this section says
+   **rank globally**, not "rank globally when you must".
+
+**The rule.** Rank the rows that emit, over the whole relation they live on,
+and let the output axis be that rank crossed with the axes that are genuinely
+rectangular. Reserve a block layout for the case where a coordinate is
+independently meaningful, and then assert its extent per block rather than
+declaring it.
+
+**And check the precondition before reusing a layout.** The rectangular form
+worked in `process-brakewear` and `process-tirewear` and it worked for a reason
+neither document stated, because in both of them it was true by accident: every
+pollutant-process shared one cohort set. It took a fixture where that is false
+to notice the assumption existed. When a later slice reuses a shape from an
+earlier one, the question is not whether the shape fits the new numbers — it is
+what the earlier slice was quietly relying on that nobody wrote down.
