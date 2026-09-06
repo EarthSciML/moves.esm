@@ -34,6 +34,11 @@ forgetting one column is both easy and silent.
      `brakewear` inside the NOx fixture. Numerics passing says nothing about
      whether the prose describes this snapshot.
 
+  6. a polProcessID the note names is really in the table. Check 5 catches a
+     copied note whose count is wrong; this catches one whose count is right
+     by coincidence, which is how a note claiming brakewear's polProcessID
+     survived in the NOx fixture -- both tables have 23 rows.
+
     tools/check-sources.py             # every .esm that declares data_sources
     SNAPSHOTS=... tools/check-sources.py
 """
@@ -77,6 +82,8 @@ SNAPSHOTS = _find_snapshots()
 DECIMAL_TEXT = re.compile(r"^-?\d+\.\d+$")
 # A row-count claim opening a `data_sources` note: "222 rows.", "1 row,".
 ROW_CLAIM = re.compile(r"(\d{1,3}(?:,\d{3})+|\d+)\s+rows?\b")
+# polProcessIDs a note names: "all polProcessID 9101", "polProcessID 118, 119".
+POLPROCESS = re.compile(r"polProcessID[s]?\s+((?:\d+)(?:\s*(?:,|and|/)\s*\d+)*)")
 
 problems: list[str] = []
 notes: list[str] = []
@@ -229,6 +236,40 @@ def check_source(doc_name: str, doc_dir: pathlib.Path, name: str, entry: dict) -
                  f"{path.name} has {actual}. A note that travels with copied "
                  f"structure describes the snapshot it was written for, not "
                  f"this one")
+
+    # 6. a polProcessID the note names must actually be in the table.
+    #
+    #    Check 5 catches a copied note whose COUNT is wrong. It cannot catch
+    #    one whose count happens to be right, and that is not hypothetical:
+    #    process-nox-speciation's fullacadjustment note said "23 rows, all
+    #    polProcessID 9101. Brakewear has none, so its A/C increment is exactly
+    #    0" -- and both snapshots' tables have exactly 23 rows, so check 5 
+    #    passed it. The NOx table holds polProcessID 301, not 9101.
+    #
+    #    That one mattered more than a wrong count, because it gave the wrong
+    #    REASON for a right number. Brakewear's A/C increment is 0 because the
+    #    table has no row for its pollutant-process; NOx's is 0 because the
+    #    rows ARE there and the activity term clamps. A reader who trusted the
+    #    note would believe the LEFT JOIN was load-bearing where it is not.
+    #
+    #    So: if a note names polProcessIDs and the file has that column, at
+    #    least one named ID must be present. "At least one" rather than "all",
+    #    because notes legitimately contrast their own table with a sibling's
+    #    ("222 in the brakewear and tirewear slices"), and demanding every
+    #    mentioned ID be present would punish exactly the cross-references
+    #    that make these documents readable.
+    note_text = (entry.get("metadata") or {}).get("note", "")
+    m = POLPROCESS.search(note_text)
+    if m and "polProcessID" in names:
+        claimed = {int(x) for x in re.findall(r"\d+", m.group(1))}
+        actual = set(pq.read_table(path, columns=["polProcessID"])
+                     .column("polProcessID").to_pylist())
+        if claimed and not (claimed & actual):
+            fail(doc_name, name,
+                 f"the note names polProcessID {sorted(claimed)}, none of "
+                 f"which is in {path.name} (it has "
+                 f"{sorted(actual)[:8]}). A right row count does not make a "
+                 f"copied note right about whose rows they are")
 
 def main() -> int:
     # Every document that declares `data_sources`, wherever it lives. The
