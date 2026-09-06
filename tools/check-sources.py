@@ -264,7 +264,17 @@ def check_source(doc_name: str, doc_dir: pathlib.Path, name: str, entry: dict) -
         claimed = {int(x) for x in re.findall(r"\d+", m.group(1))}
         actual = set(pq.read_table(path, columns=["polProcessID"])
                      .column("polProcessID").to_pylist())
-        if claimed and not (claimed & actual):
+        # An EMPTY table cannot contain any ID, so "at least one present" is
+        # unsatisfiable and this check must not fire. The emptiness is itself
+        # what such a note is about, and naming the polProcessID whose rows are
+        # missing is the useful part of it -- process-airtoxics' generalfuelratio
+        # note says "ZERO rows in this snapshot ... FuelEffectsGenerator
+        # evaluated none of them into generalfuelratio for polProcessID 101",
+        # which is precisely right and which the first version of this check
+        # reported as a failure. Found by running the check against a fixture
+        # written after it, which is the only way that class of false positive
+        # surfaces.
+        if actual and claimed and not (claimed & actual):
             fail(doc_name, name,
                  f"the note names polProcessID {sorted(claimed)}, none of "
                  f"which is in {path.name} (it has "
