@@ -993,6 +993,23 @@ Three checked-in pieces, all green:
   Reproduces all 144 rows at 4.897e-6.
 - `tolerance.toml` — the contract, with the reasoning next to the numbers.
 
+Two further audits are checked in but deliberately **outside** `run-tests.sh`,
+because they perturb the working tree in place and a hard kill would leave it
+perturbed. They have to be run by hand, so the record of when they last ran
+names the commit — a claim of "the audit is green" with no revision attached
+rots exactly the way the coverage figure did:
+
+| audit | last run | result |
+|---|---|---|
+| `tools/perturbation-audit.py fixtures` | `d866a8d` (rung 6) | 1,721 assertions perturbed, **1,721 red, 0 pass** — 1,459 non-zero nudged multiplicatively, 262 exactly-zero nudged additively. None is decoration. |
+| `tools/clause-order-audit.py` | `d866a8d` (rung 6) | 45 documents, 10 runnable; **191 clause lists and 589 `on` lists reordered** under five modes (reverse, rotate, three shuffles), every relation byte-identical and no test row moved. |
+
+The clause-order figures are the ones to watch: they were 162 clause lists and
+363 `on` lists at seven fixtures, so rungs 4–6 added 29 clause lists and 226
+`on` pairs and every one of them is order-independent. That gate is proven
+two-sided — run against the pre-F17 binary it fails at exactly 32 of 144 rows,
+first cell 1.7840874195098877 → 2.2641310691833496.
+
 The layered gates are not belt-and-braces. Measured by perturbing the real
 snapshot: dropping the four rows a Fortran-faithful `modfrc <= 0` skip would
 suppress leaves per-pollutant sums agreeing to **1.2e-8**, four orders inside
