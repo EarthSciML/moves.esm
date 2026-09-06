@@ -2254,3 +2254,143 @@ none of which a `const` component could pose. The component checks four clamps
 and a sentinel — none of which the fixture's own inputs reach. Neither half is a
 weaker version of the other, and a slice that produced only one of them would
 have been checked at half its surface.
+
+---
+
+## 30. What the NOx-speciation slice changed **[Phase 5, 872 rows]**
+
+`process-nox-speciation` is the first fixture to compute a **criteria
+pollutant**. The speciation it is named for turned out to be the cheap half —
+three ratios and a self-join, `process-brakewear`'s chain with a different
+table. The expensive half was the parent, and it is the parent that produced
+these five conventions.
+
+### 30.1 A row set can be decided by a key you added for a value
+
+`emissionrate` is **empty** in this snapshot; running-exhaust NOx lives in
+`emissionratebyage`, which is `emissionrate` plus an `ageGroupID` column. The
+obvious reading of that is "one more join key on the rate lookup" and it is
+incomplete. The seventh key also decides **which cohorts are emitted at all**:
+fuel type 9 has rows for age groups 3 through 1519 and none for 2099, so the one
+electricity cohort aged ≥ 20 finds no rate and does not appear, while model
+years 2001–2020 appear at rate exactly zero. Adding the key as a value and
+defaulting it on a miss reproduces every emitted number and emits 878 rows
+instead of 872.
+
+The general form: **a lookup that has gained a key has gained a way to miss, and
+a miss is a row-set fact.** `require_exact_key_set` is what catches it; the
+per-cell check cannot, because the extra rows are perfectly good numbers.
+
+### 30.2 A chained row's existence is a property of its parent, not of its own tables
+
+`process-brakewear`'s PM10 block emits exactly the cohorts its PM2.5 parent
+emits, because the ratio table covers all of them. That made survival look like
+a property of one relation. It is not. Here `nono2ratio` has no fuel type 9 row,
+so the species drop the whole electricity column — 104 cohorts against the
+parent's 124 — and the surviving condition is a **conjunction across two
+relations one of which is the rate relation itself**:
+
+```
+rt_survives = rt_directSurvives
+            + rt_hasChainRatio × rt_parentDirectSurvives
+```
+
+where `rt_parentDirectSurvives` is a self-join on
+`(rt_chainInputPolProcessID ↔ rt_polProcessID, rt_cohortOrdinal ↔ rt_cohortOrdinal)`
+— the same pair the *quantity* is already chained on, so no new join shape is
+introduced. It is a **sum rather than a branch** because no row can satisfy both
+arms: a chained pollutant-process has no rate row and an unchained one has no
+ratio row, exactly as `rtDay_quant = direct + chained` already relies on.
+
+Neither half alone gives the right answer, and the fixture asserts the row where
+they differ: rate row 288 is NO on electricity model year 2020, whose parent
+**does** survive (it is emitted, at zero) and which is still not emitted,
+because there is no ratio. A document that took survival from the parent alone
+emits 124 species cohorts; one that took it from the ratio alone emits 105.
+
+Write the parent-survival arm even when the current ratio table happens to cover
+everything. `process-brakewear` did not need it and would need it against a
+snapshot whose ratio table had one gap.
+
+### 30.3 Instantiate the flat-relation templates; three fixtures spell them out
+
+`lib/keys.esm` has carried `flat_relation_major`, `flat_relation_minor` and
+`flat_relation_block_index` since the NONROAD slice, and its own description
+says why: the two coordinates of a flat product **share one floor division**, and
+a hand-written pair can disagree about where a block ends. Three fixtures —
+`mixed-onroad`, `process-brakewear`, `process-refueling` — write
+
+```
+floor((o - 1) / block) + 1        and        (o - 1) - block × floor((o - 1) / block) + 1
+```
+
+out by hand at every such site, six sites in the two Phase-5 documents alone.
+This fixture instantiates the templates for its output decode. It is the same
+miss §26 recorded for `model_year_in_range` — a template lands, and the next
+document is authored from the *previous* document rather than from the library —
+and the same remedy: **on merge, diff `lib/` against what the new document
+hand-spells, not just against what it changed.** The remaining hand-spelled
+sites are a follow-up, not a defect; they are correct, and converging them is a
+change to three passing fixtures that has to be verified byte for byte.
+
+### 30.4 An equation carried as a text column is two aggregates, not one expression
+
+`noxhumidityadjust.humidityNOxEq` is `CFR 86` or `CFR 1065`, and the two name
+genuinely different formulae — linear in bounded specific humidity, reciprocal
+in bounded water mole fraction. Two consequences.
+
+**The selection is a `join.on`, not a filter.** §20.4 admits no exception for an
+equality against a constant; the text is decoded to 86 and 1065 by a `codes` map
+and joined to two one-row relations. The first draft wrote both as `==` inside a
+`filter` and `tools/check-conventions.py` rejected it, which is the rule working.
+
+**The arms must be separate aggregates, for a NaN reason.** `humidityTermB` is
+NULL — hence NaN — on the CFR 86 rows. Because the arms are separate aggregates
+with different join keys, that NaN is never in a row the CFR 1065 aggregate
+reads and never reaches an operator. Folding both forms into one expression
+under an `ifelse` would not have helped: an `ifelse` selects a *result*, it does
+not stop an operand being evaluated, so every gasoline cohort would return NaN.
+This is the same shape as §29.2 — **write the branch at the relation, where the
+row can be excluded, not at the expression, where the value has already been
+read.**
+
+### 30.5 A `regionCounty`-shaped table is a SET, and joining it doubles the answer
+
+`fuelsupply` is keyed by `fuelRegionID` and a captured snapshot pools every
+selected county's region into one table, so the port restricts it to the run
+county's regions (`baseratecalculator/mod.rs:1110–1149`) — and it does so with a
+`BTreeSet`. `regioncounty` has **two** rows for (26161, 270000000), differing
+only in `regionCodeID`. Joined as a relation, each supply row matches twice and
+every market share doubles: a silent 2× on the whole inventory, invisible to the
+key set and to any structural check, and visible only as every cell being twice
+what it should be.
+
+Consumed as a `max`-semiring **presence flag** it is the set the port actually
+uses. The tell is in the reference: **where the source collects into a set and
+tests membership, the port needs a presence flag; where it collects into a map
+and looks up, the port needs a join.** `lib/keys.esm`'s description already says
+`presence` arguments are computed with a `max`-semiring aggregate; this is the
+first fixture where getting it wrong would have been a factor-of-two error
+rather than a missing row.
+
+### 30.6 What the slice cannot see
+
+§23 applied. `imcoverage`, `emissionrateadjustment` and `evefficiency` are all
+**empty** in this snapshot, so three of `adjust.rs`'s stages are absent rather
+than exercised, and `GPAFract` is 0 so every fuel-effect blend selects its
+normal arm. The one worth naming separately is the **A/C arm, which is live in
+its tables and dead in its result**: `fullacadjustment` has 23 real
+`polProcessID` 301 rows, `rtDay_meanBaseRateACAdj` is a real number and is
+asserted against the reference's own `baseratebyage_1_2020` — and
+`run_acActivity` clamps to 0 at this heat index, so `rt_acFactor` is exactly 0
+and none of it reaches an emitted cell.
+
+That matters for one claim in particular. `adjust.rs` applies the criteria ratio
+and the temperature factor to **both** the rate and its A/C companion before
+adding the increment, and the fixture folds that into
+`(rate + acFactor × acAdj) × temperature × criteria`. **The fold is correct and
+untested**: with `acFactor` exactly 0 no ordering of those three factors changes
+any emitted number. It is written in the source's order because that is the
+port, and the document says so rather than letting a green comparison imply
+otherwise. A fixture at an hour above about 68 °F on the heat index would test
+it; this one cannot.
