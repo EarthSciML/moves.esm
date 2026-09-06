@@ -1102,11 +1102,33 @@ is *structurally the rung just landed* with a THC parent instead of NOx, which
 makes it cheaper than its row count suggests. And `chain-tog-speciation` and
 `chain-nonhaptog` have **identical** pollutant-process composition — 1,080 rows
 each over pollutants 1, 5, 79, 80 and 86 on process 1 — so they are one piece of
-work that cross-checks itself, not two rungs. `process-pm-exhaust` is the odd
+work that cross-checks itself, not two rungs — though the paragraph below
+records the further fact, measured after rung 6 landed, that neither of them
+unlocks a calculator at all. `process-pm-exhaust` is the odd
 one: seven 208-row blocks and **no** 248-row parent, so nothing in it is
 unchained.
 
-The remaining calculator no snapshot exercises is
-`CO2AERunningStartExtendedIdleCalculator` (8 registrations) — the same shape of
-gap as the missing off-network snapshot in item 4 above, and it needs a RunSpec
-generated in `moves.rs` rather than a fixture here.
+**Five live calculators no snapshot in the corpus exercises**, measured by
+`tools/calculator-coverage.py --ladder` at rung 6:
+
+| calculator | registrations | what it owns |
+| --- | --- | --- |
+| `NRAirToxicsCalculator` | 205 | NONROAD air toxics |
+| `TOGSpeciationCalculator` | 184 | pollutant 88 and the 1000-series species |
+| `NRHCSpeciationCalculator` | 45 | NONROAD HC speciation |
+| `CO2AERunningStartExtendedIdleCalculator` | 8 | off-network CO2 |
+| `SO2Calculator` | 4 | SO2 |
+
+Each is the same shape of gap as the missing off-network snapshot in item 4
+above: it needs a RunSpec generated in `moves.rs`, not a fixture here. Two of
+them are the NONROAD pair, so a single nonroad RunSpec selecting air toxics
+pays +2.
+
+`TOGSpeciationCalculator` is worth naming separately, because the corpus has
+two snapshots that *sound* like they reach it and do not.
+`chain-tog-speciation` and `chain-nonhaptog` emit 1,080 rows each over
+pollutants 1, 5, 79, 80 and 86 — and `TOGSpeciationCalculator` registers
+none of those. It owns pollutant 88 and the 1000-series. Both snapshots unlock
+**+0**: every calculator they touch is already covered by rung 6. They are axis
+tests, not rungs, and the ladder classifies them that way on the output rows
+rather than on their names.
