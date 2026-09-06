@@ -204,6 +204,75 @@ def fixtures():
     return out
 
 
+def output_path(snap):
+    """The MOVESOutput parquet inside a snapshot directory.
+
+    The capture tool lowercases the output database when it builds the file
+    name; `provenance.json` preserves the case MOVES used. Thirty-eight of the
+    thirty-nine snapshots have an all-lowercase database name, so building the
+    path from the field verbatim worked everywhere except `sample-runspec`
+    (`JUnitTestOutput`) -- where it raised FileNotFoundError, which the ladder
+    swallowed into a one-line note that read as "this snapshot emits nothing".
+    It emits 84 rows. Lowercase first, then glob, so that a future naming
+    change fails loudly instead of quietly subtracting a snapshot.
+    """
+    with open(os.path.join(snap, "provenance.json")) as fh:
+        db = json.load(fh)["output_database"]
+    path = os.path.join(snap, "tables",
+                        "db__%s__movesoutput.parquet" % db.lower())
+    if os.path.exists(path):
+        return path
+    hits = glob.glob(os.path.join(snap, "tables",
+                                  "db__*__movesoutput.parquet"))
+    if len(hits) != 1:
+        raise IOError("%d MOVESOutput tables under %s, expected exactly 1"
+                      % (len(hits), snap))
+    return hits[0]
+
+
+def read_output(snap):
+    """(row count, set of pollutant-process pairs) for one snapshot."""
+    import pyarrow.parquet as pq
+    path = output_path(snap)
+    n = pq.read_metadata(path).num_rows
+    if not n:
+        return 0, set()
+    t = pq.read_table(path, columns=["pollutantID", "processID"])
+    d = t.to_pydict()
+    return n, {(d["pollutantID"][i], d["processID"][i])
+               for i in range(t.num_rows)}
+
+
+def unreadable_outputs():
+    """Snapshots holding a MOVESOutput this tool cannot read.
+
+    The fourth rot mode, and the only one about the tool rather than the
+    documents. A snapshot that emits rows and reads as unreadable is
+    indistinguishable, in the ladder's output, from one that emits nothing --
+    and "emits nothing" is a conclusion the port acts on, by striking the
+    snapshot off the board. So an unreadable output is a hard error, not a
+    note.
+    """
+    ch = os.path.join(ROOT, "..", "moves.rs", "characterization")
+    out = []
+    for xml in sorted(glob.glob(os.path.join(ch, "fixtures", "*.xml"))):
+        snap = os.path.join(ch, "snapshots", os.path.basename(xml)[:-4])
+        if not os.path.isdir(snap):
+            continue
+        if not glob.glob(os.path.join(snap, "tables",
+                                      "db__*__movesoutput.parquet")):
+            continue                      # genuinely absent, not unreadable
+        try:
+            read_output(snap)
+        except Exception as exc:
+            out.append("%s holds a MOVESOutput parquet this tool could not "
+                       "read (%s: %s). The ladder would report it as emitting "
+                       "nothing, which is how a real rung gets struck off the "
+                       "board." % (os.path.basename(snap),
+                                   type(exc).__name__, exc))
+    return out
+
+
 def ladder(dag, live, covered):
     """What each snapshot would newly unlock, measured from its OUTPUT.
 
@@ -258,17 +327,7 @@ def ladder(dag, live, covered):
 
         n, pairs, note = None, set(), ""
         try:
-            import pyarrow.parquet as pq
-            with open(os.path.join(snap, "provenance.json")) as fh:
-                db = json.load(fh)["output_database"]
-            path = os.path.join(snap, "tables",
-                                "db__%s__movesoutput.parquet" % db)
-            n = pq.read_metadata(path).num_rows
-            if n:
-                t = pq.read_table(path, columns=["pollutantID", "processID"])
-                d = t.to_pydict()
-                pairs = {(d["pollutantID"][i], d["processID"][i])
-                         for i in range(t.num_rows)}
+            n, pairs = read_output(snap)
         except Exception as exc:
             note = type(exc).__name__
 
@@ -391,6 +450,7 @@ def main():
         return ladder(dag, live, set(covered))
 
     if args.check:
+        errors.extend(unreadable_outputs())
         for e in errors:
             print("error: " + e, file=sys.stderr)
         print("checked %d specifications against %d MOVES modules (%d live)"
