@@ -1069,6 +1069,26 @@ model-blind. Two rules make it measured instead:
   rungs: a fixture cannot be checked against no rows. Reading the output
   disposes of them without a special case.
 
+**The next four rungs inherit a proven key set.** Measured against
+`MOVESOutput` after rung 4 landed: `process-airtoxics`,
+`chain-tog-speciation`, `chain-nonhaptog` and `process-pm-exhaust` all use
+**exactly** the cohort sets `process-nox-speciation` established — the same 124
+parent cohorts × 2 day types (248 rows) and the same 104 species cohorts × 2
+(208 rows), set-equal, not merely equinumerous. So the expensive half of rung 4
+is done for all of them: `emissionratebyage`'s `ageGroupID` row-set behaviour,
+including model year 2000 electricity being absent from the parent while
+2001–2020 are present at exactly zero, is the same in each. What is left per
+rung is that snapshot's own ratio table and its parent's chemistry.
+
+Two consequences for ordering. `process-airtoxics` (1,288 rows = 248 + 5 × 208)
+is *structurally the rung just landed* with a THC parent instead of NOx, which
+makes it cheaper than its row count suggests. And `chain-tog-speciation` and
+`chain-nonhaptog` have **identical** pollutant-process composition — 1,080 rows
+each over pollutants 1, 5, 79, 80 and 86 on process 1 — so they are one piece of
+work that cross-checks itself, not two rungs. `process-pm-exhaust` is the odd
+one: seven 208-row blocks and **no** 248-row parent, so nothing in it is
+unchained.
+
 The remaining calculator no snapshot exercises is
 `CO2AERunningStartExtendedIdleCalculator` (8 registrations) — the same shape of
 gap as the missing off-network snapshot in item 4 above, and it needs a RunSpec
