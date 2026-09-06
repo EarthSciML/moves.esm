@@ -2,7 +2,7 @@
   "esm": "1.0.0",
   "metadata": {
     "name": "moves.fixture.process_air_toxics",
-    "description": "The `process-crankcase-running` fixture: 1,368 rows of MOVESOutput -- Total Gaseous Hydrocarbons, Carbon Monoxide and Oxides of Nitrogen on BOTH Running Exhaust (process 1) and Crankcase Running Exhaust (process 15), for passenger cars on urban restricted-access roads in Washtenaw County, August, 7am, 2020 -- computed from the snapshot's own INPUT tables. It ports docs/process-crankcase-running.md end to end and reuses the whole of docs/mixed-onroad.md's spine: the activity chain S1-S9, the cohort structure and the fuel-usage rebase S10-S12, the base rate S13-S14, and the output row S16-S18.\n\nTWO THINGS ARE NEW, AND THEY ARE INDEPENDENT.\n\n(1) THE POLLUTANTS ARE CRITERIA POLLUTANTS. Every earlier onroad fixture rated Total Energy Consumption or a particulate, and neither carries a fuel effect or a humidity correction. These do. The rate table is `emissionRateByAge` and not `emissionRate`, so J22 carries a seventh key pair -- the age group -- because a criteria rate deteriorates. Each base rate is then expanded over the FORMULATIONS the county's fuel supply carries for its fuel type, scaled by `criteriaratio` and `generalfuelratio`, and re-collapsed by market share (adjust.rs:206-262, aggregate.rs:28-45). And NOx alone takes a humidity correction whose equation is selected by a free-text column of a three-row table: k is 1.0216 on gasoline and E85 and 1.00955 on diesel, and dropping it moves every NOx row by more than 2 %.\n\n(2) THE TWO PROCESSES DO NOT SPAN THE SAME KEY SPACE, and that is the whole subject of this rung. `CrankcaseEmissionCalculatorNonPM` is a chained calculator with no rate of its own: a crankcase row is its own pollutant's exhaust row times a tabulated ratio, banded on model year and keyed by (pollutant-process, source type, regulatory class, fuel type). There is no fuelTypeID 9 row in that table and MOVES's join is an INNER one, so the twenty electricity cohorts emit a process-1 row and NO process-15 row: 248 rows per pollutant on process 1 and 208 on process 15. `process-tirewear` could lay its output out as rectangular blocks of a shared cohort rank because all three of its pollutant-processes spanned the same 125 cohorts; three of the six blocks here are twenty cohorts shorter than the other three, so the rank is GLOBAL over the rate relation instead -- `rt_emits` marks the 684 rate rows that reach MOVESOutput and `rt_outputRank` numbers them by an inclusive prefix count (docs/esm-conventions.md 31). No block has to be rectangular, and `pp_emittedCohortCount` states the 124/104 split as an assertion, which is the thing a row count of 1368 cannot make.\n\nTHE FUEL AND HUMIDITY TEMPLATES ARE NOT THIS DOCUMENT'S. `fixtures/process-nox-speciation.esm` reaches the same `BaseRateCalculator` arm and landed all eight of them in lib/adjustments.esm first; this document instantiates them. They were written independently on the two branches, under the same names and with the same bodies, and the reconciliation was to delete the second copy rather than to keep two spellings of `calculateNOxK`. The one template this rung adds is lib/keys.esm's `in_inclusive_range`, and docs/process-crankcase-running.md 4.0 says why it is not `model_year_in_range` renamed.",
+    "description": "The `process-airtoxics` fixture: 1,288 rows of MOVESOutput -- Total Gaseous Hydrocarbons on Running Exhaust and the five species chained off it (non-methane hydrocarbons, volatile organic compounds, benzene, 1,3-butadiene and formaldehyde), for passenger cars on urban restricted-access roads in Washtenaw County, August, 7am, 2020 -- computed from the snapshot's own INPUT tables. It ports docs/process-airtoxics.md end to end.\\n\\nTHE PARENT IS NOT NEW, AND THAT IS MEASURED RATHER THAN ASSUMED. This snapshot's THC block is BYTE-IDENTICAL to `process-crankcase-running`'s (pollutantID 1, processID 1) block, all 248 rows in the reference's own decimal text, so the whole activity spine S1-S9, the cohort structure and fuel-usage rebase S10-S12, the age-group-keyed rate out of `emissionratebyage`, the fuel-supply resolution and `criteriaratio` are that fixture's unchanged and are already checked end to end by it. Two of that document's inputs are gone: `temperatureadjustment` and `generalfuelratio` are both EMPTY here, so the temperature factor is exactly 1 on all 984 rate rows and `criteriaratio` is the only live fuel effect; `noxhumidityadjust` is populated and is read by nothing, because pollutant 1 never enters the NOx arm.\\n\\nWHAT IS NEW IS THE CHAIN, AND IT IS NEW IN FOUR WAYS.\\n\\n(1) IT IS THREE LEVELS DEEP. `runspecchainedto` says 7901 <- 101, 8701 <- 7901 and 2001/2401/2501 <- 8701, where every earlier fixture in this port chained one level. The chain ROOT is resolved on the six-row pollutant-process relation by iterating ONE parent join three times, and survival iterates the same join on the rate relation the same three times (docs/esm-conventions.md 30.2, 32). Widening the join instead would need a different clause per depth and would stop being read from MOVES's own table.\\n\\n(2) TWO CALCULATORS, AND ONLY ONE OF THEM IS CHAINED. `HCSpeciationCalculator` reads no `RunSpecChainedTo` -- it takes a THC block and returns up to five species from it in one pass -- so NMHC and VOC are written as a direct multi-output stage; `AirToxicsCalculator` does read it, and its two live ratio paths are a self-join off the VOC block. The document writes each the way its source is written, and the difference is visible in the shape of the two stages.\\n\\n(3) EVERY RATIO KEYS ON THE FUEL SUBTYPE OR THE FUEL FORMULATION, so all of them live on the (rate row x supplied formulation) relation `criteriaratio` already introduced, and the market-share collapse happens ONCE, at the end. Forming it earlier would be wrong in general -- the product of the means is not the mean of the products -- and indistinguishable here, where each fuel type is supplied by exactly one formulation at share 1.0.\\n\\n(4) AN E85 VEHICLE IS SPECIATED FROM A DIFFERENT FUEL THAN IT BURNS. adjust.rs::build_e85_block duplicates the THC block of a subtype-51 or -52 formulation at model year 2001 or later, scales the copy by `altCriteriaRatio / criteriaRatio`, and hcspeciation.rs speciates THAT into VOC using fuel subtype 12's ratios while the emitted NMHC still comes from the ordinary block. It multiplies the emitted VOC by 3.8528 on all 23 ethanol cohorts, so a document that skipped it would be wrong by that factor on a fifth of its species rows rather than subtly off.\\n\\nTHE BLOCKS ARE RAGGED, and the rank is GLOBAL over the rate relation for the reason docs/esm-conventions.md 31 gives: 124 THC cohorts and 104 for each of the five species, because `methanethcratio` has no fuel subtype 90 row and all three stages inherit that one absence. 1,288 rows is equally consistent with 129 + 103 x 5, so `pp_emittedCohortCount` states the split as an assertion. The two templates this rung adds are lib/keys.esm's `model_year_in_group` -- the model-year band MOVES writes self-described in ONE `beginYYYYendYYYY` column -- and lib/adjustments.esm's `speciation_factor`.",
     "authors": [
       "EarthSciML Authors and Contributors"
     ],
@@ -10,10 +10,11 @@
       "moves",
       "onroad",
       "fixture",
-      "tirewear",
-      "pm10",
+      "airtoxics",
+      "hcspeciation",
       "chained-calculator",
-      "multi-pollutant"
+      "multi-pollutant",
+      "speciation"
     ]
   },
   "data_sources": {
@@ -20609,7 +20610,7 @@
       "tests": [
         {
           "id": "the_run_scope_comes_from_the_execution_database",
-          "description": "Year 2020, August, hour 7, source type 21, road type 4, county 26161, zone 261610 -- byte for byte `process-tirewear`'s and `process-brakewear`'s scope, so the whole activity half of this fixture is already checked end to end by two others. The RunSpec XML says month 7 and hour 6; the execution database says 8 and 7 and it is the authority (docs/mixed-onroad.md 0.1). The four columns after the temperature are new here: the two humidity columns the NOx correction reads, and the three scope numbers the fuel supply is resolved by.",
+          "description": "Year 2020, August, hour 7, source type 21, road type 4, county 26161, zone 261610 -- byte for byte `process-crankcase-running`'s scope, and its THC block of MOVESOutput is byte-identical to this one's, so the whole activity half and the whole criteria-pollutant parent are already checked end to end by that fixture. The RunSpec XML says month 7 and hour 6; the execution database says 8 and 7, and it is the authority (docs/process-airtoxics.md 0.1). Four run-level numbers are pinned besides: `GPAFract` is 0, so both fuel-effect blends select their normal arm; the temperature is 59.5 degF and reaches only a quadratic whose coefficients are absent; the A/C activity quadratic is negative and clamps to 0; and `run_e10FuelSubtypeID` is the 12 the altTHC path's two lookups key on. `specificHumidity` and `molWaterFraction` are NOT read by this fixture and have no variable: pollutant 1 never enters the NOx humidity arm.",
           "time_span": {
             "start": 0.0,
             "end": 0.0
@@ -20672,6 +20673,14 @@
               }
             },
             {
+              "variable": "run_linkID",
+              "time": 0.0,
+              "expected": 2616104.0,
+              "coords": {
+                "run_rows": 1
+              }
+            },
+            {
               "variable": "run_stateID",
               "time": 0.0,
               "expected": 26.0,
@@ -20680,9 +20689,9 @@
               }
             },
             {
-              "variable": "run_baseYearIsAnalysisYear",
+              "variable": "run_monthGroupID",
               "time": 0.0,
-              "expected": 1.0,
+              "expected": 8.0,
               "coords": {
                 "run_rows": 1
               }
@@ -20696,25 +20705,17 @@
               }
             },
             {
-              "variable": "run_hpmsVtypeID",
+              "variable": "run_baseYearIsAnalysisYear",
               "time": 0.0,
-              "expected": 25.0,
+              "expected": 1.0,
               "coords": {
                 "run_rows": 1
               }
             },
             {
-              "variable": "run_daysInMonth",
+              "variable": "run_gpaFraction",
               "time": 0.0,
-              "expected": 31.0,
-              "coords": {
-                "run_rows": 1
-              }
-            },
-            {
-              "variable": "run_monthGroupID",
-              "time": 0.0,
-              "expected": 8.0,
+              "expected": 0.0,
               "coords": {
                 "run_rows": 1
               }
@@ -20736,23 +20737,23 @@
               }
             },
             {
-              "variable": "run_specificHumidity",
+              "variable": "run_acActivity",
               "time": 0.0,
-              "expected": 10.053684293477,
+              "expected": 0.0,
               "coords": {
                 "run_rows": 1
               }
             },
             {
-              "variable": "run_molWaterFraction",
+              "variable": "run_e10FuelSubtypeID",
               "time": 0.0,
-              "expected": 0.015929059029,
+              "expected": 12.0,
               "coords": {
                 "run_rows": 1
               }
             },
             {
-              "variable": "run_gpaFraction",
+              "variable": "run_regClassWildcardID",
               "time": 0.0,
               "expected": 0.0,
               "coords": {
@@ -20778,13 +20779,61 @@
           ]
         },
         {
-          "id": "the_six_pollutant_processes_are_three_pollutants_on_two_processes",
-          "description": "The run's whole scope, unpacked from `runspecpollutantprocess` and `runspecchainedto` rather than written down. THIS IS THE FIRST FIXTURE IN THE PORT WITH TWO PROCESSES ON THE SAME POLLUTANTS: 101/201/301 are Running Exhaust and come off the `BaseRateCalculator` spine; 115/215/315 are Crankcase Running Exhaust and are chained off their own pollutant's exhaust row by `CrankcaseEmissionCalculatorNonPM`. The chain declaration is MOVES's, read from `runspecchainedto`, and a chained pollutant-process is exactly one whose input is non-zero.",
+          "id": "the_six_pollutant_processes_are_one_parent_and_five_species_at_three_chain_depths",
+          "description": "The run's whole scope, unpacked from `runspecpollutantprocess` and `runspecchainedto` rather than written down. THIS IS THE FIRST FIXTURE IN THE PORT WHOSE CHAIN IS MORE THAN ONE LEVEL DEEP: 101 (THC) carries a rate of its own; 7901 (NMHC) is chained off it; 8701 (VOC) off 7901; and 2001 (benzene), 2401 (1,3-butadiene) and 2501 (formaldehyde) off 8701. `rspp_chainDepth` is the assertion that matters -- it is 0, 3, 3, 3, 1 and 2 in the table's own row order, and it is computed by iterating ONE parent join three times rather than by widening it, so a run that chained four levels would need no new join. Every one of the six resolves to the same root, 101, which is why every ratio in this document scales the same THC block.",
           "time_span": {
             "start": 0.0,
             "end": 0.0
           },
           "assertions": [
+            {
+              "variable": "rt_polProcessID",
+              "time": 0.0,
+              "expected": 101.0,
+              "coords": {
+                "rate_rows": 1
+              }
+            },
+            {
+              "variable": "rt_polProcessID",
+              "time": 0.0,
+              "expected": 2001.0,
+              "coords": {
+                "rate_rows": 165
+              }
+            },
+            {
+              "variable": "rt_polProcessID",
+              "time": 0.0,
+              "expected": 2401.0,
+              "coords": {
+                "rate_rows": 329
+              }
+            },
+            {
+              "variable": "rt_polProcessID",
+              "time": 0.0,
+              "expected": 2501.0,
+              "coords": {
+                "rate_rows": 493
+              }
+            },
+            {
+              "variable": "rt_polProcessID",
+              "time": 0.0,
+              "expected": 7901.0,
+              "coords": {
+                "rate_rows": 657
+              }
+            },
+            {
+              "variable": "rt_polProcessID",
+              "time": 0.0,
+              "expected": 8701.0,
+              "coords": {
+                "rate_rows": 821
+              }
+            },
             {
               "variable": "rspp_pollutantID",
               "time": 0.0,
@@ -20796,7 +20845,7 @@
             {
               "variable": "rspp_pollutantID",
               "time": 0.0,
-              "expected": 1.0,
+              "expected": 20.0,
               "coords": {
                 "runspecpollutantprocess_rows": 2
               }
@@ -20804,7 +20853,7 @@
             {
               "variable": "rspp_pollutantID",
               "time": 0.0,
-              "expected": 2.0,
+              "expected": 24.0,
               "coords": {
                 "runspecpollutantprocess_rows": 3
               }
@@ -20812,7 +20861,7 @@
             {
               "variable": "rspp_pollutantID",
               "time": 0.0,
-              "expected": 2.0,
+              "expected": 25.0,
               "coords": {
                 "runspecpollutantprocess_rows": 4
               }
@@ -20820,7 +20869,7 @@
             {
               "variable": "rspp_pollutantID",
               "time": 0.0,
-              "expected": 3.0,
+              "expected": 79.0,
               "coords": {
                 "runspecpollutantprocess_rows": 5
               }
@@ -20828,7 +20877,7 @@
             {
               "variable": "rspp_pollutantID",
               "time": 0.0,
-              "expected": 3.0,
+              "expected": 87.0,
               "coords": {
                 "runspecpollutantprocess_rows": 6
               }
@@ -20844,7 +20893,7 @@
             {
               "variable": "rspp_processID",
               "time": 0.0,
-              "expected": 15.0,
+              "expected": 1.0,
               "coords": {
                 "runspecpollutantprocess_rows": 2
               }
@@ -20860,7 +20909,7 @@
             {
               "variable": "rspp_processID",
               "time": 0.0,
-              "expected": 15.0,
+              "expected": 1.0,
               "coords": {
                 "runspecpollutantprocess_rows": 4
               }
@@ -20876,7 +20925,7 @@
             {
               "variable": "rspp_processID",
               "time": 0.0,
-              "expected": 15.0,
+              "expected": 1.0,
               "coords": {
                 "runspecpollutantprocess_rows": 6
               }
@@ -20887,6 +20936,30 @@
               "expected": 0.0,
               "coords": {
                 "runspecpollutantprocess_rows": 1
+              }
+            },
+            {
+              "variable": "rspp_chainInputPolProcessID",
+              "time": 0.0,
+              "expected": 8701.0,
+              "coords": {
+                "runspecpollutantprocess_rows": 2
+              }
+            },
+            {
+              "variable": "rspp_chainInputPolProcessID",
+              "time": 0.0,
+              "expected": 8701.0,
+              "coords": {
+                "runspecpollutantprocess_rows": 3
+              }
+            },
+            {
+              "variable": "rspp_chainInputPolProcessID",
+              "time": 0.0,
+              "expected": 8701.0,
+              "coords": {
+                "runspecpollutantprocess_rows": 4
               }
             },
             {
@@ -20894,37 +20967,109 @@
               "time": 0.0,
               "expected": 101.0,
               "coords": {
-                "runspecpollutantprocess_rows": 2
-              }
-            },
-            {
-              "variable": "rspp_chainInputPolProcessID",
-              "time": 0.0,
-              "expected": 0.0,
-              "coords": {
-                "runspecpollutantprocess_rows": 3
-              }
-            },
-            {
-              "variable": "rspp_chainInputPolProcessID",
-              "time": 0.0,
-              "expected": 201.0,
-              "coords": {
-                "runspecpollutantprocess_rows": 4
-              }
-            },
-            {
-              "variable": "rspp_chainInputPolProcessID",
-              "time": 0.0,
-              "expected": 0.0,
-              "coords": {
                 "runspecpollutantprocess_rows": 5
               }
             },
             {
               "variable": "rspp_chainInputPolProcessID",
               "time": 0.0,
-              "expected": 301.0,
+              "expected": 7901.0,
+              "coords": {
+                "runspecpollutantprocess_rows": 6
+              }
+            },
+            {
+              "variable": "rspp_rootPolProcessID",
+              "time": 0.0,
+              "expected": 101.0,
+              "coords": {
+                "runspecpollutantprocess_rows": 1
+              }
+            },
+            {
+              "variable": "rspp_rootPolProcessID",
+              "time": 0.0,
+              "expected": 101.0,
+              "coords": {
+                "runspecpollutantprocess_rows": 2
+              }
+            },
+            {
+              "variable": "rspp_rootPolProcessID",
+              "time": 0.0,
+              "expected": 101.0,
+              "coords": {
+                "runspecpollutantprocess_rows": 3
+              }
+            },
+            {
+              "variable": "rspp_rootPolProcessID",
+              "time": 0.0,
+              "expected": 101.0,
+              "coords": {
+                "runspecpollutantprocess_rows": 4
+              }
+            },
+            {
+              "variable": "rspp_rootPolProcessID",
+              "time": 0.0,
+              "expected": 101.0,
+              "coords": {
+                "runspecpollutantprocess_rows": 5
+              }
+            },
+            {
+              "variable": "rspp_rootPolProcessID",
+              "time": 0.0,
+              "expected": 101.0,
+              "coords": {
+                "runspecpollutantprocess_rows": 6
+              }
+            },
+            {
+              "variable": "rspp_chainDepth",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "runspecpollutantprocess_rows": 1
+              }
+            },
+            {
+              "variable": "rspp_chainDepth",
+              "time": 0.0,
+              "expected": 3.0,
+              "coords": {
+                "runspecpollutantprocess_rows": 2
+              }
+            },
+            {
+              "variable": "rspp_chainDepth",
+              "time": 0.0,
+              "expected": 3.0,
+              "coords": {
+                "runspecpollutantprocess_rows": 3
+              }
+            },
+            {
+              "variable": "rspp_chainDepth",
+              "time": 0.0,
+              "expected": 3.0,
+              "coords": {
+                "runspecpollutantprocess_rows": 4
+              }
+            },
+            {
+              "variable": "rspp_chainDepth",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "runspecpollutantprocess_rows": 5
+              }
+            },
+            {
+              "variable": "rspp_chainDepth",
+              "time": 0.0,
+              "expected": 2.0,
               "coords": {
                 "runspecpollutantprocess_rows": 6
               }
@@ -21129,21 +21274,13 @@
           ]
         },
         {
-          "id": "125_cohorts_are_selected_124_are_rated_and_104_carry_a_crankcase_ratio",
-          "description": "THE STRUCTURAL CLAIM OF THIS RUNG, and no row count can make it. S10 selects 125 of the 164 candidates for each of the three EXHAUST pollutant-processes and none at all for the three crankcase ones -- `pollutantprocessmodelyear` carries no 115/215/315 row, so a crankcase pollutant-process is not a rate path in this document any more than it is in MOVES. Of the 125, ONE is unrated: electricity model year 2000 (rate row 144) is selected and `emissionratebyage` has no row for it, so 124 exhaust rows emit. Of those 124, 104 carry a crankcase ratio -- the twenty electricity cohorts do not, because `crankcaseemissionratio` has no fuelTypeID 9 row and MOVES's join is an inner one. 3 x 124 + 3 x 104 = 684 emitting rate rows, and 684 x 2 day types is the 1368 the snapshot has.",
+          "id": "124_cohorts_are_rated_and_every_species_block_is_the_same_104",
+          "description": "THE STRUCTURAL CLAIM OF THIS RUNG, and no row count can make it: 1,288 rows is equally consistent with 129 + 103 x 5. S10 selects 125 of the 164 candidates for five of the six pollutant-processes and NONE for 7901 -- `pollutantprocessmodelyear` carries no NMHC row, so an NMHC rate row is not a rate row at all, which costs nothing because a chained row's existence never consults `rt_isSelected`. 124 of the 125 are rated: model year 2000 electricity has no `emissionratebyage` ageGroup-2099 row for fuel type 9 and is dropped, while 2001-2020 electricity are rated at exactly zero. Each of the five species blocks is 104 -- the 124 minus every electricity cohort -- and they are the SAME 104, because all three stages fail on the same missing `methanethcratio` row for fuel subtype 90 and each inherits the failure from the one above. 644 rate rows emit, which is what `n_outputRateRow` declares.",
           "time_span": {
             "start": 0.0,
             "end": 0.0
           },
           "assertions": [
-            {
-              "variable": "cohortSurvivorCount",
-              "time": 0.0,
-              "expected": 125.0,
-              "coords": {
-                "run_rows": 1
-              }
-            },
             {
               "variable": "pp_selectedCohortCount",
               "time": 0.0,
@@ -21155,7 +21292,7 @@
             {
               "variable": "pp_selectedCohortCount",
               "time": 0.0,
-              "expected": 0.0,
+              "expected": 125.0,
               "coords": {
                 "runspecpollutantprocess_rows": 2
               }
@@ -21171,7 +21308,7 @@
             {
               "variable": "pp_selectedCohortCount",
               "time": 0.0,
-              "expected": 0.0,
+              "expected": 125.0,
               "coords": {
                 "runspecpollutantprocess_rows": 4
               }
@@ -21179,7 +21316,7 @@
             {
               "variable": "pp_selectedCohortCount",
               "time": 0.0,
-              "expected": 125.0,
+              "expected": 0.0,
               "coords": {
                 "runspecpollutantprocess_rows": 5
               }
@@ -21187,7 +21324,7 @@
             {
               "variable": "pp_selectedCohortCount",
               "time": 0.0,
-              "expected": 0.0,
+              "expected": 125.0,
               "coords": {
                 "runspecpollutantprocess_rows": 6
               }
@@ -21211,7 +21348,7 @@
             {
               "variable": "pp_emittedCohortCount",
               "time": 0.0,
-              "expected": 124.0,
+              "expected": 104.0,
               "coords": {
                 "runspecpollutantprocess_rows": 3
               }
@@ -21227,7 +21364,7 @@
             {
               "variable": "pp_emittedCohortCount",
               "time": 0.0,
-              "expected": 124.0,
+              "expected": 104.0,
               "coords": {
                 "runspecpollutantprocess_rows": 5
               }
@@ -21243,15 +21380,63 @@
             {
               "variable": "run_outputRateRowCount",
               "time": 0.0,
-              "expected": 684.0,
+              "expected": 644.0,
               "coords": {
                 "run_rows": 1
+              }
+            },
+            {
+              "variable": "cohortSurvivorCount",
+              "time": 0.0,
+              "expected": 125.0,
+              "coords": {
+                "run_rows": 1
+              }
+            },
+            {
+              "variable": "rt_survives",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "rate_rows": 124
+              }
+            },
+            {
+              "variable": "rt_emits",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "rate_rows": 124
+              }
+            },
+            {
+              "variable": "rt_hasRate",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "rate_rows": 124
               }
             },
             {
               "variable": "rt_isSelected",
               "time": 0.0,
               "expected": 1.0,
+              "coords": {
+                "rate_rows": 124
+              }
+            },
+            {
+              "variable": "rt_isSelected",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "rate_rows": 144
+              }
+            },
+            {
+              "variable": "rt_hasRate",
+              "time": 0.0,
+              "expected": 0.0,
               "coords": {
                 "rate_rows": 144
               }
@@ -21273,74 +21458,146 @@
               }
             },
             {
-              "variable": "rt_modelYearID",
+              "variable": "rt_hasChainRatio",
               "time": 0.0,
-              "expected": 2000.0,
+              "expected": 0.0,
               "coords": {
-                "rate_rows": 144
+                "rate_rows": 780
               }
             },
             {
-              "variable": "rt_fuelTypeID",
+              "variable": "rt_emits",
               "time": 0.0,
-              "expected": 9.0,
+              "expected": 0.0,
               "coords": {
-                "rate_rows": 144
+                "rate_rows": 780
               }
             },
             {
-              "variable": "rt_outputRank",
+              "variable": "rt_chainSourceEmits1",
               "time": 0.0,
               "expected": 1.0,
               "coords": {
-                "rate_rows": 1
+                "rate_rows": 780
               }
             },
             {
-              "variable": "rt_outputRank",
+              "variable": "rt_emits",
               "time": 0.0,
-              "expected": 125.0,
+              "expected": 0.0,
               "coords": {
-                "rate_rows": 165
+                "rate_rows": 944
               }
             },
             {
-              "variable": "rt_outputRank",
+              "variable": "rt_emits",
               "time": 0.0,
-              "expected": 229.0,
+              "expected": 0.0,
               "coords": {
-                "rate_rows": 329
+                "rate_rows": 288
               }
             },
             {
-              "variable": "rt_outputRank",
+              "variable": "rt_emitsAtDepth1",
               "time": 0.0,
-              "expected": 353.0,
-              "coords": {
-                "rate_rows": 493
-              }
-            },
-            {
-              "variable": "rt_outputRank",
-              "time": 0.0,
-              "expected": 457.0,
+              "expected": 1.0,
               "coords": {
                 "rate_rows": 657
               }
             },
             {
-              "variable": "rt_outputRank",
+              "variable": "rt_emitsAtDepth2",
               "time": 0.0,
-              "expected": 581.0,
+              "expected": 0.0,
+              "coords": {
+                "rate_rows": 657
+              }
+            },
+            {
+              "variable": "rt_emitsAtDepth2",
+              "time": 0.0,
+              "expected": 1.0,
               "coords": {
                 "rate_rows": 821
+              }
+            },
+            {
+              "variable": "rt_emitsAtDepth1",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "rate_rows": 821
+              }
+            },
+            {
+              "variable": "rt_emitsAtDepth3",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "rate_rows": 165
+              }
+            },
+            {
+              "variable": "rt_emitsAtDepth2",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "rate_rows": 165
+              }
+            },
+            {
+              "variable": "rt_survives",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "rate_rows": 165
+              }
+            },
+            {
+              "variable": "rt_chainDepth",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "rate_rows": 1
+              }
+            },
+            {
+              "variable": "rt_chainDepth",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "rate_rows": 657
+              }
+            },
+            {
+              "variable": "rt_chainDepth",
+              "time": 0.0,
+              "expected": 2.0,
+              "coords": {
+                "rate_rows": 821
+              }
+            },
+            {
+              "variable": "rt_chainDepth",
+              "time": 0.0,
+              "expected": 3.0,
+              "coords": {
+                "rate_rows": 165
+              }
+            },
+            {
+              "variable": "rt_rootPolProcessID",
+              "time": 0.0,
+              "expected": 101.0,
+              "coords": {
+                "rate_rows": 165
               }
             }
           ]
         },
         {
-          "id": "the_collapsed_base_rate_reproduces_the_reference_baseRateByAge_table",
-          "description": "S13 and S14 against `baseRateByAge_1_2020`, the reference's own generator output, at nine (pollutant-process, day, model year, fuel) cells spanning all four fuels and all three exhaust pollutant-processes. Every value here is the snapshot's, to its stored six significant figures. The electricity THC rate is 0 and is asserted as 0: an electric car emits no hydrocarbons and the rate table says so, which is a different thing from a cohort that was dropped.",
+          "id": "the_collapsed_base_rate_reproduces_baseRateByAge_and_reaches_every_species_row",
+          "description": "S13 and S14 against `baseRateByAge_1_2020`, the reference's own generator output, at both day types and all four fuel types. `emissionratebyage` carries polProcessID 101 alone, so only the 124 THC rate rows have a rate of their own; `rtDay_rootRate` is the self-join that carries that rate to the 520 species rows, and it is asserted at an NMHC and a VOC row against the SAME reference number as the THC row it comes from. Its temperature factor is 1, so the root rate and the reference base rate are equal to the reference's own six significant figures. Electricity is rated at exactly zero and the row exists.",
           "time_span": {
             "start": 0.0,
             "end": 0.0
@@ -21352,9 +21609,18 @@
             {
               "variable": "rtDay_meanBaseRate",
               "time": 0.0,
-              "expected": 0.569396,
+              "expected": 84.6858,
               "coords": {
-                "rate_rows": 1,
+                "rate_rows": 41,
+                "runspecday_rows": 1
+              }
+            },
+            {
+              "variable": "rtDay_meanBaseRateACAdj",
+              "time": 0.0,
+              "expected": 19.3359,
+              "coords": {
+                "rate_rows": 41,
                 "runspecday_rows": 1
               }
             },
@@ -21368,12 +21634,12 @@
               }
             },
             {
-              "variable": "rtDay_meanBaseRate",
+              "variable": "rtDay_meanBaseRateACAdj",
               "time": 0.0,
-              "expected": 84.6858,
+              "expected": 0.110039,
               "coords": {
-                "rate_rows": 41,
-                "runspecday_rows": 1
+                "rate_rows": 1,
+                "runspecday_rows": 2
               }
             },
             {
@@ -21388,91 +21654,412 @@
             {
               "variable": "rtDay_meanBaseRate",
               "time": 0.0,
+              "expected": 0.115987,
+              "coords": {
+                "rate_rows": 71,
+                "runspecday_rows": 2
+              }
+            },
+            {
+              "variable": "rtDay_meanBaseRate",
+              "time": 0.0,
               "expected": 0.0,
               "coords": {
                 "rate_rows": 124,
-                "runspecday_rows": 2
-              }
-            },
-            {
-              "variable": "rtDay_meanBaseRate",
-              "time": 0.0,
-              "expected": 43.9029,
-              "coords": {
-                "rate_rows": 329,
-                "runspecday_rows": 1
-              }
-            },
-            {
-              "variable": "rtDay_meanBaseRate",
-              "time": 0.0,
-              "expected": 1.1234,
-              "coords": {
-                "rate_rows": 658,
-                "runspecday_rows": 1
-              }
-            },
-            {
-              "variable": "rtDay_meanBaseRate",
-              "time": 0.0,
-              "expected": 7.36032e-05,
-              "coords": {
-                "rate_rows": 699,
-                "runspecday_rows": 2
-              }
-            },
-            {
-              "variable": "rtDay_meanBaseRate",
-              "time": 0.0,
-              "expected": 0.000590045,
-              "coords": {
-                "rate_rows": 740,
                 "runspecday_rows": 1
               }
             },
             {
               "variable": "rtDay_meanBaseRateACAdj",
               "time": 0.0,
-              "expected": 0.130731,
+              "expected": 0.0,
               "coords": {
-                "rate_rows": 1,
+                "rate_rows": 124,
                 "runspecday_rows": 1
               }
             },
             {
-              "variable": "rtDay_meanBaseRateACAdj",
+              "variable": "rtDay_meanBaseRate",
               "time": 0.0,
-              "expected": 19.3359,
+              "expected": 0.0,
+              "coords": {
+                "rate_rows": 697,
+                "runspecday_rows": 1
+              }
+            },
+            {
+              "variable": "rtDay_rootRate",
+              "time": 0.0,
+              "expected": 84.6858,
+              "coords": {
+                "rate_rows": 697,
+                "runspecday_rows": 1
+              }
+            },
+            {
+              "variable": "rtDay_rootRate",
+              "time": 0.0,
+              "expected": 84.6858,
+              "coords": {
+                "rate_rows": 861,
+                "runspecday_rows": 1
+              }
+            },
+            {
+              "variable": "rtDay_rootRate",
+              "time": 0.0,
+              "expected": 84.6858,
+              "coords": {
+                "rate_rows": 205,
+                "runspecday_rows": 1
+              }
+            },
+            {
+              "variable": "rtDay_rootRate",
+              "time": 0.0,
+              "expected": 84.6858,
               "coords": {
                 "rate_rows": 41,
-                "runspecday_rows": 1
-              }
-            },
-            {
-              "variable": "rtDay_meanBaseRateACAdj",
-              "time": 0.0,
-              "expected": 48.7781,
-              "coords": {
-                "rate_rows": 329,
                 "runspecday_rows": 1
               }
             }
           ]
         },
         {
-          "id": "the_fuel_half_of_S15_is_a_criteria_ratio_and_an_unreachable_general_fuel_ratio",
-          "description": "S15(g). Each base rate is expanded over the formulations its fuel type is supplied in, scaled, and re-collapsed by market share; every fuel type here is supplied in exactly one formulation at share 1, so `rt_fuelFactor` is just that formulation's `criteriaratio.ratio` and the four values below are the snapshot's own. Electricity has no `criteriaratio` row and takes 1 -- a MISS is a factor of one, not a dropped row. `generalfuelratio` reaches 81 (rate row, formulation) pairs and NOT ONE of them carries a rate, because all 39 of its rows name a crankcase pollutant-process; that zero is the table's entire effect on the answer and is the only way to tell an unreachable step from an unwritten one.",
+          "id": "the_fuel_supply_resolves_to_four_subtypes_and_the_criteria_ratio_keys_on_the_chain_root",
+          "description": "S15(g). `fuelsupply` carries five rows for this region; four resolve to a fuel type through `fuelformulation.fuelSubtypeID` and `fuelsubtype.fuelTypeID`, and the fifth (28001, subtype 30) resolves to fuel type 0, matching no cohort -- an inner join that finds nothing, exactly as the port's `filter_map` drops it. THE SUBTYPES ARE WHAT THE SPECIATION KEYS ON, and none of them is its fuel type's default: gasoline is supplied as gasohol E10 (12) and not conventional gasoline (10), diesel as biodiesel blend (21) and not conventional diesel (20), ethanol as E85 (51). `criteriaratio` carries polProcessID 101 alone, so the lookup keys on the CHAIN ROOT rather than on the rate row's own pollutant-process; that is what makes `rt_fuelFactor` carry the fuel effect on a species row at all, and it is asserted at an NMHC row against the THC row's value times the methane complement. `generalfuelratio` has ZERO rows here, so its reach is 0 and the step is absent rather than inert.",
           "time_span": {
             "start": 0.0,
             "end": 0.0
           },
           "assertions": [
             {
-              "variable": "run_gpaFraction",
+              "variable": "fsu_isInScope",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "fuelsupply_rows": 1
+              }
+            },
+            {
+              "variable": "fsu_isInScope",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "fuelsupply_rows": 2
+              }
+            },
+            {
+              "variable": "fsu_isInScope",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "fuelsupply_rows": 3
+              }
+            },
+            {
+              "variable": "fsu_isInScope",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "fuelsupply_rows": 4
+              }
+            },
+            {
+              "variable": "fsu_isInScope",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "fuelsupply_rows": 5
+              }
+            },
+            {
+              "variable": "fsu_fuelSubtypeID",
+              "time": 0.0,
+              "expected": 90.0,
+              "coords": {
+                "fuelsupply_rows": 1
+              }
+            },
+            {
+              "variable": "fsu_fuelSubtypeID",
+              "time": 0.0,
+              "expected": 12.0,
+              "coords": {
+                "fuelsupply_rows": 2
+              }
+            },
+            {
+              "variable": "fsu_fuelSubtypeID",
+              "time": 0.0,
+              "expected": 21.0,
+              "coords": {
+                "fuelsupply_rows": 3
+              }
+            },
+            {
+              "variable": "fsu_fuelSubtypeID",
+              "time": 0.0,
+              "expected": 51.0,
+              "coords": {
+                "fuelsupply_rows": 4
+              }
+            },
+            {
+              "variable": "fsu_fuelSubtypeID",
+              "time": 0.0,
+              "expected": 30.0,
+              "coords": {
+                "fuelsupply_rows": 5
+              }
+            },
+            {
+              "variable": "fsu_fuelTypeID",
+              "time": 0.0,
+              "expected": 9.0,
+              "coords": {
+                "fuelsupply_rows": 1
+              }
+            },
+            {
+              "variable": "fsu_fuelTypeID",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "fuelsupply_rows": 2
+              }
+            },
+            {
+              "variable": "fsu_fuelTypeID",
+              "time": 0.0,
+              "expected": 2.0,
+              "coords": {
+                "fuelsupply_rows": 3
+              }
+            },
+            {
+              "variable": "fsu_fuelTypeID",
+              "time": 0.0,
+              "expected": 5.0,
+              "coords": {
+                "fuelsupply_rows": 4
+              }
+            },
+            {
+              "variable": "fsu_fuelTypeID",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "fuelsupply_rows": 5
+              }
+            },
+            {
+              "variable": "fsu_totalOxygenate",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "fuelsupply_rows": 1
+              }
+            },
+            {
+              "variable": "fsu_totalOxygenate",
+              "time": 0.0,
+              "expected": 10.0,
+              "coords": {
+                "fuelsupply_rows": 2
+              }
+            },
+            {
+              "variable": "fsu_totalOxygenate",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "fuelsupply_rows": 3
+              }
+            },
+            {
+              "variable": "fsu_totalOxygenate",
+              "time": 0.0,
+              "expected": 10.0,
+              "coords": {
+                "fuelsupply_rows": 4
+              }
+            },
+            {
+              "variable": "fsu_totalOxygenate",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "fuelsupply_rows": 5
+              }
+            },
+            {
+              "variable": "fsu_volToWtPercentOxy",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "fuelsupply_rows": 1
+              }
+            },
+            {
+              "variable": "fsu_volToWtPercentOxy",
+              "time": 0.0,
+              "expected": 0.3653,
+              "coords": {
+                "fuelsupply_rows": 2
+              }
+            },
+            {
+              "variable": "fsu_volToWtPercentOxy",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "fuelsupply_rows": 3
+              }
+            },
+            {
+              "variable": "fsu_volToWtPercentOxy",
+              "time": 0.0,
+              "expected": 0.3653,
+              "coords": {
+                "fuelsupply_rows": 4
+              }
+            },
+            {
+              "variable": "fsu_volToWtPercentOxy",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "fuelsupply_rows": 5
+              }
+            },
+            {
+              "variable": "fsu_isE85Subtype",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "fuelsupply_rows": 1
+              }
+            },
+            {
+              "variable": "fsu_isE85Subtype",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "fuelsupply_rows": 2
+              }
+            },
+            {
+              "variable": "fsu_isE85Subtype",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "fuelsupply_rows": 3
+              }
+            },
+            {
+              "variable": "fsu_isE85Subtype",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "fuelsupply_rows": 4
+              }
+            },
+            {
+              "variable": "fsu_isE85Subtype",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "fuelsupply_rows": 5
+              }
+            },
+            {
+              "variable": "run_generalFuelRatioReach",
               "time": 0.0,
               "expected": 0.0,
               "coords": {
                 "run_rows": 1
+              }
+            },
+            {
+              "variable": "rtSup_isSupplied",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "rate_rows": 1,
+                "fuelsupply_rows": 2
+              }
+            },
+            {
+              "variable": "rtSup_isSupplied",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "rate_rows": 1,
+                "fuelsupply_rows": 3
+              }
+            },
+            {
+              "variable": "rtSup_criteriaRatio",
+              "time": 0.0,
+              "expected": 1.037215919005,
+              "coords": {
+                "rate_rows": 1,
+                "fuelsupply_rows": 2
+              }
+            },
+            {
+              "variable": "rtSup_criteriaRatio",
+              "time": 0.0,
+              "expected": 0.915810241181,
+              "coords": {
+                "rate_rows": 41,
+                "fuelsupply_rows": 2
+              }
+            },
+            {
+              "variable": "rtSup_criteriaRatio",
+              "time": 0.0,
+              "expected": 0.975325,
+              "coords": {
+                "rate_rows": 71,
+                "fuelsupply_rows": 3
+              }
+            },
+            {
+              "variable": "rtSup_criteriaRatio",
+              "time": 0.0,
+              "expected": 1.044099696019,
+              "coords": {
+                "rate_rows": 83,
+                "fuelsupply_rows": 4
+              }
+            },
+            {
+              "variable": "rtSup_hasCriteriaRatio",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "rate_rows": 124,
+                "fuelsupply_rows": 1
+              }
+            },
+            {
+              "variable": "rtSup_criteriaRatio",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "rate_rows": 124,
+                "fuelsupply_rows": 1
+              }
+            },
+            {
+              "variable": "rtSup_criteriaRatio",
+              "time": 0.0,
+              "expected": 1.037215919005,
+              "coords": {
+                "rate_rows": 657,
+                "fuelsupply_rows": 2
               }
             },
             {
@@ -21494,22 +22081,6 @@
             {
               "variable": "rt_fuelFactor",
               "time": 0.0,
-              "expected": 0.984710089,
-              "coords": {
-                "rate_rows": 329
-              }
-            },
-            {
-              "variable": "rt_fuelFactor",
-              "time": 0.0,
-              "expected": 0.927694995111,
-              "coords": {
-                "rate_rows": 657
-              }
-            },
-            {
-              "variable": "rt_fuelFactor",
-              "time": 0.0,
               "expected": 1.0,
               "coords": {
                 "rate_rows": 124
@@ -21518,51 +22089,35 @@
             {
               "variable": "rt_fuelFactor",
               "time": 0.0,
-              "expected": 0.975325,
+              "expected": 0.68663693838131,
               "coords": {
-                "rate_rows": 236
+                "rate_rows": 657
               }
             },
             {
-              "variable": "run_generalFuelRatioReach",
+              "variable": "rt_fuelFactor",
               "time": 0.0,
-              "expected": 81.0,
+              "expected": 0.668784377983396,
               "coords": {
-                "run_rows": 1
-              }
-            },
-            {
-              "variable": "run_generalFuelRatioOnRatedRows",
-              "time": 0.0,
-              "expected": 0.0,
-              "coords": {
-                "run_rows": 1
+                "rate_rows": 821
               }
             }
           ]
         },
         {
-          "id": "the_temperature_adjustment_is_all_humidity_at_this_hour",
-          "description": "S15's temperature arm, adjust.rs:87-141. `temperatureadjustment` carries four rows and every one is polProcessID 301 on regClassID 42/46/47/48 for model years 2027-2060, so neither the exact-class lookup nor the regClassID 0 wildcard finds anything and every A and B term is 0 -- the temperature half of the factor is exactly 1 on all six pollutant-processes. THE HUMIDITY HALF IS NOT. NOx alone takes k, and k is 1.0216 on gasoline and E85 (CFR 86, reading specific humidity below its 10.71 reference) and 1.00955 on diesel (CFR 1065, reading the water mole fraction); electricity has no `noxhumidityadjust` row and takes 1. Dropping k would move every NOx row by over 2 %, which no per-pollutant sum tolerance in tolerance.toml would catch. The A/C arm is inert, and inert by a CLAMP: the activity term is -0.297 before setup.rs:411 clamps it to [0, 1].",
+          "id": "the_temperature_stage_is_absent_and_the_air_conditioning_arm_is_dead",
+          "description": "S15's temperature arm, adjust.rs:87-141. Pollutant 1 is not 118 or 112 (the PM arm), not the fuel-9 energy pollutant 91 (the EV arm) and not 3 (the NOx arm), so every rate row here takes the FALL-THROUGH quadratic; `noxhumidityadjust` is populated in this snapshot and is read by nothing, which is why this fixture has no humidity variables at all. `temperatureadjustment` has ZERO rows, so both arms of `exact_else_wildcard` miss and A and B are the additive identity: the factor is exactly 1 everywhere. That is ABSENT and not merely inert, and the difference is visible here -- `process-crankcase-running` and `process-nox-speciation` each had four unreachable rows and this snapshot has none. The A/C arm is live in its table and dead in its result: `fullacadjustment` carries 23 real polProcessID 101 rows and `rtDay_meanBaseRateACAdj` is a real number, but the activity quadratic clamps to 0 at this heat index so none of it reaches an emitted cell (docs/process-airtoxics.md 7.2.7).",
           "time_span": {
             "start": 0.0,
             "end": 0.0
           },
           "assertions": [
             {
-              "variable": "rt_tempAdjustTermA",
+              "variable": "rt_hasTempAdjustExact",
               "time": 0.0,
               "expected": 0.0,
               "coords": {
                 "rate_rows": 1
-              }
-            },
-            {
-              "variable": "rt_tempAdjustTermA",
-              "time": 0.0,
-              "expected": 0.0,
-              "coords": {
-                "rate_rows": 657
               }
             },
             {
@@ -21570,11 +22125,11 @@
               "time": 0.0,
               "expected": 0.0,
               "coords": {
-                "rate_rows": 657
+                "rate_rows": 41
               }
             },
             {
-              "variable": "rt_isNOx",
+              "variable": "rt_tempAdjustTermA",
               "time": 0.0,
               "expected": 0.0,
               "coords": {
@@ -21582,217 +22137,55 @@
               }
             },
             {
-              "variable": "rt_isNOx",
+              "variable": "rt_tempAdjustTermB",
               "time": 0.0,
-              "expected": 1.0,
-              "coords": {
-                "rate_rows": 657
-              }
-            },
-            {
-              "variable": "rt_temperatureFactor",
-              "time": 0.0,
-              "expected": 1.0,
+              "expected": 0.0,
               "coords": {
                 "rate_rows": 1
               }
             },
             {
-              "variable": "rt_temperatureFactor",
-              "time": 0.0,
-              "expected": 1.0,
-              "coords": {
-                "rate_rows": 329
-              }
-            },
-            {
-              "variable": "rt_hasNoxHumidity",
-              "time": 0.0,
-              "expected": 1.0,
-              "coords": {
-                "rate_rows": 657
-              }
-            },
-            {
-              "variable": "rt_noxHumidityFactor",
-              "time": 0.0,
-              "expected": 1.0215927867446069,
-              "coords": {
-                "rate_rows": 657
-              }
-            },
-            {
-              "variable": "rt_temperatureFactor",
-              "time": 0.0,
-              "expected": 1.0215927867446069,
-              "coords": {
-                "rate_rows": 657
-              }
-            },
-            {
-              "variable": "rt_noxHumidityFactor",
-              "time": 0.0,
-              "expected": 1.0095483848288278,
-              "coords": {
-                "rate_rows": 698
-              }
-            },
-            {
-              "variable": "rt_temperatureFactor",
-              "time": 0.0,
-              "expected": 1.0095483848288278,
-              "coords": {
-                "rate_rows": 698
-              }
-            },
-            {
-              "variable": "rt_temperatureFactor",
-              "time": 0.0,
-              "expected": 1.0215927867446069,
-              "coords": {
-                "rate_rows": 739
-              }
-            },
-            {
-              "variable": "rt_hasNoxHumidity",
+              "variable": "rt_tempAdjustTermA",
               "time": 0.0,
               "expected": 0.0,
               "coords": {
-                "rate_rows": 780
+                "rate_rows": 71
               }
             },
             {
-              "variable": "rt_temperatureFactor",
-              "time": 0.0,
-              "expected": 1.0,
-              "coords": {
-                "rate_rows": 780
-              }
-            },
-            {
-              "variable": "run_acActivityRaw",
-              "time": 0.0,
-              "expected": -0.2969815,
-              "coords": {
-                "run_rows": 1
-              }
-            },
-            {
-              "variable": "run_acActivity",
+              "variable": "rt_tempAdjustTermA",
               "time": 0.0,
               "expected": 0.0,
-              "coords": {
-                "run_rows": 1
-              }
-            }
-          ]
-        },
-        {
-          "id": "the_crankcase_ratio_is_banded_by_model_year_and_its_absence_drops_the_row",
-          "description": "`CrankcaseEmissionCalculatorNonPM`'s one lookup, and both halves of it. THE BAND: gasoline is 0.33 to model year 1968 and 0.0132 after, so only the second band is reachable from 1980 and a document that took the first matching row would be 25 times wrong on every gasoline cell; diesel is 0.037 to model year 2000 and EXACTLY 0 from 2001, so both of its bands are live inside this run's window and the 2001 rows are emitted carrying zero. THE KEY: there is no fuelTypeID 9 row at all, so an electricity cohort has no crankcase row -- not a zero, no row -- and that is the difference between 248 and 208 rows per pollutant. The three pollutants' ratios differ by four orders of magnitude (0.0132, 0.00052, 0.00004 on gasoline), so a lookup that lost the pollutant-process key could not pass this.",
-          "time_span": {
-            "start": 0.0,
-            "end": 0.0
-          },
-          "assertions": [
-            {
-              "variable": "rt_chainRatio",
-              "time": 0.0,
-              "expected": 0.0132,
               "coords": {
                 "rate_rows": 165
               }
             },
             {
-              "variable": "rt_chainRatio",
-              "time": 0.0,
-              "expected": 0.0132,
-              "coords": {
-                "rate_rows": 247
-              }
-            },
-            {
-              "variable": "rt_chainRatio",
-              "time": 0.0,
-              "expected": 0.00052,
-              "coords": {
-                "rate_rows": 493
-              }
-            },
-            {
-              "variable": "rt_chainRatio",
-              "time": 0.0,
-              "expected": 4e-05,
-              "coords": {
-                "rate_rows": 822
-              }
-            },
-            {
-              "variable": "rt_chainRatio",
-              "time": 0.0,
-              "expected": 0.037,
-              "coords": {
-                "rate_rows": 236
-              }
-            },
-            {
-              "variable": "rt_chainRatio",
-              "time": 0.0,
-              "expected": 0.0,
-              "coords": {
-                "rate_rows": 216
-              }
-            },
-            {
-              "variable": "rt_hasChainRatio",
+              "variable": "rt_temperatureFactor",
               "time": 0.0,
               "expected": 1.0,
               "coords": {
-                "rate_rows": 216
+                "rate_rows": 1
               }
             },
             {
-              "variable": "rt_emits",
+              "variable": "rt_temperatureFactor",
               "time": 0.0,
               "expected": 1.0,
               "coords": {
-                "rate_rows": 216
+                "rate_rows": 41
               }
             },
             {
-              "variable": "rt_hasChainRatio",
+              "variable": "rt_temperatureFactor",
               "time": 0.0,
-              "expected": 0.0,
+              "expected": 1.0,
               "coords": {
-                "rate_rows": 288
+                "rate_rows": 71
               }
             },
             {
-              "variable": "rt_emits",
-              "time": 0.0,
-              "expected": 0.0,
-              "coords": {
-                "rate_rows": 288
-              }
-            },
-            {
-              "variable": "rt_hasChainRatio",
-              "time": 0.0,
-              "expected": 0.0,
-              "coords": {
-                "rate_rows": 944
-              }
-            },
-            {
-              "variable": "rt_emits",
-              "time": 0.0,
-              "expected": 0.0,
-              "coords": {
-                "rate_rows": 944
-              }
-            },
-            {
-              "variable": "rt_emits",
+              "variable": "rt_temperatureFactor",
               "time": 0.0,
               "expected": 1.0,
               "coords": {
@@ -21800,28 +22193,475 @@
               }
             },
             {
-              "variable": "rtDay_quantDirect",
+              "variable": "rt_temperatureFactor",
               "time": 0.0,
-              "expected": 0.0,
+              "expected": 1.0,
               "coords": {
-                "rate_rows": 165,
-                "runspecday_rows": 1
+                "rate_rows": 821
               }
             },
             {
-              "variable": "rtDay_quantDirect",
+              "variable": "rt_acFactor",
               "time": 0.0,
               "expected": 0.0,
               "coords": {
-                "rate_rows": 892,
-                "runspecday_rows": 2
+                "rate_rows": 1
+              }
+            },
+            {
+              "variable": "rt_acFactor",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "rate_rows": 41
+              }
+            },
+            {
+              "variable": "rtMode_hasACAdjustment",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "rate_rows": 1,
+                "operating_mode_rows": 2
               }
             }
           ]
         },
         {
-          "id": "the_worked_examples_reach_MOVESOutput_in_both_processes",
-          "description": "The end of the chain, against `MOVESOutput` itself, at seventeen of its 1368 rows chosen to cover both processes, all three pollutants, all four fuels on process 1 and all three on process 15, both day types and both ends of the model-year range. `output_rows` is rate-major over the 684 emitting rate rows with the two day types inside, so output row 2r-1 is rate rank r on the weekend and 2r on the weekday. The SCC is COMPUTED from four columns of the row -- note that its last two digits are the PROCESS, so 2201210401 and 2201210415 are the same vehicle on the two processes and an SCC that lost the process would relabel 624 rows while passing every value check.",
+          "id": "the_two_HC_speciation_lookups_key_on_the_fuel_subtype_and_on_the_output_pollutant_process",
+          "description": "`HCSpeciationCalculator`'s two tables, and the two different things their keys do. `methanethcratio` is keyed by (processID, fuelSubtypeID, regClassID) and a model-year band, and it fires on EVERY rate row of this run because all six share process 1 -- what selects the NMHC row is `rt_isNMHC`, the one pollutant this document names, because hcspeciation.rs names 79 as a constant too. `hcspeciation` is keyed by the OUTPUT pollutant-process, so joining a rate row's own `polProcessID` to it both finds the constants AND identifies which rows are VOC rows: no pollutant 87 is written anywhere in this document. Both lookups are INNER, and fuel subtype 90 is in neither table -- that single absence is every species block's twenty missing cohorts. `oxySpeciation` is 0 on all 136 rows, so `speciation_factor` never leaves its constant.",
+          "time_span": {
+            "start": 0.0,
+            "end": 0.0
+          },
+          "assertions": [
+            {
+              "variable": "rtSup_methaneRatio",
+              "time": 0.0,
+              "expected": 0.338,
+              "coords": {
+                "rate_rows": 1,
+                "fuelsupply_rows": 2
+              }
+            },
+            {
+              "variable": "rtSup_methaneRatio",
+              "time": 0.0,
+              "expected": 0.146,
+              "coords": {
+                "rate_rows": 41,
+                "fuelsupply_rows": 2
+              }
+            },
+            {
+              "variable": "rtSup_methaneRatio",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "rate_rows": 71,
+                "fuelsupply_rows": 3
+              }
+            },
+            {
+              "variable": "rtSup_methaneRatio",
+              "time": 0.0,
+              "expected": 0.822,
+              "coords": {
+                "rate_rows": 83,
+                "fuelsupply_rows": 4
+              }
+            },
+            {
+              "variable": "rtSup_hasMethaneRatio",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "rate_rows": 41,
+                "fuelsupply_rows": 2
+              }
+            },
+            {
+              "variable": "rtSup_hasMethaneRatio",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "rate_rows": 124,
+                "fuelsupply_rows": 1
+              }
+            },
+            {
+              "variable": "rtSup_hasSpeciation",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "rate_rows": 41,
+                "fuelsupply_rows": 2
+              }
+            },
+            {
+              "variable": "rtSup_hasSpeciation",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "rate_rows": 697,
+                "fuelsupply_rows": 2
+              }
+            },
+            {
+              "variable": "rtSup_hasSpeciation",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "rate_rows": 861,
+                "fuelsupply_rows": 2
+              }
+            },
+            {
+              "variable": "rtSup_speciationConstant",
+              "time": 0.0,
+              "expected": 1.008,
+              "coords": {
+                "rate_rows": 861,
+                "fuelsupply_rows": 2
+              }
+            },
+            {
+              "variable": "rtSup_speciationConstant",
+              "time": 0.0,
+              "expected": 0.974,
+              "coords": {
+                "rate_rows": 821,
+                "fuelsupply_rows": 2
+              }
+            },
+            {
+              "variable": "rtSup_speciationConstant",
+              "time": 0.0,
+              "expected": 1.145,
+              "coords": {
+                "rate_rows": 891,
+                "fuelsupply_rows": 3
+              }
+            },
+            {
+              "variable": "rtSup_oxySpeciation",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "rate_rows": 861,
+                "fuelsupply_rows": 2
+              }
+            },
+            {
+              "variable": "rtSup_speciationFactor",
+              "time": 0.0,
+              "expected": 1.008,
+              "coords": {
+                "rate_rows": 861,
+                "fuelsupply_rows": 2
+              }
+            },
+            {
+              "variable": "rt_isNMHC",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "rate_rows": 657
+              }
+            },
+            {
+              "variable": "rt_isNMHC",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "rate_rows": 821
+              }
+            },
+            {
+              "variable": "rt_isNMHC",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "rate_rows": 1
+              }
+            },
+            {
+              "variable": "rtSup_hcSpeciesFactor",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "rate_rows": 1,
+                "fuelsupply_rows": 2
+              }
+            },
+            {
+              "variable": "rtSup_hcSpeciesFactor",
+              "time": 0.0,
+              "expected": 0.662,
+              "coords": {
+                "rate_rows": 657,
+                "fuelsupply_rows": 2
+              }
+            },
+            {
+              "variable": "rtSup_hcSpeciesFactor",
+              "time": 0.0,
+              "expected": 0.854,
+              "coords": {
+                "rate_rows": 697,
+                "fuelsupply_rows": 2
+              }
+            },
+            {
+              "variable": "rtSup_hcSpeciesFactor",
+              "time": 0.0,
+              "expected": 0.644788,
+              "coords": {
+                "rate_rows": 821,
+                "fuelsupply_rows": 2
+              }
+            },
+            {
+              "variable": "rtSup_hcSpeciesFactor",
+              "time": 0.0,
+              "expected": 0.860832,
+              "coords": {
+                "rate_rows": 861,
+                "fuelsupply_rows": 2
+              }
+            }
+          ]
+        },
+        {
+          "id": "the_E85_altTHC_branch_speciates_VOC_from_a_different_fuel_than_it_burns",
+          "description": "adjust.rs:625-692 and hcspeciation.rs:715-760, and it is worth a factor of 3.85. On an ethanol cohort of model year 2001 or later, MOVES duplicates the THC block of the supplied E85 formulation, scales the copy by `altRatio / ratio` -- 1.037215919005 / 1.044099696019 = 0.99340697 at model year 2020 -- and speciates THAT into VOC using fuel subtype 12's ratios, while the emitted NMHC still comes from the ordinary block and subtype 51's ratio of 0.822. So the VOC multiplier on this cohort's THC is 0.99340697 x (1 - 0.338) x 0.974 = 0.6405369, where the ordinary path would have given (1 - 0.822) x 0.934 = 0.1662520. The five conditions are asserted separately from the arithmetic, and the model year 2000 ethanol cohort -- which has no `altcriteriaratio` row and takes the ordinary path -- is asserted beside it, because a branch that fired everywhere and a branch that fired nowhere would both be wrong and only one of them would look it.",
+          "time_span": {
+            "start": 0.0,
+            "end": 0.0
+          },
+          "assertions": [
+            {
+              "variable": "rt_isEthanolFuelType",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "rate_rows": 83
+              }
+            },
+            {
+              "variable": "rt_isEthanolFuelType",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "rate_rows": 41
+              }
+            },
+            {
+              "variable": "rt_isAltModelYear",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "rate_rows": 83
+              }
+            },
+            {
+              "variable": "rt_isAltModelYear",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "rate_rows": 103
+              }
+            },
+            {
+              "variable": "rt_isAltProcess",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "rate_rows": 83
+              }
+            },
+            {
+              "variable": "rtSup_hasAltCriteriaRatio",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "rate_rows": 83,
+                "fuelsupply_rows": 4
+              }
+            },
+            {
+              "variable": "rtSup_hasAltCriteriaRatio",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "rate_rows": 103,
+                "fuelsupply_rows": 4
+              }
+            },
+            {
+              "variable": "rtSup_altCriteriaRatio",
+              "time": 0.0,
+              "expected": 1.037215919005,
+              "coords": {
+                "rate_rows": 83,
+                "fuelsupply_rows": 4
+              }
+            },
+            {
+              "variable": "rtSup_criteriaRatio",
+              "time": 0.0,
+              "expected": 1.044099696019,
+              "coords": {
+                "rate_rows": 83,
+                "fuelsupply_rows": 4
+              }
+            },
+            {
+              "variable": "rtSup_altToCriteriaRatio",
+              "time": 0.0,
+              "expected": 0.9934069734525861,
+              "coords": {
+                "rate_rows": 83,
+                "fuelsupply_rows": 4
+              }
+            },
+            {
+              "variable": "rtSup_altCriteriaRatio",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "rate_rows": 103,
+                "fuelsupply_rows": 4
+              }
+            },
+            {
+              "variable": "rtSup_altToCriteriaRatio",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "rate_rows": 103,
+                "fuelsupply_rows": 4
+              }
+            },
+            {
+              "variable": "rtSup_isAltCase",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "rate_rows": 83,
+                "fuelsupply_rows": 4
+              }
+            },
+            {
+              "variable": "rtSup_isAltCase",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "rate_rows": 103,
+                "fuelsupply_rows": 4
+              }
+            },
+            {
+              "variable": "rtSup_isAltCase",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "rate_rows": 903,
+                "fuelsupply_rows": 4
+              }
+            },
+            {
+              "variable": "rtSup_isAltCase",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "rate_rows": 923,
+                "fuelsupply_rows": 4
+              }
+            },
+            {
+              "variable": "rtSup_isAltCase",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "rate_rows": 821,
+                "fuelsupply_rows": 2
+              }
+            },
+            {
+              "variable": "rt_methaneRatioE10",
+              "time": 0.0,
+              "expected": 0.338,
+              "coords": {
+                "rate_rows": 903
+              }
+            },
+            {
+              "variable": "rt_speciationConstantE10",
+              "time": 0.0,
+              "expected": 0.974,
+              "coords": {
+                "rate_rows": 903
+              }
+            },
+            {
+              "variable": "rt_oxySpeciationE10",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "rate_rows": 903
+              }
+            },
+            {
+              "variable": "rtSup_speciationFactorE10",
+              "time": 0.0,
+              "expected": 0.974,
+              "coords": {
+                "rate_rows": 903,
+                "fuelsupply_rows": 4
+              }
+            },
+            {
+              "variable": "rtSup_vocFactor",
+              "time": 0.0,
+              "expected": 0.640536895598546,
+              "coords": {
+                "rate_rows": 903,
+                "fuelsupply_rows": 4
+              }
+            },
+            {
+              "variable": "rtSup_vocFactor",
+              "time": 0.0,
+              "expected": 0.16625200000000007,
+              "coords": {
+                "rate_rows": 923,
+                "fuelsupply_rows": 4
+              }
+            },
+            {
+              "variable": "rtSup_hcSpeciesFactor",
+              "time": 0.0,
+              "expected": 0.640536895598546,
+              "coords": {
+                "rate_rows": 903,
+                "fuelsupply_rows": 4
+              }
+            },
+            {
+              "variable": "rtSup_hcSpeciesFactor",
+              "time": 0.0,
+              "expected": 0.178,
+              "coords": {
+                "rate_rows": 739,
+                "fuelsupply_rows": 4
+              }
+            }
+          ]
+        },
+        {
+          "id": "the_two_air_toxic_paths_and_the_worked_examples_reach_MOVESOutput",
+          "description": "`AirToxicsCalculator`'s two live paths and the end of the chain. ATRatioGas1 keys on the emission's fuel FORMULATION and on an ageID that resolves the model year -- gasoline at ageID 40 takes 0.037092331652 and at ageID 0 takes 0.047131980205, out of two windows that partition the run's model years -- and ATRatioNonGas keys on the fuel SUBTYPE and a self-described model-year group. The two are disjoint on every emitted cohort here, so `rtSup_atRatio` is a sum of one term; the sum is written because the Go APPENDS both. A zero RATIO and a missing one are different and both are asserted: 1,3-butadiene on gasoline model year 2020 has a row whose value is 0 and is emitted at 0, while every species on electricity has no row and is not emitted at all. Then twenty-five `MOVESOutput` cells across all six pollutants, all four fuels, both day types and both ends of the model-year range, including the E85 rows the altTHC branch decides and the four cells that are exactly zero. `output_rows` is rate-major over the 644 emitting rate rows in blocks of two day types, so row 81 is the weekend model-year-1980 gasoline THC cell and row 82 is its weekday twin.",
           "time_span": {
             "start": 0.0,
             "end": 0.0
@@ -21831,19 +22671,145 @@
           },
           "assertions": [
             {
-              "variable": "out_emissionQuant",
+              "variable": "rt_ageID",
               "time": 0.0,
-              "expected": 8.07037,
+              "expected": 40.0,
               "coords": {
-                "output_rows": 1
+                "rate_rows": 205
               }
             },
             {
-              "variable": "out_emissionQuant",
+              "variable": "rt_ageID",
               "time": 0.0,
-              "expected": 26.2569,
+              "expected": 0.0,
               "coords": {
-                "output_rows": 2
+                "rate_rows": 165
+              }
+            },
+            {
+              "variable": "rtSup_atRatioGas1",
+              "time": 0.0,
+              "expected": 0.037092331652,
+              "coords": {
+                "rate_rows": 205,
+                "fuelsupply_rows": 2
+              }
+            },
+            {
+              "variable": "rtSup_hasAtRatioGas1",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "rate_rows": 205,
+                "fuelsupply_rows": 2
+              }
+            },
+            {
+              "variable": "rtSup_hasAtRatioNonGas",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "rate_rows": 205,
+                "fuelsupply_rows": 2
+              }
+            },
+            {
+              "variable": "rtSup_atRatioGas1",
+              "time": 0.0,
+              "expected": 0.047131980205,
+              "coords": {
+                "rate_rows": 165,
+                "fuelsupply_rows": 2
+              }
+            },
+            {
+              "variable": "rtSup_atRatioGas1",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "rate_rows": 329,
+                "fuelsupply_rows": 2
+              }
+            },
+            {
+              "variable": "rtSup_hasAtRatioGas1",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "rate_rows": 329,
+                "fuelsupply_rows": 2
+              }
+            },
+            {
+              "variable": "rtSup_atRatioNonGas",
+              "time": 0.0,
+              "expected": 0.007835437544,
+              "coords": {
+                "rate_rows": 235,
+                "fuelsupply_rows": 3
+              }
+            },
+            {
+              "variable": "rtSup_hasAtRatioGas1",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "rate_rows": 235,
+                "fuelsupply_rows": 3
+              }
+            },
+            {
+              "variable": "rtSup_atRatio",
+              "time": 0.0,
+              "expected": 0.007835437544,
+              "coords": {
+                "rate_rows": 235,
+                "fuelsupply_rows": 3
+              }
+            },
+            {
+              "variable": "rtSup_atRatioGas1",
+              "time": 0.0,
+              "expected": 0.031446464484,
+              "coords": {
+                "rate_rows": 247,
+                "fuelsupply_rows": 4
+              }
+            },
+            {
+              "variable": "rtSup_hasAtRatioNonGas",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "rate_rows": 247,
+                "fuelsupply_rows": 4
+              }
+            },
+            {
+              "variable": "rtSup_atRatioNonGas",
+              "time": 0.0,
+              "expected": 0.017000000924,
+              "coords": {
+                "rate_rows": 267,
+                "fuelsupply_rows": 4
+              }
+            },
+            {
+              "variable": "rtSup_hasAtRatioGas1",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "rate_rows": 267,
+                "fuelsupply_rows": 4
+              }
+            },
+            {
+              "variable": "rtSup_hasAtRatio",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "rate_rows": 288,
+                "fuelsupply_rows": 1
               }
             },
             {
@@ -21857,17 +22823,177 @@
             {
               "variable": "out_emissionQuant",
               "time": 0.0,
-              "expected": 326.02,
+              "expected": 80.7141,
               "coords": {
-                "output_rows": 82
+                "output_rows": 953
               }
             },
             {
               "variable": "out_emissionQuant",
               "time": 0.0,
-              "expected": 0.0315244,
+              "expected": 81.3598,
               "coords": {
-                "output_rows": 141
+                "output_rows": 1161
+              }
+            },
+            {
+              "variable": "out_emissionQuant",
+              "time": 0.0,
+              "expected": 3.01783,
+              "coords": {
+                "output_rows": 329
+              }
+            },
+            {
+              "variable": "out_emissionQuant",
+              "time": 0.0,
+              "expected": 0.465734,
+              "coords": {
+                "output_rows": 537
+              }
+            },
+            {
+              "variable": "out_emissionQuant",
+              "time": 0.0,
+              "expected": 1.16485,
+              "coords": {
+                "output_rows": 745
+              }
+            },
+            {
+              "variable": "out_emissionQuant",
+              "time": 0.0,
+              "expected": 26.2569,
+              "coords": {
+                "output_rows": 2
+              }
+            },
+            {
+              "variable": "out_emissionQuant",
+              "time": 0.0,
+              "expected": 17.3821,
+              "coords": {
+                "output_rows": 874
+              }
+            },
+            {
+              "variable": "out_emissionQuant",
+              "time": 0.0,
+              "expected": 16.9302,
+              "coords": {
+                "output_rows": 1082
+              }
+            },
+            {
+              "variable": "out_emissionQuant",
+              "time": 0.0,
+              "expected": 0.797952,
+              "coords": {
+                "output_rows": 250
+              }
+            },
+            {
+              "variable": "out_emissionQuant",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "output_rows": 458
+              }
+            },
+            {
+              "variable": "out_emissionQuant",
+              "time": 0.0,
+              "expected": 0.255359,
+              "coords": {
+                "output_rows": 666
+              }
+            },
+            {
+              "variable": "out_emissionQuant",
+              "time": 0.0,
+              "expected": 0.00881415,
+              "coords": {
+                "output_rows": 164
+              }
+            },
+            {
+              "variable": "out_emissionQuant",
+              "time": 0.0,
+              "expected": 0.00156892,
+              "coords": {
+                "output_rows": 1036
+              }
+            },
+            {
+              "variable": "out_emissionQuant",
+              "time": 0.0,
+              "expected": 0.00564579,
+              "coords": {
+                "output_rows": 1244
+              }
+            },
+            {
+              "variable": "out_emissionQuant",
+              "time": 0.0,
+              "expected": 0.00017754,
+              "coords": {
+                "output_rows": 412
+              }
+            },
+            {
+              "variable": "out_emissionQuant",
+              "time": 0.0,
+              "expected": 0.00581979,
+              "coords": {
+                "output_rows": 207
+              }
+            },
+            {
+              "variable": "out_emissionQuant",
+              "time": 0.0,
+              "expected": 0.00423908,
+              "coords": {
+                "output_rows": 1284
+              }
+            },
+            {
+              "variable": "out_emissionQuant",
+              "time": 0.0,
+              "expected": 0.0826557,
+              "coords": {
+                "output_rows": 139
+              }
+            },
+            {
+              "variable": "out_emissionQuant",
+              "time": 0.0,
+              "expected": 0.0946407,
+              "coords": {
+                "output_rows": 1219
+              }
+            },
+            {
+              "variable": "out_emissionQuant",
+              "time": 0.0,
+              "expected": 0.000741552,
+              "coords": {
+                "output_rows": 387
+              }
+            },
+            {
+              "variable": "out_emissionQuant",
+              "time": 0.0,
+              "expected": 0.0162025,
+              "coords": {
+                "output_rows": 766
+              }
+            },
+            {
+              "variable": "out_emissionQuant",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "output_rows": 350
               }
             },
             {
@@ -21881,57 +23007,9 @@
             {
               "variable": "out_emissionQuant",
               "time": 0.0,
-              "expected": 0.106529,
-              "coords": {
-                "output_rows": 249
-              }
-            },
-            {
-              "variable": "out_emissionQuant",
-              "time": 0.0,
               "expected": 0.0,
               "coords": {
-                "output_rows": 349
-              }
-            },
-            {
-              "variable": "out_emissionQuant",
-              "time": 0.0,
-              "expected": 0.0011664,
-              "coords": {
-                "output_rows": 389
-              }
-            },
-            {
-              "variable": "out_emissionQuant",
-              "time": 0.0,
-              "expected": 590.76,
-              "coords": {
-                "output_rows": 457
-              }
-            },
-            {
-              "variable": "out_emissionQuant",
-              "time": 0.0,
-              "expected": 0.279501,
-              "coords": {
-                "output_rows": 663
-              }
-            },
-            {
-              "variable": "out_emissionQuant",
-              "time": 0.0,
-              "expected": 0.0330967,
-              "coords": {
-                "output_rows": 1119
-              }
-            },
-            {
-              "variable": "out_emissionQuant",
-              "time": 0.0,
-              "expected": 4.05995e-06,
-              "coords": {
-                "output_rows": 1368
+                "output_rows": 248
               }
             },
             {
@@ -21939,47 +23017,7 @@
               "time": 0.0,
               "expected": 1.0,
               "coords": {
-                "output_rows": 1
-              }
-            },
-            {
-              "variable": "out_processID",
-              "time": 0.0,
-              "expected": 1.0,
-              "coords": {
-                "output_rows": 1
-              }
-            },
-            {
-              "variable": "out_modelYearID",
-              "time": 0.0,
-              "expected": 2020.0,
-              "coords": {
-                "output_rows": 1
-              }
-            },
-            {
-              "variable": "out_dayID",
-              "time": 0.0,
-              "expected": 2.0,
-              "coords": {
-                "output_rows": 1
-              }
-            },
-            {
-              "variable": "out_fuelTypeID",
-              "time": 0.0,
-              "expected": 1.0,
-              "coords": {
-                "output_rows": 1
-              }
-            },
-            {
-              "variable": "out_dayID",
-              "time": 0.0,
-              "expected": 5.0,
-              "coords": {
-                "output_rows": 2
+                "output_rows": 81
               }
             },
             {
@@ -21991,59 +23029,59 @@
               }
             },
             {
-              "variable": "out_pollutantID",
+              "variable": "out_fuelTypeID",
               "time": 0.0,
               "expected": 1.0,
               "coords": {
-                "output_rows": 249
+                "output_rows": 81
               }
             },
             {
-              "variable": "out_processID",
+              "variable": "out_dayID",
               "time": 0.0,
-              "expected": 15.0,
+              "expected": 2.0,
               "coords": {
-                "output_rows": 249
+                "output_rows": 81
+              }
+            },
+            {
+              "variable": "out_pollutantID",
+              "time": 0.0,
+              "expected": 20.0,
+              "coords": {
+                "output_rows": 387
               }
             },
             {
               "variable": "out_fuelTypeID",
               "time": 0.0,
-              "expected": 9.0,
+              "expected": 2.0,
               "coords": {
-                "output_rows": 209
+                "output_rows": 387
               }
             },
             {
-              "variable": "out_pollutantID",
+              "variable": "out_modelYearID",
+              "time": 0.0,
+              "expected": 1991.0,
+              "coords": {
+                "output_rows": 387
+              }
+            },
+            {
+              "variable": "out_dayID",
               "time": 0.0,
               "expected": 2.0,
               "coords": {
-                "output_rows": 457
-              }
-            },
-            {
-              "variable": "out_processID",
-              "time": 0.0,
-              "expected": 1.0,
-              "coords": {
-                "output_rows": 457
+                "output_rows": 387
               }
             },
             {
               "variable": "out_pollutantID",
               "time": 0.0,
-              "expected": 3.0,
+              "expected": 87.0,
               "coords": {
-                "output_rows": 1368
-              }
-            },
-            {
-              "variable": "out_processID",
-              "time": 0.0,
-              "expected": 15.0,
-              "coords": {
-                "output_rows": 1368
+                "output_rows": 1244
               }
             },
             {
@@ -22051,15 +23089,15 @@
               "time": 0.0,
               "expected": 5.0,
               "coords": {
-                "output_rows": 1368
+                "output_rows": 1244
               }
             },
             {
               "variable": "out_SCC",
               "time": 0.0,
-              "expected": 2201210401.0,
+              "expected": 2205210401.0,
               "coords": {
-                "output_rows": 1
+                "output_rows": 1244
               }
             },
             {
@@ -22067,39 +23105,23 @@
               "time": 0.0,
               "expected": 2202210401.0,
               "coords": {
-                "output_rows": 141
+                "output_rows": 387
               }
             },
             {
-              "variable": "out_SCC",
+              "variable": "out_processID",
               "time": 0.0,
-              "expected": 2209210401.0,
+              "expected": 1.0,
               "coords": {
-                "output_rows": 209
+                "output_rows": 1244
               }
             },
             {
-              "variable": "out_SCC",
+              "variable": "out_dayID",
               "time": 0.0,
-              "expected": 2201210415.0,
+              "expected": 5.0,
               "coords": {
-                "output_rows": 249
-              }
-            },
-            {
-              "variable": "out_SCC",
-              "time": 0.0,
-              "expected": 2202210415.0,
-              "coords": {
-                "output_rows": 389
-              }
-            },
-            {
-              "variable": "out_SCC",
-              "time": 0.0,
-              "expected": 2205210415.0,
-              "coords": {
-                "output_rows": 1368
+                "output_rows": 1244
               }
             }
           ]
