@@ -2,7 +2,7 @@
   "esm": "1.0.0",
   "metadata": {
     "name": "moves.fixture.process_air_toxics",
-    "description": "The `process-airtoxics` fixture: 1,288 rows of MOVESOutput -- Total Gaseous Hydrocarbons on Running Exhaust and the five species chained off it (non-methane hydrocarbons, volatile organic compounds, benzene, 1,3-butadiene and formaldehyde), for passenger cars on urban restricted-access roads in Washtenaw County, August, 7am, 2020 -- computed from the snapshot's own INPUT tables. It ports docs/process-airtoxics.md end to end.\\n\\nTHE PARENT IS NOT NEW, AND THAT IS MEASURED RATHER THAN ASSUMED. This snapshot's THC block is BYTE-IDENTICAL to `process-crankcase-running`'s (pollutantID 1, processID 1) block, all 248 rows in the reference's own decimal text, so the whole activity spine S1-S9, the cohort structure and fuel-usage rebase S10-S12, the age-group-keyed rate out of `emissionratebyage`, the fuel-supply resolution and `criteriaratio` are that fixture's unchanged and are already checked end to end by it. Two of that document's inputs are gone: `temperatureadjustment` and `generalfuelratio` are both EMPTY here, so the temperature factor is exactly 1 on all 984 rate rows and `criteriaratio` is the only live fuel effect; `noxhumidityadjust` is populated and is read by nothing, because pollutant 1 never enters the NOx arm.\\n\\nWHAT IS NEW IS THE CHAIN, AND IT IS NEW IN FOUR WAYS.\\n\\n(1) IT IS THREE LEVELS DEEP. `runspecchainedto` says 7901 <- 101, 8701 <- 7901 and 2001/2401/2501 <- 8701, where every earlier fixture in this port chained one level. The chain ROOT is resolved on the six-row pollutant-process relation by iterating ONE parent join three times, and survival iterates the same join on the rate relation the same three times (docs/esm-conventions.md 30.2, 32). Widening the join instead would need a different clause per depth and would stop being read from MOVES's own table.\\n\\n(2) TWO CALCULATORS, AND ONLY ONE OF THEM IS CHAINED. `HCSpeciationCalculator` reads no `RunSpecChainedTo` -- it takes a THC block and returns up to five species from it in one pass -- so NMHC and VOC are written as a direct multi-output stage; `AirToxicsCalculator` does read it, and its two live ratio paths are a self-join off the VOC block. The document writes each the way its source is written, and the difference is visible in the shape of the two stages.\\n\\n(3) EVERY RATIO KEYS ON THE FUEL SUBTYPE OR THE FUEL FORMULATION, so all of them live on the (rate row x supplied formulation) relation `criteriaratio` already introduced, and the market-share collapse happens ONCE, at the end. Forming it earlier would be wrong in general -- the product of the means is not the mean of the products -- and indistinguishable here, where each fuel type is supplied by exactly one formulation at share 1.0.\\n\\n(4) AN E85 VEHICLE IS SPECIATED FROM A DIFFERENT FUEL THAN IT BURNS. adjust.rs::build_e85_block duplicates the THC block of a subtype-51 or -52 formulation at model year 2001 or later, scales the copy by `altCriteriaRatio / criteriaRatio`, and hcspeciation.rs speciates THAT into VOC using fuel subtype 12's ratios while the emitted NMHC still comes from the ordinary block. It multiplies the emitted VOC by 3.8528 on all 23 ethanol cohorts, so a document that skipped it would be wrong by that factor on a fifth of its species rows rather than subtly off.\\n\\nTHE BLOCKS ARE RAGGED, and the rank is GLOBAL over the rate relation for the reason docs/esm-conventions.md 31 gives: 124 THC cohorts and 104 for each of the five species, because `methanethcratio` has no fuel subtype 90 row and all three stages inherit that one absence. 1,288 rows is equally consistent with 129 + 103 x 5, so `pp_emittedCohortCount` states the split as an assertion. The two templates this rung adds are lib/keys.esm's `model_year_in_group` -- the model-year band MOVES writes self-described in ONE `beginYYYYendYYYY` column -- and lib/adjustments.esm's `speciation_factor`.",
+    "description": "The `process-airtoxics` fixture: 1,288 rows of MOVESOutput -- Total Gaseous Hydrocarbons on Running Exhaust and the five species chained off it (non-methane hydrocarbons, volatile organic compounds, benzene, 1,3-butadiene and formaldehyde), for passenger cars on urban restricted-access roads in Washtenaw County, August, 7am, 2020 -- computed from the snapshot's own INPUT tables. It ports docs/process-airtoxics.md end to end.\\n\\nTHE PARENT IS NOT NEW, AND THAT IS MEASURED RATHER THAN ASSUMED. This snapshot's THC block is BYTE-IDENTICAL to `process-crankcase-running`'s (pollutantID 1, processID 1) block, all 248 rows in the reference's own decimal text, so the whole activity spine S1-S9, the cohort structure and fuel-usage rebase S10-S12, the age-group-keyed rate out of `emissionratebyage`, the fuel-supply resolution and `criteriaratio` are that fixture's unchanged and are already checked end to end by it. Two of that document's inputs are gone: `temperatureadjustment` and `generalfuelratio` are both EMPTY here, so the temperature factor is exactly 1 on all 984 rate rows and `criteriaratio` is the only live fuel effect; `noxhumidityadjust` is populated and is read by nothing, because pollutant 1 never enters the NOx arm.\\n\\nWHAT IS NEW IS THE CHAIN, AND IT IS NEW IN FOUR WAYS.\\n\\n(1) IT IS THREE LEVELS DEEP. `runspecchainedto` says 7901 <- 101, 8701 <- 7901 and 2001/2401/2501 <- 8701, where every earlier fixture in this port chained one level. The chain ROOT is resolved on the six-row pollutant-process relation by iterating ONE parent join three times, and survival iterates the same join on the rate relation the same three times (docs/esm-conventions.md 30.2, 32). Widening the join instead would need a different clause per depth and would stop being read from MOVES's own table.\\n\\n(2) TWO CALCULATORS, AND ONLY ONE OF THEM IS CHAINED. `HCSpeciationCalculator` reads no `RunSpecChainedTo` -- it takes a THC block and returns up to five species from it in one pass -- so NMHC and VOC are written as a direct multi-output stage; `AirToxicsCalculator` does read it, and its two live ratio paths are a self-join off the VOC block. The document writes each the way its source is written, and the difference is visible in the shape of the two stages.\\n\\n(3) EVERY RATIO KEYS ON THE FUEL SUBTYPE OR THE FUEL FORMULATION, so all of them live on the (rate row x supplied formulation) relation `criteriaratio` already introduced, and the market-share collapse happens ONCE, at the end. Forming it earlier would be wrong in general -- the product of the means is not the mean of the products -- and indistinguishable here, where each fuel type is supplied by exactly one formulation at share 1.0.\\n\\n(4) AN E85 VEHICLE IS SPECIATED FROM A DIFFERENT FUEL THAN IT BURNS. adjust.rs::build_e85_block duplicates the THC block of a subtype-51 or -52 formulation at model year 2001 or later, scales the copy by `altCriteriaRatio / criteriaRatio`, and hcspeciation.rs speciates THAT into VOC using fuel subtype 12's ratios while the emitted NMHC still comes from the ordinary block. It multiplies the emitted VOC by 3.8528 on the 20 ethanol cohorts of model year 2001 or later, so a document that skipped it would be wrong by that factor on 40 of the 1,288 emitted rows rather than subtly off.\\n\\nTHE BLOCKS ARE RAGGED, and the rank is GLOBAL over the rate relation for the reason docs/esm-conventions.md 31 gives: 124 THC cohorts and 104 for each of the five species, because `methanethcratio` has no fuel subtype 90 row and all three stages inherit that one absence. 1,288 rows is equally consistent with 129 + 103 x 5, so `pp_emittedCohortCount` states the split as an assertion. The two templates this rung adds are lib/keys.esm's `model_year_in_group` -- the model-year band MOVES writes self-described in ONE `beginYYYYendYYYY` column -- and lib/adjustments.esm's `speciation_factor`.",
     "authors": [
       "EarthSciML Authors and Contributors"
     ],
@@ -110,7 +110,7 @@
         "tags": [
           "scope"
         ],
-        "note": "1 row, roadTypeID 4. J27: this is the join that suppresses every process-2 row, because start exhaust lives on the off-network road type 1 and the RunSpec does not select it (\u00a70.2).",
+        "note": "1 row, roadTypeID 4 (urban restricted access). One of the two factors of the activity chain's geography, and the road type every emitted row is labelled with. This run selects one process, so unlike the evaporative fixtures nothing here is suppressed by the road-type join.",
         "esio_format": "parquet"
       }
     },
@@ -161,7 +161,7 @@
           "scope",
           "fuel"
         ],
-        "note": "63 rows. S1's base-year flag -- Y/N text through a `codes` map -- and the calendar-year-to-fuel-year map S12 keys on. 2020 is flagged Y, which is why \u00a71.5's two year-by-year folds are the empty product here and finding F12 does not bite.",
+        "note": "63 rows. S1's base-year flag -- Y/N text through a `codes` map -- and the calendar-year-to-fuel-year map S12 keys on. 2020 is flagged Y, so the population and VMT growth folds are the empty product and neither is exercised here.",
         "esio_format": "parquet"
       }
     },
@@ -591,7 +591,7 @@
         "tags": [
           "cohorts"
         ],
-        "note": "333 rows: 111 model years for each of the three EXHAUST pollutant-processes, and NONE for the three crankcase ones. Model year to model-year GROUP per pollutant-process, and an existence condition on the cohort -- so a crankcase pollutant-process fails S10's selection rule for every candidate, which is the first of the two independent reasons it carries no rate of its own.",
+        "note": "555 rows: 111 model years for each of five of the six pollutant-processes -- 101, 2001, 2401, 2501 and 8701 -- and NONE for 7901. Model year to model-year GROUP per pollutant-process, and an existence condition on the cohort, so NMHC fails S10's selection rule for every candidate and `pp_selectedCohortCount` is 0 there. It costs nothing: a chained row's existence is decided by its parent and its own ratio (docs/process-airtoxics.md 2.6) and never consults `rt_isSelected`. The GROUP itself is read only for the parent, whose `shortModYrGroupID` keys the rate.",
         "esio_format": "parquet"
       }
     },
@@ -790,7 +790,7 @@
           "cohorts",
           "shape"
         ],
-        "note": "41 rows, seven age groups. Its extent is the model-year window -- [runYear - 40, runYear] -- and the first factor of both derived axes; its ageGroupID is the key S15(f)'s EV efficiency is selected on.",
+        "note": "41 rows, seven age groups. Its extent is the model-year window -- [runYear - 40, runYear] -- and the first factor of both derived axes. Its `ageGroupID` is a RATE key here and not an efficiency key: `emissionratebyage` carries one row per age group, and fuel type 9 has rows for groups 3 through 1519 and none for 2099, so the single electricity cohort aged 20 or more finds no rate and is not emitted while 2001-2020 are emitted at exactly zero (docs/esm-conventions.md 30.1). `evefficiency` is EMPTY in this snapshot and is not a source.",
         "esio_format": "parquet"
       }
     },
@@ -811,7 +811,7 @@
         "tags": [
           "rates"
         ],
-        "note": "590,709 rows over the three EXHAUST pollutant-processes 101, 201 and 301 -- and over nothing else, which is the whole reason process 15 has to be chained rather than rated. This is `emissionRateByAge` and not `emissionRate`: a criteria pollutant deteriorates, so its rate carries an `ageGroupID` and the seven age groups of `agecategory` are a SEVENTH key pair on J22. The cohort's model year fixes its age and its age fixes its group, so the extra key is not an extra axis -- `rt_ageGroupID` is already on the rate row for the EV-efficiency lookup `mixed-onroad` needed.",
+        "note": "218,316 rows, ALL polProcessID 101 -- and none for any of the five species, which is the whole reason they have to be chained rather than rated. This is `emissionRateByAge` and not `emissionRate`, which is empty in this snapshot: a criteria pollutant deteriorates, so its rate carries an `ageGroupID` and the seven age groups of `agecategory` are a SEVENTH key pair on J22. The cohort's model year fixes its age and its age fixes its group, so the extra key is not an extra axis -- but it IS an extra way to miss, and one cohort misses (see `at_agecategory`).",
         "esio_format": "parquet"
       }
     },
@@ -832,7 +832,7 @@
         "tags": [
           "rates"
         ],
-        "note": "115 rows. The EV share of a model year's sales, and the reason S13's back-scaling is MODEL-YEAR dependent -- \u00a77.3 measures that omitting it leaves a 5.5e-2 residual where the full factorisation leaves 1.4e-5.",
+        "note": "115 rows. The EV share of a model year's sales, and the reason S13's back-scaling is MODEL-YEAR dependent. It reaches `rt_evSalesFactor` through `fleetavgadjustment`, whose every `evMultiplier` is 1.0 here, so the factor works out to 1 by the arithmetic rather than by absence.",
         "esio_format": "parquet"
       }
     },
@@ -854,7 +854,7 @@
         "tags": [
           "rates"
         ],
-        "note": "18 rows, polProcessID 101 and 301 -- and NOT 201. So THC and NOx carry an EV-sales back-scaling factor and Carbon Monoxide does not, computed through `rt_hasFleetAvgAdjustment` rather than written down. Every `evMultiplier` here is 1.0 and every band that covers this run's model years has a NULL `adjustmentCap`, so the factor works out to 1 -- but by the arithmetic, not by absence.",
+        "note": "9 rows, every one polProcessID 101 -- the parent's, because the five species carry no rate to back-scale. `rt_hasFleetAvgAdjustment` decides whether the factor applies rather than the document deciding it. Every `evMultiplier` here is 1.0, and the two bands that cover this run's model years (2017-2026 and 2017-2030) have a NULL `adjustmentCap`, so the factor works out to 1 -- by the arithmetic, not by absence.",
         "esio_format": "parquet"
       }
     },
@@ -891,7 +891,7 @@
         "tags": [
           "adjustment"
         ],
-        "note": "69 rows over exactly the three EXHAUST pollutant-processes 101, 201 and 301. The A/C increment they define is real; what makes it inert is the clamp on the A/C activity term (`run_acActivity` = 0 from a raw -0.297), not a missing row. Inert BY A CLAMP is a different claim from inert by absence, and only one of the two survives a change of hour.",
+        "note": "23 rows, every one polProcessID 101 and sourceTypeID 21: 1.0 at braking, 1.07956 at idle and 1.23161 on the twenty-one binned running modes. The A/C increment they define is real and `rtDay_meanBaseRateACAdj` is pinned against the reference's own `baseratebyage_1_2020`; what makes it inert is the clamp on the A/C activity term (`run_acActivity` = 0 from a raw -0.296982), not a missing row. Inert BY A CLAMP is a different claim from inert by absence, and only one of the two survives a change of hour.",
         "esio_format": "parquet"
       }
     },
@@ -979,7 +979,7 @@
         "tags": [
           "adjustment"
         ],
-        "note": "ZERO rows in this snapshot, where `process-crankcase-running` had four unreachable ones and `process-nox-speciation` four. So both arms of lib/adjustments.esm's `exact_else_wildcard` miss and it falls through to a zero-valued default -- `unwrap_or_default` in adjust.rs:503-505. Pollutant 1 is not 118/112 (PM), not the fuel-9 energy pollutant 91 and not 3 (NOx), so `general_temp_adjust` reaches its FALL-THROUGH QUADRATIC (adjust.rs:141) with A = B = 0 and `rt_temperatureFactor` is exactly 1 on every one of the 984 rate rows. `noxhumidityadjust` is populated in this snapshot and is NOT a source here: the humidity correction multiplies only inside the NOx arm, which this run never enters.",
+        "note": "ZERO rows in this snapshot, where `process-crankcase-running` had four unreachable ones and `process-nox-speciation` four. So both arms of lib/adjustments.esm's `exact_else_wildcard` miss and it falls through to a zero-valued default -- `unwrap_or_default` in adjust.rs:503-505. Pollutant 1 is not 118/112 (PM), not the fuel-9 energy pollutant 91 and not 3 (NOx), so `general_temp_adjust` reaches its FALL-THROUGH QUADRATIC (adjust.rs:141-142) with A = B = 0 and `rt_temperatureFactor` is exactly 1 on every one of the 984 rate rows. `noxhumidityadjust` is populated in this snapshot and is NOT a source here: the humidity correction multiplies only inside the NOx arm, which this run never enters.",
         "esio_format": "parquet"
       }
     },
@@ -1134,7 +1134,7 @@
           "fuel",
           "speciation"
         ],
-        "note": "60 rows, all fuel type 5 on formulation 27002 for model years 2001-2020: the NUMERATOR of the E85 altTHC scale factor (adjust.rs:625-692). Where a supplied formulation's subtype is 51 or 52 and the model year is 2001 or later, MOVES emits a SECOND fuel block carrying the already-criteria-adjusted rate times `altRatio / ratio` and re-tags it pollutant 10001; `HCSpeciationCalculator` then speciates that block with the E10 subtype's ratios instead of the emission's own, because such vehicles burn E10-like blends in practice. The quotient is 0.99340657 on both of its model-year bands here, and the branch as a whole multiplies the emitted VOC by 3.8528. Same five key columns as `criteriaratio`, and the same GPA blend.",
+        "note": "60 rows, all fuel type 5 on formulation 27002 for model years 2001-2020: the NUMERATOR of the E85 altTHC scale factor (adjust.rs:625-692). Where a supplied formulation's subtype is 51 or 52 and the model year is 2001 or later, MOVES emits a SECOND fuel block carrying the already-criteria-adjusted rate times `altRatio / ratio` and re-tags it pollutant 10001; `HCSpeciationCalculator` then speciates that block with the E10 subtype's ratios instead of the emission's own, because such vehicles burn E10-like blends in practice. The quotient is 0.99340697 on both of its model-year bands here, and the branch as a whole multiplies the emitted VOC by 3.8528. Same five key columns as `criteriaratio`, and the same GPA blend.",
         "esio_format": "parquet"
       }
     },
@@ -1178,7 +1178,7 @@
           "speciation",
           "chain"
         ],
-        "note": "372 rows: `AirToxicsCalculator`'s ATRatioNonGas path (airtoxics.rs:832-856). Keyed by (polProcessID, sourceTypeID, fuelSubtypeID) and by a model-year group written SELF-DESCRIBED in one column -- 19501980, 20072007, 20312050 -- which lib/keys.esm's `model_year_in_group` decodes. It covers diesel (subtypes 20 and 21) at every model year and E85 (51, 52) only to 2000, so this run's E85 cohorts split at 2001: nongas below, ATRatioGas1 above, and no cohort reaches both. The Go APPENDS both paths' emissions rather than choosing between them, so this document sums them; the sum has one live term here and docs/process-airtoxics.md 7.2.3 records that.",
+        "note": "372 rows: `AirToxicsCalculator`'s ATRatioNonGas path (airtoxics.rs:833-856). Keyed by (polProcessID, sourceTypeID, fuelSubtypeID) and by a model-year group written SELF-DESCRIBED in one column -- 19501980, 20072007, 20312050 -- which lib/keys.esm's `model_year_in_group` decodes. It covers diesel (subtypes 20 and 21) at every model year and E85 (51, 52) only to 2000, so this run's E85 cohorts split at 2001: nongas below, ATRatioGas1 above, and no cohort reaches both. The Go APPENDS both paths' emissions rather than choosing between them, so this document sums them; the sum has one live term here and docs/process-airtoxics.md 7.2.3 records that.",
         "esio_format": "parquet"
       }
     }
@@ -4397,7 +4397,7 @@
           "shape": [
             "generalfuelratio_rows"
           ],
-          "description": "generalfuelratio.polProcessID: 115, 215 or 315 on every one of the 39 rows, which is why this step's factor is 1 throughout (`run_generalFuelRatioReach`).",
+          "description": "generalfuelratio.polProcessID. The table has ZERO rows in this snapshot, so this column has no values and `run_generalFuelRatioReach` is 0.",
           "update": {
             "kind": "data",
             "source": "at_generalfuelratio",
@@ -5586,7 +5586,7 @@
           "shape": [
             "fuelsupply_rows"
           ],
-          "description": "adjust.rs:634: is this a formulation of fuel subtype 51 or 52, the two E85/E70 subtypes whose THC block is duplicated? hcspeciation.rs:695 tests 50 as well, but a block that adjust.rs did not build cannot be speciated, so 51/52 is the reachable condition and the one written."
+          "description": "adjust.rs:640: is this a formulation of fuel subtype 51 or 52, the two E85/E70 subtypes whose THC block is duplicated? hcspeciation.rs:654 tests 50 as well, but a block that adjust.rs did not build cannot be speciated, so 51/52 is the reachable condition and the one written."
         },
         "fsu_isInRegion": {
           "type": "unknown",
@@ -6015,7 +6015,7 @@
             "runspecday_rows",
             "operating_mode_rows"
           ],
-          "description": "W, the drive-cycle operating-mode weights, keyed by the run's day type and the operating mode. ONE relation again: every pollutant-process in this run is on process 1, so `BaseRateGenerator` drives the cycles itself for all of them (mod.rs:156-161) and `process-tirewear`'s pollutant-process axis is not needed. The three CRANKCASE pollutant-processes have no operating-mode distribution of their own at all -- they are not rated."
+          "description": "W, the drive-cycle operating-mode weights, keyed by the run's day type and the operating mode. ONE relation: every pollutant-process in this run is on process 1, so `BaseRateGenerator` drives the cycles itself (mod.rs:156-161) and `process-tirewear`'s pollutant-process axis is not needed. The five chained pollutant-processes have no operating-mode distribution of their own and need none -- they carry no rate for a mode weight to collapse."
         },
         "day_WTotal": {
           "type": "unknown",
@@ -6231,7 +6231,7 @@
           "shape": [
             "cohort_rows"
           ],
-          "description": "The candidate's age group, which is what selects an EV efficiency."
+          "description": "The candidate's age group, carried onto the rate row where it keys `emissionratebyage`."
         },
         "coh_modelYearID": {
           "type": "unknown",
@@ -6407,7 +6407,7 @@
           "shape": [
             "output_rows"
           ],
-          "description": "S16, mod.rs:1602-1608: SHO over noOfRealDays. Leaving the divisor out gives 1.79 for the weekend and 4.48 for the weekday where \u00a76.1 wants 0.8955."
+          "description": "S16, mod.rs:1602-1608: SHO over noOfRealDays. The divisor is the number of REAL days the day type stands for -- 2 for the weekend and 5 for the weekday -- and S7 multiplied the same number in, so leaving it out here would scale every weekend row by 2 and every weekday row by 5."
         },
         "out_yearID": {
           "type": "unknown",
@@ -6536,7 +6536,7 @@
           "shape": [
             "runspecpollutantprocess_rows"
           ],
-          "description": "runspecpollutantprocess.polProcessID: 101, 115, 201, 215, 301, 315. The run's whole pollutant scope.",
+          "description": "runspecpollutantprocess.polProcessID: 101, 2001, 2401, 2501, 7901, 8701. The run's whole pollutant scope, in the table's own row order.",
           "update": {
             "kind": "data",
             "source": "at_runspecpollutantprocess",
@@ -6552,7 +6552,7 @@
           "shape": [
             "runspecchainedto_rows"
           ],
-          "description": "runspecchainedto.outputPolProcessID -- the CHAINED pollutant-process, 115, 215 or 315.",
+          "description": "runspecchainedto.outputPolProcessID -- the CHAINED pollutant-process: 2001, 2401, 2501, 7901 or 8701.",
           "update": {
             "kind": "data",
             "source": "at_runspecchainedto",
@@ -6568,7 +6568,7 @@
           "shape": [
             "runspecchainedto_rows"
           ],
-          "description": "runspecchainedto.inputPolProcessID -- what it is computed FROM: 101, 201 or 301, its own pollutant's Running Exhaust.",
+          "description": "runspecchainedto.inputPolProcessID -- what it is computed FROM. 101 for 7901, 7901 for 8701, and 8701 for each of the three toxics: three levels, not one.",
           "update": {
             "kind": "data",
             "source": "at_runspecchainedto",
@@ -6584,7 +6584,7 @@
           "shape": [
             "zonemonthhour_rows"
           ],
-          "description": "zonemonthhour.temperature, 59.5 degF at hour 7. The temperature adjustment reads THIS column and the A/C activity term and the EV suppression read `heatIndex`; the two are equal in every row of this snapshot, so the distinction costs nothing here and is made because adjust.rs:495-535 makes it.",
+          "description": "zonemonthhour.temperature, 59.5 degF at hour 7. The temperature adjustment reads THIS column and the A/C activity quadratic reads `heatIndex`; the two are equal in every row of this snapshot, so the distinction costs nothing here and is made because adjust.rs:495-535 makes it.",
           "update": {
             "kind": "data",
             "source": "at_zonemonthhour",
@@ -6615,7 +6615,7 @@
           "shape": [
             "runspecpollutantprocess_rows"
           ],
-          "description": "The process half: 1 (Running Exhaust) and 15 (Crankcase Running Exhaust)."
+          "description": "The process half: 1 (Running Exhaust) on all six. A speciated block inherits its input block's process (hcspeciation.rs:817, airtoxics.rs::add_chained_emission), which is why one process covers a six-pollutant run."
         },
         "rspp_chainInputPolProcessID": {
           "type": "unknown",
@@ -6623,7 +6623,7 @@
           "shape": [
             "runspecpollutantprocess_rows"
           ],
-          "description": "A LEFT JOIN onto runspecchainedto: the exhaust pollutant-process for each of the three crankcase ones, and 0 -- the additive identity, which is no pollutant-process -- for the three that carry a rate of their own. That 0 is what makes the chain term vanish on an unchained row without a branch, and it is also `rt_isChained`'s whole test."
+          "description": "A LEFT JOIN onto runspecchainedto: the pollutant-process each of the five species is computed FROM, and 0 -- the additive identity, which is no pollutant-process -- for the one that carries a rate of its own. That 0 is what makes `rspp_rootAtDepth0` select the root without a branch, and it is also `rt_isChained`'s whole test."
         },
         "rspp_rootAtDepth0": {
           "type": "unknown",
@@ -6679,7 +6679,7 @@
           "shape": [
             "pollutantprocessmodelyear_rows"
           ],
-          "description": "modelyeargroup.shortModYrGroupID resolved AT the pollutantprocessmodelyear row. It has to be here rather than on the cohort because a join key column must be one-dimensional and the short group depends on the pollutant-process as well as the model year. All three exhaust pollutant-processes agree here -- model year 2020 maps to short group 40 and 1980 to 1 -- and the three CRANKCASE ones have no `pollutantprocessmodelyear` row at all, so their short group is 0 and their rate join finds nothing. That double suppression is deliberate: a crankcase pollutant-process is not a rate path."
+          "description": "modelyeargroup.shortModYrGroupID resolved AT the pollutantprocessmodelyear row. It has to be here rather than on the cohort because a join key column must be one-dimensional and the short group depends on the pollutant-process as well as the model year. Model year 2020 maps to short group 40 and 1980 to 1 on the parent, which is the only pollutant-process whose short group reaches a rate."
         },
         "rt_ordinal": {
           "type": "unknown",
@@ -6831,7 +6831,7 @@
           "shape": [
             "rate_rows"
           ],
-          "description": "The cohort's age GROUP, which is the EV-efficiency key."
+          "description": "The cohort's age GROUP, which is the seventh key of the RATE join: `emissionratebyage` carries one row per age group and fuel type 9 has none for group 2099."
         },
         "rt_stmyFraction": {
           "type": "unknown",
@@ -6911,7 +6911,7 @@
           "shape": [
             "cohort_rows"
           ],
-          "description": "How many of the run's pollutant-processes select this cohort candidate. It is 0 or 3 on every one of the 164 -- the three exhaust pollutant-processes agree exactly, and the three crankcase ones select none. `coh_isSelected` is the OR of that, and it is what the fuel-usage rebase S12 is scoped by."
+          "description": "How many of the run's pollutant-processes select this cohort candidate. It is 0 or 5 on every one of the 164 -- the five that have `pollutantprocessmodelyear` rows agree exactly, and NMHC, which has none, selects none. `coh_isSelected` is the OR of that, and it is what the fuel-usage rebase S12 is scoped by."
         },
         "coh_isSelected": {
           "type": "unknown",
@@ -7039,7 +7039,7 @@
           "shape": [
             "run_rows"
           ],
-          "description": "684, recomputed from the chain so `n_outputRateRow` is checked."
+          "description": "644, recomputed from the chain so `n_outputRateRow` is checked."
         },
         "pp_emittedCohortCount": {
           "type": "unknown",
@@ -7047,7 +7047,7 @@
           "shape": [
             "runspecpollutantprocess_rows"
           ],
-          "description": "Emitted cohorts PER pollutant-process: 124 on each exhaust one and 104 on each crankcase one. The assertion a row count cannot make."
+          "description": "Emitted cohorts PER pollutant-process: 124 on the THC parent and 104 on each of the five species. The assertion a row count cannot make -- 129 + 103 x 5 is 644 too."
         },
         "rtMode_rate": {
           "type": "unknown",
@@ -7065,7 +7065,7 @@
             "rate_rows",
             "operating_mode_rows"
           ],
-          "description": "J23, as a LEFT JOIN: the value and the existence are separate aggregates because a missing row is a factor of ONE and the additive identity is zero. All three exhaust pollutant-processes have rows here; the crankcase ones do not, and do not need any, because they carry no rate for an A/C increment to be added to."
+          "description": "J23, as a LEFT JOIN: the value and the existence are separate aggregates because a missing row is a factor of ONE and the additive identity is zero. Only the THC parent has rows here; the five species do not, and need none, because they carry no rate for an A/C increment to be added to."
         },
         "rtMode_hasACAdjustment": {
           "type": "unknown",
@@ -7091,7 +7091,7 @@
           "shape": [
             "rate_rows"
           ],
-          "description": "J25: two key pairs plus lib/keys.esm's `model_year_in_range`. `fleetavgadjustment` carries 101 and 301 rows only, so Carbon Monoxide's multiplier is absent and its back-scaling factor is 1 -- a difference between two pollutants of the same run, which is the case an earlier fixture with one pollutant could not pose."
+          "description": "J25: two key pairs plus lib/keys.esm's `model_year_in_range`. `fleetavgadjustment` carries polProcessID 101 rows only, which is the only pollutant-process with a rate to back-scale; every multiplier in it is 1.0."
         },
         "rt_adjustmentCap": {
           "type": "unknown",
@@ -7308,7 +7308,7 @@
             "rate_rows",
             "fuelsupply_rows"
           ],
-          "description": "adjust.rs:626-651 and hcspeciation.rs:695-698 as one conjunction of five conditions: running or start exhaust, model year 2001 or later, fuel type 5, a supplied formulation of subtype 51 or 52, and both criteria ratios present. Where it holds, the VOC is speciated from the altTHC block with the E10 subtype's ratios and the ordinary VOC is SUPPRESSED."
+          "description": "adjust.rs:626-651 and hcspeciation.rs:654-658 as one conjunction of five conditions: running or start exhaust, model year 2001 or later, fuel type 5, a supplied formulation of subtype 51 or 52, and both criteria ratios present. Where it holds, the VOC is speciated from the altTHC block with the E10 subtype's ratios and the ordinary VOC is SUPPRESSED."
         },
         "rtSup_altToCriteriaRatio": {
           "type": "unknown",
@@ -7317,7 +7317,7 @@
             "rate_rows",
             "fuelsupply_rows"
           ],
-          "description": "adjust.rs:656-658: `altRatio / ratio`, with the source's own `r > 0` guard rather than an unconditional division. 0.99340657 on both of its model-year bands here."
+          "description": "adjust.rs:656-658: `altRatio / ratio`, with the source's own `r > 0` guard rather than an unconditional division. 0.99340697 on both of its model-year bands here -- 0.640730021747/0.644982407884 below model year 2017 and 1.037215919005/1.044099696019 from 2017."
         },
         "rtSup_vocFactor": {
           "type": "unknown",
@@ -7380,7 +7380,7 @@
             "rate_rows",
             "fuelsupply_rows"
           ],
-          "description": "The ATRatioNonGas ratio (airtoxics.rs:832-856), keyed on the emission's fuel SUBTYPE and a self-described model-year group."
+          "description": "The ATRatioNonGas ratio (airtoxics.rs:833-856), keyed on the emission's fuel SUBTYPE and a self-described model-year group."
         },
         "rtSup_hasAtRatioNonGas": {
           "type": "unknown",
@@ -7486,7 +7486,7 @@
           "shape": [
             "run_rows"
           ],
-          "description": "How many (rate row, supplied formulation) pairs the general-fuel-ratio lookup reaches: 81, all of them on crankcase rate rows."
+          "description": "How many (rate row, supplied formulation) pairs the general-fuel-ratio lookup reaches: ZERO, because `generalfuelratio` is empty in this snapshot. Asserted rather than assumed -- an empty source and an unwritten step look the same from the answer."
         },
         "run_generalFuelRatioOnRatedRows": {
           "type": "unknown",
@@ -7570,7 +7570,7 @@
           "shape": [
             "rate_rows"
           ],
-          "description": "Whether the exact-class row exists. It does not here, and MIXED-ONROAD SILENTLY DEPENDED ON THAT: with only the exact lookup its EV temperature terms came out 0, its raw adjustment 0 instead of -0.00419, and the clamp returned the same 1 for the wrong reason. At 59.5 degF the raw adjustment is +0.015625 and does not clamp, so the missing fallback would be a 1.56 % error on all 84 electricity rows -- and is how it was found."
+          "description": "Whether an exact-regClass `temperatureadjustment` row exists. It does not, and neither does the regClassID-0 wildcard row -- the table is EMPTY in this snapshot -- so `exact_else_wildcard` falls through to the zero-valued default. The two-step precedence is written because `mixed-onroad` demonstrably needed its second step (its EV temperature terms came out 0 with only the exact lookup, and the clamp then returned the right answer for the wrong reason); nothing in THIS fixture distinguishes the two steps, because both miss."
         },
         "rt_tempAdjustTermAWildcard": {
           "type": "unknown",
@@ -7742,7 +7742,7 @@
           "shape": [
             "output_rows"
           ],
-          "description": "S18: grams, for all three pollutants on both processes. No unit divisor applies, because not one of this run's pollutants is an energy pollutant. THE compared column."
+          "description": "S18: grams, for all six pollutants. No unit divisor applies, because not one of this run's pollutants is an energy pollutant. THE compared column."
         }
       },
       "equations": [
@@ -16300,7 +16300,7 @@
           }
         },
         {
-          "_comment": "J43. THE E85 altTHC BRANCH (adjust.rs:625-692). For running or start exhaust at model year 2001 or later, MOVES duplicates the THC fuel block of any formulation whose subtype is 51 or 52, scales the copy by `altRatio / ratio` and re-tags it pollutant 10001; `HCSpeciationCalculator` then speciates THAT block into VOC using fuel subtype 12's ratios, while the emitted NMHC still comes from the ordinary block. The branch multiplies the emitted VOC by 3.8528 on all 23 ethanol cohorts of this run, so it is not a refinement.",
+          "_comment": "J43. THE E85 altTHC BRANCH (adjust.rs:625-692). For running or start exhaust at model year 2001 or later, MOVES duplicates the THC fuel block of any formulation whose subtype is 51 or 52, scales the copy by `altRatio / ratio` and re-tags it pollutant 10001; `HCSpeciationCalculator` then speciates THAT block into VOC using fuel subtype 12's ratios, while the emitted NMHC still comes from the ordinary block. The branch multiplies the emitted VOC by 3.8528 on the 20 ethanol cohorts of this run that are model year 2001 or later, so it is not a refinement.",
           "lhs": "rtSup_altCriteriaRatioNormal",
           "rhs": {
             "op": "aggregate",
@@ -17962,7 +17962,7 @@
           }
         },
         {
-          "_comment": "How many (rate row, SUPPLIED formulation) pairs the general-fuel-ratio lookup reaches. 81 -- three crankcase pollutant-processes times the twenty-seven diesel model years 1980-2006 the table's band admits. Every one of them is on a CRANKCASE rate row, and a crankcase rate row has no rate to scale, which is the next assertion.",
+          "_comment": "How many (rate row, SUPPLIED formulation) pairs the general-fuel-ratio lookup reaches. ZERO, because `generalfuelratio` has no rows at all in this snapshot -- `FuelEffectsGenerator` evaluated none of `generalfuelratioexpression`'s 93 expressions into it for polProcessID 101. The step is written anyway, with both of its range predicates, and this counts the zero: an empty source and a step that was never written look identical from the answer (docs/esm-conventions.md 23).",
           "lhs": "run_generalFuelRatioReach",
           "rhs": {
             "op": "aggregate",
@@ -18006,7 +18006,7 @@
           }
         },
         {
-          "_comment": "The same count restricted to rate rows that actually carry a rate. ZERO, and that zero is this table's whole effect on the answer: all 39 rows name a crankcase pollutant-process, and `CrankcaseEmissionCalculatorNonPM` runs DOWNSTREAM of `BaseRateCalculator` and never re-enters it, so no fuel block is ever scaled by one. Without the count, a step that was never written and a step whose table is unreachable look identical from the answer.",
+          "_comment": "The same count restricted to rate rows that actually carry a rate. Also zero, and for the same reason. The two counts are kept apart because they fail differently: the first would move if the table gained a row this run's formulations reach, the second only if such a row also landed on a RATED cohort, and a fixture that measured only the second could not tell an unreachable table from an empty one.",
           "lhs": "run_generalFuelRatioOnRatedRows",
           "rhs": {
             "op": "aggregate",
@@ -18220,7 +18220,7 @@
           }
         },
         {
-          "_comment": "J22: ONE clause carrying SEVEN key pairs. The seventh is the age group, which is what makes this `emissionRateByAge` rather than `emissionRate` -- a criteria pollutant's rate deteriorates and one source bin carries seven of them. This is a cost decision as well as a reading order (docs/esm-conventions.md 3): 590,709 rate rows against 984 x 41 rate-mode cells is only affordable as one equi-join.",
+          "_comment": "J22: ONE clause carrying SEVEN key pairs. The seventh is the age group, which is what makes this `emissionRateByAge` rather than `emissionRate` -- a criteria pollutant's rate deteriorates and one source bin carries seven of them, and `emissionrate` is empty in this snapshot. This is a cost decision as well as a reading order (docs/esm-conventions.md 3): 218,316 rate rows against 984 x 60 rate-mode cells is only affordable as one equi-join.",
           "lhs": "rtMode_rate",
           "rhs": {
             "op": "aggregate",
@@ -18336,7 +18336,7 @@
           }
         },
         {
-          "_comment": "Read from `runspecchainedto`, not written down: 115, 215 and 315 are chained and 101, 201 and 301 are not.",
+          "_comment": "Read from `runspecchainedto`, not written down: 7901, 8701, 2001, 2401 and 2501 are chained and 101 is not.",
           "lhs": "rt_isChained",
           "rhs": {
             "op": "ifelse",
@@ -18574,7 +18574,7 @@
           }
         },
         {
-          "_comment": "684, recomputed from the chain, so `n_outputRateRow` is a CHECKED declaration and not a transcribed answer.",
+          "_comment": "644, recomputed from the chain, so `n_outputRateRow` is a CHECKED declaration and not a transcribed answer.",
           "lhs": "run_outputRateRowCount",
           "rhs": {
             "op": "aggregate",
@@ -18601,7 +18601,7 @@
           }
         },
         {
-          "_comment": "The same count PER pollutant-process: 124, 104, 124, 104, 124, 104. THIS IS THE ASSERTION A ROW COUNT CANNOT MAKE. 1368 rows is equally consistent with six blocks of 114, and the whole subject of this rung is that the two processes do not span the same cohorts.",
+          "_comment": "The same count PER pollutant-process: 124, 104, 104, 104, 104, 104. THIS IS THE ASSERTION A ROW COUNT CANNOT MAKE. 1,288 rows is equally consistent with 129 + 103 x 5, and the comparator's exact-key-set check would not separate them either, because the union of six blocks over the same key space can be made to match.",
           "lhs": "pp_emittedCohortCount",
           "rhs": {
             "op": "aggregate",
@@ -19507,7 +19507,7 @@
           }
         },
         {
-          "_comment": "adjust.rs:87-141's FALL-THROUGH arm. Pollutant 1 is not 118 or 112 (the PM arm), not the fuel-9 energy pollutant 91 (the EV arm) and not 3 (the NOx arm), so running-exhaust THC takes the standard quadratic and no humidity correction -- `noxhumidityadjust` is populated in this snapshot and is not read. The template returns the ADDITIVE term and the `1 +` is written here. `temperatureadjustment` has ZERO rows here, so both arms of `exact_else_wildcard` miss, A and B are the additive identity and this is exactly 1 on all 984 rate rows -- absent rather than inert, and docs/process-airtoxics.md 7.2.8 keeps the distinction.",
+          "_comment": "adjust.rs:87-142's FALL-THROUGH arm. Pollutant 1 is not 118 or 112 (the PM arm), not the fuel-9 energy pollutant 91 (the EV arm) and not 3 (the NOx arm), so running-exhaust THC takes the standard quadratic and no humidity correction -- `noxhumidityadjust` is populated in this snapshot and is not read. The template returns the ADDITIVE term and the `1 +` is written here. `temperatureadjustment` has ZERO rows here, so both arms of `exact_else_wildcard` miss, A and B are the additive identity and this is exactly 1 on all 984 rate rows -- absent rather than inert, and docs/process-airtoxics.md 7.2.8 keeps the distinction.",
           "lhs": "rt_temperatureFactor",
           "rhs": {
             "op": "aggregate",
@@ -19728,7 +19728,7 @@
           }
         },
         {
-          "_comment": "The prefix count ZEROED on the rows that do not emit, so every emitting rate row has a dense 1..684 and every suppressed one has 0 (docs/esm-conventions.md 22 and 31). It is GLOBAL over the rate relation rather than per pollutant-process block, which is the one structural change this fixture makes to `process-tirewear`'s output stage: three of the six blocks are 124 cohorts long and three are 104, and a rank built from a block offset needs every block to be the same size.",
+          "_comment": "The prefix count ZEROED on the rows that do not emit, so every emitting rate row has a dense 1..644 and every suppressed one has 0 (docs/esm-conventions.md 22 and 31). It is GLOBAL over the rate relation rather than per pollutant-process block, because the six blocks are not the same size: one of 124 and five of 104, and a rank built from a block offset needs every block to be the same length.",
           "lhs": "rt_outputRank",
           "rhs": {
             "op": "*",
@@ -19763,7 +19763,7 @@
           }
         },
         {
-          "_comment": "The output relation is the 684 emitting rate rows crossed with the day types, rate-major. There is no pollutant-process factor in the layout at all: it is carried by the rate row the rank reaches, which is what makes ragged blocks cost nothing here.",
+          "_comment": "The output relation is the 644 emitting rate rows crossed with the day types, rate-major. There is no pollutant-process factor in the layout at all: it is carried by the rate row the rank reaches, which is what makes ragged blocks cost nothing here.",
           "lhs": "outRateOrdinal",
           "rhs": {
             "op": "aggregate",
@@ -22106,7 +22106,7 @@
         },
         {
           "id": "the_temperature_stage_is_absent_and_the_air_conditioning_arm_is_dead",
-          "description": "S15's temperature arm, adjust.rs:87-141. Pollutant 1 is not 118 or 112 (the PM arm), not the fuel-9 energy pollutant 91 (the EV arm) and not 3 (the NOx arm), so every rate row here takes the FALL-THROUGH quadratic; `noxhumidityadjust` is populated in this snapshot and is read by nothing, which is why this fixture has no humidity variables at all. `temperatureadjustment` has ZERO rows, so both arms of `exact_else_wildcard` miss and A and B are the additive identity: the factor is exactly 1 everywhere. That is ABSENT and not merely inert, and the difference is visible here -- `process-crankcase-running` and `process-nox-speciation` each had four unreachable rows and this snapshot has none. The A/C arm is live in its table and dead in its result: `fullacadjustment` carries 23 real polProcessID 101 rows and `rtDay_meanBaseRateACAdj` is a real number, but the activity quadratic clamps to 0 at this heat index so none of it reaches an emitted cell (docs/process-airtoxics.md 7.2.7).",
+          "description": "S15's temperature arm, adjust.rs:87-142. Pollutant 1 is not 118 or 112 (the PM arm), not the fuel-9 energy pollutant 91 (the EV arm) and not 3 (the NOx arm), so every rate row here takes the FALL-THROUGH quadratic; `noxhumidityadjust` is populated in this snapshot and is read by nothing, which is why this fixture has no humidity variables at all. `temperatureadjustment` has ZERO rows, so both arms of `exact_else_wildcard` miss and A and B are the additive identity: the factor is exactly 1 everywhere. That is ABSENT and not merely inert, and the difference is visible here -- `process-crankcase-running` and `process-nox-speciation` each had four unreachable rows and this snapshot has none. The A/C arm is live in its table and dead in its result: `fullacadjustment` carries 23 real polProcessID 101 rows and `rtDay_meanBaseRateACAdj` is a real number, but the activity quadratic clamps to 0 at this heat index so none of it reaches an emitted cell (docs/process-airtoxics.md 7.2.7).",
           "time_span": {
             "start": 0.0,
             "end": 0.0

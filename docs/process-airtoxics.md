@@ -40,8 +40,9 @@ rung has:
    `altTHC` tally (pollutant 10001) scaled by `altCriteriaRatio / criteriaRatio`,
    and `hcspeciation.rs` speciates *that* into VOC using the E10 subtype's
    ratios while NMHC still comes from the ordinary THC. It multiplies the
-   emitted VOC by **3.8528** on all 23 ethanol cohorts (§2.4.1) — this fixture
-   would be wrong by that factor on a fifth of its species rows without it.
+   emitted VOC by **3.8528** on 20 of the run's 23 ethanol cohorts (§2.4.1) —
+   this fixture would be wrong by that factor on 40 of its 1,288 rows without
+   it, which is not a rounding difference.
 
 ---
 
@@ -158,10 +159,12 @@ where `atratio` and `criteriaratio` ship captured; porting
 `FuelEffectsGenerator` is a separate rung and is **not** claimed in the
 calculator path above.
 
-**`methanethcratio` and `hcspeciation` were already non-empty in three earlier
-snapshots** (`process-nox-speciation` among them) and were correctly not read
-there: neither `NOCalculator` nor `CrankcaseEmissionCalculatorNonPM` consults
-them. A populated table is not an input; a column reaching `emissionQuant` is.
+**Both HC speciation tables ship populated in snapshots that do not read
+them.** `methanethcratio` is non-empty in all nine already-ported snapshots
+(81 to 500 rows) and `hcspeciation` in two of them, `process-evap-fvv` and
+`process-evap-leaks` at 81 rows each — and none of those nine reads either,
+correctly, because no calculator they port consults them. A populated table is
+not an input; a column reaching `emissionQuant` is.
 
 ---
 
@@ -180,7 +183,7 @@ column is read back through `rt_polProcOrdinal` / `rt_cohortOrdinal`.
 `temperatureadjustment` has **0 rows**, so the exact-regClass and
 regClassID-0 wildcard lookups both miss and the additive identity gives
 A = B = 0. Pollutant 1 is not 118/112 (PM), not the fuel-9 energy pollutant 91,
-and not 3 (NOx), so `general_temp_adjust` (`adjust.rs:132–141`) reaches its
+and not 3 (NOx), so `general_temp_adjust` (`adjust.rs:132–142`) reaches its
 **fall-through quadratic**:
 
 ```
@@ -286,7 +289,7 @@ carrying the already-criteria-adjusted rate scaled by
 altRatio / ratio        both blended by GPAFract, from altCriteriaRatio and criteriaRatio
 ```
 
-and re-tagged pollutant `1 + 10000 = 10001`. `hcspeciation.rs:715–760` then
+and re-tagged pollutant `1 + 10000 = 10001`. `hcspeciation.rs:715-760` then
 speciates that block with the **E10 subtype (12)** rather than the emission's
 own, because such vehicles burn E10-like blends in practice — while the ordinary
 THC block still yields the NMHC that is *output*. The two paths are mutually
@@ -294,15 +297,17 @@ exclusive per emission (`is_ethanol_alt_case` suppresses the ordinary VOC), so
 nothing is double counted. For this county:
 
 ```
-altRatio / ratio = 0.640730021747 / 0.644982407884 = 0.99340657...   (MY 2001-2016)
-                 = 1.037215919005 / 1.044099696019 = 0.99340657...   (MY 2017-2020)
+altRatio / ratio = 0.640730021747 / 0.644982407884 = 0.99340697...   (MY 2001-2016)
+                 = 1.037215919005 / 1.044099696019 = 0.99340697...   (MY 2017-2020)
 VOC = THC x (altRatio/ratio) x (1 - 0.338) x 0.974
     = THC x 0.640536                        vs. the ordinary THC x 0.178 x 0.934 = THC x 0.166252
 ```
 
-a ratio of **3.8528**, identical on all 23 ethanol cohorts because the two
-criteria ratios move together. It is asserted in §6.5 on the tables rather than
-on the answer, so the branch cannot be mistaken for a no-op.
+a ratio of **3.8528**, identical on all **20** of the run's ethanol cohorts
+that are model year 2001 or later — the two criteria ratios move together, so
+the quotient is the same on both of its bands. The other three ethanol cohorts,
+model years 1998–2000, take the ordinary path. It is asserted in §6.5 on the
+tables rather than on the answer, so the branch cannot be mistaken for a no-op.
 
 If either `criteriaratio` or `altcriteriaratio` lacked a row the block would not
 be built (`adjust.rs:651` needs both), the ordinary VOC would already have been
@@ -320,7 +325,7 @@ table supplies the multiplier.
 | path | source | ratio key | which cohorts it reaches here |
 |---|---|---|---|
 | `ATRatioGas1` | `:784–800` | emission's **fuelFormulationID**, block month, block model year, output pol-process | gasoline, all 41 model years; E85 2001–2020 |
-| `ATRatioNonGas` | `:832–856` | output pol-process, block **sourceTypeID**, emission's **fuelSubtypeID**, block model year | diesel, all 40; E85 1998–2000 |
+| `ATRatioNonGas` | `:833–856` | output pol-process, block **sourceTypeID**, emission's **fuelSubtypeID**, block model year | diesel, all 40; E85 1998–2000 |
 
 Both extracts resolve their raw table to a single model year before the
 calculator sees it, and the two resolutions are different:
@@ -377,9 +382,9 @@ same self-join rather than by widening it. With
 `rt_hasChainRatio` the per-pollutant-process existence half:
 
 ```
-rt_survives0 = rt_isSelected x rt_hasRate                       -- 101 only
-rt_survivesN = rt_hasChainRatio x parent(rt_survives(N-1))      -- N = 1, 2, 3
-rt_survives  = rt_survives0 + rt_survives1 + rt_survives2 + rt_survives3
+rt_survives      = rt_isSelected x rt_hasRate                   -- depth 0, 101 only
+rt_emitsAtDepthN = rt_hasChainRatio x parent(previous arm)      -- N = 1, 2, 3
+rt_emits         = rt_survives + rt_emitsAtDepth1 + rt_emitsAtDepth2 + rt_emitsAtDepth3
 ```
 
 where `parent(x)` is the self-join on
@@ -387,14 +392,15 @@ where `parent(x)` is the self-join on
 — the same pair `docs/process-crankcase-running.md` uses at depth 1, applied
 three times. The sum is safe because each pollutant-process sits at exactly one
 depth, so at most one term is non-zero on any row; the fixture asserts that by
-counting each `rt_survivesN` separately.
+counting each `rt_emitsAtDepthN` separately, and `rspp_chainDepth` -- 0, 3, 3,
+3, 1, 2 in the table's own row order -- pins which depth each one sits at.
 
 `rt_hasChainRatio` is where the two calculators differ again:
 
 | pol-process | depth | existence test |
 |---|---|---|
 | 7901 NMHC | 1 | some supplied formulation has a `methanethcratio` row |
-| 8701 VOC | 2 | some supplied formulation has an `hcspeciation` row *for the same subtype the NMHC ratio came from* |
+| 8701 VOC | 2 | some supplied formulation has an `hcspeciation` row **and** the methane ratio of whichever subtype its path uses — its own on the ordinary path, subtype 12 on the `altTHC` one |
 | 2001 / 2401 / 2501 | 3 | some supplied formulation has an `atratio` **or** an `atrationongas` row |
 
 Electricity fails the first test and everything downstream inherits the failure,
@@ -403,11 +409,16 @@ which is why all five species blocks drop exactly the same twenty cohorts.
 **strict subset** of the parent's, because "104" alone is compatible with
 dropping the wrong twenty.
 
-**One level would not have sufficed.** A document that computed each species
-directly from the parent — as `process-nox-speciation` legitimately does, its
-chain being one level — would have to write the composite ratio
-`(1-r) x factor x atRatio` three times and would have no place to put the
-`altTHC` branch, which sits *between* NMHC and VOC.
+**The chain does two different jobs here and only one of them is the
+quantity.** The SURVIVAL rule above iterates over all three levels, because a
+toxic row's existence depends on the VOC row's, which depends on the NMHC row's.
+The QUANTITY does not: §2.4 computes NMHC and VOC from the THC block in one
+stage, as `hcspeciation.rs` does, so only the toxics' multiplier reaches back
+through `parent(...)` — for the VOC factor it scales. Writing the quantity
+through all three levels instead would force VOC to be `NMHC × ratio`, and on
+the `altTHC` path the operand is `altNMHC` and not the emitted NMHC, so it would
+need `(1 − CH4THCRatio)` divided back out: a division by a table value that
+neither source performs (`docs/esm-conventions.md` §32.4).
 
 ---
 
@@ -420,9 +431,9 @@ chain being one level — would have to write the composite ratio
 | J41 | `rate_rows` × `fuelsupply_rows` | `methanethcratio_rows` | process; fuel subtype; regClass; **model-year range** | sum-product / max |
 | J42 | `rate_rows` × `fuelsupply_rows` | `hcspeciation_rows` | polProcess (8701); fuel subtype; regClass; **model-year range** | sum-product / max |
 | J43 | `rate_rows` × `fuelsupply_rows` | `altcriteriaratio_rows` | formulation; polProcess, modelYear, ageID; sourceType | sum-product / max |
-| J44 | `rate_rows` × `fuelsupply_rows` | `atratio_rows` | formulation; polProcess; **`YEAR − ageID` in range**; monthGroup | sum-product / max |
+| J44 | `rate_rows` × `fuelsupply_rows` | `atratio_rows` | formulation; polProcess; **ageID**; the resolved model year in range | sum-product / max |
 | J45 | `rate_rows` × `fuelsupply_rows` | `atrationongas_rows` | polProcess; sourceType; fuel subtype; **decoded model-year group** | sum-product / max |
-| J46 | `rate_rows` | `fuelformulation_rows` | formulation → the four oxygenate volumes and `volToWtPercentOxy` | sum-product |
+| J46 | `fuelsupply_rows` | `fuelformulation_rows` | formulation → the four oxygenate volumes and `volToWtPercentOxy` | sum-product |
 | J47 | `rate_rows` | `rate_rows` (self) | chainInputPolProcess ↔ polProcess, cohortOrdinal ↔ cohortOrdinal | sum-product, **three times** |
 
 J47 is `docs/process-crankcase-running.md`'s J38 applied at three depths; J41–J45
@@ -446,7 +457,7 @@ Worth separating, because all three read as "the model year matches":
   values computed from the key column rather than read from two columns.
 
 Only the second is new; the third is `lib/keys.esm`'s
-`model_year_group_bounds` (§4).
+`model_year_in_group` (§4).
 
 ### 3.3 One rank, over the whole rate relation
 
@@ -469,7 +480,7 @@ Two new expression templates, both forms and no coefficients
 
 | template | file | source | why it is shared |
 |---|---|---|---|
-| `model_year_group_bounds` | `lib/keys.esm` | `airtoxics.rs::decode_model_year_group` | a self-describing `beginYYYYendYYYY` group appears in `atrationongas`, `pahgasratio` and `minorhapratio`, and the pair of endpoints must be decoded with one shared divisor or the two halves can disagree |
+| `model_year_in_group` | `lib/keys.esm` | `airtoxics.rs::decode_model_year_group` | a self-describing `beginYYYYendYYYY` group appears in `atrationongas`, `pahgasratio` and `minorhapratio`, and the two endpoints must be decoded from one shared floor division or they can disagree about where a group ends. Layered as `flat_relation_minor` is on `flat_relation_block_index`: `model_year_group_last` is written in terms of `model_year_group_first`, and the comparison delegates to `in_inclusive_range` |
 | `speciation_factor` | `lib/adjustments.esm` | `hcspeciation.rs:616–617` | `speciationConstant + oxySpeciation × volToWtPercentOxy × totalOxygenate` is the NMOG and the VOC factor both; written twice they can disagree about which term the oxygenate multiplies |
 
 Everything else is instantiated rather than re-spelled: `lib/keys.esm`'s
@@ -485,19 +496,34 @@ Everything else is instantiated rather than re-spelled: `lib/keys.esm`'s
 
 ## 5. Literals and enums
 
-`enums` gains `pollutant.Benzene` (20), `.Butadiene` (24), `.Formaldehyde` (25),
-`.NMHC` (79) and `.VOC` (87) beside the parent's `.TotalGaseousHydrocarbons`;
-`fuel_subtype.Gasohol10` (12) and `.E85` (51) — the two the speciation lookups
-key on, named because `hcspeciation.rs`'s `E10_FUEL_SUBTYPE_ID` and
-`E70_E85_FUEL_SUBTYPE_IDS` are named constants there; and
-`model_year.AltThcFirst` (2001), `adjust.rs`'s `ALT_THC_MIN_MODEL_YEAR`.
-`humidity_equation` and `pollutant.OxidesOfNitrogen` are **gone** with the NOx
-branch that used them.
+`enums` gains four members and loses three. Added: `pollutant.NonMethaneHydrocarbons`
+(79), because `hcspeciation.rs` names it as a constant (`NMHC_POLLUTANT_ID`) and
+the methane complement is keyed by no table that could identify the row;
+`fuel_subtype.Gasohol10` (12), `.EthanolE85` (51) and `.EthanolE70` (52), which
+are `hcspeciation.rs`'s `E10_FUEL_SUBTYPE_ID` and `E70_E85_FUEL_SUBTYPE_IDS` and
+`adjust.rs:640`'s subtype test; `model_year.AltThcFirst` (2001), which is
+`adjust.rs`'s `ALT_THC_MIN_MODEL_YEAR`; and `process.StartExhaust` (2), named
+although this run selects only running exhaust because `adjust.rs:626` gates the
+altTHC block on both. Removed with the branches that used them:
+`humidity_equation.CFR86` / `.CFR1065`, `pollutant.OxidesOfNitrogen`,
+`pollutant.CarbonMonoxide` and `process.CrankcaseRunningExhaust`.
 
-The only bare numeric literals in the document are the ones a template already
-owns (75, the decimal slot exponents, the second offsets, 10000 inside
-`model_year_group_bounds`) and the flat-relation block size, which is a
-metaparameter.
+**No pollutant is named where a join can find it.** VOC (87) appears nowhere in
+the document: `hcspeciation` is keyed by the *output* pollutant-process, so
+joining a rate row's own `polProcessID` to it identifies the VOC rows and finds
+their constants in one clause. Benzene, 1,3-butadiene and formaldehyde likewise
+appear nowhere — `atratio` and `atrationongas` carry their pol-processes and
+`runspecchainedto` carries the chain. Only NMHC needs a name, and only because
+its table has no pollutant-process column to give it one.
+
+**The bare numeric literals are the same seven values as
+`process-crankcase-running`'s and `process-nox-speciation`'s**, measured over
+every equation of all three: 0, 0.5 and 1 (masks, comparisons and the
+multiplicative identity); 2 and 3 (the drive cycle's second offsets, and the
+chain-depth labels of `rspp_chainDepth`); 10 (the decimal-slot exponent
+`source_bin_slot` raises); and 1000 (`countyID / 1000`, the state id). The 75 of
+the temperature quadratic, the 10.71 of the humidity reference and the 10000 of
+a self-described model-year group all live inside the templates that own them.
 
 ---
 
@@ -759,7 +785,7 @@ def temp_terms(pp,fuel,regclass,my):
     return 0.0,0.0
 def temp_factor(pp,fuel,regclass,my):
     # THC on running exhaust reaches general_temp_adjust's fall-through
-    # quadratic (adjust.rs:141): not PM, not EV energy, not NOx.
+    # quadratic (adjust.rs:141-142): not PM, not EV energy, not NOx.
     a,b=temp_terms(pp,fuel,regclass,my)
     return 1.0+(TEMP-75.0)*(a+b*(TEMP-75.0))
 # A/C
@@ -998,7 +1024,7 @@ print("               %4d of the %d rows are SPECIATED -- computed from the 101 
 # 1. The E85 altTHC branch is LOAD-BEARING, not a no-op. On ethanol 2001+ the
 #    emitted VOC is the E10-speciated altTHC, and the ordinary path would have
 #    produced a number 3.85x smaller. Checked on the tables, not on the answer.
-alt_gain = None
+alt_gain, alt_cohorts = None, set()
 for (d, my, fuel), per in voc.items():
     if fuel != 5 or my < ALT_MIN_MY:
         continue
@@ -1008,11 +1034,15 @@ for (d, my, fuel), per in voc.items():
         g = q / ordinary
         assert alt_gain is None or abs(g - alt_gain) < 1e-9, (g, alt_gain)
         alt_gain = g
+        alt_cohorts.add((my, fuel))
 assert alt_gain is not None and abs(alt_gain - 1.0) > 2.0, alt_gain
+assert len(alt_cohorts) == 20, len(alt_cohorts)
 print("NOTE:          the E85 altTHC branch multiplies the ordinary VOC by %.4f on every"
       " ethanol 2001+ cohort," % alt_gain)
-print("               so a document that skipped it would be wrong by that factor on 23 of"
-      " the 104 species cohorts.")
+print("               so a document that skipped it would be wrong by that factor on %d of"
+      " the 104 species cohorts" % len(alt_cohorts))
+print("               -- the 20 of this run's 23 ethanol cohorts that are model year 2001 or"
+      " later.")
 # 2. The two live ATRatio paths are DISJOINT on every emitted cohort, so the
 #    Go's append-both semantics (two ratio rows -> two kept emissions) is a sum
 #    of exactly one term here and is not exercised.
@@ -1071,21 +1101,22 @@ key set:       124 THC + 5 x 104 species cohorts x 2 day types = 1288 rows, exac
 
 ### 6.6 What the fixture's inline tests check
 
-Twelve tests, none of which reads `MOVESOutput` through the document:
+Twelve tests and 288 assertions, none of which reads `MOVESOutput` through the
+document:
 
 | test | what it pins |
 |---|---|
 | run scope | year/month/hour/geography, `GPAFract`, and that `temperatureadjustment` and `generalfuelratio` are both EMPTY |
 | six pollutant-processes | the scope and the five chain declarations, read from the execution database, including that 8701's input is 7901 and not 101 |
 | drive-cycle scaffolding | braking thresholds read not written, one physics row, bracket weights sum to 1 |
-| **selection vs survival** | 125 selected in all six blocks, 124/104/104/104/104/104 emitted, 644 total, and each depth of the chain counted separately |
+| **selection vs survival** | 125 selected in five of the six blocks and 0 in NMHC's, 124/104/104/104/104/104 emitted, 644 total, and each depth's emission arm counted separately |
 | `W` | a distribution over exactly 23 modes, at an *absolute* 1e-5 (§20.5) |
 | activity | `act_sho` against the snapshot's own `sho`, which nothing here reads |
 | base rate | `rtDay_meanBaseRate` and `rtDay_meanBaseRateACAdj` against `baseratebyage_1_2020` |
 | criteria fuel effect | the five supplied formulations' fuel types and subtypes, and `rt_fuelFactor` on the parent |
 | **temperature** | the factor is 1 on every row, and the A/C arm is asserted **dead** |
 | **HC speciation** | the six `(subtype, model-year band)` pairs of `methanethcratio` and `hcspeciation`, and that fuel subtype 90 has neither |
-| **the `altTHC` branch** | `altcriteriaratio / criteriaratio` on both of its two model-year bands, and that the emitted VOC/NMHC is 3.5985 and not 0.934 |
+| **the `altTHC` branch** | its five conditions, `altcriteriaratio / criteriaratio` = 0.99340697, and that the VOC multiplier on the E85 2020 cohort is 0.6405369 and not the ordinary path's 0.1662520 -- with the model year 2000 ethanol cohort asserted beside it, which takes the ordinary path |
 | **the toxic ratios and output** | the `ageID` key on `atratio`, the decoded group on `atrationongas`, and cells across all six blocks |
 
 ---
@@ -1103,11 +1134,23 @@ The worst cell is **(benzene, day 2, MY 1991, diesel)**, value 0.000741552000.
 That is a *chained* cell three levels from its rate, as the worst cell is in
 `process-brakewear`, `process-tirewear` and `process-nox-speciation`, and for the
 same arithmetic reason: it carries its parent's residual plus each ratio's own
-quantisation. Six significant figures on 0.000741552 is a half-ulp of 6.7e-07
-relative; the THC parent (0.082655700000) contributes 6.0e-06 of the total on its
-own, which is most of it. The independent reproduction in §6.5 reports **the same
-8.100e-06 at the same key** by a different route, which is what distinguishes a
-storage limit from an error.
+quantisation. Measured on the four cells of that one cohort, the residual is
+almost entirely inherited and barely grows:
+
+| pollutant | reference value | relative error |
+|---|---|---:|
+| THC (1) | 0.082655700000 | 7.956e-06 |
+| NMHC (79) | 0.082655700000 | 7.956e-06 |
+| VOC (87) | 0.094640700000 | 7.148e-06 |
+| benzene (20) | 0.000741552000 | **8.100e-06** |
+
+so **the parent contributes 7.96e-06 of the 8.10e-06** and the three ratios
+together contribute the remaining 1.4e-07 — NMHC's is exactly the parent's
+because diesel's `CH4THCRatio` is 0 below model year 2007, and VOC's is smaller
+than the parent's rather than larger. Six significant figures on 0.000741552 is
+a half-ulp of 6.7e-07 relative on its own. The independent reproduction in §6.5
+reports **the same 8.100e-06 at the same key** by a different route, which is
+what distinguishes a storage limit from an error.
 
 ### 7.2 What this fixture cannot see, measured
 
@@ -1174,9 +1217,9 @@ would otherwise look like evidence for them. `docs/esm-conventions.md` §23.
 1. **The three-multiply chain.** A benzene cell is
    `THC × (1−r) × factor × atRatio`, four stored decimals in series. Each
    contributes its own quantisation, and §7.1's worst cell is where the parent's
-   own 6.0e-06 lands on the smallest of the three toxics.
+   own 7.96e-06 lands on the smallest of the three toxics.
 2. **`altRatio / ratio`** — a quotient of two twelve-decimal stored values whose
-   result is 0.99340657. It is a well-conditioned ratio (both operands near 1,
+   result is 0.99340697. It is a well-conditioned ratio (both operands near 1,
    and near each other), which is why the E85 block does not dominate §7.1
    despite carrying one more operation than any other cell.
 3. **`rt_fuelFactor`** — twelve stored decimal places, applied multiplicatively,
@@ -1212,6 +1255,14 @@ would otherwise look like evidence for them. `docs/esm-conventions.md` §23.
   `synthesize_at_ratio`'s `months_of_group` map and
   `baseratecalculator/mod.rs:1163` both assume. It holds in this snapshot
   (group 8 → month 8).
+* **The two calculators' output ORDER is not modelled and could not be.** Both
+  Go workers grouped their outputs in a `map`, and both ports sort by pollutant
+  id to be deterministic; a fuel-block set is unordered, so nothing downstream of
+  either could see the difference and neither can this fixture.
+* **`atbaseemissions`, `tempairtoxicsa`, `tempairtoxicsavoc` and
+  `tempairtoxicsanonvoc` are read by nothing**, which is a claim about
+  `FuelEffectsGenerator`'s boundary rather than a measurement of this chain. It
+  rests on `airtoxics.rs` naming none of them among its inputs.
 
 ---
 
@@ -1225,8 +1276,10 @@ shared logic and not a new-fixture problem. Then:
 1. drop the NOx branch, the humidity arms and `noxhumidityadjust`; the
    temperature factor is the fall-through quadratic over an EMPTY
    `temperatureadjustment` and is 1 everywhere (§2.2);
-2. drop `generalfuelratio` (0 rows here) so `criteriaratio` is the only fuel
-   effect;
+2. keep `generalfuelratio` as a source even though it has 0 rows here, and
+   assert `run_generalFuelRatioReach` is 0 — an empty table and an unwritten
+   step look the same from the answer, and an index set of extent 0 evaluates
+   (a sum over it is the semiring identity), so the step can be written;
 3. put the two HC-speciation ratios and the two air-toxic ratios on the
    **(rate row × supplied formulation)** relation `criteriaratio` already lives
    on, and collapse by market share exactly once, at the end (§2.3);
@@ -1240,4 +1293,4 @@ shared logic and not a new-fixture problem. Then:
    times rather than widening it, and count each depth separately (§2.6);
 7. key `atratio` on `ageID` as well as on the model-year window (§3.2), and
    decode `atrationongas`'s group with `lib/keys.esm`'s new
-   `model_year_group_bounds`.
+   `model_year_in_group`.

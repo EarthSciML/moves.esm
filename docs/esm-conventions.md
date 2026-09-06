@@ -2480,3 +2480,142 @@ pollutant-process shared one cohort set. It took a fixture where that is false
 to notice the assumption existed. When a later slice reuses a shape from an
 earlier one, the question is not whether the shape fits the new numbers — it is
 what the earlier slice was quietly relying on that nobody wrote down.
+
+---
+
+## 32. A chain deeper than one level **[Phase 5, 1,288 rows]**
+
+`process-airtoxics` is the first fixture whose `runspecchainedto` is more than
+one hop: 7901 ← 101, 8701 ← 7901, and 2001/2401/2501 ← 8701.
+`docs/process-nox-speciation.md` §2.5 closed by saying that a fixture reaching
+one "would have to resolve the parent's own survival first". It does, and
+resolving it turned out to cost one thing repeated rather than one thing
+generalised — which is the whole of §32.1. The other four sections are what the
+two calculators either side of that chain forced.
+
+### 32.1 Iterate the parent join; do not widen it
+
+§30.2's rule is that a chained row exists where its ratio exists **and its
+parent row does**, and its shape is a self-join on
+`(rt_chainInputPolProcessID ↔ rt_polProcessID, rt_cohortOrdinal ↔ rt_cohortOrdinal)`.
+At depth three the tempting move is a wider join — a two-hop or three-hop key,
+or a `chainRootPolProcessID` column read from a hand-written map. Both are
+worse, and the second is worse in a way that is easy to miss: a root written
+down is no longer read from MOVES.
+
+What works is the same clause, three times, over a different operand:
+
+```
+rt_survives        = rt_isSelected × rt_hasRate          -- depth 0, the only rated rows
+rt_emitsAtDepth1   = rt_hasChainRatio × parent(rt_survives)
+rt_emitsAtDepth2   = rt_hasChainRatio × parent(rt_emitsAtDepth1)
+rt_emitsAtDepth3   = rt_hasChainRatio × parent(rt_emitsAtDepth2)
+rt_emits           = rt_survives + rt_emitsAtDepth1 + rt_emitsAtDepth2 + rt_emitsAtDepth3
+```
+
+and the same three iterations on the six-row pollutant-process relation give
+`rspp_rootPolProcessID` and, free with it, `rspp_chainDepth`. **A
+pollutant-process sits at exactly one depth, so at most one term is non-zero on
+any row and the sum is a union** — the argument §30.2 already made for two arms,
+which does not weaken as arms are added. A fourth level costs one more pair of
+equations and no new join; `TOGSpeciationCalculator` chains off
+`HCSpeciationCalculator`'s TOG and would need exactly that.
+
+**`rspp_chainDepth` is not used by the arithmetic and is worth computing
+anyway.** It is the structural fact this rung adds, it is asserted (0, 3, 3, 3,
+1, 2 in the table's own row order), and it is the only thing in the document
+that would notice if `runspecchainedto` were read as a flat parent map rather
+than as a chain.
+
+### 32.2 Anchor a multi-stage chain at its ROOT, not at its parent
+
+Every ratio downstream of `BaseRateCalculator` scales the same THC fuel block.
+That is not a convenience: `criteriaratio` carries `polProcessID` 101 **only**,
+`emissionratebyage` carries 101 only, and `fullacadjustment` carries 101 only.
+So the lookups key on `rt_rootPolProcessID`, and the rate arrives through one
+self-join on `(root, cohort)`:
+
+```
+rtDay_rootRate[b,k] = Σ over the root row of (meanBaseRate + acFactor × acAdj) × temperatureFactor
+rtDay_quant[b,k]    = rtDay_rootRate[b,k] × rt_fuelFactor[b] × rtDay_activity[b,k]
+```
+
+`process-crankcase-running` chained the *quantity* instead — a crankcase row was
+its parent's emitted quantity times a ratio — and that is right for a
+one-level chain whose ratio applies at the fuel-type level. It does not survive
+§32.3. Anchoring at the root also removes `rtDay_quantDirect` /
+`rtDay_quantChained` / `rtDay_quant` as three separate variables: with the chain
+inside the multiplier there is one quantity and no union to argue about.
+
+**The tell for which anchor a slice needs is in the ratio tables' own
+`polProcessID` column**, not in the calculator's prose. If the downstream
+tables carry the *parent's* id, the chain is a property of the block and the
+root is the anchor; if they carry the *chained* id, as `crankcaseemissionratio`
+does, the parent is.
+
+### 32.3 A per-formulation chain collapses ONCE, at the end
+
+`criteriaratio` keys on the fuel **formulation**; `methaneTHCRatio`,
+`HCSpeciation` and `ATRatioNonGas` key on the fuel **subtype**; `ATRatio` keys
+on the formulation again. All of them therefore live on the (rate row ×
+supplied formulation) relation, and the market-share collapse
+(`aggregate.rs:28–45`) has to happen **after the whole chain has been formed**:
+
+```
+rt_fuelFactor[b] = Σ over supplied f of ( share_f × criteriaRatio_f × speciationChain_f[b] )
+```
+
+Collapsing earlier — computing a fuel-type-level criteria ratio and then a
+fuel-type-level speciation factor and multiplying them — is the product of the
+means where the arithmetic wants the mean of the products. **It is exactly
+right whenever a fuel type has one formulation, which is every county in this
+corpus**, so no fixture here can fail on it. Write the general form and record
+that it is untested; the spec's §7.2.6 does.
+
+The same applies to the *existence* half. `rt_hasChainRatio` is an OR over the
+**supplied** formulations of the per-formulation test, not a test on the fuel
+type: a ratio row for a formulation nobody sells keeps no row alive.
+
+### 32.4 Two calculators, two shapes — write each one's own
+
+Both stages of this rung scale a THC block, and it is tempting to write them
+alike. The sources are not alike, and the difference is checkable rather than
+stylistic: **`hcspeciation.rs` has no `RunSpecChainedTo` table at all** — it
+takes one THC emission and returns up to five species in a single pass — while
+`airtoxics.rs` reads it three times, once per `ATRatio*` path. So NMHC and VOC
+are written as a direct multi-output stage and the toxics as a chained
+self-join, and the document's shape is evidence about MOVES rather than about
+its author's taste.
+
+Forcing the HC stage into the chained shape would also have cost a division.
+On the E85 `altTHC` path the VOC operand is `altNMHC`, **not** the NMHC the run
+emits, so expressing VOC as `NMHC × ratio` requires dividing `(1 − CH4THCRatio)`
+back out — a division by a table value, introduced by the re-expression and
+present in neither source.
+
+**Two more things fall out of writing each stage its own way.** The VOC lookup
+keys on `hcspeciation.polProcessID`, which *is* the output pollutant-process, so
+the join both finds the constants and identifies which rate rows are VOC rows —
+pollutant 87 is named nowhere in the document. And NMHC has no such table, so 79
+*is* named, from `hcspeciation.rs`'s own `NMHC_POLLUTANT_ID` constant. **Name a
+pollutant exactly where the source names one**, and let a join do it everywhere
+else.
+
+### 32.5 What the slice cannot see
+
+§23 applied, and this slice's list is long enough to be worth a rule of its
+own. Four of `AirToxicsCalculator`'s six ratio paths have **empty tables**;
+three of `HCSpeciationCalculator`'s five species are **not selected**;
+`temperatureadjustment` and `generalfuelratio` are **empty**, so two adjustment
+stages are absent rather than inert; `oxySpeciation` is 0 on all 136
+`hcspeciation` rows, so the speciation factor's oxygenate term is live in its
+inputs and dead in its coefficient; and `atRatioNonGas` is **identical on fuel
+subtypes 20/21 and on 51/52**, so reading the supplied subtype rather than the
+fuel type's default is correct and unfalsifiable here.
+
+The last one is the one worth generalising. **When a lookup's key could
+plausibly be either of two columns and the table gives both the same value, the
+fixture cannot choose between them — and the oracle should assert the
+identity**, so a later reader can see that the choice was made from the source
+and not from the answer. `run-airtoxics-oracle.sh` does that for the two subtype
+pairs; a comparison against `MOVESOutput` never could.
