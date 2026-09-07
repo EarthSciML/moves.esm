@@ -259,11 +259,27 @@ def check_source(doc_name: str, doc_dir: pathlib.Path, name: str, entry: dict) -
     #    mentioned ID be present would punish exactly the cross-references
     #    that make these documents readable.
     note_text = (entry.get("metadata") or {}).get("note", "")
-    m = POLPROCESS.search(note_text)
-    if m and "polProcessID" in names:
-        claimed = {int(x) for x in re.findall(r"\d+", m.group(1))}
+    mentions = list(POLPROCESS.finditer(note_text))
+    if mentions and "polProcessID" in names:
+        claimed = set()
+        for m in mentions:
+            claimed |= {int(x) for x in re.findall(r"\d+", m.group(1))}
         actual = set(pq.read_table(path, columns=["polProcessID"])
                      .column("polProcessID").to_pylist())
+        # Every mention, not just the first, and every bare integer besides.
+        # `search()` read only the leading `polProcessID` phrase, so a note
+        # whose first such phrase belongs to a CONTRAST failed even when it
+        # named its own rows perfectly well elsewhere -- which is the opposite
+        # of what the comment above promises. process-pm-exhaust's
+        # sourcetypepolprocess note opens "2 rows, one for each RATED
+        # pollutant-process -- 11201 and 11801 --" and later contrasts "the
+        # mirror image of process-evap-permeation, whose polProcessID 111 says
+        # `N`". Its own IDs are named without the `polProcessID` token in front
+        # of them, and the sibling's is named with it, so the check read the
+        # note as being about 111 alone and failed a note that is entirely
+        # right. Hence `named_anywhere`: a note that writes any of this table's
+        # own IDs, tagged or not, is talking about this table.
+        named_anywhere = {int(x) for x in re.findall(r"\d+", note_text)}
         # An EMPTY table cannot contain any ID, so "at least one present" is
         # unsatisfiable and this check must not fire. The emptiness is itself
         # what such a note is about, and naming the polProcessID whose rows are
@@ -274,7 +290,8 @@ def check_source(doc_name: str, doc_dir: pathlib.Path, name: str, entry: dict) -
         # reported as a failure. Found by running the check against a fixture
         # written after it, which is the only way that class of false positive
         # surfaces.
-        if actual and claimed and not (claimed & actual):
+        if actual and claimed and not (claimed & actual) \
+                and not (named_anywhere & actual):
             fail(doc_name, name,
                  f"the note names polProcessID {sorted(claimed)}, none of "
                  f"which is in {path.name} (it has "
