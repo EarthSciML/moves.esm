@@ -113,10 +113,20 @@ with the earlier rungs:
 
 * **125 of the 164 (model year, fuel type) candidates pass `stmyFraction > 0`**,
   and the one that is selected and carries no rate is **model year 2000,
-  electricity**, whose age group at analysis year 2020 is 2099 and for which
-  `emissionratebyage` has no fuel-type-9 row. That is
-  `docs/process-nox-speciation.md` §2.2 unchanged, and it leaves **124** rated
-  cohorts.
+  electricity** — the same cohort `process-nox-speciation` and
+  `process-airtoxics` lose, **for a different reason**, which is worth being
+  exact about because the inherited explanation is wrong here. Those fixtures
+  lost it on the **age group**: pollutant 101's fuel-type-9 rows stop at age
+  group 1519 and model year 2000 is aged 20, so it needed the missing 2099.
+  Here `emissionratebyage` carries **all seven age groups for fuel type 9**, on
+  both 11201 and 11801, and the miss is on the **short model-year group**
+  instead: the fuel-9 / engTech-30 / regClass-20 source bins run over short
+  groups 8, 10–19, 21–50, 53, 55, 57–60 and 66–69, and **20 is absent** —
+  which is precisely the group `pollutantprocessmodelyear` assigns model year
+  2000. Enumerated over both rated pollutant-processes and all 125 candidates,
+  `(2000, fuel 9)` is the **only** miss, and it leaves **124** rated cohorts.
+  A row-set consequence of a rate KEY either way (`docs/esm-conventions.md`
+  §30.1), but of a different key.
 * **`baseratebyage_1_2020` is 496 rows = 2 pollutant-processes × 124 × 2
   hour-day ids, of which 416 are non-zero**: the 20 electricity cohorts carry a
   real rate of exactly `0.000000000000` in both blocks, exactly as model years
@@ -699,9 +709,11 @@ MY 2020, electricity   ABSENT in all seven blocks, though baseratebyage_1_2020
                        11801. It is dropped by TWO independent inner joins:
                        sulfatefractions has no fuel-9 row and
                        crankcaseemissionratio has none either.
-MY 2000, electricity   ABSENT one stage earlier still: no emissionratebyage
-                       ageGroup-2099 row for fuel type 9, so it never reaches a
-                       rate at all.
+MY 2000, electricity   ABSENT one stage earlier still: emissionratebyage has
+                       no fuel-9 source bin at shortModYrGroupID 20, which is
+                       the group model year 2000 maps to, so it never reaches a
+                       rate at all. NOT the age-group miss `process-airtoxics`
+                       0.2 records -- fuel 9 has all seven age groups here.
 MY 2020, diesel        ABSENT: not a selected cohort (no 2020 diesel
                        stmyFraction).
 pollutant 119          PRESENT on all 104 cohorts, at exactly 0.
@@ -1287,7 +1299,33 @@ print("NOTE:           `runspecchainedto` contains the 2-CYCLE 11801 <-> 11501 (
 print("                re-sums NonECPM from the species it split out of it. Iterating that"
       " table to a fixed point --")
 print("                the rung 4-6 chain-root idiom -- does not terminate on this snapshot.")
-# 11. PMSpeciation produces Organic Carbon and nothing else here.
+# 11. The ONE rate miss is on the SHORT MODEL-YEAR GROUP, not on the age group.
+#     `process-nox-speciation` and `process-airtoxics` lose the same (2000,
+#     electricity) cohort because pollutant 101's fuel-9 rows stop at age group
+#     1519. Here fuel 9 carries ALL SEVEN age groups and the miss is that
+#     `emissionratebyage` has no fuel-9 source bin at shortModYrGroupID 20 --
+#     which is the group model year 2000 maps to. Inheriting the earlier
+#     explanation would have been wrong about the key while right about the row.
+bins=collections.defaultdict(set)
+for r in ERBA:
+    b=r["sourceBinID"]
+    bins[(r["polProcessID"],slot(b,10**16))].add((slot(b,10**10),r["ageGroupID"]))
+for pp in (EC_PP,NONEC_PP):
+    assert {a for _s,a in bins[(pp,ELECTRICITY)]}=={3,405,607,809,1014,1519,2099}
+    assert 20 not in {s for s,_a in bins[(pp,ELECTRICITY)]}
+    assert 20 in {s for s,_a in bins[(pp,1)]}
+misses=[(pp,my,fuel) for pp in (EC_PP,NONEC_PP)
+        for (my,fuel,et,rc) in cohorts(pp)
+        if (fuel,et,rc,shortgroup[mygroup[(pp,my)]],agegroup[YEAR-my])
+           not in {(k[0],k[1],k[2],k[3],k[5]) for k in rates_by_age(pp)}]
+assert misses==[(EC_PP,2000,ELECTRICITY),(NONEC_PP,2000,ELECTRICITY)], misses
+print("NOTE:           the ONE rate miss over both parents and all 125 candidates is (MY 2000,"
+      " electricity), and it is a")
+print("                SHORT-MODEL-YEAR-GROUP miss, not the age-group miss the earlier rungs"
+      " record: fuel 9 carries all")
+print("                seven age groups here, and what it lacks is a source bin at"
+      " shortModYrGroupID 20.")
+# 12. PMSpeciation produces Organic Carbon and nothing else here.
 outs={r["outputPollutantID"] for r in T("pmspeciation")}
 ins={r["inputPollutantID"] for r in T("pmspeciation")}
 assert outs=={111} and ins=={120}, (outs,ins)
@@ -1336,6 +1374,9 @@ NOTE:           `pm10emissionratio` carries a fuel-type-9 row at 1.13043 that no
 NOTE:           `runspecchainedto` contains the 2-CYCLE 11801 <-> 11501 (and 11801 <-> 11901), because MOVES
                 re-sums NonECPM from the species it split out of it. Iterating that table to a fixed point --
                 the rung 4-6 chain-root idiom -- does not terminate on this snapshot.
+NOTE:           the ONE rate miss over both parents and all 125 candidates is (MY 2000, electricity), and it is a
+                SHORT-MODEL-YEAR-GROUP miss, not the age-group miss the earlier rungs record: fuel 9 carries all
+                seven age groups here, and what it lacks is a source bin at shortModYrGroupID 20.
 NOTE:           `pmspeciation` has 4 rows, all 120 -> 111, so NCOM (122), Total Organic Matter (123) and
                 NonECNonSO4NonOM (124) -- and the whole ratio124 = 1 - sum(fraction) step -- are dead here.
 ```
