@@ -7,3 +7,5 @@ The .esm files should be authored compositionally, with separate components, sub
 We have already created a rust clone of the moves model, it is at ../moves.rs. It is expected that it may be easier to create an EarthSciAST implementation based on ../moves.rs rather than the canonical MOVES/nonroad code.
 
 Do not store anything large in /tmp, as it is backed by RAM rather than hard drive and can cause an OOM.
+
+Do not put "Co-Authored-By: Claude ..." in any commit messages. Claude is an LLM and LLMs cannot take responsibility for outputs, therefore they cannot be authors.
