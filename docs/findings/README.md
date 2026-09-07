@@ -65,7 +65,7 @@ and every ingesting document takes the other one. F25 is an undeclared operand
 dropped; F26 is an index symbol left free outside its aggregate, read as
 position zero. Neither is refused at load, which is where both belong.
 
-**F28's control is the fifth file the tripwire loop does not run**, and like F18's and F24b's it is meant to pass. F28 is a shape the format refuses; its control is the WORKAROUND that shape has to be rewritten into, and everything this repository can say about porting `TankTemperatureGenerator` TTG-4 rests on that workaround existing. It is checked rather than assumed, and it is two-sided by construction: with a constant lag of 1 in place of the contracted one, rows 4, 5 and 6 read 8, 16 and 32 where the chain says 4, 8 and 8, and three of its six assertions fail.
+**F28's control is the fifth file the tripwire loop does not run**, and like F18's and F24b's it is meant to pass. F28 is a shape the format refuses; its control is the WORKAROUND that shape has to be rewritten into. **It no longer rests on porting `TankTemperatureGenerator` TTG-4, and that sentence used to say it did**: TTG-4a's predecessor turns out to sit one row back on the relation the recurrence walks (see F28 below), so the workaround is kept as a demonstrated capability rather than as a dependency of a planned slice. It is checked rather than assumed, and it is two-sided by construction: with a constant lag of 1 in place of the contracted one, rows 4, 5 and 6 read 8, 16 and 32 where the chain says 4, 8 and 8, and three of its six assertions fail.
 
 F12's control is **gone**. It was kept until `components/age_distribution.esm`
 computed `agedist.f`'s fold and guarded it with its own assertions; it does, in
@@ -1757,23 +1757,68 @@ decidable. A data-column offset defeats exactly that half. It is recorded here
 because an author porting MOVES writes this expression, and because knowing the
 cost of the alternative before paying it is the point.
 
-**Where MOVES needs it.** `TankTemperatureGenerator` TTG-4a
+**Where MOVES needs it — AND THE EXAMPLE THIS SECTION USED TO GIVE WAS WRONG.**
+The finding is unaffected; the motivating example is not, and it is corrected
+here rather than footnoted because it was the stated reason for a scope
+decision in `docs/evap-permeation.md` §8.1.
+
+`TankTemperatureGenerator` TTG-4a
 (`calculateHotSoakAndOperatingTankTemperatures`) walks a work queue: each trip,
 as its last segment is reached, enqueues the trip whose `priorTripID` is its own
 `tripID`, carrying the hot-soak end temperature forward as the next trip's
-starting `keyOnTemp`. The predecessor is named by a column. Measured on the
-`process-evap-permeation` snapshot: 26,300 of `SampleVehicleTrip`'s 37,216 rows
-carry a `priorTripID`, and `tripID − priorTripID` is 1 for 24,610 of them and
-2, 3, 4, 5, 6 or 7 for the other 1,690 — so a constant lag of 1 is wrong on
-1,690 rows and there is no other constant to write.
+starting `keyOnTemp`. The predecessor is named by a column, and this section
+concluded from `tripID − priorTripID` — 1 on 24,610 of the 26,300 chained trips
+and 2…7 on the other 1,690 — that "a constant lag of 1 is wrong on 1,690 rows
+and there is no other constant to write."
+
+**`tripID` is not the recurrence's axis, and on the axis the lag is the
+constant 1.** Measured while landing `fixtures/process-evap-permeation.esm`:
+
+| relation, in the order TTG-4a walks it | rows | lag to the predecessor |
+|---|---|---|
+| `SampleVehicleTrip` as captured | 37,216 | 1 … 7 |
+| after `flagMarkerTrips` drops the 5,458 marker trips, ordered `(vehID, dayID, tripID)` | 31,758 | **1, on all 26,193** |
+| `SampleVehicleTripByHour` (TTG-2's segments), ordered `(vehID, dayID, keyOnTime)` | 44,513 | **1, on all 26,193**, and the predecessor is the immediately preceding row |
+
+The gaps of 2…7 are gaps in the *identifier*: the intervening `tripID`s are
+marker trips, which `flagMarkerTrips` deletes before TTG-2 ever sees them —
+MOVES's own first step, not an optimisation. 107 chained trips name a
+predecessor absent from the relation; those take the same
+`coldSoakTankTemperature` arm a first-of-day trip takes, so the base case is
+one `ifelse`.
+
+Corroborated on **eight distinct captures**, which is not the same as eight
+snapshots: thirty-nine snapshots carry a populated `SampleVehicleTrip` and by
+`(vehID, dayID, tripID)` key set they collapse to eight tables, only three of
+which carry `tripType` at all — and those three are one evap capture. The eight
+include NONROAD (`nr-agriculture-state`, 26,958 rows) and a third scale
+(`sample-runspec`, 10,258). The **tie count is 0 in all eight**, so the walk
+order is total on every one, and the exception count varies with the capture —
+17, 20, 90, 107 — so 107 belongs to this snapshot and not to the model. In
+`SampleVehicleTripByHour` 12 of 44,513 `(vehID, dayID, keyOnTime)` triples do
+tie, broken by TTG-2's emission order. See `docs/esm-conventions.md` §34.3 for
+the table.
+
+**So F28 has no confirmed call site in MOVES today.** The finding stays — it is
+a real refusal, it is correct behaviour, an author does write the expression,
+and the control below is the workaround if a call site turns up — but this file
+should not claim TTG-4a as one. What actually blocks TTG-2/3/4 is a relation
+whose ROW COUNT is a function of the data (1 to 22 segments per trip; TTG-4b's
+soak stops at the first minute the temperature falls, so even the output count
+depends on the arithmetic), which is **F5** and **F14**, and which §22 and §31
+of `docs/esm-conventions.md` already solve with a rectangular grid, a mask and
+a global rank. That is a cost, not a limitation; `docs/evap-permeation.md` §8.1
+carries the bill.
 
 **Impact, and it is the Phase 4 screening.** PLAN.md screened
 `process-evap-fvv` and `process-evap-permeation` as blocked by F12 and
 unblocked by its fix. F12's fix does unblock TTG-1, the quarter-hour
 recurrence, which `components/tank_temperature.esm` now computes. It does not
 unblock TTG-2/3/4 or TTG-7, and those are what the two fixtures actually stand
-on — `docs/evap-permeation.md` §8.1 measures which. The screening was not wrong
-about F12; it was incomplete about what was behind it.
+on — `docs/evap-permeation.md` §8.1 measures which, and now attributes it to
+F5/F14 rather than to F28. The screening was not wrong about F12; it was
+incomplete about what was behind it, and this file was wrong about which
+finding the remainder is.
 
 **The workaround, and its two costs.** Contract the lag over its bounded range
 and select the matching term with an equality guard against the data column:

@@ -11,6 +11,15 @@ this port computes and which one it does not; and an independent reproduction
 (`./run-permeation-oracle.sh`, §6.5) whose numbers can be checked against the
 snapshot without reading this file.
 
+**Written before the fixture, and revised after it.** Four statements did not
+survive contact with a document that had to compute all 128 rows, and each is
+corrected in place with the measurement rather than footnoted: §0.1's zero-row
+prediction is now measured, §1's reason for having no I/M blend was the wrong
+reason, §2.7 gained three arms of the calculator this snapshot cannot
+distinguish, and **§8.1's claim that TTG-4a needs finding F28's workaround is
+wrong** — on the relation the recurrence actually walks the lag is the constant
+1.
+
 **Read §0.3 and §8.1 first if you are here because PLAN.md said this slice was
 unblocked.** It is unblocked in the part that PLAN.md named and blocked in a
 part PLAN.md did not — the two are different steps of the same generator, and
@@ -38,6 +47,7 @@ Sources, in the order they were trusted:
 |---|---|
 | snapshot | `../moves.rs/characterization/snapshots/process-evap-permeation` |
 | output database | `out_process_evap_permeation` |
+| port | `fixtures/process-evap-permeation.esm` — 128 of 128 rows, key set exact, worst cell 6.1738e-06 (§7) |
 | `MOVESOutput` rows | **128** |
 | pollutant / process | THC (1) × Evap Permeation (11); `polProcessID` **111** |
 | calculator | `EvaporativePermeationCalculator`, a direct master-loop subscriber (process 11, `MONTH` granularity) |
@@ -77,10 +87,28 @@ source bin's *dimensions* are per `(sourceTypeID, polProcessID)`, not per run:
 `SourceBinDistributionGenerator` collapses `regClassID` to 0 in the bin id when
 `SourceTypePolProcess.isRegClassReqd` is `N`
 (`source_bin_distribution_generator.rs:1355`). So the same 125 cohorts carry
-different `sourceBinID`s in the three evaporative snapshots, and a chain that
-takes the leaks bin rule as a run-wide constant produces 125 keys that match
-nothing and an output of exactly zero rows. Call this **C2′**: the bin key's
-fields are read from `SourceTypePolProcess`, per process.
+different `sourceBinID`s in the three evaporative snapshots. Call this **C2′**:
+the bin key's fields are read from `SourceTypePolProcess`, per process.
+
+**"Produces 125 keys that match nothing and an output of exactly zero rows" was
+a prediction when this was written. It is now measured**, by taking
+`fixtures/process-evap-permeation.esm` and replacing `coh_binRegClassID` /
+`cohq_binRegClassID` with the sample vehicle's own class 20 — the sibling
+fixture's rule, which is the mistake a copied spine actually makes:
+
+| | with C2′ | with the leaks slice's rule |
+|---|---|---|
+| `coh_binExists`, gasoline 2020 | 1 | **0** |
+| `cohortSurvivorCount` | 64 | **0** |
+| `out_emissionQuant`, every one of the 128 rows | as tabulated in §6 | **exactly 0** |
+
+The failure mode is the bad one: the row COUNT is intact, because 128 is
+`n_outputCohort × n_runspecday` and neither factor moves, so the comparator's
+key set is perfect and every cell is wrong. `require_exact_key_set` cannot see
+it and the per-cell gate catches all 128. Every bin of this snapshot's
+`sourceBin` carries `regClassID` 0 — `sourceBinRegClassZeroCount` asserts 80 of
+80 — which is the same fact from the other side and the cheapest thing to check
+first.
 
 The regulatory class does not disappear — PC-1b puts it back, weighted by
 `RegClassSourceTypeFraction.regClassFraction`, which for source type 21 is a
@@ -139,8 +167,19 @@ the oracle, by perturbing each mode's tank temperature by +50 °F and rerunning:
 
 Not "changes by less than the tolerance" — *unchanged*, at every one of the 128
 cells. Every number this fixture emits flows through mode 300, which is
-TTG-4a's walk over `SampleVehicleTrip`, which is finding **F28**: a recurrence
-whose predecessor is named by a data column.
+TTG-4a's walk over `SampleVehicleTrip`. §8.1 says what that walk costs, and
+**corrects this document's original claim that the cost is finding F28's**.
+
+**The zero is now an assertion and not only a perturbation.**
+`fixtures/process-evap-permeation.esm` carries `tankTemperatureSoakWeight` —
+the total weight the two soak modes take into PC-2b, summed over both day
+types — and asserts it is exactly 0. It also asserts that PC-2a is *non-zero*
+at all three modes (0.9137 hot-soaking, 0.6194 cold-soaking, 0.7585 operating,
+on the weekend at tank-temperature group 3), which is the half of
+`docs/esm-conventions.md` §23's corollary that distinguishes a zero WEIGHT from
+an absent computation. A run in which the read tank temperatures could reach an
+output digit fails that assertion before the comparator sees a row, which is
+what the table above could only establish by re-running.
 
 Three consequences, and they are the useful output of this slice:
 
@@ -150,7 +189,14 @@ Three consequences, and they are the useful output of this slice:
    `QuarterHourTankTemperature` rows and all 24 `ColdSoakTankTemperature` rows —
    with 64 assertions, and none of them is downstream of an `opModeFraction`. A
    fixture-level check would have been worthless here: it would have passed
-   with the recurrence deleted. That is finding F24's lesson arriving from the
+   with the recurrence deleted. **That is why the fixture reads all 288
+   `AverageTankTemperature` cells where the oracle reads 192 and computes mode
+   151's 96 through TTG-1**: the 96 cells the oracle computes are exactly the
+   ones that cannot move an output digit, so computing them in the fixture too
+   would duplicate `components/tank_temperature.esm`'s 64 assertions to buy a
+   check that passes when the thing it checks is deleted. The difference
+   between the two reads is stated in the fixture's own metadata rather than
+   left for a reader to notice. That is finding F24's lesson arriving from the
    other direction — there the clamp laundered the sentinel, here a zero weight
    would have.
 2. **`process-evap-fvv` is the better next slice, not the equal one — and
@@ -201,8 +247,18 @@ operating-mode chain, permeation adds:
 | `zoneMonthHour` | 24 | the ambient temperatures TTG-1 starts from |
 | `sourceTypePolProcess` | 1 | §0.1's `isRegClassReqd` |
 
-`imCoverage` and `imFactor` are empty, so this fixture has no I/M program —
-same as the leaks slice.
+`imCoverage` and `imFactor` are empty. **That is not why there is no I/M
+blend here, and the "same as the leaks slice" this paragraph used to say was
+wrong** — measured against the calculator's own declaration:
+`EvaporativePermeationCalculator`'s 25 `INPUT_TABLES` list neither
+`IMCoverage` nor `IMFactor`, and `pollutantProcessAssoc` marks `polProcessID`
+111 `isAffectedByEvapIM = 'N'`. So the identity blend
+`fixtures/process-evap-leaks.esm` and `fixtures/process-evap-fvv.esm` both
+carry is **absent from this calculator**, not zero-weighted in it, and
+`fixtures/process-evap-permeation.esm` models no I/M step. A fixture that
+inherited the sibling's blend would be modelling a step MOVES does not run —
+one of the two places the evaporative spine is a trap rather than a template
+(the other is §0.1's C2′).
 
 ---
 
@@ -269,11 +325,39 @@ weightedFuelAdjustment · sourceHours / noOfRealDays`, assembled in six steps.
   regClassFraction`, over source bins, grouped by
   `(polProcessID, sourceTypeID, regClassID, modelYearID, fuelTypeID)`.
   `EmissionRateByAge` carries one row per operating mode and the join does not
-  constrain `opModeID`, so every matching row contributes.
+  constrain `opModeID`, so every matching row contributes — which is why the
+  weighted rate carries **no operating-mode axis** where the leaks slice's
+  `cohortMode_rate` does. **This snapshot cannot test that.** Its
+  `emissionRateByAge` is 968 rows against the leaks snapshot's 6,564 and every
+  one of them is `opModeID` 300, so the un-keyed join and a join keyed on mode
+  300 give the same answer here; `fixtures/process-evap-permeation.esm`'s
+  `rateNonOperatingRowCount` measures the 0 that says so.
+
+  PC-1b also has **two mutually exclusive forms**, and the choice is
+  `RunContext::with_reg_class` rather than §0.1's `isRegClassReqd`: the
+  `WithRegClassID` section splits the rate onto `regClassID` weighted by
+  `RegClassSourceTypeFraction.regClassFraction`, the `NoRegClassID` section
+  collapses `regClassID` to 0 and applies no fraction. **This fixture cannot
+  tell them apart either**, and that is measured rather than assumed:
+  `regClassSourceTypeFraction` holds exactly one row per
+  `(sourceTypeID, fuelTypeID, modelYearID)`, all 125 of them at
+  `regClassFraction` exactly 1.0 and covering every selected cohort, and PC-6
+  aggregates `regClassID` away again with nothing in between keyed on it. So
+  the whole of the split is the *sum* of the fractions — which is why the port
+  carries `coh_regClassFractionTotal` and not a regulatory-class axis, and why
+  `cohortRegClassFractionCount` asserts 64 of 64 rather than a value.
 * **PC-2a** `temperatureAdjustByOpMode = tempAdjustTermA ·
   exp(tempAdjustTermB · averageTankTemperature)`, over the cross product of
   `AverageTankTemperature` and `TemperatureAdjustment` (the SQL join carries no
-  `ON` clause), expanded across the adjustment's model-year range.
+  `ON` clause), expanded across the adjustment's model-year range. The
+  adjustment does not depend on the model year — the expansion only adds an
+  output dimension — so the port writes the range as a *predicate* on the
+  cohort's own model year rather than materialising `modelYear`'s 111 rows.
+  Both `temperatureAdjustment` rows span [1950, 2060] and every model year
+  this run has is 1980-2020, so **the range test admits everything and is
+  inert here**; it is written because a narrower band is how MOVES retires a
+  coefficient, and `docs/process-nox-speciation.md` has a slice where all four
+  rows are 2027-2060 and the term is therefore 0.
 * **PC-2b** `weightedTemperatureAdjust = Σ temperatureAdjustByOpMode ·
   opModeFraction`, joined to `OpModeDistribution` on
   `(hourDayID, polProcessID, opModeID)` and to `Link` on `(linkID, zoneID)`.
@@ -768,6 +852,22 @@ decimal text and the inputs it is built from are `FLOAT`.
 `QuarterHourTemperature` to 1.175e-14; the difference between those two is the
 storage width of the columns, not the accuracy of the step.
 
+**The fixture now reports the same figure, and that was a prediction when this
+section was written.** `fixtures/process-evap-permeation.esm` emits 128 rows,
+the key set is set-equal to `MOVESOutput`'s on all nineteen identity columns
+(0 missing, 0 extra), and the worst cell is **6.1738e-06** — at
+`(dayID 5, fuelTypeID 5, modelYearID 2002)`, the same cell the oracle's worst
+lands on, reached by a different factoring. The oracle groups by
+`(polProcessID, sourceTypeID, regClassID, modelYearID, fuelTypeID)` as the SQL
+does; the fixture computes per cohort on a 41 × 4 rectangle and never
+materialises a regulatory-class key at all. **Two implementations that share no
+code agreeing to the last two digits at the same cell is what makes 6.17e-06 a
+property of the reference's storage rather than of either of them**, which is
+what §7 asserted and could not yet show. Total THC: 32.256748 g computed
+against 32.256746 g stored, and the worst per-pollutant sum is 7.571e-08
+against the 1e-3 gate. `tolerance.toml` is unchanged; the per-cell gate stays
+at 2e-05 and this fixture sits with 3.2× headroom.
+
 ### 7.1 What the fixture does not exercise, found by sabotaging the oracle
 
 Every gate in §6.5 was checked by breaking what it guards. Four went red as
@@ -790,6 +890,24 @@ Recording a gate that cannot fail is the point of running the sabotage rather
 than assuming it: two of PC-3's three factors are inert on this fixture, and a
 port that got either wrong would be green here and wrong on the next slice.
 
+**Three more inert factors, found while authoring the fixture rather than by
+sabotage, and each one is now a measured 0 or 1 in the document itself.** The
+pattern is worth naming: every one of them is a place where MOVES has *two*
+arms and this snapshot exercises one, so a port can take either and be green.
+
+| what cannot be tested here | the measurement that says so | the assertion |
+|---|---|---|
+| PC-1b's `WithRegClassID` against its `NoRegClassID` section | all 125 `regClassSourceTypeFraction` rows are exactly 1.0, one per selected cohort, and PC-6 sums `regClassID` away | `cohortRegClassFractionCount` = 64, `coh_regClassFractionTotal` = 1.0 |
+| PC-1b's *not* joining on `opModeID` | every one of the 968 `emissionRateByAge` rows is mode 300, so an un-keyed sum and a mode-300 sum agree | `rateNonOperatingRowCount` = 0 |
+| PC-2a's model-year expansion | both `temperatureAdjustment` rows span [1950, 2060] and every model year here is 1980-2020 | the range predicate admits all 164 candidates |
+
+And one that is not inert, recorded because the first draft of this section
+implied it might be: **PC-6's tank-temperature-group gate is live.** The two
+groups differ by 20 % on the same day — 0.9112 against 0.7585 on the weekend —
+so picking the wrong one is a wrong answer at 41 of the 64 cohorts rather than
+a missing row, and `coh_tankTemperatureGroupID` is asserted at both values
+(3 for model years 1996 and later, 5 for 1980-1995).
+
 ---
 
 ## 8. What is not computed
@@ -809,19 +927,65 @@ its own `tripID`, carrying forward the temperature its hot soak ended at (or a
 boundary carry `keyOffTemp` forward. TTG-4b then walks the following minutes
 one at a time.
 
-That is three nested recurrences, and the outermost of them is **finding F28**:
-its predecessor is named by a data column, and esm-spec §4.3.1.1's causal
-self-read requires an offset of the frame symbol. Measured on this snapshot,
-26,300 of the 37,216 trips carry a `priorTripID` and `tripID − priorTripID` is
-1 for 24,610 of them and 2…7 for the other 1,690, so there is no constant lag to
-write. F28's control shows the workaround — contract the lag over `[1, 7]` and
-select with an equality guard — and shows what it costs.
+That is three nested recurrences. **This section used to say the outermost of
+them is finding F28, and that is WRONG — measured, not re-argued.** The
+correction matters because F28 is the reason PLAN.md and this document both gave
+for the read, and it is not the reason.
 
-**This is a scope decision, not a blocker.** The chain is expressible; it is
-about the size of the whole leaks slice again, it has no bearing on the
-recurrence question this phase was opened to answer, and §0.3 shows the two
-modes it produces are the ONLY thing this fixture is sensitive to. Recording the
-read and moving on buys more than half-building it would.
+F28 is real and unchanged as a *format* finding: `index(V, k − index(lag, k))`
+is refused, correctly, because the coefficient of the frame symbol must be
+provable. What was wrong is the claim that TTG-4a *needs* it. That claim rested
+on `tripID − priorTripID`, which is 1 for 24,610 of the 26,300 chained trips and
+2…7 for the other 1,690 — and `tripID` is **not the recurrence's axis**. The
+axis is the relation TTG-4a walks, and on that relation the lag is constant:
+
+| relation, in the order TTG-4a walks it | rows | lag from a trip to its predecessor |
+|---|---|---|
+| `SampleVehicleTrip` as captured | 37,216 | 1 … 7 — the figure F28 quotes |
+| the same, after `flagMarkerTrips` drops the 5,458 marker trips, ordered `(vehID, dayID, tripID)` | 31,758 | **exactly 1, on all 26,193** |
+| `SampleVehicleTripByHour` (TTG-2's segments), ordered `(vehID, dayID, keyOnTime)` | 44,513 | **exactly 1, on all 26,193** — and the predecessor is the immediately preceding ROW |
+
+The gaps of 2…7 are gaps in the *identifier*, not in the *relation*: the
+intervening `tripID`s are marker trips, which `flagMarkerTrips` removes before
+TTG-2 ever sees them — that is the reference's own first step, not an
+optimisation. So TTG-4a's chain is an ordinary lag-1 causal self-read in
+esm-spec §4.3.1.1's direct spelling, with a guard for the two rows that are not
+chained: a first-of-day trip, and the **107** trips whose `priorTripID` names a
+trip absent from the relation. Both take the same `coldSoakTankTemperature`
+arm, so the guard is one `ifelse`, not two. Checked four ways — the row lag
+holds on `process-evap-permeation`, `process-evap-leaks`, `process-evap-fvv`
+and `mixed-onroad`, which share the default `SampleVehicleTrip`; the walk order
+is total up to 12 tied `(vehID, dayID, keyOnTime)` triples out of 44,513, broken
+by TTG-2's own emission order.
+
+**The scope decision stands, and its real reasons are the other two
+recurrences.** Neither is F28-shaped and both are the same shape as each other
+— a relation whose ROW COUNT is a function of the data:
+
+* **TTG-2** turns 37,216 trips into 44,513 hour-segments, between 1 and **22**
+  per trip. 44,513 is not written anywhere in MOVES; it is what the splitting
+  produces.
+* **TTG-3** turns the 31,758 trip-ending segments into 103,908 hot-soak slices,
+  spanning 4,393,619 candidate minutes.
+* **TTG-4b** then walks those minutes with a data-dependent **early stop**: the
+  first minute at which `soakTankTemperature ≤ coldSoakTankTemperature + 3`
+  ends the soak, and that minute and every later one are *not recorded*. So the
+  output row count depends on the arithmetic, not only on the input.
+
+Materialising a data-determined row count is findings **F5** (`skolem` /
+`distinct` / `rank` value invention materialises empty) and **F14** (a `ragged`
+index set ignores its member factor) — not F28. It is expressible the way
+`fixtures/nr-logging-county.esm` and `docs/esm-conventions.md` §22 and §31 do
+it: a rectangular grid with a mask and a global rank. The bill is a
+37,216 × 22 grid for TTG-2 and, for TTG-4b, a grid over the longest soak
+(1,416 minutes) — about 45 million cells to recover 182,532 rows. **That is the
+cost, and it is a cost and not a limitation**, which is a different sentence
+from the one this section used to carry.
+
+§0.3 still shows the two modes are the only thing this fixture is sensitive to,
+so recording the read still buys more than half-building it would. What has
+changed is that the next author is not told to reach for a workaround they do
+not need.
 
 ### 8.2 What `process-evap-fvv` would need on top of this
 
