@@ -2620,6 +2620,205 @@ identity**, so a later reader can see that the choice was made from the source
 and not from the answer. `run-airtoxics-oracle.sh` does that for the two subtype
 pairs; a comparison against `MOVESOutput` never could.
 
+---
+
+## 33. What the PM-exhaust slice changed **[Phase 5, 1,456 rows]**
+
+`process-pm-exhaust` is the first fixture with **no unchained parent block**.
+Every rung since `process-nox-speciation` was a 248-row parent computed off a
+rate table plus *N* × 208 species blocks that fell out of it by ratio; this one
+is seven 208-row blocks and nothing unchained. Two of the seven **are** the
+parents, and they are 208 rather than 248 because the twenty electricity
+cohorts reach `SulfatePMCalculator`'s working table and are dropped *there*, one
+stage after the rate.
+
+Five things follow, and the first is a limit on §32 rather than an addition to
+it.
+
+### 33.1 A chain declaration is not a computation graph — check that it is acyclic before iterating it
+
+§32.1's rule is "iterate the parent join; do not widen it", and it works by
+applying one self-join once per level of `runspecchainedto`. **That presumes the
+chain table IS the computation order, and here it is not.** This snapshot's
+eight rows contain two 2-cycles:
+
+```
+11801 (NonECPM) <- 11501 (sulfate)      and   11501 <- 11801
+11801 (NonECPM) <- 11901 (H2O aerosol)  and   11901 <- 11801
+```
+
+because `SulfatePMCalculator` splits composite NonECPM into species and then
+**re-sums NonECPM from them**. `pollutantprocessassoc`'s `chainedto1` /
+`chainedto2` columns carry the same cycle. So a fixed-point iteration over that
+table does not terminate, and a `rspp_rootPolProcessID` is not a well-defined
+thing to compute.
+
+The tell, stated generally: **MOVES's chain table records a calculator's
+INPUTS, not an evaluation order.** `SulfatePMCalculator` genuinely takes 118 in
+and puts 118 out, and the table records both facts with nothing to distinguish
+them. So:
+
+* **Write the calculator's stages.** `sulfate_pm_calculator.rs::calculate` is
+  five stages and they are a DAG even though MOVES's declaration of them is
+  not. The document has five stages.
+* **Read the chain table for what it says unambiguously**, which is a row-set
+  fact: which pollutant-processes are chained at all. `rspp_isChainOutput` is 1
+  on six of the seven; only 11201 is never an output.
+* **Measure the cycle rather than describing it.**
+  `run_chainCycleCount` = |{p : p is both an input and an output}| = **4**, and
+  `run_unchainedPolProcessCount` = **1** while **two** pollutant-processes are
+  RATED. That gap is the finding: *MOVES's chain declaration cannot even
+  identify the rated set here*, so `rt_hasRate` decides it and the chain table
+  decides nothing. A one-line count in the document is worth more than a
+  paragraph in a spec, because it fails if a later snapshot differs.
+
+**This is not a `docs/findings/` entry.** That directory collects what the
+FORMAT or the TOOLCHAIN could not express, each with a repro expected to fail.
+Nothing was refused here and nothing was silently wrong; the format expresses
+the fix without difficulty. What §32.1 was carrying implicitly was a
+precondition, and this section is that precondition written down.
+
+### 33.2 A parent can be a PAIR, and then the pull is per parent
+
+`emissionratebyage` carries 11201 (unadjusted elemental carbon) and 11801
+(composite NonECPM) and nothing else, and **five of the seven emitted pollutants
+are functions of both** — PM2.5 total is elemental carbon plus NonECPM. A
+single-parent chain cannot express that, however deep it iterates.
+
+The shape is §32.2's anchor-at-the-root self-join, instantiated once per named
+parent:
+
+```
+rtDay_ecQuant[b,k]    = Σ over b2 of rtDay_ratedQuant[b2,k]
+                        join (rt_ecPolProcessID[b] ↔ rt_polProcessID[b2],
+                              rt_cohortOrdinal ↔ rt_cohortOrdinal)
+rtDay_nonECQuant[b,k] = the same with rt_nonECPMPolProcessID
+```
+
+On the parent's own row each selects that row's own quantity, exactly as
+`rtDay_rootRate` did. **The generalisation is that "the block this row derives
+from" is a set, not a value**, and a set of fixed known size is written as one
+pull per member rather than as a wider join.
+
+### 33.3 Composition by IDENTITY: carry it as shares, not as a branch per pollutant
+
+`SulfatePMCalculator` composes its outputs out of four working species by
+literal arrays of pollutant ids — `PM25_TOTAL_INPUTS`, `NON_EC_PM_INPUTS`,
+`COPIED_SPECIES` in the Rust, `IN (…)` lists in the SQL. **There is no table to
+look the composition up in**, so §32.4's "name a pollutant exactly where the
+source names one" cuts the other way from how it cut in `process-airtoxics`:
+five pollutant ids are named here, and every one is a named constant in
+`sulfate_pm_calculator.rs`.
+
+What is worth keeping is the SHAPE that follows. Seven emitted pollutants over
+four species is a 7 × 4 matrix of coefficients, and writing it as seven branches
+on the pollutant is unreadable. Written as one **share column per species** it is
+four lines, each of which is a sum of MOVES's own arrays:
+
+```
+rt_totalShare   = rt_isPM25Total + rt_pm10Ratio          -- PM25_TOTAL_INPUTS, and PM10 rides on it
+rt_ecShare      = rt_totalShare + rt_isElementalCarbon   -- + COPIED_SPECIES
+rt_sulfateShare = rt_totalShare + rt_isNonECPM + rt_isSulfate
+rt_waterShare   = rt_totalShare + rt_isNonECPM + rt_isWater
+rt_residueShare = rt_totalShare + rt_isNonECPM + rt_pmSpeciationFraction
+rtDay_quant     = Σ over the four species of share × speciesQuant
+```
+
+and `rtDay_quant` carries **no branch on the pollutant at all**. Two of the
+seven pollutants then fall out as *factors* rather than as cases, because their
+ratio table is keyed by the OUTPUT pollutant-process:
+`pm10emissionratio.polProcessID` is 10001 and
+`pmspeciation.outputPollutantID` is 111, so joining a rate row's own key to
+either one both finds the coefficient and decides whether the row is that
+pollutant. **Pollutants 100 and 111 appear nowhere in the document.** A share
+column that is 0 on every row a lookup missed is the same construct as
+`process-brakewear`'s "the same expression serves chained and unchained blocks
+with no branch".
+
+### 33.4 The selection test belongs to whichever relation the SOURCE keys it on
+
+`pollutantprocessmodelyear` carries rows for **five** of the seven
+pollutant-processes: MOVES builds a source bin only for something it can RATE,
+and organic carbon and H2O aerosol are produced by a speciation fraction and by
+a split. So `rt_isSelected` — S10's row rule, which requires a model-year group
+— is 0 on two of the seven blocks, and rungs 4–6's habit of gating the emission
+on it would have emptied them.
+
+The fix is one line (`rt_cohortIsSelected` reads `coh_isSelected` back onto the
+rate relation) and the rule is worth stating because the symptom is a *missing
+block*, not a wrong number: **a per-pollutant-process test may only gate the
+stage whose table is keyed per pollutant-process.** `rt_isSelected` still gates
+the rate lookup, where it belongs, and `pp_selectedCohortCount` asserts
+125, 125, 0, 125, 125, 125, 0 so the two zeros are in the document rather than
+in a comment.
+
+### 33.5 When two misses would each produce the row set, compute BOTH
+
+`docs/process-airtoxics.md` §2.6 resolved three misses in **series** down a
+chain, where any one sufficed because the later stages could not outlive the
+earlier. This rung has two in **parallel** on the same cohort: the twenty
+electricity cohorts have no `sulfatefractions` row (so the NonECPM split's inner
+join drops them) *and* no `crankcaseemissionratio` row (so the copied
+elemental-carbon rows are dropped one stage later). Either alone produces
+exactly the observed 104-cohort key set.
+
+So the row set is **not evidence for which one MOVES uses**, a document that
+implemented one of them would be right for the wrong reason, and `rt_emits` is a
+product of both existence flags because `sulfate_pm_calculator.rs` performs both
+joins. The oracle asserts the two absences separately for the same reason. The
+general rule: *an existence test justified only by the row count it produces is
+justified by nothing when a sibling test produces the same one.*
+
+### 33.6 One table, two stages, two keys — and the trap of merging them
+
+`generalfuelratio` carries pollutant 112 and pollutant 120 here, and they enter
+at **different stages**:
+
+| | pollutant | applied by | keyed on | blended? |
+|---|---|---|---|---|
+| base rate | 112 (11201) | `BaseRateCalculator`, adjust.rs:452–472 | the SUPPLIED formulation | yes, by `GPAFract` |
+| species split | 120 (12001) | `SulfatePMCalculator`, SulfatePMCalculator.sql §75 | the fuel TYPE | no, raw |
+
+`SulfatePMCalculator.sql` restricts its own extract with
+`gfr.pollutantID in (120)`. Applying the 112 rows there as well **squares** a
+1.090910749585 on every gasoline and E85 cohort of model year 2001 or later;
+`../moves.rs` records that trap in a comment at
+`sulfate_pm_calculator.rs:2226`, having presumably hit it. The two stages differ
+in their join key and in whether they blend, so they are written as two
+lookups, and the document instantiates the same table twice under two names.
+
+**A caution that came with it, reinforcing §29.** The sulfate adjustment
+divides by a table value (`BaseFuelSulfurLevel`) that is 0 where the lookup
+missed. `0 / 0` is NaN and `0 × NaN` is NaN, so a multiplicative existence gate
+does not suppress it: the divisor has to be guarded with a **value**
+(`rt_baseFuelSulfurLevelGuarded` substitutes 1). `process-refueling` met the
+same shape on a NULL-bearing column; two instances make it a rule.
+
+### 33.7 Re-derive the MECHANISM, not just the row
+
+The one cohort this run selects and cannot rate is (model year 2000,
+electricity) — **the same cohort `process-nox-speciation` and
+`process-airtoxics` lose**, and the inherited explanation for it is wrong here.
+Those fixtures lose it on the **age group**: pollutant 101's fuel-type-9 rows
+stop at age group 1519 and model year 2000 is aged 20. In this snapshot
+`emissionratebyage` carries **all seven age groups for fuel type 9** on both
+rated pollutant-processes, and the miss is on the **short model-year group**:
+the fuel-9 source bins run over short groups 8, 10–19, 21–50, 53, 55, 57–60 and
+66–69, and 20 — the group `pollutantprocessmodelyear` assigns model year 2000 —
+is absent.
+
+Same row, different key, and every numeric gate in this repository passes either
+way. This is the `tools/check-sources.py` lesson (a note travels with a copied
+spine while the table under it changes) applied to a *specification*: **when a
+new slice loses the same row as its predecessor, enumerate the miss rather than
+citing the earlier reason.** `run-pm-exhaust-oracle.sh` asserts all three halves
+— the age groups are complete, short group 20 is absent for fuel 9 and present
+for fuel 1, and the miss list over both parents and all 125 candidates is
+exactly those two rows — so the next fixture to copy this spine copies a checked
+claim.
+
+---
+
 ## 34. A key rule can be per PROCESS **[Phase 5, 128 rows]**
 
 `process-evap-permeation` is the third evaporative slice and shares almost
