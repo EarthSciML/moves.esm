@@ -719,3 +719,856 @@ and **asserts** its worst relative error against `sho`, against
 `MOVESOutput`, plus the key set and eleven things a comparison against
 `MOVESOutput` could not see.
 
+```python
+#!/usr/bin/env python3
+"""process-pm-exhaust reproduction from the snapshot's own input tables."""
+import sys, collections, math
+import pyarrow.parquet as pq
+
+SNAP = sys.argv[1]
+P = SNAP + "/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__"
+def T(n): return pq.read_table(P+n+".parquet").to_pylist()
+
+YEAR, MONTH, HOUR, ZONE, ROAD, ST = 2020, 8, 7, 261610, 4, 21
+COUNTY, ELECTRICITY = 26161, 9
+EC_PP, NONEC_PP = 11201, 11801
+EC, SULFATE, WATER, RESIDUE = 112, 115, 119, 120
+DAYS=[r["dayID"] for r in T("runspecday")]
+HD={r["dayID"]:r["hourDayID"] for r in T("hourday") if r["hourID"]==HOUR}
+base=max(r["yearID"] for r in T("year") if r["yearID"]<=YEAR and str(r["isBaseYear"]).upper()=="Y")
+FUELYEAR={r["yearID"]:r["fuelYearID"] for r in T("year")}[YEAR]
+stpop={r["sourceTypeID"]:float(r["sourceTypePopulation"]) for r in T("sourcetypeyear") if r["yearID"]==base}
+agefrac={(r["sourceTypeID"],r["ageID"]):float(r["ageFraction"]) for r in T("sourcetypeagedistribution") if r["yearID"]==base}
+pop={k:stpop[k[0]]*v for k,v in agefrac.items() if k[0] in stpop}
+mar={(r["sourceTypeID"],r["ageID"]):float(r["relativeMAR"]) for r in T("sourcetypeage")}
+hpms={r["sourceTypeID"]:r["HPMSVtypeID"] for r in T("sourceusetype")}
+gt=collections.defaultdict(float)
+for k in pop: gt[hpms[k[0]]]+=pop[k]*mar[k]
+travelfrac={k:pop[k]*mar[k]/gt[hpms[k[0]]] for k in pop}
+ayv={r["HPMSVtypeID"]:float(r["HPMSBaseYearVMT"]) for r in T("hpmsvtypeyear") if r["yearID"]==base}
+onroad={r["roadTypeID"] for r in T("roadtype")}
+rtd={r["roadTypeID"]:float(r["roadTypeVMTFraction"]) for r in T("roadtypedistribution") if r["sourceTypeID"]==ST and r["roadTypeID"] in onroad}
+ages=sorted({k[1] for k in travelfrac if k[0]==ST})
+annual={a:ayv[hpms[ST]]*rtd[ROAD]*travelfrac[(ST,a)] for a in ages}
+binspeed={r["avgSpeedBinID"]:float(r["avgBinSpeed"]) for r in T("avgspeedbin")}
+speed=collections.defaultdict(float)
+for r in T("avgspeeddistribution"):
+    if r["sourceTypeID"]!=ST or r["roadTypeID"]!=ROAD: continue
+    for d in DAYS:
+        if r["hourDayID"]==HD[d]: speed[d]+=float(r["avgSpeedFraction"])*binspeed[r["avgSpeedBinID"]]
+weeks={r["monthID"]:r["noOfDays"]/7.0 for r in T("monthofanyyear")}[MONTH]
+mvf={r["monthID"]:float(r["monthVMTFraction"]) for r in T("monthvmtfraction") if r["sourceTypeID"]==ST}[MONTH]
+dvf={r["dayID"]:float(r["dayVMTFraction"]) for r in T("dayvmtfraction") if r["sourceTypeID"]==ST and r["monthID"]==MONTH and r["roadTypeID"]==ROAD}
+hvf={r["dayID"]:float(r["hourVMTFraction"]) for r in T("hourvmtfraction") if r["sourceTypeID"]==ST and r["roadTypeID"]==ROAD and r["hourID"]==HOUR}
+alloc={r["roadTypeID"]:float(r["SHOAllocFactor"]) for r in T("zoneroadtype") if r["zoneID"]==ZONE}[ROAD]
+sho={}
+for d in DAYS:
+    for a in ages:
+        vmt=annual[a]*mvf*dvf[d]*hvf[d]/weeks
+        sho[(HD[d],a)]=(vmt/speed[d] if speed[d] else 0.0)*alloc
+maxage=max(r["ageID"] for r in T("agecategory"))
+my_lo,my_hi=YEAR-maxage,YEAR
+fuels={r["fuelTypeID"] for r in T("runspecsourcefueltype") if r["sourceTypeID"]==ST}
+mygroup={(r["polProcessID"],r["modelYearID"]):r["modelYearGroupID"] for r in T("pollutantprocessmodelyear")}
+shortgroup={r["modelYearGroupID"]:r["shortModYrGroupID"] for r in T("modelyeargroup")}
+svp=[r for r in T("samplevehiclepopulation")]
+def cohorts(pp):
+    c={}
+    for r in svp:
+        frac=float(r["stmyFraction"])
+        if (r["sourceTypeID"]!=ST or not my_lo<=r["modelYearID"]<=my_hi
+            or r["fuelTypeID"] not in fuels or frac<=0.0): continue
+        g=mygroup.get((pp,r["modelYearID"]))
+        if g is None or g not in shortgroup: continue
+        key=(r["modelYearID"],r["fuelTypeID"],r["engTechID"],r["regClassID"])
+        c[key]=c.get(key,0.0)+frac
+    return c
+# ---- drive cycle W ----
+seconds=collections.defaultdict(dict)
+for r in T("driveschedulesecond"): seconds[r["driveScheduleID"]][r["second"]]=float(r["speed"])
+physics=[r for r in T("sourceusetypephysicsmapping") if r["realSourceTypeID"]==ST and float(r["sourceMass"])>0.0 and float(r["fixedMassFactor"])>0.0]
+assert len(physics)==1
+PH=physics[0]
+opmode={r["opModeID"]:r for r in T("operatingmode")}
+BRAKE1=float(opmode[0]["brakeRate1Sec"]); BRAKE3=float(opmode[0]["brakeRate3Sec"])
+binned=sorted(m for m in opmode if 1<m<100 and m not in (26,36))
+MS=0.44704
+def bound(m,c):
+    v=opmode[m][c]; return None if v is None else float(v)
+def dcd(sid):
+    sp=seconds[sid]; lo,hi=min(sp),max(sp); mode,acc={},{}
+    for s,v in sp.items():
+        if v<1.0: mode[s]=1
+    for s in range(lo+1,hi+1):
+        if s in sp and s-1 in sp: acc[s]=sp[s]-sp[s-1]
+    if lo+1 in acc: acc[lo]=acc[lo+1]
+    total=collections.Counter()
+    for s in range(lo,hi+1):
+        if s not in sp: continue
+        m=mode.get(s)
+        if m is None:
+            a=acc.get(s,0.0)
+            three=(s-1 in sp and s-2 in sp and a<BRAKE3 and acc.get(s-1,0.0)<BRAKE3 and acc.get(s-2,0.0)<BRAKE3)
+            if a<=BRAKE1 or three: m=0
+            else:
+                v=sp[s]*MS
+                a_ms=(v-sp[s-1]*MS) if s-1 in sp else ((sp[s+1]*MS-v) if s==lo and s+1 in sp else 0.0)
+                vsp=(float(PH["rollingTermA"])*v+float(PH["rotatingTermB"])*v*v
+                     +float(PH["dragTermC"])*v*(v*v)+float(PH["sourceMass"])*v*a_ms)/float(PH["fixedMassFactor"])
+                for k in binned:
+                    lov,hiv=bound(k,"VSPLower"),bound(k,"VSPUpper")
+                    los,his=bound(k,"speedLower"),bound(k,"speedUpper")
+                    if lov is not None and vsp<lov: continue
+                    if hiv is not None and vsp>=hiv: continue
+                    if los is not None and sp[s]<los: continue
+                    if his is not None and sp[s]>=his: continue
+                    m=k; break
+        if m is not None and s>0: total[m]+=1
+    n=sum(total.values())
+    return {k:v/n for k,v in total.items()}
+cycles=sorted(r["driveScheduleID"] for r in T("drivescheduleassoc") if r["sourceTypeID"]==ST and r["roadTypeID"]==ROAD)
+cspeed={r["driveScheduleID"]:float(r["averageSpeed"]) for r in T("driveschedule")}
+cdist={c:dcd(c) for c in cycles}
+bin_modes={}
+for b,bs in binspeed.items():
+    low=max((cspeed[c] for c in cycles if cspeed[c]<=bs),default=None)
+    high=min((cspeed[c] for c in cycles if cspeed[c]>=bs),default=None)
+    span=(high if high is not None else 100000.0)-(low if low is not None else -100.0)
+    if span<=0.0: lf=1.0
+    elif low is None: lf=0.0
+    elif high is None: lf=1.0
+    else: lf=(high-bs)/span
+    d=collections.defaultdict(float)
+    for c,f in ((low,lf),(high,1.0-lf)):
+        if c is None or f==0.0: continue
+        sid=next(s for s in cycles if cspeed[s]==c)
+        for m,v in cdist[sid].items(): d[m]+=f*v
+    bin_modes[b]=d
+W=collections.defaultdict(float)
+for r in T("avgspeeddistribution"):
+    if r["sourceTypeID"]!=ST or r["roadTypeID"]!=ROAD: continue
+    for m,v in bin_modes[r["avgSpeedBinID"]].items():
+        W[(r["hourDayID"],m)]+=v*float(r["avgSpeedFraction"])
+for d in DAYS:
+    t=sum(v for (h,_),v in W.items() if h==HD[d])
+    assert abs(t-1.0)<1e-5, t
+usage=[r for r in T("fuelusagefraction") if r["countyID"]==COUNTY and r["fuelYearID"]==FUELYEAR]
+def rebase(cohort):
+    s=collections.defaultdict(float)
+    for (my,fuel,et,rc),frac in cohort.items():
+        for u in usage:
+            if u["sourceBinFuelTypeID"]!=fuel: continue
+            if u["modelYearGroupID"]!=0 and u["modelYearGroupID"]!=my: continue
+            used=(my,u["fuelSupplyFuelTypeID"],et,rc)
+            if used not in cohort: continue
+            s[used]+=float(u["usageFraction"])*frac
+    return s
+def slot(b,scale): return (b//scale)%100
+agegroup={r["ageID"]:r["ageGroupID"] for r in T("agecategory")}
+ERBA=T("emissionratebyage")
+def rates_by_age(pp):
+    d={}
+    for r in ERBA:
+        if r["polProcessID"]!=pp: continue
+        b=r["sourceBinID"]
+        d[(slot(b,10**16),slot(b,10**14),slot(b,10**12),slot(b,10**10),r["opModeID"],r["ageGroupID"])]=float(r["meanBaseRate"])
+    return d
+realdays={r["dayID"]:float(r["noOfRealDays"]) for r in T("dayofanyweek")}
+ZMH=[r for r in T("zonemonthhour") if r["monthID"]==MONTH and r["zoneID"]==ZONE and r["hourID"]==HOUR][0]
+TEMP=float(ZMH["temperature"]); HEAT=float(ZMH["heatIndex"])
+TA=T("temperatureadjustment")
+def temp_terms(pp,fuel,regclass,my):
+    for rc in (regclass,0):
+        for r in TA:
+            if (r["polProcessID"]==pp and r["fuelTypeID"]==fuel and r["regClassID"]==rc
+                    and r["minModelYearID"]<=my<=r["maxModelYearID"]):
+                a=r["tempAdjustTermA"]; b=r["tempAdjustTermB"]
+                return (float(a) if a is not None else 0.0, float(b) if b is not None else 0.0)
+    return 0.0,0.0
+def temp_factor(pp,fuel,regclass,my):
+    # adjust.rs:105-110: pollutant 112/118 on process 1/2 take the PM arm --
+    # a MULTIPLICATIVE exponential below 72 F and a flat 1 above it.
+    a,_=temp_terms(pp,fuel,regclass,my)
+    return math.exp(a*(72.0-TEMP)) if TEMP<=72.0 else 1.0
+# A/C
+GRP={r["monthID"]:r["monthGroupID"] for r in T("monthofanyyear")}[MONTH]
+MGH=[r for r in T("monthgrouphour") if r["monthGroupID"]==GRP and r["hourID"]==HOUR][0]
+acraw=float(MGH["ACActivityTermA"])+HEAT*(float(MGH["ACActivityTermB"])+float(MGH["ACActivityTermC"])*HEAT)
+ACACT=min(max(acraw,0.0),1.0)
+ACPEN={r["modelYearID"]:float(r["ACPenetrationFraction"]) for r in T("sourcetypemodelyear") if r["sourceTypeID"]==ST}
+ACFUNC={r["ageID"]:float(r["functioningACFraction"]) for r in T("sourcetypeage") if r["sourceTypeID"]==ST}
+def fac(pp):
+    return {r["opModeID"]:float(r["fullACAdjustment"]) for r in T("fullacadjustment")
+            if r["sourceTypeID"]==ST and r["polProcessID"]==pp}
+# fleet average (EV sales) adjustment
+fleetgroup={r["regClassID"]:r["fleetAvgGroupID"] for r in T("regulatoryclass")}
+evfrac={(r["modelYearID"],r["fleetAvgGroupID"]):float(r["evFraction"]) for r in T("evsalesfraction")}
+FA=T("fleetavgadjustment")
+def evsf(pp,my,fuel,rc):
+    if fuel==ELECTRICITY: return 1.0
+    g=fleetgroup[rc]; e=evfrac.get((my,g))
+    row=next((r for r in FA if r["polProcessID"]==pp and r["fleetAvgGroupID"]==g and r["beginModelYearID"]<=my<=r["endModelYearID"]),None)
+    if e is None or row is None: return 1.0
+    m=float(row["evMultiplier"]); den=(1.0-e)+e*m; v=1.0/(1.0-e*m/den)
+    cap=row["adjustmentCap"]
+    return min(v,float(cap)) if cap is not None and float(cap)>0.0 else v
+# fuel supply
+FSUB={r["fuelSubtypeID"]:r["fuelTypeID"] for r in T("fuelsubtype")}
+FFROW={r["fuelFormulationID"]:r for r in T("fuelformulation")}
+FFORM={k:v["fuelSubtypeID"] for k,v in FFROW.items()}
+supply=collections.defaultdict(list)
+for r in T("fuelsupply"):
+    if r["fuelYearID"]!=FUELYEAR or r["monthGroupID"]!=GRP: continue
+    st=FFORM[r["fuelFormulationID"]]
+    if st not in FSUB: continue
+    supply[FSUB[st]].append((r["fuelFormulationID"],float(r["marketShare"])))
+def scc(fuel,proc): return "%d"%(22*10**8+fuel*10**6+ST*10**4+ROAD*10**2+proc)
+GPA=float([r for r in T("county") if r["countyID"]==COUNTY][0]["GPAFract"])
+GFR=T("generalfuelratio")
+def base_rate_fuel_factor(pp,fuel,my):
+    # adjust.rs:452-472, the BASE-RATE stage's general fuel effect: one rate per
+    # SUPPLIED formulation, each blended by the county GPA fraction, then
+    # re-collapsed by market share (aggregate.rs:28-45). `criteriaratio` is EMPTY
+    # in this snapshot, so this is the only fuel effect the base rate takes.
+    age=YEAR-my; total=0.0
+    for ff,share in supply.get(fuel,[]):
+        r=next((r for r in GFR
+                if r["fuelFormulationID"]==ff and r["polProcessID"]==pp
+                and r["sourceTypeID"]==ST
+                and r["minModelYearID"]<=my<=r["maxModelYearID"]
+                and r["minAgeID"]<=age<=r["maxAgeID"]),None)
+        ratio=1.0 if r is None else (float(r["fuelEffectRatio"])
+              +GPA*(float(r["fuelEffectRatioGPA"])-float(r["fuelEffectRatio"])))
+        total+=share*ratio
+    return total
+
+# ---- the two unchained parents: EC (112) and NonECPM (118) ----------------
+REGCLASS={}
+def parent(pp):
+    coh=cohorts(pp)
+    sbaf=rebase(coh)
+    rate=rates_by_age(pp)
+    modes=sorted({k[4] for k in rate})
+    FAC=fac(pp)
+    sbw=collections.defaultdict(float); sbwac=collections.defaultdict(float)
+    for (my,fuel,et,rc),frac in sbaf.items():
+        smy=shortgroup[mygroup[(pp,my)]]
+        ag=agegroup[YEAR-my]
+        ev=evsf(pp,my,fuel,rc)
+        for om in modes:
+            r=rate.get((fuel,et,rc,smy,om,ag))
+            if r is None: continue
+            sbw[(my,fuel,om)]+=frac*r*ev
+            sbwac[(my,fuel,om)]+=frac*r*ev*(FAC.get(om,1.0)-1.0)
+    br=collections.defaultdict(float); brac=collections.defaultdict(float)
+    for (my,fuel,om),v in sbw.items():
+        for d in DAYS: br[(HD[d],my,fuel)]+=v*W[(HD[d],om)]
+    for (my,fuel,om),v in sbwac.items():
+        for d in DAYS: brac[(HD[d],my,fuel)]+=v*W[(HD[d],om)]
+    have={(k[0],k[1],k[2],k[3],k[5]) for k in rate}
+    q={}
+    for (my,fuel,et,rc),frac in coh.items():
+        age=YEAR-my
+        smy=shortgroup[mygroup[(pp,my)]]
+        if (fuel,et,rc,smy,agegroup[age]) not in have: continue
+        REGCLASS[(my,fuel)]=rc
+        acf=ACACT*ACPEN[my]*ACFUNC[age]
+        tf=temp_factor(pp,fuel,rc,my)
+        fuelfactor=base_rate_fuel_factor(pp,fuel,my)
+        for d in DAYS:
+            base_r=br[(HD[d],my,fuel)]+acf*brac[(HD[d],my,fuel)]
+            act=sho[(HD[d],age)]/realdays[d]
+            q[(d,my,fuel)]=base_r*fuelfactor*tf*act
+    BR[pp]=br; BRAC[pp]=brac; SBW[pp]=sbw
+    return q
+BR={}; BRAC={}; SBW={}
+ec=parent(EC_PP)
+nonec=parent(NONEC_PP)
+
+# ---- SulfatePMCalculator, stage 1: the fuel-sulfur sulfate fractions -------
+# sulfate_pm_calculator.rs::compute_sulfate_fractions.  Every join is an INNER
+# JOIN, and fuel type 9 has no `sulfatefractions` row at all.
+MONTHS_OF_GROUP=collections.defaultdict(list)
+for r in T("monthofanyyear"): MONTHS_OF_GROUP[r["monthGroupID"]].append(r["monthID"])
+RUNSPEC_MY=sorted({my for (my,_f,_e,_r) in cohorts(NONEC_PP)})
+SUPPLY_ROWS=[r for r in T("fuelsupply") if r["fuelYearID"]==FUELYEAR]
+S_adj={}; H_adj={}; S_un={}; H_un={}
+for sf in T("sulfatefractions"):
+    for my in RUNSPEC_MY:
+        if not sf["minModelYearID"]<=my<=sf["maxModelYearID"]: continue
+        for r in SUPPLY_ROWS:
+            ff=FFROW.get(r["fuelFormulationID"])
+            if ff is None: continue
+            if FSUB.get(ff["fuelSubtypeID"])!=sf["fuelTypeID"]: continue
+            lvl=0.0 if ff["sulfurLevel"] is None else float(ff["sulfurLevel"])
+            # adjustment = 1 + BaseFuelSulfateFraction x (sulfurLevel/BaseFuelSulfurLevel - 1)
+            adj=1.0+float(sf["BaseFuelSulfateFraction"])*(lvl/float(sf["BaseFuelSulfurLevel"])-1.0)
+            for mo in MONTHS_OF_GROUP[r["monthGroupID"]]:
+                k=(sf["processID"],sf["fuelTypeID"],sf["sourceTypeID"],mo,my)
+                share=float(r["marketShare"])
+                S_adj[k]=S_adj.get(k,0.0)+share*float(sf["SulfatenonECPMFraction"])*adj
+                H_adj[k]=H_adj.get(k,0.0)+share*float(sf["H2OnonECPMFraction"])*adj
+                S_un[k]=float(sf["SulfatenonECPMFraction"])
+                H_un[k]=float(sf["H2OnonECPMFraction"])
+
+# ---- stage 2: spmOutput -- EC copied, NonECPM split three ways -------------
+spm=collections.defaultdict(float)          # (pollutant, day, modelYear, fuel) -> grams
+for (d,my,fuel),q in ec.items(): spm[(112,d,my,fuel)]=q
+for (d,my,fuel),q in nonec.items():
+    k=(1,fuel,ST,MONTH,my)
+    if k not in S_adj: continue             # INNER JOIN spmSplit1
+    spm[(115,d,my,fuel)]=q*S_adj[k]
+    spm[(119,d,my,fuel)]=q*H_adj[k]
+    spm[(120,d,my,fuel)]=q*max(1.0-H_un[k]-S_un[k],0.0)
+
+# ---- stage 3: the general fuel-effect ratio --------------------------------
+# A multi-table UPDATE, not a join: a row with no matching ratio is left alone.
+# Only pollutants 112 and 120 carry rows here.
+# `SulfatePMCalculator.sql` 75 restricts its own extract to pollutantID 120: the
+# residue is the ONLY species this stage rescales. The EC (112) rows of the same
+# table are applied one stage earlier, by `BaseRateCalculator` on polProcessID
+# 11201 -- see `base_rate_fuel_factor`. Applying them here as well would square
+# the 1.0909 on gasoline and E85.
+SPM_GFR=[r for r in GFR if r["pollutantID"]==RESIDUE]
+def gfr(pol,fuel,my):
+    age=YEAR-my
+    for r in SPM_GFR:
+        if (r["fuelTypeID"]==fuel and r["sourceTypeID"]==ST and r["pollutantID"]==pol
+                and r["processID"]==1 and r["minModelYearID"]<=my<=r["maxModelYearID"]
+                and r["minAgeID"]<=age<=r["maxAgeID"]):
+            return float(r["fuelEffectRatio"])
+    return 1.0
+for (pol,d,my,fuel) in list(spm): spm[(pol,d,my,fuel)]*=gfr(pol,fuel,my)
+
+# ---- stage 4: the crankcase split -> spmOutput2 ----------------------------
+# INNER JOIN on (pollutant, fuelType, sourceType) with the model year inside the
+# split's window.  `crankcaseemissionratio` carries no fuel-type-9 row, and this
+# is where the twenty electricity cohorts leave the run.
+CCR=collections.defaultdict(list)
+for r in T("crankcaseemissionratio"):
+    pol,proc=divmod(r["polProcessID"],100)
+    if proc!=1: continue                    # only the run's own process
+    CCR[(pol,r["fuelTypeID"],r["sourceTypeID"])].append(r)
+spm2=collections.defaultdict(float)
+for (pol,d,my,fuel),q in spm.items():
+    for s in CCR.get((pol,fuel,ST),()):
+        if not s["minModelYearID"]<=my<=s["maxModelYearID"]: continue
+        spm2[(pol,d,my,fuel)]+=q*float(s["crankcaseRatio"])
+
+# ---- stage 5: the sums, the speciation, and the emitted species ------------
+out=collections.defaultdict(float)
+for (pol,d,my,fuel),q in spm2.items():
+    if pol in (112,115,119):     out[(pol,d,my,fuel)]+=q      # copied verbatim
+    if pol in (112,115,119,120): out[(110,d,my,fuel)]+=q      # MakePM2.5Total
+    if pol in (115,119,120):     out[(118,d,my,fuel)]+=q      # NonECPM re-sum
+for (pol,d,my,fuel),q in spm2.items():                        # PMSpeciation
+    for r in T("pmspeciation"):
+        if (r["processID"]==1 and r["inputPollutantID"]==pol and r["sourceTypeID"]==ST
+                and r["fuelTypeID"]==fuel and r["minModelYearID"]<=my<=r["maxModelYearID"]):
+            out[(r["outputPollutantID"],d,my,fuel)]+=q*float(r["pmSpeciationFraction"])
+# The internal residue 120 is dropped unconditionally; 123 and 124 are not in
+# this RunSpec's output pollutant-processes and are dropped too.
+for k in [k for k in out if k[0]==120]: del out[k]
+
+# ---- PM10EmissionCalculator: 110 -> 100 ------------------------------------
+# pm10.rs::compute_pm10.  Total PM10 is the only live pair; the OC/EC/sulfate
+# branches are commented out in the Java and are not ported.
+for (pol,d,my,fuel),q in list(out.items()):
+    if pol!=110: continue
+    for r in T("pm10emissionratio"):
+        if (r["polProcessID"]==10001 and r["sourceTypeID"]==ST and r["fuelTypeID"]==fuel
+                and r["minModelYearID"]<=my<=r["maxModelYearID"]):
+            out[(100,d,my,fuel)]+=q*float(r["PM10PM25Ratio"])
+
+rows={(pol,1,d,my,fuel):(q,scc(fuel,1)) for (pol,d,my,fuel),q in out.items()}
+
+# ------------------------------------------------------------------- compare
+ref_sho={(r["hourDayID"],r["ageID"]):float(r["SHO"]) for r in T("sho")}
+worst_sho=max(abs(sho[k]-v)/v for k,v in ref_sho.items())
+print("sho:            %3d rows, worst relative error %.3e"%(len(ref_sho),worst_sho))
+assert worst_sho<1e-5, "sho: worst relative error %.3e exceeds 1e-5"%worst_sho
+
+# sbweightedemissionratebyage -- the mode-resolved rate, BEFORE the drive-cycle
+# collapse.  `process-airtoxics` names this table and does not read it; checking
+# it here separates a wrong rate lookup from a wrong W.
+ref_sbw={(r["polProcessID"],r["modelYearID"],r["fuelTypeID"],r["opModeID"]):float(r["meanBaseRate"])
+         for r in T("sbweightedemissionratebyage")}
+worst_sbw,n_sbw=0.0,0
+for (pp,my,fuel,om),v in ref_sbw.items():
+    got=SBW[pp].get((my,fuel,om),0.0)
+    if v==0.0:
+        assert got==0.0,(pp,my,fuel,om,got); continue
+    n_sbw+=1; worst_sbw=max(worst_sbw,abs(got-v)/v)
+print("sbWeightedRate: %4d non-zero rows of %d, worst relative error %.3e"
+      %(n_sbw,len(ref_sbw),worst_sbw))
+assert worst_sbw<2e-5, "sbWeightedRate: worst relative error %.3e exceeds 2e-5"%worst_sbw
+
+ref_br=collections.defaultdict(dict)
+for r in T("baseratebyage_1_2020"):
+    ref_br[r["polProcessID"]][(r["hourDayID"],r["modelYearID"],r["fuelTypeID"])]=float(r["meanBaseRate"])
+for pp in (EC_PP,NONEC_PP):
+    br,brac=BR[pp],BRAC[pp]
+    worst_br,n_br=0.0,0
+    for k,v in ref_br[pp].items():
+        if v==0.0:
+            assert br[k]+brac[k]==0.0,(pp,k)     # the 20 electricity cohorts
+            continue
+        n_br+=1; worst_br=max(worst_br,abs(br[k]-v)/v)
+    print("baseRateByAge %d: %3d non-zero rows of %d, worst relative error %.3e"
+          %(pp,n_br,len(ref_br[pp]),worst_br))
+    assert worst_br<2e-5, "baseRateByAge %d: worst relative error %.3e exceeds 2e-5"%(pp,worst_br)
+
+ref=pq.read_table(SNAP+"/tables/db__out_process_pm_exhaust__movesoutput.parquet").to_pylist()
+key=lambda o:(o["pollutantID"],o["processID"],o["dayID"],o["modelYearID"],o["fuelTypeID"])
+missing=[key(o) for o in ref if key(o) not in rows]
+extra=sorted(set(rows)-{key(o) for o in ref})
+worst,worst_key,n_zero=0.0,None,0
+for o in ref:
+    if key(o) not in rows: continue
+    q,s=rows[key(o)]
+    assert s==o["SCC"],(key(o),s,o["SCC"])
+    e=float(o["emissionQuant"])
+    if e==0.0: n_zero+=1
+    rel=abs(q-e)/e if e!=0.0 else abs(q-e)
+    if rel>worst: worst,worst_key=rel,key(o)
+print("emissionQuant: %4d rows, %d missing, %d extra, worst relative error %.3e at "
+      "(pollutant %d, process %d, day %d, MY %d, fuel %d)"
+      %(len(ref),len(missing),len(extra),worst,*worst_key))
+# ASSERTED, not merely printed (docs/esm-conventions.md 21): ./run-tests.sh reads
+# this script's EXIT CODE, so a regression that leaves the key set intact and
+# moves every value would otherwise be reported green with the evidence in a log.
+assert not missing, missing[:8]
+assert not extra, extra[:8]
+assert len(rows)==len(ref), (len(rows),len(ref))
+assert worst<2e-5, "emissionQuant: worst relative error %.3e exceeds 2e-5"%worst
+
+# --- the KEY SET, exactly, and not merely its size -------------------------
+# 1,456 is 7 x 208 and also 6 x 208 + 208, and 1,456 = 4 x 364 = 8 x 182: a row
+# count cannot tell a seven-block set from a mis-shaped one.  So the cohort set
+# is asserted PER pollutant-process, against ONE shared set, with the day-type
+# axis separate and their product against the row count.
+cohorts_by_pp=collections.defaultdict(set)
+days=set()
+for (pol,proc,day,my,fuel) in rows:
+    cohorts_by_pp[(pol,proc)].add((my,fuel)); days.add(day)
+assert set(cohorts_by_pp)=={(p,1) for p in (100,110,111,112,115,118,119)}, sorted(cohorts_by_pp)
+shared=cohorts_by_pp[(112,1)]
+assert all(v==shared for v in cohorts_by_pp.values()), \
+    {k:len(v) for k,v in cohorts_by_pp.items()}
+assert len(shared)==104, len(shared)
+assert {f for _,f in shared}=={1,2,5}, shared
+assert sorted(my for my,f in shared if f==1)==list(range(1980,2021))
+assert sorted(my for my,f in shared if f==2)==list(range(1980,2020))
+assert sorted(my for my,f in shared if f==5)==list(range(1998,2021))
+assert days==set(DAYS) and len(days)==2, days
+assert len(cohorts_by_pp)*len(shared)*len(days)==len(ref)==1456
+print("key set:        7 blocks x 104 cohorts x %d day types = %d rows, exact, and ALL SEVEN"
+      " BLOCKS CARRY THE SAME 104 COHORTS"%(len(days),len(ref)))
+# The parent that is NOT emitted: the rate relation carries 124 cohorts, and the
+# 20 electricity ones reach `spmOutput` before they die.
+candidates={(my,fuel) for (my,fuel,_e,_r) in cohorts(EC_PP)}
+parent={(my,fuel) for (_d,my,fuel) in ec}
+assert len(candidates)==125 and len(parent)==124, (len(candidates),len(parent))
+assert candidates-parent=={(2000,ELECTRICITY)}, candidates-parent
+assert {(_d,my,fuel) for (_d,my,fuel) in nonec}=={(_d,my,fuel) for (_d,my,fuel) in ec}
+assert parent-shared=={c for c in parent if c[1]==ELECTRICITY}
+assert len(parent-shared)==20
+print("                the 124-cohort rate relation loses exactly the 20 ELECTRICITY cohorts,"
+      " and it loses them TWICE:")
+print("                `sulfatefractions` has no fuel-9 row (the 118 split) and"
+      " `crankcaseemissionratio` has none either (the")
+print("                EC copy) -- either miss alone would suffice, so the row set is not"
+      " evidence for which one MOVES uses.")
+
+# --- what a comparison against MOVESOutput alone could not see -------------
+# Every one of these was found by SABOTAGING this script and watching the
+# comparison stay green (docs/process-pm-exhaust.md 7.2).
+# 1. The crankcase split is a ROW FILTER here and not a multiply: every ratio
+#    that matches is exactly 1.0, while the join itself decides 20 cohorts.
+used=[float(s["crankcaseRatio"]) for k in CCR for s in CCR[k] if k[1] in {f for _m,f in shared}]
+assert used and set(used)=={1.0}, sorted(set(used))
+assert not CCR.get((112,ELECTRICITY,ST)) and not CCR.get((120,ELECTRICITY,ST))
+print("NOTE:           every crankcaseRatio this run reaches is exactly 1.0, so the crankcase"
+      " MULTIPLY is inert while")
+print("                its INNER JOIN is load-bearing -- forcing the ratio to 1 leaves all"
+      " 1,456 cells unchanged; removing")
+print("                the join adds 40 electricity rows.")
+# 2. H2O (aerosol) is 208 rows of EXACTLY zero, because H2OnonECPMFraction is 0
+#    on all six sulfatefractions rows -- so the water arm of the split, its
+#    market-share weighting, its sulfur adjustment and its term in the residue
+#    fraction are all written and all dead.
+assert all(float(sf["H2OnonECPMFraction"])==0.0 for sf in T("sulfatefractions"))
+assert all(v==0.0 for (pol,_d,_m,_f),v in out.items() if pol==119)
+assert all(float(o["emissionQuant"])==0.0 for o in ref if o["pollutantID"]==119)
+print("NOTE:           H2OnonECPMFraction is 0 on all 6 sulfatefractions rows, so pollutant 119"
+      " is 208 rows of EXACTLY")
+print("                zero and the water term of the residue fraction (1 - H - S) never"
+      " leaves S.")
+# 3. The residue keeps the UNADJUSTED fractions while sulfate keeps the adjusted
+#    one, so the three species do NOT sum to the NonECPM they came from.
+mass=[(S_adj[k]+H_adj[k]+max(1.0-H_un[k]-S_un[k],0.0)) for k in S_adj]
+assert all(abs(m-1.0)>1e-3 for m in mass), (min(mass),max(mass))
+print("NOTE:           the split does NOT conserve mass -- 115 uses the sulfur-ADJUSTED"
+      " fraction and 120 the UNADJUSTED one,")
+print("                so the three species sum to %.4f..%.4f of the NonECPM they came from."
+      % (min(mass),max(mass)))
+# 4. greatest(1 - H - S, 0) never binds: the raw residue is 0.26 to 0.95.
+raw=[1.0-H_un[k]-S_un[k] for k in S_un]
+assert min(raw)>0.0, min(raw)
+print("NOTE:           the greatest(1 - H - S, 0) clamp never binds -- the raw residue runs"
+      " %.2f to %.2f -- so a document"%(min(raw),max(raw)))
+print("                that dropped the clamp would agree on every cell.")
+# 5. The temperature arm is dead twice over. Pollutant 112/118 on process 1
+#    takes the PM branch of adjust.rs, a MULTIPLICATIVE exponential below 72 F;
+#    the run is at 59.5 F so the >=72 flat branch is NOT what makes it 1 --
+#    `temperatureadjustment` is EMPTY, so the term A is 0 and exp(0) = 1.
+assert TEMP<72.0, TEMP
+assert not TA, len(TA)
+print("NOTE:           the PM temperature arm exp(A x (72 - T)) is the LIVE branch at %.1f F,"
+      " and it is 1 only because"%TEMP)
+print("                `temperatureadjustment` has 0 rows -- the 72 F cap is not what"
+      " neutralises it. Swapping the PM branch")
+print("                for the fall-through quadratic changes no cell.")
+# 6. The A/C arm is dead twice: the activity term clamps to 0 AND
+#    `fullacadjustment` has no rows for either parent.
+assert ACACT==0.0 and acraw<0.0, acraw
+assert not fac(EC_PP) and not fac(NONEC_PP)
+print("NOTE:           the A/C activity term is %.6f and clamps to 0, and `fullacadjustment`"
+      " has 0 rows for 11201 and"%acraw)
+print("                11801 as well, so the A/C arm cannot be checked here at all.")
+# 7. `criteriaratio` is EMPTY, so `generalfuelratio` is the only live fuel
+#    effect -- and its two pollutants enter at DIFFERENT stages: the EC (112)
+#    rows at `BaseRateCalculator` on polProcessID 11201 (adjust.rs:452-472,
+#    GPA-blended, per formulation), the residue (120) rows inside
+#    `SulfatePMCalculator` (SulfatePMCalculator.sql 75, raw). Applying both in
+#    one place would square the 1.0909 on gasoline and E85.
+assert not T("criteriaratio")
+assert {r["pollutantID"] for r in GFR}=={EC,RESIDUE}, {r["pollutantID"] for r in GFR}
+base_ratios=sorted({base_rate_fuel_factor(pp,f,m)
+                    for pp in (EC_PP,NONEC_PP) for f in (1,2,5) for m in RUNSPEC_MY})
+spm_ratios=sorted({gfr(p,f,m) for p in (EC,SULFATE,WATER,RESIDUE)
+                   for f in (1,2,5) for m in RUNSPEC_MY})
+assert base_ratios==[0.9727,1.0,1.090910749585], base_ratios
+assert spm_ratios==[0.9727,1.0,1.090910749585], spm_ratios
+assert all(gfr(EC,f,m)==1.0 for f in (1,2,5) for m in RUNSPEC_MY)
+print("NOTE:           `criteriaratio` has 0 rows, so `generalfuelratio` is the ONLY live fuel"
+      " effect -- and its two")
+print("                pollutants enter at DIFFERENT stages: 112 at the base rate"
+      " (adjust.rs:452, per formulation and")
+print("                GPA-blended), 120 inside SulfatePMCalculator"
+      " (SulfatePMCalculator.sql 75, raw). Both are %s;"%base_ratios)
+print("                applying both in one place would SQUARE the 1.0909 on gasoline and E85,"
+      " and deleting either")
+print("                moves a cell by 8.3%.")
+# 8. One formulation per fuel type at market share 1.0, so the sulfate
+#    fraction's share-weighted sum is a sum of one term.
+assert {f:len(v) for f,v in supply.items()}=={1:1,2:1,5:1,9:1}, supply
+assert all(share==1.0 for v in supply.values() for _ff,share in v)
+assert {r["fuelFormulationID"] for r in GFR}=={ff for v in supply.values() for ff,_s in v}-{90}
+print("NOTE:           each fuel type is supplied by exactly one formulation at market share"
+      " 1.0, so the share-weighted")
+print("                sulfate fraction is a sum of one term, and `generalfuelratio`'s"
+      " fuelFormulationID column -- which")
+print("                MOVES does not join on -- cannot be distinguished from ignoring it.")
+# 9. pm10emissionratio ships a fuel-type-9 row that nothing can reach.
+p10={(r["fuelTypeID"]):float(r["PM10PM25Ratio"]) for r in T("pm10emissionratio") if r["sourceTypeID"]==ST}
+assert p10=={1:1.13043,2:1.08696,5:1.13043,9:1.13043}, p10
+assert not any(f==ELECTRICITY for _m,f in shared)
+print("NOTE:           `pm10emissionratio` carries a fuel-type-9 row at 1.13043 that no"
+      " surviving 110 row can reach, and")
+print("                one model-year window per (source, fuel), so the window predicate is"
+      " untested too.")
+# 10. `runspecchainedto` is CYCLIC here, so the chain ROOT cannot be resolved by
+#     iterating that table the way rungs 4-6 did.
+edges={(c["outputPolProcessID"],c["inputPolProcessID"]) for c in T("runspecchainedto")}
+assert (11801,11501) in edges and (11501,11801) in edges
+print("NOTE:           `runspecchainedto` contains the 2-CYCLE 11801 <-> 11501 (and 11801 <->"
+      " 11901), because MOVES")
+print("                re-sums NonECPM from the species it split out of it. Iterating that"
+      " table to a fixed point --")
+print("                the rung 4-6 chain-root idiom -- does not terminate on this snapshot.")
+# 11. PMSpeciation produces Organic Carbon and nothing else here.
+outs={r["outputPollutantID"] for r in T("pmspeciation")}
+ins={r["inputPollutantID"] for r in T("pmspeciation")}
+assert outs=={111} and ins=={120}, (outs,ins)
+print("NOTE:           `pmspeciation` has 4 rows, all 120 -> 111, so NCOM (122), Total Organic"
+      " Matter (123) and")
+print("                NonECNonSO4NonOM (124) -- and the whole ratio124 = 1 - sum(fraction)"
+      " step -- are dead here.")
+```
+
+Result:
+
+```
+sho:             82 rows, worst relative error 3.610e-06
+sbWeightedRate: 4784 non-zero rows of 5704, worst relative error 4.795e-06
+baseRateByAge 11201: 208 non-zero rows of 248, worst relative error 4.397e-06
+baseRateByAge 11801: 208 non-zero rows of 248, worst relative error 4.900e-06
+emissionQuant: 1456 rows, 0 missing, 0 extra, worst relative error 9.910e-06 at (pollutant 100, process 1, day 2, MY 1991, fuel 1)
+key set:        7 blocks x 104 cohorts x 2 day types = 1456 rows, exact, and ALL SEVEN BLOCKS CARRY THE SAME 104 COHORTS
+                the 124-cohort rate relation loses exactly the 20 ELECTRICITY cohorts, and it loses them TWICE:
+                `sulfatefractions` has no fuel-9 row (the 118 split) and `crankcaseemissionratio` has none either (the
+                EC copy) -- either miss alone would suffice, so the row set is not evidence for which one MOVES uses.
+NOTE:           every crankcaseRatio this run reaches is exactly 1.0, so the crankcase MULTIPLY is inert while
+                its INNER JOIN is load-bearing -- forcing the ratio to 1 leaves all 1,456 cells unchanged; removing
+                the join adds 40 electricity rows.
+NOTE:           H2OnonECPMFraction is 0 on all 6 sulfatefractions rows, so pollutant 119 is 208 rows of EXACTLY
+                zero and the water term of the residue fraction (1 - H - S) never leaves S.
+NOTE:           the split does NOT conserve mass -- 115 uses the sulfur-ADJUSTED fraction and 120 the UNADJUSTED one,
+                so the three species sum to 0.8385..0.9865 of the NonECPM they came from.
+NOTE:           the greatest(1 - H - S, 0) clamp never binds -- the raw residue runs 0.26 to 0.95 -- so a document
+                that dropped the clamp would agree on every cell.
+NOTE:           the PM temperature arm exp(A x (72 - T)) is the LIVE branch at 59.5 F, and it is 1 only because
+                `temperatureadjustment` has 0 rows -- the 72 F cap is not what neutralises it. Swapping the PM branch
+                for the fall-through quadratic changes no cell.
+NOTE:           the A/C activity term is -0.296982 and clamps to 0, and `fullacadjustment` has 0 rows for 11201 and
+                11801 as well, so the A/C arm cannot be checked here at all.
+NOTE:           `criteriaratio` has 0 rows, so `generalfuelratio` is the ONLY live fuel effect -- and its two
+                pollutants enter at DIFFERENT stages: 112 at the base rate (adjust.rs:452, per formulation and
+                GPA-blended), 120 inside SulfatePMCalculator (SulfatePMCalculator.sql 75, raw). Both are [0.9727, 1.0, 1.090910749585];
+                applying both in one place would SQUARE the 1.0909 on gasoline and E85, and deleting either
+                moves a cell by 8.3%.
+NOTE:           each fuel type is supplied by exactly one formulation at market share 1.0, so the share-weighted
+                sulfate fraction is a sum of one term, and `generalfuelratio`'s fuelFormulationID column -- which
+                MOVES does not join on -- cannot be distinguished from ignoring it.
+NOTE:           `pm10emissionratio` carries a fuel-type-9 row at 1.13043 that no surviving 110 row can reach, and
+                one model-year window per (source, fuel), so the window predicate is untested too.
+NOTE:           `runspecchainedto` contains the 2-CYCLE 11801 <-> 11501 (and 11801 <-> 11901), because MOVES
+                re-sums NonECPM from the species it split out of it. Iterating that table to a fixed point --
+                the rung 4-6 chain-root idiom -- does not terminate on this snapshot.
+NOTE:           `pmspeciation` has 4 rows, all 120 -> 111, so NCOM (122), Total Organic Matter (123) and
+                NonECNonSO4NonOM (124) -- and the whole ratio124 = 1 - sum(fraction) step -- are dead here.
+```
+
+### 6.6 What the fixture's inline tests check
+
+`fixtures/process-pm-exhaust.esm`'s `tests` section asserts against the
+snapshot's own captured intermediates, so a source that silently delivered a
+default fails there rather than at the comparison:
+
+| what | against | why it is the right checkpoint |
+|---|---|---|
+| the run scope, the fuel year and the base year | `runspec*`, `year` | a wrong base year moves every activity number and nothing else notices |
+| `act_sho` at two (hour-day, age) keys | `sho` | the activity half, which §7.1 shows is byte-identical to four ported rungs' |
+| `rtMode_weightedRate` at two (polProcess, cohort, mode) keys | `sbweightedemissionratebyage` | the rate lookup BEFORE the drive-cycle collapse — separates a wrong `emissionratebyage` key from a wrong `W` |
+| `rtDay_meanBaseRate` for both 11201 and 11801 | `baseratebyage_1_2020` | the collapse itself, once per parent |
+| the 40 electricity rows of `baseratebyage_1_2020` are exactly 0 | `baseratebyage_1_2020` | asserts a ZERO, which no relative tolerance can check by accident |
+| `run_outputRateRowCount` = 728 and `pp_emittedCohortCount` = 104 seven times | recomputed from the chain | the key-set claim §3.3 makes, in the document rather than in a comment |
+| `rt_temperatureFactor` = 1 on a gasoline and a diesel row | — | asserts the PM arm's value, so the inertness of §2.4 is visible in the document |
+| `coh_sulfateFractionAdj` on the four bands of §2.5.1 | hand-computed from the six table rows | the one genuinely new arithmetic |
+| `out_emissionQuant` on the twelve cells of §§6.1–6.3 | `MOVESOutput` | the answer |
+| `out_zoneID` and the six other NULL columns are absent | — | `output_column_is_absent`, because `expected` cannot be NaN |
+
+---
+
+## 7. Fidelity notes and tolerance
+
+### 7.1 The measured result
+
+Four checkpoints, all from the snapshot's own tables and each one a different
+part of the chain:
+
+| checkpoint | rows | worst relative error | what it isolates |
+|---|---:|---|---|
+| `sho` | 82 | 3.610e-06 | S1–S9, the activity half |
+| `sbweightedemissionratebyage` | 4,784 non-zero of 5,704 | 4.795e-06 | the `emissionratebyage` lookup, per operating mode, before `W` |
+| `baseratebyage_1_2020` (11201) | 208 non-zero of 248 | 4.397e-06 | the drive-cycle collapse, EC |
+| `baseratebyage_1_2020` (11801) | 208 non-zero of 248 | 4.900e-06 | the drive-cycle collapse, NonECPM |
+| `MOVESOutput` | **1,456 of 1,456**, 0 missing, 0 extra | **9.910e-06** | both calculators and the output stage |
+
+The worst cell is `(pollutant 100, process 1, day 2, MY 1991, fuel 1)` — PM10,
+which is the longest product in the document: a rate, an activity, a sulfate
+fraction, a residue fraction, a speciation-free sum and then the PM10 ratio,
+every one of them read out of a column the reference stores to **six
+significant figures**. 9.910e-06 is the largest worst cell of the eleven
+fixtures landed so far (the previous band was 4.561e-06 to 9.482e-06) and it is
+still half of `tolerance.toml`'s 2e-05, which has never been widened. It is
+storage, not accumulation, and §7.3 ranks the operations that carry it.
+
+**The three intermediate checkpoints are what make that claim attributable.**
+`process-airtoxics` §7.1 had two (`sho` and `baseratebyage_1_2020`) and named
+`sbweightedemissionratebyage` as a table it did not read. Reading it here costs
+one aggregate and buys the distinction between a wrong rate key and a wrong
+drive-cycle weight — which matters more in this rung than in any before it,
+because the rate half runs twice and a key error on one parent alone would move
+five of the seven emitted blocks.
+
+### 7.2 What this fixture cannot see — found by SABOTAGING the oracle
+
+Every row of this table was produced by breaking one thing in
+`run-pm-exhaust-oracle.sh` and re-running it. **Eleven sabotages leave all
+1,456 cells and the whole key set unchanged.** That is the measurement
+`docs/esm-conventions.md` §23 asks for, and it is not the same list a reading of
+the sources would have guessed.
+
+| # | sabotage | verdict |
+|---|---|---|
+| 1 | the PM temperature arm replaced by the fall-through quadratic | **inert** |
+| 2 | the temperature factor deleted entirely | **inert** |
+| 3 | every `crankcaseRatio` forced to 1.0 | **inert** |
+| 4 | the H2O arm deleted from the split and from the residue fraction | **inert** |
+| 5 | the `greatest(1 − H − S, 0)` clamp removed | **inert** |
+| 6 | the A/C activity term deleted | **inert** |
+| 7 | the EV fleet-average adjustment deleted | **inert** |
+| 8 | market share ignored in the sulfate fractions | **inert** |
+| 9 | `pm10emissionratio`'s model-year band ignored | **inert** |
+| 10 | the base-rate `generalfuelratio` not restricted to the SUPPLIED formulation | **inert** |
+| 11 | the GPA blend dropped from the base-rate fuel effect | **inert** |
+| 12 | the base-rate `generalfuelratio` age band ignored | **inert** |
+| 13 | the crankcase JOIN removed, the multiply kept | red — 40 extra rows |
+| 14 | the crankcase process filter dropped (15 and 2 admitted) | red — 1.400e+00 |
+| 15 | the base-rate `generalfuelratio` (112) deleted | red — 8.334e-02 |
+| 16 | the `SulfatePMCalculator` `generalfuelratio` (120) deleted | red — 8.334e-02 |
+| 17 | that stage NOT restricted to pollutant 120 | red — 9.092e-02 |
+| 18 | the fuel-sulfur adjustment deleted | red — 2.385e+00 |
+| 19 | the residue split using the ADJUSTED fractions | red — 6.210e-01 |
+| 20 | `pmspeciation`'s model-year band ignored | red — 1.022e+00 |
+| 21 | the PM2.5 total omitting the residue 120 | red — 8.422e-01 |
+
+Rows 1–12 are twelve things this fixture does not exercise. Read in order they
+say five things worth stating plainly.
+
+**1. The whole temperature stage is dead, and it is dead for a reason the
+comparison cannot show.** Pollutant 112/118 on process 1 takes the PM
+exponential and the run is at 59.5 °F, so the `T ≤ 72` arm is the live branch;
+what makes the factor 1 is that `temperatureadjustment` has **0 rows**. The
+document instantiates `pm_temperature_adjustment` and `exact_else_wildcard`
+anyway, because `adjust.rs` writes both and `mixed-onroad` §7 is what happens
+when a wildcard step is skipped on the strength of a passing comparison. Rows 1
+and 2 are the two ways a reader could get this wrong, and both are invisible
+here.
+
+**2. The crankcase split is a row filter, not a multiply.** Every ratio this run
+reaches is exactly `1.000000000000`, so row 3 changes nothing — while row 13,
+which keeps the multiply and drops the join, adds all 40 electricity rows. The
+arithmetic is untested and the join is load-bearing. A fixture on a RunSpec that
+selected crankcase running exhaust (process 15) would test both, and there is
+one: `process-crankcase-running`, already ported, whose particulate pollutants
+are exactly these.
+
+**3. The water arm of the split is dead in its coefficient and live in its
+form.** `H2OnonECPMFraction` is 0 on all six `sulfatefractions` rows, so
+pollutant 119 is 208 rows of exactly zero, the water term never leaves the
+residue fraction `1 − H − S`, and the clamp `greatest(…, 0)` never binds (the
+raw residue runs 0.26 to 0.95). Rows 4 and 5. This is the same shape as
+`process-airtoxics` §7.2.4's `oxySpeciation` — a term whose *operands* are real
+and whose coefficient is zero — and it is worth the same treatment: write it,
+and record that it is not checked.
+
+**4. Two whole adjustment stages the earlier onroad rungs carried have no rows
+at all**, and they fail differently from a term that is zero. `fullacadjustment`
+is empty *and* the A/C activity term clamps to 0 (raw −0.296982), so the A/C arm
+is dead twice over and row 6 cannot distinguish the two reasons.
+`fleetavgadjustment` is empty, so `rt_evSalesFactor` is 1 on every row and row 7
+is inert; `process-refueling` and `process-nox-speciation` are where that
+factor is exercised.
+
+**5. The per-formulation half of the fuel effect is entirely untested, in four
+independent ways.** Each fuel type is supplied by exactly **one** formulation at
+market share **1.0**, so: the share-weighted sulfate fraction is a sum of one
+term (row 8); joining `generalfuelratio` on the fuel type instead of the
+supplied formulation cannot be told apart (row 10); `GPAFract` is 0 so the blend
+selects the normal arm (row 11); and the age band coincides with the model-year
+band on every row that matters (row 12). The market-share collapse is written in
+its general form and it is the *product of the means versus the mean of the
+products* problem `docs/esm-conventions.md` §32.3 records — exactly right
+whenever a fuel type has one formulation, which is every county in this corpus.
+
+Two further things are dead and are not sabotage rows because there is nothing
+to break: **`pm10emissionratio` ships a fuel-type-9 row** at 1.13043 that no
+surviving 110 row can reach, and **`pmspeciation` produces organic carbon and
+nothing else** — 4 rows, all `120 → 111` — so the eleven trace metals and ions,
+NCOM (122), Total Organic Matter (123), NonECNonSO4NonOM (124) and the whole
+`ratio124 = 1 − Σ pmSpeciationFraction` step of `sulfate_pm_calculator.rs` are
+reached by no emitted number.
+
+**What IS newly tested here, and was tested nowhere before**: the fuel-sulfur
+sulfate adjustment (row 18, worth a factor of 2.385), the
+adjusted-versus-unadjusted asymmetry of the split (row 19, 62 %), the
+`pmspeciation` model-year band — falsifiable only because diesel has two of them
+(row 20), the composition of PM2.5 total out of four species including the
+internal residue (row 21), and the two-stage `generalfuelratio` (rows 15–17).
+Five things, and every one of them fails loudly when broken.
+
+### 7.3 Precision-sensitive operations, ranked
+
+1. **The PM10 product.** `PM10 = (EC + sulfate + water + residue) × ratio`, and
+   every operand has already been rounded to six significant figures in the
+   reference's own column storage. This is where the 9.910e-06 is, and every one
+   of the ten worst cells in the run is a pollutant-100 cell.
+2. **The residue fraction.** `1 − H − S` is a subtraction of table values from
+   1, and on 2007+ diesel it is `1 − 0 − 0.74 = 0.26` — a catastrophic-
+   cancellation shape that is benign at these magnitudes (two significant
+   figures lost of sixteen) and would not be if the sulfate fraction approached
+   1.
+3. **The sulfur adjustment.** `1 + f × (s / S − 1)` on gasoline is
+   `1 + 0.242 × (7.15 / 23.5 − 1)`, again a subtraction from 1; the quotient is
+   the only division in either calculator.
+4. **The drive-cycle collapse**, unchanged from `process-crankcase-running`
+   §7.3: a 23-term inner product per cohort, twice over.
+
+No `Float32` anywhere: this is an ONROAD document and evaluates in binary64,
+which is what `adjust.rs` and `sulfate_pm_calculator.rs` both do.
+
+---
+
+## 8. Gaps and things not verified
+
+1. **Nothing checks that the two `generalfuelratio` stages are the right way
+   round.** Applying the 112 rows at the base rate and the 120 rows in
+   `SulfatePMCalculator` is what `../moves.rs` does and what
+   `SulfatePMCalculator.sql` §75's `gfr.pollutantID in (120)` says. Swapping
+   them would move 112 and 120 by 1.0909/0.9727 in opposite directions and the
+   comparison would catch it — but only because the two ratios differ per
+   pollutant *band*, not by construction. A snapshot where 112 and 120 carried
+   the same ratio over the same bands would make the two stages
+   indistinguishable.
+2. **The crankcase arithmetic is unexercised** (§7.2.2), so this fixture does
+   not establish that `crankcaseemissionratio` is a multiply rather than, say, a
+   share of a total. `process-crankcase-running` is where that lives.
+3. **`FuelEffectsGenerator` is not ported.** `generalfuelratio` ships captured
+   in the snapshot, computed from `generalfuelratioexpression`'s 58 equation
+   strings and the fuel formulations' properties. Turning those strings into
+   ratios is a separate rung, it is `docs/esm-conventions.md`'s "data that is
+   code" case, and it is **not** claimed in §0's calculator path.
+   `generalfuelratioexpression` has 58 rows here and is not read.
+4. **The `regClassID` reconciliation in the crankcase join is asserted, not
+   derived.** `../moves.rs` treats a collapsed `regClassID` of 0 as a wildcard
+   because `baseRateOutput` emits 0 whenever the RunSpec does not break down by
+   reg class. Every row here carries 0, so the concrete-regClass branch of that
+   reconciliation is dead and a RunSpec with `regclassid` output would be needed
+   to check it.
+5. **Nothing here reaches `SulfatePMCalculator`'s crankcase processes.** The
+   calculator's 133 registrations cover seven processes; this RunSpec selects
+   one. The `primaryAndCrankcaseProcessIDs` filter, the second `spmOutput2`
+   process, and the `MakePM2.5Total` section's multi-process list are all
+   single-valued here.
+6. **`process-airtoxics`' three-level chain-root iteration is not reused and
+   not refuted** (§2.8). It presumes a chain declaration that is a computation
+   graph; this snapshot's is cyclic. §33.1 records that precondition, which
+   §32.1 was carrying implicitly.
+
+---
+
+## 9. Summary for the `.esm` author
+
+* **Two rated pollutant-processes, seven emitted.** One rate relation of
+  7 × 164 = 1,148 rows; `rt_hasRate` is non-zero on 328 of them (two
+  pollutant-processes × 164 candidates) and the rate arm is exactly 0 on the
+  other 820.
+* **Pull the two parents onto the cohort with a self-join, once per parent**
+  (J54), and build the four `spmOutput` species from them. Do not look for a
+  chain root: `runspecchainedto` is cyclic (§2.8).
+* **`generalfuelratio` twice, at two stages, on two pollutants.** 112 at the
+  base rate, per supplied formulation, GPA-blended; 120 inside
+  `SulfatePMCalculator`, raw. Never both on one quantity.
+* **The split does not conserve mass.** Sulfate takes the sulfur-adjusted
+  fraction, the residue takes the unadjusted one. This is the detail worth the
+  most (§7.2, row 19).
+* **The temperature arm is the PM exponential**, not the quadratic — a different
+  branch of the same function, inert here, and written anyway.
+* **The key set is 7 × 104 × 2 and the 104 is shared.** Assert it per
+  pollutant-process against ONE cohort set, not as seven counts, and assert
+  that the 124-cohort rate relation loses exactly the electricity ones.
+* **Two new templates**, both in `lib/adjustments.esm`:
+  `pm_temperature_adjustment` and `fuel_sulfur_sulfate_adjustment`.
