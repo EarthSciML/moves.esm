@@ -462,7 +462,7 @@ Snapshot `MOVESOutput` row counts, the honest measure of fixture size:
 
 | rows | fixture | path |
 |---|---|---|
-| 128 | `process-evap-permeation`, `-leaks`, `-fvv` | onroad evap |
+| 128 | **`process-evap-permeation`**, **`-leaks`**, **`-fvv`** | onroad evap |
 | 144 | **`nr-logging-county`** | NONROAD |
 | 250 | **`mixed-onroad`**, `expand-day` | onroad base-rate |
 | 336 | **`process-refueling`** | onroad evap |
@@ -754,9 +754,14 @@ What F12's fix does **not** unblock is what the two fixtures actually stand on.
   while the same perturbation of mode 300 moves the total from 32.26 g to
   221.12 g (`docs/evap-permeation.md` §0.3, measured on the oracle). Mode 300 is
   TTG-4a's walk over `SampleVehicleTrip`, whose predecessor is named by
-  `priorTripID` — a **data column**, which esm-spec §4.3.1.1's causal self-read
-  cannot take (finding **F28**, with a repro, a working workaround as a control,
-  and the workaround's two costs).
+  `priorTripID`, a data column — **and this bullet used to attribute that to
+  finding F28, which is wrong.** On the relation TTG-4a walks, after
+  `flagMarkerTrips` deletes the 5,458 marker trips, the predecessor is one row
+  back on all 26,193 chained rows; the gaps of 2…7 are gaps in the *identifier*.
+  What TTG-2/3/4 actually need is a relation whose row count is a function of
+  the data (F5, F14) — priced in `docs/evap-permeation.md` §8.1 and generalised
+  in `docs/esm-conventions.md` §34.3. **The fixture is landed** and reads
+  `AverageTankTemperature` as a scope decision, not as a blocked step.
 * **`process-evap-fvv` can**, and is therefore the better next slice rather than
   the equal one: `MultidayTankVaporVentingCalculator` TVV-3 reads
   `ColdSoakTankTemperature` directly. It needs, in addition, TTG-7's
@@ -965,11 +970,13 @@ them. What follows is ordered by what blocks what.
    does not block this port — Rust is the binding this repository runs — but it
    means a cross-binding fidelity claim cannot be made for any float32 document
    here, which is all of the NONROAD side.
-3. **F28 — a data-named predecessor is not a recurrence**, which is what
-   `process-evap-permeation` stands on: mode 300 is TTG-4a's walk over
-   `SampleVehicleTrip`, whose predecessor is named by `priorTripID`, a data
-   column. The specification, the oracle (128 rows at 6.174e-06) and the
-   workaround control all exist; the fixture does not.
+3. **F28 — a data-named predecessor is not a recurrence.** Real, correct
+   behaviour, with a repro and a passing workaround control — but **no
+   confirmed call site in MOVES**, and this item used to name
+   `process-evap-permeation` as one. Measured: TTG-4a's predecessor is one row
+   back on the relation the recurrence walks (`docs/findings/README.md` F28,
+   `docs/esm-conventions.md` §34.3). `process-evap-permeation` is landed —
+   fixture, oracle and specification — at 128 rows and 6.174e-06.
 4. **An off-network snapshot**, without which the evaporative soak chain cannot
    be checked anywhere. Three consecutive slices failed to reach it for one
    structural reason — `fractionOfOperating` is identically 1 at an on-network
@@ -1054,11 +1061,12 @@ lands and gives no sign of it. What is recorded is where it comes from:
   same commit as the work.
 - **The evidence** is the oracle. A claim counts only when an oracle names that
   spec, `run-tests.sh` runs that oracle, and a fixture in `fixtures/` names the
-  same snapshot. `docs/evap-permeation.md` is the case that makes this worth
-  enforcing: the specification is complete and `./run-permeation-oracle.sh`
-  reproduces all 128 rows, but F28 blocks the fixture, so the tool reports
+  same snapshot. `docs/evap-permeation.md` was the case that made this worth
+  enforcing: the specification and `./run-permeation-oracle.sh` were complete
+  for months while the fixture was not, so the tool reported
   `EvaporativePermeationCalculator` as **claimed and not counted**. A
-  specification is not a port.
+  specification is not a port — and the row is what got the fixture written.
+  It now counts, and `NOT COUNTED (no fixture)` appears nowhere in the table.
 
 `run-tests.sh` gates this: a spec may not name a module MOVES does not have,
 nor claim one the DAG records as dead, nor declare a calculator path without
