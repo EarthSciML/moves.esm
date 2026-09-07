@@ -36,15 +36,34 @@ That is not a cosmetic difference:
 
 **The rung-6 cross-check is NOT available, and that was checked rather than
 assumed.** `process-airtoxics` opened by observing that its THC parent block was
-byte-identical to `process-crankcase-running`'s `(1, 1)` block. Compared across
-all 33 snapshots that carry a `MOVESOutput`, **no block of this snapshot is
-byte-identical to, or a constant multiple of, any block of any other**, so
-nothing here is checked by having been computed before. What *is* shared is one
-level down: this snapshot's `sho` table is **byte-identical** to
-`process-airtoxics`', `process-nox-speciation`', `process-crankcase-running`'s
-and eight others', so the activity half S1–S9 is literally the same 82 numbers
-those rungs already verified. §7.1 says what each of the three checkpoints
-buys.
+byte-identical to `process-crankcase-running`'s `(1, 1)` block. Compared against
+every one of the **31** snapshots that carry a non-empty `MOVESOutput` — 51
+RunSpec fixtures are on disk, 39 have a snapshot directory, and 8 of those emit
+no rows at all — **no block of this snapshot is byte-identical to, or a constant
+multiple of, any block of any other**, so nothing here is checked by having been
+computed before.
+
+That corpus figure is stated exactly because getting it wrong is the failure
+mode. A first pass at this comparison globbed `db__out_*__movesoutput.parquet`
+and read **30** snapshots, silently skipping `sample-runspec`, whose output
+database is `JUnitTestOutput` and whose file the capture tool therefore names
+`db__junittestoutput__movesoutput.parquet` — the same defect commit `1568548`
+fixed in `tools/calculator-coverage.py --ladder`. The scan was re-run through
+that tool's own `output_path()`, which lowercases the provenance name and then
+globs, so a future naming change fails loudly rather than subtracting a
+snapshot. **A negative result is only as wide as the corpus it was taken over**,
+and this one is now taken over all 31.
+
+What *is* shared is one level down: this snapshot's `sho` table is
+**byte-identical** — 82 rows, same `(hourDayID, ageID)` keys, same decimal text
+— to the `sho` of **13** other snapshots with a non-empty `MOVESOutput`, eight of
+them already ported (`process-airtoxics`, `process-nox-speciation`,
+`process-crankcase-running`, `process-brakewear`, `process-tirewear`,
+`process-refueling`, `process-evap-fvv`, `process-evap-leaks`) and the rest not
+(`chain-nonhaptog`, `chain-tog-speciation`, `expand-criteria`, `expand-day`,
+`process-evap-permeation`). So the activity half S1–S9 is literally the same 82
+numbers those rungs already verified. §7.1 says what each of the three
+checkpoints buys.
 
 ---
 
@@ -472,6 +491,16 @@ are a DAG even though MOVES's declaration of them is not.
 computation order.** `SulfatePMCalculator` genuinely takes 118 in and puts 118
 out; the table records both facts and cannot distinguish them.
 `docs/esm-conventions.md` §33.1.
+
+**This is not a finding.** `docs/findings/README.md` collects "conventions the
+format or the toolchain could not express", and every entry there has a repro
+that is *expected to fail*. A cyclic chain declaration is a property of MOVES's
+own data, and the format expresses the fix — write the calculator's stages,
+which are a DAG — without difficulty. Nothing was refused, nothing was silently
+wrong, and there is no repro to write. The rule §32.1 stated ("iterate the
+parent join; do not widen it") is not falsified either; it is simply out of
+scope, because it presumes a chain declaration that *is* the computation graph.
+§33.1 records the precondition it was always carrying.
 
 ---
 
