@@ -1383,22 +1383,40 @@ NOTE:           `pmspeciation` has 4 rows, all 120 -> 111, so NCOM (122), Total 
 
 ### 6.6 What the fixture's inline tests check
 
-`fixtures/process-pm-exhaust.esm`'s `tests` section asserts against the
-snapshot's own captured intermediates, so a source that silently delivered a
-default fails there rather than at the comparison:
+`fixtures/process-pm-exhaust.esm`'s `tests` section is **14 tests and 367
+assertions** against the snapshot's own captured intermediates, so a source that
+silently delivered a default fails there rather than at the comparison. The
+model tolerance is `rel 1e-9`; the four tests that compare against a
+six-significant-figure reference column carry `rel 2e-5` of their own and the
+rest are exact.
 
-| what | against | why it is the right checkpoint |
+| test | against | why it is the right checkpoint |
 |---|---|---|
-| the run scope, the fuel year and the base year | `runspec*`, `year` | a wrong base year moves every activity number and nothing else notices |
-| `act_sho` at two (hour-day, age) keys | `sho` | the activity half, which §7.1 shows is byte-identical to four ported rungs' |
-| `rtMode_weightedRate` at two (polProcess, cohort, mode) keys | `sbweightedemissionratebyage` | the rate lookup BEFORE the drive-cycle collapse — separates a wrong `emissionratebyage` key from a wrong `W` |
-| `rtDay_meanBaseRate` for both 11201 and 11801 | `baseratebyage_1_2020` | the collapse itself, once per parent |
-| the 40 electricity rows of `baseratebyage_1_2020` are exactly 0 | `baseratebyage_1_2020` | asserts a ZERO, which no relative tolerance can check by accident |
-| `run_outputRateRowCount` = 728 and `pp_emittedCohortCount` = 104 seven times | recomputed from the chain | the key-set claim §3.3 makes, in the document rather than in a comment |
-| `rt_temperatureFactor` = 1 on a gasoline and a diesel row | — | asserts the PM arm's value, so the inertness of §2.4 is visible in the document |
-| `coh_sulfateFractionAdj` on the four bands of §2.5.1 | hand-computed from the six table rows | the one genuinely new arithmetic |
-| `out_emissionQuant` on the twelve cells of §§6.1–6.3 | `MOVESOutput` | the answer |
-| `out_zoneID` and the six other NULL columns are absent | — | `output_column_is_absent`, because `expected` cannot be NaN |
+| the run scope | `runspec*`, `year`, `county`, `zonemonthhour` | a wrong base year moves every activity number and nothing else notices; and it pins 59.5 °F, which is what makes the PM arm's `T ≤ 72` half the live one |
+| **seven pollutant-processes of which exactly two are rated** | `emissionratebyage`, `runspecchainedto` | `rt_hasRate` is 1 on two blocks; `rspp_isChainOutput` is 1 on six; `run_chainCycleCount` is **4** and `run_unchainedPolProcessCount` is **1**. Two rated and one unchained is the gap §2.8 rests on, and the cycle is measured rather than described |
+| the activity chain | `sho` | S1–S9, the 82 numbers this snapshot shares with thirteen others |
+| the drive-cycle weights | — | `day_WTotal` = 1 and 23 modes per day type; no pollutant-process axis, which is what lets both parents collapse against the same `W` |
+| **the mode-resolved rate** | `sbweightedemissionratebyage` | the `emissionratebyage` lookup BEFORE `W` — the checkpoint `process-airtoxics` named and did not read |
+| **both parents** | `baseratebyage_1_2020` | the collapse itself, once per parent, at both day types and three fuel types; the five derived blocks are asserted to be exactly 0 there, and electricity to be **rated at exactly zero** |
+| the cohort counts | recomputed from the chain | 125 selected, 124 rated, **104 emitted on each of the seven blocks**; `pp_selectedCohortCount` = 125, 125, 0, 125, 125, 125, 0 — the two zeros are the pollutant-processes MOVES never rates; `run_criteriaRatioReach` = 0 and `run_generalFuelRatioReach` = 67 |
+| **the fuel-sulfur sulfate fractions** | hand-computed from the six table rows | the one genuinely new arithmetic, including that sulfate takes 0.0272 and the residue 0.92 of the same parent |
+| **the crankcase split is a row filter** | `crankcaseemissionratio` | every ratio is exactly 1 and every presence flag is 0 on electricity |
+| **the two general-fuel-ratio stages** | `generalfuelratio` | 1.090910749585 at the base rate on 11201 and again on 12001 inside `SulfatePMCalculator`, and 1 outside both bands |
+| the temperature arm | `temperatureadjustment` (empty) | asserts `rt_tempAdjustTermA` = 0 and `rt_temperatureFactor` = 1, so §2.4's "absent, not inert" is in the document |
+| **the join-identified pollutants and the four shares** | `pm10emissionratio`, `pmspeciation` | the ratio and the fraction are 0 on every rate row that is not a PM10 or an organic-carbon row, which is what "a join identifies it" means operationally; and all four share columns at six different pollutants |
+| **the two parents reach every rate row** | `baseratebyage_1_2020` × activity | `rtDay_ecQuant` asserted at the EC row, the PM10 row and the organic-carbon row — the same number on all three — plus the four species |
+| **the worked examples** | `MOVESOutput` | 22 cells over §§6.1–6.3, seven pollutants, three fuel types, both day types, plus the identity columns and the SCC |
+
+Two things the inline tests deliberately do **not** check. The seven columns
+MOVESOutput leaves NULL are emitted as NaN and are not asserted — `expected` is
+a JSON number, so NaN cannot be written down, and
+`lib/identifiers.esm`'s `output_column_is_absent` exists for that case but is
+not instantiated here (nor in `process-airtoxics`); `compare-output.py` reads
+NaN, NULL and empty as the same thing and checks them. And nothing asserts a
+`rt_emits` count per *fuel type*, because the per-pollutant-process count
+against a shared cohort set is the stronger statement.
+
+---
 
 ---
 
