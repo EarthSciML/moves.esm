@@ -1158,6 +1158,23 @@
         "note": "4 rows, all polProcessID 10001, and the whole of `PM10EmissionCalculator` (pm10.rs::compute_pm10): PM10 total is PM2.5 total times `PM10PM25Ratio`, 1.130430 on fuel types 1, 5 and 9 and 1.086960 on fuel type 2, over one 1940-2060 band each. The polProcessID it carries is the OUTPUT one, so joining a rate row's own `polProcessID` to it both finds the ratio and identifies which rate rows are PM10 rows -- pollutant 100 is named nowhere in this document. TWO THINGS HERE ARE PRESENT AND UNREACHABLE: the fuel-type-9 row, because no PM2.5-total row survives to electricity, and the model-year band, because there is one band per (source type, fuel type). The Java's organic-carbon, elemental-carbon and sulfate PM10 branches (101 <- 111, 102 <- 112, 105 <- 115) are commented out in MOVES itself and are not ported. `PM10PM25RatioCV` is not read.",
         "esio_format": "parquet"
       }
+    },
+    "pm_sourcetypepolprocess": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/process-pm-exhaust/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__sourcetypepolprocess.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_sourcetypepolprocess"
+      },
+      "metadata": {
+        "tags": [
+          "scope",
+          "cohort"
+        ],
+        "note": "2 rows, one for each RATED pollutant-process -- 11201 and 11801 -- and none for the five this run computes from them, because MOVES writes a source-bin rule only for what it rates. Read for `isRegClassReqd`, which decides whether the source bin's regClassID slot carries the vehicle's regulatory class or 0 (source_bin_distribution_generator.rs:1355). Both rows say `Y` here, so every one of the 436,632 `emissionratebyage` source bins carries a real regulatory class and `run_sourceBinRegClassZeroCount` is 0 -- the mirror image of `process-evap-permeation`, whose polProcessID 111 says `N` and whose bins are all 0 (docs/esm-conventions.md 34.1). `isSizeWeightReqd` is `N` on both and `isMYGroupReqd` is `Y`; the first is not read because no source bin in this run carries a sizeWeightClass, and the second is subsumed by the `pollutantprocessmodelyear` join `rt_modelYearGroupIsPresent` already performs.",
+        "esio_format": "parquet"
+      }
     }
   },
   "metaparameters": {
@@ -1450,6 +1467,11 @@
       "type": "integer",
       "default": 0,
       "description": "Rows in pm10emissionratio."
+    },
+    "n_sourcetypepolprocess": {
+      "type": "integer",
+      "default": 0,
+      "description": "Rows in sourcetypepolprocess."
     }
   },
   "index_sets": {
@@ -1730,6 +1752,10 @@
     "pm10emissionratio_rows": {
       "kind": "interval",
       "size": "n_pm10emissionratio"
+    },
+    "sourcetypepolprocess_rows": {
+      "kind": "interval",
+      "size": "n_sourcetypepolprocess"
     }
   },
   "enums": {
@@ -7096,6 +7122,61 @@
             }
           }
         },
+        "stpp_sourceTypeID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "sourcetypepolprocess_rows"
+          ],
+          "description": "sourcetypepolprocess.sourceTypeID.",
+          "update": {
+            "kind": "data",
+            "source": "pm_sourcetypepolprocess",
+            "from": {
+              "file_variable": "sourceTypeID"
+            }
+          }
+        },
+        "stpp_polProcessID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "sourcetypepolprocess_rows"
+          ],
+          "description": "sourcetypepolprocess.polProcessID: 11201 and 11801, the two RATED pollutant-processes and no others.",
+          "update": {
+            "kind": "data",
+            "source": "pm_sourcetypepolprocess",
+            "from": {
+              "file_variable": "polProcessID"
+            }
+          }
+        },
+        "stpp_isRegClassReqd": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "sourcetypepolprocess_rows"
+          ],
+          "description": "sourcetypepolprocess.isRegClassReqd, Y/N text decoded by a `codes` map on the binding -- a text column is a hard error at the ingest boundary without one. `Y` on both rows, so the source bin keeps the vehicle's regulatory class; `N` would replace it with 0 and every rate lookup in this document would miss.",
+          "update": {
+            "kind": "data",
+            "source": "pm_sourcetypepolprocess",
+            "from": {
+              "file_variable": "isRegClassReqd",
+              "codes": {
+                "map": {
+                  "Y": 1,
+                  "N": 0
+                },
+                "case_insensitive": true
+              }
+            }
+          }
+        },
         "run_residuePollutantID": {
           "type": "unknown",
           "units": "1",
@@ -7223,6 +7304,30 @@
             "rate_rows"
           ],
           "description": "Whether this rate row is total exhaust PM2.5."
+        },
+        "rt_isRegClassReqd": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "Whether this pollutant-process's source bin keys on the regulatory class. 1 on the two rated pollutant-processes and 0 on the five that have no `sourcetypepolprocess` row -- which costs nothing, because those five have no rate to look up either."
+        },
+        "rt_binRegClassID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "The regulatory class the SOURCE BIN carries: the vehicle's where `isRegClassReqd` is `Y`, and 0 where it is `N`. Every rate key downstream reads this and not `rt_regClassID`."
+        },
+        "run_sourceBinRegClassZeroCount": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "run_rows"
+          ],
+          "description": "How many `emissionratebyage` rows carry a source-bin regClassID of 0. ZERO of 436,632, which is what `isRegClassReqd = Y` means on the input side. 34.1's point is that this is the CHEAP defence: pointing this document at a snapshot with the other rule would zero every cell while leaving the key set perfect, and only a count on the input side fails loudly."
         },
         "fsu_sulfurLevel": {
           "type": "unknown",
@@ -13520,6 +13625,107 @@
           }
         },
         {
+          "_comment": "docs/esm-conventions.md 34.1's rule, adopted here on rebase: a join key whose SHAPE is decided by a table gets that decision read from the table, in the document, once. `process-evap-permeation` is the snapshot where this flag is `N`, and giving that run this document's assumption zeroes all 128 of its cells while leaving its key set perfect -- the least attributable shape a failure can have.",
+          "lhs": "rt_isRegClassReqd",
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "q": {
+                "from": "sourcetypepolprocess_rows"
+              },
+              "n": {
+                "from": "run_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "run_sourceTypeID",
+                    "stpp_sourceTypeID"
+                  ],
+                  [
+                    "rt_polProcessID",
+                    "stpp_polProcessID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "stpp_isRegClassReqd",
+                "q"
+              ]
+            }
+          }
+        },
+        {
+          "_comment": "`coh_binRegClassID` in 34.1's terms, on the rate relation because the flag is keyed per pollutant-process. `rt_regClassID` is kept beside it -- the sample vehicle's own class, asserted at 20 -- so what would be discarded under the other rule is visible rather than merely absent. The CRANKCASE join keeps `rt_regClassID`: `crankcaseemissionratio` carries real regulatory classes whatever the source-bin rule says, so the two keys are genuinely different columns and not one column named twice.",
+          "lhs": "rt_binRegClassID",
+          "rhs": {
+            "op": "ifelse",
+            "args": [
+              {
+                "op": ">",
+                "args": [
+                  "rt_isRegClassReqd",
+                  0.5
+                ]
+              },
+              "rt_regClassID",
+              0.0
+            ]
+          }
+        },
+        {
+          "lhs": "run_sourceBinRegClassZeroCount",
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "k"
+            ],
+            "ranges": {
+              "k": {
+                "from": "run_rows"
+              },
+              "a": {
+                "from": "emissionratebyage_rows"
+              }
+            },
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                {
+                  "op": "<",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "er_regClassID",
+                        "a"
+                      ]
+                    },
+                    0.5
+                  ]
+                },
+                1.0,
+                0.0
+              ]
+            }
+          }
+        },
+        {
           "lhs": "coh_ratePolProcessCount",
           "rhs": {
             "op": "aggregate",
@@ -17412,7 +17618,7 @@
                     "er_shortModYrGroupID"
                   ],
                   [
-                    "rt_regClassID",
+                    "rt_binRegClassID",
                     "er_regClassID"
                   ],
                   [
@@ -17430,7 +17636,7 @@
           }
         },
         {
-          "_comment": "J22: ONE clause carrying SEVEN key pairs. The seventh is the age group, which is what makes this `emissionRateByAge` rather than `emissionRate` -- a criteria pollutant's rate deteriorates and one source bin carries seven of them, and `emissionrate` is empty in this snapshot. This is a cost decision as well as a reading order (docs/esm-conventions.md 3): 218,316 rate rows against 984 x 60 rate-mode cells is only affordable as one equi-join.",
+          "_comment": "J22: ONE clause carrying SEVEN key pairs. The seventh is the age group, which is what makes this `emissionRateByAge` rather than `emissionRate` -- a criteria pollutant's rate deteriorates and one source bin carries seven of them, and `emissionrate` is empty in this snapshot. This is a cost decision as well as a reading order (docs/esm-conventions.md 3): 218,316 rate rows against 984 x 60 rate-mode cells is only affordable as one equi-join. The regClass key pair reads `rt_binRegClassID` and not the sample vehicle's own class, because `SourceTypePolProcess.isRegClassReqd` decides which of the two the source bin carries (docs/esm-conventions.md 34.1).",
           "lhs": "rtMode_rate",
           "rhs": {
             "op": "aggregate",
@@ -17471,7 +17677,7 @@
                     "er_shortModYrGroupID"
                   ],
                   [
-                    "rt_regClassID",
+                    "rt_binRegClassID",
                     "er_regClassID"
                   ],
                   [
@@ -20614,6 +20820,62 @@
               }
             },
             {
+              "variable": "rt_isRegClassReqd",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "rate_rows": 533
+              }
+            },
+            {
+              "variable": "rt_isRegClassReqd",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "rate_rows": 861
+              }
+            },
+            {
+              "variable": "rt_isRegClassReqd",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "rate_rows": 41
+              }
+            },
+            {
+              "variable": "rt_isRegClassReqd",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "rate_rows": 369
+              }
+            },
+            {
+              "variable": "rt_binRegClassID",
+              "time": 0.0,
+              "expected": 20.0,
+              "coords": {
+                "rate_rows": 533
+              }
+            },
+            {
+              "variable": "rt_binRegClassID",
+              "time": 0.0,
+              "expected": 20.0,
+              "coords": {
+                "rate_rows": 861
+              }
+            },
+            {
+              "variable": "rt_binRegClassID",
+              "time": 0.0,
+              "expected": 20.0,
+              "coords": {
+                "rate_rows": 616
+              }
+            },
+            {
               "variable": "rt_engTechID",
               "time": 0.0,
               "expected": 30.0,
@@ -21139,6 +21401,14 @@
               "variable": "run_supplyRowCount",
               "time": 0.0,
               "expected": 5.0,
+              "coords": {
+                "run_rows": 1
+              }
+            },
+            {
+              "variable": "run_sourceBinRegClassZeroCount",
+              "time": 0.0,
+              "expected": 0.0,
               "coords": {
                 "run_rows": 1
               }

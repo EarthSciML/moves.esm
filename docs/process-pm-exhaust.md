@@ -155,7 +155,7 @@ of `emissionratebyage` and the fuel-supply resolution are all
 `docs/mixed-onroad.md` §§1–3 for the activity half and
 `docs/process-nox-speciation.md` §§2.2–2.3 for the rate half.
 
-### 1.2 The six tables this fixture adds
+### 1.2 The seven tables this fixture adds
 
 | table | rows | role |
 |---|---:|---|
@@ -165,6 +165,7 @@ of `emissionratebyage` and the fuel-supply resolution are all
 | `pm10emissionratio` | 4 | `PM10PM25Ratio`, the whole of `PM10EmissionCalculator` (§2.6) |
 | `generalfuelratio` | 58 | **now populated** (0 rows in `process-airtoxics`): the fuel effect, on pollutants 112 and 120 only, applied at two different stages (§2.3, §2.5.3) |
 | `runspecchainedto` | 8 | MOVES's chain declaration, read for its ROW SET and not as a computation graph, because it is cyclic (§2.8) |
+| `sourcetypepolprocess` | 2 | `isRegClassReqd`, which decides whether the source bin's regClass slot carries the vehicle's class or 0 — one row per RATED pollutant-process and none for the other five (§2.2, and `docs/esm-conventions.md` §34.1) |
 
 Three tables the earlier rungs read are **gone**. `criteriaratio` has **0 rows**
 here (733 in `process-airtoxics`), `fullacadjustment` has **0** (23), and
@@ -225,12 +226,26 @@ the rate half of this fixture is `docs/process-nox-speciation.md` §§2.2–2.3 
 pollutant-process as a column.
 
 Nothing about the rate lookup changes between them: both are `emissionratebyage`
-rows at the same seven key pairs (fuel type, engine tech, regClass, short
-model-year group, operating mode, age group and the pollutant-process itself),
-both are collapsed against the same drive-cycle weights `W`, and both are
-multiplied by the same activity. `sourcetypepolprocess` carries exactly two
-rows, 11201 and 11801, both with `isRegClassReqd = Y` and `isMYGroupReqd = Y`,
-so the source-bin key is the same shape for both as well.
+rows at the same seven key pairs (fuel type, engine tech, source-bin regClass,
+short model-year group, operating mode, age group and the pollutant-process
+itself), both are collapsed against the same drive-cycle weights `W`, and both
+are multiplied by the same activity.
+
+**The source-bin regClass is read from a table, not assumed.**
+`docs/esm-conventions.md` §34.1 landed from `process-evap-permeation` while this
+rung was in flight and applies directly:
+`SourceBinDistributionGenerator` replaces the bin's regulatory class with **0**
+when `SourceTypePolProcess.isRegClassReqd` is `N`
+(`source_bin_distribution_generator.rs:1355`), and that flag is keyed
+`(sourceTypeID, polProcessID)`. Here `sourcetypepolprocess` carries exactly two
+rows — 11201 and 11801, both `isRegClassReqd = Y` and `isMYGroupReqd = Y` — so
+the source bin keeps the vehicle's class and both rated blocks take the same
+key shape. The document computes `rt_binRegClassID` from the flag anyway and
+keys the rate lookups on **that**, keeping `rt_regClassID` beside it for the
+crankcase join, which reads a real regulatory class whatever the bin rule says.
+`run_sourceBinRegClassZeroCount` asserts **0 of 436,632** on the input side,
+which is the cheap defence §34.1 asks for: under the other rule this document
+would zero every cell and leave its key set perfect.
 
 ### 2.3 The base-rate fuel effect is `generalfuelratio`, not `criteriaratio`
 
@@ -527,6 +542,7 @@ scope, because it presumes a chain declaration that *is* the computation graph.
 | J52 | `rate_rows` | `pm10emissionratio_rows` | polProcess (10001); source type; fuel type; **model-year band** | sum-product / max |
 | J53 | `rate_rows` × `fuelsupply_rows` | `generalfuelratio_rows` | formulation; polProcess; source type; **model-year band**; **age band** | sum-product / max |
 | J54 | `rate_rows` | `rate_rows` (self) | pollutant ↔ EC / NonECPM, cohortOrdinal ↔ cohortOrdinal | sum-product, **twice** |
+| J55 | `rate_rows` | `sourcetypepolprocess_rows` | source type; polProcess → `isRegClassReqd` | sum-product |
 
 J53 is `docs/process-crankcase-running.md`'s J40 — the same table under the same
 five key pairs, live again after being empty in `process-airtoxics`. J54 is the
@@ -1403,6 +1419,7 @@ rest are exact.
 | **the crankcase split is a row filter** | `crankcaseemissionratio` | every ratio is exactly 1 and every presence flag is 0 on electricity |
 | **the two general-fuel-ratio stages** | `generalfuelratio` | 1.090910749585 at the base rate on 11201 and again on 12001 inside `SulfatePMCalculator`, and 1 outside both bands |
 | the temperature arm | `temperatureadjustment` (empty) | asserts `rt_tempAdjustTermA` = 0 and `rt_temperatureFactor` = 1, so §2.4's "absent, not inert" is in the document |
+| the source-bin regClass rule | `sourcetypepolprocess` | `rt_isRegClassReqd` = 1 on the two rated blocks and 0 on the other five, `rt_binRegClassID` = 20, and `run_sourceBinRegClassZeroCount` = 0 — `docs/esm-conventions.md` §34.1's input-side count |
 | **the join-identified pollutants and the four shares** | `pm10emissionratio`, `pmspeciation` | the ratio and the fraction are 0 on every rate row that is not a PM10 or an organic-carbon row, which is what "a join identifies it" means operationally; and all four share columns at six different pollutants |
 | **the two parents reach every rate row** | `baseratebyage_1_2020` × activity | `rtDay_ecQuant` asserted at the EC row, the PM10 row and the organic-carbon row — the same number on all three — plus the four species |
 | **the worked examples** | `MOVESOutput` | 22 cells over §§6.1–6.3, seven pollutants, three fuel types, both day types, plus the identity columns and the SCC |
