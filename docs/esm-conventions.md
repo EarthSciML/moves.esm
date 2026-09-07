@@ -2979,3 +2979,129 @@ Two things follow, and the second is the more useful:
   cells to recover TTG-4b's 182,532 rows. **A cost, not a limitation** — and a
   document that had said so would have described a slice someone could schedule,
   where "blocked by F28" described one nobody could.
+
+---
+
+## 35. A generator that writes an INPUT column has no fixture **[Phase 5, 532 rows]**
+
+`MeteorologyGenerator` is the first rung in this port whose product is not a
+`MOVESOutput` row. It writes `ZoneMonthHour.heatIndex`,
+`ZoneMonthHour.specificHumidity` and `ZoneMonthHour.molWaterFraction` back into
+the execution database, before any calculator runs, and nine already-merged
+fixtures read at least one of the three off disk. That one structural difference
+decided everything about where the slice landed, and the three sections below
+are what it taught.
+
+### 35.1 `fixtures/` is a `MOVESOutput` harness; do not put a generator in it
+
+The default for a new slice is a new document under `fixtures/`, and for this
+one that is not available. Two things in the harness say so, and both are worth
+naming because neither is obvious from reading a fixture:
+
+* `run-tests.sh`'s fixture stage requires `$SNAPSHOTS/<basename>` to be a
+  snapshot directory, so a fixture's NAME is a snapshot's name. Every snapshot
+  whose meteorology is populated either already has a fixture or would need a
+  full `MOVESOutput` port to acquire one.
+* `compare-output.py` reads `db__<output database>__movesoutput.parquet` and
+  compares `value_columns = ["emissionQuant"]`. A document emitting
+  `ZoneMonthHour` columns has nothing that comparator can look at, so it would
+  fail, and passing the stage would then require a `[shortfall]` record —
+  which is a promise to close a gap, not a way to describe a document that is
+  complete.
+
+**The rule: match the document's home to what it produces, not to how important
+it is.** A generator whose product is an execution-database column belongs in
+`components/`, checked by its own inline assertions against captured MOVES
+intermediates, which is the shape `components/tank_temperature.esm` established
+for `TankTemperatureGenerator` TTG-1 and which
+`components/meteorology.esm` follows. The row-by-row half — the part
+`compare-output.py` does for a fixture — moves into the specification's §6.5
+reproduction and its oracle, where it can key on whatever the table's key
+actually is.
+
+### 35.2 A generator's claim has two halves, and the second is *when it runs*
+
+A calculator's fixture is checked by comparing rows. A generator's port is
+checked by comparing rows **and** by establishing which runs produce them at
+all: `MeteorologyGenerator` subscribes to processes 1, 2, 9, 10, 90 and 91, and
+a run selecting none of them leaves the three columns unwritten.
+
+That second half is not decoration. Of the 39 snapshots carrying the columns,
+**18 are unwritten** — the eleven NONROAD sectors, the three evaporative slices
+and the four crankcase start/extended-idle ones. A port that verified only the
+21 populated snapshots would have no way to tell "MOVES did not run the
+generator here" from "MOVES ran it and got zero", and the second reading is how
+a NONROAD run's zeroed humidity becomes a bug report.
+
+So `run-meteorology-oracle.sh` is handed the snapshots **directory** rather than
+one snapshot — the only oracle in the repository that is — and asserts the
+predicate
+
+> populated ⇔ ONROAD **and** the run's processes meet {1, 2, 9, 10, 90, 91}
+
+on all 39. **The rule: when a stage's OUTPUT is conditional, assert the
+condition on the snapshots that fail it as well as on the ones that pass.** The
+negative cases are the evidence; without them the subscription list is a comment.
+
+That sweep also paid for itself in a way a single-snapshot oracle could not.
+Nineteen of the 21 populated snapshots carry a byte-identical 24-row block, so a
+document checked against one of them is checked against nineteen. The two that
+differ are where the coverage is: `expand-month` holds the corpus's only
+sub-freezing row, which is the only place the Goff–Gratch reduced temperature is
+exercised on the other side of the ice point, and `expand-counties` holds the
+only populated multi-county geography, which is the only place the county join's
+`on` clause can be wrong and be seen.
+
+### 35.3 Decide a fidelity question by measuring both candidates, not by reading the source language
+
+`moves.rs`'s port carries an explicit open question: MOVES writes the
+Fahrenheit-to-Kelvin slope as the SQL literal `(5/9)`, and MariaDB evaluates `/`
+between integers as DECIMAL division rounded to `div_precision_increment`
+places — 0.5556 — so the executed slope might not be the exact ratio. The
+upstream note chose the exact ratio, put the difference at "roughly 8e-6
+relative", called it "far inside any generator tolerance budget", and said a
+canonical-capture comparison was the place to revisit it.
+
+Every part of that except the choice is wrong, and the way to find out was to
+run both:
+
+| slope | worst relative error over the corpus's 1,596 cells |
+|---|---|
+| exact `5.0/9.0` | **2.391e−08** |
+| MariaDB decimal `0.5556` | **1.379e−04** |
+
+The two differ by 8.0e−05 on the slope itself, which is 5.8e−03 on `TK`'s offset
+from the ice point, and the saturation exponent multiplies that by 10.8 and
+exponentiates it. The result is **seven times outside** `tolerance.toml`'s
+per-cell 2e−5 — not inside any budget this repository applies — and four orders
+away from the right answer. Substituting it turns **20 of
+`components/meteorology.esm`'s 42 assertions** red.
+
+**The rule: a fidelity question about a host language's evaluation semantics is
+settled by evaluating both candidates against the reference, and the answer is
+recorded as a measurement.** Reasoning about MariaDB's `div_precision_increment`
+cannot distinguish the two; one sweep of the corpus does, in nine seconds, and
+leaves a number a later reader can re-derive. The corollary is the part worth
+carrying: the upstream estimate of the *size* of the difference was off by an
+order of magnitude in the direction that made it look harmless, which is the
+direction such estimates usually err.
+
+### 35.4 Say which assertions face the reference and which face the port
+
+`components/meteorology.esm` has 42 assertions and they are not all the same
+kind of evidence. Thirty face the snapshot's own captured columns. Six pin
+`TK` / `PH2O` / `PV`, which MOVES materialises as temporary tables and drops, so
+the snapshot does not carry them and those six face **this port only**. Six more
+pin the county default-fill branches, and no county in the corpus reaches them:
+all 1,910 distinct county rows in all 39 snapshots record a positive
+`barometricPressure` and an altitude of `H` or `L`, so those six face **the SQL
+as ported**.
+
+Both groups are worth keeping — the intermediates are where the chain can be
+perturbed one stage at a time, and the fill branches are where the two `UPDATE
+County` statements' ORDER is written down. What is not acceptable is letting
+them read as reference-checked. Each one's test `description` says which it is,
+in the test rather than only in the specification, because a reader who reaches
+the assertions first is the reader most likely to draw the wrong conclusion from
+them. §23's rule is the neighbouring one: measure whether a document can SEE a
+stage before claiming it checks it.

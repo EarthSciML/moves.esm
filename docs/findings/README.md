@@ -1,13 +1,13 @@
 # Findings: conventions the format or the toolchain could not express
 
-Twenty-nine things PLAN.md §3 Phase 1 through Phase 5 assumed, or that an author would
+Thirty things PLAN.md §3 Phase 1 through Phase 5 assumed, or that an author would
 reasonably assume, that did not hold. **Sixteen are fixed upstream and retired**
 from the tripwire, listed at the bottom with their sections kept above so the
 workarounds they forced can be traced. The rest still hold at the pinned
 toolchain (`esm-version.lock`: EarthSciAST `3a01c56fc`, EarthSciIO
 `d109951d4`, `--features esio,parallel`).
 
-F2, F3, F5, F13, F14, F20, F21, F22 and F28 each have a minimal `.esm` repro in this
+F2, F3, F5, F13, F14, F20, F21, F22, F28 and F34 each have a minimal `.esm` repro in this
 directory — F22 has two, one per construct; F8 is a CLI behaviour rather than a
 document, and is checked by command against the ordinary files of the repo.
 **F17, F31 and F33 deliberately have no repro file**: a repro
@@ -1443,6 +1443,81 @@ that Julia, Python and TypeScript each lower an `on` pair to an equality
 predicate "the same way" Rust did. They do not lower one at all, which is why
 they are immune to F17; that note now carries the measured per-binding verdicts
 instead of the guess.
+
+---
+
+## F34 — a unit the registry lacks cannot be scaled, so the quantity goes undeclared
+
+`MeteorologyGenerator` reads `County.barometricPressure`, which MOVES stores in
+**inches of mercury**, and every expression that touches it multiplies by
+3.38639 to reach kilopascals (`docs/meteorology-generator.md` §2.5). Declaring
+`units: "inHg"` on the variable holding it is exactly what a units field is for:
+it makes the 3.38639 a conversion rather than a magic number.
+
+`esm validate` refuses it:
+
+```
+✗ /models/Meteorology/variables/met_rawBarometricPressure:
+    Unit string 'inHg' is not a recognised unit
+```
+
+That refusal is *correct given the registry*. `esm-spec.md`'s pressure row is a
+closed list — `atm uatm bar hPa kPa mbar Torr mmHg psi` — and `inHg` is not on
+it.
+
+**What makes it a finding rather than a missing entry is that there is no way
+around it.** Measured against the pinned toolchain, every one of these is
+refused:
+
+| spelling | verdict |
+|---|---|
+| `inHg` | refused |
+| `in` | refused |
+| `inch` | refused |
+| `in_i'Hg` (the UCUM spelling) | refused |
+| `25.4 mmHg` | refused |
+| `25.4*mmHg` | refused |
+| `mmHg*25.4` | refused |
+| `inch*mmHg` | refused |
+| `mm` | **accepted** |
+| `m` | **accepted** |
+
+So the registry carries metric length and no imperial length, and a unit string
+carries no numeric scale factor. The format can say *millimetres* of mercury and
+cannot say *inches* of mercury by any route. A document holding one has two
+options and both defeat the field:
+
+1. declare a **wrong** unit — `mmHg`, off by a factor of 25.4 — which is worse
+   than declaring none, because a dimensional check would then confirm an
+   incorrect conversion;
+2. declare **no** unit — `units: "1"` — which is what
+   `components/meteorology.esm` does on its three pressure variables, each with
+   a sentence of prose in its `description` saying why.
+
+The cost here is small and exactly identifiable: the one arithmetic step in this
+chain that a dimensional check *could* catch — inHg × 3.38639 → kPa, applied
+twice through one template — is unchecked, and the reason is written in prose
+three times instead.
+
+**A second, smaller observation, folded in here because it is the same
+registry.** `esm test` runs the repro without complaint; only `esm validate`
+refuses it. The unit check is not applied on the evaluation path, so a document
+carrying an unrecognised unit evaluates and passes its assertions. That is not
+what put `units: "1"` in `components/meteorology.esm` — `run-tests.sh`'s stage 1
+validates every document, so the refusal binds — but it does mean the repro's
+tripwire fires on `validate` alone.
+
+**What would fix it**, in order of how much it generalises:
+
+(a) a **numeric scale factor** in a unit string, so `25.4 mmHg` denotes what it
+says — that is the general fix and it is not about pressure;
+(b) **imperial length** in the registry, so `inch` composes;
+(c) `inHg` as a registry entry, which fixes this document and nothing else.
+
+Any of the three turns
+`F34_a_unit_the_registry_lacks_cannot_be_scaled.esm` green, at which point
+`components/meteorology.esm`'s three `units: "1"` declarations and their
+apologies should be replaced with the real unit.
 
 ---
 

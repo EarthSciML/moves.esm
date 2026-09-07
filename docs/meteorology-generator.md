@@ -99,7 +99,12 @@ the predicate has to say so explicitly.)
 every expression that reads it divides by 100 first, and reading it as a
 fraction leaves the mole fraction a clean factor of 100 low and still finite.
 `barometricPressure` is in **inches of mercury** and every use of it multiplies
-by 3.38639 to reach kilopascals.
+by 3.38639 to reach kilopascals. That unit cannot be DECLARED: the format's unit
+registry is a closed list holding `mmHg` and no imperial length, and it carries
+no numeric scale factor, so `inHg`, `in`, `inch`, `25.4 mmHg` and five other
+spellings are all refused. The three pressure variables in
+`components/meteorology.esm` are therefore declared dimensionless with a
+sentence of prose each — finding **F34**.
 
 All five value columns are decimal TEXT in the snapshot parquet, twelve decimal
 places, holding `real*4` values widened — `63.799999237061` is what `float(63.8)`
@@ -755,3 +760,9 @@ accuracy.
 6. **`relHumidity` is a percent.**
 7. The gate is `rel 1e-7` in the component and the corpus reproduces at
    2.391e−08. Do not widen either; the room is real.
+8. This rung's general lessons are `docs/esm-conventions.md` **§35**: why a
+   generator does not go in `fixtures/` (§35.1), why its scheduling condition is
+   half the claim and is asserted on the snapshots that FAIL it (§35.2), why a
+   host-language fidelity question is settled by running both candidates
+   (§35.3), and why each test says whether it faces the reference or the port
+   (§35.4). The one format refusal it hit is finding **F34** (§1.1).
