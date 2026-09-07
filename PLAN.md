@@ -888,6 +888,7 @@ reference completely, with an exact key set and no `[shortfall]`:
 | `process-brakewear` | 750 / 750 | 8.250e-06 | 5 |
 | `process-tirewear` | 750 / 750 | 8.151e-06 | 5 |
 | `process-refueling` | 336 / 336 | 7.434e-06 | 5 |
+| `process-pm-exhaust` | 1,456 / 1,456 | 9.910e-06 | 5 |
 
 all against `tolerance.toml`'s 2e-05, which has never been widened for any of
 them. What follows is ordered by what blocks what.
@@ -1100,10 +1101,24 @@ model-blind. Two rules make it measured instead:
 **exactly** the cohort sets `process-nox-speciation` established — the same 124
 parent cohorts × 2 day types (248 rows) and the same 104 species cohorts × 2
 (208 rows), set-equal, not merely equinumerous. So the expensive half of rung 4
-is done for all of them: `emissionratebyage`'s `ageGroupID` row-set behaviour,
-including model year 2000 electricity being absent from the parent while
-2001–2020 are present at exactly zero, is the same in each. What is left per
-rung is that snapshot's own ratio table and its parent's chemistry.
+is done for all of them, and what is left per rung is that snapshot's own ratio
+table and its parent's chemistry.
+
+**But the KEY the row set turns on is not inherited with it, and rung 7 found
+that out the hard way.** This paragraph used to add that
+"`emissionratebyage`'s `ageGroupID` row-set behaviour, including model year 2000
+electricity being absent from the parent while 2001–2020 are present at exactly
+zero, is the same in each". The row set is the same; the *mechanism* is not.
+`process-nox-speciation` and `process-airtoxics` lose (model year 2000,
+electricity) on the **age group** — pollutant 101's fuel-type-9 rows stop at
+group 1519 and that cohort is aged 20. `process-pm-exhaust` carries **all seven
+age groups for fuel type 9** and loses the same cohort on the **short
+model-year group**: its fuel-9 source bins have no shortModYrGroupID 20, which
+is the group model year 2000 maps to. Every numeric gate passes either way, so
+the wrong reason for a right number survives indefinitely — which is
+`tools/check-sources.py`'s lesson applied to a plan rather than to a note.
+`docs/esm-conventions.md` §33.7 is the rule that came out of it and
+`run-pm-exhaust-oracle.sh` asserts all three halves of the measurement.
 
 Two consequences for ordering. `process-airtoxics` (1,288 rows = 248 + 5 × 208)
 is *structurally the rung just landed* with a THC parent instead of NOx, which

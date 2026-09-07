@@ -1479,11 +1479,12 @@ five of the seven emitted blocks.
 
 ### 7.2 What this fixture cannot see — found by SABOTAGING the oracle
 
-Every row of this table was produced by breaking one thing in
-`run-pm-exhaust-oracle.sh` and re-running it. **Eleven sabotages leave all
-1,456 cells and the whole key set unchanged.** That is the measurement
-`docs/esm-conventions.md` §23 asks for, and it is not the same list a reading of
-the sources would have guessed.
+Every row of this table was produced by breaking one thing in §6.5's script and
+re-running the whole comparison — mechanically, by textual substitution into a
+copy, so that each sabotage is exactly one change and the verdict is the script's
+own exit code. **Twelve of the twenty-one leave all 1,456 cells and the whole key
+set unchanged.** That is the measurement `docs/esm-conventions.md` §23 asks for,
+and it is not the same list a reading of the sources would have guessed.
 
 | # | sabotage | verdict |
 |---|---|---|
