@@ -1,0 +1,375 @@
+{
+  "esm": "1.0.0",
+  "metadata": {
+    "name": "moves.meteorology",
+    "description": "`MeteorologyGenerator.doHeatIndex`: the three `ZoneMonthHour` columns MOVES DERIVES from the two it is given. Ports crates/moves-calculators/src/generators/meteorology.rs, the port of gov/epa/otaq/moves/master/implementation/general/MeteorologyGenerator.java, and is specified in docs/meteorology-generator.md. The arithmetic itself is lib/meteorology.esm; this file is the relation it runs over, and the place its answers are checked against MOVES.\n\nWHY THIS FILE EXISTS. `heatIndex`, `specificHumidity` and `molWaterFraction` are INPUTS to nine fixtures in this repository -- process-pm-exhaust, process-tirewear, process-brakewear, process-crankcase-running, process-refueling, process-airtoxics, process-nox-speciation, mixed-onroad and nr-logging-county each name at least one of them in a `float_columns` list -- and not one of them was reproduced anywhere until this file. `heatIndex` gates the air-conditioning branch; `specificHumidity` feeds lib/adjustments.esm's `nox_humidity_cfr86` and `molWaterFraction` its `nox_humidity_cfr1065`. Every one of those nine documents was resting on numbers this port could not produce.\n\nWHAT THE NUMBERS ARE. The 24 hours are the `ZoneMonthHour` rows of zone 261610 (Washtenaw County, Michigan), month 8, and the county is that zone's own `County` row: altitude `L`, barometric pressure 29.095 inHg. Nineteen snapshots in the corpus carry that (zone 261610, month 8) block and all nineteen are identical cell for cell, which is why one 24-row relation is a fair sample of the reference rather than one snapshot's accident. The corpus's other two populated shapes are `sample-runspec` (the same zone in month 7) and `expand-month` (four month-averaged rows at hour 0, one of them at 26.47 degF and so BELOW freezing, the only cells in the corpus on the cold side of the Goff-Gratch reduced temperature); docs/meteorology-generator.md 6.5 reproduces those too, from the files, and this component does not carry them. The twelve digits are the snapshot's own -- each is a `real*4` widened, so 63.799999237061 is what `float(63.8)` reads back as. Rounding the two inputs of hour 1 back to 63.8 and 84.6 moves its specific humidity by 4.556e-08 relative. That is UNDER this file's 1e-7 assertion tolerance, so it would not turn anything red -- and it is TWICE the whole measured residual of 2.391e-08, which is the reason to carry the digits: with rounded inputs the residual would be mostly the rounding, and the claim that 2.391e-08 IS the reference's twelve-decimal storage limit could no longer be made. `tt_temperature` in components/tank_temperature.esm carries the same 24 ambient temperatures for the same zone and month, from the same table, ROUNDED TO TEN DECIMALS rather than the snapshot's twelve -- 63.7999992371 there against 63.799999237061 here. Measured, the two columns agree to 6.113e-13 relative (4.2e-11 absolute at worst), so they are the same numbers and not bit-identical, and this file carries the extra two digits because its outputs are compared at 1e-7 where that file's are compared at 1e-6.\n\nWHAT IS CHECKED, AND AGAINST WHAT. The assertions below compare this file's `met_heatIndex`, `met_specificHumidity` and `met_molWaterFraction` against the snapshot's OWN `heatIndex`, `specificHumidity` and `molWaterFraction` columns -- MOVES's answers, captured, not this file's author's. Where a reference decimal is asserted the tolerance is `rel 1e-7`. That is a real gate and not a widened one: the whole-corpus reproduction in docs/meteorology-generator.md 6.5 lands all 532 populated rows -- 1,596 cells -- of all 21 populated snapshots at 2.391e-08, so 1e-7 carries about 4x headroom over the worst cell in the corpus and the binding constraint is the reference's twelve-decimal column storage rather than either implementation.\n\nTHE CONVERSION FACTOR IS WHAT THIS GATE IS SHARPEST ABOUT. moves.rs's port records an open question on `fahrenheit_to_kelvin`: MOVES writes the slope as the SQL literal `(5/9)`, which MariaDB would evaluate as DECIMAL division to 0.5556. Substituting 0.5556 for the exact ratio moves the 24 `specificHumidity` cells below by between 7.981e-05 and 1.322e-04 relative -- roughly a thousand times the tolerance here, and four to seven times `tolerance.toml`'s per-cell 2e-5 -- so these assertions decide the question rather than tolerating either answer. docs/meteorology-generator.md 7.2.\n\nTHE COUNTY RELATION HAS FIVE ROWS AND ONLY TWO OF THEM ARE THE REFERENCE'S. Rows 1 and 2 are real: Washtenaw County (26161, `L`, 29.095) is the zone this file's hours belong to, and Alamosa County, Colorado (8003, `H`, 23.065) is a real high-altitude row from the `nr-airport-support-county` snapshot, carried so that the altitude column is not constant. Rows 3, 4 and 5 are the three fallback branches of the two `UPDATE County` statements, and NO county in the corpus reaches them -- all 22,815 `County` rows across its 40 snapshots record a positive `barometricPressure` and an altitude of `H` or `L`, on 3,286 distinct countyIDs. Those three rows are therefore checked against the SQL as ported, NOT against MOVES, and docs/meteorology-generator.md 8.1 says so from the other side. They are here because the two statements' ORDER is the part a reader gets wrong: step 1 fills a missing pressure from the altitude class and step 2 then classes a missing altitude from the pressure step 1 has just written, so a county missing both is Low at 28.94 inHg and never High -- row 4 is that case and asserting it is how the order stays written down.\n\nWHAT THIS FILE DOES NOT COMPUTE. Whether the generator RUNS at all. `MeteorologyGenerator.subscribeToMe` subscribes to processes 1, 2, 9, 10, 90 and 91, and MOVES leaves the three columns unpopulated on a run that selects none of them -- measured over the corpus, the predicate `ONROAD and (runspec processes intersect {1,2,9,10,90,91})` decides population correctly on all 40 snapshots that carry the columns, including the seven onroad ones that select only evaporative or crankcase-start/extended-idle processes and get NULL. That is a master-loop scheduling property, not arithmetic, and this file is the arithmetic.",
+    "authors": ["EarthSciML Authors and Contributors"],
+    "tags": ["moves", "onroad", "meteorology", "generator", "humidity"]
+  },
+  "index_sets": {
+    "met_hour_rows": { "kind": "interval", "size": 24 },
+    "met_county_rows": { "kind": "interval", "size": 5 }
+  },
+  "coordinates": {
+    "meteorology_hour": { "source": "met_hourID", "standard_name": "moves_hour_identifier" }
+  },
+  "models": {
+    "Meteorology": {
+      "expression_template_imports": [
+        {
+          "ref": "../lib/meteorology.esm",
+          "only": [
+            "fahrenheit_to_kelvin",
+            "saturation_vapor_pressure",
+            "vapor_partial_pressure",
+            "mol_water_fraction",
+            "specific_humidity",
+            "heat_index",
+            "resolved_barometric_pressure",
+            "resolved_altitude_is_high"
+          ]
+        }
+      ],
+      "tolerance": { "rel": 1e-12 },
+      "variables": {
+        "met_countyID": {
+          "type": "unknown",
+          "shape": ["met_county_rows"],
+          "description": "`County.countyID`. Rows 1 and 2 are the corpus's own (Washtenaw MI and Alamosa CO); rows 3-5 carry 0, which is not a county MOVES has, because they exist to exercise branches no county in the corpus reaches and a plausible-looking identifier there would invite a reader to look for them."
+        },
+        "met_rawBarometricPressure": {
+          "type": "unknown",
+          "shape": ["met_county_rows"],
+          "units": "1",
+          "description": "`County.barometricPressure` as stored, in INCHES OF MERCURY -- carried as dimensionless because the format's unit registry has `mmHg` but no inch-of-mercury spelling and `esm validate` refuses `inHg`, and declaring `mmHg` would be a wrong unit rather than a missing one (docs/findings/README.md F34). 0 where the column is absent, paired with a `met_pressureIsPresent` of 0 -- the value is not what makes it absent, the indicator is, because a `.esm` parameter that failed to ingest arrives as its `default` rather than as a null."
+        },
+        "met_pressureIsPresent": {
+          "type": "unknown",
+          "shape": ["met_county_rows"],
+          "description": "1 where `barometricPressure IS NOT NULL`. The SQL's fill condition is `IS NULL OR <= 0`, so this indicator and the sign test are two separate guards and both are written."
+        },
+        "met_altitudeIsKnown": {
+          "type": "unknown",
+          "shape": ["met_county_rows"],
+          "description": "1 where `altitude IN ('H','L')`. The SQL's second guard is `altitude IS NULL OR altitude NOT IN ('H','L')`, so a value outside the domain is treated exactly as a null is."
+        },
+        "met_altitudeIsHigh": {
+          "type": "unknown",
+          "shape": ["met_county_rows"],
+          "description": "1 where `County.altitude` is `'H'`. Meaningless where `met_altitudeIsKnown` is 0 and carried as 0 there, which is also the SQL's `ELSE` branch: step 1's `CASE` sends a NULL altitude down the same arm as `'L'`."
+        },
+        "met_barometricPressure": {
+          "type": "unknown",
+          "shape": ["met_county_rows"],
+          "units": "1",
+          "description": "INCHES OF MERCURY, carried as dimensionless for the reason `met_rawBarometricPressure` gives. Step 1 of the county fill: the stored pressure when it is present and strictly positive, 24.59 inHg for a high-altitude county otherwise, 28.94 inHg for every other. This is the pressure the humidity chain divides by."
+        },
+        "met_altitudeIsHighResolved": {
+          "type": "unknown",
+          "shape": ["met_county_rows"],
+          "description": "Step 2 of the county fill, and it reads step 1's OUTPUT rather than the stored pressure: a county whose altitude is missing is Low at or above 25.8403 inHg and High below it. Nothing downstream of this component uses it -- MOVES keeps it because later stages join on the altitude class -- and it is computed here so that the two statements' order is asserted rather than described."
+        },
+        "met_hourID": {
+          "type": "unknown",
+          "shape": ["met_hour_rows"],
+          "description": "`ZoneMonthHour.hourID`, 1..24, carried as a column rather than taken to be the row number (docs/esm-conventions.md 2)."
+        },
+        "met_hourCountyID": {
+          "type": "unknown",
+          "shape": ["met_hour_rows"],
+          "description": "The county each hour's zone belongs to, which is 26161 for all 24 -- the Java reaches it by joining `ZoneMonthHour` to `Zone` to `County` and this column is that path's answer. It is a key column so that the pressure below arrives through a `join.on` rather than through a constant."
+        },
+        "met_temperature": {
+          "type": "unknown",
+          "shape": ["met_hour_rows"],
+          "units": "degF",
+          "description": "`ZoneMonthHour.temperature`, zone 261610, month 8, at the snapshot's own twelve digits."
+        },
+        "met_relHumidity": {
+          "type": "unknown",
+          "shape": ["met_hour_rows"],
+          "units": "percent",
+          "description": "`ZoneMonthHour.relHumidity` for the same 24 rows. PERCENT, not a fraction: every expression that reads it divides by 100 first, and a fraction here would leave the mole fraction 100x low and still finite."
+        },
+        "met_hourBarometricPressure": {
+          "type": "unknown",
+          "shape": ["met_hour_rows"],
+          "units": "1",
+          "description": "INCHES OF MERCURY, carried as dimensionless for the reason `met_rawBarometricPressure` gives. The resolved county pressure gathered onto the hour relation through the countyID join."
+        },
+        "met_temperatureKelvin": {
+          "type": "unknown",
+          "shape": ["met_hour_rows"],
+          "units": "K",
+          "description": "The Java's `TK` column. The slope is the exact 5/9 and not MariaDB's decimal 0.5556; see this file's header and docs/meteorology-generator.md 7.2 for the measurement that settles it."
+        },
+        "met_saturationVaporPressure": {
+          "type": "unknown",
+          "shape": ["met_hour_rows"],
+          "units": "kPa",
+          "description": "The Java's `PH2O`: the Goff-Gratch saturation vapour pressure of water at `TK`. At the ice point every temperature-dependent term vanishes and it is 10^-0.2138602 = 0.6111 kPa, which is the textbook value at 0 degC and is the one property of this polynomial a reader can check without the reference."
+        },
+        "met_vaporPartialPressure": {
+          "type": "unknown",
+          "shape": ["met_hour_rows"],
+          "units": "kPa",
+          "description": "The Java's `PV`: relative humidity as a fraction times the saturation pressure. Both humidity outputs are built from it, so a document that wrote it twice could get the percent scaling right in one and wrong in the other."
+        },
+        "met_heatIndex": {
+          "type": "unknown",
+          "shape": ["met_hour_rows"],
+          "units": "degF",
+          "description": "`ZoneMonthHour.heatIndex`: the dry-bulb temperature below 78 degF, the National Weather Service regression capped at 120 degF at or above it. It is the ONE output of this generator that does not touch the pressure chain -- its two `UPDATE` statements carry no join at all."
+        },
+        "met_specificHumidity": {
+          "type": "unknown",
+          "shape": ["met_hour_rows"],
+          "units": "g/kg",
+          "description": "`ZoneMonthHour.specificHumidity`: grams of water per kilogram of DRY air, which is why the denominator subtracts the vapour pressure from the ambient pressure rather than using the ambient pressure whole. Omitting that subtraction moves these 24 cells by 1.59% to 2.02% -- well inside anything a plot would show, and at worst 1,009x tolerance.toml's per-cell gate."
+        },
+        "met_molWaterFraction": {
+          "type": "unknown",
+          "shape": ["met_hour_rows"],
+          "units": "1",
+          "description": "`ZoneMonthHour.molWaterFraction`: moles of water per mole of AMBIENT air, so its denominator is the ambient pressure whole. It and the specific humidity differ in exactly that one term, which is the pair of numbers a single `ambient_pressure_kilopascals` template exists to keep consistent."
+        }
+      },
+      "equations": [
+        {
+          "_comment": "The county relation. Rows 1-2 are the corpus's; rows 3-5 are the three fallback branches, whose countyID is 0 because MOVES has no such county.",
+          "lhs": "met_countyID",
+          "rhs": { "op": "const", "args": [], "value": [26161, 8003, 0, 0, 0] }
+        },
+        {
+          "_comment": "Washtenaw 29.095 and Alamosa 23.065 are stored; rows 3 and 4 store nothing; row 5 stores 24.0 inHg with no altitude, the case step 2 has to class from the pressure.",
+          "lhs": "met_rawBarometricPressure",
+          "rhs": { "op": "const", "args": [], "value": [29.095, 23.065, 0.0, 0.0, 24.0] }
+        },
+        {
+          "lhs": "met_pressureIsPresent",
+          "rhs": { "op": "const", "args": [], "value": [1.0, 1.0, 0.0, 0.0, 1.0] }
+        },
+        {
+          "lhs": "met_altitudeIsKnown",
+          "rhs": { "op": "const", "args": [], "value": [1.0, 1.0, 1.0, 0.0, 0.0] }
+        },
+        {
+          "lhs": "met_altitudeIsHigh",
+          "rhs": { "op": "const", "args": [], "value": [0.0, 1.0, 1.0, 0.0, 0.0] }
+        },
+        {
+          "_comment": "County fill step 1 -- UPDATE County SET barometricPressure = CASE WHEN altitude='H' THEN 24.59 ELSE 28.94 END WHERE barometricPressure IS NULL OR barometricPressure <= 0.",
+          "lhs": "met_barometricPressure",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "resolved_barometric_pressure",
+            "bindings": {
+              "barometric_pressure_inhg": "met_rawBarometricPressure",
+              "pressure_is_present": "met_pressureIsPresent",
+              "altitude_is_high": "met_altitudeIsHigh"
+            }
+          }
+        },
+        {
+          "_comment": "County fill step 2, which reads step 1's output -- UPDATE County SET altitude = CASE WHEN barometricPressure >= 25.8403 THEN 'L' ELSE 'H' END WHERE altitude IS NULL OR altitude NOT IN ('H','L').",
+          "lhs": "met_altitudeIsHighResolved",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "resolved_altitude_is_high",
+            "bindings": {
+              "altitude_is_known": "met_altitudeIsKnown",
+              "altitude_is_high": "met_altitudeIsHigh",
+              "resolved_pressure_inhg": "met_barometricPressure"
+            }
+          }
+        },
+        {
+          "lhs": "met_hourID",
+          "rhs": { "op": "const", "args": [], "value": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24] }
+        },
+        {
+          "_comment": "ZoneMonthHour -> Zone -> County: zone 261610's county is 26161, on all 24 rows.",
+          "lhs": "met_hourCountyID",
+          "rhs": { "op": "const", "args": [], "value": [26161, 26161, 26161, 26161, 26161, 26161, 26161, 26161, 26161, 26161, 26161, 26161, 26161, 26161, 26161, 26161, 26161, 26161, 26161, 26161, 26161, 26161, 26161, 26161] }
+        },
+        {
+          "_comment": "ZoneMonthHour.temperature, zone 261610, month 8, hours 1..24, at the snapshot's own twelve digits.",
+          "lhs": "met_temperature",
+          "rhs": { "op": "const", "args": [], "value": [63.799999237061, 62.900001525879, 62.0, 61.099998474121, 60.5, 59.900001525879, 59.5, 62.400001525879, 66.900001525879, 71.0, 74.300003051758, 76.900001525879, 78.900001525879, 80.400001525879, 81.400001525879, 81.900001525879, 81.900001525879, 81.099998474121, 79.199996948242, 76.199996948242, 71.699996948242, 68.599998474121, 66.599998474121, 65.0] }
+        },
+        {
+          "_comment": "ZoneMonthHour.relHumidity for the same 24 rows, in percent.",
+          "lhs": "met_relHumidity",
+          "rhs": { "op": "const", "args": [], "value": [84.599998474121, 86.199996948242, 87.5, 88.599998474121, 89.300003051758, 89.900001525879, 90.400001525879, 88.300003051758, 81.099998474121, 73.599998474121, 67.199996948242, 62.099998474121, 58.400001525879, 55.900001525879, 54.299999237061, 53.299999237061, 53.400001525879, 54.5, 57.299999237061, 62.799999237061, 71.099998474121, 76.699996948242, 80.300003051758, 82.800003051758] }
+        },
+        {
+          "_comment": "J-MET-1: ZoneMonthHour.countyID = County.countyID, the last leg of the Java's zone-to-county join. The resolved pressure is what crosses it, not the stored one.",
+          "lhs": "met_hourBarometricPressure",
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "output_idx": ["h"],
+            "ranges": { "h": { "from": "met_hour_rows" }, "c": { "from": "met_county_rows" } },
+            "join": [ { "on": [ ["met_hourCountyID", "met_countyID"] ] } ],
+            "reduce": "+",
+            "expr": { "op": "index", "args": ["met_barometricPressure", "c"] }
+          }
+        },
+        {
+          "lhs": "met_temperatureKelvin",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "fahrenheit_to_kelvin",
+            "bindings": { "temperature_degF": "met_temperature" }
+          }
+        },
+        {
+          "lhs": "met_saturationVaporPressure",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "saturation_vapor_pressure",
+            "bindings": { "temperature_kelvin": "met_temperatureKelvin" }
+          }
+        },
+        {
+          "lhs": "met_vaporPartialPressure",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "vapor_partial_pressure",
+            "bindings": {
+              "rel_humidity_percent": "met_relHumidity",
+              "saturation_pressure_kpa": "met_saturationVaporPressure"
+            }
+          }
+        },
+        {
+          "lhs": "met_heatIndex",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "heat_index",
+            "bindings": {
+              "temperature_degF": "met_temperature",
+              "rel_humidity_percent": "met_relHumidity"
+            }
+          }
+        },
+        {
+          "lhs": "met_specificHumidity",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "specific_humidity",
+            "bindings": {
+              "vapor_pressure_kpa": "met_vaporPartialPressure",
+              "barometric_pressure_inhg": "met_hourBarometricPressure"
+            }
+          }
+        },
+        {
+          "lhs": "met_molWaterFraction",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "mol_water_fraction",
+            "bindings": {
+              "vapor_pressure_kpa": "met_vaporPartialPressure",
+              "barometric_pressure_inhg": "met_hourBarometricPressure"
+            }
+          }
+        }
+      ],
+      "tests": [
+        {
+          "id": "the_county_fill_runs_in_order_and_step_two_reads_step_one",
+          "description": "The two `UPDATE County` statements, on the five cases. Row 1 (Washtenaw, 29.095 inHg, altitude L) and row 2 (Alamosa CO, 23.065 inHg, altitude H) are corpus rows and both keep what they store -- which is the case that matters, because it is the one all 22,815 `County` rows in the corpus are in. Rows 3-5 are the fallbacks: an absent pressure at altitude H takes 24.59, an absent pressure with no altitude takes 28.94 and is then classed LOW, and a present 24.0 inHg with no altitude is classed HIGH. Row 4 is the ordering test. What breaks if this is wrong: run the two statements in the other order and the county with neither field is classed High against a NULL pressure, then filled with 24.59 instead of 28.94 -- a 15% pressure error that moves every humidity output in that county by the same 15% and raises nothing. Rows 3-5 are checked against the SQL as ported and NOT against MOVES: no county in the corpus is missing either field, so nothing here can be checked against the reference (docs/meteorology-generator.md 8.1).",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "met_barometricPressure", "time": 0.0, "expected": 29.095, "coords": { "met_county_rows": 1 }, "tolerance": { "rel": 1e-12 } },
+            { "variable": "met_barometricPressure", "time": 0.0, "expected": 23.065, "coords": { "met_county_rows": 2 }, "tolerance": { "rel": 1e-12 } },
+            { "variable": "met_barometricPressure", "time": 0.0, "expected": 24.59, "coords": { "met_county_rows": 3 }, "tolerance": { "rel": 1e-12 } },
+            { "variable": "met_barometricPressure", "time": 0.0, "expected": 28.94, "coords": { "met_county_rows": 4 }, "tolerance": { "rel": 1e-12 } },
+            { "variable": "met_barometricPressure", "time": 0.0, "expected": 24.0, "coords": { "met_county_rows": 5 }, "tolerance": { "rel": 1e-12 } },
+            { "variable": "met_altitudeIsHighResolved", "time": 0.0, "expected": 0.0, "coords": { "met_county_rows": 1 }, "tolerance": { "abs": 1e-12 } },
+            { "variable": "met_altitudeIsHighResolved", "time": 0.0, "expected": 1.0, "coords": { "met_county_rows": 2 }, "tolerance": { "rel": 1e-12 } },
+            { "variable": "met_altitudeIsHighResolved", "time": 0.0, "expected": 1.0, "coords": { "met_county_rows": 3 }, "tolerance": { "rel": 1e-12 } },
+            { "variable": "met_altitudeIsHighResolved", "time": 0.0, "expected": 0.0, "coords": { "met_county_rows": 4 }, "tolerance": { "abs": 1e-12 } },
+            { "variable": "met_altitudeIsHighResolved", "time": 0.0, "expected": 1.0, "coords": { "met_county_rows": 5 }, "tolerance": { "rel": 1e-12 } }
+          ]
+        },
+        {
+          "id": "the_county_join_delivers_the_zones_own_pressure",
+          "description": "J-MET-1 lands 29.095 inHg on all 24 hours -- Washtenaw's, not Alamosa's. What breaks if this is wrong: dropping the `on` clause sums the five county rows into every hour, 129.69 inHg, and the humidity outputs come out 4.5x low; joining to row 2 instead is 23.065 inHg and 26% high. Both are finite, both are plotted without complaint, and only a pressure assertion or the humidity comparison below can see either.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "met_hourBarometricPressure", "time": 0.0, "expected": 29.095, "coords": { "met_hour_rows": 1 }, "tolerance": { "rel": 1e-12 } },
+            { "variable": "met_hourBarometricPressure", "time": 0.0, "expected": 29.095, "coords": { "met_hour_rows": 24 }, "tolerance": { "rel": 1e-12 } },
+            { "variable": "met_hourBarometricPressure", "time": 0.0, "expected": 29.095, "reduce": "max", "tolerance": { "rel": 1e-12 } },
+            { "variable": "met_hourBarometricPressure", "time": 0.0, "expected": 29.095, "reduce": "min", "tolerance": { "rel": 1e-12 } }
+          ]
+        },
+        {
+          "id": "the_heat_index_is_the_temperature_below_78_degF_and_the_regression_above_it",
+          "description": "`ZoneMonthHour.heatIndex` at the branch boundary and on both sides of it, against the snapshot's own column. Hours 12 and 20 are 76.900 and 76.200 degF and pass through unchanged; hours 13 and 19 are 78.900 and 79.200 degF, the first and last hours of the day at or above the threshold, and take the regression -- 80.464 and 80.685, each about 1.5 degF above the dry-bulb temperature. Hour 17 is the day's warmest heat index at 83.175. What breaks if this is wrong: applying the regression everywhere makes hour 7 (59.5 degF, 90.4% RH) read 65.75 degF instead of 59.5, and hour 1 67.77 instead of 63.80. Measured over the day's SEVENTEEN sub-78 degF hours, the regression runs 1.80 to 6.25 degF ABOVE the dry-bulb temperature -- it is a fit valid only in its own range and it does not degrade to the identity below it. The AC-activity branches downstream compare `heatIndex` against a threshold, so a few degrees at night is exactly what decides which side of the comparison a whole hour falls on. Note what this does NOT do: it never moves a value far enough to look wrong, which is why the branch has to be asserted rather than eyeballed.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "met_heatIndex", "time": 0.0, "expected": 76.900001525879, "coords": { "met_hour_rows": 12 }, "tolerance": { "rel": 1e-7 } },
+            { "variable": "met_heatIndex", "time": 0.0, "expected": 80.464354596308, "coords": { "met_hour_rows": 13 }, "tolerance": { "rel": 1e-7 } },
+            { "variable": "met_heatIndex", "time": 0.0, "expected": 83.175329564731, "coords": { "met_hour_rows": 17 }, "tolerance": { "rel": 1e-7 } },
+            { "variable": "met_heatIndex", "time": 0.0, "expected": 80.685026364127, "coords": { "met_hour_rows": 19 }, "tolerance": { "rel": 1e-7 } },
+            { "variable": "met_heatIndex", "time": 0.0, "expected": 76.199996948242, "coords": { "met_hour_rows": 20 }, "tolerance": { "rel": 1e-7 } },
+            { "variable": "met_heatIndex", "time": 0.0, "expected": 59.5, "coords": { "met_hour_rows": 7 }, "tolerance": { "rel": 1e-7 } },
+            { "variable": "met_heatIndex", "time": 0.0, "expected": 83.175329564731, "reduce": "max", "tolerance": { "rel": 1e-7 } },
+            { "variable": "met_heatIndex", "time": 0.0, "expected": 59.5, "reduce": "min", "tolerance": { "rel": 1e-7 } }
+          ]
+        },
+        {
+          "id": "the_saturation_chain_reproduces_the_reference_specific_humidity",
+          "description": "`ZoneMonthHour.specificHumidity` at the day's extremes and at three points between, against the snapshot's own column: hour 7 is the day's driest at 10.0537 g/kg and hour 15 the wettest at 12.7897. What breaks if this is wrong, in order of how quietly: (a) the Fahrenheit slope as MariaDB's decimal 0.5556 instead of the exact 5/9 moves these cells by 7.981e-05 to 1.322e-04 relative, which is about a thousand times this tolerance and four to seven times tolerance.toml's per-cell gate but would look like nothing on a plot; (b) dividing by the ambient pressure whole instead of `ambient - PV` is 1.7% low; (c) reading `relHumidity` as a fraction rather than a percent is 100x low. This assertion set is where (a) is decided -- docs/meteorology-generator.md 7.2.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "met_specificHumidity", "time": 0.0, "expected": 10.969973038271, "coords": { "met_hour_rows": 1 }, "tolerance": { "rel": 1e-7 } },
+            { "variable": "met_specificHumidity", "time": 0.0, "expected": 10.053684293477, "coords": { "met_hour_rows": 7 }, "tolerance": { "rel": 1e-7 } },
+            { "variable": "met_specificHumidity", "time": 0.0, "expected": 12.674017026877, "coords": { "met_hour_rows": 13 }, "tolerance": { "rel": 1e-7 } },
+            { "variable": "met_specificHumidity", "time": 0.0, "expected": 12.789704458662, "coords": { "met_hour_rows": 15 }, "tolerance": { "rel": 1e-7 } },
+            { "variable": "met_specificHumidity", "time": 0.0, "expected": 11.200499195279, "coords": { "met_hour_rows": 24 }, "tolerance": { "rel": 1e-7 } },
+            { "variable": "met_specificHumidity", "time": 0.0, "expected": 12.789704458662, "reduce": "max", "tolerance": { "rel": 1e-7 } },
+            { "variable": "met_specificHumidity", "time": 0.0, "expected": 10.053684293477, "reduce": "min", "tolerance": { "rel": 1e-7 } }
+          ]
+        },
+        {
+          "id": "the_mole_fraction_differs_from_the_specific_humidity_in_exactly_one_term",
+          "description": "`ZoneMonthHour.molWaterFraction` at the same five hours, against the snapshot's own column. The two humidity outputs share `PV` and the inHg-to-kPa conversion and differ only in the denominator -- ambient pressure whole for the mole fraction, ambient minus vapour for the specific humidity -- so the ratio of the two is fixed by that one term and by the 621.1 constant. What breaks if this is wrong: subtracting `PV` here as well makes every cell 1.7% high, which no reduction over the day can see because it is a uniform scaling; only the per-cell comparison against the reference can. `molWaterFraction` feeds lib/adjustments.esm's `nox_humidity_cfr1065`, whose correction is a reciprocal in it, so an error here changes NOx in the opposite direction from an error in the specific humidity.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "met_molWaterFraction", "time": 0.0, "expected": 0.017355630715, "coords": { "met_hour_rows": 1 }, "tolerance": { "rel": 1e-7 } },
+            { "variable": "met_molWaterFraction", "time": 0.0, "expected": 0.015929059029, "coords": { "met_hour_rows": 7 }, "tolerance": { "rel": 1e-7 } },
+            { "variable": "met_molWaterFraction", "time": 0.0, "expected": 0.019997691111, "coords": { "met_hour_rows": 13 }, "tolerance": { "rel": 1e-7 } },
+            { "variable": "met_molWaterFraction", "time": 0.0, "expected": 0.020176545492, "coords": { "met_hour_rows": 15 }, "tolerance": { "rel": 1e-7 } },
+            { "variable": "met_molWaterFraction", "time": 0.0, "expected": 0.017713886371, "coords": { "met_hour_rows": 24 }, "tolerance": { "rel": 1e-7 } },
+            { "variable": "met_molWaterFraction", "time": 0.0, "expected": 0.020176545492, "reduce": "max", "tolerance": { "rel": 1e-7 } },
+            { "variable": "met_molWaterFraction", "time": 0.0, "expected": 0.015929059029, "reduce": "min", "tolerance": { "rel": 1e-7 } }
+          ]
+        },
+        {
+          "id": "the_intermediate_columns_are_the_javas_own_temporary_tables",
+          "description": "`TK`, `PH2O` and `PV`, the three intermediates the Java materialises as temporary tables and this component carries as variables. The values are this port's, not the reference's -- MOVES drops those tables and the snapshot does not carry them -- so what this test checks is INTERNAL consistency, and it is worth having for one reason: it is where the chain can be perturbed one stage at a time. The ice-point property is the one line here a reader can check without either implementation: at 273.15 K every temperature-dependent term of the Goff-Gratch exponent vanishes and `PH2O` is 10^-0.2138602 = 0.6111 kPa, the saturation pressure of water at 0 degC. Hour 7 is the day's coldest at 59.5 degF = 288.428 K; hours 16 and 17 TIE for the warmest at 81.900001525879 degF = 300.872 K, which is why `PH2O` -- a function of temperature alone -- is asserted at hour 16 and `TK` at hour 17 and the two are consistent, while `PV` differs between them because the relative humidity does.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "met_temperatureKelvin", "time": 0.0, "expected": 288.42777777777775, "coords": { "met_hour_rows": 7 }, "tolerance": { "rel": 1e-12 } },
+            { "variable": "met_temperatureKelvin", "time": 0.0, "expected": 300.87222306993277, "coords": { "met_hour_rows": 17 }, "tolerance": { "rel": 1e-12 } },
+            { "variable": "met_saturationVaporPressure", "time": 0.0, "expected": 1.7361090802552712, "coords": { "met_hour_rows": 7 }, "tolerance": { "rel": 1e-12 } },
+            { "variable": "met_saturationVaporPressure", "time": 0.0, "expected": 3.7209486679378476, "coords": { "met_hour_rows": 16 }, "tolerance": { "rel": 1e-12 } },
+            { "variable": "met_vaporPartialPressure", "time": 0.0, "expected": 1.569442635041689, "coords": { "met_hour_rows": 7 }, "tolerance": { "rel": 1e-12 } },
+            { "variable": "met_vaporPartialPressure", "time": 0.0, "expected": 1.9832656116223042, "coords": { "met_hour_rows": 16 }, "tolerance": { "rel": 1e-12 } }
+          ]
+        }
+      ]
+    }
+  }
+}

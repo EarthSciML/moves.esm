@@ -730,7 +730,7 @@ else
            "./run-brakewear-oracle.sh" "./run-tirewear-oracle.sh"
            "./run-refueling-oracle.sh" "./run-nox-speciation-oracle.sh"
            "./run-crankcase-running-oracle.sh" "./run-airtoxics-oracle.sh"
-           "./run-pm-exhaust-oracle.sh")
+           "./run-pm-exhaust-oracle.sh" "./run-meteorology-oracle.sh")
   for oracle in "${ORACLES[@]}"; do
     if [[ ! -x "${oracle%% *}" ]]; then
       fail "oracle ${oracle} — not executable"
@@ -740,7 +740,7 @@ else
       pass "${oracle}"
       # Report the counts each oracle asserts, not its last few lines: the
       # row-set numbers are the point and a tail can scroll them away.
-      grep -E "rows compared|worst relative error|key set:|rows,|NOTE:" <<<"$out" \
+      grep -E "rows compared|worst relative error|key set:|rows,|NOTE:|missing / |subscription:" <<<"$out" \
         | sed 's/^/       /'
     else
       fail "oracle ${oracle} — the independent reproduction no longer agrees with the snapshot"

@@ -1,0 +1,217 @@
+{
+  "esm": "1.0.0",
+  "metadata": {
+    "name": "moves.meteorology",
+    "description": "Template library: the whole arithmetic of `MeteorologyGenerator.doHeatIndex` -- the one MOVES pass that WRITES `ZoneMonthHour.heatIndex`, `ZoneMonthHour.specificHumidity` and `ZoneMonthHour.molWaterFraction`. Ports crates/moves-calculators/src/generators/meteorology.rs, which ports gov/epa/otaq/moves/master/implementation/general/MeteorologyGenerator.java. Specified in docs/meteorology-generator.md.\n\nWHY A LIBRARY RATHER THAN A CALCULATOR'S OWN FILE. Nine fixtures in this repository INGEST those three columns -- process-pm-exhaust, process-tirewear, process-brakewear, process-crankcase-running, process-refueling, process-airtoxics, process-nox-speciation, mixed-onroad and nr-logging-county each name at least one of the three in a `float_columns` list, three of them (nr-logging-county, process-crankcase-running, process-nox-speciation) naming all three and the other six naming `heatIndex` alone -- and until now nothing here produced any of them. They are inputs to `lib/adjustments.esm`'s `nox_humidity_cfr86` (specific humidity) and `nox_humidity_cfr1065` (water mole fraction) and to every heat-index-gated air-conditioning branch. One generator step, so by docs/esm-conventions.md 1 it is one place; a template library rather than a component because the arithmetic is per ROW and carries no axis of its own, exactly as lib/adjustments.esm's factors do.\n\nTHE CHAIN, IN THE ORDER THE JAVA THREADS IT THROUGH TEMPORARY TABLES. `TK` is `fahrenheit_to_kelvin`; `PH2O` is `saturation_vapor_pressure`; `PV` is `vapor_partial_pressure`; `XH2O` is `mol_water_fraction` and is written straight to `molWaterFraction`; `specificHumidity` is `specific_humidity`. `heat_index` is a separate two-statement UPDATE that does not join the pressure chain at all, which is why it takes no pressure.\n\nTHE CONVERSION FACTOR IS THE EXACT 5/9, AND THAT IS MEASURED RATHER THAN ASSUMED. The Java writes the Fahrenheit-to-Kelvin slope as the SQL literal `(5/9)`, and moves.rs's port records an open question about it: in MariaDB `5/9` is DECIMAL division, rounded to `div_precision_increment` places, which would make the slope 0.5556 rather than 0.5555555555555556. The two are not interchangeable here. Reproduced against the snapshot corpus both ways, the exact ratio lands the corpus's 532 populated `ZoneMonthHour` rows -- 1,596 cells -- at a worst 2.391e-08 relative, and 0.5556 lands the same cells at a worst 1.379e-04: four orders worse, and seven times `tolerance.toml`'s 2e-5 per-cell gate. MOVES computes with the exact ratio. It is written here as a `/` of two literals rather than as 0.5555555555555556 so that the SQL it came from is still legible; docs/meteorology-generator.md 7.2 has the measurement.\n\n`power_of_ten` exists because the exponent form uses it five times -- three times inside the Goff-Gratch exponent (twice as `10^-4` / `10^-3` coefficient scalings the SQL writes as `power(10,-4)` and `power(10,-3)`, once as the inner `10^(-8.2969*(x-1))`), once more as the other inner decade, and once to raise 10 to the finished exponent. Writing `1.50475e-4` instead would be the same number and would lose the SQL's own shape; writing `10^x` five times over would be docs/esm-conventions.md 6's repetition.\n\n`ice_point_over_temperature` and `temperature_over_ice_point` are the Goff-Gratch reduced temperature and its reciprocal. They are TWO templates and not one plus a `1/`, because the SQL writes `TK/273.15` and `273.15/TK` as separate expressions and the two spellings do not round alike; the same reason moves.rs's port gives for keeping them apart. Between them they are applied five times inside one exponent.\n\n`ambient_pressure_kilopascals` is the `barometricPressure * 3.38639` that BOTH humidity outputs divide by. One template, so that a document cannot convert the pressure one way for the mole fraction and another way for the specific humidity -- the divergence that would be invisible in either output alone because each is separately plausible.\n\nTHE COUNTY DEFAULT FILL is `resolved_barometric_pressure` and `resolved_altitude_is_high`, the two `UPDATE County` statements the generator runs BEFORE the humidity pass, in that order. The order is load-bearing: step 1 fills a missing pressure from the altitude CLASS, and step 2 then classes a missing altitude from the pressure step 1 has just written -- so a county missing both gets 28.94 inHg from step 1's `ELSE` branch and is classed Low by step 2, never High. `pressure_is_present` and `altitude_is_known` are the SQL's `IS NULL` guards carried as indicators, because a `.esm` parameter that failed to ingest arrives as its `default` rather than as a null and the two cases have to be told apart by a column rather than by a value. NOTE, and docs/meteorology-generator.md 8.1 says it again: not one of the 22,815 `County` rows across the corpus's 40 snapshots has a missing or non-positive `barometricPressure`, and every one records an altitude of `H` or `L`, so these two templates' fallback arms are ported from the SQL and are NOT checked against MOVES anywhere in this repository.\n\nThe 24.59 in `default_pressure_high_altitude` is the value the executed SQL carries; MeteorologyGenerator.java's own `@algorithm` comment says 24.69, and moves.rs follows the executed literal. Neither is exercised by the corpus, so this file follows the code MOVES runs and says so rather than choosing quietly.",
+    "authors": ["EarthSciML Authors and Contributors"],
+    "tags": ["moves", "onroad", "meteorology", "generator", "template-library"]
+  },
+  "expression_templates": {
+    "inches_hg_to_kilopascals": { "params": [], "body": 3.38639 },
+    "water_ice_point_kelvin": { "params": [], "body": 273.15 },
+    "fahrenheit_freezing_point": { "params": [], "body": 32.0 },
+    "percent_scale": { "params": [], "body": 100.0 },
+    "heat_index_threshold": { "params": [], "body": 78.0 },
+    "heat_index_ceiling": { "params": [], "body": 120.0 },
+    "specific_humidity_constant": { "params": [], "body": 621.1 },
+    "default_pressure_high_altitude": { "params": [], "body": 24.59 },
+    "default_pressure_low_altitude": { "params": [], "body": 28.94 },
+    "altitude_pressure_threshold": { "params": [], "body": 25.8403 },
+
+    "power_of_ten": {
+      "params": ["exponent"],
+      "body": { "op": "^", "args": [10.0, "exponent"] }
+    },
+
+    "fahrenheit_to_kelvin": {
+      "params": ["temperature_degF"],
+      "body": {
+        "op": "+",
+        "args": [
+          { "op": "*", "args": [
+            { "op": "/", "args": [5.0, 9.0] },
+            { "op": "-", "args": ["temperature_degF",
+              { "op": "apply_expression_template", "args": [], "name": "fahrenheit_freezing_point", "bindings": {} }] }] },
+          { "op": "apply_expression_template", "args": [], "name": "water_ice_point_kelvin", "bindings": {} }
+        ]
+      }
+    },
+
+    "temperature_over_ice_point": {
+      "params": ["temperature_kelvin"],
+      "body": { "op": "/", "args": ["temperature_kelvin",
+        { "op": "apply_expression_template", "args": [], "name": "water_ice_point_kelvin", "bindings": {} }] }
+    },
+
+    "ice_point_over_temperature": {
+      "params": ["temperature_kelvin"],
+      "body": { "op": "/", "args": [
+        { "op": "apply_expression_template", "args": [], "name": "water_ice_point_kelvin", "bindings": {} },
+        "temperature_kelvin"] }
+    },
+
+    "saturation_vapor_pressure_exponent": {
+      "params": ["temperature_kelvin"],
+      "body": {
+        "op": "+",
+        "args": [
+          { "op": "*", "args": [10.79574,
+            { "op": "-", "args": [1.0,
+              { "op": "apply_expression_template", "args": [], "name": "ice_point_over_temperature",
+                "bindings": { "temperature_kelvin": "temperature_kelvin" } }] }] },
+          { "op": "*", "args": [-5.028,
+            { "op": "log10", "args": [
+              { "op": "apply_expression_template", "args": [], "name": "temperature_over_ice_point",
+                "bindings": { "temperature_kelvin": "temperature_kelvin" } }] }] },
+          { "op": "*", "args": [
+            { "op": "*", "args": [1.50475,
+              { "op": "apply_expression_template", "args": [], "name": "power_of_ten", "bindings": { "exponent": -4.0 } }] },
+            { "op": "-", "args": [1.0,
+              { "op": "apply_expression_template", "args": [], "name": "power_of_ten", "bindings": {
+                "exponent": { "op": "*", "args": [-8.2969,
+                  { "op": "-", "args": [
+                    { "op": "apply_expression_template", "args": [], "name": "temperature_over_ice_point",
+                      "bindings": { "temperature_kelvin": "temperature_kelvin" } },
+                    1.0] }] } } }] }] },
+          { "op": "*", "args": [
+            { "op": "*", "args": [0.42873,
+              { "op": "apply_expression_template", "args": [], "name": "power_of_ten", "bindings": { "exponent": -3.0 } }] },
+            { "op": "-", "args": [
+              { "op": "apply_expression_template", "args": [], "name": "power_of_ten", "bindings": {
+                "exponent": { "op": "*", "args": [4.76955,
+                  { "op": "-", "args": [1.0,
+                    { "op": "apply_expression_template", "args": [], "name": "ice_point_over_temperature",
+                      "bindings": { "temperature_kelvin": "temperature_kelvin" } }] }] } } },
+              1.0] }] },
+          -0.2138602
+        ]
+      }
+    },
+
+    "saturation_vapor_pressure": {
+      "params": ["temperature_kelvin"],
+      "body": {
+        "op": "apply_expression_template", "args": [], "name": "power_of_ten",
+        "bindings": {
+          "exponent": {
+            "op": "apply_expression_template", "args": [], "name": "saturation_vapor_pressure_exponent",
+            "bindings": { "temperature_kelvin": "temperature_kelvin" }
+          }
+        }
+      }
+    },
+
+    "vapor_partial_pressure": {
+      "params": ["rel_humidity_percent", "saturation_pressure_kpa"],
+      "body": {
+        "op": "*",
+        "args": [
+          { "op": "/", "args": ["rel_humidity_percent",
+            { "op": "apply_expression_template", "args": [], "name": "percent_scale", "bindings": {} }] },
+          "saturation_pressure_kpa"
+        ]
+      }
+    },
+
+    "ambient_pressure_kilopascals": {
+      "params": ["barometric_pressure_inhg"],
+      "body": { "op": "*", "args": ["barometric_pressure_inhg",
+        { "op": "apply_expression_template", "args": [], "name": "inches_hg_to_kilopascals", "bindings": {} }] }
+    },
+
+    "mol_water_fraction": {
+      "params": ["vapor_pressure_kpa", "barometric_pressure_inhg"],
+      "body": {
+        "op": "/",
+        "args": ["vapor_pressure_kpa",
+          { "op": "apply_expression_template", "args": [], "name": "ambient_pressure_kilopascals",
+            "bindings": { "barometric_pressure_inhg": "barometric_pressure_inhg" } }]
+      }
+    },
+
+    "specific_humidity": {
+      "params": ["vapor_pressure_kpa", "barometric_pressure_inhg"],
+      "body": {
+        "op": "/",
+        "args": [
+          { "op": "*", "args": [
+            { "op": "apply_expression_template", "args": [], "name": "specific_humidity_constant", "bindings": {} },
+            "vapor_pressure_kpa"] },
+          { "op": "-", "args": [
+            { "op": "apply_expression_template", "args": [], "name": "ambient_pressure_kilopascals",
+              "bindings": { "barometric_pressure_inhg": "barometric_pressure_inhg" } },
+            "vapor_pressure_kpa"] }
+        ]
+      }
+    },
+
+    "heat_index_regression": {
+      "params": ["temperature_degF", "rel_humidity_percent"],
+      "body": {
+        "op": "+",
+        "args": [
+          -42.379,
+          { "op": "*", "args": [2.04901523, "temperature_degF"] },
+          { "op": "*", "args": [10.14333127, "rel_humidity_percent"] },
+          { "op": "*", "args": [-0.22475541, "temperature_degF", "rel_humidity_percent"] },
+          { "op": "*", "args": [-0.00683783, "temperature_degF", "temperature_degF"] },
+          { "op": "*", "args": [-0.05481717, "rel_humidity_percent", "rel_humidity_percent"] },
+          { "op": "*", "args": [0.00122874, "temperature_degF", "temperature_degF", "rel_humidity_percent"] },
+          { "op": "*", "args": [0.00085282, "temperature_degF", "rel_humidity_percent", "rel_humidity_percent"] },
+          { "op": "*", "args": [-0.00000199, "temperature_degF", "temperature_degF",
+            "rel_humidity_percent", "rel_humidity_percent"] }
+        ]
+      }
+    },
+
+    "heat_index": {
+      "params": ["temperature_degF", "rel_humidity_percent"],
+      "body": {
+        "op": "ifelse",
+        "args": [
+          { "op": "<", "args": ["temperature_degF",
+            { "op": "apply_expression_template", "args": [], "name": "heat_index_threshold", "bindings": {} }] },
+          "temperature_degF",
+          { "op": "min", "args": [
+            { "op": "apply_expression_template", "args": [], "name": "heat_index_regression",
+              "bindings": { "temperature_degF": "temperature_degF",
+                            "rel_humidity_percent": "rel_humidity_percent" } },
+            { "op": "apply_expression_template", "args": [], "name": "heat_index_ceiling", "bindings": {} }] }
+        ]
+      }
+    },
+
+    "resolved_barometric_pressure": {
+      "params": ["barometric_pressure_inhg", "pressure_is_present", "altitude_is_high"],
+      "body": {
+        "op": "ifelse",
+        "args": [
+          { "op": "and", "args": [
+            { "op": ">", "args": ["pressure_is_present", 0.0] },
+            { "op": ">", "args": ["barometric_pressure_inhg", 0.0] }] },
+          "barometric_pressure_inhg",
+          { "op": "ifelse", "args": [
+            { "op": ">", "args": ["altitude_is_high", 0.0] },
+            { "op": "apply_expression_template", "args": [], "name": "default_pressure_high_altitude", "bindings": {} },
+            { "op": "apply_expression_template", "args": [], "name": "default_pressure_low_altitude", "bindings": {} }] }
+        ]
+      }
+    },
+
+    "resolved_altitude_is_high": {
+      "params": ["altitude_is_known", "altitude_is_high", "resolved_pressure_inhg"],
+      "body": {
+        "op": "ifelse",
+        "args": [
+          { "op": ">", "args": ["altitude_is_known", 0.0] },
+          "altitude_is_high",
+          { "op": "ifelse", "args": [
+            { "op": "<", "args": ["resolved_pressure_inhg",
+              { "op": "apply_expression_template", "args": [], "name": "altitude_pressure_threshold", "bindings": {} }] },
+            1.0,
+            0.0] }
+        ]
+      }
+    }
+  }
+}
