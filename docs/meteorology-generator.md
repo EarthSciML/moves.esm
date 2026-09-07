@@ -102,7 +102,7 @@ every expression that reads it divides by 100 first, and reading it as a
 fraction leaves the mole fraction a clean factor of 100 low and still finite.
 `barometricPressure` is in **inches of mercury** and every use of it multiplies
 by 3.38639 to reach kilopascals. That unit cannot be DECLARED: the format's unit
-registry is a closed list holding `mmHg` and no imperial length, and it carries
+registry is a closed list holding `mmHg` but no inch, and it carries
 no numeric scale factor, so `inHg`, `in`, `inch`, `25.4 mmHg` and five other
 spellings are all refused. The three pressure variables in
 `components/meteorology.esm` are therefore declared dimensionless with a

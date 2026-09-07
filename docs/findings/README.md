@@ -1481,10 +1481,13 @@ refused:
 | `inch*mmHg` | refused |
 | `mm` | **accepted** |
 | `m` | **accepted** |
+| `ft` | **accepted** |
 
-So the registry carries metric length and no imperial length, and a unit string
-carries no numeric scale factor. The format can say *millimetres* of mercury and
-cannot say *inches* of mercury by any route. A document holding one has two
+So the obstacle is narrower than "no imperial units" — `ft` is in the registry,
+at 0.3048 m, so imperial length is not excluded on principle; what is missing is
+the **inch**, and, decisively, any way to attach a numeric scale factor to a unit
+string. The format can say *millimetres* of mercury and cannot say *inches* of
+mercury by any route. A document holding one has two
 options and both defeat the field:
 
 1. declare a **wrong** unit — `mmHg`, off by a factor of 25.4 — which is worse
@@ -1511,13 +1514,22 @@ tripwire fires on `validate` alone.
 
 (a) a **numeric scale factor** in a unit string, so `25.4 mmHg` denotes what it
 says — that is the general fix and it is not about pressure;
-(b) **imperial length** in the registry, so `inch` composes;
+(b) the **inch** in the registry, so `inch` composes — `ft` is already there, so this is a gap in the imperial set rather than its absence;
 (c) `inHg` as a registry entry, which fixes this document and nothing else.
 
 Any of the three turns
 `F34_a_unit_the_registry_lacks_cannot_be_scaled.esm` green, at which point
 `components/meteorology.esm`'s three `units: "1"` declarations and their
 apologies should be replaced with the real unit.
+
+**Filed upstream:** (c) is open as
+[EarthSciAST#238](https://github.com/EarthSciML/EarthSciAST/pull/238), one
+registry entry at exactly 25.4 x the existing `mmHg`. Verified against a build
+of that branch: this repro validates and its assertion passes 1/0/0, while the
+pinned binary still refuses it. So the tripwire will fire the moment
+`esm-version.lock` moves past that merge, and it should -- that is the retirement
+signal, not a regression. (a) is the fix that generalises and is NOT part of
+that PR.
 
 ---
 
