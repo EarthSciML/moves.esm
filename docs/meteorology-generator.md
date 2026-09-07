@@ -55,20 +55,22 @@ Auxiliary Power Exhaust (91), Tirewear (10) and Brakewear (9)
 schedules the generator, and the three columns stay unwritten.
 
 That is a claim about MOVES's master loop, so it is checked against the corpus
-rather than read off the Java. Of the 39 snapshots that carry a `ZoneMonthHour`
-with the three columns:
+rather than read off the Java. Of the snapshots that carry a `ZoneMonthHour`
+with the three columns — **40** as this is written, and the corpus GROWS as new
+rungs capture new RunSpecs, which is why §6.5 asserts a floor rather than an
+equality (§7.1):
 
 | | snapshots | `ZoneMonthHour` rows |
 |---|---|---|
 | populated | **21** | 532 |
-| left unwritten | **18** | 5,631,432 |
+| left unwritten | **19** | 6,562,248 |
 
 and the predicate
 
 > populated ⇔ the RunSpec is ONROAD **and** its `runspecpollutantprocess` rows
 > carry at least one process in {1, 2, 9, 10, 90, 91}
 
-decides all 39 correctly. The 18 unwritten ones are the eleven NONROAD sectors,
+decides all 40 correctly. The 19 unwritten ones are the twelve NONROAD sectors,
 the three evaporative slices (processes 11, 12, 13), and
 `process-crankcase-start` / `-extidle` with their `-single` variants (processes
 16 and 17). `process-crankcase-running` **is** populated, because it selects
@@ -182,11 +184,13 @@ neither is guessable:
    hour 13 (78.900 °F, 58.400 % RH) the regression gives 80.464 — 1.56 °F above
    the dry-bulb temperature — while hour 12, three tenths of a degree below the
    threshold at 76.900 °F, passes through unchanged.
-2. **The regression is nowhere near the identity below its range.** Applied at
-   hour 7 (59.5 °F, 90.4 % RH) it returns 45.6 °F, and at hour 1 (63.8 °F,
-   84.6 %) it returns 42.2 °F. A document that dropped the branch would produce
-   24 finite, plausible-looking heat indices, 12 of which are 15–20 °F wrong,
-   and the downstream air-conditioning comparisons are threshold tests.
+2. **The regression is not the identity below its range.** Applied at hour 7
+   (59.5 °F, 90.4 % RH) it returns 65.75 °F, and at hour 1 (63.8 °F, 84.6 %)
+   67.77 °F. Across the day's **17** sub-78 °F hours it runs **1.80 to 6.25 °F
+   above** the dry-bulb temperature. A document that dropped the branch would
+   produce 24 finite, plausible-looking heat indices, 17 of them too high by up
+   to 6.25 °F, and the downstream air-conditioning comparisons are threshold
+   tests — a few degrees is what decides which side of one an hour falls on.
 
 `MG-3` carries **no join**. It reads only `ZoneMonthHour`'s own two columns, so
 it runs on every row including any whose zone has no county — which is the
@@ -234,9 +238,10 @@ MG-7  specificHumidity = 621.1 * PV / (barometricPressure*3.38639 - PV)
 The two outputs share `PV` and share the inches-of-mercury conversion, and
 **differ in exactly one term**: the specific humidity's denominator is the
 pressure of the *dry* air, so it subtracts the vapour pressure; the mole
-fraction's is the *ambient* pressure whole. Here that is a 1.7 % difference —
-small enough that swapping them looks like nothing on a plot, and large enough
-that it is 850× `tolerance.toml`'s per-cell gate.
+fraction's is the *ambient* pressure whole. Over the 24 rows of §6.0 dropping
+that subtraction moves the specific humidity by **1.59 % to 2.02 %** — small
+enough that it looks like nothing on a plot, and large enough that at worst it
+is 1,009× `tolerance.toml`'s per-cell gate.
 
 `lib/meteorology.esm` carries the conversion as one `ambient_pressure_kilopascals`
 template applied twice, once per output, so that a document cannot convert the
@@ -427,9 +432,13 @@ August afternoon and is 12 % wrong here.
 Extracted and run by `./run-meteorology-oracle.sh`. Unlike its nine siblings it
 is handed the snapshots **directory** rather than one snapshot, because the
 thing being reproduced is a generator that ran in 21 of them and deliberately
-did not run in 18. It **asserts** the row count, the exact key set, the worst
-relative error, the scheduling predicate of §0.1, and that the two candidate
-Fahrenheit slopes of §7.2 are distinguishable at all.
+did not run in 19. It **asserts** a floor under the cell count (§35.5 of
+`docs/esm-conventions.md` says why a floor and not an equality), the **exact**
+key set, the worst relative error, the scheduling predicate of §0.1, and that
+the two candidate Fahrenheit slopes of §7.2 are distinguishable at all. It runs
+in about 1.4 s over the whole corpus, because a snapshot the generator did not
+run on is settled from one column's distinct values rather than by materialising
+930,816 rows.
 
 ```python
 #!/usr/bin/env python3
@@ -440,13 +449,27 @@ import pyarrow.parquet as pq
 ROOT = sys.argv[1]                      # the snapshots DIRECTORY, not one snapshot
 SUBSCRIBED = {1, 2, 9, 10, 90, 91}      # MeteorologyGenerator.subscribeToMe
 
-def table(snap, name, columns=None):
+def path_of(snap, name):
     """The EXECUTION database's copy of `name`, or None."""
     hits = [h for h in glob.glob("%s/tables/db__*__%s.parquet" % (snap, name))
             if "__out_" not in os.path.basename(h)]
-    if len(hits) != 1:
-        return None
-    return pq.read_table(hits[0], columns=columns).to_pylist()
+    return hits[0] if len(hits) == 1 else None
+
+def table(snap, name, columns=None):
+    p = path_of(snap, name)
+    return None if p is None else pq.read_table(p, columns=columns).to_pylist()
+
+def wrote_anything(path):
+    """Did the generator run on this snapshot?
+
+    Read as ONE column and reduced to its DISTINCT values before any row is
+    materialised. The NONROAD `ZoneMonthHour` tables are 930,816 rows each and
+    twelve of them are in the corpus; `to_pylist()` on all of that is 30 seconds
+    of the suite's time to establish a single boolean, and the boolean is the
+    only thing needed from a snapshot the generator did not run on.
+    """
+    seen = pq.read_table(path, columns=["specificHumidity"]).column(0).unique()
+    return any(v is not None and float(v) != 0.0 for v in seen.to_pylist())
 
 def num(v):
     """A decimal-text column cell as a float; None stays None."""
@@ -498,39 +521,44 @@ missing, extra, predicate_checked, predicate_wrong = 0, 0, 0, []
 
 for name in snapshots:
     snap = ROOT + "/" + name
-    zmh = table(snap, "zonemonthhour")
-    if zmh is None or "specificHumidity" not in zmh[0]:
+    zmh_path = path_of(snap, "zonemonthhour")
+    if zmh_path is None:
         continue
-    zone = {r["zoneID"]: r["countyID"] for r in table(snap, "zone")}
-    county = {}
-    for r in table(snap, "county"):
-        p = resolve_pressure(num(r["barometricPressure"]), r["altitude"])
-        county[r["countyID"]] = (p, resolve_altitude(r["altitude"], p))
+    if not {"heatIndex", "specificHumidity", "molWaterFraction"} <= set(
+            pq.ParquetFile(zmh_path).schema_arrow.names):
+        continue
 
-    ref = {}
-    for r in zmh:
-        hi, sh, xh = num(r["heatIndex"]), num(r["specificHumidity"]), num(r["molWaterFraction"])
-        if hi is None or sh is None or xh is None or (sh == 0.0 and xh == 0.0):
-            continue                     # the generator did not run on this row
-        ref[(r["zoneID"], r["monthID"], r["hourID"])] = (hi, sh, xh)
+    if not wrote_anything(zmh_path):
+        unpopulated.append(name)
+    else:
+        populated.append(name)
+        zmh = pq.read_table(zmh_path).to_pylist()
+        zone = {r["zoneID"]: r["countyID"] for r in table(snap, "zone")}
+        county = {}
+        for r in table(snap, "county"):
+            p = resolve_pressure(num(r["barometricPressure"]), r["altitude"])
+            county[r["countyID"]] = (p, resolve_altitude(r["altitude"], p))
 
-    (populated if ref else unpopulated).append(name)
+        ref, got = {}, {}
+        for r in zmh:
+            hi = num(r["heatIndex"])
+            sh = num(r["specificHumidity"])
+            xh = num(r["molWaterFraction"])
+            if hi is None or sh is None or xh is None or (sh == 0.0 and xh == 0.0):
+                continue                 # the generator did not run on this row
+            key = (r["zoneID"], r["monthID"], r["hourID"])
+            ref[key] = (hi, sh, xh)
+            got[key] = meteorology(num(r["temperature"]), num(r["relHumidity"]),
+                                   county[zone[r["zoneID"]]][0])
 
-    got = {}
-    for r in zmh:
-        key = (r["zoneID"], r["monthID"], r["hourID"])
-        if key not in ref:
-            continue
-        got[key] = meteorology(num(r["temperature"]), num(r["relHumidity"]),
-                               county[zone[r["zoneID"]]][0])
-    missing += len(set(ref) - set(got))
-    extra += len(set(got) - set(ref))
-    for key in ref:
-        for g, e in zip(got[key], ref[key]):
-            rel = abs(g - e) / abs(e) if e else abs(g - e)
-            if rel > worst:
-                worst, worst_key = rel, (name,) + key
-        cells += 3
+        missing += len(set(ref) - set(got))
+        extra += len(set(got) - set(ref))
+        for key in ref:
+            for g, e in zip(got[key], ref[key]):
+                rel = abs(g - e) / abs(e) if e else abs(g - e)
+                if rel > worst:
+                    worst, worst_key = rel, (name,) + key
+            cells += 3
 
     # The scheduling predicate of section 0.1, checked rather than believed.
     xml = "%s/../fixtures/%s.xml" % (ROOT, name)
@@ -543,7 +571,7 @@ for name in snapshots:
         # populated, so the default is read from the corpus rather than assumed.
         onroad = "ONROAD" in models or not models
         runs = onroad and bool({r["polProcessID"] % 100 for r in rpp} & SUBSCRIBED)
-        if runs != bool(ref):
+        if runs != (name in populated):
             predicate_wrong.append(name)
 
 print("ZoneMonthHour: %d snapshots carry the three columns, %d populated and "
@@ -558,7 +586,13 @@ print("subscription:  %d of them checked against ONROAD x processes "
 # ASSERTED, not merely printed (docs/esm-conventions.md 21): run-tests.sh reads
 # this script's EXIT CODE, so a regression that left the key set intact and moved
 # every value would otherwise be reported green with the evidence in a log.
-assert cells == 1596, cells
+# A FLOOR, not an equality. The snapshot corpus is shared with the other rungs
+# and it grows: it was 39 snapshots when this was written and 40 by the time the
+# suite next ran, the new one NONROAD and correctly unwritten. An equality here
+# would turn a sibling's capture into this oracle's failure. A floor still stops
+# the thing the assertion is for -- a snapshot that quietly stopped being read
+# passes by default -- because that can only make the count go DOWN.
+assert cells >= 1596, cells
 assert (missing, extra) == (0, 0), (missing, extra)
 assert worst < 1e-7, "worst relative error %.3e exceeds 1e-7" % worst
 assert not predicate_wrong, predicate_wrong
@@ -580,10 +614,10 @@ assert abs(decimal - exact) / exact > 2e-5, "the two slopes are not distinguisha
 Result:
 
 ```
-ZoneMonthHour: 39 snapshots carry the three columns, 21 populated and 18 not
+ZoneMonthHour: 40 snapshots carry the three columns, 21 populated and 19 not
                532 rows compared, 1596 cells, 0 missing / 0 extra keys
                worst relative error 2.391e-08 at expand-month zone 261610 month 2 hour 0
-subscription:  39 of them checked against ONROAD x processes {1,2,9,10,90,91}; 0 disagree
+subscription:  40 of them checked against ONROAD x processes {1,2,9,10,90,91}; 0 disagree
 slope:         exact 5/9 gives 10.053684062398 g/kg, MariaDB's decimal 0.5556 gives 10.054486480128, a relative 7.981e-05
 ```
 
@@ -618,14 +652,17 @@ Measured, the assertions can fail: substituting 0.5556 for the exact 5/9 in
 
 | | |
 |---|---|
-| snapshots reproduced | **21** of the 39 carrying the columns; the other 18 correctly produce nothing (§0.1) |
+| snapshots reproduced | **21** of the 40 carrying the columns; the other 19 correctly produce nothing (§0.1) |
 | rows | **532** |
 | cells | **1,596** |
 | key set | **0 missing, 0 extra** |
+| assertion polarity | the cell count is asserted as a **floor** (`>= 1596`), the key set as an **equality**, per `docs/esm-conventions.md` §35.5 — the corpus is shared with the other rungs and grows |
 | worst relative error | **2.391e−08**, at `expand-month` zone 261610 month 2 hour 0, `specificHumidity` |
 
-For comparison, the nine wired `MOVESOutput` fixtures sit between 4.561e−06 and
-9.910e−06, and `tolerance.toml`'s per-cell gate is 2e−5. This rung is **two
+For comparison, the **twelve** wired `MOVESOutput` fixtures sit between
+4.561e−06 and 9.910e−06 (the **nine** that ingest these three columns span the
+same range: `nr-logging-county` 4.561e−06 to `process-pm-exhaust` 9.910e−06),
+and `tolerance.toml`'s per-cell gate is 2e−5. This rung is **two
 orders of magnitude tighter than any of them**, and the reason is structural
 rather than flattering: `ZoneMonthHour` stores twelve decimal places where
 `MOVESOutput.emissionQuant` stores six significant figures, and there is no
@@ -670,9 +707,12 @@ and so that the question above is answerable by reading the document.
    is 5.8e−03 relative on `TK`'s *offset* from the ice point and comes out as
    1.379e−04 on the humidity: the MG-5 exponent multiplies the reduced
    temperature's error by about 10.8 and then exponentiates it.
-2. **`TK/273.15` vs `1/(273.15/TK)`** — reciprocating one to get the other is
-   the same number to within a ulp here and is kept apart anyway, because the
-   MG-5 exponent multiplies the difference by 10.8 and then exponentiates.
+2. **`TK/273.15` vs `1/(273.15/TK)`** — measured over the corpus's temperature
+   range the two agree to **1.12e−16** relative (about half a ulp; they are
+   bit-identical at three of the four temperatures checked and differ by one ulp
+   at the sub-freezing one). They are kept apart anyway, because the MG-5
+   exponent multiplies any difference by 10.8 and then exponentiates it, and
+   because it costs nothing to write what the SQL writes.
 3. **The heat-index polynomial's cancellation** (§6.2) — nine terms spanning
    ±1,036 summing to 80.5. Measured, term order does not move the twelve
    decimals the snapshot stores; it is ranked here because it is the only place
@@ -691,9 +731,11 @@ on a comparison, so binary64 throughout is not a choice with consequences.
 ### 8.1 The county fallback branches are ported, not checked
 
 `MG-1` and `MG-2`'s fallback arms are **not exercised anywhere in the corpus.**
-Measured across all 39 snapshots' `County` tables: **1,910 distinct county rows,
-1,770 with `altitude = 'L'` and 140 with `'H'`, and not one with a NULL or
-non-positive `barometricPressure`.** Every county in the corpus therefore takes
+Measured across all 40 snapshots' `County` tables: **22,815 rows, 3,286 distinct
+`countyID`s, `altitude` `'L'` on 21,814 of them and `'H'` on 1,001 — and not one
+row with a NULL or non-positive `barometricPressure`.** (The variety is smaller
+than the row count suggests: there are 1,910 distinct `(altitude,
+barometricPressure)` pairs among the 22,815.) Every county in the corpus therefore takes
 `MG-1`'s "keep what is stored" path and `MG-2`'s "keep what is stored" path.
 
 So three of `components/meteorology.esm`'s five county rows are checked against
@@ -753,7 +795,9 @@ accuracy.
    output** (§2.1). Write them in that order or a county missing both fields is
    filled 15 % wrong.
 3. **The heat index is a branch, not a formula** (§2.2). Below 78 °F it is the
-   temperature; the regression is 15–20 °F wrong there.
+   temperature; the regression runs 1.80–6.25 °F high there, over 17 of the
+   day's 24 hours — small enough to look right and large enough to move a
+   threshold test.
 4. **The slope is the exact 5/9** (§7.2), and this is measured.
 5. **The two humidity outputs differ in exactly one term** (§2.5). Convert the
    pressure once, in one template, so they cannot disagree about it.
@@ -764,5 +808,7 @@ accuracy.
    generator does not go in `fixtures/` (§35.1), why its scheduling condition is
    half the claim and is asserted on the snapshots that FAIL it (§35.2), why a
    host-language fidelity question is settled by running both candidates
-   (§35.3), and why each test says whether it faces the reference or the port
-   (§35.4). The one format refusal it hit is finding **F34** (§1.1).
+   (§35.3), why each test says whether it faces the reference or the port
+   (§35.4), and why an oracle over the shared snapshot corpus asserts a floor
+   rather than a count (§35.5). The one format refusal it hit is finding **F34**
+   (§1.1).

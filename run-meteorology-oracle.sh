@@ -15,8 +15,8 @@
 # it writes three columns of the `ZoneMonthHour` INPUT table and emits no
 # `MOVESOutput` row, so there is no single fixture whose output it reproduces.
 # What there is instead is a scheduling rule -- it subscribes to processes 1, 2,
-# 9, 10, 90 and 91 -- and 39 snapshots that carry the three columns, 21 of which
-# ran it and 18 of which did not. Both halves are the claim, so both halves are
+# 9, 10, 90 and 91 -- and 40 snapshots that carry the three columns, 21 of which
+# ran it and 19 of which did not. Both halves are the claim, so both halves are
 # checked, and checking them needs the whole corpus.
 #
 # What it proves. From `ZoneMonthHour.temperature`, `ZoneMonthHour.relHumidity`,
@@ -24,11 +24,14 @@
 # rows' `heatIndex`, `specificHumidity` and `molWaterFraction`, 1,596 cells, and
 # asserts:
 #
-#     the cell count                     1,596, so a snapshot that stopped
-#                                        being read cannot pass by default
+#     the cell count                     >= 1,596, a FLOOR rather than an
+#                                        equality: silent skipping can only make
+#                                        it go down, and the corpus is shared
+#                                        with the other rungs and grows
+#                                        (docs/esm-conventions.md 35.5)
 #     the key set                        0 missing / 0 extra
 #     the worst relative error           < 1e-7  (measured: 2.391e-08)
-#     the scheduling predicate           39 of 39 snapshots agree
+#     the scheduling predicate           every snapshot agrees (40 of 40 today)
 #     the two candidate slopes           distinguishable at > 2e-5
 #
 # 2.391e-08 is the reference's own twelve-decimal column storage, not
