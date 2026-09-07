@@ -196,11 +196,17 @@ sulfate (105 ← 115) PM10; `sourcePollutantIDs` is only ever `"110"`, so the
 SQL's `mwo.pollutantID IN (…)` admits Total PM2.5 alone. `../moves.rs`'s
 `pm10.rs` ports the live `110 → 100` pair only, and so does this document.
 
-**`atbaseemissions`, `atratio`, `hcspeciation` and `methanethcratio` are all 0
-rows here**, which is the mirror image of `process-airtoxics` §1.3's
-observation: a populated table is not an input, and an empty one is not
-evidence of anything either. What decides is whether a column reaches
-`emissionQuant`.
+**Six tables `process-airtoxics` read are 0 rows here and one is not**, and the
+one that is not is the point. `atbaseemissions`, `atratio`, `atrationongas`,
+`hcspeciation`, `altcriteriaratio` and `criteriaratio` are all empty; but
+**`methanethcratio` still ships 140 rows**, exactly as it did there, and this
+fixture reads it no more than the nine snapshots `process-airtoxics` §1.3
+counted did. That is that section's observation from the other side: *a
+populated table is not an input, and an empty one is not evidence of anything
+either.* What decides is whether a column reaches `emissionQuant`.
+`imfactor`, `imcoverage`, `emissionrate` and `evefficiency` are empty here too,
+so the I/M blend and the emission-rate adjustment that follow the fuel effects
+in `adjust.rs` are absent rather than inert.
 
 ---
 
@@ -215,7 +221,11 @@ column is read back through `rt_polProcOrdinal` / `rt_cohortOrdinal`
 (`docs/esm-conventions.md` §27.1). Five of the seven pollutant-processes have no
 `emissionratebyage` row at all, so `rt_hasRate` is 0 on 820 of the 1,148 and the
 rate arm contributes nothing to them — the same "a chained block's own rate path
-evaluates to exactly 0" that `process-brakewear` established.
+evaluates to exactly 0" that `process-brakewear` established. On the two that do, `rt_hasRate` is non-zero on
+143 of the 164 candidates each — 19 more than the 124 that are *selected*,
+because a candidate with `stmyFraction = 0` still carries an engine tech and a
+regulatory class and so still resolves a source bin. Selection and rate
+existence are independent tests here, and §2.7 multiplies both.
 
 ### 2.2 The parents are a PAIR, and both are emitted
 
@@ -460,18 +470,29 @@ what produces pollutant 110 in the rates-first engine.
 
 ### 2.7 Survival: why 124 cohorts become 104
 
-A rate row emits when it has a rate **and** the two `SulfatePMCalculator` joins
-its species needs both hit. Written as a conjunction rather than as a chain:
+A rate row emits when its cohort is selected, **both** parents carry a rate, and
+**both** `SulfatePMCalculator` joins its species need hit. Written as a product
+rather than as a chain, with the names the fixture uses:
 
 ```
-rt_survives      = rt_isSelected x rt_hasRate                     -- 124 cohorts x 2 polProcesses
-coh_splitLives   = coh_hasSulfateFractions                        -- no fuel-9 row
-coh_ccLives      = coh_hasCrankcaseSplit (per species)            -- no fuel-9 row
-rt_emits         = rt_cohortLives x (this pollutant's species chain exists)
+rt_emits = rt_cohortIsSelected     -- 125 of 164 candidates, read off the COHORT relation
+         x rt_ecParentHasRate      -- 124 of those 125; (2000, electricity) has no source bin
+         x rt_nonECParentHasRate   -- the same 124: both parents share the source bin
+         x rt_hasSulfateFractions  -- no fuel-type-9 row: -20
+         x rt_hasEcCrankcase       -- no fuel-type-9 row: the same -20
+         x rt_hasSulfateCrankcase
+         x rt_hasWaterCrankcase
+         x rt_hasResidueCrankcase  -- 104 x 7 = 728
 ```
 
-The twenty electricity cohorts fail both `coh_splitLives` and `coh_ccLives`.
-**Either alone would empty the blocks**, so the row set is not evidence for
+**It is a product and not a union of chain depths.** Every emitted pollutant of
+this run needs both parents (PM2.5 total sums them) and every one needs the
+split and the crankcase rows, so there is no depth to disjoin over and no arm
+that is alive where another is dead -- which is the whole of the difference
+between this rung's survival rule and the four disjoint arms of section 32.1.
+
+The twenty electricity cohorts fail `rt_hasSulfateFractions` and all four
+`rt_has*Crankcase` flags. **Either group alone would empty the blocks**, so the row set is not evidence for
 which one MOVES uses, and the document writes both because
 `sulfate_pm_calculator.rs` performs both. `run-pm-exhaust-oracle.sh` asserts the
 two absences separately for exactly that reason.
@@ -1526,10 +1547,19 @@ here.
 **2. The crankcase split is a row filter, not a multiply.** Every ratio this run
 reaches is exactly `1.000000000000`, so row 3 changes nothing — while row 13,
 which keeps the multiply and drops the join, adds all 40 electricity rows. The
-arithmetic is untested and the join is load-bearing. A fixture on a RunSpec that
-selected crankcase running exhaust (process 15) would test both, and there is
-one: `process-crankcase-running`, already ported, whose particulate pollutants
-are exactly these.
+arithmetic is untested and the join is load-bearing.
+
+**And no snapshot in the corpus can test it.** The obvious candidate is
+`process-crankcase-running`, but its `MOVESOutput` is pollutants 1, 2 and 3 on
+processes 1 and 15 — THC, CO and NOx, not one particulate species — and the
+crankcase ratios *it* exercises are `crankcaseemissionratio`'s criteria rows,
+under different polProcessIDs. Measured across all 31 snapshots with a non-empty
+`MOVESOutput`: **not one emits a PM pollutant on any process but 1**, so the
+crankcase ratios of 112, 115, 119 and 120 are exactly 1 wherever this corpus can
+see them. `SulfatePMCalculator` registers on processes 2, 15, 16, 17, 90 and 91
+as well, so this is a gap in the RunSpec corpus rather than in the port, and it
+is the same shape as `docs/nonroad-logging-county.md`'s missing off-network
+snapshot: it needs a RunSpec generated in `moves.rs`.
 
 **3. The water arm of the split is dead in its coefficient and live in its
 form.** `H2OnonECPMFraction` is 0 on all six `sulfatefractions` rows, so
@@ -1545,8 +1575,12 @@ at all**, and they fail differently from a term that is zero. `fullacadjustment`
 is empty *and* the A/C activity term clamps to 0 (raw −0.296982), so the A/C arm
 is dead twice over and row 6 cannot distinguish the two reasons.
 `fleetavgadjustment` is empty, so `rt_evSalesFactor` is 1 on every row and row 7
-is inert; `process-refueling` and `process-nox-speciation` are where that
-factor is exercised.
+is inert. Note that "empty" is a *weaker* statement than
+`process-airtoxics`' and `process-nox-speciation`', where the table has 9 rows
+whose `evMultiplier` is 1.0 on every one — inert by arithmetic. The only
+snapshots whose `fleetavgadjustment` carries a multiplier other than 1.0 are
+`process-refueling` and `process-brakewear` (1.3, 1.5, 1.75, 2.0, 4.5), so those
+are the two places the back-scaling could be checked at all.
 
 **5. The per-formulation half of the fuel effect is entirely untested, in four
 independent ways.** Each fuel type is supplied by exactly **one** formulation at
@@ -1616,7 +1650,11 @@ which is what `adjust.rs` and `sulfate_pm_calculator.rs` both do.
    indistinguishable.
 2. **The crankcase arithmetic is unexercised** (§7.2.2), so this fixture does
    not establish that `crankcaseemissionratio` is a multiply rather than, say, a
-   share of a total. `process-crankcase-running` is where that lives.
+   share of a total — and **no snapshot in the corpus establishes it for the PM
+   species either.** `process-crankcase-running` exercises the same table on
+   pollutants 1, 2 and 3 under different polProcessIDs; measured across all 31
+   snapshots with a non-empty `MOVESOutput`, not one emits a PM pollutant on any
+   process other than 1. It needs a RunSpec generated in `moves.rs`.
 3. **`FuelEffectsGenerator` is not ported.** `generalfuelratio` ships captured
    in the snapshot, computed from `generalfuelratioexpression`'s 58 equation
    strings and the fuel formulations' properties. Turning those strings into
@@ -1644,9 +1682,13 @@ which is what `adjust.rs` and `sulfate_pm_calculator.rs` both do.
 ## 9. Summary for the `.esm` author
 
 * **Two rated pollutant-processes, seven emitted.** One rate relation of
-  7 × 164 = 1,148 rows; `rt_hasRate` is non-zero on 328 of them (two
-  pollutant-processes × 164 candidates) and the rate arm is exactly 0 on the
-  other 820.
+  7 × 164 = 1,148 rows. `rt_hasRate` is non-zero on **286** of them — 143 on
+  each rated pollutant-process, which is more than the 124 that are *selected*,
+  because a candidate whose `stmyFraction` is 0 still carries an engine tech and
+  a regulatory class and can therefore resolve a source bin. `rt_isSelected`
+  and `rt_hasRate` are two different tests and neither implies the other; the
+  emission mask is a product of both (through `rt_cohortIsSelected`) and of five
+  more.
 * **Pull the two parents onto the cohort with a self-join, once per parent**
   (J54), and build the four `spmOutput` species from them. Do not look for a
   chain root: `runspecchainedto` is cyclic (§2.8).
