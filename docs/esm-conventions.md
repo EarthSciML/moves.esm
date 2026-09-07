@@ -2736,11 +2736,31 @@ The non-unit gaps are the marker trips, which MOVES's own first step removes
 before the generator that recurs ever sees them. **The rule: compute the lag on
 the relation the recurrence is written over, AFTER every row filter the
 reference applies, and only then decide whether the offset is constant.** An
-identifier gap is not a lag; a row gap is. Measure it on more than one capture —
-this held on all four snapshots that carry `SampleVehicleTrip` — and check that
-the walk order is total, because a tie makes "the preceding row" a sort-order
-question (12 of 44,513 `(vehID, dayID, keyOnTime)` triples tie here, broken by
-the emission order).
+identifier gap is not a lag; a row gap is. Then measure it on more than one
+capture, and be careful what counts as another capture. Thirty-nine snapshots
+carry a populated `SampleVehicleTrip`, but by `(vehID, dayID, tripID)` key set
+they are only **eight distinct tables**, and thirty-six of them omit
+`tripType` — so the marker drop above is performable on three, all three of
+which are the same evap capture. Checking "four snapshots" that share one table
+is one measurement written down four times.
+
+The eight distinct captures do corroborate it, and across more than one model:
+
+| capture | rows | ties | positional lag 1 | exceptions |
+| --- | ---: | ---: | ---: | ---: |
+| `process-evap-fvv`, markers dropped | 37,216 → 31,758 | 0 | 26,193 | 107 |
+| `chain-nonhaptog`, `expand-sourcetype`, `expand-fueltype-diesel`, `process-apu` | 37,216 | 0 | 30,007 | 107 |
+| `expand-month` | 37,216 | 0 | 30,094 | 20 |
+| `nr-agriculture-state` (NONROAD) | 26,958 | 0 | 21,915 | 90 |
+| `sample-runspec` | 10,258 | 0 | 8,092 | 17 |
+
+Two things in that table matter more than the pass. **The tie count is zero in
+every one**, so the walk order is total on every capture and not just on this
+one — which is the check to run, because a tie makes "the preceding row" a
+sort-order question (12 of 44,513 `(vehID, dayID, keyOnTime)` triples do tie in
+`SampleVehicleTripByHour`, broken by the emission order). And **the exception
+count varies** — 17, 20, 90, 107 — so 107 is a property of this capture, not a
+constant of the model, and a fixture that hard-codes it is fitting one snapshot.
 
 Two things follow, and the second is the more useful:
 

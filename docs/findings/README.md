@@ -1785,11 +1785,19 @@ marker trips, which `flagMarkerTrips` deletes before TTG-2 ever sees them —
 MOVES's own first step, not an optimisation. 107 chained trips name a
 predecessor absent from the relation; those take the same
 `coldSoakTankTemperature` arm a first-of-day trip takes, so the base case is
-one `ifelse`. Falsified four ways: the row lag holds on
-`process-evap-permeation`, `process-evap-leaks`, `process-evap-fvv` and
-`mixed-onroad` (they share the default `SampleVehicleTrip`), and the walk order
-is total but for 12 tied `(vehID, dayID, keyOnTime)` triples out of 44,513,
-broken by TTG-2's emission order.
+one `ifelse`.
+
+Corroborated on **eight distinct captures**, which is not the same as eight
+snapshots: thirty-nine snapshots carry a populated `SampleVehicleTrip` and by
+`(vehID, dayID, tripID)` key set they collapse to eight tables, only three of
+which carry `tripType` at all — and those three are one evap capture. The eight
+include NONROAD (`nr-agriculture-state`, 26,958 rows) and a third scale
+(`sample-runspec`, 10,258). The **tie count is 0 in all eight**, so the walk
+order is total on every one, and the exception count varies with the capture —
+17, 20, 90, 107 — so 107 belongs to this snapshot and not to the model. In
+`SampleVehicleTripByHour` 12 of 44,513 `(vehID, dayID, keyOnTime)` triples do
+tie, broken by TTG-2's emission order. See `docs/esm-conventions.md` §34.3 for
+the table.
 
 **So F28 has no confirmed call site in MOVES today.** The finding stays — it is
 a real refusal, it is correct behaviour, an author does write the expression,
