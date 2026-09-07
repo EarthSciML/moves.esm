@@ -2619,3 +2619,144 @@ fixture cannot choose between them — and the oracle should assert the
 identity**, so a later reader can see that the choice was made from the source
 and not from the answer. `run-airtoxics-oracle.sh` does that for the two subtype
 pairs; a comparison against `MOVESOutput` never could.
+
+## 34. A key rule can be per PROCESS **[Phase 5, 128 rows]**
+
+`process-evap-permeation` is the third evaporative slice and shares almost
+everything with the first two: the run scope, the geography, the activity chain
+A1–A10, the cohort structure C1–C4, the operating-mode distribution E1–E3, the
+128-row output shape, even the two SCCs but for their process suffix. It is
+therefore the slice where copying a sibling's spine is most tempting and most
+dangerous, and the three sections below are the three ways it bites.
+
+### 34.1 Read the key rule from the table that carries it, per process
+
+`SourceBinDistributionGenerator` builds a source-bin key from the vehicle's
+fuel, engine technology, regulatory class and model-year group — **except that
+the regulatory class is replaced by 0 when
+`SourceTypePolProcess.isRegClassReqd` is `'N'`**
+(`source_bin_distribution_generator.rs:1355`). That flag is keyed on
+`(sourceTypeID, polProcessID)`. It is not a property of the run:
+
+| snapshot | `polProcessID` | `isRegClassReqd` | every `sourceBin.regClassID` |
+|---|---|---|---|
+| `process-evap-leaks` | 113 | `Y` | 20 |
+| `process-evap-fvv` | 112 | `Y` | 20 |
+| `process-evap-permeation` | 111 | **`N`** | **0** |
+
+So the same 125 cohorts carry different `sourceBinID`s in three snapshots that
+are otherwise the same run. **The rule: a join key whose SHAPE is decided by a
+table gets that decision read from the table, in the document, once — never
+folded into the key's definition.** Here that is one variable,
+`coh_binRegClassID = isRegClassReqd ? svpRegClassID : 0`, and every key
+downstream of it — the bin existence test, the fuel-usage rebase's
+equipped-to-used match on both sides, and PC-1b's rate join — reads that column
+and not the sample vehicle's own. `coh_svpRegClassID` is kept beside it and
+asserted at 20, so what is discarded is visible rather than merely absent.
+
+**Why this is worth a section rather than a comment: the failure is silent in
+the only place a fixture usually looks.** Measured, by giving the bin key the
+sibling's rule and rerunning:
+
+| | with C2′ | with the sibling's rule |
+|---|---|---|
+| `coh_binExists` | 1 | 0 |
+| `cohortSurvivorCount` | 64 | **0** |
+| every one of the 128 `emissionQuant` cells | §6's values | **exactly 0** |
+| rows emitted | 128 | **128** |
+| `require_exact_key_set` | passes | **passes** |
+
+The row count is `n_outputCohort × n_runspecday` and neither factor moves, so
+the key set is perfect and the answer is zero everywhere. Only the per-cell gate
+sees it, and it sees it at all 128 cells at once, which is the least
+attributable shape a failure can have. **The cheap defence is a count on the
+input side**, not a value on the output side: `sourceBinRegClassZeroCount`
+asserts 80 of 80, and it fails the moment a snapshot with the other rule is
+pointed at this document.
+
+The same shape has one more instance in this slice, and it is the mirror image:
+`EvaporativePermeationCalculator`'s 25 `INPUT_TABLES` list neither `IMCoverage`
+nor `IMFactor`, so the I/M blend both sibling fixtures carry as an identity is
+**absent from this calculator** rather than zero-weighted in it. Inheriting it
+would have modelled a step MOVES does not run, and it would have been green.
+**Check the calculator's declared inputs before carrying a stage across.**
+
+### 34.2 When a stage is read rather than computed, read ALL of it and say which cells are inert
+
+§23's rule is to measure whether a fixture can see a stage before asserting it
+there. Its corollary, when the answer is no and the stage is therefore *read*
+from a captured intermediate, is what to read.
+
+This fixture reads `AverageTankTemperature`, all 288 cells; the oracle computes
+96 of them (operating mode 151, through TTG-1's quarter-hour recurrence) and
+reads 192. **The fixture deliberately reads more, and that is not laziness —
+the 96 the oracle computes are exactly the 96 that cannot move an output digit.**
+Both soak modes enter PC-2b at an `opModeFraction` this document computes to be
+exactly 0, so recomputing mode 151 in the fixture would duplicate
+`components/tank_temperature.esm`'s 64 assertions to buy a check that would
+pass with the recurrence deleted — which is precisely the check §23 says not to
+write.
+
+What the fixture owes instead is three things, and all three are cheap:
+
+1. **Assert the weight, not the value.** `tankTemperatureSoakWeight` sums the
+   two soak modes' `opModeFraction` over both day types and asserts 0. A run in
+   which the read cells could reach an output digit fails there, before the
+   comparator sees a row.
+2. **Assert that the zero-weighted arm is non-zero**, so a zero WEIGHT cannot be
+   confused with an absent computation — §23's corollary. `cohDay_tempAdjustByMode`
+   is asserted at all three modes: 0.9137 hot-soaking, 0.6194 cold-soaking,
+   0.7585 operating.
+3. **Say in the document that the read is a read**, which table, how many cells,
+   and how that differs from what the oracle reads. A fixture whose metadata is
+   silent about a read reads exactly like one that computed it.
+
+### 34.3 The lag of a data-named predecessor is a property of the RELATION, not of the identifier
+
+Finding F28 is that a recurrence whose predecessor is named by a data column has
+no direct spelling: `index(V, k − index(lag, k))` is refused because the
+coefficient of the frame symbol must be provable. That is correct behaviour and
+it is unchanged. **What this rung changed is how to decide whether you are
+actually in it**, because this repository spent two documents believing
+`TankTemperatureGenerator` TTG-4a was and it is not.
+
+TTG-4a enqueues the trip whose `priorTripID` is this trip's `tripID`. On the
+captured `SampleVehicleTrip`, `tripID − priorTripID` is 1 on 24,610 of the
+26,300 chained trips and 2…7 on the other 1,690 — from which F28 concluded
+there was no constant lag to write. But `tripID` is an identifier, and the
+recurrence runs over a *relation*:
+
+| relation, in the order the generator walks it | rows | lag to the predecessor |
+|---|---|---|
+| `SampleVehicleTrip` as captured | 37,216 | 1 … 7 |
+| after `flagMarkerTrips` deletes the 5,458 marker trips | 31,758 | **1, on all 26,193** |
+| `SampleVehicleTripByHour`, ordered `(vehID, dayID, keyOnTime)` | 44,513 | **1, on all 26,193** |
+
+The non-unit gaps are the marker trips, which MOVES's own first step removes
+before the generator that recurs ever sees them. **The rule: compute the lag on
+the relation the recurrence is written over, AFTER every row filter the
+reference applies, and only then decide whether the offset is constant.** An
+identifier gap is not a lag; a row gap is. Measure it on more than one capture —
+this held on all four snapshots that carry `SampleVehicleTrip` — and check that
+the walk order is total, because a tie makes "the preceding row" a sort-order
+question (12 of 44,513 `(vehID, dayID, keyOnTime)` triples tie here, broken by
+the emission order).
+
+Two things follow, and the second is the more useful:
+
+* **The base case absorbs the exceptions.** 107 chained trips name a predecessor
+  the relation does not contain. They take the same `coldSoakTankTemperature`
+  arm a first-of-day trip takes, so a lag-1 self-read plus one `ifelse` covers
+  every row — no contracted range, no metaparameter read off the data, none of
+  the two costs F28's control records.
+* **Attributing a blocker to the wrong finding is worse than not attributing
+  it.** The remaining obstacle to TTG-2/3/4 is real and is a different shape
+  entirely: a relation whose row count is a function of the data (1 to 22
+  segments per trip), and, in TTG-4b, an output count that depends on the
+  arithmetic itself — the soak stops at the first minute the temperature falls
+  below its threshold, and that minute and all later ones are not emitted. That
+  is F5 and F14, which §22 and §31 already solve with a rectangular grid, a mask
+  and a global rank. Priced: a 37,216 × 22 grid for TTG-2, and about 45 million
+  cells to recover TTG-4b's 182,532 rows. **A cost, not a limitation** — and a
+  document that had said so would have described a slice someone could schedule,
+  where "blocked by F28" described one nobody could.
