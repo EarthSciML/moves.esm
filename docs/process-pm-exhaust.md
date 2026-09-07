@@ -1444,6 +1444,14 @@ fixtures landed so far (the previous band was 4.561e-06 to 9.482e-06) and it is
 still half of `tolerance.toml`'s 2e-05, which has never been widened. It is
 storage, not accumulation, and §7.3 ranks the operations that carry it.
 
+**The fixture reaches the same worst cell at the same key, by a different
+route.** The `.esm` computes four share columns over four species on a
+1,148-row rate relation; the oracle walks `sulfate_pm_calculator.rs`'s five
+stages over Python dictionaries. Both report 9.9103e-06 at
+`(pollutant 100, process 1, day 2, MY 1991, fuel 1)`. Agreement between
+independent routes is the check this port leans on hardest, and it is the only
+form of cross-check available on this rung (the opening explains why).
+
 **The three intermediate checkpoints are what make that claim attributable.**
 `process-airtoxics` §7.1 had two (`sho` and `baseratebyage_1_2020`) and named
 `sbweightedemissionratebyage` as a table it did not read. Reading it here costs
@@ -1553,8 +1561,14 @@ Five things, and every one of them fails loudly when broken.
 
 1. **The PM10 product.** `PM10 = (EC + sulfate + water + residue) × ratio`, and
    every operand has already been rounded to six significant figures in the
-   reference's own column storage. This is where the 9.910e-06 is, and every one
-   of the ten worst cells in the run is a pollutant-100 cell.
+   reference's own column storage. This is where the 9.910e-06 is. It is the
+   longest product but not uniformly the worst block: the five worst cells in
+   the run are `(100, 1991, gasoline)` 9.910e-06, `(112, 1991, gasoline)`
+   9.148e-06, `(115, 2018, E85)` 8.558e-06, `(111, 1991, gasoline)` 8.376e-06
+   and `(115, 2000, diesel)` 8.200e-06 — so the worst *cohort* matters as much as
+   the depth of the product, and the per-block maxima are 9.910e-06 (100),
+   9.148e-06 (112), 8.557e-06 (115), 8.376e-06 (111), 8.108e-06 (110),
+   7.502e-06 (118) and exactly 0 (119).
 2. **The residue fraction.** `1 − H − S` is a subtraction of table values from
    1, and on 2007+ diesel it is `1 − 0 − 0.74 = 0.26` — a catastrophic-
    cancellation shape that is benign at these magnitudes (two significant
