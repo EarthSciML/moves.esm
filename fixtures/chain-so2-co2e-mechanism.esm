@@ -701,7 +701,8 @@
           "ETBEVolume",
           "TAMEVolume",
           "ETOHVolume",
-          "volToWtPercentOxy"
+          "volToWtPercentOxy",
+          "sulfurLevel"
         ]
       },
       "extent": {
@@ -727,8 +728,15 @@
         "tags": [
           "fuel"
         ],
-        "note": "13 rows, read for ONE column: fuelTypeID. It closes the supply chain formulation -> subtype -> fuel type, which is how a base rate keyed on fuel type finds the formulations it must be expanded over.",
+        "note": "13 rows, read for FOUR columns now. fuelTypeID closes the supply chain formulation -> subtype -> fuel type. The other three are fuel chemistry, and this is the first fixture in the port to need them: `energyContent` divides SO2Calculator's formula and `carbonContent` x `oxidationFraction` is the whole of CO2AE step 1a. Subtype 90 (Electricity) carries carbonContent 0, oxidationFraction 0 and a NULL energyContent, and each of the three is load-bearing in a different way -- see `rt_supplyEnergyContent`.",
         "esio_format": "parquet"
+      },
+      "reader_options": {
+        "float_columns": [
+          "carbonContent",
+          "oxidationFraction",
+          "energyContent"
+        ]
       }
     },
     "at_criteriaratio": {
@@ -1268,6 +1276,28 @@
         "note": "8 rows: the pahGasRatio path (airtoxics.rs:720-742), the other direct path, and the only source of naphthalene gas (185). Keyed on the BLOCK's fuel type rather than on the emission's fuel subtype, which is the one structural difference between it and minorHAPRatio and is why its ratio lives on the rate relation and minorHAPRatio's on the (rate row x supplied formulation) one.",
         "esio_format": "parquet"
       }
+    },
+    "at_sulfateemissionrate": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/chain-so2-co2e-mechanism/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__sulfateemissionrate.parquet"
+      },
+      "reader_options": {
+        "float_columns": [
+          "meanBaseRate"
+        ]
+      },
+      "extent": {
+        "metaparameter": "n_sulfateemissionrate"
+      },
+      "metadata": {
+        "tags": [
+          "rates",
+          "chain"
+        ],
+        "note": "7 rows: `SO2Calculator`'s `SO2FuelCalculation2` (so2_calculator.rs:2024-2050). Grams of SO2 per gram of fuel sulfur burned, by fuel type and a modelYearGroupID written self-described in ONE column, so lib/keys.esm's `model_year_in_group` decodes it. Gasoline and ethanol carry 1.99378e-06 at every model year; diesel steps from 1.89735e-06 to 1.76298e-06 at 2007. There is no fuelTypeID 9 row, which is one of TWO independent reasons no electricity cohort emits SO2.",
+        "esio_format": "parquet"
+      }
     }
   },
   "metaparameters": {
@@ -1585,6 +1615,11 @@
       "type": "integer",
       "default": 0,
       "description": "Rows of `pahgasratio`, discovered by extent."
+    },
+    "n_sulfateemissionrate": {
+      "type": "integer",
+      "default": 0,
+      "description": "Rows of `sulfateemissionrate`, discovered by extent."
     }
   },
   "index_sets": {
@@ -1885,6 +1920,10 @@
     "pahgasratio_rows": {
       "kind": "interval",
       "size": "n_pahgasratio"
+    },
+    "sulfateemissionrate_rows": {
+      "kind": "interval",
+      "size": "n_sulfateemissionrate"
     }
   },
   "enums": {
@@ -1992,6 +2031,13 @@
             "model_year_in_group",
             "flat_relation_major",
             "flat_relation_minor"
+          ]
+        },
+        {
+          "ref": "../lib/co2_equivalent.esm",
+          "only": [
+            "carbon_to_carbon_dioxide_mass_ratio",
+            "global_warming_potential_is_selected"
           ]
         }
       ],
@@ -6769,14 +6815,6 @@
           ],
           "description": "The process half: 1 (Running Exhaust) on all six. A speciated block inherits its input block's process (hcspeciation.rs:817, airtoxics.rs::add_chained_emission), which is why one process covers a six-pollutant run."
         },
-        "rspp_chainInputPolProcessID": {
-          "type": "unknown",
-          "units": "1",
-          "shape": [
-            "runspecpollutantprocess_rows"
-          ],
-          "description": "A LEFT JOIN onto runspecchainedto: the pollutant-process each of the five species is computed FROM, and 0 -- the additive identity, which is no pollutant-process -- for the one that carries a rate of its own. That 0 is what makes `rspp_rootAtDepth0` select the root without a branch, and it is also `rt_isChained`'s whole test."
-        },
         "rspp_rootAtDepth0": {
           "type": "unknown",
           "units": "1",
@@ -8405,6 +8443,318 @@
             "rate_rows"
           ],
           "description": "Whether a pahGasRatio row exists for this rate row."
+        },
+        "ser_polProcessID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "sulfateemissionrate_rows"
+          ],
+          "description": "sulfateemissionrate.polProcessID -- 3101 on every row, so the join IDENTIFIES the SO2 rate rows and no pollutant is written down.",
+          "update": {
+            "kind": "data",
+            "source": "at_sulfateemissionrate",
+            "from": {
+              "file_variable": "polProcessID"
+            }
+          }
+        },
+        "ser_fuelTypeID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "sulfateemissionrate_rows"
+          ],
+          "description": "sulfateemissionrate.fuelTypeID: 1, 2 and 5, and no 9.",
+          "update": {
+            "kind": "data",
+            "source": "at_sulfateemissionrate",
+            "from": {
+              "file_variable": "fuelTypeID"
+            }
+          }
+        },
+        "ser_modelYearGroupID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "sulfateemissionrate_rows"
+          ],
+          "description": "sulfateemissionrate.modelYearGroupID: the self-described band 19502050, 20072050, 20512060.",
+          "update": {
+            "kind": "data",
+            "source": "at_sulfateemissionrate",
+            "from": {
+              "file_variable": "modelYearGroupID"
+            }
+          }
+        },
+        "ser_meanBaseRate": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "sulfateemissionrate_rows"
+          ],
+          "description": "sulfateemissionrate.meanBaseRate.",
+          "update": {
+            "kind": "data",
+            "source": "at_sulfateemissionrate",
+            "from": {
+              "file_variable": "meanBaseRate"
+            }
+          }
+        },
+        "fst_carbonContent": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "fuelsubtype_rows"
+          ],
+          "description": "fuelsubtype.carbonContent: grams of carbon per unit fuel energy. 0.01982 for gasohol E10, 0.02022 for the biodiesel blend, 0.0194 for E85 and exactly 0 for electricity.",
+          "update": {
+            "kind": "data",
+            "source": "at_fuelsubtype",
+            "from": {
+              "file_variable": "carbonContent"
+            }
+          }
+        },
+        "fst_oxidationFraction": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "fuelsubtype_rows"
+          ],
+          "description": "fuelsubtype.oxidationFraction: the fraction of that carbon that burns, 1 on every combustion subtype and exactly 0 on electricity.",
+          "update": {
+            "kind": "data",
+            "source": "at_fuelsubtype",
+            "from": {
+              "file_variable": "oxidationFraction"
+            }
+          }
+        },
+        "fst_energyContent": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "fuelsubtype_rows"
+          ],
+          "description": "fuelsubtype.energyContent. NULL on subtype 90 (Electricity), which reaches this document as NaN (docs/esm-conventions.md 11); `rt_supplyEnergyContent` is where that NaN is turned into the zero the SQL's NULL behaves as.",
+          "update": {
+            "kind": "data",
+            "source": "at_fuelsubtype",
+            "from": {
+              "file_variable": "energyContent"
+            }
+          }
+        },
+        "ffo_sulfurLevel": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "fuelformulation_rows"
+          ],
+          "description": "fuelformulation.sulfurLevel, parts per million by mass. 7.15 on this county's gasoline and E85 formulations and 6.0 on its diesel one; the SQL reads it as `coalesce(sulfurLevel, 0)` and no supplied formulation here is NULL.",
+          "update": {
+            "kind": "data",
+            "source": "at_fuelformulation",
+            "from": {
+              "file_variable": "sulfurLevel"
+            }
+          }
+        },
+        "fsu_sulfurLevel": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "fuelsupply_rows"
+          ],
+          "description": "This supplied formulation's sulfur level."
+        },
+        "fsu_carbonContent": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "fuelsupply_rows"
+          ],
+          "description": "This supplied formulation's subtype's carbon content."
+        },
+        "fsu_oxidationFraction": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "fuelsupply_rows"
+          ],
+          "description": "Its oxidation fraction."
+        },
+        "fsu_energyContentRaw": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "fuelsupply_rows"
+          ],
+          "description": "Its energy content, NaN on electricity because the column is NULL there."
+        },
+        "fsu_energyContent": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "fuelsupply_rows"
+          ],
+          "description": "The NULL turned into the zero MariaDB's SUM behaves as. so2_calculator.rs models the column as a bare `f64` and guards the DIVISION instead; both reach the same place, and the guard is written where the division is."
+        },
+        "rt_supplyEnergyContent": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "`SO2FuelCalculation1.energyContent` (so2_calculator.rs:1975-2010): the market-share-weighted mean energy content of this rate row's fuel type. It is a fuel-TYPE quantity and not a per-formulation one, which is why it is formed here and then multiplied inside the supply sum below -- the two agree exactly because a constant factors out of a sum whose weights are the same market shares. ZERO on electricity, and that is the second of the two independent reasons no electricity cohort emits SO2."
+        },
+        "rt_supplySulfurLevel": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "`SO2FuelCalculation1.WsulfurLevel`, the same weighted mean over `sulfurLevel`."
+        },
+        "rt_supplyCarbonContent": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "`CarbonOxidationByFuelType.sumCarbonContent` (co2ae:1005-1046). The snapshot happens to CARRY the calculator's own answer in `carbonoxidationbyfueltype`; this document recomputes it from `fuelsupply` and `fuelsubtype` and the tests pin all four cells against that table rather than reading it."
+        },
+        "rt_supplyOxidationFraction": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "`CarbonOxidationByFuelType.sumOxidationFraction`: 1 on each combustion fuel type and 0 on electricity."
+        },
+        "rt_hasFuelSupply": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "Whether this rate row's fuel type is supplied at all. Every CO2AE join is an INNER one, so a fuel type with no supply row produces no Atmospheric CO2 row -- as distinct from electricity, which is supplied and produces a row of exactly zero."
+        },
+        "rt_sulfateBaseRate": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "J48: `SO2FuelCalculation2` expanded onto this rate row. Two key pairs and the self-described model-year band, and the polProcessID pair is what says WHICH rate rows are SO2 rows -- the same trick `hcspeciation` plays for NMOG and VOC."
+        },
+        "rt_hasSulfateRate": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "Whether a sulfate rate row exists for this fuel type and model year."
+        },
+        "rt_so2Factor": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "so2_calculator.rs:2079-2081: SO2 = meanBaseRate x WsulfurLevel x energy / energyContent, as a multiplier on the ENERGY the chain root produced. The energy is in KILOJOULES here -- the Million BTU divisor is applied at the output row and not before -- which is what MOVES does, because `SO2Calculator` reads `MOVESWorkerOutput` and engine.rs converts on the way out. The guard is so2_calculator.rs:2073-2078: MariaDB evaluates `x / 0` as NULL and drops the row, where an f64 would return an infinity."
+        },
+        "rt_hasSo2Factor": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "An SO2 row exists where a sulfate rate exists AND the divisor is non-zero. Both fail on electricity and either one alone would be enough, so this fixture cannot distinguish them; docs/chain-so2-co2e-mechanism.md 7.4 says so."
+        },
+        "rt_isAtmosphericCO2": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "co2ae_running_start_extended_idle.rs:150's `ATMOSPHERIC_CO2_POLLUTANT_ID`. Unlike SO2, whose rate table names its own polProcessID, step 1a has no table to be identified by: the calculator hard-codes both its input pollutant (91) and its output one (90), and `runspecchainedto` carries no 9001 row at all. So the constant is written down, once, and cited."
+        },
+        "rt_co2Factor": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "co2ae:1090-1094: sumCarbonContent x sumOxidationFraction x 44/12, as a multiplier on the energy the chain root produced. Exactly ZERO on electricity, because both factors are, and the row is still emitted -- which is the difference between this stage and SO2's, and is why Atmospheric CO2 has 125 cohorts where SO2 has 104."
+        },
+        "rt_hasCo2Factor": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "An Atmospheric CO2 row exists for every energy cohort whose fuel type is supplied."
+        },
+        "rt_energyChainFactor": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "The two stages chained off Total Energy Consumption, summed. They are disjoint by output pollutant -- `sulfateemissionrate` carries polProcessID 3101 alone and `rt_isAtmosphericCO2` is 90 alone -- so the sum is a union. Both are fuel-TYPE quantities that enter the per-formulation product below; \u00a72.7 says why that is exact."
+        },
+        "rt_hasEnergyChainRatio": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "Whether either energy-chained stage applies here."
+        },
+        "rspp_declaredChainInputPolProcessID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecpollutantprocess_rows"
+          ],
+          "description": "A LEFT JOIN onto `runspecchainedto`: the pollutant-process each chained species is computed FROM, and 0 for one that carries a rate of its own. Twenty-one rows here, and they do NOT cover the whole chain: only `AirToxicsCalculator` reads this table."
+        },
+        "rspp_calculatorChainInputPolProcessID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecpollutantprocess_rows"
+          ],
+          "description": "The chain input the CALCULATOR carries as a constant where `runspecchainedto` is silent. There is exactly one: `CO2AERunningStartExtendedIdleCalculator` step 1a reads Total Energy Consumption on its own process (co2ae:161) and the table has no 9001 row. `SO2Calculator` is the contrast -- MOVES DOES declare 3101 <- 9101 -- and the two sitting side by side is the whole of docs/findings/F41."
+        },
+        "rspp_chainInputPolProcessID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecpollutantprocess_rows"
+          ],
+          "description": "The two declarations unioned. They are disjoint by construction: MOVES writes a `runspecchainedto` row for a pollutant-process exactly when a calculator does not carry its input as a constant, and `run_chainDeclarationOverlap` asserts that rather than assuming it."
+        },
+        "run_chainDeclarationOverlap": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "run_rows"
+          ],
+          "description": "How many pollutant-processes are declared BOTH ways. Zero."
         }
       },
       "equations": [
@@ -9575,7 +9925,7 @@
         },
         {
           "_comment": "J35: MOVES's own chain declaration, read rather than written down.",
-          "lhs": "rspp_chainInputPolProcessID",
+          "lhs": "rspp_declaredChainInputPolProcessID",
           "rhs": {
             "op": "aggregate",
             "args": [],
@@ -9606,6 +9956,116 @@
               "args": [
                 "rct_inputPolProcessID",
                 "h"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rspp_calculatorChainInputPolProcessID",
+          "rhs": {
+            "op": "*",
+            "args": [
+              {
+                "op": "ifelse",
+                "args": [
+                  {
+                    "op": "==",
+                    "args": [
+                      "rspp_pollutantID",
+                      {
+                        "op": "enum",
+                        "args": [
+                          "pollutant",
+                          "AtmosphericCO2"
+                        ]
+                      }
+                    ]
+                  },
+                  1.0,
+                  0.0
+                ]
+              },
+              {
+                "op": "apply_expression_template",
+                "args": [],
+                "name": "pol_process_id",
+                "bindings": {
+                  "pollutant_id": {
+                    "op": "enum",
+                    "args": [
+                      "pollutant",
+                      "TotalEnergyConsumption"
+                    ]
+                  },
+                  "process_id": "rspp_processID"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "lhs": "rspp_chainInputPolProcessID",
+          "rhs": {
+            "op": "+",
+            "args": [
+              "rspp_declaredChainInputPolProcessID",
+              "rspp_calculatorChainInputPolProcessID"
+            ]
+          }
+        },
+        {
+          "lhs": "run_chainDeclarationOverlap",
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "n"
+            ],
+            "ranges": {
+              "n": {
+                "from": "run_rows"
+              },
+              "p": {
+                "from": "runspecpollutantprocess_rows"
+              }
+            },
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                {
+                  "op": "and",
+                  "args": [
+                    {
+                      "op": ">",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "rspp_declaredChainInputPolProcessID",
+                            "p"
+                          ]
+                        },
+                        0.0
+                      ]
+                    },
+                    {
+                      "op": ">",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "rspp_calculatorChainInputPolProcessID",
+                            "p"
+                          ]
+                        },
+                        0.0
+                      ]
+                    }
+                  ]
+                },
+                1.0,
+                0.0
               ]
             }
           }
@@ -14078,6 +14538,29 @@
           }
         },
         {
+          "lhs": "rt_isAtmosphericCO2",
+          "rhs": {
+            "op": "ifelse",
+            "args": [
+              {
+                "op": "==",
+                "args": [
+                  "rt_pollutantID",
+                  {
+                    "op": "enum",
+                    "args": [
+                      "pollutant",
+                      "AtmosphericCO2"
+                    ]
+                  }
+                ]
+              },
+              1.0,
+              0.0
+            ]
+          }
+        },
+        {
           "lhs": "rt_isEthanolFuelType",
           "rhs": {
             "op": "ifelse",
@@ -14966,6 +15449,167 @@
                     "g"
                   ]
                 }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "fsu_sulfurLevel",
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "s"
+            ],
+            "ranges": {
+              "s": {
+                "from": "fuelsupply_rows"
+              },
+              "g": {
+                "from": "fuelformulation_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "fsu_fuelFormulationID",
+                    "ffo_fuelFormulationID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "ffo_sulfurLevel",
+                "g"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "fsu_energyContentRaw",
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "s"
+            ],
+            "ranges": {
+              "s": {
+                "from": "fuelsupply_rows"
+              },
+              "u": {
+                "from": "fuelsubtype_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "fsu_fuelSubtypeID",
+                    "fst_fuelSubtypeID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "fst_energyContent",
+                "u"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "fsu_energyContent",
+          "rhs": {
+            "op": "ifelse",
+            "args": [
+              {
+                "op": ">",
+                "args": [
+                  "fsu_energyContentRaw",
+                  0.0
+                ]
+              },
+              "fsu_energyContentRaw",
+              0.0
+            ]
+          }
+        },
+        {
+          "lhs": "fsu_oxidationFraction",
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "s"
+            ],
+            "ranges": {
+              "s": {
+                "from": "fuelsupply_rows"
+              },
+              "u": {
+                "from": "fuelsubtype_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "fsu_fuelSubtypeID",
+                    "fst_fuelSubtypeID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "fst_oxidationFraction",
+                "u"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "fsu_carbonContent",
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "s"
+            ],
+            "ranges": {
+              "s": {
+                "from": "fuelsupply_rows"
+              },
+              "u": {
+                "from": "fuelsubtype_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "fsu_fuelSubtypeID",
+                    "fst_fuelSubtypeID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "fst_carbonContent",
+                "u"
               ]
             }
           }
@@ -18676,7 +19320,7 @@
           }
         },
         {
-          "_comment": "The two calculators composed. A toxic row has no `hcspeciation` row and is chained, so its own HC factor is 0; an HC row has no `atratio` row, so its toxic term is 0. The sum is therefore a union, and it is the only place in this document where the two calculators meet.",
+          "_comment": "THREE calculators composed, and the sum is a union because each row's pollutant-process reaches exactly one of them: an HC species has no `atratio` row and no sulfate rate; a toxic has no `hcspeciation` row; and SO2 and Atmospheric CO2 are chained off Total Energy Consumption, which has neither. This is the only place in the document where the calculators meet.",
           "lhs": "rtSup_speciesFactor",
           "rhs": {
             "op": "aggregate",
@@ -18698,32 +19342,44 @@
               "op": "+",
               "args": [
                 {
-                  "op": "index",
-                  "args": [
-                    "rtSup_hcSpeciesFactor",
-                    "b",
-                    "s"
-                  ]
-                },
-                {
-                  "op": "*",
+                  "op": "+",
                   "args": [
                     {
                       "op": "index",
                       "args": [
-                        "rtSup_atRatio",
+                        "rtSup_hcSpeciesFactor",
                         "b",
                         "s"
                       ]
                     },
                     {
-                      "op": "index",
+                      "op": "*",
                       "args": [
-                        "rtSup_parentHcSpeciesFactor",
-                        "b",
-                        "s"
+                        {
+                          "op": "index",
+                          "args": [
+                            "rtSup_atRatio",
+                            "b",
+                            "s"
+                          ]
+                        },
+                        {
+                          "op": "index",
+                          "args": [
+                            "rtSup_parentHcSpeciesFactor",
+                            "b",
+                            "s"
+                          ]
+                        }
                       ]
                     }
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "rt_energyChainFactor",
+                    "b"
                   ]
                 }
               ]
@@ -18731,7 +19387,7 @@
           }
         },
         {
-          "_comment": "Whether the ratio row this rate row's own stage needs exists for this formulation. Three disjoint arms, one per stage; methane and NMHC share the first because they share `methanethcratio`.",
+          "_comment": "Whether the ratio row this rate row's own stage needs exists for this formulation. Four disjoint arms, one per stage; methane and NMHC share the first because they share `methanethcratio`.",
           "lhs": "rtSup_hasChainRatio",
           "rhs": {
             "op": "aggregate",
@@ -18798,11 +19454,23 @@
                   ]
                 },
                 {
-                  "op": "index",
+                  "op": "+",
                   "args": [
-                    "rtSup_hasAtRatio",
-                    "b",
-                    "s"
+                    {
+                      "op": "index",
+                      "args": [
+                        "rtSup_hasAtRatio",
+                        "b",
+                        "s"
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "rt_hasEnergyChainRatio",
+                        "b"
+                      ]
+                    }
                   ]
                 }
               ]
@@ -19417,6 +20085,481 @@
                 "rtSup_fuelFactor",
                 "b",
                 "s"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rt_supplyOxidationFraction",
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "s": {
+                "from": "fuelsupply_rows"
+              }
+            },
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "*",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "rtSup_isSupplied",
+                        "b",
+                        "s"
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "fsu_marketShare",
+                        "s"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "fsu_oxidationFraction",
+                    "s"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rt_hasFuelSupply",
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "semiring": "bool_and_or",
+            "output_idx": [
+              "b"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "s": {
+                "from": "fuelsupply_rows"
+              }
+            },
+            "expr": {
+              "op": "index",
+              "args": [
+                "rtSup_isSupplied",
+                "b",
+                "s"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rt_hasSulfateRate",
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "semiring": "bool_and_or",
+            "output_idx": [
+              "b"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "x": {
+                "from": "sulfateemissionrate_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rt_polProcessID",
+                    "ser_polProcessID"
+                  ],
+                  [
+                    "rt_fuelTypeID",
+                    "ser_fuelTypeID"
+                  ]
+                ]
+              }
+            ],
+            "filter": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "model_year_in_group",
+              "bindings": {
+                "model_year": {
+                  "op": "index",
+                  "args": [
+                    "rt_modelYearID",
+                    "b"
+                  ]
+                },
+                "model_year_group": {
+                  "op": "index",
+                  "args": [
+                    "ser_modelYearGroupID",
+                    "x"
+                  ]
+                }
+              }
+            },
+            "expr": 1.0
+          }
+        },
+        {
+          "lhs": "rt_so2Factor",
+          "rhs": {
+            "op": "ifelse",
+            "args": [
+              {
+                "op": ">",
+                "args": [
+                  "rt_supplyEnergyContent",
+                  0.0
+                ]
+              },
+              {
+                "op": "/",
+                "args": [
+                  {
+                    "op": "*",
+                    "args": [
+                      "rt_sulfateBaseRate",
+                      "rt_supplySulfurLevel"
+                    ]
+                  },
+                  "rt_supplyEnergyContent"
+                ]
+              },
+              0.0
+            ]
+          }
+        },
+        {
+          "lhs": "rt_hasSo2Factor",
+          "rhs": {
+            "op": "ifelse",
+            "args": [
+              {
+                "op": "and",
+                "args": [
+                  {
+                    "op": ">",
+                    "args": [
+                      "rt_hasSulfateRate",
+                      0.5
+                    ]
+                  },
+                  {
+                    "op": ">",
+                    "args": [
+                      "rt_supplyEnergyContent",
+                      0.0
+                    ]
+                  }
+                ]
+              },
+              1.0,
+              0.0
+            ]
+          }
+        },
+        {
+          "lhs": "rt_co2Factor",
+          "rhs": {
+            "op": "*",
+            "args": [
+              {
+                "op": "*",
+                "args": [
+                  "rt_supplyCarbonContent",
+                  "rt_supplyOxidationFraction"
+                ]
+              },
+              {
+                "op": "apply_expression_template",
+                "args": [],
+                "name": "carbon_to_carbon_dioxide_mass_ratio",
+                "bindings": {}
+              }
+            ]
+          }
+        },
+        {
+          "lhs": "rt_hasCo2Factor",
+          "rhs": {
+            "op": "*",
+            "args": [
+              "rt_isAtmosphericCO2",
+              "rt_hasFuelSupply"
+            ]
+          }
+        },
+        {
+          "lhs": "rt_energyChainFactor",
+          "rhs": {
+            "op": "+",
+            "args": [
+              "rt_so2Factor",
+              {
+                "op": "*",
+                "args": [
+                  "rt_isAtmosphericCO2",
+                  "rt_co2Factor"
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "lhs": "rt_hasEnergyChainRatio",
+          "rhs": {
+            "op": "ifelse",
+            "args": [
+              {
+                "op": ">",
+                "args": [
+                  {
+                    "op": "+",
+                    "args": [
+                      "rt_hasSo2Factor",
+                      "rt_hasCo2Factor"
+                    ]
+                  },
+                  0.5
+                ]
+              },
+              1.0,
+              0.0
+            ]
+          }
+        },
+        {
+          "lhs": "rt_sulfateBaseRate",
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "x": {
+                "from": "sulfateemissionrate_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rt_polProcessID",
+                    "ser_polProcessID"
+                  ],
+                  [
+                    "rt_fuelTypeID",
+                    "ser_fuelTypeID"
+                  ]
+                ]
+              }
+            ],
+            "filter": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "model_year_in_group",
+              "bindings": {
+                "model_year": {
+                  "op": "index",
+                  "args": [
+                    "rt_modelYearID",
+                    "b"
+                  ]
+                },
+                "model_year_group": {
+                  "op": "index",
+                  "args": [
+                    "ser_modelYearGroupID",
+                    "x"
+                  ]
+                }
+              }
+            },
+            "expr": {
+              "op": "index",
+              "args": [
+                "ser_meanBaseRate",
+                "x"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rt_supplyCarbonContent",
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "s": {
+                "from": "fuelsupply_rows"
+              }
+            },
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "*",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "rtSup_isSupplied",
+                        "b",
+                        "s"
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "fsu_marketShare",
+                        "s"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "fsu_carbonContent",
+                    "s"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rt_supplySulfurLevel",
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "s": {
+                "from": "fuelsupply_rows"
+              }
+            },
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "*",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "rtSup_isSupplied",
+                        "b",
+                        "s"
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "fsu_marketShare",
+                        "s"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "fsu_sulfurLevel",
+                    "s"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rt_supplyEnergyContent",
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "s": {
+                "from": "fuelsupply_rows"
+              }
+            },
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "*",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "rtSup_isSupplied",
+                        "b",
+                        "s"
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "fsu_marketShare",
+                        "s"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "fsu_energyContent",
+                    "s"
+                  ]
+                }
               ]
             }
           }
