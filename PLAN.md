@@ -1168,7 +1168,7 @@ rather than on their names.
 
 ---
 
-### Phase 6 — the operating-mode-distribution generators, and what the family measurement found
+### Phase 5, continued — the operating-mode-distribution generators, and what the family measurement found
 
 **Two of seven generators in this family are reachable from the corpus, and the
 other five need a RunSpec that does not exist yet.** Measured by rolling

@@ -3680,7 +3680,7 @@ output only when it does not.** And a subscription list is a declaration, not a
 measurement — `docs/process-brakewear.md` §8 already said as much about a
 *calculator*'s registrations, and this is the generator-side instance of the
 same lesson.
-## 39. A generator family shares a row, not a spine **[Phase 6, 262,442 + 124 + 300 rows]**
+## 39. A generator family shares a row, not a spine **[Phase 5, 262,442 + 124 + 300 rows]**
 
 Section 38 is reserved for the `FuelEffectsGenerator` rung, which was in
 progress in a sibling worktree while this was written; this section is 39 to
