@@ -294,11 +294,6 @@ def compare(expected: list[dict], actual: list[dict], tol: dict, fixture: str,
             f"A scope without a reason is a bug being hidden."
         )
     if excluded:
-        if False:
-            raise Failure(
-                f"tolerance.toml declares excluded_pollutants for {fixture} with no "
-                f"`why`. An exclusion without a reason is a bug being hidden."
-            )
         drop = {_norm(p) for p in excluded}
         keep = lambda rows: [r for r in rows if _norm(r.get(pol_col)) not in drop]
         n_exp, n_act = len(expected), len(actual)
@@ -403,6 +398,7 @@ def compare(expected: list[dict], actual: list[dict], tol: dict, fixture: str,
     # 3. per-cell
     cell_rel = tol.get("cell", {}).get("rel")
     worst = (0.0, None)
+    worst_gated = (0.0, None)
     cells_checked = 0
     over = []
     if cell_rel is not None:
@@ -410,14 +406,24 @@ def compare(expected: list[dict], actual: list[dict], tol: dict, fixture: str,
             for col in value_cols:
                 e = _num(exp_by_key[k][col], f"expected {show(k)} {col}")
                 a = _num(act_by_key[k][col], f"actual {show(k)} {col}")
+                # TWO numbers, and they are not the same quantity. `r` is the
+                # relative error and stays comparable with every other
+                # fixture's headline figure; `gated` is the same difference
+                # with the capture's own half-quantum taken off first, and it
+                # decides pass/fail only where a fixture declared the floor.
+                # Conflating them would silently change what "worst relative
+                # error" means in one rung's oracle output.
                 r = relerr(a, e)
+                gated = r
                 if half_quantum:
                     excess = max(0.0, abs(a - e) - half_quantum)
-                    r = excess / abs(e) if e else excess
+                    gated = excess / abs(e) if e else excess
+                    if gated > worst_gated[0]:
+                        worst_gated = (gated, (k, col, a, e))
                 cells_checked += 1
                 if r > worst[0]:
                     worst = (r, (k, col, a, e))
-                if r > cell_rel:
+                if gated > cell_rel:
                     over.append((r, k, col, a, e))
         if over:
             over.sort(reverse=True)
@@ -433,6 +439,17 @@ def compare(expected: list[dict], actual: list[dict], tol: dict, fixture: str,
                 f"worst cell: rel={worst[0]:.3e} over {cells_checked} cells "
                 f"(tolerance {cell_rel:g})"
             )
+            if half_quantum:
+                # Said separately and labelled differently, because it is a
+                # different quantity: the worst error IN EXCESS of the
+                # capture's half-quantum, which is what the gate above was
+                # applied to. The line above stays the figure that is
+                # comparable across rungs.
+                report.append(
+                    f"worst cell, excess over the {half_quantum:g} storage "
+                    f"quantum: rel={worst_gated[0]:.3e} (this is the number the "
+                    f"{cell_rel:g} gate was applied to)"
+                )
 
     # 4. per-pollutant sums
     which = "nonroad" if fixture.startswith(NONROAD_PREFIX) else "onroad"
