@@ -3494,3 +3494,154 @@ snapshots `components/meteorology.esm` and `run-meteorology-oracle.sh` cover
 span both arms and a sub-freezing temperature. The fixtures are where the
 retarget is *integrated*; they are not where it is *checked*.
 
+
+---
+
+## 39. A generator family shares a row, not a spine **[Phase 6, 262,442 + 124 + 300 rows]**
+
+Section 38 is reserved for the `FuelEffectsGenerator` rung, which was in
+progress in a sibling worktree while this was written; this section is 39 to
+keep the two from colliding, not because 38 is missing.
+
+`StartOperatingModeDistributionGenerator` and
+`RatesOperatingModeDistributionGenerator` are the second and third generator
+rungs, after `MeteorologyGenerator`, and the first pair to be ported together.
+They were briefed as one family with a shared spine. They are not, and the four
+subsections below are what came of measuring that instead of inheriting it.
+
+**Where the row counts come from**, since the heading claims them: 262,442 is
+every `StartOpMode` row in the corpus — the per-trip soak classification, the
+generator's own captured intermediate; 124 is every `StartOpModeDistribution`
+row; 300 is every `RatesOpModeDistribution` row at `avgSpeedBinID` 0, which is
+the partition these two generators own. None is a `MOVESOutput` count and none
+is comparable to §§29–34's.
+
+### 39.1 Test the family hypothesis before you factor for it
+
+The brief for this rung proposed that the five operating-mode-distribution
+generators "share one spine and differ only at the edges", and that the
+compositional-authoring rule therefore called for one `lib/` spine plus thin
+per-variant components. Measured against the pinned MOVES 5.0.1 source, the
+proposition is false, and it is false in a way that would have produced a
+plausible wrong file:
+
+| generator | what it actually is |
+|---|---|
+| `RatesOperatingModeDistributionGenerator` | a cross product of hotelling op modes with `runSpecHourDay`, every fraction the literal 1 |
+| `StartOperatingModeDistributionGenerator` | a soak-time histogram over `SampleVehicleTrip`, divided by a per-cell start count |
+| `AverageSpeedOperatingModeDistributionGenerator` | drive-schedule bracketing over average speed bins |
+| `Link...`, `MesoscaleLookup...` | project- and mesoscale-domain rewrites of the second-by-second VSP pipeline |
+
+**Not one arithmetic expression is common to any two of them.** What is common
+is the shape of the row they all write into `RatesOpModeDistribution`: road type
+1, `avgSpeedBinID` 0, `avgBinSpeed` 0, and for the degenerate distributions a
+fraction of exactly 1. So `lib/operating_mode.esm` holds six constants and four
+small predicates and the two components share nothing else — which is the
+correct amount of sharing, and is a quarter of what a spine would have been.
+
+**The rule: a shared OUTPUT is evidence of a shared interface, not of shared
+logic, and the two are factored differently.** The check that settles it is
+cheap — read the live SQL of each variant and ask whether any expression
+appears twice — and the cost of skipping it is a `lib/` file that forces two
+unrelated computations through one abstraction, which is worse than either
+written plainly. This is §6's rule with its converse attached: reused shapes go
+in `lib/`, and shapes that are not reused do not, however similar the modules
+around them look.
+
+The sharing that IS real is worth naming precisely rather than by family
+resemblance, because that is what distinguishes it from the hypothesis:
+`off_network_road_type` is written by six separate `INSERT` statements across
+the two modules, `off_network_avg_speed_bin` by the same six,
+`degenerate_op_mode_fraction` by five, `hotelling_source_type` by four and
+`extended_idle_op_mode` by three. A literal in six places is §6's problem
+whatever the modules look like.
+
+### 39.2 Evaluate BOTH candidates, because the answer is not a property of MariaDB
+
+§35.3 established that a fidelity question about a host language's evaluation
+semantics is settled by evaluating both candidates against the reference. That
+section's example — MOVES's Fahrenheit slope `(5/9)` — came out on the side of
+exact arithmetic, and the natural generalization is "MOVES computes exactly".
+
+**This rung is the same question with the opposite answer, and that is why the
+rule is stated as a procedure rather than as a fact.**
+
+`StartOperatingModeDistributionGenerator` step 300 writes
+`COUNT(opModeID)/starts`. Both operands are MariaDB `BIGINT`, so `/` is
+exact-value division whose scale is the dividend's plus
+`div_precision_increment` — 4 by default, which MOVES does not change.
+`moves.rs`'s port returns the exact `f64` ratio and defers the question, sizing
+the divergence at "up to 5 × 10⁻⁵ … still untested". Measured over the 124
+`StartOpModeDistribution` rows in the corpus:
+
+| quotient | bit-exact rows | worst relative error |
+|---|---:|---|
+| DECIMAL to 4 places | **124 of 124** | **0** |
+| exact IEEE ratio | 15 of 124 | **5.767 × 10⁻³** |
+
+The 15 the exact ratio gets right are those whose value terminates at four
+decimals anyway. 107 of 124 fall outside `tolerance.toml`'s 2 × 10⁻⁵ gate.
+
+Two data points now, opposite answers, both settled in seconds by a sweep of
+the corpus. **The rule stands as §35.3 wrote it and the corollary is added:
+neither answer generalizes to the next expression.** The property being
+measured is not "does MOVES compute exactly" but "what are the SQL types of
+this expression's operands" — `(5/9)` in the meteorology SQL is written inside
+a `FLOAT` expression chain and `COUNT()/COUNT()` is not — and that is a
+per-expression fact.
+
+### 39.3 A generator's scheduling predicate can turn on something other than the process
+
+§35.2 established that a generator's claim has two halves and the second is
+*which runs produce rows*, asserted on the snapshots that fail it as well as
+those that pass. `MeteorologyGenerator`'s predicate is a process list, and the
+obvious generalization is that a generator's predicate is its subscription.
+
+`RatesOperatingModeDistributionGenerator` is the counterexample, and the corpus
+contains six snapshots that make the difference visible. It subscribes to
+processes 1, 90 and 91, and it is class-loaded in **28 of the 40** snapshots.
+All four of its live `INSERT` statements are pinned to **source type 62** — the
+only hotelling source type — through `sourceTypePolProcess` for the first of
+each pair and `runSpecSourceType` for the second. `expand-counties`,
+`expand-day`, `expand-fueltype-diesel`, `expand-month`, `process-refueling` and
+`sample-runspec` all select Extended Idle for source type 21 alone: MOVES loads
+the generator, runs it, and it writes nothing. The predicate that holds on all
+40 is
+
+> a hotelling row exists ⇔ ONROAD ∧ (process 90 ∨ 91 selected) ∧ 62 ∈
+> `runSpecSourceType`
+
+and the one written on the subscription alone calls six correct snapshots
+failures.
+
+**The rule: derive the scheduling predicate from the WHERE clauses of the
+statements that emit, not from `subscribeToMe`.** A subscription says when the
+generator is invoked; the emitting statement says when the invocation produces
+anything, and it is the second that a snapshot can disagree with. The same
+distinction under a different name is the one the calculator track met at
+`nr-pleasure-craft-state`, and it is the one `docs/omd-generator-reachability.md`
+had to apply on the other side to decide which of this family were portable at
+all: **class-loaded in 28 snapshots, emitting in 5.**
+
+### 39.4 When two modules write one table, the port must name the partition
+
+`RatesOpModeDistribution` is written by three generators — the two ported here
+and `AverageSpeedOperatingModeDistributionGenerator`, which
+`docs/process-tirewear.md` already covers. An oracle that compared the whole
+table would fail on `process-tirewear`'s 32 rows and would have no honest way
+to describe why.
+
+The partition is `avgSpeedBinID`: both generators here write bin 0 and only bin
+0, because hotelling and starts both happen at rest, and
+`AverageSpeedOperatingModeDistributionGenerator` writes bins 1–16 because that
+is what it is for. `run-omd-oracle.sh` restricts to bin 0 and says so; the
+component asserts `avgSpeedBinID = 0` even though it is a literal in the SQL and
+asserting a literal proves little, precisely because the oracle's correctness
+rests on it.
+
+**The rule: a restriction that makes an oracle's comparison meaningful is part
+of the claim and is asserted, not merely applied.** The failure mode it guards
+against is specific — a future MOVES that wrote a hotelling row in a non-zero
+bin would be silently dropped by the restriction rather than reported — so the
+oracle also asserts the row-count floor, which such a change would break. A
+filter with no assertion behind it is a way of not looking.

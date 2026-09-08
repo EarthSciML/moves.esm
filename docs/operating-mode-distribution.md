@@ -734,7 +734,9 @@ decimals anyway (0.9, 0.5, 0.1, 0.02 …). 107 of the 124 land outside
 This is the mirror image of §35.3's meteorology result, where the same class of
 question — *does MariaDB's decimal arithmetic reach the stored value?* — came
 out the other way. Two data points, opposite answers, one rule:
-`docs/esm-conventions.md` §39.2, and `docs/findings/F38.md`.
+`docs/esm-conventions.md` §39.2. It is deliberately not a `docs/findings/`
+entry: that directory holds EarthSciAST format defects with executable repros,
+and this is a fact about MOVES.
 
 ### 7.3 Precision-sensitive operations, ranked
 
