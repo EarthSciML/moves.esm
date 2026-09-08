@@ -258,7 +258,8 @@ def relerr(actual: float, expected: float) -> float:
     return abs(actual - expected) / abs(expected)
 
 
-def compare(expected: list[dict], actual: list[dict], tol: dict, fixture: str) -> list[str]:
+def compare(expected: list[dict], actual: list[dict], tol: dict, fixture: str,
+            capture_decimals: int | None = None) -> list[str]:
     """Return a list of report lines. Raises `Failure` with the report on a diff."""
     cfg = tol["compare"]
     structure = tol.get("structure", {})
@@ -268,9 +269,69 @@ def compare(expected: list[dict], actual: list[dict], tol: dict, fixture: str) -
     if not expected:
         raise Failure("the snapshot's MOVESOutput is empty; nothing to compare")
 
-    keys = key_columns(list(expected[0].keys()), cfg)
     report: list[str] = []
     problems: list[str] = []
+
+    # --- declared scope -----------------------------------------------------
+    #
+    # A fixture may declare, in tolerance.toml, pollutants whose cells this
+    # snapshot cannot support a comparison for. This is NOT a tolerance and it
+    # is not a shortfall: the rows are still emitted, with the right keys and
+    # the right arithmetic, and every check below still runs at full strength
+    # on everything else. What it says is that the snapshot's own capture
+    # destroyed the evidence -- see tolerance.toml, where the reason is
+    # mandatory and the measurement is written out.
+    #
+    # It is applied to BOTH sides, so a scoped-out pollutant cannot show up as
+    # a missing key either, and it is reported before anything else so that a
+    # reader cannot mistake the row count for the whole table.
+    scope = tol.get("fixtures", {}).get(fixture, {}).get("scope", {})
+    excluded = [int(p) for p in scope.get("excluded_pollutants", [])]
+    if (excluded or scope.get("allow_storage_quantum")) \
+            and not str(scope.get("why", "")).strip():
+        raise Failure(
+            f"tolerance.toml declares a scope for {fixture} with no `why`. "
+            f"A scope without a reason is a bug being hidden."
+        )
+    if excluded:
+        drop = {_norm(p) for p in excluded}
+        keep = lambda rows: [r for r in rows if _norm(r.get(pol_col)) not in drop]
+        n_exp, n_act = len(expected), len(actual)
+        expected, actual = keep(expected), keep(actual)
+        if not expected:
+            raise Failure("the declared scope excludes every row of the snapshot")
+        report.append(
+            f"scope: pollutant(s) {', '.join(str(p) for p in excluded)} are NOT "
+            f"compared -- {n_exp - len(expected)} of {n_exp} snapshot rows and "
+            f"{n_act - len(actual)} of {n_act} emitted rows held out"
+        )
+        report.append(f"       why: {scope['why']}")
+
+    # A capture that writes floats with a fixed number of DECIMAL places stores
+    # a small value to very few significant digits: at float_decimals = 12, a
+    # cell of 1e-12 keeps one. Where a fixture declares it, the comparison is
+    # made at the resolution the reference is actually stored in -- half a
+    # stored quantum of absolute slack, read off the snapshot's own
+    # `.meta.json` and not fitted here -- which is the same concession relerr()
+    # already makes for an expected zero, one step earlier. It is OPT-IN so
+    # that no other fixture's gate moves, and it is an ABSOLUTE floor: the
+    # relative gate is unchanged above it and every cell the capture stores in
+    # full is held to it exactly as before.
+    half_quantum = 0.0
+    if scope.get("allow_storage_quantum"):
+        if capture_decimals is None:
+            raise Failure(
+                f"{fixture} declares allow_storage_quantum but the snapshot's "
+                f"MOVESOutput sidecar carries no float_decimals to derive it from"
+            )
+        half_quantum = 0.5 * 10.0 ** (-capture_decimals)
+        report.append(
+            f"       storage: comparing at the capture's own resolution, "
+            f"float_decimals = {capture_decimals}, so {half_quantum:g} absolute "
+            f"is allowed beneath the relative gate"
+        )
+
+    keys = key_columns(list(expected[0].keys()), cfg)
 
     # Most identity columns are constant across a fixture -- for
     # nr-logging-county, 16 of 19, nine of them NULL throughout -- so printing
@@ -337,6 +398,7 @@ def compare(expected: list[dict], actual: list[dict], tol: dict, fixture: str) -
     # 3. per-cell
     cell_rel = tol.get("cell", {}).get("rel")
     worst = (0.0, None)
+    worst_gated = (0.0, None)
     cells_checked = 0
     over = []
     if cell_rel is not None:
@@ -344,11 +406,24 @@ def compare(expected: list[dict], actual: list[dict], tol: dict, fixture: str) -
             for col in value_cols:
                 e = _num(exp_by_key[k][col], f"expected {show(k)} {col}")
                 a = _num(act_by_key[k][col], f"actual {show(k)} {col}")
+                # TWO numbers, and they are not the same quantity. `r` is the
+                # relative error and stays comparable with every other
+                # fixture's headline figure; `gated` is the same difference
+                # with the capture's own half-quantum taken off first, and it
+                # decides pass/fail only where a fixture declared the floor.
+                # Conflating them would silently change what "worst relative
+                # error" means in one rung's oracle output.
                 r = relerr(a, e)
+                gated = r
+                if half_quantum:
+                    excess = max(0.0, abs(a - e) - half_quantum)
+                    gated = excess / abs(e) if e else excess
+                    if gated > worst_gated[0]:
+                        worst_gated = (gated, (k, col, a, e))
                 cells_checked += 1
                 if r > worst[0]:
                     worst = (r, (k, col, a, e))
-                if r > cell_rel:
+                if gated > cell_rel:
                     over.append((r, k, col, a, e))
         if over:
             over.sort(reverse=True)
@@ -364,10 +439,21 @@ def compare(expected: list[dict], actual: list[dict], tol: dict, fixture: str) -
                 f"worst cell: rel={worst[0]:.3e} over {cells_checked} cells "
                 f"(tolerance {cell_rel:g})"
             )
+            if half_quantum:
+                # Said separately and labelled differently, because it is a
+                # different quantity: the worst error IN EXCESS of the
+                # capture's half-quantum, which is what the gate above was
+                # applied to. The line above stays the figure that is
+                # comparable across rungs.
+                report.append(
+                    f"worst cell, excess over the {half_quantum:g} storage "
+                    f"quantum: rel={worst_gated[0]:.3e} (this is the number the "
+                    f"{cell_rel:g} gate was applied to)"
+                )
 
     # 4. per-pollutant sums
     which = "nonroad" if fixture.startswith(NONROAD_PREFIX) else "onroad"
-    sums_rel = tol["fixtures"][fixture]["rel"] if fixture in tol.get("fixtures", {}) else tol["default"][which]
+    sums_rel = tol.get("fixtures", {}).get(fixture, {}).get("rel", tol["default"][which])
     for col in value_cols:
         e_sums, a_sums = defaultdict(float), defaultdict(float)
         for r in expected:
@@ -532,10 +618,10 @@ def _self_test() -> int:
     # the only way to test logic that nothing else can reach.
     extra_failures = 0
 
-    def alone(name, exp, act, cfg_tol, should_pass):
+    def alone(name, exp, act, cfg_tol, should_pass, decimals=None):
         nonlocal extra_failures
         try:
-            compare(exp, act, cfg_tol, "nr-self-test")
+            compare(exp, act, cfg_tol, "nr-self-test", capture_decimals=decimals)
             ok = True
         except Failure:
             ok = False
@@ -586,6 +672,48 @@ def _self_test() -> int:
         extra_failures += 1
     except Failure:
         print("  ok   onroad sums tolerance (1e-3) is tighter than nonroad (1e-2)")
+
+    # --- the declared scope ------------------------------------------------
+    #
+    # Three falsifications, because an exclusion is the one mechanism here that
+    # makes a check do LESS and it has to be shown to do exactly that much.
+    scoped = {**tol, "fixtures": {"nr-self-test": {"scope": {
+        "excluded_pollutants": [2], "why": "a self-test reason"}}}}
+    # (a) a pollutant that is wrong is still caught when it is NOT excluded.
+    alone("scope: an error in a pollutant that is not excluded still fails", base,
+          rows((1, "A", 2020, "150.0"), (1, "A", 2021, "200.0"), (2, "A", 2020, "300.0")),
+          scoped, False)
+    # (b) the excluded pollutant's cells are genuinely not compared -- and the
+    #     key set does not report them as missing either.
+    alone("scope: the excluded pollutant is not compared", base,
+          rows((1, "A", 2020, "100.0"), (1, "A", 2021, "200.0"), (2, "A", 2020, "999.0")),
+          scoped, True)
+    # (c) an exclusion with no reason is refused.
+    no_why = {**tol, "fixtures": {"nr-self-test": {"scope": {"excluded_pollutants": [2]}}}}
+    try:
+        compare(base, base, no_why, "nr-self-test")
+        print("  FAIL an exclusion with no `why` was accepted")
+        extra_failures += 1
+    except Failure as exc:
+        got = "no\n`why`" in str(exc).replace(" ", "\n") or "why" in str(exc)
+        print(f"  {'ok  ' if got else 'FAIL'} an exclusion with no `why` is refused")
+        extra_failures += 0 if got else 1
+
+    # --- the storage floor ---------------------------------------------------
+    #
+    # It must absorb a difference the CAPTURE explains and nothing larger.
+    q = {**tol, "fixtures": {"nr-self-test": {"scope": {
+        "allow_storage_quantum": True, "excluded_pollutants": [], "why": "x"}}}}
+    tiny = rows((1, "A", 2020, "0.000000000001"), (1, "A", 2021, "200.0"),
+                (2, "A", 2020, "300.0"))
+    # 4e-13 out on a cell stored as 1e-12 is inside half a quantum: absorbed.
+    alone("storage floor: a difference inside half a stored quantum is absorbed",
+          tiny, rows((1, "A", 2020, "0.0000000000014"), (1, "A", 2021, "200.0"),
+                     (2, "A", 2020, "300.0")), q, True, decimals=12)
+    # 5% on a cell the capture stores in full is NOT.
+    alone("storage floor: a real error on a well-stored cell still fails",
+          tiny, rows((1, "A", 2020, "0.000000000001"), (1, "A", 2021, "210.0"),
+                     (2, "A", 2020, "300.0")), q, False, decimals=12)
 
     # a duplicate key is a bug, not a tie
     cases.append(("duplicate key", base, base + [dict(base[0])], False))
@@ -639,8 +767,14 @@ def main(argv=None) -> int:
     try:
         tol = load_tolerance(args.tolerance)
         exp_path = args.expected or snapshot_output_path(args.snapshots, args.fixture)
+        meta = exp_path.with_suffix("").with_suffix(".meta.json")
+        decimals = None
+        if meta.exists():
+            import json as _json
+            decimals = _json.loads(meta.read_text()).get("float_decimals")
         report = compare(
-            read_expected(exp_path), read_actual(args.actual), tol, args.fixture
+            read_expected(exp_path), read_actual(args.actual), tol, args.fixture,
+            capture_decimals=decimals,
         )
     except Failure as exc:
         print(f"FAIL {args.fixture}", file=sys.stderr)

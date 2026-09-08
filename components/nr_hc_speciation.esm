@@ -1,0 +1,505 @@
+{
+  "esm": "1.0.0",
+  "metadata": {
+    "name": "NrHcSpeciation",
+    "description": "One calculator, one file (PLAN.md §3 Phase 1). Ports `NRHCSpeciationCalculator` -- crates/moves-calculators/src/calculators/nrhcspeciation.rs `speciate_emission`, itself a port of calc/nrhcspeciation/nrhcspeciation.go -- which splits one NONROAD THC emission into methane (5), NMHC (79), NMOG (80), TOG (86) and VOC (87). Specified in docs/nr-airtoxics-lawn-garden-county.md §2.4; every coefficient below is read from that document's §6.1, which took it from the nr-airtoxics-lawn-garden-county snapshot parquet.\n\nTHE SPECIATION HAPPENS INSIDE THE ENGINE-TECHNOLOGY CONTRACTION, and that is the fact this component exists to make checkable. The MOVESWorkerOutput fuel block is keyed by engTechID and hpID, so `nrMethaneTHCRatio` and `nrHCSpeciation` are looked up per technology and the emitted cohort is a population-weighted BLEND. In this snapshot the two technology coefficient sets give CH4/THC of 0.02 and 0.149; the snapshot's own emitted CH4/THC takes 404 distinct values over 484 cohorts, between 0.023141 and 0.149001, which is only possible if the split is inside the blend. The two rows of `ratio_rows` below are those two sets.\n\nTHE TWO MISSING-ROW ARMS ARE WHY THIS IS A COMPONENT AND NOT A FIXTURE ASSERTION (docs/esm-conventions.md §23). Neither fires anywhere in the 2,063 worker cells of the snapshot -- measured, docs/nr-airtoxics-lawn-garden-county.md §8 -- and they are genuinely different failures: no `nrMethaneTHCRatio` row makes the Go `continue` past the emission so that NOTHING is produced, while no `nrHCSpeciation` row makes NMOG and VOC an explicit ZERO emission that is still emitted. Rows 3 and 4 are probes for exactly those two, and `blk_speciates` is the column that tells them apart: probe 3 reads 0 there and 0 NMHC, probe 4 reads 1 and 85.1 NMHC with 0 NMOG.\n\nTwo further things are read from the source rather than from the data. The lookups use TWO DIFFERENT fuel-subtype ids -- `nrMethaneTHCRatio` keys on the fuel FORMULATION's subtype and `nrHCSpeciation` on the EMISSION's -- which this snapshot cannot distinguish because its only supplied gasoline formulation carries subtype 12 in both places; the two columns are kept separate here so the distinction survives into a snapshot that could. And TOG is NMOG + methane rather than THC times anything: `NRAirToxicsCalculator.getIntegratedSpecies` says why in the canonical Java, and the snapshot agrees to 7.4e-06.",
+    "authors": ["EarthSciML Authors and Contributors"],
+    "tags": ["moves", "nonroad", "speciation", "component"]
+  },
+
+  "enums": {
+    "pollutant": {
+      "TotalGaseousHydrocarbons": 1,
+      "Methane": 5,
+      "NonMethaneHydrocarbons": 79,
+      "NonMethaneOrganicGases": 80,
+      "TotalOrganicGases": 86,
+      "VolatileOrganicCompounds": 87
+    },
+    "process": {
+      "RunningExhaust": 1
+    },
+    "engine_technology": {
+      "G2N1": 136,
+      "G4N1O": 137,
+      "ProbeNoMethaneRatio": 990,
+      "ProbeNoSpeciationConstant": 991
+    },
+    "fuel_subtype": {
+      "GasolineE10": 12
+    }
+  },
+
+  "index_sets": {
+    "block_rows": { "kind": "interval", "size": 4 },
+    "ratio_rows": { "kind": "interval", "size": 3 },
+    "speciation_rows": { "kind": "interval", "size": 4 }
+  },
+
+  "coordinates": {
+    "block_engine_technology": {
+      "source": "blk_engTechID",
+      "standard_name": "engine_technology_identifier"
+    }
+  },
+
+  "models": {
+    "NrHcSpeciation": {
+      "expression_template_imports": [
+        { "ref": "../lib/nonroad_speciation.esm",
+          "only": ["ratio_scaled", "nmhc_share", "total_organic_gases",
+                   "nr_hp_category_small"] }
+      ],
+
+      "tolerance": { "rel": 1e-12 },
+
+      "variables": {
+        "blk_engTechID": {
+          "type": "unknown", "shape": ["block_rows"],
+          "description": "MOVESWorkerOutput.engTechID, the fuel block key's technology. Column 1 of the block relation."
+        },
+        "blk_processID": {
+          "type": "unknown", "shape": ["block_rows"],
+          "description": "MOVESWorkerOutput.processID. Column 2. Running exhaust throughout; the calculator registers nine processes and this component checks the arithmetic, not the registration."
+        },
+        "blk_nrHPCategory": {
+          "type": "unknown", "shape": ["block_rows"],
+          "description": "nrHPCategory[(hpID, engTechID)], the one-character horse-power category decoded to 1 (S) or 2 (L) by lib/nonroad_speciation.esm. Column 3. A block whose (hpID, engTechID) has no nrhpcategory row takes the Go map's zero value, which is carried into the lookup key verbatim and therefore matches nothing -- a VALUE, not a branch."
+        },
+        "blk_formulationFuelSubtypeID": {
+          "type": "unknown", "shape": ["block_rows"],
+          "description": "The FUEL FORMULATION's fuelSubTypeID, which is what nrMethaneTHCRatio keys on (nrhcspeciation.rs: `tables.fuel_sub_type_id(emission.fuel_formulation_id)`). Column 4."
+        },
+        "blk_emissionFuelSubtypeID": {
+          "type": "unknown", "shape": ["block_rows"],
+          "description": "The EMISSION's own fuelSubTypeID, which is what nrHCSpeciation keys on (nrhcspeciation.rs: `emission.fuel_sub_type_id`). Column 5. Equal to column 4 on every row of this snapshot; kept separate because the source reads them from two distinct places."
+        },
+        "blk_nmogPollutantID": {
+          "type": "unknown", "shape": ["block_rows"],
+          "description": "The output pollutant the NMOG lookup keys on, carried as a COLUMN of the block relation rather than written as an `==` against a constant inside a filter. docs/esm-conventions.md §20.4 and §27.1: a constant equality is still a join.on, and tools/check-conventions.py rejects the filter form by name."
+        },
+        "blk_vocPollutantID": {
+          "type": "unknown", "shape": ["block_rows"],
+          "description": "The same for VOC. Two columns rather than one because the two lookups are two aggregates over the same table with different keys."
+        },
+        "blk_thcQuant": {
+          "type": "unknown", "shape": ["block_rows"], "units": "g",
+          "description": "The THC (pollutant 1) emission quantity the block carries. 100 g on every row so that every expected value below is the coefficient itself."
+        },
+
+        "rat_processID": {
+          "type": "unknown", "shape": ["ratio_rows"],
+          "description": "nrMethaneTHCRatio.processID. Column 1 of the relation."
+        },
+        "rat_engTechID": {
+          "type": "unknown", "shape": ["ratio_rows"],
+          "description": "nrMethaneTHCRatio.engTechID. Column 2."
+        },
+        "rat_fuelSubtypeID": {
+          "type": "unknown", "shape": ["ratio_rows"],
+          "description": "nrMethaneTHCRatio.fuelSubtypeID. Column 3."
+        },
+        "rat_nrHPCategory": {
+          "type": "unknown", "shape": ["ratio_rows"],
+          "description": "nrMethaneTHCRatio.nrHPCategory, decoded. Column 4."
+        },
+        "rat_ch4ThcRatio": {
+          "type": "unknown", "shape": ["ratio_rows"], "units": "1",
+          "description": "nrMethaneTHCRatio.CH4THCRatio. Column 5. 0.02 for the 2-stroke G2N1 and 0.149 for the 4-stroke G4N1O, at fuel subtype 12 and category S."
+        },
+
+        "spc_pollutantID": {
+          "type": "unknown", "shape": ["speciation_rows"],
+          "description": "nrHCSpeciation.pollutantID. Column 1. The table carries 80 and 87 and nothing else."
+        },
+        "spc_processID": {
+          "type": "unknown", "shape": ["speciation_rows"],
+          "description": "nrHCSpeciation.processID. Column 2."
+        },
+        "spc_engTechID": {
+          "type": "unknown", "shape": ["speciation_rows"],
+          "description": "nrHCSpeciation.engTechID. Column 3."
+        },
+        "spc_fuelSubtypeID": {
+          "type": "unknown", "shape": ["speciation_rows"],
+          "description": "nrHCSpeciation.fuelSubtypeID. Column 4."
+        },
+        "spc_nrHPCategory": {
+          "type": "unknown", "shape": ["speciation_rows"],
+          "description": "nrHCSpeciation.nrHPCategory, decoded. Column 5."
+        },
+        "spc_speciationConstant": {
+          "type": "unknown", "shape": ["speciation_rows"], "units": "1",
+          "description": "nrHCSpeciation.speciationConstant. Column 6."
+        },
+
+        "blk_speciates": {
+          "type": "unknown", "shape": ["block_rows"], "units": "1",
+          "description": "1 where an nrMethaneTHCRatio row exists for the block's key, 0 where none does. This is the Go's `if r == nil { continue }` as a column: a block that reads 0 here produces NO species at all, which is a different thing from a species that comes out zero."
+        },
+        "blk_ch4ThcRatio": {
+          "type": "unknown", "shape": ["block_rows"], "units": "1",
+          "description": "The matched CH4THCRatio, 0 on a block with no partner (§5.5.8 identity fill)."
+        },
+        "blk_methane": {
+          "type": "unknown", "shape": ["block_rows"], "units": "g",
+          "description": "Pollutant 5 = THC x CH4THCRatio, gated by blk_speciates."
+        },
+        "blk_nmhc": {
+          "type": "unknown", "shape": ["block_rows"], "units": "g",
+          "description": "Pollutant 79 = THC x (1 - CH4THCRatio), gated by blk_speciates. THE GATE IS LOAD-BEARING HERE AND NOT ON METHANE: with no ratio row the ratio reads 0, so an ungated NMHC would come out as the whole of THC rather than as nothing."
+        },
+        "blk_nmogConstant": {
+          "type": "unknown", "shape": ["block_rows"], "units": "1",
+          "description": "nrHCSpeciation.speciationConstant for pollutant 80, 0 where the table has no row."
+        },
+        "blk_vocConstant": {
+          "type": "unknown", "shape": ["block_rows"], "units": "1",
+          "description": "nrHCSpeciation.speciationConstant for pollutant 87, 0 where the table has no row."
+        },
+        "blk_nmog": {
+          "type": "unknown", "shape": ["block_rows"], "units": "g",
+          "description": "Pollutant 80 = NMHC x speciationConstant. Where no constant is tabulated the Go emits `NewEmissionScaled(e, 0)` -- an explicit zero row -- and the identity fill of the missing join gives exactly that."
+        },
+        "blk_voc": {
+          "type": "unknown", "shape": ["block_rows"], "units": "g",
+          "description": "Pollutant 87, the same shape as blk_nmog with the pollutant-80 key replaced by 87."
+        },
+        "blk_tog": {
+          "type": "unknown", "shape": ["block_rows"], "units": "g",
+          "description": "Pollutant 86 = NMOG + methane. Not THC times anything."
+        }
+      },
+
+      "equations": [
+        {
+          "_comment": "Four blocks: the snapshot's two real technology coefficient sets, then two probes for the arms the snapshot never reaches. Ordered so that each enum-built identifier occupies one contiguous run of rows (docs/esm-conventions.md §16.2).",
+          "lhs": "blk_engTechID",
+          "rhs": { "op": "makearray", "args": [],
+            "regions": [[[1, 1]], [[2, 2]], [[3, 3]], [[4, 4]]],
+            "values": [
+              { "op": "enum", "args": ["engine_technology", "G2N1"] },
+              { "op": "enum", "args": ["engine_technology", "G4N1O"] },
+              { "op": "enum", "args": ["engine_technology", "ProbeNoMethaneRatio"] },
+              { "op": "enum", "args": ["engine_technology", "ProbeNoSpeciationConstant"] }
+            ] }
+        },
+        {
+          "lhs": "blk_processID",
+          "rhs": { "op": "makearray", "args": [],
+            "regions": [[[1, 4]]],
+            "values": [{ "op": "enum", "args": ["process", "RunningExhaust"] }] }
+        },
+        {
+          "lhs": "blk_nrHPCategory",
+          "rhs": { "op": "makearray", "args": [],
+            "regions": [[[1, 4]]],
+            "values": [{ "op": "apply_expression_template", "args": [],
+                         "name": "nr_hp_category_small", "bindings": {} }] }
+        },
+        {
+          "lhs": "blk_formulationFuelSubtypeID",
+          "rhs": { "op": "makearray", "args": [],
+            "regions": [[[1, 4]]],
+            "values": [{ "op": "enum", "args": ["fuel_subtype", "GasolineE10"] }] }
+        },
+        {
+          "lhs": "blk_emissionFuelSubtypeID",
+          "rhs": { "op": "makearray", "args": [],
+            "regions": [[[1, 4]]],
+            "values": [{ "op": "enum", "args": ["fuel_subtype", "GasolineE10"] }] }
+        },
+        {
+          "lhs": "blk_thcQuant",
+          "rhs": { "op": "const", "args": [], "value": [100.0, 100.0, 100.0, 100.0] }
+        },
+        {
+          "lhs": "blk_nmogPollutantID",
+          "rhs": { "op": "makearray", "args": [],
+            "regions": [[[1, 4]]],
+            "values": [{ "op": "enum", "args": ["pollutant", "NonMethaneOrganicGases"] }] }
+        },
+        {
+          "lhs": "blk_vocPollutantID",
+          "rhs": { "op": "makearray", "args": [],
+            "regions": [[[1, 4]]],
+            "values": [{ "op": "enum", "args": ["pollutant", "VolatileOrganicCompounds"] }] }
+        },
+
+        {
+          "_comment": "nrMethaneTHCRatio, process 1 / fuel subtype 12 / category S. Note there is NO row for ProbeNoMethaneRatio: block 3 is the `if r == nil { continue }` arm.",
+          "lhs": "rat_processID",
+          "rhs": { "op": "makearray", "args": [],
+            "regions": [[[1, 3]]],
+            "values": [{ "op": "enum", "args": ["process", "RunningExhaust"] }] }
+        },
+        {
+          "lhs": "rat_engTechID",
+          "rhs": { "op": "makearray", "args": [],
+            "regions": [[[1, 1]], [[2, 2]], [[3, 3]]],
+            "values": [
+              { "op": "enum", "args": ["engine_technology", "G2N1"] },
+              { "op": "enum", "args": ["engine_technology", "G4N1O"] },
+              { "op": "enum", "args": ["engine_technology", "ProbeNoSpeciationConstant"] }
+            ] }
+        },
+        {
+          "lhs": "rat_fuelSubtypeID",
+          "rhs": { "op": "makearray", "args": [],
+            "regions": [[[1, 3]]],
+            "values": [{ "op": "enum", "args": ["fuel_subtype", "GasolineE10"] }] }
+        },
+        {
+          "lhs": "rat_nrHPCategory",
+          "rhs": { "op": "makearray", "args": [],
+            "regions": [[[1, 3]]],
+            "values": [{ "op": "apply_expression_template", "args": [],
+                         "name": "nr_hp_category_small", "bindings": {} }] }
+        },
+        {
+          "lhs": "rat_ch4ThcRatio",
+          "rhs": { "op": "const", "args": [], "value": [0.02, 0.149, 0.149] }
+        },
+
+        {
+          "_comment": "nrHCSpeciation. Ordered by pollutant so the enum-built key is contiguous; there is no row for ProbeNoSpeciationConstant, which is the `NewEmissionScaled(e, 0)` arm.",
+          "lhs": "spc_pollutantID",
+          "rhs": { "op": "makearray", "args": [],
+            "regions": [[[1, 2]], [[3, 4]]],
+            "values": [
+              { "op": "enum", "args": ["pollutant", "NonMethaneOrganicGases"] },
+              { "op": "enum", "args": ["pollutant", "VolatileOrganicCompounds"] }
+            ] }
+        },
+        {
+          "lhs": "spc_processID",
+          "rhs": { "op": "makearray", "args": [],
+            "regions": [[[1, 4]]],
+            "values": [{ "op": "enum", "args": ["process", "RunningExhaust"] }] }
+        },
+        {
+          "lhs": "spc_engTechID",
+          "rhs": { "op": "makearray", "args": [],
+            "regions": [[[1, 1]], [[2, 2]], [[3, 3]], [[4, 4]]],
+            "values": [
+              { "op": "enum", "args": ["engine_technology", "G2N1"] },
+              { "op": "enum", "args": ["engine_technology", "G4N1O"] },
+              { "op": "enum", "args": ["engine_technology", "G2N1"] },
+              { "op": "enum", "args": ["engine_technology", "G4N1O"] }
+            ] }
+        },
+        {
+          "lhs": "spc_fuelSubtypeID",
+          "rhs": { "op": "makearray", "args": [],
+            "regions": [[[1, 4]]],
+            "values": [{ "op": "enum", "args": ["fuel_subtype", "GasolineE10"] }] }
+        },
+        {
+          "lhs": "spc_nrHPCategory",
+          "rhs": { "op": "makearray", "args": [],
+            "regions": [[[1, 4]]],
+            "values": [{ "op": "apply_expression_template", "args": [],
+                         "name": "nr_hp_category_small", "bindings": {} }] }
+        },
+        {
+          "lhs": "spc_speciationConstant",
+          "rhs": { "op": "const", "args": [], "value": [1.06, 1.051, 1.057, 1.035] }
+        },
+
+        {
+          "_comment": "The semi-join of docs/esm-conventions.md §3: `does a matching nrMethaneTHCRatio row exist`, spelled bool_and_or with a numeric body of 1. It is a presence test and carries no value; the value is the separate lookup below, on the same four key pairs.",
+          "lhs": "blk_speciates",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "bool_and_or",
+            "output_idx": ["b"],
+            "ranges": { "b": { "from": "block_rows" }, "m": { "from": "ratio_rows" } },
+            "join": [ { "on": [
+              ["blk_processID", "rat_processID"],
+              ["blk_engTechID", "rat_engTechID"],
+              ["blk_formulationFuelSubtypeID", "rat_fuelSubtypeID"],
+              ["blk_nrHPCategory", "rat_nrHPCategory"]
+            ] } ],
+            "expr": 1.0
+          }
+        },
+        {
+          "_comment": "The value, on the FORMULATION's fuel subtype.",
+          "lhs": "blk_ch4ThcRatio",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "sum_product",
+            "output_idx": ["b"],
+            "ranges": { "b": { "from": "block_rows" }, "m": { "from": "ratio_rows" } },
+            "join": [ { "on": [
+              ["blk_processID", "rat_processID"],
+              ["blk_engTechID", "rat_engTechID"],
+              ["blk_formulationFuelSubtypeID", "rat_fuelSubtypeID"],
+              ["blk_nrHPCategory", "rat_nrHPCategory"]
+            ] } ],
+            "expr": { "op": "index", "args": ["rat_ch4ThcRatio", "m"] }
+          }
+        },
+        {
+          "lhs": "blk_methane",
+          "rhs": {
+            "op": "aggregate", "args": [], "output_idx": ["b"],
+            "ranges": { "b": { "from": "block_rows" } },
+            "expr": { "op": "*", "args": [
+              { "op": "index", "args": ["blk_speciates", "b"] },
+              { "op": "apply_expression_template", "args": [], "name": "ratio_scaled",
+                "bindings": { "input_quant": { "op": "index", "args": ["blk_thcQuant", "b"] },
+                              "ratio": { "op": "index", "args": ["blk_ch4ThcRatio", "b"] } } }
+            ] }
+          }
+        },
+        {
+          "lhs": "blk_nmhc",
+          "rhs": {
+            "op": "aggregate", "args": [], "output_idx": ["b"],
+            "ranges": { "b": { "from": "block_rows" } },
+            "expr": { "op": "*", "args": [
+              { "op": "index", "args": ["blk_speciates", "b"] },
+              { "op": "apply_expression_template", "args": [], "name": "ratio_scaled",
+                "bindings": { "input_quant": { "op": "index", "args": ["blk_thcQuant", "b"] },
+                              "ratio": { "op": "apply_expression_template", "args": [], "name": "nmhc_share",
+                                         "bindings": { "ch4_thc_ratio": { "op": "index", "args": ["blk_ch4ThcRatio", "b"] } } } } }
+            ] }
+          }
+        },
+        {
+          "_comment": "The speciation constant, on the EMISSION's fuel subtype and with the OUTPUT pollutant in the key -- so the join both finds the constant and says which species the row is (docs/esm-conventions.md §32.4). A constant equality against a pollutant enum is still a join.on pair and not an `==` in a filter (§20.4, §27.1), so the output pollutant is a COLUMN of the block relation and the fifth key pair of this clause.",
+          "lhs": "blk_nmogConstant",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "sum_product",
+            "output_idx": ["b"],
+            "ranges": { "b": { "from": "block_rows" }, "s": { "from": "speciation_rows" } },
+            "join": [ { "on": [
+              ["blk_nmogPollutantID", "spc_pollutantID"],
+              ["blk_processID", "spc_processID"],
+              ["blk_engTechID", "spc_engTechID"],
+              ["blk_emissionFuelSubtypeID", "spc_fuelSubtypeID"],
+              ["blk_nrHPCategory", "spc_nrHPCategory"]
+            ] } ],
+            "expr": { "op": "index", "args": ["spc_speciationConstant", "s"] }
+          }
+        },
+        {
+          "lhs": "blk_vocConstant",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "sum_product",
+            "output_idx": ["b"],
+            "ranges": { "b": { "from": "block_rows" }, "s": { "from": "speciation_rows" } },
+            "join": [ { "on": [
+              ["blk_vocPollutantID", "spc_pollutantID"],
+              ["blk_processID", "spc_processID"],
+              ["blk_engTechID", "spc_engTechID"],
+              ["blk_emissionFuelSubtypeID", "spc_fuelSubtypeID"],
+              ["blk_nrHPCategory", "spc_nrHPCategory"]
+            ] } ],
+            "expr": { "op": "index", "args": ["spc_speciationConstant", "s"] }
+          }
+        },
+        {
+          "lhs": "blk_nmog",
+          "rhs": {
+            "op": "aggregate", "args": [], "output_idx": ["b"],
+            "ranges": { "b": { "from": "block_rows" } },
+            "expr": { "op": "apply_expression_template", "args": [], "name": "ratio_scaled",
+              "bindings": { "input_quant": { "op": "index", "args": ["blk_nmhc", "b"] },
+                            "ratio": { "op": "index", "args": ["blk_nmogConstant", "b"] } } }
+          }
+        },
+        {
+          "lhs": "blk_voc",
+          "rhs": {
+            "op": "aggregate", "args": [], "output_idx": ["b"],
+            "ranges": { "b": { "from": "block_rows" } },
+            "expr": { "op": "apply_expression_template", "args": [], "name": "ratio_scaled",
+              "bindings": { "input_quant": { "op": "index", "args": ["blk_nmhc", "b"] },
+                            "ratio": { "op": "index", "args": ["blk_vocConstant", "b"] } } }
+          }
+        },
+        {
+          "lhs": "blk_tog",
+          "rhs": {
+            "op": "aggregate", "args": [], "output_idx": ["b"],
+            "ranges": { "b": { "from": "block_rows" } },
+            "expr": { "op": "apply_expression_template", "args": [], "name": "total_organic_gases",
+              "bindings": { "nmog": { "op": "index", "args": ["blk_nmog", "b"] },
+                            "methane": { "op": "index", "args": ["blk_methane", "b"] } } }
+          }
+        }
+      ],
+
+      "tests": [
+        {
+          "id": "both_technology_coefficient_sets_are_exercised",
+          "description": "docs/nr-airtoxics-lawn-garden-county.md §6.1. Blocks 1 and 2 are the snapshot's two coefficient sets at 100 g of THC, so every number here is the multiplier itself. A document that speciated the AGGREGATED THC of a cohort would have to pick one of these two; the snapshot's own CH4/THC takes 404 distinct values between them, so neither would be right.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "blk_methane", "time": 0.0, "expected": 2.0, "coords": { "block_rows": 1 } },
+            { "variable": "blk_nmhc", "time": 0.0, "expected": 98.0, "coords": { "block_rows": 1 } },
+            { "variable": "blk_nmog", "time": 0.0, "expected": 103.88000000000001, "coords": { "block_rows": 1 } },
+            { "variable": "blk_voc", "time": 0.0, "expected": 103.586, "coords": { "block_rows": 1 } },
+            { "variable": "blk_tog", "time": 0.0, "expected": 105.88000000000001, "coords": { "block_rows": 1 } },
+            { "variable": "blk_methane", "time": 0.0, "expected": 14.899999999999999, "coords": { "block_rows": 2 } },
+            { "variable": "blk_nmhc", "time": 0.0, "expected": 85.1, "coords": { "block_rows": 2 } },
+            { "variable": "blk_nmog", "time": 0.0, "expected": 89.44009999999999, "coords": { "block_rows": 2 } },
+            { "variable": "blk_voc", "time": 0.0, "expected": 88.07849999999999, "coords": { "block_rows": 2 } },
+            { "variable": "blk_tog", "time": 0.0, "expected": 104.34009999999998, "coords": { "block_rows": 2 } }
+          ]
+        },
+        {
+          "id": "no_methane_ratio_row_produces_no_species_at_all",
+          "description": "nrhcspeciation.rs `speciate_emission` returns None when nrMethaneTHCRatio has no row, so the Go `continue`s past the emission. Block 3 is that arm. THE GATE IS WHAT MAKES NMHC ZERO: the missing join fills the ratio with 0, so an ungated NMHC = THC x (1 - 0) would be 100 g -- the whole of the THC -- which is the plausible-wrong-value failure this repository tracks. blk_speciates reads 0 here and 1 on every other row.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "blk_speciates", "time": 0.0, "expected": 0.0, "coords": { "block_rows": 3 } },
+            { "variable": "blk_ch4ThcRatio", "time": 0.0, "expected": 0.0, "coords": { "block_rows": 3 } },
+            { "variable": "blk_methane", "time": 0.0, "expected": 0.0, "coords": { "block_rows": 3 } },
+            { "variable": "blk_nmhc", "time": 0.0, "expected": 0.0, "coords": { "block_rows": 3 } },
+            { "variable": "blk_nmog", "time": 0.0, "expected": 0.0, "coords": { "block_rows": 3 } },
+            { "variable": "blk_voc", "time": 0.0, "expected": 0.0, "coords": { "block_rows": 3 } },
+            { "variable": "blk_tog", "time": 0.0, "expected": 0.0, "coords": { "block_rows": 3 } },
+            { "variable": "blk_speciates", "time": 0.0, "expected": 1.0, "coords": { "block_rows": 1 } },
+            { "variable": "blk_speciates", "time": 0.0, "expected": 1.0, "coords": { "block_rows": 4 } }
+          ]
+        },
+        {
+          "id": "no_speciation_constant_is_an_explicit_zero_not_a_missing_row",
+          "description": "The OTHER missing-row arm, and the one that is easy to conflate with the first. Block 4 has an nrMethaneTHCRatio row and no nrHCSpeciation row, so the Go emits `NewEmissionScaled(e, 0)` for NMOG and VOC: methane and NMHC are real numbers, the two species are zero, and TOG is methane alone. Block 3 and block 4 both read 0 NMOG; only blk_speciates and blk_nmhc tell them apart, which is why both are pinned here.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "blk_methane", "time": 0.0, "expected": 14.899999999999999, "coords": { "block_rows": 4 } },
+            { "variable": "blk_nmhc", "time": 0.0, "expected": 85.1, "coords": { "block_rows": 4 } },
+            { "variable": "blk_nmogConstant", "time": 0.0, "expected": 0.0, "coords": { "block_rows": 4 } },
+            { "variable": "blk_vocConstant", "time": 0.0, "expected": 0.0, "coords": { "block_rows": 4 } },
+            { "variable": "blk_nmog", "time": 0.0, "expected": 0.0, "coords": { "block_rows": 4 } },
+            { "variable": "blk_voc", "time": 0.0, "expected": 0.0, "coords": { "block_rows": 4 } },
+            { "variable": "blk_tog", "time": 0.0, "expected": 14.899999999999999, "coords": { "block_rows": 4 } }
+          ]
+        },
+        {
+          "id": "the_output_pollutant_is_part_of_the_speciation_key",
+          "description": "nrHCSpeciation carries one constant per (output pollutant, technology), and blocks 1 and 2 must read DIFFERENT ones on the same technology. Dropping the pollutant from the key would sum 1.06 + 1.057 = 2.117 into both constants on block 1 rather than reading 1.06 and 1.057.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "blk_nmogConstant", "time": 0.0, "expected": 1.06, "coords": { "block_rows": 1 } },
+            { "variable": "blk_vocConstant", "time": 0.0, "expected": 1.057, "coords": { "block_rows": 1 } },
+            { "variable": "blk_nmogConstant", "time": 0.0, "expected": 1.051, "coords": { "block_rows": 2 } },
+            { "variable": "blk_vocConstant", "time": 0.0, "expected": 1.035, "coords": { "block_rows": 2 } }
+          ]
+        },
+        {
+          "id": "tog_is_nmog_plus_methane_and_not_thc",
+          "description": "TOG exceeds THC on both real technologies -- 105.88 and 104.34 against 100 -- because NMOG's speciation constant is above 1. A document that wrote TOG = THC would be within 6 % here and wrong everywhere, and the snapshot's own TOG/THC (1.04339 to 1.05843) is the same statement at fixture scale.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "blk_tog", "time": 0.0, "expected": 105.88000000000001, "coords": { "block_rows": 1 } },
+            { "variable": "blk_thcQuant", "time": 0.0, "expected": 100.0, "coords": { "block_rows": 1 } },
+            { "variable": "blk_tog", "time": 0.0, "expected": 105.88000000000001, "reduce": "max" }
+          ]
+        }
+      ]
+    }
+  }
+}
