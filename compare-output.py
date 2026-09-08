@@ -258,7 +258,8 @@ def relerr(actual: float, expected: float) -> float:
     return abs(actual - expected) / abs(expected)
 
 
-def compare(expected: list[dict], actual: list[dict], tol: dict, fixture: str) -> list[str]:
+def compare(expected: list[dict], actual: list[dict], tol: dict, fixture: str,
+            capture_decimals: int | None = None) -> list[str]:
     """Return a list of report lines. Raises `Failure` with the report on a diff."""
     cfg = tol["compare"]
     structure = tol.get("structure", {})
@@ -286,8 +287,14 @@ def compare(expected: list[dict], actual: list[dict], tol: dict, fixture: str) -
     # reader cannot mistake the row count for the whole table.
     scope = tol.get("fixtures", {}).get(fixture, {}).get("scope", {})
     excluded = [int(p) for p in scope.get("excluded_pollutants", [])]
+    if (excluded or scope.get("allow_storage_quantum")) \
+            and not str(scope.get("why", "")).strip():
+        raise Failure(
+            f"tolerance.toml declares a scope for {fixture} with no `why`. "
+            f"A scope without a reason is a bug being hidden."
+        )
     if excluded:
-        if not str(scope.get("why", "")).strip():
+        if False:
             raise Failure(
                 f"tolerance.toml declares excluded_pollutants for {fixture} with no "
                 f"`why`. An exclusion without a reason is a bug being hidden."
@@ -304,6 +311,30 @@ def compare(expected: list[dict], actual: list[dict], tol: dict, fixture: str) -
             f"{n_act - len(actual)} of {n_act} emitted rows held out"
         )
         report.append(f"       why: {scope['why']}")
+
+    # A capture that writes floats with a fixed number of DECIMAL places stores
+    # a small value to very few significant digits: at float_decimals = 12, a
+    # cell of 1e-12 keeps one. Where a fixture declares it, the comparison is
+    # made at the resolution the reference is actually stored in -- half a
+    # stored quantum of absolute slack, read off the snapshot's own
+    # `.meta.json` and not fitted here -- which is the same concession relerr()
+    # already makes for an expected zero, one step earlier. It is OPT-IN so
+    # that no other fixture's gate moves, and it is an ABSOLUTE floor: the
+    # relative gate is unchanged above it and every cell the capture stores in
+    # full is held to it exactly as before.
+    half_quantum = 0.0
+    if scope.get("allow_storage_quantum"):
+        if capture_decimals is None:
+            raise Failure(
+                f"{fixture} declares allow_storage_quantum but the snapshot's "
+                f"MOVESOutput sidecar carries no float_decimals to derive it from"
+            )
+        half_quantum = 0.5 * 10.0 ** (-capture_decimals)
+        report.append(
+            f"       storage: comparing at the capture's own resolution, "
+            f"float_decimals = {capture_decimals}, so {half_quantum:g} absolute "
+            f"is allowed beneath the relative gate"
+        )
 
     keys = key_columns(list(expected[0].keys()), cfg)
 
@@ -380,6 +411,9 @@ def compare(expected: list[dict], actual: list[dict], tol: dict, fixture: str) -
                 e = _num(exp_by_key[k][col], f"expected {show(k)} {col}")
                 a = _num(act_by_key[k][col], f"actual {show(k)} {col}")
                 r = relerr(a, e)
+                if half_quantum:
+                    excess = max(0.0, abs(a - e) - half_quantum)
+                    r = excess / abs(e) if e else excess
                 cells_checked += 1
                 if r > worst[0]:
                     worst = (r, (k, col, a, e))
@@ -567,10 +601,10 @@ def _self_test() -> int:
     # the only way to test logic that nothing else can reach.
     extra_failures = 0
 
-    def alone(name, exp, act, cfg_tol, should_pass):
+    def alone(name, exp, act, cfg_tol, should_pass, decimals=None):
         nonlocal extra_failures
         try:
-            compare(exp, act, cfg_tol, "nr-self-test")
+            compare(exp, act, cfg_tol, "nr-self-test", capture_decimals=decimals)
             ok = True
         except Failure:
             ok = False
@@ -648,6 +682,22 @@ def _self_test() -> int:
         print(f"  {'ok  ' if got else 'FAIL'} an exclusion with no `why` is refused")
         extra_failures += 0 if got else 1
 
+    # --- the storage floor ---------------------------------------------------
+    #
+    # It must absorb a difference the CAPTURE explains and nothing larger.
+    q = {**tol, "fixtures": {"nr-self-test": {"scope": {
+        "allow_storage_quantum": True, "excluded_pollutants": [], "why": "x"}}}}
+    tiny = rows((1, "A", 2020, "0.000000000001"), (1, "A", 2021, "200.0"),
+                (2, "A", 2020, "300.0"))
+    # 4e-13 out on a cell stored as 1e-12 is inside half a quantum: absorbed.
+    alone("storage floor: a difference inside half a stored quantum is absorbed",
+          tiny, rows((1, "A", 2020, "0.0000000000014"), (1, "A", 2021, "200.0"),
+                     (2, "A", 2020, "300.0")), q, True, decimals=12)
+    # 5% on a cell the capture stores in full is NOT.
+    alone("storage floor: a real error on a well-stored cell still fails",
+          tiny, rows((1, "A", 2020, "0.000000000001"), (1, "A", 2021, "210.0"),
+                     (2, "A", 2020, "300.0")), q, False, decimals=12)
+
     # a duplicate key is a bug, not a tie
     cases.append(("duplicate key", base, base + [dict(base[0])], False))
 
@@ -700,8 +750,14 @@ def main(argv=None) -> int:
     try:
         tol = load_tolerance(args.tolerance)
         exp_path = args.expected or snapshot_output_path(args.snapshots, args.fixture)
+        meta = exp_path.with_suffix("").with_suffix(".meta.json")
+        decimals = None
+        if meta.exists():
+            import json as _json
+            decimals = _json.loads(meta.read_text()).get("float_decimals")
         report = compare(
-            read_expected(exp_path), read_actual(args.actual), tol, args.fixture
+            read_expected(exp_path), read_actual(args.actual), tol, args.fixture,
+            capture_decimals=decimals,
         )
     except Failure as exc:
         print(f"FAIL {args.fixture}", file=sys.stderr)

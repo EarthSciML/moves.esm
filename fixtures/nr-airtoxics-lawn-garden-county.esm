@@ -1,16 +1,17 @@
 {
  "esm": "1.0.0",
  "metadata": {
-  "name": "nr-airtoxics-lawn-garden-county snapshot tables",
-  "description": "A SOURCE-CATALOG FILE (esm-spec \u00a72): data_sources only, no component, not mountable as a subsystem. It declares every snapshot table the nr-airtoxics-lawn-garden-county chain reads -- twenty-six entries covering all seven stages of PLAN.md \u00a73 Phase 2 -- so that the ingest configuration is written, reviewed and version-controlled before it can be run, rather than invented under time pressure on the day it can.\n\nNOTHING CONSUMES IT YET, AND THAT IS DELIBERATE. No CLI subcommand can load a data source at the pinned toolchain: `src/bin/esm.rs` supplies no PrepareProvider, so a parameter with `update.kind: \"data\"` silently keeps its default and an aggregate over it silently sums to zero (build-esm.sh, KNOWN BLOCKER; PLAN.md \u00a71.5). Wiring a component to one of these entries today would make a green test that compared nothing. THE SHAPE IS THE RUNTIME'S, NOT THE SCHEMA'S GUESS: the format is `metadata.esio_format`, because a `format` key inside `reader_options` is rejected as an unknown reader option (esm-spec \u00a78.9.1 working as specified), and `url_template` carries an explicit `file://` scheme, because a bare absolute path fails with a missing-scheme error. Both were found by building the in-flight provider and running the real ingest. So the entries are declared and CHECKED -- tools/check-sources.py opens every file named here with pyarrow and verifies that it exists, that every `float_columns` entry is really a column, that none of them is already a float, and that no projected decimal-text column was left out -- while the components read `const` arrays transcribed from these same tables.\n\nWHAT IT ALREADY PROVES: that `float_columns` is mandatory, and on almost every table rather than only on MOVESOutput. Checked directly against the parquet: `surrogatequant`, `population`, `fractionLifeused`, `percentageScrapped`, `NREngTechFraction`, `monthFraction`, `dayFraction`, `marketShare`, all seventeen `fuelformulation` property columns, `zonemonthhour.temperature`, `nrsourceusetype`'s four activity columns, `nremissionrate.meanBaseRate`, `nrdeterioration.DFCoefficient` and `MOVESOutput.emissionQuant` are all physically `string` in the file, holding decimal text for byte-reproducibility, even where the sidecar .meta.json calls them float64. Without `float_columns` they arrive as strings and no arithmetic on them means anything. Two traps the catalog also records: `nrscrappagecurve.fractionLifeused` is spelled with a lowercase u, and `nrdayallocation.scc` is lowercase throughout.\n\nWHAT AGEDIST'S FOLD COSTS, AND WHY NOTHING IS CARRIED ANY MORE. Every input the thirty-year fold consumes comes out of the snapshot: the 197-row `nrscrappagecurve` step lookup, the year-over-year scrapped fractions, `nyrlif`, the sales curve, the base model-year fractions, and getgrw's whole indicator series with the thirty annual `grwfac` factors it implies -- exact table rows, an interpolated year, and a year-over-year DIP whose negative factor is the mechanism \u00a76.3 calls the most fragile behaviour in the chain. So does its OUTPUT: the fold runs here, once per equipment point, as esm-spec \u00a74.3.1.1's causal self-reference, and its 306 grown fractions are bit-identical to the reference's real*4 numbers -- including \u00a77.3's 5.888558263222876e-08, which is binary32's 5.8885583e-08 and is what decides whether 2260007005 has three model years or two. Finding F24 used to stop this (a document that INGESTS is forced onto the build-pipeline evaluation path, and that path left every causal self-read unresolved, whereupon `max(NaN, 0)` laundered the sentinel into a plausible number); it is fixed upstream in EarthSciAST de784f3f8 and verified here on the ingestion axis the upstream build could not reach (docs/findings/F24b_repro_one_ingested_column_breaks_the_recurrence.esm, 5 of 5 against the real snapshot).\n\nSIX EQUIPMENT POINTS OVER THREE SCCs, AND WHY THAT IS THE WHOLE OF THE 144-ROW KEY SET. `prccty.f` loops over the `nrsourceusetype` rows the RunSpec's SCCs select, and this run has six of them: one for 2260007005, three for 2265007010, two for 2265007015. Each has its own horsepower, annual hours, load factor, median life and base-year population, so each has its own scrappage curve, its own `nyrlif` (3, 21, 21, 39, 3, 5) and its own fold; the output rows are keyed by SCC, so points that share one are SUMMED into each of its rows. Only the six sourceTypeIDs are declared. Everything else -- the SCCs included -- is joined out of the tables, and `scc_equipmentPointCount` counts the points each SCC really has so that an OMITTED point fails a test rather than disappearing quietly.\n\nTHE KEY SET IS RAGGED AND THE FORMAT HAS NO RAGGED AXIS. The three SCCs have 3, 29 and 4 model years, and 2265007010's 29 are not contiguous -- 1991, 2000-2002 and 2006-2010 are missing from a span that runs 1983 to 2020 -- because agedist.f's unclamped residual went to or below zero in those years and prccty.f's skip dropped them. A `ragged` index set does not evaluate (docs/findings F14) and a rectangular [SCC x model year] output axis would emit 348 keys where the snapshot has 144. The shape that works is three layers, and none of them is ragged: the cohorts live on a RECTANGULAR 6 x 51 grid of (equipment point, MXAGYR age slot); `slot_isPopulated` masks it with prccty.f's two gates, the `idx < nyrlif` loop bound and the `modfrc <= 0` skip, which are separate tests and this fixture has a counterexample to each collapsing into the other; and `cohort_ownerRank`, an inclusive prefix count over the mask, COMPACTS the survivors onto a dense 1..36 that the flat 144-row output relation joins against. 36 is nowhere written down -- it is what the mask counts, and the test pins the count rather than the number.\n\nWHAT VARIES OVER WHAT, WHICH IS THE OTHER HALF OF THE SHAPE. `run_scope_rows` has one row and carries the county, the month, the fuel region, the ambient temperature and the gasoline oxygen content; `equipment_point_rows` has six and carries everything that differs between points, the stroke count included. Getting that split backwards is cheap in one direction and wrong in the other: putting `tamb` on the point axis is six identical contractions over a 930,816-row table (measured, 14 of the document's 31 seconds), while putting `pp_adjustment` on the run axis would give five four-stroke points a two-stroke correction. An aggregate that ranges over the point axis without putting it in `output_idx` sums six points into one number, and that is the single easiest way to widen this document wrongly and still get a plausible answer.\n\nWHAT IT WILL PROVE ONCE THE PROVIDER IS WIRED: that each stage selects its own rows out of the real tables -- 55,471 emission rates, 62,699 population rows, 930,816 hourly temperatures -- rather than transcribing the handful its tests use; and that the roll-up can be diffed row by row against the 144-row MOVESOutput at the tolerances in tolerance.toml. Wiring it is a change of source for each relation's columns, not a change of shape: every component's joins already key on the columns these tables carry.\n\nTHE PRECISION THIS DOCUMENT IS EVALUATED IN, AND WHAT IT COSTS THE ASSERTIONS. `domain.element_type` is `Float32`, because `moves.rs`'s NONROAD port is `real*4` operation by operation and preserves the Fortran's associativity (docs/nonroad-logging-county.md \u00a77.1). Twenty variables override it back to `Float64`, and all twenty hold an SCC: see `point_SCC` for why, and note that the split costs no rewriting of a single expression, because every place an SCC meets a quantity in this document is a `join.on`, and esm-spec \u00a711.3.1 makes a comparison hand its parent an exact 0/1 flag rather than a key (docs/esm-conventions.md \u00a717).\n\nWhat the precision DOES cost is the assertion tolerances, and only some of them. The model default stays at `rel: 1e-12`, which is exact for every integer identifier a binary32 or binary64 evaluation can hold. Thirteen tests -- the ones whose every assertion is a floating-point QUANTITY -- override it to `1.1920929e-07`, which is 2^-23, one binary32 epsilon, the resolution of the declared element type. That is not a fitted number: it is the smallest tolerance under which a binary32 evaluation can agree with a decimal expected value at all. Measured, the 39 assertions binary64 satisfied exactly and binary32 does not are spread from 1.2e-09 to 1.13e-07 relative, every one of them inside one epsilon.\n\nThree tests are looser and each says why in its own description. `the_computed_age_distribution_sums_to_the_growth_ratio` uses 1e-06, because the fold's residual is a catastrophic cancellation run thirty times and its sum lands 5.3e-07 from a ratio derived by another route. The two that pin whole MOVESOutput rows against the INDEPENDENT float32 reproduction of \u00a76.5 use 9.5367432e-07, eight binary32 epsilons: the roll-up is an eleven-factor product summed over up to three technologies, the two routes associate it differently, and about fourteen roundings at half an epsilon each is what the arithmetic supports. The largest disagreement measured over all 144 cells is 3.4e-07, 2.8 epsilons. Neither number is fitted to make something pass; both are bounds with a derivation, and `tools/perturbation-audit.py` shows every assertion under them still fails a 1e-03 nudge.\n\nThe tolerance is per test rather than document-wide for the reason docs/findings F18 gives: `2260006912` is 4.1e-08 from `2260007005` and is a DIFFERENT EQUIPMENT CATEGORY, so a ten-digit key compared within one epsilon would pass while wrong -- which is precisely the failure this whole change exists to fix. The tests that pin an SCC, `run_fuelRegionID`, or any other key therefore stay at 1e-12 and remain exact, and `the_oxygen_content_survives_four_joins`, which pins both `run_fuelRegionID = 270000000` and a quantity, carries the loosened tolerance on the one quantity assertion instead of on the test. The loosening was also checked against what each test is built to discriminate; the tightest is `point_monthFraction`, where the table's 0.0833333 sits 4.0e-07 from the `defmth = 1/12` a missed lookup would deliver, a factor of 3.3 outside one epsilon.",
+  "name": "nr-airtoxics-lawn-garden-county",
+  "description": "THE FIXTURE FOR THE LAST TWO NONROAD CALCULATORS. It computes all 14,036 MOVESOutput rows of the nr-airtoxics-lawn-garden-county snapshot -- 29 pollutant-processes over 484 (SCC, model year) cohorts -- from that snapshot's own input tables: the whole NONROAD exhaust chain over the Lawn/Garden sector's 108 equipment points, then NRHCSpeciationCalculator's five species, NRAirToxicsCalculator's twenty toxics and its separate NonHAPTOG pass. docs/nr-airtoxics-lawn-garden-county.md is the specification; run-nr-airtoxics-oracle.sh is an independent reproduction of the same 14,036 rows by a different route.\n\nIT BEGAN AS fixtures/nr-logging-county.esm WITH ITS PATHS CHANGED, which docs/esm-conventions.md 27.3 makes the first move on a new rung, and the retarget audit found three things that fixture could not have seen (specification 2.1). The largest: nremissionrate's three-level SCC fallback chain is walked once per (technology, pollutant-process), not once per equipment point -- a specific SCC's rate rows need not cover every technology its own tech mix names. Resolved per point instead, this document emits exactly the right 14,036-row key set and is wrong by up to a factor of 6.9 on five of the 31 SCCs. The other two: the .TECH hp bin is the FIRST containing bin and not every containing one, which a strict lower bound reproduces because the bins tile from 0; and a (pollutant-process, technology) pair with no nrdeterioration row takes a factor of 1 rather than 0, which 101 and 10001 never notice and 9901 -- which has no row anywhere in that table -- would be deleted by.\n\nWHAT THIS DOCUMENT DOES NOT CONTAIN, because the snapshot cannot show it (docs/esm-conventions.md 23, 36):\n\n* POLLUTANTS 131 AND 142 ARE EMITTED AND NOT COMPARED. Their 968 cells are computed by the same expression as every other toxic, from nrDioxinEmissionRate.meanBaseRate -- which this corpus's capture stores at twelve decimal places, so the rates 1.105e-09 and 1.9e-11 keep FOUR and TWO significant figures against the double MOVES read. Fitting the rate the reference must have used gives 1.1045021e-09 and 1.9434497e-11, both inside half a stored quantum of the captured value: that is the whole of the difference and no implementation reading this capture can be closer. tolerance.toml carries the exclusion as a SCOPE with the measurement, which is neither a widened tolerance nor a shortfall (36.3), and compare-output.py prints what it held out and why on every run.\n\n* NEITHER CALCULATOR'S MISSING-ROW ARM FIRES. Over all 2,063 (SCC, model year, technology, hp bin) worker cells this run produces there are 0 with no nrhpcategory row, 0 with no nrMethaneTHCRatio row and 0 with no nrHCSpeciation row -- so the Go's skip-the-emission and its explicit-zero fallback are written from the source and exercised only in components/nr_hc_speciation.esm, where a probe technology takes each.\n\n* THE TWO FUEL-SUBTYPE IDS CANNOT BE TOLD APART. nrMethaneTHCRatio and nrATRatio key on the fuel FORMULATION's subtype and nrHCSpeciation on the EMISSION's; the only supplied gasoline formulation carries 12 in both, so the distinction is preserved from the source and is unfalsifiable here.\n\n* THE MARKET-SHARE FAN-OUT IS 1.0 AND 0.0. Two formulations are supplied and one has share 0, so the per-formulation chain is collapsed at its two endpoints only. The general form -- the mean of the products rather than the product of the means (32.3) -- is written and untested.\n\n* MXTECH = 32 NEVER BITES. The largest .TECH technology list any of the 108 points draws is 9. The truncation is in the reference and is not in this document, and a sector that needed it would be wrong here.\n\n* ONE PROCESS, ONE FUEL TYPE. Everything is running exhaust and gasoline, so the fuel path's process-1-only guard is satisfied trivially and the diesel, CNG and LPG densities and the diesel PM2.5 fraction are never evaluated. The five ratio tables' output-pollutant sets are disjoint here, so the Go's last-write-wins overwrite is written and untested.\n\nTHE PRECISION IS THE REFERENCE'S: domain.element_type Float32 with a Float64 override on every SCC-valued variable, because 2260004015 is 135x binary32's exact-integer limit and would round into a different equipment category (finding F18). 17.2's rule -- one operator, one precision -- is why the speciation identifiers are Float32: they are all below 2^24.",
   "authors": [
    "EarthSciML Authors and Contributors"
   ],
   "tags": [
    "moves",
    "nonroad",
-   "nr-airtoxics-lawn-garden-county",
-   "source-catalog"
+   "air-toxics",
+   "speciation",
+   "fixture"
   ]
  },
  "domain": {
@@ -513,7 +514,7 @@
     "tags": [
      "runspec"
     ],
-    "note": "2 rows: onroad fuel types 1 and 2. J3's right-hand side, and the reason the diesel logging SCCs produce nothing (\u00a75.4).",
+    "note": "1 row: fuel type 1, gasoline. The RunSpec's fuel selection, which with the sector picks the 31 SCCs this run emits.",
     "esio_format": "parquet"
    }
   },
@@ -546,7 +547,7 @@
      "runspec",
      "output"
     ],
-    "note": "4 rows: 101, 201, 301, 10001. J25, the output gate -- keyed on pollutantID = polProcessID/100, which is why CO2 is computed and never emitted.",
+    "note": "29 rows, all process 1. This is the fixture's pollutant axis AND J25's output gate. Three of the 29 have an nremissionrate row -- 101, 9901 and 10001 -- and the other 26 are fixed multiples of one of those, which is why the rate, the deterioration and the emsadj.f adjustment ride a three-row axis and this one carries the output.",
     "esio_format": "parquet"
    }
   },
@@ -1104,9 +1105,17 @@
    "kind": "interval",
    "size": 10
   },
-  "tech_point_subtype_rows": {
+  "hp_category_rows": {
    "kind": "interval",
-   "size": 183600
+   "size": 2
+  },
+  "tech_category_rows": {
+   "kind": "interval",
+   "size": 200
+  },
+  "tech_category_subtype_rows": {
+   "kind": "interval",
+   "size": 3400
   }
  },
  "enums": {
@@ -1228,7 +1237,9 @@
       "nmhc_share",
       "total_organic_gases",
       "air_toxics_gasoline_density",
-      "nonroad_pm25_fraction_of_pm10_gasoline"
+      "nonroad_pm25_fraction_of_pm10_gasoline",
+      "nr_hp_category_small",
+      "nr_hp_category_large"
      ]
     }
    ],
@@ -4993,52 +5004,108 @@
       "equipment_point_rows"
      ]
     },
-    "tpb_pointTechOrdinal": {
+    "hcat_code": {
      "type": "unknown",
      "units": "1",
-     "description": "The (point, technology) cell of this (point, technology, subtype) row -- the flat grid one level deeper, so that a per-subtype product can be formed before the market-share collapse. lib/keys.esm's shared floor division again.",
+     "description": "The two values of the one-character nrHPCategory column, 'S' and 'L', as the 1 and 2 a `codes` map decodes them to. lib/nonroad_speciation.esm holds the two constants so that the fixture's decode and a component's cannot drift.",
      "shape": [
-      "tech_point_subtype_rows"
+      "hp_category_rows"
      ]
     },
-    "tpb_subtypeOrdinal": {
+    "hcat_ordinal": {
+     "type": "unknown",
+     "units": "1",
+     "description": "This category's 1-based position.",
+     "shape": [
+      "hp_category_rows"
+     ]
+    },
+    "tc_techOrdinal": {
+     "type": "unknown",
+     "units": "1",
+     "description": "The technology ordinal of this (technology, category) cell.",
+     "shape": [
+      "tech_category_rows"
+     ]
+    },
+    "tc_catOrdinal": {
+     "type": "unknown",
+     "units": "1",
+     "description": "The category ordinal of this cell.",
+     "shape": [
+      "tech_category_rows"
+     ]
+    },
+    "tc_engTechID": {
+     "type": "unknown",
+     "units": "1",
+     "description": "The engTechID, read back through the technology ordinal.",
+     "shape": [
+      "tech_category_rows"
+     ]
+    },
+    "tc_nrHPCategory": {
+     "type": "unknown",
+     "units": "1",
+     "description": "The decoded category, read back through the category ordinal.",
+     "shape": [
+      "tech_category_rows"
+     ]
+    },
+    "tc_ordinal": {
+     "type": "unknown",
+     "units": "1",
+     "description": "This cell's 1-based position, which the deeper grid and the equipment points join on.",
+     "shape": [
+      "tech_category_rows"
+     ]
+    },
+    "tcb_tcOrdinal": {
+     "type": "unknown",
+     "units": "1",
+     "description": "The (technology, category) cell of this row.",
+     "shape": [
+      "tech_category_subtype_rows"
+     ]
+    },
+    "tcb_subtypeOrdinal": {
      "type": "unknown",
      "units": "1",
      "description": "The fuel-subtype ordinal of this row.",
      "shape": [
-      "tech_point_subtype_rows"
+      "tech_category_subtype_rows"
      ]
     },
-    "tpb_engTechID": {
+    "tcb_engTechID": {
      "type": "unknown",
      "units": "1",
-     "description": "The technology, read back through the (point, technology) ordinal.",
+     "description": "The technology, read back.",
      "shape": [
-      "tech_point_subtype_rows"
+      "tech_category_subtype_rows"
      ]
     },
-    "tpb_nrHPCategory": {
+    "tcb_nrHPCategory": {
      "type": "unknown",
      "units": "1",
-     "description": "The horse-power category, read back the same way.",
+     "description": "The category, read back.",
      "shape": [
-      "tech_point_subtype_rows"
+      "tech_category_subtype_rows"
      ]
     },
-    "tpb_fuelSubtypeID": {
+    "tcb_fuelSubtypeID": {
      "type": "unknown",
      "units": "1",
-     "description": "The fuel subtype, read back through the subtype ordinal.",
+     "description": "The fuel subtype, read back.",
      "shape": [
-      "tech_point_subtype_rows"
+      "tech_category_subtype_rows"
      ]
     },
-    "tpb_marketShare": {
+    "tcb_marketShare": {
      "type": "unknown",
      "units": "1",
-     "description": "That subtype's market share in this county's gasoline supply.",
+     "description": "That subtype's share of this county's gasoline supply. The nonroad worker fans one emission out into one per nrFuelSupply entry scaled by its market share (calc/mwo/mworeader.go parseLines); this is that fan-out, carried as a weight.",
      "shape": [
-      "tech_point_subtype_rows"
+      "tech_category_subtype_rows"
      ]
     },
     "fst_ordinal": {
@@ -5049,76 +5116,36 @@
       "nrfuelsubtype_rows"
      ]
     },
-    "tp_ordinal": {
-     "type": "unknown",
-     "units": "1",
-     "description": "This (point, technology) cell's 1-based position.",
-     "shape": [
-      "tech_point_rows"
-     ]
-    },
-    "tpb_methaneShare": {
+    "tcb_methaneShare": {
      "type": "unknown",
      "units": "1",
      "description": "share x CH4THCRatio for one supplied subtype. Pollutant 5 is the root THC times the sum of these.",
      "shape": [
-      "tech_point_subtype_rows"
+      "tech_category_subtype_rows"
      ]
     },
-    "tpb_nmhcShare": {
+    "tcb_nmhcShare": {
      "type": "unknown",
      "units": "1",
-     "description": "share x (1 - CH4THCRatio) for one supplied subtype. Pollutant 79, and the operand both speciation constants scale.",
+     "description": "share x (1 - CH4THCRatio). Pollutant 79, and the operand both speciation constants scale.",
      "shape": [
-      "tech_point_subtype_rows"
+      "tech_category_subtype_rows"
      ]
     },
-    "tpb_nmogShare": {
+    "tcb_nmogShare": {
      "type": "unknown",
      "units": "1",
      "description": "share x (1 - CH4THCRatio) x speciationConstant(80). NMOG, per subtype.",
      "shape": [
-      "tech_point_subtype_rows"
+      "tech_category_subtype_rows"
      ]
     },
-    "tpb_vocShare": {
+    "tcb_vocShare": {
      "type": "unknown",
      "units": "1",
      "description": "share x (1 - CH4THCRatio) x speciationConstant(87). VOC, per subtype, and the operand every gaseous toxic is scaled from.",
      "shape": [
-      "tech_point_subtype_rows"
-     ]
-    },
-    "tp_methaneShare": {
-     "type": "unknown",
-     "units": "1",
-     "description": "The share-weighted CH4/THC ratio. Collapsed over the supplied fuel subtypes here and nowhere earlier, which is what makes it the mean of the products.",
-     "shape": [
-      "tech_point_rows"
-     ]
-    },
-    "tp_nmhcShare": {
-     "type": "unknown",
-     "units": "1",
-     "description": "The share-weighted NMHC fraction of THC. Collapsed over the supplied fuel subtypes here and nowhere earlier, which is what makes it the mean of the products.",
-     "shape": [
-      "tech_point_rows"
-     ]
-    },
-    "tp_nmogShare": {
-     "type": "unknown",
-     "units": "1",
-     "description": "The share-weighted NMOG multiple of THC. Collapsed over the supplied fuel subtypes here and nowhere earlier, which is what makes it the mean of the products.",
-     "shape": [
-      "tech_point_rows"
-     ]
-    },
-    "tp_vocShare": {
-     "type": "unknown",
-     "units": "1",
-     "description": "The share-weighted VOC multiple of THC. Collapsed over the supplied fuel subtypes here and nowhere earlier, which is what makes it the mean of the products.",
-     "shape": [
-      "tech_point_rows"
+      "tech_category_subtype_rows"
      ]
     },
     "rpp_pollutantIDKey": {
@@ -5129,21 +5156,78 @@
       "runspecpollutantprocess_rows"
      ]
     },
-    "tpq_atShare": {
+    "tcq_atShare": {
      "type": "unknown",
      "units": "1",
-     "description": "The eight nrATRatio toxics, already carrying their VOC operand: sum over the supplied subtypes of the per-subtype VOC share times that subtype's atRatio. 0 on every output pollutant the table does not name, which is what lets one expression serve all 29 blocks with no branch on the pollutant.",
+     "description": "The eight nrATRatio toxics, already carrying their VOC operand: the market-share collapse of the per-subtype VOC share times that subtype's atRatio. 0 on every output pollutant the table does not name, which is what lets one expression serve all 29 blocks with no branch on the pollutant.",
      "shape": [
-      "tech_point_rows",
+      "tech_category_rows",
       "runspecpollutantprocess_rows"
+     ]
+    },
+    "tc_integratedShare": {
+     "type": "unknown",
+     "units": "1",
+     "description": "The subtype-keyed half of what NonHAPTOG subtracts, as a multiplier on the root THC: the same per-subtype VOC share times the atRatios whose pollutant is in nrIntegratedSpecies. The gaseous-PAH half is separate because that table is not keyed by subtype.",
+     "shape": [
+      "tech_category_rows"
+     ]
+    },
+    "tp_tcOrdinal": {
+     "type": "unknown",
+     "units": "1",
+     "description": "Which (technology, category) cell this (point, technology) cell reads its speciation shares from. This is the whole of the equipment point's influence on the speciation: the point contributes its horse-power range bin and nothing else.",
+     "shape": [
+      "tech_point_rows"
+     ]
+    },
+    "tp_methaneShare": {
+     "type": "unknown",
+     "units": "1",
+     "description": "The share-weighted CH4/THC ratio. The market-share collapse happens HERE and nowhere earlier, which is what makes it the mean of the products.",
+     "shape": [
+      "tech_point_rows"
+     ]
+    },
+    "tp_nmhcShare": {
+     "type": "unknown",
+     "units": "1",
+     "description": "The share-weighted NMHC fraction of THC. The market-share collapse happens HERE and nowhere earlier, which is what makes it the mean of the products.",
+     "shape": [
+      "tech_point_rows"
+     ]
+    },
+    "tp_nmogShare": {
+     "type": "unknown",
+     "units": "1",
+     "description": "The share-weighted NMOG multiple of THC. The market-share collapse happens HERE and nowhere earlier, which is what makes it the mean of the products.",
+     "shape": [
+      "tech_point_rows"
+     ]
+    },
+    "tp_vocShare": {
+     "type": "unknown",
+     "units": "1",
+     "description": "The share-weighted VOC multiple of THC. The market-share collapse happens HERE and nowhere earlier, which is what makes it the mean of the products.",
+     "shape": [
+      "tech_point_rows"
      ]
     },
     "tp_integratedShare": {
      "type": "unknown",
      "units": "1",
-     "description": "The subtype-keyed half of what NonHAPTOG subtracts, as a multiplier on the root THC: the same per-subtype VOC share times the atRatios whose pollutant is in nrIntegratedSpecies. The gaseous-PAH half is separate because that table is not keyed by subtype.",
+     "description": "tc_integratedShare, read back through the point's category.",
      "shape": [
       "tech_point_rows"
+     ]
+    },
+    "tpq_atShare": {
+     "type": "unknown",
+     "units": "1",
+     "description": "tcq_atShare, read back through the point's category.",
+     "shape": [
+      "tech_point_rows",
+      "runspecpollutantprocess_rows"
      ]
     },
     "pahg_ratio": {
@@ -5380,6 +5464,16 @@
      "description": "What this output pollutant is, as a multiple of its rated block, for one equipment point and one engine technology. NRHCSpeciationCalculator's five species, NRAirToxicsCalculator's twenty toxics and the NonHAPTOG pass are all in this one expression and NOTHING in it branches on the pollutant: each term carries a coefficient that is 0 wherever it does not apply, which is docs/esm-conventions.md 33.3's share columns applied to a chain of ratios rather than to a composition. Reading it top to bottom: the direct blocks, methane, NMHC, NMOG, VOC, the eight subtype-keyed toxics, the two gaseous PAH, NonHAPTOG's subtrahend, PM2.5 and the two particulate PAH, and the metals and dioxins with their grams-to-gallons conversion.",
      "shape": [
       "tech_point_rows",
+      "runspecpollutantprocess_rows"
+     ]
+    },
+    "rcq_multiplier": {
+     "type": "unknown",
+     "units": "1",
+     "description": "tpq_multiplier on the roll-up's own axes. 108 x 100 x 29 cells, and the last place the flat (point x technology) relation is mentioned.",
+     "shape": [
+      "equipment_point_rows",
+      "engine_tech_rows",
       "runspecpollutantprocess_rows"
      ]
     }
@@ -12573,9 +12667,6 @@
        },
        "n": {
         "from": "run_scope_rows"
-       },
-       "tp": {
-        "from": "tech_point_rows"
        }
       },
       "join": [
@@ -12592,18 +12683,6 @@
          [
           "rpp_rootOrdinal",
           "rated_ordinal"
-         ]
-        ]
-       },
-       {
-        "on": [
-         [
-          "tp_pointOrdinal",
-          "point_ordinal"
-         ],
-         [
-          "tp_techOrdinal",
-          "tech_ordinal"
          ]
         ]
        }
@@ -12704,8 +12783,9 @@
         {
          "op": "index",
          "args": [
-          "tpq_multiplier",
-          "tp",
+          "rcq_multiplier",
+          "r",
+          "cc",
           "q"
          ]
         }
@@ -14761,7 +14841,194 @@
      }
     },
     {
-     "lhs": "tpb_pointTechOrdinal",
+     "lhs": "hcat_code",
+     "rhs": {
+      "op": "makearray",
+      "args": [],
+      "regions": [
+       [
+        [
+         1,
+         1
+        ]
+       ],
+       [
+        [
+         2,
+         2
+        ]
+       ]
+      ],
+      "values": [
+       {
+        "op": "apply_expression_template",
+        "args": [],
+        "name": "nr_hp_category_small",
+        "bindings": {}
+       },
+       {
+        "op": "apply_expression_template",
+        "args": [],
+        "name": "nr_hp_category_large",
+        "bindings": {}
+       }
+      ]
+     }
+    },
+    {
+     "lhs": "hcat_ordinal",
+     "rhs": {
+      "op": "aggregate",
+      "args": [],
+      "output_idx": [
+       "hk"
+      ],
+      "ranges": {
+       "hk": {
+        "from": "hp_category_rows"
+       }
+      },
+      "expr": "hk"
+     }
+    },
+    {
+     "lhs": "tc_techOrdinal",
+     "rhs": {
+      "op": "aggregate",
+      "args": [],
+      "output_idx": [
+       "k"
+      ],
+      "ranges": {
+       "k": {
+        "from": "tech_category_rows"
+       }
+      },
+      "expr": {
+       "op": "apply_expression_template",
+       "args": [],
+       "name": "flat_relation_major",
+       "bindings": {
+        "position": "k",
+        "block_size": 2
+       }
+      }
+     }
+    },
+    {
+     "lhs": "tc_catOrdinal",
+     "rhs": {
+      "op": "aggregate",
+      "args": [],
+      "output_idx": [
+       "k"
+      ],
+      "ranges": {
+       "k": {
+        "from": "tech_category_rows"
+       }
+      },
+      "expr": {
+       "op": "apply_expression_template",
+       "args": [],
+       "name": "flat_relation_minor",
+       "bindings": {
+        "position": "k",
+        "block_size": 2
+       }
+      }
+     }
+    },
+    {
+     "lhs": "tc_ordinal",
+     "rhs": {
+      "op": "aggregate",
+      "args": [],
+      "output_idx": [
+       "k"
+      ],
+      "ranges": {
+       "k": {
+        "from": "tech_category_rows"
+       }
+      },
+      "expr": "k"
+     }
+    },
+    {
+     "lhs": "tc_engTechID",
+     "rhs": {
+      "op": "aggregate",
+      "args": [],
+      "output_idx": [
+       "k"
+      ],
+      "ranges": {
+       "k": {
+        "from": "tech_category_rows"
+       },
+       "cc": {
+        "from": "engine_tech_rows"
+       }
+      },
+      "semiring": "sum_product",
+      "join": [
+       {
+        "on": [
+         [
+          "tc_techOrdinal",
+          "tech_ordinal"
+         ]
+        ]
+       }
+      ],
+      "expr": {
+       "op": "index",
+       "args": [
+        "tech_engTechID",
+        "cc"
+       ]
+      }
+     }
+    },
+    {
+     "lhs": "tc_nrHPCategory",
+     "rhs": {
+      "op": "aggregate",
+      "args": [],
+      "output_idx": [
+       "k"
+      ],
+      "ranges": {
+       "k": {
+        "from": "tech_category_rows"
+       },
+       "hk": {
+        "from": "hp_category_rows"
+       }
+      },
+      "semiring": "sum_product",
+      "join": [
+       {
+        "on": [
+         [
+          "tc_catOrdinal",
+          "hcat_ordinal"
+         ]
+        ]
+       }
+      ],
+      "expr": {
+       "op": "index",
+       "args": [
+        "hcat_code",
+        "hk"
+       ]
+      }
+     }
+    },
+    {
+     "lhs": "tcb_tcOrdinal",
      "rhs": {
       "op": "aggregate",
       "args": [],
@@ -14770,7 +15037,7 @@
       ],
       "ranges": {
        "u": {
-        "from": "tech_point_subtype_rows"
+        "from": "tech_category_subtype_rows"
        }
       },
       "expr": {
@@ -14785,7 +15052,7 @@
      }
     },
     {
-     "lhs": "tpb_subtypeOrdinal",
+     "lhs": "tcb_subtypeOrdinal",
      "rhs": {
       "op": "aggregate",
       "args": [],
@@ -14794,7 +15061,7 @@
       ],
       "ranges": {
        "u": {
-        "from": "tech_point_subtype_rows"
+        "from": "tech_category_subtype_rows"
        }
       },
       "expr": {
@@ -14825,23 +15092,7 @@
      }
     },
     {
-     "lhs": "tp_ordinal",
-     "rhs": {
-      "op": "aggregate",
-      "args": [],
-      "output_idx": [
-       "tp"
-      ],
-      "ranges": {
-       "tp": {
-        "from": "tech_point_rows"
-       }
-      },
-      "expr": "tp"
-     }
-    },
-    {
-     "lhs": "tpb_engTechID",
+     "lhs": "tcb_engTechID",
      "rhs": {
       "op": "aggregate",
       "args": [],
@@ -14850,10 +15101,10 @@
       ],
       "ranges": {
        "u": {
-        "from": "tech_point_subtype_rows"
+        "from": "tech_category_subtype_rows"
        },
-       "tp": {
-        "from": "tech_point_rows"
+       "k": {
+        "from": "tech_category_rows"
        }
       },
       "semiring": "sum_product",
@@ -14861,8 +15112,8 @@
        {
         "on": [
          [
-          "tpb_pointTechOrdinal",
-          "tp_ordinal"
+          "tcb_tcOrdinal",
+          "tc_ordinal"
          ]
         ]
        }
@@ -14870,14 +15121,14 @@
       "expr": {
        "op": "index",
        "args": [
-        "tp_engTechID",
-        "tp"
+        "tc_engTechID",
+        "k"
        ]
       }
      }
     },
     {
-     "lhs": "tpb_nrHPCategory",
+     "lhs": "tcb_nrHPCategory",
      "rhs": {
       "op": "aggregate",
       "args": [],
@@ -14886,10 +15137,10 @@
       ],
       "ranges": {
        "u": {
-        "from": "tech_point_subtype_rows"
+        "from": "tech_category_subtype_rows"
        },
-       "tp": {
-        "from": "tech_point_rows"
+       "k": {
+        "from": "tech_category_rows"
        }
       },
       "semiring": "sum_product",
@@ -14897,8 +15148,8 @@
        {
         "on": [
          [
-          "tpb_pointTechOrdinal",
-          "tp_ordinal"
+          "tcb_tcOrdinal",
+          "tc_ordinal"
          ]
         ]
        }
@@ -14906,14 +15157,14 @@
       "expr": {
        "op": "index",
        "args": [
-        "tp_nrHPCategory",
-        "tp"
+        "tc_nrHPCategory",
+        "k"
        ]
       }
      }
     },
     {
-     "lhs": "tpb_fuelSubtypeID",
+     "lhs": "tcb_fuelSubtypeID",
      "rhs": {
       "op": "aggregate",
       "args": [],
@@ -14922,7 +15173,7 @@
       ],
       "ranges": {
        "u": {
-        "from": "tech_point_subtype_rows"
+        "from": "tech_category_subtype_rows"
        },
        "b": {
         "from": "nrfuelsubtype_rows"
@@ -14933,7 +15184,7 @@
        {
         "on": [
          [
-          "tpb_subtypeOrdinal",
+          "tcb_subtypeOrdinal",
           "fst_ordinal"
          ]
         ]
@@ -14949,7 +15200,7 @@
      }
     },
     {
-     "lhs": "tpb_marketShare",
+     "lhs": "tcb_marketShare",
      "rhs": {
       "op": "aggregate",
       "args": [],
@@ -14958,7 +15209,7 @@
       ],
       "ranges": {
        "u": {
-        "from": "tech_point_subtype_rows"
+        "from": "tech_category_subtype_rows"
        },
        "b": {
         "from": "nrfuelsubtype_rows"
@@ -14969,7 +15220,7 @@
        {
         "on": [
          [
-          "tpb_subtypeOrdinal",
+          "tcb_subtypeOrdinal",
           "fst_ordinal"
          ]
         ]
@@ -14985,7 +15236,7 @@
      }
     },
     {
-     "lhs": "tpb_methaneShare",
+     "lhs": "tcb_methaneShare",
      "rhs": {
       "op": "aggregate",
       "args": [],
@@ -14994,7 +15245,7 @@
       ],
       "ranges": {
        "u": {
-        "from": "tech_point_subtype_rows"
+        "from": "tech_category_subtype_rows"
        },
        "m": {
         "from": "nrmethanethcratio_rows"
@@ -15008,15 +15259,15 @@
        {
         "on": [
          [
-          "tpb_engTechID",
+          "tcb_engTechID",
           "mth_engTechID"
          ],
          [
-          "tpb_fuelSubtypeID",
+          "tcb_fuelSubtypeID",
           "mth_fuelSubtypeID"
          ],
          [
-          "tpb_nrHPCategory",
+          "tcb_nrHPCategory",
           "mth_nrHPCategory"
          ],
          [
@@ -15032,7 +15283,7 @@
         {
          "op": "index",
          "args": [
-          "tpb_marketShare",
+          "tcb_marketShare",
           "u"
          ]
         },
@@ -15048,7 +15299,7 @@
      }
     },
     {
-     "lhs": "tpb_nmhcShare",
+     "lhs": "tcb_nmhcShare",
      "rhs": {
       "op": "aggregate",
       "args": [],
@@ -15057,7 +15308,7 @@
       ],
       "ranges": {
        "u": {
-        "from": "tech_point_subtype_rows"
+        "from": "tech_category_subtype_rows"
        },
        "m": {
         "from": "nrmethanethcratio_rows"
@@ -15071,15 +15322,15 @@
        {
         "on": [
          [
-          "tpb_engTechID",
+          "tcb_engTechID",
           "mth_engTechID"
          ],
          [
-          "tpb_fuelSubtypeID",
+          "tcb_fuelSubtypeID",
           "mth_fuelSubtypeID"
          ],
          [
-          "tpb_nrHPCategory",
+          "tcb_nrHPCategory",
           "mth_nrHPCategory"
          ],
          [
@@ -15095,7 +15346,7 @@
         {
          "op": "index",
          "args": [
-          "tpb_marketShare",
+          "tcb_marketShare",
           "u"
          ]
         },
@@ -15118,7 +15369,7 @@
      }
     },
     {
-     "lhs": "tpb_nmogShare",
+     "lhs": "tcb_nmogShare",
      "rhs": {
       "op": "aggregate",
       "args": [],
@@ -15127,7 +15378,7 @@
       ],
       "ranges": {
        "u": {
-        "from": "tech_point_subtype_rows"
+        "from": "tech_category_subtype_rows"
        },
        "s": {
         "from": "nrhcspeciation_rows"
@@ -15145,15 +15396,15 @@
           "hcs_pollutantID"
          ],
          [
-          "tpb_engTechID",
+          "tcb_engTechID",
           "hcs_engTechID"
          ],
          [
-          "tpb_fuelSubtypeID",
+          "tcb_fuelSubtypeID",
           "hcs_fuelSubtypeID"
          ],
          [
-          "tpb_nrHPCategory",
+          "tcb_nrHPCategory",
           "hcs_nrHPCategory"
          ],
          [
@@ -15169,7 +15420,7 @@
         {
          "op": "index",
          "args": [
-          "tpb_nmhcShare",
+          "tcb_nmhcShare",
           "u"
          ]
         },
@@ -15185,7 +15436,7 @@
      }
     },
     {
-     "lhs": "tpb_vocShare",
+     "lhs": "tcb_vocShare",
      "rhs": {
       "op": "aggregate",
       "args": [],
@@ -15194,7 +15445,7 @@
       ],
       "ranges": {
        "u": {
-        "from": "tech_point_subtype_rows"
+        "from": "tech_category_subtype_rows"
        },
        "s": {
         "from": "nrhcspeciation_rows"
@@ -15212,15 +15463,15 @@
           "hcs_pollutantID"
          ],
          [
-          "tpb_engTechID",
+          "tcb_engTechID",
           "hcs_engTechID"
          ],
          [
-          "tpb_fuelSubtypeID",
+          "tcb_fuelSubtypeID",
           "hcs_fuelSubtypeID"
          ],
          [
-          "tpb_nrHPCategory",
+          "tcb_nrHPCategory",
           "hcs_nrHPCategory"
          ],
          [
@@ -15236,7 +15487,7 @@
         {
          "op": "index",
          "args": [
-          "tpb_nmhcShare",
+          "tcb_nmhcShare",
           "u"
          ]
         },
@@ -15247,150 +15498,6 @@
           "s"
          ]
         }
-       ]
-      }
-     }
-    },
-    {
-     "lhs": "tp_methaneShare",
-     "rhs": {
-      "op": "aggregate",
-      "args": [],
-      "output_idx": [
-       "tp"
-      ],
-      "ranges": {
-       "tp": {
-        "from": "tech_point_rows"
-       },
-       "u": {
-        "from": "tech_point_subtype_rows"
-       }
-      },
-      "semiring": "sum_product",
-      "join": [
-       {
-        "on": [
-         [
-          "tpb_pointTechOrdinal",
-          "tp_ordinal"
-         ]
-        ]
-       }
-      ],
-      "expr": {
-       "op": "index",
-       "args": [
-        "tpb_methaneShare",
-        "u"
-       ]
-      }
-     }
-    },
-    {
-     "lhs": "tp_nmhcShare",
-     "rhs": {
-      "op": "aggregate",
-      "args": [],
-      "output_idx": [
-       "tp"
-      ],
-      "ranges": {
-       "tp": {
-        "from": "tech_point_rows"
-       },
-       "u": {
-        "from": "tech_point_subtype_rows"
-       }
-      },
-      "semiring": "sum_product",
-      "join": [
-       {
-        "on": [
-         [
-          "tpb_pointTechOrdinal",
-          "tp_ordinal"
-         ]
-        ]
-       }
-      ],
-      "expr": {
-       "op": "index",
-       "args": [
-        "tpb_nmhcShare",
-        "u"
-       ]
-      }
-     }
-    },
-    {
-     "lhs": "tp_nmogShare",
-     "rhs": {
-      "op": "aggregate",
-      "args": [],
-      "output_idx": [
-       "tp"
-      ],
-      "ranges": {
-       "tp": {
-        "from": "tech_point_rows"
-       },
-       "u": {
-        "from": "tech_point_subtype_rows"
-       }
-      },
-      "semiring": "sum_product",
-      "join": [
-       {
-        "on": [
-         [
-          "tpb_pointTechOrdinal",
-          "tp_ordinal"
-         ]
-        ]
-       }
-      ],
-      "expr": {
-       "op": "index",
-       "args": [
-        "tpb_nmogShare",
-        "u"
-       ]
-      }
-     }
-    },
-    {
-     "lhs": "tp_vocShare",
-     "rhs": {
-      "op": "aggregate",
-      "args": [],
-      "output_idx": [
-       "tp"
-      ],
-      "ranges": {
-       "tp": {
-        "from": "tech_point_rows"
-       },
-       "u": {
-        "from": "tech_point_subtype_rows"
-       }
-      },
-      "semiring": "sum_product",
-      "join": [
-       {
-        "on": [
-         [
-          "tpb_pointTechOrdinal",
-          "tp_ordinal"
-         ]
-        ]
-       }
-      ],
-      "expr": {
-       "op": "index",
-       "args": [
-        "tpb_vocShare",
-        "u"
        ]
       }
      }
@@ -15418,23 +15525,23 @@
      }
     },
     {
-     "lhs": "tpq_atShare",
+     "lhs": "tcq_atShare",
      "rhs": {
       "op": "aggregate",
       "args": [],
       "output_idx": [
-       "tp",
+       "k",
        "q"
       ],
       "ranges": {
-       "tp": {
-        "from": "tech_point_rows"
+       "k": {
+        "from": "tech_category_rows"
        },
        "q": {
         "from": "runspecpollutantprocess_rows"
        },
        "u": {
-        "from": "tech_point_subtype_rows"
+        "from": "tech_category_subtype_rows"
        },
        "a": {
         "from": "nratratio_rows"
@@ -15448,32 +15555,32 @@
        {
         "on": [
          [
-          "rpp_pollutantIDKey",
-          "atr_pollutantID"
-         ],
-         [
-          "tpb_engTechID",
-          "atr_engTechID"
-         ],
-         [
-          "tpb_fuelSubtypeID",
-          "atr_fuelSubtypeID"
-         ],
-         [
-          "tpb_nrHPCategory",
-          "atr_nrHPCategory"
-         ],
-         [
-          "run_processID",
-          "atr_processID"
+          "tcb_tcOrdinal",
+          "tc_ordinal"
          ]
         ]
        },
        {
         "on": [
          [
-          "tpb_pointTechOrdinal",
-          "tp_ordinal"
+          "rpp_pollutantIDKey",
+          "atr_pollutantID"
+         ],
+         [
+          "tcb_engTechID",
+          "atr_engTechID"
+         ],
+         [
+          "tcb_fuelSubtypeID",
+          "atr_fuelSubtypeID"
+         ],
+         [
+          "tcb_nrHPCategory",
+          "atr_nrHPCategory"
+         ],
+         [
+          "run_processID",
+          "atr_processID"
          ]
         ]
        }
@@ -15484,7 +15591,7 @@
         {
          "op": "index",
          "args": [
-          "tpb_vocShare",
+          "tcb_vocShare",
           "u"
          ]
         },
@@ -15500,19 +15607,19 @@
      }
     },
     {
-     "lhs": "tp_integratedShare",
+     "lhs": "tc_integratedShare",
      "rhs": {
       "op": "aggregate",
       "args": [],
       "output_idx": [
-       "tp"
+       "k"
       ],
       "ranges": {
-       "tp": {
-        "from": "tech_point_rows"
+       "k": {
+        "from": "tech_category_rows"
        },
        "u": {
-        "from": "tech_point_subtype_rows"
+        "from": "tech_category_subtype_rows"
        },
        "a": {
         "from": "nratratio_rows"
@@ -15529,15 +15636,23 @@
        {
         "on": [
          [
-          "tpb_engTechID",
+          "tcb_tcOrdinal",
+          "tc_ordinal"
+         ]
+        ]
+       },
+       {
+        "on": [
+         [
+          "tcb_engTechID",
           "atr_engTechID"
          ],
          [
-          "tpb_fuelSubtypeID",
+          "tcb_fuelSubtypeID",
           "atr_fuelSubtypeID"
          ],
          [
-          "tpb_nrHPCategory",
+          "tcb_nrHPCategory",
           "atr_nrHPCategory"
          ],
          [
@@ -15553,14 +15668,6 @@
           "isp_pollutantID"
          ]
         ]
-       },
-       {
-        "on": [
-         [
-          "tpb_pointTechOrdinal",
-          "tp_ordinal"
-         ]
-        ]
        }
       ],
       "expr": {
@@ -15569,7 +15676,7 @@
         {
          "op": "index",
          "args": [
-          "tpb_vocShare",
+          "tcb_vocShare",
           "u"
          ]
         },
@@ -15580,6 +15687,267 @@
           "a"
          ]
         }
+       ]
+      }
+     }
+    },
+    {
+     "lhs": "tp_tcOrdinal",
+     "rhs": {
+      "op": "aggregate",
+      "args": [],
+      "output_idx": [
+       "tp"
+      ],
+      "ranges": {
+       "tp": {
+        "from": "tech_point_rows"
+       },
+       "k": {
+        "from": "tech_category_rows"
+       }
+      },
+      "semiring": "sum_product",
+      "join": [
+       {
+        "on": [
+         [
+          "tp_engTechID",
+          "tc_engTechID"
+         ],
+         [
+          "tp_nrHPCategory",
+          "tc_nrHPCategory"
+         ]
+        ]
+       }
+      ],
+      "expr": {
+       "op": "index",
+       "args": [
+        "tc_ordinal",
+        "k"
+       ]
+      }
+     }
+    },
+    {
+     "lhs": "tp_methaneShare",
+     "rhs": {
+      "op": "aggregate",
+      "args": [],
+      "output_idx": [
+       "tp"
+      ],
+      "ranges": {
+       "tp": {
+        "from": "tech_point_rows"
+       },
+       "u": {
+        "from": "tech_category_subtype_rows"
+       }
+      },
+      "semiring": "sum_product",
+      "join": [
+       {
+        "on": [
+         [
+          "tp_tcOrdinal",
+          "tcb_tcOrdinal"
+         ]
+        ]
+       }
+      ],
+      "expr": {
+       "op": "index",
+       "args": [
+        "tcb_methaneShare",
+        "u"
+       ]
+      }
+     }
+    },
+    {
+     "lhs": "tp_nmhcShare",
+     "rhs": {
+      "op": "aggregate",
+      "args": [],
+      "output_idx": [
+       "tp"
+      ],
+      "ranges": {
+       "tp": {
+        "from": "tech_point_rows"
+       },
+       "u": {
+        "from": "tech_category_subtype_rows"
+       }
+      },
+      "semiring": "sum_product",
+      "join": [
+       {
+        "on": [
+         [
+          "tp_tcOrdinal",
+          "tcb_tcOrdinal"
+         ]
+        ]
+       }
+      ],
+      "expr": {
+       "op": "index",
+       "args": [
+        "tcb_nmhcShare",
+        "u"
+       ]
+      }
+     }
+    },
+    {
+     "lhs": "tp_nmogShare",
+     "rhs": {
+      "op": "aggregate",
+      "args": [],
+      "output_idx": [
+       "tp"
+      ],
+      "ranges": {
+       "tp": {
+        "from": "tech_point_rows"
+       },
+       "u": {
+        "from": "tech_category_subtype_rows"
+       }
+      },
+      "semiring": "sum_product",
+      "join": [
+       {
+        "on": [
+         [
+          "tp_tcOrdinal",
+          "tcb_tcOrdinal"
+         ]
+        ]
+       }
+      ],
+      "expr": {
+       "op": "index",
+       "args": [
+        "tcb_nmogShare",
+        "u"
+       ]
+      }
+     }
+    },
+    {
+     "lhs": "tp_vocShare",
+     "rhs": {
+      "op": "aggregate",
+      "args": [],
+      "output_idx": [
+       "tp"
+      ],
+      "ranges": {
+       "tp": {
+        "from": "tech_point_rows"
+       },
+       "u": {
+        "from": "tech_category_subtype_rows"
+       }
+      },
+      "semiring": "sum_product",
+      "join": [
+       {
+        "on": [
+         [
+          "tp_tcOrdinal",
+          "tcb_tcOrdinal"
+         ]
+        ]
+       }
+      ],
+      "expr": {
+       "op": "index",
+       "args": [
+        "tcb_vocShare",
+        "u"
+       ]
+      }
+     }
+    },
+    {
+     "lhs": "tp_integratedShare",
+     "rhs": {
+      "op": "aggregate",
+      "args": [],
+      "output_idx": [
+       "tp"
+      ],
+      "ranges": {
+       "tp": {
+        "from": "tech_point_rows"
+       },
+       "k": {
+        "from": "tech_category_rows"
+       }
+      },
+      "semiring": "sum_product",
+      "join": [
+       {
+        "on": [
+         [
+          "tp_tcOrdinal",
+          "tc_ordinal"
+         ]
+        ]
+       }
+      ],
+      "expr": {
+       "op": "index",
+       "args": [
+        "tc_integratedShare",
+        "k"
+       ]
+      }
+     }
+    },
+    {
+     "lhs": "tpq_atShare",
+     "rhs": {
+      "op": "aggregate",
+      "args": [],
+      "output_idx": [
+       "tp",
+       "q"
+      ],
+      "ranges": {
+       "tp": {
+        "from": "tech_point_rows"
+       },
+       "q": {
+        "from": "runspecpollutantprocess_rows"
+       },
+       "k": {
+        "from": "tech_category_rows"
+       }
+      },
+      "semiring": "sum_product",
+      "join": [
+       {
+        "on": [
+         [
+          "tp_tcOrdinal",
+          "tc_ordinal"
+         ]
+        ]
+       }
+      ],
+      "expr": {
+       "op": "index",
+       "args": [
+        "tcq_atShare",
+        "k",
+        "q"
        ]
       }
      }
@@ -17089,9 +17457,224 @@
        ]
       }
      }
+    },
+    {
+     "lhs": "rcq_multiplier",
+     "rhs": {
+      "op": "aggregate",
+      "args": [],
+      "output_idx": [
+       "r",
+       "cc",
+       "q"
+      ],
+      "ranges": {
+       "r": {
+        "from": "equipment_point_rows"
+       },
+       "cc": {
+        "from": "engine_tech_rows"
+       },
+       "q": {
+        "from": "runspecpollutantprocess_rows"
+       },
+       "tp": {
+        "from": "tech_point_rows"
+       }
+      },
+      "semiring": "sum_product",
+      "join": [
+       {
+        "on": [
+         [
+          "tp_pointOrdinal",
+          "point_ordinal"
+         ],
+         [
+          "tp_techOrdinal",
+          "tech_ordinal"
+         ]
+        ]
+       }
+      ],
+      "expr": {
+       "op": "index",
+       "args": [
+        "tpq_multiplier",
+        "tp",
+        "q"
+       ]
+      }
+     }
     }
    ],
-   "tests": []
+   "tests": [
+    {
+     "id": "the_chain_is_anchored_at_three_rated_blocks",
+     "description": "nremissionrate carries three of this run's 29 pollutant-processes and every other output row is a multiple of one of them. If rpp_rootOrdinal were 0 anywhere a whole block would emit zeros with a perfect key set, which is the least attributable failure a fixture can have (docs/esm-conventions.md 34.1), so the minimum is pinned as well as the maximum. rated_polProcessID is built from enums and read back here at both ends of the rate join.",
+     "time_span": {
+      "start": 0.0,
+      "end": 0.0
+     },
+     "assertions": [
+      {
+       "variable": "rated_polProcessID",
+       "time": 0.0,
+       "expected": 101.0,
+       "coords": {
+        "rated_pp_rows": 1
+       }
+      },
+      {
+       "variable": "rated_polProcessID",
+       "time": 0.0,
+       "expected": 9901.0,
+       "coords": {
+        "rated_pp_rows": 2
+       }
+      },
+      {
+       "variable": "rated_polProcessID",
+       "time": 0.0,
+       "expected": 10001.0,
+       "coords": {
+        "rated_pp_rows": 3
+       }
+      },
+      {
+       "variable": "rpp_rootOrdinal",
+       "time": 0.0,
+       "expected": 1.0,
+       "reduce": "min"
+      },
+      {
+       "variable": "rpp_rootOrdinal",
+       "time": 0.0,
+       "expected": 3.0,
+       "reduce": "max"
+      },
+      {
+       "variable": "rpp_isRated",
+       "time": 0.0,
+       "expected": 1.0,
+       "reduce": "max"
+      }
+     ]
+    },
+    {
+     "id": "the_technology_mix_and_the_hp_category_are_both_discriminating",
+     "description": "Two structural claims that the emitted numbers cannot make. tech_fractionTotal must be 1 on every populated cohort: 2 would mean the strict hp lower bound admitted a second .TECH bin, which is the 1.24-to-1.43x error on SCC 2260004071 that specification 2.1(b) measures, and 0 would mean the equipment chain found no bin at all. And the horse-power category must take BOTH its values -- 1,908 of this run's 2,063 worker cells are 'S' and 155 are 'L' -- because a document that dropped the category from the speciation key would join to the wrong rows on the 155 rather than to none.",
+     "tolerance": {
+      "rel": 1.1920929e-07
+     },
+     "assertions": [
+      {
+       "variable": "tech_fractionTotal",
+       "time": 0.0,
+       "expected": 1.0,
+       "reduce": "max"
+      },
+      {
+       "variable": "tp_nrHPCategory",
+       "time": 0.0,
+       "expected": 2.0,
+       "reduce": "max"
+      },
+      {
+       "variable": "hcat_code",
+       "time": 0.0,
+       "expected": 1.0,
+       "coords": {
+        "hp_category_rows": 1
+       }
+      },
+      {
+       "variable": "hcat_code",
+       "time": 0.0,
+       "expected": 2.0,
+       "coords": {
+        "hp_category_rows": 2
+       }
+      }
+     ],
+     "time_span": {
+      "start": 0.0,
+      "end": 0.0
+     }
+    },
+    {
+     "id": "the_speciation_constants_reach_both_technology_coefficient_sets",
+     "description": "The speciation happens INSIDE the engine-technology contraction, and this is where that is checkable: nrMethaneTHCRatio takes two values on this sector's technologies at fuel subtype 12, 0.02 and 0.149, so the share-weighted CH4 multiplier over the (point, technology) grid must reach 0.149 exactly. A document that speciated the aggregated THC of a cohort would have to pick one number; the snapshot's own emitted CH4/THC takes 404 distinct values between 0.023141 and 0.149001 over the 484 cohorts. The two run-level constants beside it are the ones no comparison against a six-significant-figure column could see: the grams-to-gallons factor is TWO sequential divisions (0.000357313520289105, against 0.00035731352028910493 for the algebraically equal single division), and the PM2.5 fraction is a loader constant that appears in no table.",
+     "tolerance": {
+      "rel": 1.1920929e-07
+     },
+     "assertions": [
+      {
+       "variable": "tp_methaneShare",
+       "time": 0.0,
+       "expected": 0.149,
+       "reduce": "max"
+      },
+      {
+       "variable": "tp_nmogShare",
+       "time": 0.0,
+       "expected": 1.0388,
+       "reduce": "max"
+      },
+      {
+       "variable": "tp_vocShare",
+       "time": 0.0,
+       "expected": 1.03586,
+       "reduce": "max"
+      },
+      {
+       "variable": "run_gallonsFactor",
+       "time": 0.0,
+       "expected": 0.000357313520289105,
+       "coords": {
+        "run_scope_rows": 1
+       }
+      },
+      {
+       "variable": "run_pm25Fraction",
+       "time": 0.0,
+       "expected": 0.92,
+       "coords": {
+        "run_scope_rows": 1
+       }
+      },
+      {
+       "variable": "fst_marketShare",
+       "time": 0.0,
+       "expected": 1.0,
+       "reduce": "max"
+      }
+     ],
+     "time_span": {
+      "start": 0.0,
+      "end": 0.0
+     }
+    },
+    {
+     "id": "the_largest_emitted_cell_is_the_snapshots_largest",
+     "description": "One value assertion against the reference, at the cell the capture stores best: fuel consumption for SCC 2265004071 model year 2020, which MOVESOutput carries as 4170270 g and which is the largest number in the whole 14,036-row table. It is asserted by a max reduction rather than by an output-row ordinal, because the ordinal is a layout detail and the maximum is a claim about the answer. The tolerance is tolerance.toml's own per-cell gate; the row-by-row comparison is compare-output.py's job and is not duplicated here.",
+     "tolerance": {
+      "rel": 2e-05
+     },
+     "assertions": [
+      {
+       "variable": "out_emissionQuant",
+       "time": 0.0,
+       "expected": 4170270.0,
+       "reduce": "max"
+      }
+     ],
+     "time_span": {
+      "start": 0.0,
+      "end": 0.0
+     }
+    }
+   ]
   }
  }
 }
