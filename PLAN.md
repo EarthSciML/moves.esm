@@ -1165,3 +1165,49 @@ none of those. It owns pollutant 88 and the 1000-series. Both snapshots unlock
 **+0**: every calculator they touch is already covered by rung 6. They are axis
 tests, not rungs, and the ladder classifies them that way on the output rows
 rather than on their names.
+
+---
+
+### Phase 6 — the operating-mode-distribution generators, and what the family measurement found
+
+**Two of seven generators in this family are reachable from the corpus, and the
+other five need a RunSpec that does not exist yet.** Measured by rolling
+`java_classes` across the 42 snapshots carrying an `execution-trace.json` and
+corroborating each load against the generator's own output table:
+
+| generator | class-loaded in | emits rows in | reachable? |
+|---|---:|---:|---|
+| `RatesOperatingModeDistributionGenerator` | 30 / 42 | 5 | **yes** |
+| `StartOperatingModeDistributionGenerator` | 9 / 42 | 9 | **yes** |
+| `OperatingModeDistributionGenerator` | 0 / 42 | 0 | no |
+| `LinkOperatingModeDistributionGenerator` | 0 / 42 | 0 | no |
+| `MesoscaleLookupOperatingModeDistributionGenerator` | 0 / 42 | 0 | no |
+| `MesoscaleLookupTotalActivityGenerator` | 0 / 42 | 0 | no |
+| `NewTvvYearGenerator` | 0 / 42 | 0 | no |
+
+`docs/omd-generator-reachability.md` is the measurement. The five unreachable
+ones are not a gap of the same kind as the five unexercised calculators above:
+those need a RunSpec that selects different pollutants, these need a RunSpec
+that selects a different **domain** — project scale or mesoscale lookup — which
+is a larger change to the capture. `NewTvvYearGenerator` is worse still: its
+`java_path` in `calculator-dag.json` is the empty string, so `CalculatorInfo.txt`
+names it and the source scan found no class to attach it to.
+
+**The 30-versus-5 line in that table is the point.** `RatesOMDG` is loaded in
+30 snapshots and emits in five, because all four of its live statements are
+pinned to source type 62. Class-loaded and produced-output are different
+events, and a rung planned on the first number would be planned on a number
+five times too large. `docs/esm-conventions.md` §39.3 is the rule.
+
+**What landed.** `docs/operating-mode-distribution.md`, `run-omd-oracle.sh`,
+`lib/operating_mode.esm`, `components/start_operating_mode_distribution.esm`
+(27 assertions) and `components/rates_operating_mode_distribution.esm` (21).
+Coverage moves from 24 of 35 live modules to **26 of 35**; generators from 8 of
+16 to **10 of 16**.
+
+**What it left for the next rung.** The specification's §5 records that
+`moves.rs`'s `StartOperatingModeDistributionGenerator` models step 400 as a
+copy of the soak-time fractions, when MOVES's non-project rates branch reads
+`startsOpModeDistribution` instead and carries a `polProcessID` that port's row
+struct does not have. That is a defect in the reference, not in this port, and
+it is upstream work.
