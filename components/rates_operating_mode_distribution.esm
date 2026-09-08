@@ -1,0 +1,182 @@
+{
+  "esm": "1.0.0",
+  "metadata": {
+    "name": "moves.rates_operating_mode_distribution",
+    "description": "`RatesOperatingModeDistributionGenerator` steps 200 and 210: the degenerate hotelling operating-mode distributions for Extended Idle Exhaust (process 90) and Auxiliary Power Exhaust (process 91). Ports crates/moves-calculators/src/generators/rates_op_mode_distribution.rs, the port of gov/epa/otaq/moves/master/implementation/ghg/RatesOperatingModeDistributionGenerator.java, and is specified in docs/operating-mode-distribution.md. Row-shape constants are lib/operating_mode.esm.\n\nTHE MODULE IS 2,275 LINES OF JAVA AND ITS LIVE PART IS TWO PAGES. Two `static final` flags gate the rest as dead code in the pinned source: `USE_EXTERNAL_GENERATOR_FOR_DRIVE_CYCLES` retires the whole second-by-second VSP pipeline, and `USE_EXTERNAL_GENERATOR` retires the Running-Exhaust branch of `calculateOpModeFractions` in favour of `SourceTypePhysics.updateOperatingModeDistribution`. What is left executing is the master-loop subscription, `calculateExtendedIdleOpModeFractions` (step 200) and `calculateAuxiliaryPowerOpModeFractions` (step 210). Running Exhaust -- the process the generator is class-loaded for in 28 of the corpus's 40 snapshots -- contributes NO row from this module, which is why 28 loads produce rows in only four snapshots that this file is about.\n\nWHAT THE TWO STEPS COMPUTE, AND WHY THERE IS NO ARITHMETIC IN IT. Both are hotelling: source type 62 (combination long-haul truck), parked, off-network. Their operating-mode 'distribution' is degenerate -- every applicable mode is assigned `opModeFraction = 1` on road type 1, `avgSpeedBinID = 0`, `avgBinSpeed = 0`. So the entire content of the port is WHICH MODES ARE APPLICABLE, and that is a set expression, not a formula. Each step is two `INSERT IGNORE` statements whose op-mode sets union: step 200 takes the modes `opModePolProcAssoc` associates with the run's process-90 polProcesses (for source type 62) and unions in operating mode 200 (extended idling) whenever source type 62 is selected; step 210 takes the same association for process 91, EXCLUDING mode 200, and unions in every `hotellingActivityDistribution` mode except 200.\n\nA SET EXPRESSION IS STILL A MODEL, AND THIS FILE MAKES IT ONE. The temptation with a generator whose only value is 1.0 is to write down the answer, and this repository's characteristic failure -- a plausible wrong constant on a document that validates cleanly -- is exactly what that produces. So the membership is COMPUTED from the four input relations MOVES reads, over an axis of the four hotelling operating modes the corpus contains, and the two steps' answers fall out as different subsets of the same axis. `omdg_extendedIdlePresent` is {200}; `omdg_auxiliaryPowerPresent` is {201, 203, 204}. Those are two different sets over one axis, computed by two different expressions from the same inputs, which is the smallest arrangement in which a wrong expression cannot agree with the reference by accident.\n\nWHERE THE NUMBERS COME FROM. `process-extended-idle` and `process-apu` are the corpus's two single-process hotelling snapshots and they are the only place these steps run alone. process-extended-idle selects process 90, has an EMPTY `sourceTypePolProcess` (so step 200's first statement emits nothing) and `runSpecSourceType` = {62} (so its second emits mode 200): 1 mode x 2 hourDays = the snapshot's 2 rows. process-apu selects process 91, `sourceTypePolProcess` = {(62, 9191)}, `opModePolProcAssoc` associates 9191 with mode 201 alone, and `hotellingActivityDistribution` carries modes 200, 201, 203 and 204: {201} union ({200,201,203,204} minus {200}) = {201, 203, 204}, times 2 hourDays = the snapshot's 6 rows. `process-apu-single` and `process-extended-idle-single` repeat both at a different pair of hourDays and agree row for row.\n\nTHE EXCLUSION OF MODE 200 FROM STEP 210 IS THE ONE PLACE THE TWO STEPS DISAGREE ABOUT A MODE THEY BOTH SEE. `hotellingActivityDistribution` contains mode 200 in both snapshots -- it is 80 % of the 1950-2009 diesel distribution -- and step 210 drops it because extended idling is a separate process with its own emission rates. A port that kept it would add a (62, 9191, 200) row to process-apu, which is a 17 % over-emission of that table and would double-count extended idling against process 90. `omdg_hotellingIsNotExtendedIdle` is that exclusion as a column, applied to both of step 210's statements as the Java applies it to both.\n\nWHY `insert_ignore_union` AND NOT `+`. MOVES writes with `INSERT IGNORE`, so the second statement of a step loses to the first on a primary-key collision rather than adding to it. In process-apu the two statements both emit mode 201 and a sum would give 2. What makes `max` faithful rather than merely convenient is that every row either statement emits carries the same constant non-key columns, so a collision is always between value-identical rows; lib/operating_mode.esm's template carries that argument with the operator.\n\nWHICH ASSERTIONS FACE THE REFERENCE (docs/esm-conventions.md section 35.4). The two presence vectors face MOVES: they are the snapshot's `RatesOpModeDistribution` op-mode sets for these two polProcesses, and the oracle checks the full row keys including hourDay and polProcessID. `omdg_hotellingOpModeFraction` faces the reference too -- the snapshot stores 1.000000000000 on all eight rows -- but it is a constant in the SQL and asserting it proves only that the constant was copied.",
+    "authors": ["EarthSciML Authors and Contributors"],
+    "tags": ["moves", "onroad", "operating-mode", "hotelling", "generator"]
+  },
+  "index_sets": {
+    "romd_hotelling_mode_rows": { "kind": "interval", "size": 4 }
+  },
+  "coordinates": {
+    "hotelling_operating_mode": { "source": "romd_opModeID", "standard_name": "moves_operating_mode_identifier" }
+  },
+  "models": {
+    "RatesOperatingModeDistribution": {
+      "expression_template_imports": [
+        { "ref": "../lib/operating_mode.esm",
+          "only": ["excludes_extended_idle", "insert_ignore_union", "truth",
+                   "degenerate_op_mode_fraction", "off_network_road_type",
+                   "off_network_avg_speed_bin", "off_network_avg_bin_speed"] }
+      ],
+      "tolerance": { "rel": 1e-12 },
+      "variables": {
+        "romd_opModeID": { "type": "unknown", "shape": ["romd_hotelling_mode_rows"],
+          "description": "The four hotelling operating modes the corpus contains: 200 (Extended Idling), 201 (Diesel Auxiliary Power Unit), 203 (Shore Power) and 204 (Battery or All Engines/Accessories Off). They are the distinct `hotellingActivityDistribution.opModeID` values in every snapshot that has the table." },
+        "romd_inOpModePolProcAssoc90": { "type": "unknown", "shape": ["romd_hotelling_mode_rows"],
+          "description": "1 where `opModePolProcAssoc` associates the mode with the run's process-90 polProcessID. In process-extended-idle that is polProcessID 9090 and mode 200 alone." },
+        "romd_inOpModePolProcAssoc91": { "type": "unknown", "shape": ["romd_hotelling_mode_rows"],
+          "description": "1 where `opModePolProcAssoc` associates the mode with the run's process-91 polProcessID. In process-apu that is polProcessID 9191 and mode 201 alone -- NOT the three modes step 210's second statement will add." },
+        "romd_inHotellingActivity": { "type": "unknown", "shape": ["romd_hotelling_mode_rows"],
+          "description": "1 where the mode appears in `hotellingActivityDistribution`. All four do, mode 200 included; the exclusion of 200 is step 210's, not this table's." },
+        "romd_hotellingIsNotExtendedIdle": { "type": "unknown", "shape": ["romd_hotelling_mode_rows"],
+          "description": "The `opModeID <> 200` guard step 210 applies to BOTH of its statements. Computed from the mode id rather than written down, so the one mode it excludes is named once." },
+        "romd_sourceTypePolProcess90": { "type": "unknown", "shape": ["romd_hotelling_mode_rows"],
+          "description": "1 when `sourceTypePolProcess` holds a (62, process-90 polProcessID) row -- the inner join that pins step 200's first statement to source type 62. ZERO in process-extended-idle: that snapshot's sourceTypePolProcess table is empty, so the whole of its output comes from the second statement. Constant across the mode axis because the join does not involve the operating mode." },
+        "romd_sourceTypePolProcess91": { "type": "unknown", "shape": ["romd_hotelling_mode_rows"],
+          "description": "The same for process 91. ONE in process-apu, whose sourceTypePolProcess is exactly {(62, 9191)}." },
+        "romd_hotellingSourceTypeSelected": { "type": "unknown", "shape": ["romd_hotelling_mode_rows"],
+          "description": "1 when source type 62 is in `runSpecSourceType` -- the condition on the SECOND statement of each step. Both hotelling snapshots select source type 62 and nothing else." },
+        "romd_extendedIdleStatementOne": { "type": "unknown", "shape": ["romd_hotelling_mode_rows"],
+          "description": "Step 200's first `INSERT IGNORE`: the opModePolProcAssoc modes for (62, process-90 polProcess). Carried as its own column so that the union below has two named halves and a document cannot be right about the union while wrong about which statement supplied it." },
+        "romd_extendedIdleStatementTwo": { "type": "unknown", "shape": ["romd_hotelling_mode_rows"],
+          "description": "Step 200's second `INSERT IGNORE`: operating mode 200 for every process-90 polProcess, when source type 62 is selected." },
+        "romd_extendedIdlePresent": { "type": "unknown", "shape": ["romd_hotelling_mode_rows"],
+          "description": "The union of step 200's two statements under `INSERT IGNORE`. Faces the reference: {200}." },
+        "romd_auxiliaryPowerStatementOne": { "type": "unknown", "shape": ["romd_hotelling_mode_rows"],
+          "description": "Step 210's first `INSERT IGNORE`: the opModePolProcAssoc modes for (62, process-91 polProcess), excluding mode 200." },
+        "romd_auxiliaryPowerStatementTwo": { "type": "unknown", "shape": ["romd_hotelling_mode_rows"],
+          "description": "Step 210's second `INSERT IGNORE`: every `hotellingActivityDistribution` mode except 200, when source type 62 is selected." },
+        "romd_auxiliaryPowerPresent": { "type": "unknown", "shape": ["romd_hotelling_mode_rows"],
+          "description": "The union of step 210's two statements. Faces the reference: {201, 203, 204}." },
+        "romd_opModeFraction": { "type": "unknown", "shape": ["romd_hotelling_mode_rows"],
+          "description": "`opModeFraction` on every row either step emits -- the SQL literal 1. Degenerate by construction: a parked truck is in its hotelling mode for the whole of the hour the rate is quoted per." },
+        "romd_roadTypeID": { "type": "unknown", "shape": ["romd_hotelling_mode_rows"],
+          "description": "`roadTypeID` -- the SQL literal 1, Off-Network. Hotelling happens where the truck is parked." },
+        "romd_avgSpeedBinID": { "type": "unknown", "shape": ["romd_hotelling_mode_rows"],
+          "description": "`avgSpeedBinID` -- the SQL literal 0. A parked truck has no average speed bin, which is what distinguishes these rows from AverageSpeedOperatingModeDistributionGenerator's, whose bins run 1-16 in the same table." },
+        "romd_avgBinSpeed": { "type": "unknown", "shape": ["romd_hotelling_mode_rows"],
+          "description": "`avgBinSpeed` -- the SQL literal 0." }
+      },
+      "equations": [
+        { "_comment": "The distinct hotellingActivityDistribution.opModeID values, which are the same four in every snapshot carrying the table.",
+          "lhs": "romd_opModeID",
+          "rhs": { "op": "const", "args": [], "value": [200, 201, 203, 204] } },
+        { "_comment": "process-extended-idle: opModePolProcAssoc pairs polProcessID 9090 with mode 200 only.",
+          "lhs": "romd_inOpModePolProcAssoc90",
+          "rhs": { "op": "const", "args": [], "value": [1.0, 0.0, 0.0, 0.0] } },
+        { "_comment": "process-apu: opModePolProcAssoc pairs polProcessID 9191 with mode 201 only.",
+          "lhs": "romd_inOpModePolProcAssoc91",
+          "rhs": { "op": "const", "args": [], "value": [0.0, 1.0, 0.0, 0.0] } },
+        { "_comment": "hotellingActivityDistribution's 36 rows cover all four modes in both snapshots.",
+          "lhs": "romd_inHotellingActivity",
+          "rhs": { "op": "const", "args": [], "value": [1.0, 1.0, 1.0, 1.0] } },
+        { "_comment": "process-extended-idle's sourceTypePolProcess is EMPTY, so step 200's first statement has no driver.",
+          "lhs": "romd_sourceTypePolProcess90",
+          "rhs": { "op": "const", "args": [], "value": [0.0, 0.0, 0.0, 0.0] } },
+        { "_comment": "process-apu's sourceTypePolProcess is exactly {(62, 9191)}.",
+          "lhs": "romd_sourceTypePolProcess91",
+          "rhs": { "op": "const", "args": [], "value": [1.0, 1.0, 1.0, 1.0] } },
+        { "_comment": "runSpecSourceType = {62} in both hotelling snapshots.",
+          "lhs": "romd_hotellingSourceTypeSelected",
+          "rhs": { "op": "const", "args": [], "value": [1.0, 1.0, 1.0, 1.0] } },
+        { "_comment": "Step 210's `opModeID <> 200`, derived from the mode id.",
+          "lhs": "romd_hotellingIsNotExtendedIdle",
+          "rhs": { "op": "apply_expression_template", "args": [], "name": "excludes_extended_idle",
+                   "bindings": { "op_mode_id": "romd_opModeID" } } },
+        { "_comment": "@step 200 SQL 1 -- pollutantProcessAssoc(90) x sourceTypePolProcess(62) x opModePolProcAssoc.",
+          "lhs": "romd_extendedIdleStatementOne",
+          "rhs": { "op": "*", "args": ["romd_sourceTypePolProcess90", "romd_inOpModePolProcAssoc90"] } },
+        { "_comment": "@step 200 SQL 2 -- operating mode 200 for every process-90 polProcess, gated on source type 62 being selected. `1 - isNotExtendedIdle` is the indicator OF mode 200, written from the same column so the mode is named once.",
+          "lhs": "romd_extendedIdleStatementTwo",
+          "rhs": { "op": "*", "args": ["romd_hotellingSourceTypeSelected",
+                    { "op": "-", "args": [1.0, "romd_hotellingIsNotExtendedIdle"] }] } },
+        { "_comment": "The two statements' INSERT IGNORE union.",
+          "lhs": "romd_extendedIdlePresent",
+          "rhs": { "op": "apply_expression_template", "args": [], "name": "insert_ignore_union",
+                   "bindings": { "first_statement": "romd_extendedIdleStatementOne",
+                                 "second_statement": "romd_extendedIdleStatementTwo" } } },
+        { "_comment": "@step 210 SQL 1 -- as step 200 SQL 1 for process 91, with `omppa.opModeID <> 200`.",
+          "lhs": "romd_auxiliaryPowerStatementOne",
+          "rhs": { "op": "*", "args": ["romd_sourceTypePolProcess91", "romd_inOpModePolProcAssoc91",
+                                       "romd_hotellingIsNotExtendedIdle"] } },
+        { "_comment": "@step 210 SQL 2 -- every hotellingActivityDistribution mode except 200, gated on source type 62.",
+          "lhs": "romd_auxiliaryPowerStatementTwo",
+          "rhs": { "op": "*", "args": ["romd_hotellingSourceTypeSelected", "romd_inHotellingActivity",
+                                       "romd_hotellingIsNotExtendedIdle"] } },
+        { "lhs": "romd_auxiliaryPowerPresent",
+          "rhs": { "op": "apply_expression_template", "args": [], "name": "insert_ignore_union",
+                   "bindings": { "first_statement": "romd_auxiliaryPowerStatementOne",
+                                 "second_statement": "romd_auxiliaryPowerStatementTwo" } } },
+        { "lhs": "romd_opModeFraction",
+          "rhs": { "op": "*", "args": [
+            { "op": "apply_expression_template", "args": [], "name": "degenerate_op_mode_fraction", "bindings": {} },
+            { "op": "const", "args": [], "value": [1.0, 1.0, 1.0, 1.0] }] } },
+        { "lhs": "romd_roadTypeID",
+          "rhs": { "op": "*", "args": [
+            { "op": "apply_expression_template", "args": [], "name": "off_network_road_type", "bindings": {} },
+            { "op": "const", "args": [], "value": [1.0, 1.0, 1.0, 1.0] }] } },
+        { "lhs": "romd_avgSpeedBinID",
+          "rhs": { "op": "+", "args": [
+            { "op": "apply_expression_template", "args": [], "name": "off_network_avg_speed_bin", "bindings": {} },
+            { "op": "const", "args": [], "value": [0.0, 0.0, 0.0, 0.0] }] } },
+        { "lhs": "romd_avgBinSpeed",
+          "rhs": { "op": "+", "args": [
+            { "op": "apply_expression_template", "args": [], "name": "off_network_avg_bin_speed", "bindings": {} },
+            { "op": "const", "args": [], "value": [0.0, 0.0, 0.0, 0.0] }] } }
+      ],
+      "tests": [
+        {
+          "id": "extended_idle_is_mode_200_and_comes_from_the_second_statement",
+          "description": "FACES THE REFERENCE. process-extended-idle's RatesOpModeDistribution is two rows, both (62, 1, 0, 9090, 200) at hourDays 72 and 75. Its sourceTypePolProcess table is EMPTY, so step 200's first statement contributes nothing and the whole output is the second statement's guaranteed mode-200 row. Both halves are asserted, not only their union: a document whose first statement wrongly fired would still produce {200} here, because 200 is the only mode opModePolProcAssoc gives polProcessID 9090. What breaks if the SECOND statement is dropped: the snapshot's output becomes empty, and MOVES would emit no extended-idling rate at all.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "romd_extendedIdleStatementOne", "time": 0.0, "expected": 0.0, "coords": { "romd_hotelling_mode_rows": 1 }, "tolerance": { "abs": 1e-12 } },
+            { "variable": "romd_extendedIdleStatementTwo", "time": 0.0, "expected": 1.0, "coords": { "romd_hotelling_mode_rows": 1 }, "tolerance": { "abs": 1e-12 } },
+            { "variable": "romd_extendedIdlePresent", "time": 0.0, "expected": 1.0, "coords": { "romd_hotelling_mode_rows": 1 }, "tolerance": { "abs": 1e-12 } },
+            { "variable": "romd_extendedIdlePresent", "time": 0.0, "expected": 0.0, "coords": { "romd_hotelling_mode_rows": 2 }, "tolerance": { "abs": 1e-12 } },
+            { "variable": "romd_extendedIdlePresent", "time": 0.0, "expected": 0.0, "coords": { "romd_hotelling_mode_rows": 3 }, "tolerance": { "abs": 1e-12 } },
+            { "variable": "romd_extendedIdlePresent", "time": 0.0, "expected": 0.0, "coords": { "romd_hotelling_mode_rows": 4 }, "tolerance": { "abs": 1e-12 } }
+          ]
+        },
+        {
+          "id": "auxiliary_power_excludes_extended_idling_from_both_statements",
+          "description": "FACES THE REFERENCE. process-apu's RatesOpModeDistribution is six rows: modes 201, 203 and 204 at polProcessID 9191, on hourDays 72 and 75. hotellingActivityDistribution contains mode 200 -- it is 80 % of the 1950-2009 diesel distribution -- and both of step 210's statements drop it, because extended idling is process 90's to emit. What breaks if the exclusion is missed: a seventh and eighth row appear at (62, 9191, 200), a 33 % over-emission of this table, and extended idling is charged twice, once as process 90 and once as process 91.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "romd_auxiliaryPowerPresent", "time": 0.0, "expected": 0.0, "coords": { "romd_hotelling_mode_rows": 1 }, "tolerance": { "abs": 1e-12 } },
+            { "variable": "romd_auxiliaryPowerPresent", "time": 0.0, "expected": 1.0, "coords": { "romd_hotelling_mode_rows": 2 }, "tolerance": { "abs": 1e-12 } },
+            { "variable": "romd_auxiliaryPowerPresent", "time": 0.0, "expected": 1.0, "coords": { "romd_hotelling_mode_rows": 3 }, "tolerance": { "abs": 1e-12 } },
+            { "variable": "romd_auxiliaryPowerPresent", "time": 0.0, "expected": 1.0, "coords": { "romd_hotelling_mode_rows": 4 }, "tolerance": { "abs": 1e-12 } },
+            { "variable": "romd_auxiliaryPowerStatementOne", "time": 0.0, "expected": 0.0, "coords": { "romd_hotelling_mode_rows": 1 }, "tolerance": { "abs": 1e-12 } },
+            { "variable": "romd_auxiliaryPowerStatementTwo", "time": 0.0, "expected": 0.0, "coords": { "romd_hotelling_mode_rows": 1 }, "tolerance": { "abs": 1e-12 } }
+          ]
+        },
+        {
+          "id": "the_two_statements_of_a_step_overlap_and_the_union_is_not_a_sum",
+          "description": "FACES THIS PORT. Mode 201 is emitted by BOTH of step 210's statements -- opModePolProcAssoc associates it with polProcessID 9191, and hotellingActivityDistribution carries it -- and MOVES's INSERT IGNORE keeps one row. A `+` would give 2, which no fraction comparison would catch because the fraction is 1 either way and the row would still be there. The overlap is asserted directly so the union operator is checked where it does work, and modes 203 and 204 are asserted as second-statement-only so the two halves are told apart.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "romd_auxiliaryPowerStatementOne", "time": 0.0, "expected": 1.0, "coords": { "romd_hotelling_mode_rows": 2 }, "tolerance": { "abs": 1e-12 } },
+            { "variable": "romd_auxiliaryPowerStatementTwo", "time": 0.0, "expected": 1.0, "coords": { "romd_hotelling_mode_rows": 2 }, "tolerance": { "abs": 1e-12 } },
+            { "variable": "romd_auxiliaryPowerPresent", "time": 0.0, "expected": 1.0, "coords": { "romd_hotelling_mode_rows": 2 }, "tolerance": { "abs": 1e-12 } },
+            { "variable": "romd_auxiliaryPowerStatementOne", "time": 0.0, "expected": 0.0, "coords": { "romd_hotelling_mode_rows": 3 }, "tolerance": { "abs": 1e-12 } },
+            { "variable": "romd_auxiliaryPowerStatementTwo", "time": 0.0, "expected": 1.0, "coords": { "romd_hotelling_mode_rows": 3 }, "tolerance": { "abs": 1e-12 } }
+          ]
+        },
+        {
+          "id": "the_hotelling_row_shape_is_the_family_spine",
+          "description": "FACES THE REFERENCE, but weakly, and the description says so because the assertions cannot. All eight rows of the two snapshots store opModeFraction 1.000000000000, roadTypeID 1, avgSpeedBinID 0 and avgBinSpeed 0.000000000000, so these four assertions do agree with MOVES -- but every one of them is a literal in the SQL, and asserting a literal proves that it was copied and nothing more. They are kept because avgSpeedBinID 0 is what partitions this table between these two generators and AverageSpeedOperatingModeDistributionGenerator, whose 32 rows in process-tirewear occupy bins 1-16; the oracle relies on that partition, so the document states it.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "romd_opModeFraction", "time": 0.0, "expected": 1.0, "coords": { "romd_hotelling_mode_rows": 2 } },
+            { "variable": "romd_roadTypeID", "time": 0.0, "expected": 1.0, "coords": { "romd_hotelling_mode_rows": 2 } },
+            { "variable": "romd_avgSpeedBinID", "time": 0.0, "expected": 0.0, "coords": { "romd_hotelling_mode_rows": 2 }, "tolerance": { "abs": 1e-12 } },
+            { "variable": "romd_avgBinSpeed", "time": 0.0, "expected": 0.0, "coords": { "romd_hotelling_mode_rows": 2 }, "tolerance": { "abs": 1e-12 } }
+          ]
+        }
+      ]
+    }
+  }
+}
