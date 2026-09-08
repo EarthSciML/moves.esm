@@ -1019,7 +1019,9 @@ with fewer than eight significant digits, and 1,208 of them are stored as
 scale to be relative to" — and the general form of that concession is what §7.1
 reports separately: allow the capture's own half-quantum, 5 × 10⁻¹³ absolute,
 and the worst of those 2,629 cells is **8.655 × 10⁻⁶**, inside the unmodified
-`[cell] rel = 2e-5`. Without that allowance, **284** of them exceed 2 × 10⁻⁵.
+`[cell] rel = 2e-5`. Without that allowance, **283** of them exceed
+2 × 10⁻⁵ under the comparator's own rule, which falls back to an absolute
+error where the expectation is an exact zero.
 
 **(b) On the INPUT side, which no gate reading can fix.**
 `nrdioxinemissionrate.meanBaseRate` for gasoline running exhaust is
@@ -1043,7 +1045,7 @@ quantisation. There is no arithmetic here to correct.
 `MOVESOutput` against any correct implementation fails on **1,013 of 14,036
 cells** at `[cell] rel = 2e-5`: **729** of pollutants 131 and 142 (cause (b);
 the other 239 of their cells are stored as an outright zero, which the
-comparator's own absolute fallback lets through) and **284** more from cause
+comparator's own absolute fallback lets through) and **283** more from cause
 (a). §8 records what follows for the fixture.
 
 ### 7.3 Precision-sensitive operations, ranked
@@ -1079,7 +1081,7 @@ still 2 × 10⁻⁵ and the fixture's worst compared cell is **9.417 × 10⁻⁶
 13,068 cells, with the key set exact and the worst per-pollutant sum
 1.442 × 10⁻⁶.
 
-The 284 cells of cause (a) are compared and pass, because the same `scope`
+The 283 cells of cause (a) are compared and pass, because the same `scope`
 declares `allow_storage_quantum`: the comparison is made at the resolution the
 snapshot is stored in, half a quantum — 5 × 10⁻¹³, **read off the snapshot's
 own `.meta.json`** rather than chosen — as an absolute floor beneath the
