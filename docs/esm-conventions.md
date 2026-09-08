@@ -253,16 +253,43 @@ This port's assemblies still use the top-level `{ref}` form the defect forced.
 That is deliberate: they work, they are tested, and rewriting them buys nothing
 today. A *new* assembly may use either, and should prefer the nested form.
 
-**The cost of the working form: index sets do not merge across it** (finding
-F2), so an assembly restates the axes of every file it mounts. That redundancy
-is exactly what the merge exists to prevent, so
-`tools/check-conventions.py` compares the two definitions and fails on
-disagreement **[checked]** — the loader's conflict detection, performed by the
-harness.
+**The cost of the working form used to be that index sets do not merge across
+it** (finding F2), so every assembly here restates the axes of each file it
+mounts. **F2 is fixed** (EarthSciAST `19f929981`, PR #208): a top-level `{ref}`
+now merges the leaf's `index_sets` into the mounting document's registry and
+applies §4.7's conflict check at that edge — perturbing one restated `size`
+gives `subsystem_index_set_conflict` from the loader, naming both definitions.
+The restatement is therefore redundancy rather than necessity. It is left in
+place for now — the assemblies work and are tested — and removing it is scoped
+follow-up rather than a rule. `tools/check-conventions.py` still compares the
+two definitions and fails on disagreement **[checked]**; it is now defence in
+depth rather than a stand-in, and goes vacuous the day an assembly stops
+restating.
 
-Running `esm test` on an assembly runs the mounted leaves' own tests too, under
-the mount. That is a feature: it is the check that mounting preserved their
-meaning.
+**A mounted leaf's own tests do NOT run under the mount.** They used to, and
+this section used to call that a feature — the check that mounting preserved
+their meaning. Upstream removed it deliberately (EarthSciAST `d2f2d328e`, now
+normative as esm-spec §6.6): a mounting document may legitimately change the
+conditions a leaf asserts under — a `variable_map` entry, a mount-edge
+`bindings`, a mount-edge `expression_template_imports` — so re-running the
+leaf's assertions inside the assembly reports failures the leaf never claimed
+anything about. The loader now DROPS a mounted component's `tests` at the
+top-level `{ref}` edge — a *subsystem* mount never ran them, since a test
+targets a top-level component — and `esm test` names every mount edge it found,
+so the components a run did not assert on are visible rather than silently
+absent. F21's document measured the two forms disagreeing about this on the old
+binary; they agree now, and that paragraph of it is stale.
+
+Measured here at the `3aa046d65` rebuild: `esm test ./components ./runs …` goes
+**1444 assertions to 913**, and all 531 of the difference are leaves that were
+being re-asserted under the four assemblies — `nr_logging_county_run` 296 → 9,
+`mixed_onroad_run` 163 → 30, `evap_leaks_run` 107 → 26, `micro_exhaust_run`
+39 → 9. **No assertion went unrun.** Each of the nineteen mounted leaves is its
+own test target under `components/`, and every one of those files' own counts is
+unchanged. What is gone is the *second*, under-the-mount evaluation of them. An
+assertion an assembly wants to make about a mounted leaf is now the assembly's
+own to write, which §18 already describes how to do — and which is what F21
+makes awkward, since a scoped name still cannot be an assertion `variable`.
 
 ## 6. Reused shapes are `expression_templates` in `lib/`, imported by reference
 
