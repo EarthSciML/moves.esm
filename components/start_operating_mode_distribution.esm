@@ -1,0 +1,204 @@
+{
+  "esm": "1.0.0",
+  "metadata": {
+    "name": "moves.start_operating_mode_distribution",
+    "description": "`StartOperatingModeDistributionGenerator` steps 100-300: the soak-time histogram that becomes `StartOpModeDistribution`. Ports crates/moves-calculators/src/generators/start_operating_mode_distribution.rs, the port of gov/epa/otaq/moves/master/implementation/ghg/StartOperatingModeDistributionGenerator.java, and is specified in docs/operating-mode-distribution.md. The arithmetic is lib/operating_mode.esm; this file is the relation it runs over and the place its answers are checked against MOVES.\n\nWHAT MOVES DOES, IN THREE LINES. Step 100 self-joins `SampleVehicleTrip` on `priorTripID` and subtracts: `soakTime = keyOnTime - keyOffTime[prior trip]`. Step 200 joins each soak time against the `OperatingMode` soak-time bands and keeps every band that contains it. Step 300 counts the starts per (sourceType, hourDay) and, within each, the starts in each band: `opModeFraction = COUNT(opModeID)/starts`.\n\nTHE RELATION IS ONE COMPLETE CELL OF THE REFERENCE, NOT A SAMPLE OF ONE. The 18 rows are every start MOVES classified into (sourceTypeID 21, hourDayID 72) in `process-refueling` -- the whole of that cell, not a slice of it -- so the counts below are the reference's own denominators and numerators rather than a proportional stand-in. Getting the cell whole matters because a fraction computed over part of a group is not a smaller version of the right answer, it is a different number. The 18 come from filtering the snapshot's 37,216 `SampleVehicleTrip` rows to those with a prior trip, a `SampleVehicleDay` row (the join that supplies `sourceTypeID`) and dayID 2 / hourID 7; the same 18 appear in SEVEN snapshots -- `process-refueling`, `sample-runspec`, `expand-counties`, `expand-criteria`, `expand-day`, `expand-fueltype-diesel` and `expand-sourcetype` -- whose (source type 21, hourDay 72) `StartOpModeDistribution` rows are identical, {101: 0.4444, 102: 0.0556, 107: 0.1667, 108: 0.3333} in every one. So a document checked against this cell is checked against seven. `mixed-onroad` and `expand-month` are the two populated snapshots that do NOT carry it: their hour-days are 92/95 and 0.\n\nWHY NINE BANDS AND NOT FOUR. MOVES's `StartOpModeDistribution` for this cell has four rows -- operating modes 101, 102, 107 and 108. This relation carries nine, adding the five bands whose count is zero and, at row 1, operating mode 100. That is not padding; it is where three separate claims are checked. (a) The five zero bands are the row-set rule: MOVES's `GROUP BY` emits no row for an empty group, so a document that produced one would be wrong in a way no fraction comparison could see. (b) Bands 103-106 are the closed intervals, and without them the only bands exercised would be the two open-ended ones. (c) Operating mode 100 has minSoakTime AND maxSoakTime both NULL, and its count MUST be zero -- see below.\n\nOPERATING MODE 100 IS THE ASSERTION THAT PAYS FOR THE FILE. `OperatingMode` has 60 rows and 52 of them carry no soak band at all: the VSP modes, the braking and idling modes, the hotelling modes, and mode 100, 'Starting (Used for all starts)'. Under SQL three-valued logic each clause of the band condition is `NULL OR FALSE`, i.e. UNKNOWN, and `UNKNOWN AND UNKNOWN` is not TRUE, so a bandless mode matches nothing -- which is why MOVES's `StartOpModeDistribution` never contains one. Under the intuitive reading of an absent bound as unbounded, every one of the corpus's 262,442 classified starts would fall into all 52. `somd_opModeCount` at row 1 is 0, it faces the reference, and it is the single number in this document that a plausible misreading of the SQL would get wrong.\n\nTHE FRACTION IS A FOUR-DECIMAL DECIMAL, AND THIS FILE MAKES THE DIFFERENCE VISIBLE. `somd_exactRatio` is carried alongside `somd_opModeFraction` for no other reason: it is the IEEE quotient MariaDB does not compute. All four non-empty bands differ between the two -- 8/18 is 0.44444... against a stored 0.4444, 1/18 is 0.05555... against 0.0556, 3/18 against 0.1667, 6/18 against 0.3333 -- so the four assertions on `somd_opModeFraction` are four independent rejections of the exact ratio, and two of them (102 and 107) round UP while two round DOWN, which distinguishes rounding from truncation. Corpus-wide the rounded quotient is bit-exact on all 124 `StartOpModeDistribution` rows and the exact ratio on 15; docs/operating-mode-distribution.md section 7.2 has the measurement and docs/esm-conventions.md section 39.2 the rule.\n\nWHICH ASSERTIONS FACE THE REFERENCE (docs/esm-conventions.md section 35.4). `somd_opModeCount` and `somd_opModeFraction` face MOVES: the counts are recoverable from the captured `StartOpMode` table (31,738 rows in this snapshot, reproduced 0 missing / 0 extra by the oracle) and the fractions are the captured `StartOpModeDistribution` verbatim. `somd_soakTime` faces THIS PORT ONLY -- MOVES materialises `SoakTime` as a temporary table and drops it, so the snapshot does not carry it -- but its inputs, `keyOnTime` and the prior trip's `keyOffTime`, are the snapshot's own `SampleVehicleTrip` values, and step 200's output is checked, so an error in the subtraction could not survive. `somd_exactRatio` faces nothing: it exists to be compared with its neighbour.\n\nWHAT THIS FILE DOES NOT COVER. Step 400 -- the copy into `RatesOpModeDistribution`, which in a non-project rates run does not read this table at all but reads `startsOpModeDistribution` and crosses it with the run's start `polProcessID`s -- is pure relational algebra with no arithmetic, and lives in the specification's section 6.5 reproduction and its oracle. docs/operating-mode-distribution.md section 5 says why the two halves of this generator write two different tables from two different inputs, which is the fact about it most likely to be missed.",
+    "authors": ["EarthSciML Authors and Contributors"],
+    "tags": ["moves", "onroad", "operating-mode", "starts", "generator"]
+  },
+  "index_sets": {
+    "somd_trip_rows": { "kind": "interval", "size": 18 },
+    "somd_soak_band_rows": { "kind": "interval", "size": 9 }
+  },
+  "coordinates": {
+    "start_operating_mode": { "source": "somd_bandOpModeID", "standard_name": "moves_operating_mode_identifier" }
+  },
+  "models": {
+    "StartOperatingModeDistribution": {
+      "expression_template_imports": [
+        { "ref": "../lib/operating_mode.esm",
+          "only": ["soak_time", "soak_band_contains", "op_mode_fraction", "hour_day_id"] }
+      ],
+      "tolerance": { "rel": 1e-12 },
+      "variables": {
+        "somd_tripVehID": { "type": "unknown", "shape": ["somd_trip_rows"],
+          "description": "`SampleVehicleTrip.vehID`, carried so a row can be traced back to the snapshot rather than identified by its position (docs/esm-conventions.md section 2)." },
+        "somd_tripID": { "type": "unknown", "shape": ["somd_trip_rows"],
+          "description": "`SampleVehicleTrip.tripID` of the START being classified -- the LATER trip of the self-join, the one whose engine is being turned on." },
+        "somd_tripKeyOnTime": { "type": "unknown", "shape": ["somd_trip_rows"], "units": "min",
+          "description": "`SampleVehicleTrip.keyOnTime` of the start, in minutes from the start of the sample day. An INT column in MOVES." },
+        "somd_tripPriorKeyOffTime": { "type": "unknown", "shape": ["somd_trip_rows"], "units": "min",
+          "description": "`SampleVehicleTrip.keyOffTime` of the trip named by this trip's `priorTripID` -- the self-join of step 100, resolved here. Negative values are the sample's own convention for a key-off before the day began; MOVES does not floor them and neither does this file, so rows 1, 2, 3, 6, 9, 12, 16, 17 and 18 carry soak times measured from a negative key-off." },
+        "somd_tripHourID": { "type": "unknown", "shape": ["somd_trip_rows"],
+          "description": "`SampleVehicleTrip.hourID` of the start. All 18 are hour 7; the column is carried because `hourDayID` is composed from it and a constant would hide the composition." },
+        "somd_tripDayID": { "type": "unknown", "shape": ["somd_trip_rows"],
+          "description": "`SampleVehicleTrip.dayID` of the start. All 18 are day 2 (weekend)." },
+        "somd_soakTime": { "type": "unknown", "shape": ["somd_trip_rows"], "units": "min",
+          "description": "Step 100's `SoakTime.soakTime`. FACES THIS PORT ONLY: MOVES materialises SoakTime as a temporary table and drops it, so the snapshot cannot carry it. Its inputs and its consumer are both checked against MOVES." },
+        "somd_hourDayID": { "type": "unknown", "shape": ["somd_trip_rows"],
+          "description": "`HourDay.hourDayID` for this start, composed as `hourID * 10 + dayID`. All 18 are 72, which is the cell this relation is." },
+        "somd_bandOpModeID": { "type": "unknown", "shape": ["somd_soak_band_rows"],
+          "description": "`OperatingMode.opModeID`, 100 through 108. Row 1 is mode 100, which has no soak band; rows 2-9 are the eight start modes." },
+        "somd_bandMinSoakTime": { "type": "unknown", "shape": ["somd_soak_band_rows"], "units": "min",
+          "description": "`OperatingMode.minSoakTime`. Rows 1 and 2 store NULL; the 0 written there is filler that `somd_bandHasMin` gates off, per docs/esm-conventions.md section 11 -- a parameter that failed to ingest arrives as its default, so absence is a column and never a value." },
+        "somd_bandMaxSoakTime": { "type": "unknown", "shape": ["somd_soak_band_rows"], "units": "min",
+          "description": "`OperatingMode.maxSoakTime`. Rows 1 and 9 store NULL; same filler convention as the minimum." },
+        "somd_bandHasMin": { "type": "unknown", "shape": ["somd_soak_band_rows"],
+          "description": "1 where `minSoakTime IS NOT NULL`. Zero on row 1 (mode 100) and row 2 (mode 101, `Soak Time < 6 minutes`)." },
+        "somd_bandHasMax": { "type": "unknown", "shape": ["somd_soak_band_rows"],
+          "description": "1 where `maxSoakTime IS NOT NULL`. Zero on row 1 (mode 100) and row 9 (mode 108, `720 minutes <= Soak Time`)." },
+        "somd_opModeCount": { "type": "unknown", "shape": ["somd_soak_band_rows"],
+          "description": "Step 300's `COUNT(opModeID)` -- the starts this relation classifies into each band. Faces the reference through the snapshot's captured `StartOpMode` table." },
+        "somd_starts": { "type": "unknown", "shape": ["somd_soak_band_rows"],
+          "description": "Step 300's `StartsPerVehicleDay.starts` for this (sourceType, hourDay) cell, which is the number of classified starts in the relation. Constant across the band axis because the denominator is a property of the cell, not of the band; carried on the band axis so the quotient is one elementwise expression." },
+        "somd_opModeFraction": { "type": "unknown", "shape": ["somd_soak_band_rows"],
+          "description": "`StartOpModeDistribution.opModeFraction` -- `COUNT(opModeID)/starts` evaluated as MariaDB evaluates it, a DECIMAL rounded to `div_precision_increment` (4) places. Faces the reference." },
+        "somd_exactRatio": { "type": "unknown", "shape": ["somd_soak_band_rows"],
+          "description": "The IEEE quotient MariaDB does NOT compute, carried only so that the document shows what the rounding costs. Faces nothing; see this file's header and docs/operating-mode-distribution.md section 7.2." }
+      },
+      "equations": [
+        { "_comment": "The 18 starts MOVES classified into (sourceTypeID 21, hourDayID 72) in process-refueling: every SampleVehicleTrip row with a priorTripID, a SampleVehicleDay partner, dayID 2 and hourID 7.",
+          "lhs": "somd_tripVehID",
+          "rhs": { "op": "const", "args": [], "value": [16, 183, 430, 430, 430, 431, 431, 431, 437, 437, 437, 438, 438, 438, 622, 765, 1051, 1094] } },
+        { "lhs": "somd_tripID",
+          "rhs": { "op": "const", "args": [], "value": [1, 1, 32, 33, 34, 43, 44, 45, 32, 33, 34, 43, 44, 45, 31, 1, 1, 1] } },
+        { "lhs": "somd_tripKeyOnTime",
+          "rhs": { "op": "const", "args": [], "value": [409, 395, 372, 403, 411, 373, 402, 409, 372, 403, 411, 373, 402, 409, 389, 368, 418, 406] } },
+        { "_comment": "keyOffTime of the trip each row's priorTripID names, resolved from the same SampleVehicleTrip table.",
+          "lhs": "somd_tripPriorKeyOffTime",
+          "rhs": { "op": "const", "args": [], "value": [-83, -99, -476, 400, 406, -375, 399, 405, -476, 400, 406, -375, 399, 405, 374, -9, -410, -2202] } },
+        { "lhs": "somd_tripHourID",
+          "rhs": { "op": "const", "args": [], "value": [7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7] } },
+        { "lhs": "somd_tripDayID",
+          "rhs": { "op": "const", "args": [], "value": [2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2] } },
+        { "_comment": "@step 100 -- soakTime = keyOnTime - keyOffTime[prior trip].",
+          "lhs": "somd_soakTime",
+          "rhs": { "op": "apply_expression_template", "args": [], "name": "soak_time",
+                   "bindings": { "key_on_time": "somd_tripKeyOnTime",
+                                 "prior_key_off_time": "somd_tripPriorKeyOffTime" } } },
+        { "_comment": "HourDay's key, which step 300 joins on and step 400 rebuilds inline as hourID*10+dayID.",
+          "lhs": "somd_hourDayID",
+          "rhs": { "op": "apply_expression_template", "args": [], "name": "hour_day_id",
+                   "bindings": { "hour_id": "somd_tripHourID", "day_id": "somd_tripDayID" } } },
+        { "_comment": "OperatingMode rows 100..108. Row 1 (mode 100) has neither bound, which is the case the SQL rejects.",
+          "lhs": "somd_bandOpModeID",
+          "rhs": { "op": "const", "args": [], "value": [100, 101, 102, 103, 104, 105, 106, 107, 108] } },
+        { "lhs": "somd_bandMinSoakTime",
+          "rhs": { "op": "const", "args": [], "value": [0.0, 0.0, 6.0, 30.0, 60.0, 90.0, 120.0, 360.0, 720.0] } },
+        { "lhs": "somd_bandMaxSoakTime",
+          "rhs": { "op": "const", "args": [], "value": [0.0, 6.0, 30.0, 60.0, 90.0, 120.0, 360.0, 720.0, 0.0] } },
+        { "lhs": "somd_bandHasMin",
+          "rhs": { "op": "const", "args": [], "value": [0.0, 0.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0] } },
+        { "lhs": "somd_bandHasMax",
+          "rhs": { "op": "const", "args": [], "value": [0.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.0] } },
+        { "_comment": "@step 200 + 300 -- the band join is a genuine range predicate over the soak-time axis, so it is a `filter` and not a `join.on` (docs/esm-conventions.md section 3). The counted expression is 1 per matching trip, which is COUNT(opModeID).",
+          "lhs": "somd_opModeCount",
+          "rhs": {
+            "op": "aggregate", "args": [],
+            "output_idx": ["b"],
+            "ranges": { "b": { "from": "somd_soak_band_rows" }, "k": { "from": "somd_trip_rows" } },
+            "filter": {
+              "op": ">",
+              "args": [
+                { "op": "apply_expression_template", "args": [], "name": "soak_band_contains",
+                  "bindings": {
+                    "soak_time": { "op": "index", "args": ["somd_soakTime", "k"] },
+                    "min_soak_time": { "op": "index", "args": ["somd_bandMinSoakTime", "b"] },
+                    "max_soak_time": { "op": "index", "args": ["somd_bandMaxSoakTime", "b"] },
+                    "has_min_soak_time": { "op": "index", "args": ["somd_bandHasMin", "b"] },
+                    "has_max_soak_time": { "op": "index", "args": ["somd_bandHasMax", "b"] } } },
+                0.5 ] },
+            "reduce": "+",
+            "expr": 1.0
+          } },
+        { "_comment": "@step 300 -- StartsPerVehicleDay.starts: COUNT(keyOnTime) over the same classified starts, one cell, broadcast across the band axis.",
+          "lhs": "somd_starts",
+          "rhs": {
+            "op": "aggregate", "args": [],
+            "output_idx": ["b"],
+            "ranges": { "b": { "from": "somd_soak_band_rows" }, "k": { "from": "somd_trip_rows" } },
+            "reduce": "+",
+            "expr": 1.0
+          } },
+        { "_comment": "@step 300 -- opModeFraction = COUNT(opModeID)/starts, as MariaDB's exact-value division computes it.",
+          "lhs": "somd_opModeFraction",
+          "rhs": { "op": "apply_expression_template", "args": [], "name": "op_mode_fraction",
+                   "bindings": { "op_mode_count": "somd_opModeCount", "starts": "somd_starts" } } },
+        { "_comment": "The IEEE quotient, carried only for comparison. Nothing downstream reads it.",
+          "lhs": "somd_exactRatio",
+          "rhs": { "op": "/", "args": ["somd_opModeCount", "somd_starts"] } }
+      ],
+      "tests": [
+        {
+          "id": "a_bandless_operating_mode_matches_nothing",
+          "description": "FACES THE REFERENCE. Operating mode 100 has minSoakTime and maxSoakTime both NULL, and MOVES's StartOpModeDistribution contains no row for it in any of the nine populated snapshots -- nor for any of the other 51 bandless modes among OperatingMode's 60 rows. The SQL condition is `(minSoakTime <= soakTime OR (minSoakTime IS NULL AND maxSoakTime IS NOT NULL)) AND (maxSoakTime > soakTime OR (maxSoakTime IS NULL AND minSoakTime IS NOT NULL))`, and with both bounds NULL each clause is `NULL OR FALSE` = UNKNOWN, so the conjunction is not TRUE. What breaks if this is wrong: reading an absent bound as an unbounded one -- which is what lib/drive_cycle.esm's `in_half_open_range` does, and why it is not reused here -- puts all 18 of these starts into mode 100 and, corpus-wide, all 262,442 classified starts into all 52 bandless modes.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "somd_opModeCount", "time": 0.0, "expected": 0.0, "coords": { "somd_soak_band_rows": 1 }, "tolerance": { "abs": 1e-12 } },
+            { "variable": "somd_opModeFraction", "time": 0.0, "expected": 0.0, "coords": { "somd_soak_band_rows": 1 }, "tolerance": { "abs": 1e-12 } }
+          ]
+        },
+        {
+          "id": "the_open_ended_bands_are_open_on_one_side_only",
+          "description": "FACES THE REFERENCE. Mode 101 has only a maximum (soak < 6) and mode 108 only a minimum (soak >= 720); each clause of the SQL condition is satisfied by the presence of the OTHER bound. Eight of the 18 soak times are under 6 minutes (3, 5, 3, 4, 3, 5, 3, 4) and six are at or over 720 (848, 748, 848, 748, 828, 2608), and MOVES puts exactly those into 101 and 108. What breaks if this is wrong: dropping the `IS NULL AND ... IS NOT NULL` half of either clause empties both bands, and 14 of this cell's 18 starts -- 78 % of it -- lose their operating mode.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "somd_opModeCount", "time": 0.0, "expected": 8.0, "coords": { "somd_soak_band_rows": 2 }, "tolerance": { "abs": 1e-12 } },
+            { "variable": "somd_opModeCount", "time": 0.0, "expected": 6.0, "coords": { "somd_soak_band_rows": 9 }, "tolerance": { "abs": 1e-12 } }
+          ]
+        },
+        {
+          "id": "the_closed_bands_are_half_open_and_five_of_them_are_empty",
+          "description": "FACES THE REFERENCE. Modes 102-107 are the closed intervals [min, max). One start soaks 15 minutes and lands in 102; three soak 492, 494 and 377 and land in 107; modes 103, 104, 105 and 106 catch none. MOVES's GROUP BY emits no row for an empty group, so its StartOpModeDistribution for hourDay 72 has four rows and not nine -- the four empty bands here are how this document says the same thing with a value instead of an absence. What breaks if this is wrong: making the upper bound inclusive moves nothing in this cell (no soak time equals a bound), which is exactly why the claim is stated on the counts of the neighbouring bands rather than on a boundary case the corpus does not contain.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "somd_opModeCount", "time": 0.0, "expected": 1.0, "coords": { "somd_soak_band_rows": 3 }, "tolerance": { "abs": 1e-12 } },
+            { "variable": "somd_opModeCount", "time": 0.0, "expected": 0.0, "coords": { "somd_soak_band_rows": 4 }, "tolerance": { "abs": 1e-12 } },
+            { "variable": "somd_opModeCount", "time": 0.0, "expected": 0.0, "coords": { "somd_soak_band_rows": 5 }, "tolerance": { "abs": 1e-12 } },
+            { "variable": "somd_opModeCount", "time": 0.0, "expected": 0.0, "coords": { "somd_soak_band_rows": 6 }, "tolerance": { "abs": 1e-12 } },
+            { "variable": "somd_opModeCount", "time": 0.0, "expected": 0.0, "coords": { "somd_soak_band_rows": 7 }, "tolerance": { "abs": 1e-12 } },
+            { "variable": "somd_opModeCount", "time": 0.0, "expected": 3.0, "coords": { "somd_soak_band_rows": 8 }, "tolerance": { "abs": 1e-12 } }
+          ]
+        },
+        {
+          "id": "the_counts_partition_the_cell",
+          "description": "FACES THIS PORT. The nine bands' counts sum to 18, the cell's own start total, because MOVES's canonical soak bands tile the axis without gap or overlap and the bandless modes take none. It is asserted as `somd_starts` because the denominator is computed by a second aggregate over the same axis and a document in which the two disagreed would still produce plausible fractions. The corpus cannot see this: it stores the quotient, not its parts.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "somd_starts", "time": 0.0, "expected": 18.0, "coords": { "somd_soak_band_rows": 1 }, "tolerance": { "abs": 1e-12 } },
+            { "variable": "somd_starts", "time": 0.0, "expected": 18.0, "coords": { "somd_soak_band_rows": 9 }, "tolerance": { "abs": 1e-12 } }
+          ]
+        },
+        {
+          "id": "the_fraction_is_a_four_decimal_decimal_and_not_the_ieee_ratio",
+          "description": "FACES THE REFERENCE. MOVES stores 0.4444, 0.0556, 0.1667 and 0.3333 for modes 101, 102, 107 and 108 of this cell; the IEEE quotients are 0.444444..., 0.055555..., 0.166666... and 0.333333.... Both operands of `COUNT(opModeID)/starts` are MariaDB BIGINT and `/` between exact-value operands yields DECIMAL at the dividend's scale plus `div_precision_increment`, which MOVES leaves at 4. Two of the four round UP and two round DOWN, so this test distinguishes rounding from truncation as well as from the exact ratio. What breaks if this is wrong: the exact ratio misses 109 of the corpus's 124 StartOpModeDistribution rows, at a worst relative error of 5.767e-03 -- 288 times tolerance.toml's per-cell gate. docs/operating-mode-distribution.md section 7.2.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "somd_opModeFraction", "time": 0.0, "expected": 0.4444, "coords": { "somd_soak_band_rows": 2 } },
+            { "variable": "somd_opModeFraction", "time": 0.0, "expected": 0.0556, "coords": { "somd_soak_band_rows": 3 } },
+            { "variable": "somd_opModeFraction", "time": 0.0, "expected": 0.1667, "coords": { "somd_soak_band_rows": 8 } },
+            { "variable": "somd_opModeFraction", "time": 0.0, "expected": 0.3333, "coords": { "somd_soak_band_rows": 9 } },
+            { "variable": "somd_exactRatio", "time": 0.0, "expected": 0.4444444444444444, "coords": { "somd_soak_band_rows": 2 } },
+            { "variable": "somd_exactRatio", "time": 0.0, "expected": 0.05555555555555555, "coords": { "somd_soak_band_rows": 3 } },
+            { "variable": "somd_exactRatio", "time": 0.0, "expected": 0.16666666666666666, "coords": { "somd_soak_band_rows": 8 } },
+            { "variable": "somd_exactRatio", "time": 0.0, "expected": 0.3333333333333333, "coords": { "somd_soak_band_rows": 9 } }
+          ]
+        },
+        {
+          "id": "the_soak_time_is_unfloored_and_the_hour_day_key_is_composed",
+          "description": "FACES THIS PORT for the soak times -- MOVES drops the SoakTime temporary table -- and faces the reference for everything downstream of them. Rows 1, 3 and 18 are the three shapes the sample contains: a start after a key-off recorded before the sample day began (-83, giving 492), the same with a large negative (-476, giving 848), and the longest soak in the cell (-2202, giving 2608). MOVES does not floor the difference at zero and neither does this file. `somd_hourDayID` is 72 on every row, composed as 7*10+2 rather than written down, because step 400 rebuilds the same key inline from the same two columns and a constant here would let the two spellings drift.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "somd_soakTime", "time": 0.0, "expected": 492.0, "coords": { "somd_trip_rows": 1 }, "tolerance": { "abs": 1e-12 } },
+            { "variable": "somd_soakTime", "time": 0.0, "expected": 848.0, "coords": { "somd_trip_rows": 3 }, "tolerance": { "abs": 1e-12 } },
+            { "variable": "somd_soakTime", "time": 0.0, "expected": 3.0, "coords": { "somd_trip_rows": 4 }, "tolerance": { "abs": 1e-12 } },
+            { "variable": "somd_soakTime", "time": 0.0, "expected": 15.0, "coords": { "somd_trip_rows": 15 }, "tolerance": { "abs": 1e-12 } },
+            { "variable": "somd_soakTime", "time": 0.0, "expected": 2608.0, "coords": { "somd_trip_rows": 18 }, "tolerance": { "abs": 1e-12 } },
+            { "variable": "somd_hourDayID", "time": 0.0, "expected": 72.0, "coords": { "somd_trip_rows": 1 }, "tolerance": { "abs": 1e-12 } },
+            { "variable": "somd_hourDayID", "time": 0.0, "expected": 72.0, "coords": { "somd_trip_rows": 18 }, "tolerance": { "abs": 1e-12 } }
+          ]
+        }
+      ]
+    }
+  }
+}

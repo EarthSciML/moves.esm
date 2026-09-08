@@ -3497,7 +3497,345 @@ retarget is *integrated*; they are not where it is *checked*.
 
 ---
 
-## 40. A chain that SUMS is a second pass, and MOVES's own chain table does not declare it **[Phase 6, 5,534 rows, calculators 19 of 19]**
+## 38. A fidelity question is settled by where the WRONG answer falls, and some cannot be settled at all **[Phase 5, 97 rows, 194 cells]**
+
+§35.3 established that a fidelity question about a host language's evaluation
+semantics is decided by evaluating both candidates against the reference rather
+than by reasoning about the host. `FuelEffectsGenerator` is the second slice to
+carry two such questions at once, and it answers one of them and — this is the
+part that is new — establishes that the other **cannot be answered here**. The
+five sections below are what the pair taught.
+
+### 38.1 Measuring both candidates is necessary; saying WHERE the measurement can live is the other half
+
+`FuelFormulation`'s seventeen property columns are MariaDB `FLOAT`, 32-bit, and
+MOVES evaluates a `fuelEffectRatioExpression` against them in `DOUBLE`. So the
+value that enters the arithmetic is a binary32 widened. The snapshot capture,
+though, writes the **decimal** — `23.140000000000` where MOVES held
+23.139999389648438 — which makes "what is a property value?" a real choice with
+two plausible answers. Measured over the corpus's 194 compared cells:
+
+| a property value is taken to be | worst relative error |
+|---|---|
+| the `FLOAT` widened | **1.608e−14** |
+| the capture's decimal read as a double | **7.059e−08** |
+
+That looks like §35.3's table and it is not the same situation, because of where
+the wrong answer lands. Meteorology's `0.5556` slope was 1.379e−04 — **seven
+times outside** `tolerance.toml`'s per-cell `rel = 2e-5`, so any fixture would
+have caught it. 7.059e−08 is **280 times inside** that gate. Every fixture in
+this repository would have passed with the wrong promotion and reported nothing.
+
+**The rule: after measuring both candidates, compare the loser against the
+FIXTURE GATE, and if it falls inside, say so and put the assertion somewhere
+that can see it.** Here that is `components/fuel_effects.esm` at `rel 1e-11` and
+`run-fuel-effects-oracle.sh` at `1e-12`, and both say in words that they are the
+only things in the port that decide it. A fidelity choice whose wrong answer is
+inside the tolerance of every check you own is not a choice you have made; it is
+a coin you have not looked at.
+
+The corollary is the uncomfortable one. `tolerance.toml`'s 2e-5 is right for a
+`real*4` oracle comparison and it is three to four orders too loose to
+discriminate a `DOUBLE`-versus-`FLOAT` reading of an input column. Loosening a
+gate to fit a residual is a recorded shortfall; **evaluating a question at a
+gate that cannot resolve it is the same mistake with no record at all.**
+
+### 38.2 A question the corpus cannot ask is answered by asserting the absence
+
+`../moves.rs` left an explicit open question next to the `(5/9)` one: MariaDB
+rounds an integer/integer division to `div_precision_increment` decimal places
+before promoting to `DOUBLE`, so a `fuelEffectRatioExpression` that divides two
+integer **literals** might not divide in IEEE. The upstream note put the corpus
+at "58 such expressions, none compared".
+
+The measurement: parsing all 118 distinct expression strings and counting every
+`/` node whose two operands are both integer literals gives **0**. The 58 was
+the `generalFuelRatio` row count of one snapshot, not a count of divisions. The
+only integer denominator anywhere is the `100` in
+`least(bioDieselEsterVolume, 20)/100`, whose numerator is a `FLOAT` column and
+therefore a `DOUBLE` — which takes the expression out of MariaDB's exact-value
+path entirely.
+
+So the two hypotheses are not close on this corpus; they are **bit-identical**,
+at 1.608e−14 each, because nothing exercises the difference. Two ways to record
+that, and only one of them survives contact with a growing corpus:
+
+* *"Not resolvable; we chose IEEE."* — true on the day it is written, and
+  indistinguishable a year later from a decision that was made and justified.
+* **Assert the absence.** `run-fuel-effects-oracle.sh` asserts
+  `int_divisions == 0` **and** that the two candidates' residuals are equal.
+  Both are true today. The day a capture adds an expression with such a
+  division, the oracle goes red, and the message points at the section that says
+  the question is now answerable.
+
+**The rule: when the corpus cannot distinguish two candidates, assert the reason
+it cannot, not the conclusion you would draw if it could.** This is the same
+polarity as `docs/findings/`'s tripwire (§13) and the same instinct as §35.5's
+floor: write the assertion that breaks in the direction where something has
+changed. An honest "not resolvable here" that goes red when it becomes
+resolvable is worth more than a defensible guess.
+
+### 38.3 An expression corpus's ROW count is not its FORM count, and its SKELETON count is the trap in between
+
+§24 factored `cumTVVCoeffs`'s 2,188 rows into two forms and eighteen coefficient
+rows. `generalFuelRatioExpression` is the second instance and it has a middle
+term the first did not:
+
+| | count |
+|---|---:|
+| rows, summed over the corpus | 2,078 |
+| distinct rows (all nine columns) | 567 |
+| distinct expression **strings** | 118 |
+| distinct parse-tree **skeletons** (every literal replaced by `#`) | 72 |
+| distinct algebraic **forms** | **6** |
+
+The instinct on meeting 118 strings is to normalise them mechanically — replace
+the literals, count the shapes — and 72 comes back. That number *looks* like a
+form count and is not one: MOVES writes the same polynomial's terms in different
+**orders** in different rows, `…+b·ETOH−c·RVP+d·T90…` here and
+`…−c·aromatics−e·T50+b·ETOH…` there, with the same coefficients. Those are one
+form. The criteria sulfur form alone accounts for **57 of the 72 skeletons**,
+and it is one form.
+
+**The rule: a mechanical normalisation gives an upper bound on the number of
+forms, never the number.** The number comes from reading them, and the check
+that the reading is a partition rather than a sample is that the per-form row
+and string counts **sum to the totals** — 2,078 and 118 exactly, which
+`docs/fuel-effects-generator.md` §2.1 prints for that reason.
+
+The count that did NOT move when the corpus grew by two snapshots mid-rung is
+the **6**. Rows went 1,744 → 2,078, strings 116 → 118, skeletons 70 → 72, and
+the form count stayed where it was — which is the practical argument for
+factoring in the first place, and `docs/fuel-effects-generator.md` §7.5 is the
+before-and-after table.
+
+The term-order fact is worth keeping for a second reason: it is a live fidelity
+question of its own. MOVES sums left to right in the string's order and a
+document that sums over an axis does not. The difference is under 1e−15 on the
+exponent, inside the measured residual, and unseparable from it — which is the
+honest thing to say about it rather than either claiming it is zero or writing
+twelve coefficient orderings into a table.
+
+### 38.4 A generator's EXTRA rows are evidence when another table claims them, and slack when it does not
+
+`doGeneralFuelRatio` computes 1,112 rows over the 24 snapshots that ran it.
+MOVES keeps **97**. The other 1,015 are not a bug in either direction: the
+predictive/complex-model paths this port does not cover —
+`copyGeneralFuelRatioToCriteriaRatio` and `doAirToxicsCalculations` — copy them
+into `criteriaRatio` and `ATRatio` and delete them from `generalFuelRatio`
+before the snapshot is taken.
+
+A port in that position has three ways to write the key-set check and two of
+them are worthless:
+
+1. *Drop the extras and assert on the intersection.* Then a port that computed
+   one correct row and 1,111 wrong ones passes.
+2. *Hard-code the handed-off polProcessIDs.* Then the list is fitted to the
+   corpus, and it is fitted by the same person who is checking it.
+3. **Require every extra to be claimed, by key, by a table that is not the one
+   under test.** For each extra row, `criteriaRatio`, `altCriteriaRatio` or
+   `ATRatio` in the *same snapshot* must carry a row with the same
+   `(fuelFormulationID, polProcessID)`. Measured: 1,015 of 1,015, and the
+   assertion is `unaccounted == 0`.
+
+**The rule: an extra row is evidence only if something outside the comparison
+accounts for it.** The third form is falsifiable — a port that invented a row
+would have to invent it into a table it does not write — and it costs one join
+against tables that are read for their key columns and nothing else.
+
+### 38.5 The execution trace answers the scheduling half directly; do not infer it from an output
+
+§35.2 established that a generator's claim has two halves and the second is
+*when it runs*, and `run-meteorology-oracle.sh` decided that half by asking
+whether the written columns were populated. That works, and it has a weakness
+this rung did not have to accept: a generator that ran and produced nothing
+looks exactly like one that did not run.
+
+Every snapshot carries an `execution-trace.json` listing the Java classes MOVES
+actually **loaded**. So "did `FuelEffectsGenerator` run here?" has a direct
+answer that does not pass through any output table, and using it made the
+difference immediately: of the 42 snapshots carrying
+`generalFuelRatioExpression`, 24 loaded the class and 18 did not, and **22 of
+the 24 that loaded it wrote no `generalFuelRatio` row at all.** Fifteen of those
+twenty-two had an empty expression table and so had nothing to compute; the
+other **seven computed rows — 51, 51, 45, 99, 173, 173 and 282 of them — every
+one of which was handed off** (§38.4). An oracle that read population as "it
+ran" would have had twenty-two false negatives, seven of them on snapshots where
+the generator did real work, and would then have derived a scheduling predicate
+to fit them.
+
+The predicate the trace supports is
+
+> loaded ⇔ ONROAD **and** the run's processes meet {1, 2, 9, 10, 11, 12, 13, 90}
+
+on all 42. And it contradicts the module inventory: `calculator-dag.json`
+records **fourteen** `PROCESS` subscriptions for this generator, and the three
+the corpus tests in isolation — 16, 17 and 91 — load it in none of the six
+snapshots that select one of them alone. Processes 15, 18 and 19 never appear
+alone, so they are **untested**, and the specification says that rather than
+rounding eight up to eleven.
+
+**The rule: when the reference records what it did, read that; derive it from an
+output only when it does not.** And a subscription list is a declaration, not a
+measurement — `docs/process-brakewear.md` §8 already said as much about a
+*calculator*'s registrations, and this is the generator-side instance of the
+same lesson.
+## 39. A generator family shares a row, not a spine **[Phase 5, 262,442 + 124 + 300 rows]**
+
+Section 38 is reserved for the `FuelEffectsGenerator` rung, which was in
+progress in a sibling worktree while this was written; this section is 39 to
+keep the two from colliding, not because 38 is missing.
+
+`StartOperatingModeDistributionGenerator` and
+`RatesOperatingModeDistributionGenerator` are the second and third generator
+rungs, after `MeteorologyGenerator`, and the first pair to be ported together.
+They were briefed as one family with a shared spine. They are not, and the four
+subsections below are what came of measuring that instead of inheriting it.
+
+**Where the row counts come from**, since the heading claims them: 262,442 is
+every `StartOpMode` row in the corpus — the per-trip soak classification, the
+generator's own captured intermediate; 124 is every `StartOpModeDistribution`
+row; 300 is every `RatesOpModeDistribution` row at `avgSpeedBinID` 0, which is
+the partition these two generators own. None is a `MOVESOutput` count and none
+is comparable to §§29–34's.
+
+### 39.1 Test the family hypothesis before you factor for it
+
+The brief for this rung proposed that the five operating-mode-distribution
+generators "share one spine and differ only at the edges", and that the
+compositional-authoring rule therefore called for one `lib/` spine plus thin
+per-variant components. Measured against the pinned MOVES 5.0.1 source, the
+proposition is false, and it is false in a way that would have produced a
+plausible wrong file:
+
+| generator | what it actually is |
+|---|---|
+| `RatesOperatingModeDistributionGenerator` | a cross product of hotelling op modes with `runSpecHourDay`, every fraction the literal 1 |
+| `StartOperatingModeDistributionGenerator` | a soak-time histogram over `SampleVehicleTrip`, divided by a per-cell start count |
+| `AverageSpeedOperatingModeDistributionGenerator` | drive-schedule bracketing over average speed bins |
+| `Link...`, `MesoscaleLookup...` | project- and mesoscale-domain rewrites of the second-by-second VSP pipeline |
+
+**Not one arithmetic expression is common to any two of them.** What is common
+is the shape of the row they all write into `RatesOpModeDistribution`: road type
+1, `avgSpeedBinID` 0, `avgBinSpeed` 0, and for the degenerate distributions a
+fraction of exactly 1. So `lib/operating_mode.esm` holds six constants and four
+small predicates and the two components share nothing else — which is the
+correct amount of sharing, and is a quarter of what a spine would have been.
+
+**The rule: a shared OUTPUT is evidence of a shared interface, not of shared
+logic, and the two are factored differently.** The check that settles it is
+cheap — read the live SQL of each variant and ask whether any expression
+appears twice — and the cost of skipping it is a `lib/` file that forces two
+unrelated computations through one abstraction, which is worse than either
+written plainly. This is §6's rule with its converse attached: reused shapes go
+in `lib/`, and shapes that are not reused do not, however similar the modules
+around them look.
+
+The sharing that IS real is worth naming precisely rather than by family
+resemblance, because that is what distinguishes it from the hypothesis:
+`off_network_road_type` is written by six separate `INSERT` statements across
+the two modules, `off_network_avg_speed_bin` by the same six,
+`degenerate_op_mode_fraction` by five, `hotelling_source_type` by four and
+`extended_idle_op_mode` by three. A literal in six places is §6's problem
+whatever the modules look like.
+
+### 39.2 Evaluate BOTH candidates, because the answer is not a property of MariaDB
+
+§35.3 established that a fidelity question about a host language's evaluation
+semantics is settled by evaluating both candidates against the reference. That
+section's example — MOVES's Fahrenheit slope `(5/9)` — came out on the side of
+exact arithmetic, and the natural generalization is "MOVES computes exactly".
+
+**This rung is the same question with the opposite answer, and that is why the
+rule is stated as a procedure rather than as a fact.**
+
+`StartOperatingModeDistributionGenerator` step 300 writes
+`COUNT(opModeID)/starts`. Both operands are MariaDB `BIGINT`, so `/` is
+exact-value division whose scale is the dividend's plus
+`div_precision_increment` — 4 by default, which MOVES does not change.
+`moves.rs`'s port returns the exact `f64` ratio and defers the question, sizing
+the divergence at "up to 5 × 10⁻⁵ … still untested". Measured over the 124
+`StartOpModeDistribution` rows in the corpus:
+
+| quotient | bit-exact rows | worst relative error |
+|---|---:|---|
+| DECIMAL to 4 places | **124 of 124** | **0** |
+| exact IEEE ratio | 15 of 124 | **5.767 × 10⁻³** |
+
+The 15 the exact ratio gets right are those whose value terminates at four
+decimals anyway. 107 of 124 fall outside `tolerance.toml`'s 2 × 10⁻⁵ gate.
+
+Two data points now, opposite answers, both settled in seconds by a sweep of
+the corpus. **The rule stands as §35.3 wrote it and the corollary is added:
+neither answer generalizes to the next expression.** The property being
+measured is not "does MOVES compute exactly" but "what are the SQL types of
+this expression's operands" — `(5/9)` in the meteorology SQL is written inside
+a `FLOAT` expression chain and `COUNT()/COUNT()` is not — and that is a
+per-expression fact.
+
+### 39.3 A generator's scheduling predicate can turn on something other than the process
+
+§35.2 established that a generator's claim has two halves and the second is
+*which runs produce rows*, asserted on the snapshots that fail it as well as
+those that pass. `MeteorologyGenerator`'s predicate is a process list, and the
+obvious generalization is that a generator's predicate is its subscription.
+
+`RatesOperatingModeDistributionGenerator` is the counterexample, and the corpus
+contains six snapshots that make the difference visible. It subscribes to
+processes 1, 90 and 91, and it is class-loaded in **30 of the 42** snapshots.
+All four of its live `INSERT` statements are pinned to **source type 62** — the
+only hotelling source type — through `sourceTypePolProcess` for the first of
+each pair and `runSpecSourceType` for the second. `expand-counties`,
+`expand-day`, `expand-fueltype-diesel`, `expand-month`, `process-refueling` and
+`sample-runspec` all select Extended Idle for source type 21 alone: MOVES loads
+the generator, runs it, and it writes nothing. The predicate that holds on all
+40 is
+
+> a hotelling row exists ⇔ ONROAD ∧ (process 90 ∨ 91 selected) ∧ 62 ∈
+> `runSpecSourceType`
+
+and the one written on the subscription alone calls six correct snapshots
+failures. The corpus grew from 40 snapshots to 42 while this rung was in
+progress, and the predicate held on both newcomers unchanged -- both are ONROAD,
+both class-load the generator for Running Exhaust, both emit nothing. That is
+§35.5's floor-not-equality design paying for itself the first time it was
+tested.
+
+**The rule: derive the scheduling predicate from the WHERE clauses of the
+statements that emit, not from `subscribeToMe`.** A subscription says when the
+generator is invoked; the emitting statement says when the invocation produces
+anything, and it is the second that a snapshot can disagree with. The same
+distinction under a different name is the one the calculator track met at
+`nr-pleasure-craft-state`, and it is the one `docs/omd-generator-reachability.md`
+had to apply on the other side to decide which of this family were portable at
+all: **class-loaded in 30 snapshots, emitting in 5.**
+
+### 39.4 When two modules write one table, the port must name the partition
+
+`RatesOpModeDistribution` is written by three generators — the two ported here
+and `AverageSpeedOperatingModeDistributionGenerator`, which
+`docs/process-tirewear.md` already covers. An oracle that compared the whole
+table would fail on `process-tirewear`'s 32 rows and would have no honest way
+to describe why.
+
+The partition is `avgSpeedBinID`: both generators here write bin 0 and only bin
+0, because hotelling and starts both happen at rest, and
+`AverageSpeedOperatingModeDistributionGenerator` writes bins 1–16 because that
+is what it is for. `run-omd-oracle.sh` restricts to bin 0 and says so; the
+component asserts `avgSpeedBinID = 0` even though it is a literal in the SQL and
+asserting a literal proves little, precisely because the oracle's correctness
+rests on it.
+
+**The rule: a restriction that makes an oracle's comparison meaningful is part
+of the claim and is asserted, not merely applied.** The failure mode it guards
+against is specific — a future MOVES that wrote a hotelling row in a non-zero
+bin would be silently dropped by the restriction rather than reported — so the
+oracle also asserts the row-count floor, which such a change would break. A
+filter with no assertion behind it is a way of not looking.
+
+---
+
+## 40. A chain that SUMS is a second pass, and MOVES's own chain table does not declare it **[Phase 5 continued, 5,534 rows, calculators 19 of 19]**
 
 `chain-so2-co2e-mechanism` is the last three unported calculators —
 `SO2Calculator`, `CO2AERunningStartExtendedIdleCalculator` and
