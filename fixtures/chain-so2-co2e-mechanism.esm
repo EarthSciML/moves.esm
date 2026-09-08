@@ -1828,7 +1828,18 @@
   "enums": {
     "pollutant": {
       "TotalGaseousHydrocarbons": 1,
-      "NonMethaneHydrocarbons": 79
+      "NonMethaneHydrocarbons": 79,
+      "Methane": 5,
+      "NitrousOxide": 6,
+      "NonMethaneOrganicGases": 80,
+      "TotalOrganicGases": 86,
+      "NonHapTog": 88,
+      "AtmosphericCO2": 90,
+      "TotalEnergyConsumption": 91,
+      "PetroleumEnergyConsumption": 92,
+      "FossilFuelEnergyConsumption": 93,
+      "CO2Equivalent": 98,
+      "SulfurDioxide": 31
     },
     "process": {
       "RunningExhaust": 1,
@@ -1880,7 +1891,11 @@
             "weeks_per_month",
             "share_of_group",
             "onroad_scc",
-            "source_bin_slot"
+            "source_bin_slot",
+            "ev_energy_divisor",
+            "is_energy_pollutant",
+            "energy_unit_divisor",
+            "kilojoules_per_million_btu"
           ]
         },
         {
@@ -7800,7 +7815,7 @@
           "shape": [
             "output_rows"
           ],
-          "description": "S18: grams, for all six pollutants. No unit divisor applies, because not one of this run's pollutants is an energy pollutant. THE compared column."
+          "description": "S18: Million BTU for pollutant 91, grams for the other twenty-five. THE compared column."
         },
         "er_sourceBinID": {
           "type": "parameter",
@@ -8052,6 +8067,112 @@
             "run_rows"
           ],
           "description": "How many rate rows are carried by BOTH rate tables. Zero, and the union above is only a union while it stays zero."
+        },
+        "evTemperatureSourceTypeCeiling": {
+          "type": "parameter",
+          "units": "1",
+          "default": 40.0,
+          "description": "adjust.rs:114. The heat-index suppression applies to source types below 40, i.e. light duty. Source type 21 qualifies, so the suppression is REACHABLE here and is decided by the heat index alone."
+        },
+        "evTemperatureSuppressionHeatIndex": {
+          "type": "parameter",
+          "units": "1",
+          "default": 67.0,
+          "description": "adjust.rs:114. This run's heat index is 59.5 degF, 7.5 degF below the threshold, so the suppression does NOT fire and the EV quadratic is live. `mixed-onroad`'s margin is 0.0999985 degF (docs/esm-conventions.md 37.2); this fixture is not the tight one."
+        },
+        "evTemperatureReferenceDegF": {
+          "type": "parameter",
+          "units": "1",
+          "default": 72.0,
+          "description": "adjust.rs:108. The EV branch's reference temperature is 72 degF where the standard quadratic's is 75. Both are written because both are reached: THC takes the 75 arm and electricity energy takes the 72 one, in the same document and at the same hour."
+        },
+        "run_evTemperatureIsSuppressed": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "run_rows"
+          ],
+          "description": "adjust.rs:113-115: light duty above a heat index of 67 degF has its AC usage set by the heat index rather than by this cold term, and the adjustment is dropped. 59.5 is below 67, so it is NOT suppressed here and the quadratic below reaches an emitted number -- unlike `mixed-onroad`, where the same code is a no-op at hour 9."
+        },
+        "rt_isEvEnergyRunning": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "adjust.rs:107: the dedicated EV branch is gated on process 1, fuel type 9 AND pollutant 91 together. This run's N2O and THC electricity rows do not qualify and take the standard quadratic, where `temperatureadjustment` has no row for them and the factor is exactly 1. The snapshot's ONE `temperatureadjustment` row is 9101 / fuel 9, so this predicate is exactly the set of rows the table can reach."
+        },
+        "rt_evTemperatureAdjustRaw": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "adjust.rs:108: (T - 72) x (A + B x (T - 72)), on the TEMPERATURE and not on the heat index. At 59.5 degF with A = 0.00225 and B = 0.00028 this is +0.015625, so the clamp below does not fire and the factor is 1.015625 -- 1.56 % on all 42 electricity energy rows, and on the Atmospheric CO2 and CO2 Equivalent rows chained off them."
+        },
+        "rt_batteryEfficiency": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "J33: setup.rs:3221 FORCES fuelTypeID to 9, so `evefficiency` has no fuel column and the gate is the age GROUP -- 0.950 at age group 3 down to 0.828 at 2099."
+        },
+        "rt_chargingEfficiency": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "The charging half of the divisor, 0.94 in every row."
+        },
+        "rt_hasEvEfficiency": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "Whether `evefficiency` carries a row for this pollutant-process at all. It does for 9101 and for nothing else, and the test is load-bearing: without it lib/onroad_activity.esm's `ev_energy_divisor` would divide this run's N2O and THC electricity rates by its own 1e-300 floor and return an infinity."
+        },
+        "rt_appliesEvDivisor": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "The divisor applies to an electricity cohort that HAS an `evefficiency` row -- the LEFT-JOIN reading of adjust.rs:689-698."
+        },
+        "rt_evEnergyDivisor": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "adjust.rs:699: batteryEfficiency x chargingEfficiency, and exactly 1 where no row applies. It is the LAST step of the adjustment sequence, so Atmospheric CO2 and CO2 Equivalent -- chained off the divided energy -- inherit it; that is what MOVES does, because they read the divided value back out of MOVESWorkerOutput."
+        },
+        "rspp_isEnergy": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecpollutantprocess_rows"
+          ],
+          "description": "Whether S18's kilojoule-to-MillionBTU conversion applies. engine.rs:1286-1310 applies it to pollutants 91, 92 and 93 and to nothing else. ONE of this run's twenty-six pollutant-processes is an energy one, and the three calculators this fixture adds all consume that pollutant BEFORE the conversion -- so the divisor is applied at the output row and nowhere earlier."
+        },
+        "rspp_unitDivisor": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecpollutantprocess_rows"
+          ],
+          "description": "1,055,055.9 kJ per Million BTU for an energy pollutant and exactly 1 for a mass one."
+        },
+        "rt_unitDivisor": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "Its output-unit divisor."
         }
       },
       "equations": [
@@ -9063,6 +9184,35 @@
           }
         },
         {
+          "lhs": "run_evTemperatureIsSuppressed",
+          "rhs": {
+            "op": "ifelse",
+            "args": [
+              {
+                "op": "and",
+                "args": [
+                  {
+                    "op": "<",
+                    "args": [
+                      "run_sourceTypeID",
+                      "evTemperatureSourceTypeCeiling"
+                    ]
+                  },
+                  {
+                    "op": ">",
+                    "args": [
+                      "run_heatIndex",
+                      "evTemperatureSuppressionHeatIndex"
+                    ]
+                  }
+                ]
+              },
+              1.0,
+              0.0
+            ]
+          }
+        },
+        {
           "lhs": "run_regClassWildcardID",
           "rhs": {
             "op": "makearray",
@@ -9138,6 +9288,56 @@
             "name": "process_id_of",
             "bindings": {
               "pol_process_id": "rspp_polProcessID"
+            }
+          }
+        },
+        {
+          "_comment": "engine.rs:1286-1310's membership rule, via lib/onroad_activity.esm. The two energy pollutants this run does NOT select are named anyway, because the rule is the port and not the run.",
+          "lhs": "rspp_isEnergy",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "is_energy_pollutant",
+            "bindings": {
+              "pollutant_id": "rspp_pollutantID",
+              "total_energy_id": {
+                "op": "enum",
+                "args": [
+                  "pollutant",
+                  "TotalEnergyConsumption"
+                ]
+              },
+              "petroleum_energy_id": {
+                "op": "enum",
+                "args": [
+                  "pollutant",
+                  "PetroleumEnergyConsumption"
+                ]
+              },
+              "fossil_fuel_energy_id": {
+                "op": "enum",
+                "args": [
+                  "pollutant",
+                  "FossilFuelEnergyConsumption"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "lhs": "rspp_unitDivisor",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "energy_unit_divisor",
+            "bindings": {
+              "is_energy": "rspp_isEnergy",
+              "energy_divisor": {
+                "op": "apply_expression_template",
+                "args": [],
+                "name": "kilojoules_per_million_btu",
+                "bindings": {}
+              }
             }
           }
         },
@@ -13522,6 +13722,42 @@
               "op": "index",
               "args": [
                 "rspp_rootPolProcessID",
+                "p"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rt_unitDivisor",
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "p": {
+                "from": "runspecpollutantprocess_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rt_polProcOrdinal",
+                    "rspp_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "rspp_unitDivisor",
                 "p"
               ]
             }
@@ -19450,6 +19686,7 @@
           }
         },
         {
+          "_comment": "S15 in adjust.rs's order on the ROOT row: the A/C increment scaled by the A/C factor, the temperature factor, then the EV efficiency divisor. Reading it off the root rather than off this row is the whole of the chain: `emissionrate` and `emissionratebyage` carry three pollutant-processes between them and this run emits twenty-six.",
           "lhs": "rtDay_rootRate",
           "rhs": {
             "op": "aggregate",
@@ -19489,37 +19726,49 @@
               }
             ],
             "expr": {
-              "op": "*",
+              "op": "/",
               "args": [
                 {
-                  "op": "+",
+                  "op": "*",
                   "args": [
                     {
-                      "op": "index",
-                      "args": [
-                        "rtDay_meanBaseRate",
-                        "b2",
-                        "k"
-                      ]
-                    },
-                    {
-                      "op": "*",
+                      "op": "+",
                       "args": [
                         {
                           "op": "index",
                           "args": [
-                            "rt_acFactor",
-                            "b2"
-                          ]
-                        },
-                        {
-                          "op": "index",
-                          "args": [
-                            "rtDay_meanBaseRateACAdj",
+                            "rtDay_meanBaseRate",
                             "b2",
                             "k"
                           ]
+                        },
+                        {
+                          "op": "*",
+                          "args": [
+                            {
+                              "op": "index",
+                              "args": [
+                                "rt_acFactor",
+                                "b2"
+                              ]
+                            },
+                            {
+                              "op": "index",
+                              "args": [
+                                "rtDay_meanBaseRateACAdj",
+                                "b2",
+                                "k"
+                              ]
+                            }
+                          ]
                         }
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "rt_temperatureFactor",
+                        "b2"
                       ]
                     }
                   ]
@@ -19527,7 +19776,7 @@
                 {
                   "op": "index",
                   "args": [
-                    "rt_temperatureFactor",
+                    "rt_evEnergyDivisor",
                     "b2"
                   ]
                 }
@@ -20103,7 +20352,323 @@
           }
         },
         {
-          "_comment": "adjust.rs:87-142's FALL-THROUGH arm. Pollutant 1 is not 118 or 112 (the PM arm), not the fuel-9 energy pollutant 91 (the EV arm) and not 3 (the NOx arm), so running-exhaust THC takes the standard quadratic and no humidity correction -- `noxhumidityadjust` is populated in this snapshot and is not read. The template returns the ADDITIVE term and the `1 +` is written here. `temperatureadjustment` has ZERO rows here, so both arms of `exact_else_wildcard` miss, A and B are the additive identity and this is exactly 1 on all 984 rate rows -- absent rather than inert, and docs/process-airtoxics.md 7.2.8 keeps the distinction.",
+          "lhs": "rt_isEvEnergyRunning",
+          "rhs": {
+            "op": "ifelse",
+            "args": [
+              {
+                "op": "and",
+                "args": [
+                  {
+                    "op": ">",
+                    "args": [
+                      "rt_isElectric",
+                      0.5
+                    ]
+                  },
+                  {
+                    "op": "and",
+                    "args": [
+                      {
+                        "op": "==",
+                        "args": [
+                          "rt_pollutantID",
+                          {
+                            "op": "enum",
+                            "args": [
+                              "pollutant",
+                              "TotalEnergyConsumption"
+                            ]
+                          }
+                        ]
+                      },
+                      {
+                        "op": "==",
+                        "args": [
+                          "rt_processID",
+                          {
+                            "op": "enum",
+                            "args": [
+                              "process",
+                              "RunningExhaust"
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              1.0,
+              0.0
+            ]
+          }
+        },
+        {
+          "lhs": "rt_evTemperatureAdjustRaw",
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "n": {
+                "from": "run_rows"
+              }
+            },
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "-",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "run_temperature",
+                        "n"
+                      ]
+                    },
+                    "evTemperatureReferenceDegF"
+                  ]
+                },
+                {
+                  "op": "+",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "rt_tempAdjustTermA",
+                        "b"
+                      ]
+                    },
+                    {
+                      "op": "*",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "rt_tempAdjustTermB",
+                            "b"
+                          ]
+                        },
+                        {
+                          "op": "-",
+                          "args": [
+                            {
+                              "op": "index",
+                              "args": [
+                                "run_temperature",
+                                "n"
+                              ]
+                            },
+                            "evTemperatureReferenceDegF"
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rt_hasEvEfficiency",
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "semiring": "bool_and_or",
+            "output_idx": [
+              "b"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "v": {
+                "from": "evefficiency_rows"
+              },
+              "n": {
+                "from": "run_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rt_ageGroupID",
+                    "eve_ageGroupID"
+                  ],
+                  [
+                    "rt_regClassID",
+                    "eve_regClassID"
+                  ],
+                  [
+                    "run_sourceTypeID",
+                    "eve_sourceTypeID"
+                  ],
+                  [
+                    "rt_polProcessID",
+                    "eve_polProcessID"
+                  ]
+                ]
+              }
+            ],
+            "expr": 1.0
+          }
+        },
+        {
+          "lhs": "rt_appliesEvDivisor",
+          "rhs": {
+            "op": "ifelse",
+            "args": [
+              {
+                "op": "and",
+                "args": [
+                  {
+                    "op": ">",
+                    "args": [
+                      "rt_isElectric",
+                      0.5
+                    ]
+                  },
+                  {
+                    "op": ">",
+                    "args": [
+                      "rt_hasEvEfficiency",
+                      0.5
+                    ]
+                  }
+                ]
+              },
+              1.0,
+              0.0
+            ]
+          }
+        },
+        {
+          "lhs": "rt_evEnergyDivisor",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "ev_energy_divisor",
+            "bindings": {
+              "battery_efficiency": "rt_batteryEfficiency",
+              "charging_efficiency": "rt_chargingEfficiency",
+              "is_electric": "rt_appliesEvDivisor"
+            }
+          }
+        },
+        {
+          "lhs": "rt_chargingEfficiency",
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "v": {
+                "from": "evefficiency_rows"
+              },
+              "n": {
+                "from": "run_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rt_ageGroupID",
+                    "eve_ageGroupID"
+                  ],
+                  [
+                    "rt_regClassID",
+                    "eve_regClassID"
+                  ],
+                  [
+                    "run_sourceTypeID",
+                    "eve_sourceTypeID"
+                  ],
+                  [
+                    "rt_polProcessID",
+                    "eve_polProcessID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "eve_chargingEfficiency",
+                "v"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rt_batteryEfficiency",
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "v": {
+                "from": "evefficiency_rows"
+              },
+              "n": {
+                "from": "run_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rt_ageGroupID",
+                    "eve_ageGroupID"
+                  ],
+                  [
+                    "rt_regClassID",
+                    "eve_regClassID"
+                  ],
+                  [
+                    "run_sourceTypeID",
+                    "eve_sourceTypeID"
+                  ],
+                  [
+                    "rt_polProcessID",
+                    "eve_polProcessID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "eve_batteryEfficiency",
+                "v"
+              ]
+            }
+          }
+        },
+        {
+          "_comment": "adjust.rs:87-142, TWO of its four arms in one document. Electricity energy on running exhaust takes the EV quadratic about 72 degF with a max(., 0) clamp; everything else takes the fall-through quadratic about 75 degF. The PM arm needs pollutant 112 or 118 and the NOx arm pollutant 3, and neither is selected, so `noxhumidityadjust` is populated here and read by nothing.",
           "lhs": "rt_temperatureFactor",
           "rhs": {
             "op": "aggregate",
@@ -20121,36 +20686,91 @@
               }
             },
             "expr": {
-              "op": "+",
+              "op": "ifelse",
               "args": [
-                1.0,
                 {
-                  "op": "apply_expression_template",
-                  "args": [],
-                  "name": "quadratic_temperature_adjustment",
-                  "bindings": {
-                    "term_a": {
-                      "op": "index",
+                  "op": "and",
+                  "args": [
+                    {
+                      "op": ">",
                       "args": [
-                        "rt_tempAdjustTermA",
-                        "b"
+                        {
+                          "op": "index",
+                          "args": [
+                            "rt_isEvEnergyRunning",
+                            "b"
+                          ]
+                        },
+                        0.5
                       ]
                     },
-                    "term_b": {
-                      "op": "index",
+                    {
+                      "op": "<",
                       "args": [
-                        "rt_tempAdjustTermB",
-                        "b"
-                      ]
-                    },
-                    "temperature": {
-                      "op": "index",
-                      "args": [
-                        "run_temperature",
-                        "n"
+                        {
+                          "op": "index",
+                          "args": [
+                            "run_evTemperatureIsSuppressed",
+                            "n"
+                          ]
+                        },
+                        0.5
                       ]
                     }
-                  }
+                  ]
+                },
+                {
+                  "op": "+",
+                  "args": [
+                    1.0,
+                    {
+                      "op": "max",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "rt_evTemperatureAdjustRaw",
+                            "b"
+                          ]
+                        },
+                        0.0
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "op": "+",
+                  "args": [
+                    1.0,
+                    {
+                      "op": "apply_expression_template",
+                      "args": [],
+                      "name": "quadratic_temperature_adjustment",
+                      "bindings": {
+                        "term_a": {
+                          "op": "index",
+                          "args": [
+                            "rt_tempAdjustTermA",
+                            "b"
+                          ]
+                        },
+                        "term_b": {
+                          "op": "index",
+                          "args": [
+                            "rt_tempAdjustTermB",
+                            "b"
+                          ]
+                        },
+                        "temperature": {
+                          "op": "index",
+                          "args": [
+                            "run_temperature",
+                            "n"
+                          ]
+                        }
+                      }
+                    }
+                  ]
                 }
               ]
             }
@@ -20848,14 +21468,27 @@
               }
             ],
             "expr": {
-              "op": "index",
+              "op": "/",
               "args": [
-                "rtDay_quant",
-                "b",
-                "k"
+                {
+                  "op": "index",
+                  "args": [
+                    "rtDay_quant",
+                    "b",
+                    "k"
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "rt_unitDivisor",
+                    "b"
+                  ]
+                }
               ]
             }
-          }
+          },
+          "_comment": "S18: the group-by sum, then the output-unit divisor -- Million BTU for Total Energy Consumption and grams for the other twenty-five pollutants. The divisor is applied HERE and not on the rate relation, because SO2Calculator and CO2AERunningStartExtendedIdleCalculator both read the energy in KILOJOULES out of MOVESWorkerOutput, before engine.rs converts it."
         },
         {
           "lhs": "out_yearID",
