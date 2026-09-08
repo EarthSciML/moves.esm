@@ -77,7 +77,9 @@ passing was the defect. It is fixed, so that check is gone.
 The repros are excluded from the ordinary `validate` and `test` stages, because
 three of them do not load.
 
-**All nine repro-carrying findings open at the pin are now filed upstream** (2026-09-08): F2 #261, F3 #265, F5 #266, F13 #260, F14 #259, F20 #262, F21 #263, F22 #264, F28 #267. Each was A/B'd against EarthSciAST `68574b653` before filing and still reproduces there; none of the 104 commits since the pin fixed any of them. F3, F5 and F28 were filed as DIAGNOSTIC/DOCUMENTATION requests rather than defects, because this file already records each as correct-or-conforming behaviour -- F28 says so in as many words. F34 was fixed by #238, which is merged.
+**All nine repro-carrying findings open at the pin are now filed upstream** (2026-09-08): F2 #261, F3 #265, F5 #266, F13 #260, F14 #259, F20 #262, F21 #263, F22 #264, F28 #267.
+
+**F2 (#261) has since been FIXED upstream and CLOSED** — EarthSciAST `0ab4f5925` via PR #208, which merges a top-level `{ref}` mount's `index_sets` the way a subsystem mount does, and adds §4.7's conflict check at that edge. It is **not** in our pinned binary: the fix landed 2026-09-08 at 12:06, three days after the pin (`3a01c56fc`, 2026-09-05), so `F2_toplevel_ref_does_not_merge_index_sets.esm` still fails here and stays in the tripwire until the next rebuild. Retire it at that rebuild, not before — a repro that goes green is how this file learns the defect is gone, and retiring it early would remove the very check that confirms the rebuild worked. The upstream fix covers Julia, Rust and Python only; TypeScript and Go do not implement the top-level mount form at all, tracked as #280. Each was A/B'd against EarthSciAST `68574b653` before filing and still reproduces there; none of the 104 commits since the pin fixed any of them. F3, F5 and F28 were filed as DIAGNOSTIC/DOCUMENTATION requests rather than defects, because this file already records each as correct-or-conforming behaviour -- F28 says so in as many words. F34 was fixed by #238, which is merged.
 
 | | Finding | Fails at | Silent? |
 |---|---|---|---|
