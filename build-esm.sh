@@ -127,6 +127,16 @@ if [[ "$OUT" != "./esm" ]]; then
   exit 0
 fi
 
+# The IO= path is read from "$IO" and NOT from "$AST/../EarthSciIO" below.
+# Those name the same directory only for a plain sibling checkout; with AST=
+# pointing at a nested git worktree the second does not exist, and the fallback
+# recorded 'not a git checkout' about a tree that IS one -- the same class of
+# quiet wrong answer the rest of this script exists to prevent, moved out of
+# the binary and into the record of it. Observed on the 3a01c56fc pin, whose
+# lock says exactly that about EarthSciIO d109951d4.
+#
+# Note also that the heredoc below is UNQUOTED, so it interpolates: a shell
+# variable written into a comment inside it lands in the lock file expanded.
 cat > esm-version.lock <<EOF
 # The EarthSciAST commit that ./esm was built from. Written by build-esm.sh.
 #
@@ -145,7 +155,7 @@ features  = esio,parallel
 # The EarthSciIO tree patched in over the crates.io 0.1.2 (same version
 # number, different content -- the registry copy has no parquet reader).
 esio_repo   = EarthSciIO
-esio_commit = $(git -C "$AST/../EarthSciIO" rev-parse HEAD 2>/dev/null || echo 'not a git checkout')
+esio_commit = $(git -C "$IO" rev-parse HEAD 2>/dev/null || echo 'not a git checkout')
 EOF
 
 echo "wrote esm-version.lock"
