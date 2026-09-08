@@ -492,6 +492,18 @@ Each snapshot carries **both sides** of the comparison: ~200 non-empty
 `MOVESExecution` input tables *and* the expected `MOVESOutput`. No canonical
 MOVES, MariaDB, or JVM is needed to develop against them.
 
+**`chain-so2-co2e-mechanism` (5,534 rows) is not on the ladder above because it
+did not exist when the ladder was written.** It was captured to reach the last
+three unported calculators in one run — `SO2Calculator`,
+`CO2AERunningStartExtendedIdleCalculator` and `TOGSpeciationCalculator` — and
+landing it takes the calculator track to **19 of 19**; `docs/esm-conventions.md`
+§40 is what it changed. It also retires two entries above it: `chain-nonhaptog`
+and `chain-tog-speciation` were on the ladder as speciation-chain targets, and
+the second of them does **not** exercise `TOGSpeciationCalculator` at all — its
+`integratedSpeciesSet` is empty, and §40.5 says how that was found. Run
+`tools/calculator-coverage.py --ladder` rather than reading this table for what
+to do next; the generators are what is left.
+
 ---
 
 ## 3. Phases

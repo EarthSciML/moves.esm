@@ -1,0 +1,61 @@
+{
+  "esm": "1.0.0",
+  "metadata": {
+    "name": "moves.co2_equivalent",
+    "description": "Template library: the two numeric constants `CO2AERunningStartExtendedIdleCalculator` turns Total Energy Consumption into greenhouse gases with, each here rather than inline for the reason lib/onroad_activity.esm's `kilojoules_per_million_btu` is: a unit conversion whose value is a FIDELITY DECISION belongs somewhere the decision can be written down beside it, not buried in the one expression that happens to use it today.\n\n`carbon_to_carbon_dioxide_mass_ratio` is co2ae_running_start_extended_idle.rs's `CARBON_TO_CO2_MASS_RATIO`: 44 g/mol of CO2 per 12 g/mol of the carbon atom in it, so oxidising one unit mass of fuel carbon yields 44/12 units of CO2. THE VALUE IS MEASURED, NOT ASSUMED. MOVES writes the SQL literal `(44/12)`, and MariaDB evaluates `/` between exact operands as DECIMAL rounded to `div_precision_increment` extra places -- 3.6667, which is 9.0909e-06 above the exact ratio. The upstream port left the question open and called the difference \"far inside any generator tolerance budget\". Both candidates were run against `chain-so2-co2e-mechanism`'s 500 Atmospheric CO2 and CO2 Equivalent rows (docs/chain-so2-co2e-mechanism.md 7.1):\n\n    exact 44.0/12.0        worst relative error 5.743e-06 (CO2), 5.408e-06 (CO2e)\n    MariaDB decimal 3.6667 worst relative error 1.483e-05 (CO2), 1.436e-05 (CO2e)\n\nThe exact ratio sits on the same 5e-06 to 8e-06 float32 noise floor as every other pollutant in that fixture; the decimal one sits 9.1e-06 above it, which is a systematic offset and not noise. So MOVES did NOT round the literal, the exact ratio is the port, and the alternative is recorded rather than argued about. Note that the decimal candidate would still have PASSED tolerance.toml's 2e-5 per-cell gate, at 0.74 of it -- which is why the two were measured rather than eyeballed (docs/esm-conventions.md 35.3).\n\n`global_warming_potential_is_selected` is the SQL's `CO2EqPollutant` extract predicate: a pollutant enters the CO2 Equivalent sum only if it is one of the calculator's three Java-constant inputs AND carries a positive `globalWarmingPotential`. The second half is not redundant -- `pollutant` stores the column as a nullable SMALLINT and every pollutant outside the greenhouse set is NULL, which reaches an ingesting document as NaN (docs/esm-conventions.md 11). The template returns the WEIGHT rather than a flag, so a NaN can never leave it as a factor.",
+    "authors": [
+      "EarthSciML Authors and Contributors"
+    ],
+    "tags": [
+      "moves",
+      "onroad",
+      "greenhouse-gas",
+      "co2",
+      "library"
+    ]
+  },
+  "expression_templates": {
+    "carbon_to_carbon_dioxide_mass_ratio": {
+      "params": [],
+      "body": {
+        "op": "/",
+        "args": [
+          44.0,
+          12.0
+        ]
+      }
+    },
+    "global_warming_potential_is_selected": {
+      "params": [
+        "global_warming_potential",
+        "is_selected_pollutant"
+      ],
+      "body": {
+        "op": "ifelse",
+        "args": [
+          {
+            "op": "and",
+            "args": [
+              {
+                "op": ">",
+                "args": [
+                  "is_selected_pollutant",
+                  0.5
+                ]
+              },
+              {
+                "op": ">",
+                "args": [
+                  "global_warming_potential",
+                  0.0
+                ]
+              }
+            ]
+          },
+          "global_warming_potential",
+          0.0
+        ]
+      }
+    }
+  }
+}

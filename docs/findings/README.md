@@ -1,14 +1,14 @@
 # Findings: conventions the format or the toolchain could not express
 
-Thirty things PLAN.md §3 Phase 1 through Phase 5 assumed, or that an author would
-reasonably assume, that did not hold. **Sixteen are fixed upstream and retired**
+Thirty-one things PLAN.md §3 Phase 1 through Phase 5 assumed, or that an author
+would reasonably assume, that did not hold. **Sixteen are fixed upstream and retired**
 from the tripwire, listed at the bottom with their sections kept above so the
 workarounds they forced can be traced. The rest still hold at the pinned
 toolchain (`esm-version.lock`: EarthSciAST `3a01c56fc`, EarthSciIO
 `d109951d4`, `--features esio,parallel`).
 
-F2, F3, F5, F13, F14, F20, F21, F22, F28 and F34 each have a minimal `.esm` repro in this
-directory — F22 has two, one per construct; F8 is a CLI behaviour rather than a
+F2, F3, F5, F13, F14, F20, F21, F22, F28, F34 and F41 each have a minimal `.esm` repro in
+this directory — F22 has two, one per construct; F8 is a CLI behaviour rather than a
 document, and is checked by command against the ordinary files of the repo.
 **F17, F31 and F33 deliberately have no repro file**: a repro
 for any of them would assert the RIGHT answer and pass, and the tripwire stage
@@ -2006,3 +2006,63 @@ arithmetic and in `join.on` key comparisons, and the two 1-based constructs in
 the format (index-set coordinates and `makearray` regions) are validated
 separately.
 
+---
+
+## F41 — an assertion cannot say why it is the right number
+
+`docs/esm-conventions.md` §35.4 is a rule *about assertions*: say which of them
+face the **reference** and which face the **port**, "in the test rather than only
+in the specification, because a reader who reaches the assertions first is the
+reader most likely to draw the wrong conclusion from them". **The format has
+nowhere to put that sentence.**
+
+An `assertions` entry accepts no annotation key at all. Measured against the
+pinned toolchain, on `docs/findings/F13_enum_leaf_one.esm` — which validates and
+passes — with one key added to its single assertion and nothing else changed:
+
+| key on an assertion | verdict |
+|---|---|
+| `description` | refused |
+| `_comment` | refused |
+| `comment` | refused |
+| `note` | refused |
+| `label` | refused |
+| `rationale` | refused |
+| *(none)* | **accepted, and the test passes** |
+
+```
+✗ /models/…/tests/0/assertions/0:
+    Additional properties are not allowed ('description' was unexpected)
+```
+
+So the obstacle is the closed property list rather than a misremembered key
+name, and the same document without the key validates and passes — which is what
+attributes the refusal to the annotation and to nothing else.
+
+**The workaround, and why it is worse than it looks.** A `tests` entry does carry
+a `description`, so a document that follows §35.4 writes an *ordinal-addressed
+list* into it — `[7] rt_so2Factor: THE PORT'S OWN ARITHMETIC — MOVES
+materialises this in a temporary table it drops` — and keeps it aligned by hand.
+`fixtures/chain-so2-co2e-mechanism.esm` carries three such lists over 45
+assertions, in the three tests that port `SO2Calculator`,
+`CO2AERunningStartExtendedIdleCalculator` and `TOGSpeciationCalculator`.
+
+The cost is not the typing. **It is that the list goes stale silently**:
+inserting an assertion renumbers every one after it, nothing checks the
+alignment, and a wrong `[7]` reads exactly like a right one. A per-assertion
+field could not drift from the assertion it is attached to. This is the same
+failure mode `tools/check-sources.py` acquired a rule for when eight
+`metadata.note`s travelled with copied structure and described the wrong
+snapshot — and there the note lives *on* the thing it describes and could still
+be checked against it, which an ordinal list into prose cannot.
+
+**Why it is not a documentation preference.** The three documents this
+repository writes about a fixture — the specification, the oracle and the
+`.esm` — are meant to be checkable against each other, and §21's rule is that an
+oracle ASSERTS rather than prints for exactly this reason. §35.4 asks the same
+of assertions and cannot be obeyed at the granularity it names.
+
+**What would fix it:** any optional string property on an assertion.
+`F41_an_assertion_cannot_say_why.esm` both validates and passes the day one
+exists, so the ordinary tripwire loop watches it with no change to
+`run-tests.sh`.
