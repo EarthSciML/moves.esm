@@ -268,9 +268,44 @@ def compare(expected: list[dict], actual: list[dict], tol: dict, fixture: str) -
     if not expected:
         raise Failure("the snapshot's MOVESOutput is empty; nothing to compare")
 
-    keys = key_columns(list(expected[0].keys()), cfg)
     report: list[str] = []
     problems: list[str] = []
+
+    # --- declared scope -----------------------------------------------------
+    #
+    # A fixture may declare, in tolerance.toml, pollutants whose cells this
+    # snapshot cannot support a comparison for. This is NOT a tolerance and it
+    # is not a shortfall: the rows are still emitted, with the right keys and
+    # the right arithmetic, and every check below still runs at full strength
+    # on everything else. What it says is that the snapshot's own capture
+    # destroyed the evidence -- see tolerance.toml, where the reason is
+    # mandatory and the measurement is written out.
+    #
+    # It is applied to BOTH sides, so a scoped-out pollutant cannot show up as
+    # a missing key either, and it is reported before anything else so that a
+    # reader cannot mistake the row count for the whole table.
+    scope = tol.get("fixtures", {}).get(fixture, {}).get("scope", {})
+    excluded = [int(p) for p in scope.get("excluded_pollutants", [])]
+    if excluded:
+        if not str(scope.get("why", "")).strip():
+            raise Failure(
+                f"tolerance.toml declares excluded_pollutants for {fixture} with no "
+                f"`why`. An exclusion without a reason is a bug being hidden."
+            )
+        drop = {_norm(p) for p in excluded}
+        keep = lambda rows: [r for r in rows if _norm(r.get(pol_col)) not in drop]
+        n_exp, n_act = len(expected), len(actual)
+        expected, actual = keep(expected), keep(actual)
+        if not expected:
+            raise Failure("the declared scope excludes every row of the snapshot")
+        report.append(
+            f"scope: pollutant(s) {', '.join(str(p) for p in excluded)} are NOT "
+            f"compared -- {n_exp - len(expected)} of {n_exp} snapshot rows and "
+            f"{n_act - len(actual)} of {n_act} emitted rows held out"
+        )
+        report.append(f"       why: {scope['why']}")
+
+    keys = key_columns(list(expected[0].keys()), cfg)
 
     # Most identity columns are constant across a fixture -- for
     # nr-logging-county, 16 of 19, nine of them NULL throughout -- so printing
@@ -367,7 +402,7 @@ def compare(expected: list[dict], actual: list[dict], tol: dict, fixture: str) -
 
     # 4. per-pollutant sums
     which = "nonroad" if fixture.startswith(NONROAD_PREFIX) else "onroad"
-    sums_rel = tol["fixtures"][fixture]["rel"] if fixture in tol.get("fixtures", {}) else tol["default"][which]
+    sums_rel = tol.get("fixtures", {}).get(fixture, {}).get("rel", tol["default"][which])
     for col in value_cols:
         e_sums, a_sums = defaultdict(float), defaultdict(float)
         for r in expected:
@@ -586,6 +621,32 @@ def _self_test() -> int:
         extra_failures += 1
     except Failure:
         print("  ok   onroad sums tolerance (1e-3) is tighter than nonroad (1e-2)")
+
+    # --- the declared scope ------------------------------------------------
+    #
+    # Three falsifications, because an exclusion is the one mechanism here that
+    # makes a check do LESS and it has to be shown to do exactly that much.
+    scoped = {**tol, "fixtures": {"nr-self-test": {"scope": {
+        "excluded_pollutants": [2], "why": "a self-test reason"}}}}
+    # (a) a pollutant that is wrong is still caught when it is NOT excluded.
+    alone("scope: an error in a pollutant that is not excluded still fails", base,
+          rows((1, "A", 2020, "150.0"), (1, "A", 2021, "200.0"), (2, "A", 2020, "300.0")),
+          scoped, False)
+    # (b) the excluded pollutant's cells are genuinely not compared -- and the
+    #     key set does not report them as missing either.
+    alone("scope: the excluded pollutant is not compared", base,
+          rows((1, "A", 2020, "100.0"), (1, "A", 2021, "200.0"), (2, "A", 2020, "999.0")),
+          scoped, True)
+    # (c) an exclusion with no reason is refused.
+    no_why = {**tol, "fixtures": {"nr-self-test": {"scope": {"excluded_pollutants": [2]}}}}
+    try:
+        compare(base, base, no_why, "nr-self-test")
+        print("  FAIL an exclusion with no `why` was accepted")
+        extra_failures += 1
+    except Failure as exc:
+        got = "no\n`why`" in str(exc).replace(" ", "\n") or "why" in str(exc)
+        print(f"  {'ok  ' if got else 'FAIL'} an exclusion with no `why` is refused")
+        extra_failures += 0 if got else 1
 
     # a duplicate key is a bug, not a tie
     cases.append(("duplicate key", base, base + [dict(base[0])], False))
