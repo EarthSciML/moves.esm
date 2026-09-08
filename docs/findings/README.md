@@ -1200,11 +1200,22 @@ So the leaf wants `domain.element_type: "Float32"`. Declaring it does not work,
 and the way it fails is the shape this repository fears:
 
 * `runs/nr_logging_county_run.esm` mounts the leaf through a top-level `models`
-  `{ref}` and **re-runs the leaf's own inline tests**. With `Float32` on the
+  `{ref}` and **re-ran the leaf's own inline tests**. With `Float32` on the
   leaf, those tests ran in **binary64** under the mount and the third grown
   fraction came back as exactly `0` against an expected
   `5.888558263222876e-08`. Nothing was rejected and nothing was logged: the
   leaf's declared precision is simply not part of what the mount carries.
+
+  **That symptom can no longer occur, and the finding is not therefore closed.**
+  EarthSciAST `d2f2d328e` drops a mounted component's `tests` at the mount edge
+  (esm-spec §6.6, and `docs/esm-conventions.md` §5), so from the `3aa046d65`
+  rebuild the leaf's assertions do not run under the assembly at all — the
+  binary64 re-run that produced the `0` has nothing to re-run. What that removes
+  is the *observation*, not the gap: whether a mount carries the leaf's declared
+  `element_type` into the ASSEMBLY's own arithmetic was never separately
+  measured, and is not measured at the rebuild either. It is now harder to see
+  rather than fixed, which is the wrong direction for a silent finding, and
+  measuring it is open work.
 * Declaring it on the **assembly** instead is not a workaround. Measured: **119
   of 295** assertions fail, across ten leaves that were authored and checked in
   binary64.
