@@ -677,7 +677,32 @@ rather than flattering: `ZoneMonthHour` stores twelve decimal places where
 `MOVESOutput.emissionQuant` stores six significant figures, and there is no
 chain of multiplications between the input and the output to accumulate through
 — `heatIndex` is one polynomial and the humidities are four operations past one
-transcendental. 2.391e−08 is that storage limit, not this port's accuracy.
+transcendental.
+
+**2.391e−08 is very nearly not a storage limit at all, and that is a correction
+to what this paragraph used to claim.** An independent measurement over all 41
+snapshots, made after this rung merged, attributes the residual to a single
+INPUT: `County.barometricPressure` is a `float` column in MOVES, which MOVES
+widens to double, while a port that reads the snapshot's decimal text `29.095`
+as an f64 gets a *different* number — 29.095 against 29.094999313354492.
+Narrowing that one input to binary32 and re-widening it improves the corpus's
+two humidity columns by **13.2×** (worst absolute `specificHumidity`
+2.871e−07 → 2.177e−08). Re-derived here on `process-tirewear`'s 24 rows as a
+check on the mechanism rather than on the corpus figure: worst relative
+`specificHumidity` **2.2985e−08 → 1.6520e−09** and `molWaterFraction`
+**2.2619e−08 → 1.6249e−09**, a factor of 13.9 and 13.9.
+
+Two things follow and neither is a change to `lib/meteorology.esm` today.
+First, `temperature` and `relHumidity` must **not** be narrowed the same way:
+the snapshot already stores those as their widened binary32 values, so narrowing
+again double-rounds and makes the answer worse. The rule is per COLUMN and comes
+from what the reference stores, not from a blanket precision choice — which is
+`docs/esm-conventions.md` §17's element-type question arriving on the ingest
+axis. Second, nothing here is worth destabilising: the current worst error is
+2.391e−08 relative, **840× under `tolerance.toml`'s gate**, and this rung and
+the nine fixtures of §8.2 are verified green as they stand. This paragraph
+exists so that a future reader chasing the residual starts from the answer
+instead of from the 5/9 (§7.2), which is settled and is not it.
 
 `components/meteorology.esm` asserts at `rel 1e-7`, four times the worst cell in
 the corpus. That is a real gate: it is 200× tighter than `tolerance.toml`'s
@@ -906,7 +931,10 @@ from the reference:
 
 The heat index row is the interesting one: it is stored at full double precision,
 which is why retargeting it costs nothing at all and retargeting the humidities
-costs 2.3e−08. That is 870× below `tolerance.toml`'s per-cell gate and it is why
+costs 2.3e−08. §7.1 records where most of that 2.3e−08 actually comes from — not
+the humidity formula but `County.barometricPressure`'s own binary32 storage, the
+input this retarget newly had to read — and why closing it is deliberately not
+part of this change. That is 870× below `tolerance.toml`'s per-cell gate and it is why
 the fourteen assertions in the two humidity fixtures that were transcribed from
 the stored column keep their reference `expected` values and carry `rel: 1e-7`
 — four times the worse gap, the same gate `components/meteorology.esm` asserts
