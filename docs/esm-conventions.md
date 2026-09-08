@@ -3144,3 +3144,215 @@ that writes a corpus-wide count writes down the date it was true. This
 specification says "40 as this is written, and the corpus grows", which is a
 claim that stays true; "the 39 snapshots" was a claim that was false within the
 hour.
+
+---
+
+## 36. A fixed-decimal capture is part of the reference, and it is not always absorbable **[Phase 5, 14,036 rows]**
+
+`nr-airtoxics-lawn-garden-county` is the last two NONROAD calculators —
+`NRHCSpeciationCalculator` and `NRAirToxicsCalculator` — and the first slice in
+this port whose limiting factor is neither the format, nor the toolchain, nor
+the arithmetic, but **how the snapshot was written to disk**. Every rule in
+§1–§35 held. What is new is a class of obstacle the previous ten rungs never
+met, and a third thing to write in `tolerance.toml` beside a tolerance and a
+shortfall.
+
+### 36.1 Measure the capture's precision before attributing a residual
+
+`moves.rs/crates/moves-snapshot/src/format.rs:17` is
+`pub const FLOAT_DECIMALS: u32 = 12;`, and every table's `.meta.json` in the
+corpus carries `"float_decimals": 12`. So a captured float is a decimal string
+with twelve places after the point, and it keeps
+
+```
+12 + floor(log10|v|) + 1     significant digits
+```
+
+— six for a value of 10⁻¹, **one** for a value of 10⁻¹², none at all below
+5 × 10⁻¹³. That is not a rounding preference: it is the resolution of the only
+copy of the reference this repository has.
+
+**Measured over the whole corpus**, every `MOVESOutput` table under
+`characterization/snapshots`: **136,552 cells, of which 7,308 (5.35 %) are
+stored as an exact zero and 1,326 (0.97 %) are non-zero with fewer than six
+significant digits.** The distribution is the point. **1,324 of those 1,326
+are in this one snapshot** — the only one in the corpus whose chain produces
+trace species. The twelve fixtures before it met a capture that lost nothing
+and could reasonably treat storage as ideal; this one produces mercury at
+10⁻¹² g and dioxin at 10⁻¹³, and the capture is then the largest term in the
+error budget.
+
+The corollary for the next slice: **this will recur wherever a chain multiplies
+a real inventory by a ratio of 10⁻⁶ or smaller**, which is every remaining
+air-toxics, metal, dioxin and PAH rung, and it will not recur anywhere else.
+One sweep answers it before a day is spent on the arithmetic.
+
+### 36.2 An OUTPUT quantisation is absorbable; an INPUT one is not
+
+They are two different failures and only the first can be answered by how the
+comparison is read.
+
+**Output.** The stored value is a rounding of the true one, so half a quantum —
+5 × 10⁻¹³ absolute, a number read off the capture rather than fitted — is the
+reference's own resolution. `compare-output.py` already concedes exactly this
+for an expected zero ("when only the expectation is zero, fall back to
+absolute, since there is no scale to be relative to"); the general form is the
+same concession one step earlier. Measured on this fixture: 2,629 cells of the
+27 compared pollutants are storage-limited, 283 of them exceed the 2 × 10⁻⁵
+gate on their raw relative error, and allowing the half-quantum takes the worst
+of all 2,629 to **8.655 × 10⁻⁶** — inside the unchanged gate, with the per-
+pollutant worst excess running 5.683 × 10⁻⁶ to 7.712 × 10⁻⁶.
+
+**Input.** Nothing about how the answer is read can recover a coefficient the
+capture destroyed. Measured over the nine tables this slice reads:
+
+| table | rows | rows stored with < 6 significant digits |
+|---|---:|---:|
+| `nrDioxinEmissionRate` | 316 | **316** |
+| `nrMethaneTHCRatio`, `nrHCSpeciation`, `nrATRatio`, `nrPAHGasRatio`, `nrPAHParticleRatio`, `nrMetalEmissionRate`, `nrEmissionRate`, `nrEngTechFraction` | 66,875 | **0** |
+
+One table of nine. Its two gasoline rates are `0.000000001105` and
+`0.000000000019` — four significant figures and **two** — against the MySQL
+`double` MOVES read.
+
+**The way to prove it is the capture and not the port: fit the coefficient the
+reference must have used, and show it is inside half a stored quantum.**
+1.1045021 × 10⁻⁹ against a stored 1.105 × 10⁻⁹ is 0.996 half-quanta;
+1.9434497 × 10⁻¹¹ against 1.9 × 10⁻¹¹ is 0.869. Both are inside, so the
+captured value is a correct rounding of the fitted one and there is no
+arithmetic left to find. Do the fit on the cells the output stores best, and
+assert it in the oracle so the claim is re-checked every run rather than
+asserted once. `run-nr-airtoxics-oracle.sh` does.
+
+### 36.3 A declared SCOPE is a third thing, and it needs its own vocabulary
+
+Three ways a fixture can fall short of "every cell inside the gate", and they
+are not interchangeable:
+
+| | what it says | where it lives | what it must carry |
+|---|---|---|---|
+| a **tolerance** | the port and the reference differ by this much | `[cell]`, `[default]` | a measurement of the drift |
+| a **shortfall** | the fixture does not EMIT these rows yet | `[shortfall]` | the row and key counts, and it is a promise to close |
+| a **scope** | the fixture emits these rows correctly and the SNAPSHOT cannot check them | `[fixtures."…".scope]` | the reason, mandatory, with the measurement |
+
+Writing the third as one of the first two is what makes both of them
+untrustworthy. A widened `[cell] rel` would have hidden every real error in the
+27 other pollutants in order to admit two; a `[shortfall]` would have claimed
+the rows were missing when they are emitted with the right keys and the right
+arithmetic.
+
+Three properties keep a scope honest, and all three are falsified in
+`compare-output.py --self-test`: an error in a pollutant that is **not**
+excluded still fails; the excluded pollutant is held out of **both** sides, so
+it cannot reappear as a missing key; and a scope **with no `why` is refused**.
+
+**And the exclusion is on the COMPARISON, never on the document.** The fixture
+computes all 29 pollutant-processes and emits all 14,036 rows; the two dioxin
+blocks are as correct as any implementation reading this capture can make them,
+and the comparator says out loud that it is not looking at them. A fixture that
+had instead stopped emitting them would have hidden the fact that they are
+computable at all.
+
+**Prefer the scope that checks MORE cells, and measure the alternative rather
+than asserting it.** Two ways to make this fixture green were measured:
+excluding pollutants 131 and 142 alone leaves 283 cells over the gate, so
+making it green that way needs nine pollutants excluded — 4,356 of 14,036 rows
+held out, 9,680 compared, worst cell 9.417 × 10⁻⁶. Excluding two and comparing
+the rest at the capture's own resolution holds out 968 rows, compares 13,068,
+and reaches the *same* worst cell of 9.417 × 10⁻⁶. Same gate, same worst error,
+3,388 more cells checked. Both sets of numbers are in `tolerance.toml` so the
+decision can be revisited without re-deriving them.
+
+**Two numbers, and they must stay two numbers.** Folding the storage floor into
+the reported worst cell makes a rung's headline figure an excess-over-quantum
+ratio wearing the label "worst relative error", and a reader diffing oracle
+output across rungs cannot see it. `compare-output.py` reports the true
+relative error *and*, on its own line, the worst excess over the quantum, with
+the second saying that it is the number the gate was applied to. On this
+fixture they are 4.479 × 10⁻¹ and 9.417 × 10⁻⁶, and the first is worth seeing.
+
+### 36.4 A lookup resolved once per PARENT is not the same as once per CHILD
+
+The other thing this rung cost, and it has nothing to do with precision.
+
+`nr-logging-county` resolves `nremissionrate`'s three-level SCC fallback chain
+**once per equipment point** and then reads every technology's rate at that
+level. `nonroad_loader.rs:436-451` resolves it **once per (technology,
+pollutant slot)**: a specific SCC's rate rows need not cover every technology
+its own tech mix names, and the ones it misses are served by the engine-family
+root. Retargeted onto this sector, the point-level version emits **exactly the
+right 14,036-row key set** and is wrong by up to a factor of **6.9** on five of
+the 31 SCCs.
+
+Two rules, and the second is the transferable one.
+
+**When the reference resolves a fallback ladder inside a loop, the ladder's
+result carries that loop's key.** A retarget cannot see this: the two spellings
+agree on any fixture whose specific SCCs happen to cover their whole mix, which
+`nr-logging-county`'s three do. §27.3 makes a retarget the first move on a new
+rung; this is what a retarget audit looks like when it finds something, and the
+tell was that the failure was **large, systematic and confined to five keys**
+rather than distributed like a rounding error.
+
+**A three-dimensional effective key cannot be a join key, so invert the
+ladder.** §27.1's rule — a `join.on` key column must be 1-D — means
+`techRate_effectiveSCC[point, pollutant-process, technology]` is not
+expressible at all. The remedy is not to flatten it: it is to write the three
+lookups and a **precedence between their results**, which is
+`lib/adjustments.esm`'s `exact_else_wildcard` nested twice. Three aggregates
+and one selection, none of them 2-D, and the ladder reads as what it is.
+
+The same inversion has a limit, and this slice met it too: the horse-power
+CATEGORY every speciation table keys on is a function of *both* the equipment
+point and the technology, and it is a genuine join key rather than a value.
+There the answer is §22's flat relation — one axis of (technology × category)
+with the category as a 1-D column on it — and then a second level,
+(technology × category × fuel subtype), because §32.3's per-formulation
+collapse has to happen after the chain is formed and not before. **Flatten when
+the thing is a key; invert when it is a value.**
+
+**And keep the flat relation off the hot node.** The multiplier that all of
+this produces is a VALUE at (point, technology, pollutant-process), not a key,
+so it is read back onto those three axes once — 313,200 cells — rather than
+joined inside the roll-up, which already contracts 16 million leaves. Measured:
+joined inside the roll-up the document had not finished after eight minutes;
+read back onto the roll-up's own axes first, the whole document runs in
+**70 seconds**. That is §11.1's rule again, at the place where
+a flat relation stops being useful.
+
+### 36.5 Two smaller things, both measured
+
+**"The first containing bin" is a strict lower bound when the bins tile.**
+`nonroad_loader.rs` takes the first `(SCC, hpMin, hpMax)` bin containing
+`hpAvg` under `lo <= hp <= hi`; an aggregate has no "first", and `hpMin <=
+hpAvg` admits two bins wherever `hpAvg` sits on a boundary — 2260004071's 3.0
+hp is in both (1, 3) and (3, 6) of 2260000000, and summing both makes
+`tech_fractionTotal` 2 and that SCC's emissions 1.24 to 1.43× the reference's.
+Because the bins tile contiguously from 0 and every `hpAvg` is positive,
+`hpMin < hpAvg <= hpMax` selects exactly the reference's bin. Measured over all
+108 points at all three chain levels: **0 differences**. Check the tiling
+rather than assuming it, and apply the change to **every** aggregate that reads
+the same bin — the presence tests and the model-year resolution as well as the
+value, which is four sites here and where the first attempt got it wrong.
+
+**The tenth instance of the plausible-wrong-value failure, and the third where
+a clamp or a mask is the thing that fails.** Eleven of this run's 108 equipment
+points carry a base-year population of exactly 0, and `prccty.f` skips them.
+Here that skip is a DIVISION: `agedist.f`'s `totpop/baspop` is `0/0`, and
+`cohort_isPopulated` cannot suppress the NaN because `0 × NaN` is NaN (§19.4a,
+§29.2). It surfaced as seven SCCs emitting NaN on model year 2020 — the seven
+whose SCC is shared between a populated point and an unpopulated one — while
+every other cell was right. **Write the reference's `continue` as a guard on
+the VALUE at the column that can be zero**, never as a factor at the point of
+use, and expect the symptom to appear somewhere that looks unrelated to the
+point that caused it.
+
+**A `(pollutant-process, technology)` pair with no coefficient row takes the
+IDENTITY, not zero.** `nrdeterioration` has no 9901 row anywhere, and the
+inherited spelling multiplied the deterioration factor by a presence flag — so
+fuel consumption, and with it every metal and dioxin derived from it, came out
+as exactly 0 while THC and PM10 were right. The reference's `det.get(...)`
+returns `None` and leaves the coefficient at 0, which makes the factor 1. This
+is §3's "an unmatched row contributes the additive identity" meeting a case
+where the identity of the operation is 1 rather than 0, and a fixture whose
+selected pollutants all have coefficient rows cannot tell the two apart.
