@@ -2,7 +2,7 @@
   "esm": "1.0.0",
   "metadata": {
     "name": "process-nox-speciation fixture",
-    "description": "The `process-nox-speciation` fixture: 872 rows of MOVESOutput -- total Oxides of Nitrogen AND its three speciation products Nitrogen Oxide (NO), Nitrogen Dioxide (NO2) and Nitrous Acid (HONO), all on Running Exhaust, for passenger cars on urban restricted-access roads in Washtenaw County, August, 7am, 2020 -- computed from the snapshot's own INPUT tables. It ports docs/process-nox-speciation.md end to end and reuses docs/mixed-onroad.md's spine unchanged: the activity chain S1-S9, the cohort structure and the fuel-usage rebase S10-S12, the drive-cycle operating-mode weights `dc_W`, and the pollutant-process x cohort rate relation docs/process-brakewear.md introduced.\\n\\nWHAT IS NEW, AND IT IS NOT THE SPECIATION. The chain itself is `process-brakewear`'s, with a different ratio table: `runspecchainedto` says 3201 <- 301, 3301 <- 301 and 3401 <- 301, `nono2ratio` carries the multiplier, and a self-join of the rate relation on (chained-from pollutant-process, cohort) does the multiplying. What is new is everything the PARENT needs, because no fixture before this one computed a criteria pollutant:\\n  * THE RATE IS AGE-DEPENDENT. `emissionrate` is EMPTY in this snapshot; running-exhaust NOx lives in `emissionratebyage`, 218,316 rows keyed by an `ageGroupID` the rate join did not previously carry. That key decides a ROW SET as well as a value: fuel type 9 has no ageGroup-2099 row, so the model year 2000 electricity cohort finds no rate and is not emitted while 2001-2020 are emitted at rate zero.\\n  * THE FUEL EFFECT IS LIVE. `criteriaratio` scales the rate per supplied fuel FORMULATION and is market-share weighted back to the fuel type -- 0.501 to 1.004 on the formulations this county supplies, so it is worth a factor of two on the newest gasoline cohorts. The formulation set comes from `fuelsupply` restricted to the county's `regioncounty` region and resolved to a fuel type through `fuelformulation` and `fuelsubtype`. The table is READ, not rebuilt: `FuelEffectsGenerator` computes it from `generalfuelratioexpression` on the default-DB path only, and moves.rs records that the snapshot path ships it captured.\\n  * THE TEMPERATURE ADJUSTMENT TAKES ITS NOx BRANCH, which is a temperature term TIMES a humidity correction `k`. `k` is selected by a TEXT column -- `CFR 86` for gasoline and E85, `CFR 1065` for diesel, absent for electricity -- and both arms fire here. Every emitted cohort's temperature term is 0 (the four `temperatureadjustment` rows are model years 2027-2060), so the factor IS the humidity correction: 1.0215928 on gasoline and E85, 1.0095484 on diesel, 1 on electricity.\\n\\nTHE OUTPUT RELATION IS RAGGED, AND THE RANK THAT HANDLES THAT IS NOT NEW -- docs/process-refueling.md 3.3 already ranks over the whole rate relation for blocks of 64 and 104. What is new is the MASK. Total NOx emits 124 cohorts and each species emits 104, and a species survives on a condition its own tables cannot state: `nono2ratio` must carry a ratio AND THE PARENT ROW MUST HAVE SURVIVED, which is a self-join of the rate relation on (chained-from pollutant-process, cohort) -- the same pair the quantity is chained on. `process-brakewear`'s chained block needed nothing of the kind, because its ratio covered every cohort its parent had. So `rt_survives` is a union of `selected AND rated` with `has a ratio AND its parent survives`, written as a sum because no row can satisfy both, and `rt_prefixSurvives` numbers all 436 survivors across ALL blocks in one inclusive prefix count. The output relation is then a flat (day type, survivor) product decoded by lib/keys.esm's `flat_relation_major`/`flat_relation_minor` rather than by two hand-written floor divisions -- the templates existed and three fixtures spell the arithmetic out anyway (docs/esm-conventions.md 30). 436 is the one declared number and `rateSurvivorCount` recomputes it.\\n\\nCOMPUTED, from the input tables and nothing else: every number. NO REFERENCE TABLE IS AN INPUT. `baseratebyage_1_2020`, `sbweightedemissionratebyage`, `sourcebindistribution`, `sho`, `baserateoutput` and `MOVESOutput` are all generator or expected output, and none of them is a `data_sources` entry here. Values out of the first four DO appear as `expected` in the inline tests below, which is the opposite direction and the whole point of a fixture.\\n\\nWHAT THIS FIXTURE CANNOT SEE. `run_acActivity` clamps to 0 at 59.5 degF, so the A/C factor is exactly 0 and the 23 live `fullacadjustment` rows contribute nothing -- the order in which S15's factors reach the A/C increment is written as adjust.rs writes it and is NOT tested here. `imcoverage`, `emissionrateadjustment` and `evefficiency` are all empty, so the I/M blend, the rate adjustment and the EV divisor are absent rather than exercised. `GPAFract` is 0, so every fuel-effect blend selects its normal arm.",
+    "description": "The `process-nox-speciation` fixture: 872 rows of MOVESOutput -- total Oxides of Nitrogen AND its three speciation products Nitrogen Oxide (NO), Nitrogen Dioxide (NO2) and Nitrous Acid (HONO), all on Running Exhaust, for passenger cars on urban restricted-access roads in Washtenaw County, August, 7am, 2020 -- computed from the snapshot's own INPUT tables. It ports docs/process-nox-speciation.md end to end and reuses docs/mixed-onroad.md's spine unchanged: the activity chain S1-S9, the cohort structure and the fuel-usage rebase S10-S12, the drive-cycle operating-mode weights `dc_W`, and the pollutant-process x cohort rate relation docs/process-brakewear.md introduced.\\n\\nTHE THREE METEOROLOGY COLUMNS ARE COMPUTED HERE, NOT READ. Since docs/meteorology-generator.md 8.2 this fixture derives `heatIndex`, `specificHumidity` and `molWaterFraction` from `ZoneMonthHour.temperature`, `ZoneMonthHour.relHumidity` and `County.barometricPressure` through lib/meteorology.esm, instead of reading MeteorologyGenerator's answers back off the reference. It and `process-crankcase-running` are the only two of the nine ingesting fixtures whose OUTPUT BYTES MOVED when that was done, and the movement is the point: `meanBaseRate`, `SHO` and `activity` are byte-identical on all 872 rows, because the humidity enters after the base rate; `adjustedMeanBaseRate` and `emissionQuantDirect` move on exactly the 208 NOx-total rows whose fuel type has a `noxhumidityadjust` row -- 82 gasoline, 80 diesel, 46 E85 -- and not on the 40 electricity rows, which have none and take a factor of exactly 1; and `emissionQuant` moves on 832 of 872, the same 208 plus the 624 speciated rows computed from them. The worst cell moves 7.4418e-09 relative, which is the CFR 86 factor's own shift. Against the reference the comparison's worst cell goes 9.482e-06 -> 9.485e-06 of a 2e-05 gate and the worst per-pollutant sum 4.957e-07 -> 4.883e-07. This is docs/esm-conventions.md 23's other case: the fixture CAN see the stage, so the retarget is checked here rather than only asserted elsewhere.\n\nWHY IT MOVES AT ALL, AND WHICH DIRECTION IS RIGHT. `ZoneMonthHour.specificHumidity` stores MOVES's answer at less precision than MOVES computed it with, and MOVES's own calculators then read the STORED value back. So the 2.2985e-08 gap between 10.053684062398 computed here and 10.053684293477 stored is the port being closer to the formula and further from the reference, by an amount 870x below tolerance.toml's per-cell gate. Worth knowing before reading the comparison as a regression.\n\nWHAT IS NEW, AND IT IS NOT THE SPECIATION. The chain itself is `process-brakewear`'s, with a different ratio table: `runspecchainedto` says 3201 <- 301, 3301 <- 301 and 3401 <- 301, `nono2ratio` carries the multiplier, and a self-join of the rate relation on (chained-from pollutant-process, cohort) does the multiplying. What is new is everything the PARENT needs, because no fixture before this one computed a criteria pollutant:\\n  * THE RATE IS AGE-DEPENDENT. `emissionrate` is EMPTY in this snapshot; running-exhaust NOx lives in `emissionratebyage`, 218,316 rows keyed by an `ageGroupID` the rate join did not previously carry. That key decides a ROW SET as well as a value: fuel type 9 has no ageGroup-2099 row, so the model year 2000 electricity cohort finds no rate and is not emitted while 2001-2020 are emitted at rate zero.\\n  * THE FUEL EFFECT IS LIVE. `criteriaratio` scales the rate per supplied fuel FORMULATION and is market-share weighted back to the fuel type -- 0.501 to 1.004 on the formulations this county supplies, so it is worth a factor of two on the newest gasoline cohorts. The formulation set comes from `fuelsupply` restricted to the county's `regioncounty` region and resolved to a fuel type through `fuelformulation` and `fuelsubtype`. The table is READ, not rebuilt: `FuelEffectsGenerator` computes it from `generalfuelratioexpression` on the default-DB path only, and moves.rs records that the snapshot path ships it captured.\\n  * THE TEMPERATURE ADJUSTMENT TAKES ITS NOx BRANCH, which is a temperature term TIMES a humidity correction `k`. `k` is selected by a TEXT column -- `CFR 86` for gasoline and E85, `CFR 1065` for diesel, absent for electricity -- and both arms fire here. Every emitted cohort's temperature term is 0 (the four `temperatureadjustment` rows are model years 2027-2060), so the factor IS the humidity correction: 1.0215928 on gasoline and E85, 1.0095484 on diesel, 1 on electricity.\\n\\nTHE OUTPUT RELATION IS RAGGED, AND THE RANK THAT HANDLES THAT IS NOT NEW -- docs/process-refueling.md 3.3 already ranks over the whole rate relation for blocks of 64 and 104. What is new is the MASK. Total NOx emits 124 cohorts and each species emits 104, and a species survives on a condition its own tables cannot state: `nono2ratio` must carry a ratio AND THE PARENT ROW MUST HAVE SURVIVED, which is a self-join of the rate relation on (chained-from pollutant-process, cohort) -- the same pair the quantity is chained on. `process-brakewear`'s chained block needed nothing of the kind, because its ratio covered every cohort its parent had. So `rt_survives` is a union of `selected AND rated` with `has a ratio AND its parent survives`, written as a sum because no row can satisfy both, and `rt_prefixSurvives` numbers all 436 survivors across ALL blocks in one inclusive prefix count. The output relation is then a flat (day type, survivor) product decoded by lib/keys.esm's `flat_relation_major`/`flat_relation_minor` rather than by two hand-written floor divisions -- the templates existed and three fixtures spell the arithmetic out anyway (docs/esm-conventions.md 30). 436 is the one declared number and `rateSurvivorCount` recomputes it.\\n\\nCOMPUTED, from the input tables and nothing else: every number. NO REFERENCE TABLE IS AN INPUT. `baseratebyage_1_2020`, `sbweightedemissionratebyage`, `sourcebindistribution`, `sho`, `baserateoutput` and `MOVESOutput` are all generator or expected output, and none of them is a `data_sources` entry here. Values out of the first four DO appear as `expected` in the inline tests below, which is the opposite direction and the whole point of a fixture.\\n\\nWHAT THIS FIXTURE CANNOT SEE. `run_acActivity` clamps to 0 at 59.5 degF, so the A/C factor is exactly 0 and the 23 live `fullacadjustment` rows contribute nothing -- the order in which S15's factors reach the A/C increment is written as adjust.rs writes it and is NOT tested here. `imcoverage`, `emissionrateadjustment` and `evefficiency` are all empty, so the I/M blend, the rate adjustment and the EV divisor are absent rather than exercised. `GPAFract` is 0, so every fuel-effect blend selects its normal arm.",
     "authors": [
       "EarthSciML Authors and Contributors"
     ],
@@ -779,9 +779,7 @@
       "reader_options": {
         "float_columns": [
           "temperature",
-          "heatIndex",
-          "specificHumidity",
-          "molWaterFraction"
+          "relHumidity"
         ]
       },
       "extent": {
@@ -978,7 +976,8 @@
       },
       "reader_options": {
         "float_columns": [
-          "GPAFract"
+          "GPAFract",
+          "barometricPressure"
         ]
       },
       "extent": {
@@ -989,7 +988,7 @@
           "scope",
           "fuel"
         ],
-        "note": "1 row, county 26161. Read for `GPAFract` alone -- the Geographic Phase-in Area fraction that blends each fuel effect's normal and GPA ratios. Washtenaw is 0, so the blend selects the normal ratio; the blend is written anyway, because the rule is the port and not the run, and because a document that hardcoded the normal arm would silently be wrong in an Alaskan county.",
+        "note": "1 row, county 26161. Read for `GPAFract` -- the Geographic Phase-in Area fraction that blends each fuel effect's normal and GPA ratios; Washtenaw is 0, so the blend selects the normal ratio, and the blend is written anyway because the rule is the port and not the run, and because a document that hardcoded the normal arm would silently be wrong in an Alaskan county -- and, since docs/meteorology-generator.md 8.2, for `barometricPressure`, 29.095 inHg, which is the ONE thing the two humidity columns need beyond the hour's temperature and relative humidity. `altitude` is NOT read and cannot be: it is a single-character TEXT column and `float_columns` carries numbers. What that costs is MG-1's fallback, and the cost is stated in `cty_barometricPressure`.",
         "esio_format": "parquet"
       }
     },
@@ -1710,6 +1709,15 @@
             "nox_humidity_cfr1065",
             "nox_temperature_adjustment",
             "quadratic_temperature_adjustment"
+          ]
+        },
+        {
+          "ref": "../lib/meteorology.esm",
+          "only": [
+            "heat_index",
+            "vapor_partial_pressure_from_weather",
+            "specific_humidity",
+            "mol_water_fraction"
           ]
         },
         {
@@ -3812,53 +3820,37 @@
             }
           }
         },
+        "zmh_relHumidity": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "zonemonthhour_rows"
+          ],
+          "description": "zonemonthhour.relHumidity, in PERCENT and not as a fraction -- 90.400001525879 at hour 7. Reading it as a fraction leaves the mole fraction a clean factor of 100 low and still finite, which is the shape of error a plot does not show (docs/meteorology-generator.md 1.1). It is the second argument of BOTH derived chains here: the heat-index regression and the vapour partial pressure.",
+          "update": {
+            "kind": "data",
+            "source": "nox_zonemonthhour",
+            "from": {
+              "file_variable": "relHumidity"
+            }
+          }
+        },
         "zmh_heatIndex": {
-          "type": "parameter",
+          "type": "unknown",
           "units": "1",
-          "default": 0.0,
           "shape": [
             "zonemonthhour_rows"
           ],
-          "description": "zonemonthhour.heatIndex, 66.900001525879 degF -- the single number both of this fixture's clamps turn on.",
-          "update": {
-            "kind": "data",
-            "source": "nox_zonemonthhour",
-            "from": {
-              "file_variable": "heatIndex"
-            }
-          }
+          "description": "`ZoneMonthHour.heatIndex`, COMPUTED rather than read back off the reference: MeteorologyGenerator.doHeatIndex MG-3, ported as lib/meteorology.esm's `heat_index` (docs/meteorology-generator.md 2.2). The dry-bulb temperature below 78 degF, the National Weather Service regression capped at 120 degF at or above it. The run's hour is 7 at 59.500000000000 degF, so the identity arm is what reaches `run_heatIndex` and the computed value equals the reference's stored one bit for bit; over all 24 rows the two agree to 7.93e-15 relative."
         },
-        "zmh_specificHumidity": {
-          "type": "parameter",
+        "zmh_vaporPartialPressure": {
+          "type": "unknown",
           "units": "1",
-          "default": 0.0,
           "shape": [
             "zonemonthhour_rows"
           ],
-          "description": "zonemonthhour.specificHumidity, grams of water per kilogram of dry air. The CFR 86 humidity correction's argument, and a column no fixture before this one read.",
-          "update": {
-            "kind": "data",
-            "source": "nox_zonemonthhour",
-            "from": {
-              "file_variable": "specificHumidity"
-            }
-          }
-        },
-        "zmh_molWaterFraction": {
-          "type": "parameter",
-          "units": "1",
-          "default": 0.0,
-          "shape": [
-            "zonemonthhour_rows"
-          ],
-          "description": "zonemonthhour.molWaterFraction, moles of water per mole of dry air. The CFR 1065 humidity correction's argument.",
-          "update": {
-            "kind": "data",
-            "source": "nox_zonemonthhour",
-            "from": {
-              "file_variable": "molWaterFraction"
-            }
-          }
+          "description": "The Java's `PV`, kPa: MG-4 (Fahrenheit to Kelvin at the exact 5/9), MG-5 (the Goff-Gratch saturation pressure) and MG-6 (times the relative humidity as a fraction) composed in lib/meteorology.esm's `vapor_partial_pressure_from_weather`. BOTH humidity columns are built from it and neither is built from the other, which is why it is a variable here rather than two copies of one expression. It is the ONE part of the humidity chain that needs no county, so it lives on the 24-hour relation; the pressure has to be joined and lives on the run relation."
         },
         "stmy_modelYearID": {
           "type": "parameter",
@@ -5278,12 +5270,28 @@
           "shape": [
             "county_rows"
           ],
-          "description": "county.GPAFract, 0.0. The one column this fixture reads from `county`, and the second argument of every fuel-effect blend.",
+          "description": "county.GPAFract, 0.0. The second argument of every fuel-effect blend.",
           "update": {
             "kind": "data",
             "source": "nox_county",
             "from": {
               "file_variable": "GPAFract"
+            }
+          }
+        },
+        "cty_barometricPressure": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "county_rows"
+          ],
+          "description": "county.barometricPressure, 29.095 -- INCHES OF MERCURY, carried dimensionless because the format's unit registry is a closed list holding `mmHg` and no inch and no numeric scale factor, so `inHg`, `in`, `inch` and `25.4 mmHg` are all refused (finding F34, docs/meteorology-generator.md 1.1). Every use multiplies by 3.38639 to reach kPa, once, in lib/meteorology.esm's `ambient_pressure_kilopascals`.\n\nWHAT IS NOT CARRIED, AND WHY. MOVES runs two `UPDATE County` statements before the humidity pass: MG-1 fills a missing or non-positive pressure from the altitude CLASS, and MG-2 then classes a missing altitude from the pressure MG-1 has just written. Neither is carried here. MG-1's guard cannot fire on this snapshot -- measured across all 40 snapshots in the corpus, 22,815 `County` rows, not one has a NULL or non-positive `barometricPressure` (docs/meteorology-generator.md 8.1) -- and carrying it anyway would require `County.altitude`, a single-character TEXT column no `float_columns` can deliver, so the fixture would have to WRITE THE ALTITUDE CLASS DOWN as a constant transcribed from the reference table, which is the one thing a fixture exists not to do. MG-2 writes a column nothing downstream in this repository reads. Both fallback arms are checked instead in components/meteorology.esm, county rows 3 to 5, against the SQL as ported -- and docs/meteorology-generator.md 8.1 says plainly that the corpus cannot check them against MOVES at all.",
+          "update": {
+            "kind": "data",
+            "source": "nox_county",
+            "from": {
+              "file_variable": "barometricPressure"
             }
           }
         },
@@ -5837,7 +5845,7 @@
           "shape": [
             "zonemonthhour_rows"
           ],
-          "description": "zonemonthhour.temperature, 59.5 degF at hour 7. The temperature adjustment reads THIS column, the A/C activity term reads `heatIndex`, and the humidity correction reads one of `specificHumidity` / `molWaterFraction`; the first two are equal in every row of this snapshot, so the distinction costs nothing here and is made because adjust.rs:495-568 makes it.",
+          "description": "zonemonthhour.temperature, 59.5 degF at hour 7, and the first argument of BOTH derived chains -- MG-3's heat index and MG-4's Kelvin conversion. The temperature adjustment reads THIS column, the A/C activity term reads `zmh_heatIndex`, and the humidity corrections read `run_specificHumidity` / `run_molWaterFraction`; the first two are equal on the 17 of this snapshot's 24 hours below 78 degF -- hour 7 among them -- and differ by up to 1.6 degF on the other seven, so the distinction costs nothing at THIS hour and is made because adjust.rs:495-568 makes it.",
           "update": {
             "kind": "data",
             "source": "nox_zonemonthhour",
@@ -6499,13 +6507,29 @@
           ],
           "description": "S18: grams, for all four pollutants. THE compared column."
         },
+        "run_vaporPartialPressure": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "run_rows"
+          ],
+          "description": "`PV` for the run's zone, month and hour, gathered off the 24-hour relation on the same three-column key the temperature and the heat index use."
+        },
+        "run_barometricPressure": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "run_rows"
+          ],
+          "description": "`County.barometricPressure` for the run's county, inches of mercury. MOVES reaches it as ZoneMonthHour -> Zone -> County; this document has no `Zone` table and reaches it as run -> County on `run_countyID = cty_countyID`, which is the same last leg and the same key J30 already uses for `GPAFract`. That is why the two humidity columns are computed on the RUN relation and not, like the heat index, on the 24-hour one: the heat index needs no county and the humidities do, and a 24x1 contraction with no key would be the dropped join docs/meteorology-generator.md 3 measures at 48 wrong rows out of 72 on `expand-counties`."
+        },
         "run_specificHumidity": {
           "type": "unknown",
           "units": "1",
           "shape": [
             "run_rows"
           ],
-          "description": "The hour's specific humidity, g water per kg dry air. Read for the run's zone, month and hour beside the temperature and the heat index."
+          "description": "The hour's specific humidity, g water per kg DRY air, COMPUTED by lib/meteorology.esm's `specific_humidity` (MG-7) rather than read off `ZoneMonthHour.specificHumidity`. Its denominator subtracts the vapour pressure from the ambient pressure because the air it measures against is dry; the mole fraction's does not, and that one term is the only difference between them.\n\nMeasured against the column it replaced: 10.053684062398 computed against 10.053684293477 stored, 2.298e-08 relative. That is the storage limit of the reference column, not this port's accuracy, and it is 870x below tolerance.toml's 2e-05 per-cell gate. It is also NOT zero, which is why this fixture -- with process-crankcase-running -- is one of only two of the nine whose output bytes move at all."
         },
         "run_molWaterFraction": {
           "type": "unknown",
@@ -6513,7 +6537,7 @@
           "shape": [
             "run_rows"
           ],
-          "description": "The hour's water mole fraction. The CFR 1065 argument; the two humidity columns are different measures of the same air and each equation wants its own."
+          "description": "The hour's water mole fraction, moles of water per mole of AMBIENT air, COMPUTED by lib/meteorology.esm's `mol_water_fraction` (MG-7). The CFR 1065 argument; the two humidity columns are different measures of the same air and each equation wants its own. Measured against the column it replaced: 0.015929058669 computed against 0.015929059029 stored, 2.262e-08 relative."
         },
         "run_gpaFraction": {
           "type": "unknown",
@@ -7404,6 +7428,32 @@
           }
         },
         {
+          "_comment": "MG-3: heatIndex is DERIVED, not ingested. Below 78 degF it is the dry-bulb temperature; at or above it, the National Weather Service regression capped at 120. docs/meteorology-generator.md 2.2.",
+          "lhs": "zmh_heatIndex",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "heat_index",
+            "bindings": {
+              "temperature_degF": "zmh_temperature",
+              "rel_humidity_percent": "zmh_relHumidity"
+            }
+          }
+        },
+        {
+          "_comment": "MG-4 -> MG-5 -> MG-6: the vapour partial pressure both humidity columns are built from, composed once in lib/meteorology.esm so this document does not thread TK and PH2O itself.",
+          "lhs": "zmh_vaporPartialPressure",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "vapor_partial_pressure_from_weather",
+            "bindings": {
+              "temperature_degF": "zmh_temperature",
+              "rel_humidity_percent": "zmh_relHumidity"
+            }
+          }
+        },
+        {
           "_comment": "J28: the heat index both of S15's clamps turn on, read for the run's zone, month and hour.",
           "lhs": "run_heatIndex",
           "rhs": {
@@ -7659,8 +7709,8 @@
           }
         },
         {
-          "_comment": "J28b: the humidity columns, on the same (zone, month, hour) key the temperature and heat index already use.",
-          "lhs": "run_specificHumidity",
+          "_comment": "J28b: `PV`, on the same (zone, month, hour) key the temperature and heat index already use. It is the vapour partial pressure that crosses this join, not the humidity: the humidity needs the county pressure, and the county is reached by a different key.",
+          "lhs": "run_vaporPartialPressure",
           "rhs": {
             "op": "aggregate",
             "args": [],
@@ -7697,14 +7747,15 @@
             "expr": {
               "op": "index",
               "args": [
-                "zmh_specificHumidity",
+                "zmh_vaporPartialPressure",
                 "z"
               ]
             }
           }
         },
         {
-          "lhs": "run_molWaterFraction",
+          "_comment": "J-MET-2's last leg: County.barometricPressure on run_countyID = cty_countyID, the key J30 uses for GPAFract.",
+          "lhs": "run_barometricPressure",
           "rhs": {
             "op": "aggregate",
             "args": [],
@@ -7716,24 +7767,16 @@
               "k": {
                 "from": "run_rows"
               },
-              "z": {
-                "from": "zonemonthhour_rows"
+              "y": {
+                "from": "county_rows"
               }
             },
             "join": [
               {
                 "on": [
                   [
-                    "run_zoneID",
-                    "zmh_zoneID"
-                  ],
-                  [
-                    "run_monthID",
-                    "zmh_monthID"
-                  ],
-                  [
-                    "run_hourID",
-                    "zmh_hourID"
+                    "run_countyID",
+                    "cty_countyID"
                   ]
                 ]
               }
@@ -7741,9 +7784,35 @@
             "expr": {
               "op": "index",
               "args": [
-                "zmh_molWaterFraction",
-                "z"
+                "cty_barometricPressure",
+                "y"
               ]
+            }
+          }
+        },
+        {
+          "_comment": "MG-7, specific humidity: 621.1 PV / (ambient - PV). The subtraction is what makes it per kg of DRY air; dropping it moves these numbers 1.59% to 2.02%.",
+          "lhs": "run_specificHumidity",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "specific_humidity",
+            "bindings": {
+              "vapor_pressure_kpa": "run_vaporPartialPressure",
+              "barometric_pressure_inhg": "run_barometricPressure"
+            }
+          }
+        },
+        {
+          "_comment": "MG-7, mole fraction: PV / ambient, the same ambient pressure through the same template.",
+          "lhs": "run_molWaterFraction",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "mol_water_fraction",
+            "bindings": {
+              "vapor_pressure_kpa": "run_vaporPartialPressure",
+              "barometric_pressure_inhg": "run_barometricPressure"
             }
           }
         },
@@ -17114,7 +17183,7 @@
       "tests": [
         {
           "id": "the_run_scope_comes_from_the_execution_database",
-          "description": "Year 2020, August, hour 7, source type 21, road type 4, county 26161, zone 261610. The RunSpec XML says month 7 and hour 6; the execution database says 8 and 7, and it is the authority (docs/mixed-onroad.md 0.1). The last four rows are what this fixture adds to that list: at 59.5 degF the hour also carries 10.0536843 g/kg of specific humidity and a 0.0159290590 water mole fraction, and the county carries a GPA fraction of 0 -- the humidity pair drives the whole NOx temperature factor and the GPA fraction selects which arm of every fuel effect applies.",
+          "description": "Year 2020, August, hour 7, source type 21, road type 4, county 26161, zone 261610. The RunSpec XML says month 7 and hour 6; the execution database says 8 and 7, and it is the authority (docs/mixed-onroad.md 0.1). The last four rows are what this fixture adds to that list: at 59.5 degF the hour also carries 10.0536843 g/kg of specific humidity and a 0.0159290590 water mole fraction, and the county carries a GPA fraction of 0 -- the humidity pair drives the whole NOx temperature factor and the GPA fraction selects which arm of every fuel effect applies.\n\nTHE TWO HUMIDITY ROWS FACE THE REFERENCE ACROSS THIS DOCUMENT'S OWN ARITHMETIC (docs/esm-conventions.md 35.4). Their `expected` is what `ZoneMonthHour` STORES; since docs/meteorology-generator.md 8.2 the value under test is not that column but MG-4 to MG-7 run here from `temperature`, `relHumidity` and `County.barometricPressure`. Measured, the port lands 10.053684062398 against the stored 10.053684293477 (2.2985e-08 relative) and 0.015929058669 against 0.015929059029 (2.2619e-08). Those two rows therefore carry `rel: 1e-7` -- four times the worse of the pair, the same gate components/meteorology.esm asserts the whole generator at, and 200x tighter than tolerance.toml's per-cell 2e-05. The other sixteen rows are keys and stay at the test's exact 1e-09.",
           "time_span": {
             "start": 0.0,
             "end": 0.0
@@ -17247,6 +17316,9 @@
               "variable": "run_specificHumidity",
               "time": 0.0,
               "expected": 10.053684293477,
+              "tolerance": {
+                "rel": 1e-7
+              },
               "coords": {
                 "run_rows": 1
               }
@@ -17255,6 +17327,9 @@
               "variable": "run_molWaterFraction",
               "time": 0.0,
               "expected": 0.015929059029,
+              "tolerance": {
+                "rel": 1e-7
+              },
               "coords": {
                 "run_rows": 1
               }
@@ -18096,7 +18171,7 @@
         },
         {
           "id": "the_temperature_factor_is_the_humidity_correction_and_the_AC_arm_is_dead",
-          "description": "S15's temperature adjustment, at 59.5 degF. NO cohort in this run finds a `temperatureadjustment` row -- the table's four rows are polProcessID 301, fuel type 2, model years 2027-2060 -- so both terms are 0 by the aggregate's additive identity and the NOx branch reduces to its humidity factor alone. That factor is hand-checkable from `noxhumidityadjust` and `zonemonthhour`: gasoline and E85 take CFR 86, `1 - 0.0329 x (10.053684293477 - 10.71)` = 1.0215927867; diesel takes CFR 1065, `1 / (9.953 x 0.015929059029 + 0.832)` = 1.0095483848; electricity has no row and takes 1. The three species are pollutants 32, 33 and 34, so they miss the NOx branch and take the fall-through quadratic, whose coefficients are also 0 -- exactly 1.\\n\\nTHE A/C ARM IS DEAD AND IS ASSERTED DEAD. The A/C activity quadratic is -0.29698 at this heat index and clamps to 0, so `rt_acFactor` is exactly 0 and the 23 live `fullacadjustment` rows reach no emitted number. Nothing here tests the ORDER in which the criteria ratio and the temperature factor reach the A/C increment.",
+          "description": "S15's temperature adjustment, at 59.5 degF. NO cohort in this run finds a `temperatureadjustment` row -- the table's four rows are polProcessID 301, fuel type 2, model years 2027-2060 -- so both terms are 0 by the aggregate's additive identity and the NOx branch reduces to its humidity factor alone. That factor is hand-checkable from `noxhumidityadjust` and `zonemonthhour`: gasoline and E85 take CFR 86, `1 - 0.0329 x (10.053684293477 - 10.71)` = 1.0215927867; diesel takes CFR 1065, `1 / (9.953 x 0.015929059029 + 0.832)` = 1.0095483848; electricity has no row and takes 1. Those two hand-checks are done on the humidity `ZoneMonthHour` STORES, and are kept that way on purpose -- they are the arithmetic a reader can redo -- but since docs/meteorology-generator.md 8.2 this document COMPUTES the humidity instead of reading it, and lands 1.02159279434712 and 1.009548388483679: 7.4418e-09 and 3.6203e-09 from the hand-checked numbers. The five assertions on those two values therefore carry `rel: 1e-7`, and what they now test is the whole chain from `temperature`, `relHumidity` and `County.barometricPressure` down to the factor, against MOVES's own stored answer. The three species are pollutants 32, 33 and 34, so they miss the NOx branch and take the fall-through quadratic, whose coefficients are also 0 -- exactly 1.\\n\\nTHE A/C ARM IS DEAD AND IS ASSERTED DEAD. The A/C activity quadratic is -0.29698 at this heat index -- computed, since 8.2, and 7.934 degF below the 67.4340633418 at which it would cross 0 -- and clamps to 0, so `rt_acFactor` is exactly 0 and the 23 live `fullacadjustment` rows reach no emitted number. Nothing here tests the ORDER in which the criteria ratio and the temperature factor reach the A/C increment.",
           "time_span": {
             "start": 0.0,
             "end": 0.0
@@ -18189,6 +18264,9 @@
               "variable": "rt_noxHumidityFactor",
               "time": 0.0,
               "expected": 1.0215927867446069,
+              "tolerance": {
+                "rel": 1e-7
+              },
               "coords": {
                 "rate_rows": 1
               }
@@ -18197,6 +18275,9 @@
               "variable": "rt_noxHumidityFactor",
               "time": 0.0,
               "expected": 1.0095483848288278,
+              "tolerance": {
+                "rel": 1e-7
+              },
               "coords": {
                 "rate_rows": 42
               }
@@ -18205,6 +18286,9 @@
               "variable": "rt_noxHumidityFactor",
               "time": 0.0,
               "expected": 1.0215927867446069,
+              "tolerance": {
+                "rel": 1e-7
+              },
               "coords": {
                 "rate_rows": 83
               }
@@ -18221,6 +18305,9 @@
               "variable": "rt_temperatureFactor",
               "time": 0.0,
               "expected": 1.0215927867446069,
+              "tolerance": {
+                "rel": 1e-7
+              },
               "coords": {
                 "rate_rows": 1
               }
@@ -18229,6 +18316,9 @@
               "variable": "rt_temperatureFactor",
               "time": 0.0,
               "expected": 1.0095483848288278,
+              "tolerance": {
+                "rel": 1e-7
+              },
               "coords": {
                 "rate_rows": 42
               }

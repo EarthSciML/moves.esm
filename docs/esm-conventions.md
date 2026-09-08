@@ -3144,3 +3144,138 @@ that writes a corpus-wide count writes down the date it was true. This
 specification says "40 as this is written, and the corpus grows", which is a
 claim that stays true; "the 39 snapshots" was a claim that was false within the
 hour.
+
+## 37. Retargeting a fixture from INGEST to COMPUTE is checked by that fixture only where the branch is not an identity **[Phase 5, 9 fixtures, 7 byte-identical]**
+
+`docs/meteorology-generator.md` §8.2 rewired the nine fixtures that named
+`ZoneMonthHour.heatIndex`, `.specificHumidity` or `.molWaterFraction` in a
+`float_columns` list so that they DERIVE those columns from
+`ZoneMonthHour.temperature`, `ZoneMonthHour.relHumidity` and
+`County.barometricPressure` instead of reading MOVES's answers back off the
+reference. Eight were retargeted, one turned out to have nothing to retarget,
+and **seven of the nine emitted output that was byte-identical afterwards.**
+
+**Where the heading's numbers come from**, since it claims them: nine fixtures
+named at least one of the three columns; eight bound one to a variable and now
+compute it; `nr-logging-county` bound none (§37.1). Comparing each fixture's
+emitted relation before and after, `cmp` on the CSV: `mixed-onroad` (250 rows),
+`process-airtoxics` (1,288), `process-brakewear` (750), `process-pm-exhaust`
+(1,456), `process-refueling` (336), `process-tirewear` (750) and
+`nr-logging-county` (144) are identical; `process-crankcase-running` (378 of
+1,368 cells) and `process-nox-speciation` (832 of 872) moved.
+
+### 37.1 Measure what a document BINDS, not what it DECLARES
+
+`docs/meteorology-generator.md` opened by saying nine fixtures "read at least
+one of those three columns off disk", and the list was assembled from the nine
+`float_columns` lists. It was wrong in two directions at once, and both were
+found only by opening the documents:
+
+* **`nr-logging-county` named all three and read none.** Its
+  `zonemonthhour` entry projected `heatIndex`, `specificHumidity` and
+  `molWaterFraction`; its variables bind `zoneID`, `monthID`, `hourID` and
+  `temperature` and nothing else off that table. All three columns are **NULL
+  on all 930,816 rows** of that snapshot besides, because it is a NONROAD run
+  and the generator never fired. Three dead entries, on a document nobody would
+  suspect, in the file whose header already explains at length what it reads.
+* **`process-airtoxics` and `process-pm-exhaust` were said to feed the humidity
+  pair into the NOx correction.** Neither projects either column; each says so
+  in its own source note. Only two fixtures consume them.
+
+**The rule: a `float_columns` entry is a declaration of intent, not evidence of
+use. A count of what a corpus "reads" must come from the `update.kind: "data"`
+bindings, and a count of what it reads NON-TRIVIALLY must come from the
+parquet.** The cheap version of both:
+
+```
+grep -o '"file_variable": "<column>"' fixtures/*.esm     # what is bound
+python3 -c "...pq.read_table(f).column(c).null_count..."  # whether it is there
+```
+
+`tools/check-sources.py` will not catch this: its check 4 fails on a projected
+column left OUT of `float_columns`, which is the dangerous direction, and
+reports the reverse as a note. That asymmetry is correct — an unread declared
+column costs nothing at runtime — but it means the declaration list cannot be
+used as an inventory.
+
+### 37.2 A magnitude bound says nothing about a threshold
+
+The retarget's bound was known before it started: the computed columns differ
+from the ingested ones by at most **2.391e−08** relative, 840× below
+`tolerance.toml`'s per-cell gate. That number is worth exactly nothing where the
+column feeds a **clamp**, and across the eight fixtures these three feed five of
+them — the air-conditioning activity quadratic's `clamp(0, 1)`, the EV
+heat-index suppression at 67.0 °F, the EV temperature quadratic's `max(·, 0)`,
+and `bounded_low_then_high` once per humidity column. A clamp does not care how small the error is; it cares whether
+the value is on the same side of the boundary.
+
+**The rule: for every threshold the changed value feeds, state the boundary and
+the margin, and state the CHANGE in the margin separately from the change in the
+value.** `docs/meteorology-generator.md` §8.2.2 is that table. Two things in it
+could not have been guessed from the 2.391e−08:
+
+* The tightest margin in the corpus is `mixed-onroad`'s **0.0999985 °F** below
+  the EV suppression — and it changes by an **exact zero**, not by 2.4e−08,
+  because each of the eight retargeted fixtures' RunSpecs selects an hour below
+  78 °F — seven at hour 7 and 59.5 °F, `mixed-onroad` at hour 9 and 66.9 — and
+  the heat index below 78 °F IS the temperature. The relevant fact was never the
+  size of the error; it was which branch the value lands on.
+* The two humidity margins DO move, by 3.28e−08 and 2.59e−08 **of the margin**.
+  That is the number a reader needs, and it is not the 2.3e−08 relative change
+  in the value; the two agree here only because the margin happens to be the
+  same order as the value.
+
+### 37.3 Where the reference stores its own answer, computing it moves you AWAY from the reference
+
+MOVES writes these three columns into the execution database and its own
+calculators then read the **stored** value back. Two of the three are stored at
+less precision than MOVES computed with — measured over `process-tirewear`'s 24
+rows, 19 of 24 stored specific humidities and 21 of 24 stored mole fractions are
+exactly the binary32 rounding of the value the formula gives. The third,
+`heatIndex`, is stored at full double precision. So:
+
+| column | computed vs stored | what retargeting costs |
+|---|---|---|
+| `heatIndex` | ≤ 7.93e−15 over 24 rows, 17 bit-identical | nothing |
+| `specificHumidity` | 2.2985e−08 | the port moves 2.3e−08 further from MOVES |
+| `molWaterFraction` | 2.2619e−08 | the same |
+
+**The rule: when a port stops reading a reference column and starts computing
+it, say which direction the comparison moves and why, before someone reads the
+third decimal of a worst-cell figure as a regression.** Measured here:
+`process-nox-speciation`'s worst cell went 9.482e−06 → 9.485e−06 against a
+2e−05 gate, and its worst per-pollutant sum went 4.957e−07 → **4.883e−07**, so
+one figure got worse and the other better. Neither is a signal.
+
+The corollary for assertions: the fourteen inline assertions in the two moved
+fixtures that had been transcribed from the stored column KEPT their `expected`
+values and gained a per-assertion `rel: 1e-7` — four times the worse measured
+gap, the gate `components/meteorology.esm` asserts the whole generator at, and
+200× tighter than `tolerance.toml`. Retargeting them to the computed number
+would have been easier and would have turned fourteen checks against MOVES into
+fourteen checks against ourselves (§35.4). Widening `tolerance.toml` would have
+been easier still and would have hidden the direction of §37.3 from every
+fixture at once.
+
+### 37.4 A retarget that changes no byte is not verified by the fixture, and the fixture must say so
+
+This is §23 applied to a new shape, and the shape is worth naming because the
+usual instinct is the opposite one: seven byte-identical outputs after a
+nine-document change reads as *reassurance*. It is the reverse. **Every one of
+those seven would pass with `heat_index`'s regression arm replaced by the
+constant 0**, because no fixture's run hour reaches it.
+
+So each retargeted document says, in the description of the variable that
+changed, which of the two cases it is in — and the two that moved carry the
+cell-by-cell account of what moved and why, because the other half of §23's rule
+is that a change which DOES move bytes has to be explained rather than accepted.
+For `process-crankcase-running` that account has to reach the level of "38 of
+the 80 diesel crankcase rows are exactly 0, and a factor cannot move a zero"
+before the 378 is a number and not a mystery.
+
+**And the rule that follows for the next rung: retargeting is a change of
+INPUTS, so verify it where the inputs vary.** The eight retargeted fixtures span
+two heat indices between them, both below the branch. The 21 populated
+snapshots `components/meteorology.esm` and `run-meteorology-oracle.sh` cover
+span both arms and a sub-freezing temperature. The fixtures are where the
+retarget is *integrated*; they are not where it is *checked*.

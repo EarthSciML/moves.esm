@@ -13,18 +13,26 @@ difference is the reason the rung exists.
 reproduces three columns of an INPUT table.** `MeteorologyGenerator` writes
 `ZoneMonthHour.heatIndex`, `ZoneMonthHour.specificHumidity` and
 `ZoneMonthHour.molWaterFraction` back into the execution database, before any
-calculator runs. Nine fixtures in this repository read at least one of those
-three columns off disk — `process-pm-exhaust`, `process-tirewear`,
-`process-brakewear`, `process-crankcase-running`, `process-refueling`,
-`process-airtoxics`, `process-nox-speciation`, `mixed-onroad` and
-`nr-logging-county` — and until this document **nothing in the port had ever
-produced one of them.** Three of the nine feed them straight into a NOx
-correction (`lib/adjustments.esm`'s `nox_humidity_cfr86` and
-`nox_humidity_cfr1065`) and the rest into air-conditioning branches gated on the
-heat index.
+calculator runs. Nine fixtures in this repository named at least one of those
+three columns in a `float_columns` list — `process-pm-exhaust`,
+`process-tirewear`, `process-brakewear`, `process-crankcase-running`,
+`process-refueling`, `process-airtoxics`, `process-nox-speciation`,
+`mixed-onroad` and `nr-logging-county` — and until this document **nothing in
+the port had ever produced one of them.** Two of the nine feed the humidity
+columns straight into a NOx correction (`lib/adjustments.esm`'s
+`nox_humidity_cfr86` and `nox_humidity_cfr1065`); six more feed the heat index
+into air-conditioning branches; and the ninth, `nr-logging-county`, named all
+three and read none, which §8.2 measures rather than repeats.
 
 So the thing being verified here is not a new emission. It is a set of numbers
 the existing corpus has been resting on.
+
+**Since §8.2 the eight that actually read one COMPUTE it instead**, from
+`temperature`, `relHumidity` and — for the two humidity columns —
+`County.barometricPressure`. §8.2 is the account of that rewiring: what moved
+bit for bit, what did not and therefore is not checked by the fixture that did
+not move, and the margin between every computed value and the threshold it
+feeds.
 
 ---
 
@@ -283,6 +291,7 @@ kind of reuse `docs/esm-conventions.md` §6 is about:
 | `ambient_pressure_kilopascals` | 2× | once per humidity output; see §2.5 |
 | `temperature_over_ice_point` / `ice_point_over_temperature` | 2× / 3× | the reduced temperature and its reciprocal, five applications inside one exponent |
 | `heat_index_regression` | 1× | separated from `heat_index` so that the branch and the polynomial can be read, and perturbed, apart |
+| `vapor_partial_pressure_from_weather` | 3× | MG-4 → MG-5 → MG-6 composed BY REFERENCE. It carries no arithmetic of its own; it exists so that the ORDER of the three steps is written down once instead of in `components/meteorology.esm` and both fixtures that need `PV` (§8.2) |
 
 The ten constants (`inches_hg_to_kilopascals`, `water_ice_point_kelvin`,
 `fahrenheit_freezing_point`, `percent_scale`, `heat_index_threshold`,
@@ -668,7 +677,32 @@ rather than flattering: `ZoneMonthHour` stores twelve decimal places where
 `MOVESOutput.emissionQuant` stores six significant figures, and there is no
 chain of multiplications between the input and the output to accumulate through
 — `heatIndex` is one polynomial and the humidities are four operations past one
-transcendental. 2.391e−08 is that storage limit, not this port's accuracy.
+transcendental.
+
+**2.391e−08 is very nearly not a storage limit at all, and that is a correction
+to what this paragraph used to claim.** An independent measurement over all 41
+snapshots, made after this rung merged, attributes the residual to a single
+INPUT: `County.barometricPressure` is a `float` column in MOVES, which MOVES
+widens to double, while a port that reads the snapshot's decimal text `29.095`
+as an f64 gets a *different* number — 29.095 against 29.094999313354492.
+Narrowing that one input to binary32 and re-widening it improves the corpus's
+two humidity columns by **13.2×** (worst absolute `specificHumidity`
+2.871e−07 → 2.177e−08). Re-derived here on `process-tirewear`'s 24 rows as a
+check on the mechanism rather than on the corpus figure: worst relative
+`specificHumidity` **2.2985e−08 → 1.6520e−09** and `molWaterFraction`
+**2.2619e−08 → 1.6249e−09**, a factor of 13.9 and 13.9.
+
+Two things follow and neither is a change to `lib/meteorology.esm` today.
+First, `temperature` and `relHumidity` must **not** be narrowed the same way:
+the snapshot already stores those as their widened binary32 values, so narrowing
+again double-rounds and makes the answer worse. The rule is per COLUMN and comes
+from what the reference stores, not from a blanket precision choice — which is
+`docs/esm-conventions.md` §17's element-type question arriving on the ingest
+axis. Second, nothing here is worth destabilising: the current worst error is
+2.391e−08 relative, **840× under `tolerance.toml`'s gate**, and this rung and
+the nine fixtures of §8.2 are verified green as they stand. This paragraph
+exists so that a future reader chasing the residual starts from the answer
+instead of from the 5/9 (§7.2), which is settled and is not it.
 
 `components/meteorology.esm` asserts at `rel 1e-7`, four times the worst cell in
 the corpus. That is a real gate: it is 200× tighter than `tolerance.toml`'s
@@ -749,23 +783,193 @@ Closing this would need a captured run whose county input is deliberately
 incomplete, which the characterization corpus does not contain and this rung
 does not add.
 
-### 8.2 What is still read rather than computed
+### 8.2 What is computed rather than read, and what that did NOT prove
 
-The nine fixtures listed at the top of this document **still ingest** the three
-columns. This rung produces them in `components/meteorology.esm` and proves the
-arithmetic against the reference; it does not rewire the fixtures to consume the
-computed values. That is a separate change to nine large documents, each of
-which would have to be re-verified end to end against its own `MOVESOutput`, and
-it is deliberately not bundled here — the risk profile of "prove a generator"
-and "retarget nine fixtures" is not the same, and `docs/esm-conventions.md` §23
-is the rule about measuring whether a fixture can see a stage before moving it
-there.
+This section used to record a deferral. The rewiring is done, so it now records
+what happened, including the part that is a gap.
 
-What that rewiring would buy is bounded and can be stated now: the computed
-columns differ from the ingested ones by at most **2.391e−08** relative, which
-is 840× below `tolerance.toml`'s per-cell gate and 190× to 410× below the cells
-the nine currently report. No fixture's comparison would move measurably. The value would be in removing nine reads from the reference, not in
-accuracy.
+**Eight of the nine fixtures now COMPUTE the columns they used to ingest.** Each
+projects `ZoneMonthHour.temperature` and `ZoneMonthHour.relHumidity` instead of
+`heatIndex`, applies `lib/meteorology.esm`'s `heat_index`, and takes the result
+where the ingested column used to go. Two of the eight —
+`process-crankcase-running` and `process-nox-speciation` — also compute both
+humidity columns, which additionally needs `County.barometricPressure`; they
+project that column too and reach it across `run_countyID = cty_countyID`, the
+last leg of MOVES's `ZoneMonthHour → Zone → County` and the key each already
+used for `GPAFract`.
+
+**The ninth is `nr-logging-county`, and it is not retargeted because there was
+nothing to retarget.** It named all three columns in a `float_columns` list and
+bound **none of them to a variable**: it reads `zoneID`, `monthID`, `hourID` and
+`temperature` off that table and nothing else. This document counted it among
+the nine on the strength of the list. Measured against the parquet, all three
+columns are **NULL on all 930,816 rows** — it is a NONROAD run, so by §0.1 the
+generator never ran and never wrote them. The three entries are deleted rather
+than computed: a column no equation reads is the decoration
+`docs/esm-conventions.md` §23 exists to rule out. (`relHumidity` is left
+declared and bound to nothing, and its note says so; it is an input column
+MOVES supplies, not a generator output.)
+
+#### 8.2.1 What moved, bit for bit
+
+`docs/esm-conventions.md` §23's rule was applied to each fixture: emit the
+output relation before and after and compare the bytes, not the tolerances.
+
+| fixture | rows | outputs | verdict |
+|---|---|---|---|
+| `mixed-onroad` | 250 | heatIndex | **identical** |
+| `process-airtoxics` | 1,288 | heatIndex | **identical** |
+| `process-brakewear` | 750 | heatIndex | **identical** |
+| `process-pm-exhaust` | 1,456 | heatIndex | **identical** |
+| `process-refueling` | 336 | heatIndex | **identical** |
+| `process-tirewear` | 750 | heatIndex | **identical** |
+| `nr-logging-county` | 144 | none (entries deleted) | **identical** |
+| `process-crankcase-running` | 1,368 | all three | **378 cells moved** |
+| `process-nox-speciation` | 872 | all three | **832 cells moved** |
+
+**Seven of the nine did not move one byte, and that is a statement about what
+they check, not about whether the port is right.** The reason is not a small
+error, it is *no* error: every one of the eight ONROAD RunSpecs selects an hour
+whose temperature is below 78 °F — hour 7 at 59.5 °F for seven of them, hour 9
+at 66.900001525879 °F for `mixed-onroad` — so MG-3 takes its sub-78 arm, which
+is the **identity**. The computed heat index is the ingested one bit for bit.
+By §23's corollary the heat-index retarget is therefore **not verified by any
+fixture**: replace `heat_index`'s regression arm with anything at all — the
+constant 0 included — and all eight still pass, because no fixture's run hour
+reaches it. What verifies it is `components/meteorology.esm` over the corpus's
+21 populated snapshots, 532 rows and 1,596 cells, and §6.5's oracle.
+
+The two that moved are the case where a fixture CAN see the stage, and every
+moved cell is accounted for:
+
+| column | `process-nox-speciation` | `process-crankcase-running` |
+|---|---|---|
+| `meanBaseRate`, `SHO`, `activity` | 0 of 872 | 0 of 1,368 |
+| `adjustedMeanBaseRate` | 208 of 872 | 208 of 1,368 |
+| `emissionQuantDirect` | 208 of 872 | 208 of 1,368 |
+| `emissionQuant` | 832 of 872 | 378 of 1,368 |
+| worst relative movement | 7.4418e−09 | 7.4418e−09 |
+
+- The three activity and rate columns cannot move: the humidity enters *after*
+  the base rate.
+- The 208 are NOx-total rows on process 1 and the three fuel types that have a
+  `noxhumidityadjust` row — 82 gasoline, 80 diesel, 46 E85. The 40 electricity
+  rows have no such row and take `k` = 1 exactly.
+- `emissionQuant` moves on more rows than the rate columns do, and differently
+  in the two fixtures, because of what is chained from the NOx total.
+  `process-nox-speciation` adds its 624 speciated rows (pollutants 32/33/34,
+  computed from the total, so they move while their own unadjusted rate columns
+  do not). `process-crankcase-running` adds 170 of its 208 process-15 rows —
+  82 gasoline, 46 E85, 42 of 80 diesel; the other **38 diesel crankcase rows
+  are exactly 0**, and a factor cannot move a zero. Those 208 process-15 rows
+  are also why the rate columns do not move there: crankcase carries no rate of
+  its own and its `meanBaseRate`, `adjustedMeanBaseRate` and
+  `emissionQuantDirect` are all exactly 0.
+- 7.4418e−09 is the CFR 86 factor's own shift, and it is the larger of the two:
+  CFR 1065 shifts 3.6203e−09.
+
+Against the reference the two comparisons barely notice:
+
+| | worst cell before | after | worst per-pollutant sum before | after |
+|---|---|---|---|---|
+| `process-nox-speciation` | 9.482e−06 | 9.485e−06 | 4.957e−07 | 4.883e−07 |
+| `process-crankcase-running` | 8.702e−06 | 8.702e−06 | 3.466e−07 | 3.466e−07 |
+
+against a per-cell gate of 2e−05. `tolerance.toml` is unchanged and no
+`[shortfall]` record was added.
+
+#### 8.2.2 The threshold margins, which are what make this safe
+
+The bound this section used to state — at most **2.391e−08** relative — is a
+bound on a *magnitude*, and three of these columns' consumers are *thresholds*,
+which do not care how small an error is. So each threshold was located and its
+margin measured. Every A/C coefficient below is this snapshot's own
+`monthgrouphour` row (A −3.63154, B 0.072465, C −0.000276), identical in all
+eight; the humidity bounds are `noxhumidityadjust`'s.
+
+| fixture | fed value | threshold | boundary | margin | margin CHANGE |
+|---|---|---|---|---|---|
+| tirewear, brakewear, refueling, airtoxics, pm-exhaust, crankcase-running, nox-speciation | heatIndex 59.500000000000 | A/C activity clamps to 0 | 67.4340633418 °F | **7.9340633 °F** | **0, exactly** |
+| the same seven | heatIndex 59.500000000000 | A/C activity clamps to 1 | 109.9991485909 °F | 50.4991486 °F | 0, exactly |
+| tirewear, brakewear, refueling | heatIndex 59.500000000000 | EV suppression `> 67.0` | 67.0 °F | 7.5000000 °F | 0, exactly |
+| `mixed-onroad` | heatIndex 66.900001525879 | A/C activity clamps to 0 | 67.4340633418 °F | **0.5340618 °F** | **0, exactly** |
+| `mixed-onroad` | heatIndex 66.900001525879 | A/C activity clamps to 1 | 109.9991485909 °F | 43.0991471 °F | 0, exactly |
+| `mixed-onroad` | heatIndex 66.900001525879 | EV suppression `> 67.0` | 67.0 °F | **0.0999985 °F** | **0, exactly** |
+| `mixed-onroad` | heatIndex 66.900001525879 | EV temperature term clamps to 0 (A 0.00225, B 0.00028, ref 72 °F) | 63.9642857143 °F | 2.9357158 °F | 0, exactly |
+| crankcase-running, nox-speciation | specificHumidity 10.053684062398 | `bounded_low_then_high` lower | 3.0 g/kg | 7.0536841 g/kg | **2.31e−07 g/kg** |
+| crankcase-running, nox-speciation | specificHumidity 10.053684062398 | `bounded_low_then_high` upper | 17.71 g/kg | 7.6563159 g/kg | 2.31e−07 g/kg |
+| crankcase-running, nox-speciation | molWaterFraction 0.015929058669 | `bounded_low_then_high` lower | 0.002 | 0.0139290587 | **3.60e−10** |
+| crankcase-running, nox-speciation | molWaterFraction 0.015929058669 | `bounded_low_then_high` upper | 0.035 | 0.0190709413 | 3.60e−10 |
+
+**Every heat-index margin changes by an exact zero**, and not by 2.4e−08: below
+78 °F MG-3 returns its argument, so there is no arithmetic to be inexact about.
+`mixed-onroad`'s 0.0999985 °F is the tightest margin anywhere in the corpus and
+it is the one that needed this table, because 0.1 °F is small enough that a
+reader would want to know the error is not 0.1 °F but 0.
+
+The two humidity margins do move, and by the only amount available: the
+2.2985e−08 and 2.2619e−08 relative gaps of §8.2.3, which are **3.28e−08 and
+2.59e−08 of the nearer margin** in each case — the margin is about 3.1e+07 and
+3.9e+07 times the change. Nothing is close to switching.
+
+#### 8.2.3 Computing the columns makes this port slightly LESS like MOVES
+
+Worth stating plainly, because it looks like a regression and is not. MOVES
+writes these columns into the execution database and its calculators then read
+the **stored** value back. `ZoneMonthHour.specificHumidity` and
+`molWaterFraction` store less precision than MOVES computed with — measured over
+`process-tirewear`'s 24 rows, 19 of 24 stored specific humidities and 21 of 24
+stored mole fractions are exactly the binary32 rounding of the value computed
+here. So a fixture that computes the column is closer to the formula and further
+from the reference:
+
+| | computed | stored | relative |
+|---|---|---|---|
+| `specificHumidity`, hour 7 | 10.053684062398 | 10.053684293477 | **2.2985e−08** |
+| `molWaterFraction`, hour 7 | 0.015929058669 | 0.015929059029 | **2.2619e−08** |
+| `heatIndex`, all 24 hours | — | — | ≤ **7.93e−15**, 17 of 24 bit-identical |
+
+The heat index row is the interesting one: it is stored at full double precision,
+which is why retargeting it costs nothing at all and retargeting the humidities
+costs 2.3e−08. §7.1 records where most of that 2.3e−08 actually comes from — not
+the humidity formula but `County.barometricPressure`'s own binary32 storage, the
+input this retarget newly had to read — and why closing it is deliberately not
+part of this change. That is 870× below `tolerance.toml`'s per-cell gate and it is why
+the fourteen assertions in the two humidity fixtures that were transcribed from
+the stored column keep their reference `expected` values and carry `rel: 1e-7`
+— four times the worse gap, the same gate `components/meteorology.esm` asserts
+the whole generator at, and 200× tighter than `tolerance.toml`. They face the
+reference *across* the port's own arithmetic, which is more than they did
+before, and `docs/esm-conventions.md` §35.4 requires each of them to say so.
+
+#### 8.2.4 What is still read, and what is still not checked
+
+- **`County.altitude`, and with it MG-1 and MG-2.** The two fixtures that need
+  the county pressure do NOT carry the county default fill. MG-1's guard cannot
+  fire on any snapshot in the corpus (§8.1: 22,815 `County` rows, not one with a
+  NULL or non-positive `barometricPressure`), and carrying it anyway would need
+  `County.altitude` — a single-character TEXT column, which `float_columns`
+  cannot deliver — so the fixture would have to write the altitude class down as
+  a constant transcribed from the reference table. That is the one thing a
+  fixture exists not to do, so the fill stays where §8.1 already put it: in
+  `components/meteorology.esm`'s county rows 3–5, checked against the SQL as
+  ported and against MOVES nowhere.
+- **The `run-*-oracle.sh` reproductions.** Each spec's §6.5 Python still reads
+  `ZoneMonthHour["heatIndex"]` straight off the snapshot. That is deliberate —
+  an oracle is a third implementation whose value is being independent of the
+  `.esm` — but it means the oracles are *not* a second check on this rung.
+- **The regression arm at a fixture.** None of the eight retargeted fixtures
+  selects an hour at or above 78 °F — seven take hour 7 at 59.5 °F and
+  `mixed-onroad` hour 9 at 66.9 — so the nine-term polynomial is exercised by no
+  fixture. It IS exercised by `components/meteorology.esm` and by §6.5's oracle,
+  on the seven hours of each populated snapshot that are at or above 78 °F.
+  Reaching it at a fixture would need a new captured RunSpec, which this change
+  does not add.
+- **What a retarget would look like if it went wrong.** Nothing here perturbs a
+  retargeted fixture to confirm the computed column is load-bearing. For the
+  seven identical ones it provably is not, and for the two that moved the moved
+  cells are the demonstration; but no fixture asserts that deleting the chain
+  fails.
 
 ### 8.3 What the generator does that this port does not
 
@@ -804,7 +1008,12 @@ accuracy.
 6. **`relHumidity` is a percent.**
 7. The gate is `rel 1e-7` in the component and the corpus reproduces at
    2.391e−08. Do not widen either; the room is real.
-8. This rung's general lessons are `docs/esm-conventions.md` **§35**: why a
+8. **The fixtures COMPUTE these columns, they do not read them** (§8.2), except
+   `nr-logging-county`, which read none of them in the first place. Seven of the
+   nine emit byte-identical output afterwards and therefore do not check the
+   change; two move, and every moved cell is accounted for in §8.2.1. The
+   general rule is `docs/esm-conventions.md` **§37**.
+9. This rung's general lessons are `docs/esm-conventions.md` **§35**: why a
    generator does not go in `fixtures/` (§35.1), why its scheduling condition is
    half the claim and is asserted on the snapshots that FAIL it (§35.2), why a
    host-language fidelity question is settled by running both candidates

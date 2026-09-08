@@ -779,7 +779,7 @@
       "reader_options": {
         "float_columns": [
           "temperature",
-          "heatIndex"
+          "relHumidity"
         ]
       },
       "extent": {
@@ -789,7 +789,7 @@
         "tags": [
           "adjustment"
         ],
-        "note": "24 rows. Supplies 59.5 degF at hour 7, where the A/C activity quadratic is -0.297 and still clamps to 0 but the EV temperature term is +0.015625 and does NOT -- the arm mixed-onroad could not reach at 66.9 degF.",
+        "note": "24 rows. Supplies 59.5 degF at hour 7, where the A/C activity quadratic is -0.297 and still clamps to 0 but the EV temperature term is +0.015625 and does NOT -- the arm mixed-onroad could not reach at 66.9 degF. `relHumidity` is read and `heatIndex` is NOT: the heat index is DERIVED here from those two columns through lib/meteorology.esm's `heat_index`, so this fixture no longer takes a MeteorologyGenerator output off the reference (docs/meteorology-generator.md 8.2).",
         "esio_format": "parquet"
       }
     },
@@ -1540,6 +1540,12 @@
           "ref": "../lib/keys.esm",
           "only": [
             "model_year_in_range"
+          ]
+        },
+        {
+          "ref": "../lib/meteorology.esm",
+          "only": [
+            "heat_index"
           ]
         }
       ],
@@ -3619,20 +3625,12 @@
           }
         },
         "zmh_heatIndex": {
-          "type": "parameter",
+          "type": "unknown",
           "units": "1",
-          "default": 0.0,
           "shape": [
             "zonemonthhour_rows"
           ],
-          "description": "zonemonthhour.heatIndex, 66.900001525879 degF -- the single number both of this fixture's clamps turn on.",
-          "update": {
-            "kind": "data",
-            "source": "bw_zonemonthhour",
-            "from": {
-              "file_variable": "heatIndex"
-            }
-          }
+          "description": "`ZoneMonthHour.heatIndex`, COMPUTED from `temperature` and `relHumidity` rather than read back off the reference: MeteorologyGenerator.doHeatIndex MG-3, ported as lib/meteorology.esm's `heat_index` and specified in docs/meteorology-generator.md 2.2. It is the dry-bulb temperature below 78 degF and the National Weather Service regression capped at 120 degF at or above it.\n\nThe run's hour is 7, at 59.500000000000 degF, so what reaches `run_heatIndex` is the sub-78 arm and the computed value is the temperature BIT FOR BIT -- which is why this retarget moves not one byte of this fixture's MOVESOutput (docs/esm-conventions.md 23, docs/meteorology-generator.md 8.2). Over all 24 rows the computed column agrees with the reference's stored one to 7.93e-15 relative, 17 of them bit-identical."
         },
         "stmy_modelYearID": {
           "type": "parameter",
@@ -3986,7 +3984,7 @@
           "type": "parameter",
           "units": "1",
           "default": 67.0,
-          "description": "adjust.rs:114. The fixture's 66.900001525879 is one tenth of a degree below this, so the suppression does NOT fire and the EV factor is 1 by its own `adj < 0` clamp instead -- two different reasons for the same 1, and \u00a77.2 shows they diverge 0.3 degF away."
+          "description": "adjust.rs:114. The fixture's heat index is 59.500000000000 degF -- this run selects hour 7, not the hour 9 an earlier copy of this sentence described -- so it is 7.500 degF below the threshold and the suppression does NOT fire. The EV factor is 1 by its own `adj < 0` clamp instead: two different reasons for the same 1, and they diverge once the heat index passes 67.0. The 0.0999985 degF margin this text used to claim is `mixed-onroad`'s, whose hour 9 is at 66.900001525879; docs/meteorology-generator.md 8.2 tabulates both."
         },
         "idleCeilingMph": {
           "type": "parameter",
@@ -4176,7 +4174,7 @@
           "shape": [
             "run_rows"
           ],
-          "description": "66.900001525879 degF. The most precision-sensitive number in the fixture: 0.3 degF up and the A/C adjustment switches on, 0.1 degF up and the EV suppression fires (\u00a77.2)."
+          "description": "The heat index at the run's hour, and the number both of this fixture's clamps turn on. It is 59.500000000000 degF: this run selects hour 7 (`runspechour`), where the temperature is 59.5 and MG-3's sub-78 arm returns it unchanged. It is now COMPUTED by `zmh_heatIndex` rather than read off `ZoneMonthHour.heatIndex`, and because that arm is an identity the computed value is the ingested one bit for bit.\n\nTHE TWO MARGINS, measured against this snapshot's own `monthgrouphour` row (A -3.63154, B 0.072465, C -0.000276): the A/C activity quadratic crosses 0 at a heat index of 67.4340633418 degF, so 59.5 is 7.934 degF below the clamp; the EV suppression fires above 67.0 degF, so 59.5 is 7.500 degF below it -- which is what docs/process-brakewear.md 7.3 says. The prose here used to claim 66.900001525879 with margins of 0.3 and 0.1 degF, which is `mixed-onroad`'s hour 9 and not this fixture's hour 7; this file's own `run_heatIndex` assertion of 59.5 contradicted it. docs/meteorology-generator.md 8.2 carries the margin table for all eight retargeted fixtures."
         },
         "run_acActivityTermA": {
           "type": "unknown",
@@ -5342,12 +5340,28 @@
           "shape": [
             "zonemonthhour_rows"
           ],
-          "description": "zonemonthhour.temperature, 59.5 degF at hour 7. The temperature adjustment reads THIS column and the A/C activity term and the EV suppression read `heatIndex`; the two are equal in every row of this snapshot, so the distinction costs nothing here and is made because adjust.rs:495-535 makes it.",
+          "description": "zonemonthhour.temperature, 59.5 degF at hour 7. The temperature adjustment reads THIS column and the A/C activity term and the EV suppression read `zmh_heatIndex`; the two are equal on the 17 of this snapshot's 24 hours below 78 degF -- hour 7 among them -- and differ by up to 1.6 degF on the other seven, so the distinction costs nothing at THIS hour and is made because adjust.rs:495-535 makes it.",
           "update": {
             "kind": "data",
             "source": "bw_zonemonthhour",
             "from": {
               "file_variable": "temperature"
+            }
+          }
+        },
+        "zmh_relHumidity": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "zonemonthhour_rows"
+          ],
+          "description": "zonemonthhour.relHumidity, in PERCENT and not as a fraction -- 90.400001525879 at hour 7. It is the second argument of the heat-index regression and is read for no other purpose; below 78 degF the regression is not evaluated at all, so on this fixture's own hour the column is ingested and then not used.",
+          "update": {
+            "kind": "data",
+            "source": "bw_zonemonthhour",
+            "from": {
+              "file_variable": "relHumidity"
             }
           }
         },
@@ -6762,7 +6776,20 @@
           }
         },
         {
-          "_comment": "J28: the heat index both of S15's clamps turn on, read for the run's zone, month and hour.",
+          "_comment": "MG-3: heatIndex is DERIVED, not ingested. Below 78 degF it is the dry-bulb temperature; at or above it, the National Weather Service regression capped at 120. docs/meteorology-generator.md 2.2.",
+          "lhs": "zmh_heatIndex",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "heat_index",
+            "bindings": {
+              "temperature_degF": "zmh_temperature",
+              "rel_humidity_percent": "zmh_relHumidity"
+            }
+          }
+        },
+        {
+          "_comment": "J28: the heat index both of S15's clamps turn on, for the run's zone, month and hour.",
           "lhs": "run_heatIndex",
           "rhs": {
             "op": "aggregate",
