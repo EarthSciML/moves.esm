@@ -9,7 +9,7 @@ the other.
 records why `OperatingModeDistributionGenerator`,
 `LinkOperatingModeDistributionGenerator` and the two `MesoscaleLookup` ones are
 not here — no RunSpec in the corpus selects the project or mesoscale-lookup
-domain, and `OpModeDistribution` is empty in all 40 snapshots.
+domain, and `OpModeDistribution` is empty in all 42 snapshots.
 
 ---
 
@@ -38,8 +38,9 @@ for the coverage tool's fixture leg (`docs/esm-conventions.md` §35.1).
 ### 0.1 Which runs they fire on, and how that was established
 
 Both halves of a generator's claim are checked (§35.2): the rows, and *which
-runs produce rows at all*. The predicates, asserted on all 40 snapshots
-including the 31 that fail them:
+runs produce rows at all*. The predicates, asserted on all 42 snapshots
+carrying an execution database — 42 as this is written, and the corpus grows —
+including the 33 and 37 that fail them:
 
 > `StartOpModeDistribution` populated ⇔ ONROAD **and** the run selects **Start
 > Exhaust (2)**
@@ -50,7 +51,7 @@ including the 31 that fail them:
 
 **The source type in the second predicate is not decoration, and leaving it out
 is the mistake this rung nearly made.** `RatesOperatingModeDistributionGenerator`
-subscribes to processes 1, 90 and 91 and is class-loaded in **28** of the 40
+subscribes to processes 1, 90 and 91 and is class-loaded in **30** of the 42
 snapshots, but all four of its live `INSERT` statements are pinned to source
 type 62 — through `sourceTypePolProcess` for the first of each pair and through
 `runSpecSourceType` for the second. Six snapshots select Extended Idle for
@@ -208,7 +209,7 @@ Running-Exhaust branch of `calculateOpModeFractions` in favour of
 subscription, step 200 and step 210.
 
 The corpus corroborates it rather than taking the flags' word: Running Exhaust
-is selected in 22 of the 40 snapshots and **not one row** of any snapshot's
+is selected in 31 of the 42 snapshots and **not one row** of any snapshot's
 `RatesOpModeDistribution` is attributable to this module on process 1.
 
 ## 5. The fact about `StartOperatingModeDistributionGenerator` most likely to be missed
@@ -656,7 +657,7 @@ def main(root):
     if rates_worst >= 2e-5:          bad.append("worst relative error %.4g >= 2e-5" % rates_worst)
     if sched_bad:                    bad.append("%d snapshots disagree with the "
                                                 "scheduling predicate" % sched_bad)
-    if sched_checked < 40:           bad.append("only %d snapshots swept, expected >= 40"
+    if sched_checked < 42:           bad.append("only %d snapshots swept, expected >= 42"
                                                 % sched_checked)
     if bad:
         for b in bad:
@@ -691,7 +692,7 @@ temporary table — and everything downstream of them faces the reference.
 
 ### 7.1 The measured result
 
-`./run-omd-oracle.sh`, over all 40 snapshots carrying an execution database:
+`./run-omd-oracle.sh`, over all 42 snapshots carrying an execution database:
 
 | | |
 |---|---|
@@ -702,7 +703,7 @@ temporary table — and everything downstream of them faces the reference.
 | worst relative error | **4.388 × 10⁻⁶** |
 | four-decimal quotient | bit-exact on **124 of 124** |
 | exact IEEE ratio | bit-exact on **15 of 124**, worst relative **5.767 × 10⁻³** |
-| scheduling predicate | **40** snapshots, **0** disagreeing |
+| scheduling predicate | **42** snapshots, **0** disagreeing |
 
 The 4.388 × 10⁻⁶ is not accumulated error. It is the single-precision `FLOAT`
 column `RatesOpModeDistribution.opModeFraction` against the `DOUBLE` input
@@ -756,8 +757,8 @@ and this is a fact about MOVES.
 `OperatingModeDistributionGenerator`, `LinkOperatingModeDistributionGenerator`,
 `MesoscaleLookupOperatingModeDistributionGenerator`,
 `MesoscaleLookupTotalActivityGenerator` and `NewTvvYearGenerator` are
-class-loaded in **0** of the 40 snapshots and `OpModeDistribution` is empty in
-all 40. Reaching any of them needs a project-scale or mesoscale-lookup RunSpec
+class-loaded in **0** of the 42 snapshots and `OpModeDistribution` is empty in
+all 42. Reaching any of them needs a project-scale or mesoscale-lookup RunSpec
 captured in `moves.rs`. `docs/omd-generator-reachability.md` has the evidence.
 
 ### 8.2 The inventory branch of step 400 is ported from the SQL and not checked

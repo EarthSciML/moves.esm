@@ -13,9 +13,9 @@
 # IT IS HANDED THE SNAPSHOTS DIRECTORY, NOT ONE SNAPSHOT. Both modules are
 # GENERATORS: they write execution-database tables and emit no `MOVESOutput`
 # row, so there is no single fixture whose output they reproduce. What there is
-# instead is a scheduling rule with two halves, and 40 snapshots of which 9 run
+# instead is a scheduling rule with two halves, and 42 snapshots of which 9 run
 # `StartOperatingModeDistributionGenerator` and 5 emit rows from
-# `RatesOperatingModeDistributionGenerator`. The 31 and 35 that do not are the
+# `RatesOperatingModeDistributionGenerator`. The 33 and 37 that do not are the
 # evidence; without them the subscription list is a comment.
 #
 # What it proves. From `SampleVehicleTrip`, `SampleVehicleDay`, `OperatingMode`,
@@ -42,7 +42,7 @@
 #     the four-decimal quotient          bit-exact on every row
 #     the exact IEEE ratio               still distinguishable at > 2e-5, so the
 #                                        assertion above is doing work
-#     the scheduling predicate           every snapshot agrees (40 of 40 today)
+#     the scheduling predicate           every snapshot agrees (42 of 42 today)
 #
 # 4.388e-06 is the reference's own single-precision FLOAT storage of
 # `RatesOpModeDistribution.opModeFraction` against the DOUBLE it is copied from,

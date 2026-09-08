@@ -1162,18 +1162,18 @@ rather than on their names.
 
 **Two of seven generators in this family are reachable from the corpus, and the
 other five need a RunSpec that does not exist yet.** Measured by rolling
-`java_classes` across the 40 snapshots carrying an `execution-trace.json` and
+`java_classes` across the 42 snapshots carrying an `execution-trace.json` and
 corroborating each load against the generator's own output table:
 
 | generator | class-loaded in | emits rows in | reachable? |
 |---|---:|---:|---|
-| `RatesOperatingModeDistributionGenerator` | 28 / 40 | 5 | **yes** |
-| `StartOperatingModeDistributionGenerator` | 9 / 40 | 9 | **yes** |
-| `OperatingModeDistributionGenerator` | 0 / 40 | 0 | no |
-| `LinkOperatingModeDistributionGenerator` | 0 / 40 | 0 | no |
-| `MesoscaleLookupOperatingModeDistributionGenerator` | 0 / 40 | 0 | no |
-| `MesoscaleLookupTotalActivityGenerator` | 0 / 40 | 0 | no |
-| `NewTvvYearGenerator` | 0 / 40 | 0 | no |
+| `RatesOperatingModeDistributionGenerator` | 30 / 42 | 5 | **yes** |
+| `StartOperatingModeDistributionGenerator` | 9 / 42 | 9 | **yes** |
+| `OperatingModeDistributionGenerator` | 0 / 42 | 0 | no |
+| `LinkOperatingModeDistributionGenerator` | 0 / 42 | 0 | no |
+| `MesoscaleLookupOperatingModeDistributionGenerator` | 0 / 42 | 0 | no |
+| `MesoscaleLookupTotalActivityGenerator` | 0 / 42 | 0 | no |
+| `NewTvvYearGenerator` | 0 / 42 | 0 | no |
 
 `docs/omd-generator-reachability.md` is the measurement. The five unreachable
 ones are not a gap of the same kind as the five unexercised calculators above:
@@ -1183,8 +1183,8 @@ is a larger change to the capture. `NewTvvYearGenerator` is worse still: its
 `java_path` in `calculator-dag.json` is the empty string, so `CalculatorInfo.txt`
 names it and the source scan found no class to attach it to.
 
-**The 28-versus-5 line in that table is the point.** `RatesOMDG` is loaded in
-28 snapshots and emits in five, because all four of its live statements are
+**The 30-versus-5 line in that table is the point.** `RatesOMDG` is loaded in
+30 snapshots and emits in five, because all four of its live statements are
 pinned to source type 62. Class-loaded and produced-output are different
 events, and a rung planned on the first number would be planned on a number
 five times too large. `docs/esm-conventions.md` §39.3 is the rule.

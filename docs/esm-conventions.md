@@ -3599,7 +3599,7 @@ obvious generalization is that a generator's predicate is its subscription.
 
 `RatesOperatingModeDistributionGenerator` is the counterexample, and the corpus
 contains six snapshots that make the difference visible. It subscribes to
-processes 1, 90 and 91, and it is class-loaded in **28 of the 40** snapshots.
+processes 1, 90 and 91, and it is class-loaded in **30 of the 42** snapshots.
 All four of its live `INSERT` statements are pinned to **source type 62** — the
 only hotelling source type — through `sourceTypePolProcess` for the first of
 each pair and `runSpecSourceType` for the second. `expand-counties`,
@@ -3612,7 +3612,11 @@ the generator, runs it, and it writes nothing. The predicate that holds on all
 > `runSpecSourceType`
 
 and the one written on the subscription alone calls six correct snapshots
-failures.
+failures. The corpus grew from 40 snapshots to 42 while this rung was in
+progress, and the predicate held on both newcomers unchanged -- both are ONROAD,
+both class-load the generator for Running Exhaust, both emit nothing. That is
+§35.5's floor-not-equality design paying for itself the first time it was
+tested.
 
 **The rule: derive the scheduling predicate from the WHERE clauses of the
 statements that emit, not from `subscribeToMe`.** A subscription says when the
@@ -3621,7 +3625,7 @@ anything, and it is the second that a snapshot can disagree with. The same
 distinction under a different name is the one the calculator track met at
 `nr-pleasure-craft-state`, and it is the one `docs/omd-generator-reachability.md`
 had to apply on the other side to decide which of this family were portable at
-all: **class-loaded in 28 snapshots, emitting in 5.**
+all: **class-loaded in 30 snapshots, emitting in 5.**
 
 ### 39.4 When two modules write one table, the port must name the partition
 

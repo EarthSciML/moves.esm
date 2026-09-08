@@ -19,9 +19,9 @@ Java classes MOVES loaded for that run.
 
 > **The brief for this work said the evidence is a `kind: "generator"` entry in
 > `java_classes`. There is no such entry anywhere in the corpus.** Rolled over
-> all 40 traces, `java_classes[*].kind` takes exactly five values —
-> `common` (2,311), `framework` (2,518), `master` (1,791), `utils` (70) and
-> `worker` (40). Generators are `kind: "master"` (or `framework`, for the
+> all 42 traces, `java_classes[*].kind` takes exactly five values —
+> `common` (2,451), `framework` (2,644), `master` (1,895), `utils` (74) and
+> `worker` (42). Generators are `kind: "master"` (or `framework`, for the
 > abstract `Generator` base). The signal that works is the class NAME.
 
 ```
@@ -44,23 +44,28 @@ loading is corroborated against the row count of the execution-database table
 it writes, read from the parquet footer (`pq.ParquetFile(f).metadata.num_rows`
 — never `read_table().to_pydict()`, which has OOMed this machine).
 
-The corpus as measured: **41 snapshot directories, 40 with an
+The corpus as measured: **43 snapshot directories, 42 with an
 `execution-trace.json`** (`mixed-onroad-nonroad` carries `tables/` only), at
-`moves.rs` commit `7e02269`.
+`moves.rs` commit `3c07836`. It was 41 and 40 when this note was first written;
+`chain-so2-co2e-mechanism` and its control landed while the rung was in
+progress and moved every count below, which is §35.5's point about writing down
+the date a corpus-wide figure was true. **Neither changes a verdict**: both are
+ONROAD, both class-load `RatesOperatingModeDistributionGenerator` for Running
+Exhaust, and both emit **zero** `RatesOpModeDistribution` rows.
 
 ## The table
 
 | generator | class-loaded in | writes | snapshots with rows | reachable? |
 |---|---:|---|---:|---|
-| `RatesOperatingModeDistributionGenerator` | **28** / 40 | `RatesOpModeDistribution` | **14** | **yes** |
-| `StartOperatingModeDistributionGenerator` | **9** / 40 | `StartOpModeDistribution` | **9** | **yes** |
-| `OperatingModeDistributionGenerator` | 0 / 40 | `OpModeDistribution` | 0 (empty in all 40) | no |
-| `LinkOperatingModeDistributionGenerator` | 0 / 40 | `OpModeDistribution` | 0 (empty in all 40) | no |
-| `MesoscaleLookupOperatingModeDistributionGenerator` | 0 / 40 | `OpModeDistribution` | 0 (empty in all 40) | no |
-| `MesoscaleLookupTotalActivityGenerator` | 0 / 40 | `SourceHours`, `SHO` | — | no |
-| `NewTvvYearGenerator` | 0 / 40 | — | — | no |
+| `RatesOperatingModeDistributionGenerator` | **30** / 42 | `RatesOpModeDistribution` | **14** | **yes** |
+| `StartOperatingModeDistributionGenerator` | **9** / 42 | `StartOpModeDistribution` | **9** | **yes** |
+| `OperatingModeDistributionGenerator` | 0 / 42 | `OpModeDistribution` | 0 (empty in all 42) | no |
+| `LinkOperatingModeDistributionGenerator` | 0 / 42 | `OpModeDistribution` | 0 (empty in all 42) | no |
+| `MesoscaleLookupOperatingModeDistributionGenerator` | 0 / 42 | `OpModeDistribution` | 0 (empty in all 42) | no |
+| `MesoscaleLookupTotalActivityGenerator` | 0 / 42 | `SourceHours`, `SHO` | — | no |
+| `NewTvvYearGenerator` | 0 / 42 | — | — | no |
 
-`FuelEffectsGenerator` (22 / 40) is the eighth unported generator and belongs to
+`FuelEffectsGenerator` (24 / 42) is the eighth unported generator and belongs to
 a parallel rung; it is listed here only so the eight add up.
 
 ### Which snapshots, exactly
@@ -94,7 +99,7 @@ working table) and a populated `StartOpMode` input table — three independent
 corroborations of one predicate.
 
 **`RatesOperatingModeDistributionGenerator` is the case the brief warned about:
-28 loaded, 14 with rows.** Loading it and running it are different events, and
+30 loaded, 14 with rows.** Loading it and running it are different events, and
 half the loads produce nothing. Its subscription list (processes 1, 90 and 91)
 is what decides which; process 1's contribution is delegated to the external
 `SourceTypePhysics` generator, so this module's own live output is the
@@ -118,7 +123,7 @@ not about op modes at all — `subscriptions[*].source`:
   constant, because these classes are wired up by the **project-scale** and
   **mesoscale-lookup** domains rather than by `CalculatorInfo.txt`. No RunSpec
   in the corpus selects either domain, and `OpModeDistribution` is
-  correspondingly empty — 0 rows — in all 40 snapshots.
+  correspondingly empty — 0 rows — in all 42 snapshots.
 * `NewTvvYearGenerator` is the sharpest case: its `java_path` in
   `calculator-dag.json` is the **empty string**. `CalculatorInfo.txt` names it
   against process 12, but the scan of the pinned MOVES source found no class by
