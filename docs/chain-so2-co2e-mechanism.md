@@ -18,7 +18,7 @@ of them changed how the document is written rather than only what it computes.
   twenty-six SUM several, and §2.6 is the second pass that costs.
 * **`runspecchainedto` is not a complete statement of the chain.** It declares
   SO2's parent and says nothing about the other two calculators', which carry
-  theirs as Java constants. §2.5 and finding **F41**.
+  theirs as Java constants. §2.5, and `docs/esm-conventions.md` §40.2.
 * **`TOGSpeciationCalculator` is much smaller than its registration count.**
   `calculator-dag.json` credits it with 184 registrations. Against the pinned
   default database it registers 24 pairs and writes exactly one pollutant.
@@ -284,7 +284,7 @@ this document computes the first because its energy is still per formulation.
 it; `CO2AERunningStartExtendedIdleCalculator` carries `TOTAL_ENERGY_POLLUTANT_ID`
 as a Java constant (co2ae:161). The document unions MOVES's declaration with the
 one calculator constant it needs and asserts the two never overlap
-(`run_chainDeclarationOverlap`). Finding **F41**.
+(`run_chainDeclarationOverlap`). `docs/esm-conventions.md` §40.2.
 
 **Electricity fails SO2 twice and CO2 never**, and the difference is the whole
 of §0.2's 104-versus-125:
@@ -377,13 +377,24 @@ The joins this fixture adds to `docs/process-airtoxics.md` §3:
 | J53 | rate × day × rate × `integratedspeciesset` | — | `cohortOrdinal`; `pollutantID` | the NonHAPTOG gate |
 
 **J51–J53 are the new shape**, and the thing to notice is that the *left* side
-of each contributes only a scalar predicate. The alternative — a weight indexed
-by `(output pollutant-process, input pollutant-process)` — needs a two-sided
-join through a third relation on a column both sides carry, and then a five-
-symbol aggregate to read it back. Writing each calculator's summand set the way
-its own source writes it keeps every join one-sided and costs three aggregates
-instead of one general one. §27.1's "a `join.on` key column must be 1-D" is the
-neighbouring rule.
+of each contributes only a scalar predicate.
+
+**The general alternative works, and was measured rather than assumed.** A
+single weight relation indexed by `(output pollutant-process, input
+pollutant-process)` needs a **two-sided** join: `rt_polProcessID` on the left
+matching `rct_outputPolProcessID` and `rt_polProcessID` on the right matching
+`rct_inputPolProcessID`, which is the same column on both sides of one clause
+list. A per-clause `syms` pair resolves it, and a probe on this fixture confirms
+it drives correctly — 8601 picks up 208 non-zero cells, the sum of its two
+declared inputs, and every other chained pollutant-process picks up its own.
+
+So the choice between the two is a **fidelity** question, not a capability one,
+and it goes the other way: `runspecchainedto` does not declare CO2 Equivalent's
+or NonHAPTOG's summands at all (§2.5), so a table-driven form would have to be
+half table and half constant. Writing each calculator's summand set the way its
+own source writes it keeps all three the same shape and keeps every join
+one-sided. §27.1's "a `join.on` key column must be 1-D" is the neighbouring
+rule, and it is not the obstacle here.
 
 Three of the new lookups (J46, J47, J48) decode a **self-described model-year
 band** — `beginYYYYendYYYY` in one column — with `lib/keys.esm`'s

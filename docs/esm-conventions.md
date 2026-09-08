@@ -3494,3 +3494,192 @@ snapshots `components/meteorology.esm` and `run-meteorology-oracle.sh` cover
 span both arms and a sub-freezing temperature. The fixtures are where the
 retarget is *integrated*; they are not where it is *checked*.
 
+
+---
+
+## 40. A chain that SUMS is a second pass, and MOVES's own chain table does not declare it **[Phase 6, 5,534 rows, calculators 19 of 19]**
+
+`chain-so2-co2e-mechanism` is the last three unported calculators —
+`SO2Calculator`, `CO2AERunningStartExtendedIdleCalculator` and
+`TOGSpeciationCalculator` — and it is the first slice in this port where the
+**shape of the chain** changed rather than its depth. §32 reached a chain three
+levels deep; every level was a MULTIPLICATION. Three of this run's twenty-six
+pollutant-processes are SUMS, and that is not a deeper chain, it is a different
+one.
+
+Everything in §1–§39 held. The six sections below are what this rung added.
+
+### 40.1 A summed pollutant is not a chain step at any depth, so it needs its own pass
+
+```
+TOG       (86) = NMOG + methane                          hcspeciation.rs:767
+CO2e      (98) = 1×CO2 + 28×CH4 + 265×N2O                co2ae step 2
+NonHAPTOG (88) = max(NMOG − Σ 14 integrated species, 0)   togspeciation.rs
+```
+
+Each reads rows the same document has already emitted, and MOVES says so
+literally: `CO2AE` step 2's SQL runs **after** step 1a's `INSERT` and selects
+from `MOVESWorkerOutput`, so the Atmospheric CO2 rows it sums are ones the same
+calculator has just written. A port that ran step 2 off the energy would use the
+same three weights and get a different answer.
+
+**The rule: split the emitted quantity into a DIRECT stage and a SUMMED stage,
+and check that the summed one does not feed itself.** Here it does not — none of
+86, 98 and 88 is a summand of another — so one extra pass suffices, and *that is
+a property of this run to be asserted rather than a law*. The document computes
+`rtDay_directQuant`, then three signed aggregates over the same relation joined
+on the cohort, then their union.
+
+Two consequences that are easy to get wrong:
+
+* **A summed row must be held OUT of the chain-root resolution.** `8601` is the
+  only pollutant-process in this run with **two** `runspecchainedto` rows, and
+  the existing parent-join aggregate sums the matches — 8001 + 501 = **8501**, a
+  pollutant-process that does not exist. `rspp_isSummed` is what prevents it,
+  and the failure it prevents is silent: 8501 matches nothing, so the row would
+  simply have emitted zero.
+* **A summed row's emission mask is the UNION of its summands'**, because the
+  SQL's `group by` makes a row of every group present. TOG's two summands are
+  both 104 cohorts; CO2 Equivalent's are 125, 104 and 124 and union to 125.
+  Taking the intersection, or the first summand's, gives 104 where the reference
+  has 125.
+
+### 40.2 A declaration table is not a complete declaration; check it against the calculator
+
+`runspecchainedto` is MOVES's own statement of which pollutant-process is
+computed by scaling which other one, and §32 taught reading the chain from it
+rather than writing it down. **It is not complete, and nothing in the table says
+so.** In this run it carries 21 rows, and:
+
+| pollutant-process | chained? | declared in `runspecchainedto`? |
+|---|---|---|
+| 3101 (SO2) | yes, off 9101 | **yes** |
+| 9001 (Atmospheric CO2) | yes, off 9101 | **no** |
+| 9801 (CO2 Equivalent) | yes, off 9001/501/601 | **no** |
+| 8801 (NonHAPTOG) | yes, off 8001 and the species | **no** |
+| 8601 (TOG) | yes, off 8001 and 501 | **twice** |
+
+The reason is a fact about MOVES rather than about the data: **only
+`AirToxicsCalculator` reads that table.** `HCSpeciationCalculator` has no
+`ChainedTo` table at all, and `CO2AE` and `TOGSpeciation` carry their input
+pollutants as Java constants — `co2ae:161`'s `TOTAL_ENERGY_POLLUTANT_ID`,
+`co2ae:168`'s `"90,5,6"`, `togspeciation.rs`'s NMOG.
+
+**The rule: a table that declares structure is evidence about the calculators
+that READ it, and which those are is a question with an answer in the source.**
+Read the table where a calculator reads it, and write the constant where a
+calculator carries one — then union the two and **assert they are disjoint**.
+`run_chainDeclarationOverlap` is that assertion, and it is worth more than the
+union it guards: MOVES writes a `runspecchainedto` row for a pollutant-process
+exactly when no calculator carries its input as a constant, and if that ever
+stops being true the document would silently double a factor.
+
+The neighbouring temptation is to normalise: to write all four chains as table
+rows, or all four as constants. Both lose the distinction, and the distinction
+is the fact.
+
+### 40.3 Measure the general alternative before preferring the specific one
+
+The three summed stages are three aggregates, one per calculator, each with a
+scalar predicate on the left and its own table on the right. The general
+alternative is one aggregate against a weight relation indexed by
+`(output pollutant-process, input pollutant-process)`, which needs a **two-sided
+join**: the same column, `rt_polProcessID`, matching a different column of a
+third relation on each side of one clause list.
+
+**It works.** A per-clause `syms` pair resolves the ambiguity, and a probe on
+this fixture drove it correctly — 8601 picked up 208 non-zero cells, the sum of
+its two declared inputs, and every other chained pollutant-process picked up its
+own. Recorded here because a reader of the three-aggregate form would reasonably
+assume the general one had been refused.
+
+**The rule: when a document chooses the specific spelling over the general one,
+say whether the general one was unavailable or merely unwanted, and measure
+which.** Here it is unwanted and the reason is §40.2's: a table-driven weight
+would be half table and half constant, because `runspecchainedto` does not
+declare two of the three. That is a fidelity argument, and it survives; "the
+format could not express it" would have been a false one.
+
+### 40.4 Two rate tables that differ by one key pair, and what the difference is worth
+
+`emissionratebyage` and `emissionrate` are the same relation with and without an
+`ageGroupID` key: a criteria pollutant's rate deteriorates and a source bin
+carries seven of them, while energy and N2O do not and carry one. Three roots,
+two tables, and the document writes **both lookups** rather than a widened one.
+
+The measurable consequence is small and entirely structural. Model year 2000
+electricity has no `emissionratebyage` row at age group 2099, so THC drops that
+cohort; `emissionrate` has no age group to be missing, so Total Energy keeps it.
+**That one cohort is the whole difference between this fixture's 125-row blocks
+and its 124-row ones** — 8 of the 5,534 rows, and no numeric error anywhere.
+
+**The rule: when two lookups differ by one key pair, the union of their results
+is only a union while their key SETS are disjoint, and that is a thing to
+assert.** `run_rateTableOverlap` counts the rate rows both tables serve and is
+0. Without it, a snapshot that gained an `emissionrate` row for polProcessID 101
+would double every THC rate and the fixture would fail somewhere that looks like
+arithmetic.
+
+### 40.5 A registration count is an upper bound against a database, not a size
+
+`calculator-dag.json` credits `TOGSpeciationCalculator` with **184
+registrations** — sixteen CB05 mechanism pseudo-pollutants 1000…1018 plus
+NonHAPTOG across twelve organic-gas processes — and a plan that sized the rung
+from that number would have budgeted for the largest calculator in the port.
+
+Measured over the corpus, by unioning all 42 snapshots' `pollutant` tables:
+**116 distinct pollutantIDs, maximum 3000, and not one of 1000–1018.** Against
+the pinned default database the calculator registers **24** pairs, and its
+`Section Processing` algorithm writes exactly **one** pollutant, 88 — the
+individual mechanism species are computed upstream by `AirToxicsCalculator` and
+the pseudo-pollutants are chain bookkeeping.
+
+**The rule: a `registrations_count` is what a calculator would register against
+a database that had every pollutant it names. Divide it by the database before
+quoting it, and quote both numbers.** The corollary is the one that costs time:
+`tools/calculator-coverage.py` prints the DAG figure, correctly, because the DAG
+is the authoritative module inventory — so the correction belongs in the port
+specification beside it and not in the tool.
+
+The same rung supplies the matching rule for *scheduling*. §35.2 established
+that a generator's port has a second half — which runs produce output at all.
+For a calculator the analogue is which snapshot exercises it, and
+**class-loading is not that signal**: `TOGSpeciationCalculator` is class-loaded
+in all 42 snapshots because `ExecutionRunSpec` calls its static
+`needsFinalAggregation()` whether or not a mechanism is selected. The
+discriminator is a table — `integratedSpeciesSet`, 14 rows in one snapshot and 0
+in the other 41, *including* the one named `chain-tog-speciation`. **Pick the
+snapshot by the INPUT the calculator cannot run without, never by the class
+list.**
+
+### 40.6 Retargeting moves every ordinal, so re-address every assertion and not the failing ones
+
+§27.3 makes a retarget the first move on a new rung, and this one paid: pointing
+`fixtures/process-airtoxics.esm` at this snapshot, with a path substitution and
+a model rename and no new equation, reproduced **2,538 of the 5,534 rows** with
+an exact key set at a worst relative error of 8.207e-06.
+
+What a retarget also does is move every ordinal. The pollutant-process relation
+grew from 6 rows to 27, so every coordinate into it, into the rate relation
+(pollutant-process-major over the cohorts) and into the output relation now
+names something else. 288 inherited assertions, 77 failing.
+
+**The rule: re-address EVERY affected coordinate, not the failing ones.** An
+assertion that used to name pollutant-process 2 and still passes now names a
+different pollutant-process and is checking something else while reading green —
+the eleventh instance of this repository's plausible-wrong-value failure, and
+the first where the wrong value is a *coordinate* rather than a number. Of the
+135 rate-relation coordinates re-addressed here, 65 were passing beforehand.
+
+Two things make the re-addressing checkable rather than a leap:
+
+* **After a purely mechanical re-address, exactly one assertion should still
+  fail** — the one whose claim genuinely changed. Here it was
+  `run_outputRateRowCount`, 644 → 2,767. One failure is evidence the remap was
+  an address change; a handful would have meant it was also a claim change.
+* **An output-relation assertion is re-addressed by KEY, not by ordinal.** Emit
+  the old fixture's `out_pollutantID` / `out_dayID` / `out_modelYearID` /
+  `out_fuelTypeID`, look each old ordinal's key up in the new fixture's, and
+  re-read its `expected` from the new snapshot's `MOVESOutput`. The document
+  says WHERE and the reference says WHAT, which is §12's rule surviving a
+  change of address.
