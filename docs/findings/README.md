@@ -77,6 +77,8 @@ passing was the defect. It is fixed, so that check is gone.
 The repros are excluded from the ordinary `validate` and `test` stages, because
 three of them do not load.
 
+**All nine repro-carrying findings open at the pin are now filed upstream** (2026-09-08): F2 #261, F3 #265, F5 #266, F13 #260, F14 #259, F20 #262, F21 #263, F22 #264, F28 #267. Each was A/B'd against EarthSciAST `68574b653` before filing and still reproduces there; none of the 104 commits since the pin fixed any of them. F3, F5 and F28 were filed as DIAGNOSTIC/DOCUMENTATION requests rather than defects, because this file already records each as correct-or-conforming behaviour -- F28 says so in as many words. F34 was fixed by #238, which is merged.
+
 | | Finding | Fails at | Silent? |
 |---|---|---|---|
 | **F2** | A top-level `models` `{ref}` does not merge the referenced file's `index_sets` | validate | no |
@@ -185,6 +187,8 @@ mounted sibling, leaving this node's own binders alone.
 
 ## F2 — a top-level `{ref}` does not merge `index_sets`
 
+**Filed upstream: [EarthSciML/EarthSciAST#261](https://github.com/EarthSciML/EarthSciAST/issues/261)**, verified still reproducing on `68574b653`.
+
 `F2_toplevel_ref_does_not_merge_index_sets.esm`.
 
 ```
@@ -206,6 +210,8 @@ the merge's conflict check, performed by the harness because the loader does
 not perform it here.
 
 ## F3 — `enums` do not cross a template import
+
+**Filed upstream: [EarthSciML/EarthSciAST#265](https://github.com/EarthSciML/EarthSciAST/issues/265)**, verified still reproducing on `68574b653`.
 
 `F3_enums_do_not_cross_a_template_import.esm` (with `F3_lib_with_enum.esm`).
 
@@ -261,6 +267,8 @@ named `t` (or `_var`) at load with a named diagnostic. Convention meanwhile:
 docs/esm-conventions.md §7 — `t` is never a loop symbol.
 
 ## F5 — `skolem` / `distinct` / `rank` do not evaluate
+
+**Filed upstream: [EarthSciML/EarthSciAST#266](https://github.com/EarthSciML/EarthSciAST/issues/266)**, verified still reproducing on `68574b653`.
 
 `F5_skolem_distinct_does_not_materialize.esm`.
 
@@ -553,6 +561,8 @@ Until one of these lands, no NONROAD port can compute its own age distribution.
 
 ## F13 — `enums` merge first-wins across a mount, silently
 
+**Filed upstream: [EarthSciML/EarthSciAST#260](https://github.com/EarthSciML/EarthSciAST/issues/260)**, verified still reproducing on `68574b653`.
+
 `F13_enums_collide_across_a_mount.esm`, with `F13_enum_leaf_one.esm` and
 `F13_enum_leaf_two.esm`. **The silent one of Phase 2.**
 
@@ -589,6 +599,8 @@ or, if a merged registry is intended, make a conflicting redeclaration a load
 error the way §4.7 already treats a conflicting index set.
 
 ## F14 — a `ragged` index set ignores its member factor
+
+**Filed upstream: [EarthSciML/EarthSciAST#259](https://github.com/EarthSciML/EarthSciAST/issues/259)**, verified still reproducing on `68574b653`.
 
 `F14_ragged_index_set_ignores_its_member_factor.esm`.
 
@@ -1123,6 +1135,8 @@ value is not finite fails unless `expected` is the same infinity. One guard,
 beside the NaN guard that is already there and already right.
 
 ## F22 — a discrete event, and an implicit equation, do not evaluate on the array path
+
+**Filed upstream: [EarthSciML/EarthSciAST#264](https://github.com/EarthSciML/EarthSciAST/issues/264)**, verified still reproducing on `68574b653`.
 
 `F22a_a_discrete_event_on_the_array_path.esm`,
 `F22b_an_implicit_equation_on_the_array_path.esm`.
@@ -1685,6 +1699,8 @@ regression in either direction but cannot catch the silence itself.
 
 ## F20 — a constant-folded scalar right-hand side loses the array shape
 
+**Filed upstream: [EarthSciML/EarthSciAST#262](https://github.com/EarthSciML/EarthSciAST/issues/262)**, verified still reproducing on `68574b653`.
+
 `F20_constant_folded_rhs_loses_the_array_shape.esm`. Found authoring Phase 3's
 first component.
 
@@ -1738,6 +1754,8 @@ fold does not collapse the branch.
 ---
 
 ## F21 — a scoped name is not an assertable variable
+
+**Filed upstream: [EarthSciML/EarthSciAST#263](https://github.com/EarthSciML/EarthSciAST/issues/263)**, verified still reproducing on `68574b653`.
 
 `F21_a_scoped_name_is_not_assertable.esm` (with `join_leaf.esm`). Found
 authoring Phase 4's assembly, `runs/evap_leaks_run.esm`.
@@ -1817,6 +1835,8 @@ the equation binder already uses, which is the behaviour the schema's own
 description promises.
 
 ## F28 — a recurrence whose predecessor is named by a data column
+
+**Filed upstream: [EarthSciML/EarthSciAST#267](https://github.com/EarthSciML/EarthSciAST/issues/267)**, verified still reproducing on `68574b653`.
 
 `F28_a_data_named_predecessor_is_not_a_recurrence.esm`, with
 `F28_control_the_contracted_lag_workaround.esm` beside it.
