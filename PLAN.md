@@ -824,6 +824,16 @@ multi-year, road types, fuel types). This is where the §1.3 gate gets
 stress-tested — the first place where a join's match count, not its index-set
 product, becomes the number that matters.
 
+**Two of Phase 5's rungs have no row in §2's ladder, and that is not an
+oversight.** `MeteorologyGenerator` (rung 9) and `FuelEffectsGenerator` (rung
+11) are GENERATORS: their product is an execution-database column or table, not
+a `MOVESOutput` row, so a snapshot row count says nothing about them and
+`fixtures/` is the wrong home (`docs/esm-conventions.md` §35.1). Their sizes are
+532 `ZoneMonthHour` rows / 1,596 cells and 97 `generalFuelRatio` rows / 194
+cells, over the whole corpus rather than over one snapshot, and each is verified
+by an oracle handed the snapshots *directory*. §35.2 and §38 are the rules that
+came out of the pair.
+
 ### Phase 6 — Control strategies
 
 AVFT, Rate-of-Progress, OnRoad/NonRoad retrofit, LEV

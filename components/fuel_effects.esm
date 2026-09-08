@@ -1,0 +1,624 @@
+{
+  "esm": "1.0.0",
+  "metadata": {
+    "name": "moves.fuel_effects",
+    "description": "`FuelEffectsGenerator.doGeneralFuelRatio`: the `generalFuelRatio` rows MOVES DERIVES by evaluating each `generalFuelRatioExpression` row against every fuel formulation of the matching fuel type that the fuel supply carries. Ports crates/moves-calculators/src/generators/fueleffectsgenerator/, the port of gov/epa/otaq/moves/master/implementation/ghg/FuelEffectsGenerator.java, and is specified in docs/fuel-effects-generator.md. The algebra is lib/fuel_effects.esm; this file is the relation it runs over, and the place its answers are checked against MOVES.\n\nWHY THIS FILE AND NOT A FIXTURE. `generalFuelRatio` is an execution-database table, not `MOVESOutput`, so docs/esm-conventions.md 35.1 applies exactly as it did to `MeteorologyGenerator`: `fixtures/` is a `MOVESOutput` harness and a generator does not go in it. The row-by-row half lives in docs/fuel-effects-generator.md 6.5 and its oracle, which reproduces all 97 compared rows of the whole corpus; this file carries the nine of them the corpus's key set actually distinguishes, plus three probes that face this port alone.\n\nTHE FORM IS A TEMPLATE, THE COEFFICIENTS ARE DATA. That split is the whole point of the file and it is docs/esm-conventions.md 24's rule. `fe_term_rows` is twelve coefficient rows over three term sets; `fe_expression_rows` is twelve expression instances; `fe_property_rows` is the (formulation x property) value relation. Not one algebraic operator appears below -- every equation is an `apply_expression_template` or an `aggregate` that sums one.\n\nTHE PROPERTY VALUES ARE binary32, AND THAT IS MEASURED RATHER THAN ASSUMED. `fuelFormulation`'s property columns are MariaDB `FLOAT`, and MOVES evaluates the expression against them in `DOUBLE` -- so the value that enters the arithmetic is the 32-bit float widened, not the decimal the snapshot's capture prints. The capture stores `23.140000000000` and MOVES computed with 23.139999389648438. Reproduced over the corpus both ways, the binary32 promotion lands all 97 rows -- 194 cells -- at a worst 1.608e-14 relative and the straight decimal reading lands them at 7.059e-08: 4,400x worse, and 150x the reference column's own twelve-decimal storage granularity. This file therefore carries the binary32 values, at the seventeen digits that round-trip them, and docs/fuel-effects-generator.md 7.2 has the measurement. NOTE WHAT THIS IS NOT: 7.059e-08 is INSIDE tolerance.toml's per-cell 2e-5, so no fixture comparison in this repository could have caught the wrong choice. It is decided here and in the oracle, at 1e-12, and nowhere else.\n\nWHAT IS CHECKED AGAINST MOVES, AND WHAT IS NOT (docs/esm-conventions.md 35.4). Rows 1-9 of `fe_expression_rows` are the nine distinct (fuelTypeID, polProcessID, fuelFormulationID) instances the corpus's populated `generalFuelRatio` carries -- six from `process-pm-exhaust` and three from `process-crankcase-running` -- and their assertions are the snapshot's OWN `fuelEffectRatio` column. Rows 10-12 are probes and their expected values face THIS PORT and a second, independent evaluation of the same MOVES expression string by docs/fuel-effects-generator.md 6.5's parser; they are not reference values and the tests say so. Row 10 exists because the corpus cannot see the E85 ethanol clamp at all -- formulation 27002's `ETOHVolume` is exactly 10.0, so `least(10, ETOHVolume)` is the identity on every compared cell (docs/esm-conventions.md 23). Rows 11 and 12 exist because the corpus cannot see the sulfur form at all: it is 1,013 of the corpus's 2,078 expression rows and MOVES moves every one of them that it computes into `criteriaRatio` before the snapshot is taken.\n\nWHY THE UNUSED ARMS ARE FINITE. Every expression row computes all three forms and selects one, which is what an array-valued `ifelse` does. So the unselected arms have to be numbers rather than NaNs: a non-sulfur row carries `power` 0, which makes `power_via_exp_log` return exactly 1 and both relative steps exactly 0; a non-log-linear row carries `base` 1.0; a non-biodiesel row carries coefficient 0. The one thing that would still break is a formulation with `sulfurLevel` 0, whose `log` is negative infinity -- all five formulations here are strictly positive and docs/fuel-effects-generator.md 5.2 records that this is a property of the corpus rather than of the model.\n\nTHE FORM SELECTOR IS COMPARED WITH `<` AND NOT `=`. `fe_expressionForm` is a small integer carried in a float column, and an equality test on one is the kind of thing that works until a column arrives through a different path. `form < 1.5` and `form < 2.5` split 1 / 2 / 3 with a whole unit of margin on each side.",
+    "authors": ["EarthSciML Authors and Contributors"],
+    "tags": ["moves", "onroad", "fuel", "generator", "general-fuel-ratio"]
+  },
+  "index_sets": {
+    "fe_formulation_rows": { "kind": "interval", "size": 5 },
+    "fe_property_rows": { "kind": "interval", "size": 35 },
+    "fe_expression_rows": { "kind": "interval", "size": 12 },
+    "fe_term_rows": { "kind": "interval", "size": 12 }
+  },
+  "coordinates": {
+    "fuel_effect_expression": { "source": "fe_expressionPolProcessID", "standard_name": "moves_pollutant_process_identifier" }
+  },
+  "models": {
+    "FuelEffects": {
+      "expression_template_imports": [
+        {
+          "ref": "../lib/fuel_effects.esm",
+          "only": [
+            "standardized_term",
+            "log_linear_ratio",
+            "biodiesel_ester_ratio",
+            "sulfur_switch_ratio"
+          ]
+        }
+      ],
+      "tolerance": { "rel": 1e-12 },
+      "variables": {
+        "fe_formulationID": {
+          "type": "unknown",
+          "shape": ["fe_formulation_rows"],
+          "description": "`fuelFormulation.fuelFormulationID`, ascending. 9114 (gasohol E10) and 25003 (diesel) are the two the fuel supply of both reference snapshots carries; 27002 (E85) is the third, and 27001 (E85) and 1002 (gasohol E10) are real corpus rows that no fuel supply here selects and that exist to reach branches the supplied three cannot."
+        },
+        "fe_formulationFuelTypeID": {
+          "type": "unknown",
+          "shape": ["fe_formulation_rows"],
+          "description": "The fuel type each formulation's `fuelSubtypeID` maps to through `FuelSubtype`. Subtypes 12 and 21 and 51 give 1, 2 and 5. Carried as a column because `doGeneralFuelRatio` intersects formulations WITH the expression's fuel type and a formulation that changed type would silently change which expressions reach it."
+        },
+        "fe_propFormulationID": {
+          "type": "unknown",
+          "shape": ["fe_property_rows"],
+          "description": "The `fuelFormulationID` each property value belongs to. The (formulation x property) relation is long rather than wide so that a coefficient row can name the property it multiplies by ID and reach it through a `join.on` -- docs/esm-conventions.md 2 and 11.1."
+        },
+        "fe_propPropertyID": {
+          "type": "unknown",
+          "shape": ["fe_property_rows"],
+          "description": "1 ETOHVolume, 2 aromaticContent, 3 T90, 4 BioDieselEsterVolume, 5 RVP, 6 T50, 7 sulfurLevel. THESE ARE THIS DOCUMENT'S OWN INDICES INTO THE `fuelFormulation` COLUMN LIST AND ARE NOT `fuelParameterID`s. MOVES has a `fuelParameterName` table whose IDs look like they would do, and they would be wrong: its `T90` (id 10) is the derived expression `4.5454545*(155.47 - ff.E300)` while a `fuelEffectRatioExpression` reads the STORED `T90` column, and the two are different numbers. docs/esm-conventions.md 4."
+        },
+        "fe_propValue": {
+          "type": "unknown",
+          "shape": ["fe_property_rows"],
+          "units": "1",
+          "description": "The property value MOVES computed with: the `FLOAT` column widened to binary64, NOT the decimal text the capture prints. Dimensionless because one column holds vol%, psi, ppm and degrees Fahrenheit and no single unit is right for all of them; the property ID is what says which. See this file's header for the 1.608e-14 / 7.059e-08 measurement that decides the promotion."
+        },
+        "fe_termSetID": {
+          "type": "unknown",
+          "shape": ["fe_term_rows"],
+          "description": "Which expression the coefficient belongs to: 1 the uncapped log-linear PM form, 2 the same form with the E85 ethanol clamp, 3 the criteria sulfur polynomial. An expression whose form needs no terms carries set 0, which matches no row and sums to zero."
+        },
+        "fe_termPropertyID": {
+          "type": "unknown",
+          "shape": ["fe_term_rows"],
+          "description": "The `fe_propPropertyID` this coefficient multiplies. Term set 3 names property 6 TWICE -- once at power 1 and once at power 2 -- which is the criteria polynomial's `-0.019529192370317*T50 + 5.58244506624426e-05*T50*T50`, and is why a term set is a set of rows rather than a vector over properties."
+        },
+        "fe_termCoefficient": {
+          "type": "unknown",
+          "shape": ["fe_term_rows"],
+          "units": "1",
+          "description": "The coefficient the standardized property is multiplied by, verbatim from the expression string."
+        },
+        "fe_termCenter": {
+          "type": "unknown",
+          "shape": ["fe_term_rows"],
+          "units": "1",
+          "description": "The value subtracted before scaling. 0 on a term the string writes as a plain product, which is every term of the criteria polynomial."
+        },
+        "fe_termScale": {
+          "type": "unknown",
+          "shape": ["fe_term_rows"],
+          "units": "1",
+          "description": "The divisor. 1 on a term the string writes as a plain product. It is never 0 and a 0 here would make the whole exponent infinite rather than wrong by a little, which is the good failure mode."
+        },
+        "fe_termPower": {
+          "type": "unknown",
+          "shape": ["fe_term_rows"],
+          "description": "The exponent the property is raised to before centring. 1 everywhere except the criteria polynomial's `T50*T50` term, and `pow(x, 1)` is exactly `x`."
+        },
+        "fe_termCap": {
+          "type": "unknown",
+          "shape": ["fe_term_rows"],
+          "units": "1",
+          "description": "The `least(cap, property)` clamp the E85 expressions apply to `ETOHVolume`. Meaningless where `fe_termCapIsActive` is 0 and carried as 0 there."
+        },
+        "fe_termCapIsActive": {
+          "type": "unknown",
+          "shape": ["fe_term_rows"],
+          "description": "1 where the string wraps the property in `least(...)`. An indicator rather than a sentinel cap, for the reason components/meteorology.esm's `pressure_is_present` is one: an absent clamp is not a very large clamp, and a magic number here would be a number a reader has to recognise."
+        },
+        "fe_expressionID": {
+          "type": "unknown",
+          "shape": ["fe_expression_rows"],
+          "description": "1..12, this document's own key. Rows 1-9 are reference instances and rows 10-12 are probes."
+        },
+        "fe_expressionFuelTypeID": {
+          "type": "unknown",
+          "shape": ["fe_expression_rows"],
+          "description": "`generalFuelRatioExpression.fuelTypeID`. It has to equal the formulation's fuel type for the row to exist at all, which the `the_expression_and_its_formulation_agree_on_fuel_type` test asserts rather than assumes."
+        },
+        "fe_expressionPolProcessID": {
+          "type": "unknown",
+          "shape": ["fe_expression_rows"],
+          "description": "`generalFuelRatioExpression.polProcessID`. 11201 and 12001 are PM at Running Exhaust and at Start Exhaust; 115, 215 and 315 are THC, CO and NOx at Crankcase Running Exhaust; 101 is THC at Running Exhaust and reaches this file only through the two sulfur probes, because MOVES moves every 101 row into `criteriaRatio`."
+        },
+        "fe_expressionFormulationID": {
+          "type": "unknown",
+          "shape": ["fe_expression_rows"],
+          "description": "The formulation the expression is evaluated against: `getFuelFormulations(fuelTypeID)` intersected with `getFuelSupplyFormulations(fuelTypeID)`. Rows 10-12 name formulations NO fuel supply in the corpus carries, which is exactly why they are probes."
+        },
+        "fe_expressionForm": {
+          "type": "unknown",
+          "shape": ["fe_expression_rows"],
+          "description": "1 log-linear over a base, 2 biodiesel-ester linear, 3 criteria sulfur switch. Compared with `<` against 1.5 and 2.5 rather than with `=`; this file's header says why."
+        },
+        "fe_expressionTermSetID": {
+          "type": "unknown",
+          "shape": ["fe_expression_rows"],
+          "description": "Which `fe_termSetID` supplies this expression's exponent. 0 on the biodiesel rows, whose form has no summed terms."
+        },
+        "fe_expressionIntercept": {
+          "type": "unknown",
+          "shape": ["fe_expression_rows"],
+          "units": "1",
+          "description": "The constant the term sum is added to. 0 on the log-linear PM form, whose string opens with a bare `exp(+(...))`."
+        },
+        "fe_expressionBase": {
+          "type": "unknown",
+          "shape": ["fe_expression_rows"],
+          "units": "1",
+          "description": "The divisor the exponentiated sum is normalised by -- the reference formulation's own modelled emission, which is what makes the result a RATIO. 1.0 on a biodiesel row so that its unselected log-linear arm is finite."
+        },
+        "fe_expressionGpaFactor": {
+          "type": "unknown",
+          "shape": ["fe_expression_rows"],
+          "units": "1",
+          "description": "The second divisor the criteria high-sulfur arm carries, `base*gpaFactor`. 1.0 everywhere else."
+        },
+        "fe_expressionBiodieselCoefficient": {
+          "type": "unknown",
+          "shape": ["fe_expression_rows"],
+          "units": "1",
+          "description": "The whole of the biodiesel form's per-row data. Four values across the corpus: -0.780 for PM, -0.705 for THC, -0.690 for CO and 0.110 for NOx -- three reductions and one increase, which is the sign pattern biodiesel is known for and the one thing about this form a reader can sanity-check without the reference. 0 on a row of any other form."
+        },
+        "fe_expressionSulfurPower": {
+          "type": "unknown",
+          "shape": ["fe_expression_rows"],
+          "description": "The fractional exponent the sulfur terms are raised to. 0 on a non-sulfur row, which makes `exp(0*log(x))` exactly 1 and both relative steps exactly 0."
+        },
+        "fe_expressionSulfurMultiplier": {
+          "type": "unknown",
+          "shape": ["fe_expression_rows"],
+          "units": "1",
+          "description": "The multiplier on the sample-sulfur relative step. 0 on a non-sulfur row."
+        },
+        "fe_expressionSulfurBracketIntercept": {
+          "type": "unknown",
+          "shape": ["fe_expression_rows"],
+          "units": "1",
+          "description": "The constant the high-sulfur bracket opens with -- `1` on most strings and values such as 1.36251294 on others. 1.0 on a non-sulfur row."
+        },
+        "fe_expressionSulfurLowPivot": {
+          "type": "unknown",
+          "shape": ["fe_expression_rows"],
+          "units": "1",
+          "description": "The sulfur level the low arm's linear correction is measured from: `(1.0 - slope*(pivot - sulfurLevel))`. It is 30 on most strings and 10 on others, and it is NOT the 30 that the `if` switches on -- two constants that happen to coincide on most rows, which is precisely why they are two columns."
+        },
+        "fe_expressionSulfurLowSlope": {
+          "type": "unknown",
+          "shape": ["fe_expression_rows"],
+          "units": "1",
+          "description": "The low arm's slope. 0 on a non-sulfur row, and 0 on some real strings too."
+        },
+        "fe_expressionEsterPropertyID": {
+          "type": "unknown",
+          "shape": ["fe_expression_rows"],
+          "description": "4 on every row -- the property ID of `BioDieselEsterVolume`. A constant column so that the gather below is a `join.on` and not a `filter` against a literal (docs/esm-conventions.md 3)."
+        },
+        "fe_expressionSulfurPropertyID": {
+          "type": "unknown",
+          "shape": ["fe_expression_rows"],
+          "description": "7 on every row -- the property ID of `sulfurLevel`, carried for the same reason as `fe_expressionEsterPropertyID`."
+        },
+        "fe_exponent": {
+          "type": "unknown",
+          "shape": ["fe_expression_rows"],
+          "units": "1",
+          "description": "The intercept plus the sum of the expression's standardized terms: the argument of the single `exp` every non-biodiesel form applies. This is where the three-way join lands -- expression to term set, and term to the property value of the expression's own formulation."
+        },
+        "fe_esterVolume": {
+          "type": "unknown",
+          "shape": ["fe_expression_rows"],
+          "units": "1",
+          "description": "`BioDieselEsterVolume` gathered onto the expression through the formulation join. 3.5 vol% for formulation 25003 and 0 for every other, and the whole biodiesel form is a linear function of it."
+        },
+        "fe_sulfurLevel": {
+          "type": "unknown",
+          "shape": ["fe_expression_rows"],
+          "units": "1",
+          "description": "`sulfurLevel` in ppm, gathered the same way. 7.15 for formulation 9114 and 429.96 for 1002, which is the pair that puts the two sulfur probes on opposite sides of the switch."
+        },
+        "fe_logLinearRatio": {
+          "type": "unknown",
+          "shape": ["fe_expression_rows"],
+          "units": "1",
+          "description": "`exp(exponent)/base`, the PM form's answer, computed on every row and selected on the log-linear ones."
+        },
+        "fe_biodieselRatio": {
+          "type": "unknown",
+          "shape": ["fe_expression_rows"],
+          "units": "1",
+          "description": "`1 + (least(esterVolume, 20)/100)*coefficient`, computed on every row and selected on the biodiesel ones. The 20 vol% clamp is not exercised anywhere in the corpus -- the only ester volume it ever sees is 3.5 -- and docs/fuel-effects-generator.md 8.2 says so from the other side."
+        },
+        "fe_sulfurRatio": {
+          "type": "unknown",
+          "shape": ["fe_expression_rows"],
+          "units": "1",
+          "description": "The criteria switch's answer, computed on every row and selected on the sulfur ones. Nothing in the corpus checks it against MOVES; see this file's header."
+        },
+        "fe_fuelEffectRatio": {
+          "type": "unknown",
+          "shape": ["fe_expression_rows"],
+          "units": "1",
+          "description": "`generalFuelRatio.fuelEffectRatio`: the form each row selects. `fuelEffectRatioGPA` is the same number on every one of the corpus's 2,078 expression rows -- the two columns are byte-identical there -- so this document computes one column and docs/fuel-effects-generator.md 2.3 records the measurement rather than duplicating the arithmetic."
+        }
+      },
+      "equations": [
+        {
+          "_comment": "Five real `fuelFormulation` rows. 9114, 25003 and 27002 are the three the two reference snapshots supply; 27001 and 1002 are corpus rows no supply here selects, carried to reach the ethanol clamp and the high-sulfur arm.",
+          "lhs": "fe_formulationID",
+          "rhs": { "op": "const", "args": [], "value": [1002, 9114, 25003, 27001, 27002] }
+        },
+        {
+          "lhs": "fe_formulationFuelTypeID",
+          "rhs": { "op": "const", "args": [], "value": [1, 1, 2, 5, 5] }
+        },
+        {
+          "_comment": "The (formulation x property) relation, seven properties per formulation in formulation order.",
+          "lhs": "fe_propFormulationID",
+          "rhs": { "op": "const", "args": [], "value": [
+            1002, 1002, 1002, 1002, 1002, 1002, 1002,
+            9114, 9114, 9114, 9114, 9114, 9114, 9114,
+            25003, 25003, 25003, 25003, 25003, 25003, 25003,
+            27001, 27001, 27001, 27001, 27001, 27001, 27001,
+            27002, 27002, 27002, 27002, 27002, 27002, 27002] }
+        },
+        {
+          "lhs": "fe_propPropertyID",
+          "rhs": { "op": "const", "args": [], "value": [
+            1, 2, 3, 4, 5, 6, 7,  1, 2, 3, 4, 5, 6, 7,  1, 2, 3, 4, 5, 6, 7,
+            1, 2, 3, 4, 5, 6, 7,  1, 2, 3, 4, 5, 6, 7] }
+        },
+        {
+          "_comment": "binary32 values, at the digits that round-trip them. The capture prints 23.140000000000; MOVES computed with 23.139999389648438.",
+          "lhs": "fe_propValue",
+          "rhs": { "op": "const", "args": [], "value": [
+            10.0, 24.379999160766602, 328.04000854492188, 0.0, 11.939999580383301, 180.75, 429.95999145507812,
+            10.0, 23.139999389648438, 327.76998901367188, 0.0, 8.0, 222.94999694824219, 7.1500000953674316,
+            0.0, 0.0, 0.0, 3.5, 0.0, 0.0, 6.0,
+            74.0, 0.0, 999.0, 0.0, 10.5, 999.0, 8.0,
+            10.0, 23.139999389648438, 327.76998901367188, 0.0, 7.6999998092651367, 222.94999694824219, 7.1500000953674316] }
+        },
+        {
+          "_comment": "Term set 1: the PM log-linear form, uncapped. Term set 2: the same three coefficients with the E85 `least(10, ETOHVolume)` clamp on the first. Term set 3: the criteria polynomial, in the order the string writes it, including T50 at power 1 and at power 2.",
+          "lhs": "fe_termSetID",
+          "rhs": { "op": "const", "args": [], "value": [1, 1, 1, 2, 2, 2, 3, 3, 3, 3, 3, 3] }
+        },
+        {
+          "lhs": "fe_termPropertyID",
+          "rhs": { "op": "const", "args": [], "value": [1, 2, 3, 1, 2, 3, 1, 5, 3, 6, 2, 6] }
+        },
+        {
+          "lhs": "fe_termCoefficient",
+          "rhs": { "op": "const", "args": [], "value": [
+            0.1126, 0.1662, 0.1072,
+            0.1126, 0.1662, 0.1072,
+            0.00414744109342911, -0.0220495078142151, 0.00263653299169085,
+            5.58244506624426e-05, -0.00195000368524374, -0.019529192370317] }
+        },
+        {
+          "lhs": "fe_termCenter",
+          "rhs": { "op": "const", "args": [], "value": [
+            10.313704, 25.629630, 320.533333,
+            10.313704, 25.629630, 320.533333,
+            0.0, 0.0, 0.0, 0.0, 0.0, 0.0] }
+        },
+        {
+          "lhs": "fe_termScale",
+          "rhs": { "op": "const", "args": [], "value": [
+            7.879557, 10.015366, 19.480128,
+            7.879557, 10.015366, 19.480128,
+            1.0, 1.0, 1.0, 1.0, 1.0, 1.0] }
+        },
+        {
+          "lhs": "fe_termPower",
+          "rhs": { "op": "const", "args": [], "value": [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 2.0, 1.0, 1.0] }
+        },
+        {
+          "lhs": "fe_termCap",
+          "rhs": { "op": "const", "args": [], "value": [0.0, 0.0, 0.0, 10.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0] }
+        },
+        {
+          "lhs": "fe_termCapIsActive",
+          "rhs": { "op": "const", "args": [], "value": [0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0] }
+        },
+        {
+          "lhs": "fe_expressionID",
+          "rhs": { "op": "const", "args": [], "value": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] }
+        },
+        {
+          "_comment": "Rows 1-9 are the nine distinct (fuelTypeID, polProcessID, fuelFormulationID) instances the corpus's `generalFuelRatio` carries. Rows 10-12 are probes against formulations no supply selects.",
+          "lhs": "fe_expressionFuelTypeID",
+          "rhs": { "op": "const", "args": [], "value": [1, 1, 5, 5, 2, 2, 2, 2, 2, 5, 1, 1] }
+        },
+        {
+          "lhs": "fe_expressionPolProcessID",
+          "rhs": { "op": "const", "args": [], "value": [11201, 12001, 11201, 12001, 11201, 12001, 115, 215, 315, 11201, 101, 101] }
+        },
+        {
+          "lhs": "fe_expressionFormulationID",
+          "rhs": { "op": "const", "args": [], "value": [9114, 9114, 27002, 27002, 25003, 25003, 25003, 25003, 25003, 27001, 9114, 1002] }
+        },
+        {
+          "lhs": "fe_expressionForm",
+          "rhs": { "op": "const", "args": [], "value": [1, 1, 1, 1, 2, 2, 2, 2, 2, 1, 3, 3] }
+        },
+        {
+          "lhs": "fe_expressionTermSetID",
+          "rhs": { "op": "const", "args": [], "value": [1, 1, 2, 2, 0, 0, 0, 0, 0, 2, 3, 3] }
+        },
+        {
+          "lhs": "fe_expressionIntercept",
+          "rhs": { "op": "const", "args": [], "value": [
+            0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+            -3.65275441630756, -3.65275441630756] }
+        },
+        {
+          "lhs": "fe_expressionBase",
+          "rhs": { "op": "const", "args": [], "value": [
+            0.911205970892, 0.911205970892, 0.911205970892, 0.911205970892,
+            1.0, 1.0, 1.0, 1.0, 1.0,
+            0.911205970892, 0.009682964656311278, 0.009682964656311278] }
+        },
+        {
+          "lhs": "fe_expressionGpaFactor",
+          "rhs": { "op": "const", "args": [], "value": [
+            1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
+            1.1424519617677948, 1.1424519617677948] }
+        },
+        {
+          "lhs": "fe_expressionBiodieselCoefficient",
+          "rhs": { "op": "const", "args": [], "value": [
+            0.0, 0.0, 0.0, 0.0, -0.780, -0.780, -0.705, -0.690, 0.110, 0.0, 0.0, 0.0] }
+        },
+        {
+          "lhs": "fe_expressionSulfurPower",
+          "rhs": { "op": "const", "args": [], "value": [
+            0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.125, 0.125] }
+        },
+        {
+          "lhs": "fe_expressionSulfurMultiplier",
+          "rhs": { "op": "const", "args": [], "value": [
+            0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.5, 2.5] }
+        },
+        {
+          "lhs": "fe_expressionSulfurBracketIntercept",
+          "rhs": { "op": "const", "args": [], "value": [
+            1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0] }
+        },
+        {
+          "lhs": "fe_expressionSulfurLowPivot",
+          "rhs": { "op": "const", "args": [], "value": [
+            30.0, 30.0, 30.0, 30.0, 30.0, 30.0, 30.0, 30.0, 30.0, 30.0, 30.0, 30.0] }
+        },
+        {
+          "lhs": "fe_expressionSulfurLowSlope",
+          "rhs": { "op": "const", "args": [], "value": [
+            0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+            0.0154883551740411, 0.0154883551740411] }
+        },
+        {
+          "lhs": "fe_expressionEsterPropertyID",
+          "rhs": { "op": "const", "args": [], "value": [4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4] }
+        },
+        {
+          "lhs": "fe_expressionSulfurPropertyID",
+          "rhs": { "op": "const", "args": [], "value": [7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7] }
+        },
+        {
+          "_comment": "J-FE-1 and J-FE-2 in one contraction: `fe_termSetID = fe_expressionTermSetID` picks the expression's coefficients, and `(fe_propFormulationID, fe_propPropertyID) = (fe_expressionFormulationID, fe_termPropertyID)` picks the value of the property that coefficient multiplies, on the expression's OWN formulation. The second clause is the one that carries the whole relational content of `doGeneralFuelRatio`: drop its formulation half and every expression sums over all five formulations at once.",
+          "lhs": "fe_exponent",
+          "rhs": {
+            "op": "+",
+            "args": [
+              "fe_expressionIntercept",
+              {
+                "op": "aggregate",
+                "args": [],
+                "output_idx": ["e"],
+                "ranges": { "e": { "from": "fe_expression_rows" },
+                            "k": { "from": "fe_term_rows" },
+                            "p": { "from": "fe_property_rows" } },
+                "join": [
+                  { "on": [["fe_termSetID", "fe_expressionTermSetID"]] },
+                  { "on": [["fe_propFormulationID", "fe_expressionFormulationID"],
+                           ["fe_propPropertyID", "fe_termPropertyID"]] }
+                ],
+                "reduce": "+",
+                "expr": {
+                  "op": "apply_expression_template",
+                  "args": [],
+                  "name": "standardized_term",
+                  "bindings": {
+                    "value": { "op": "index", "args": ["fe_propValue", "p"] },
+                    "cap": { "op": "index", "args": ["fe_termCap", "k"] },
+                    "cap_is_active": { "op": "index", "args": ["fe_termCapIsActive", "k"] },
+                    "power": { "op": "index", "args": ["fe_termPower", "k"] },
+                    "coefficient": { "op": "index", "args": ["fe_termCoefficient", "k"] },
+                    "center": { "op": "index", "args": ["fe_termCenter", "k"] },
+                    "scale": { "op": "index", "args": ["fe_termScale", "k"] }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "_comment": "J-FE-3: the same formulation join, gathering the one property the biodiesel form reads.",
+          "lhs": "fe_esterVolume",
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "output_idx": ["e"],
+            "ranges": { "e": { "from": "fe_expression_rows" }, "p": { "from": "fe_property_rows" } },
+            "join": [ { "on": [["fe_propFormulationID", "fe_expressionFormulationID"],
+                               ["fe_propPropertyID", "fe_expressionEsterPropertyID"]] } ],
+            "reduce": "+",
+            "expr": { "op": "index", "args": ["fe_propValue", "p"] }
+          }
+        },
+        {
+          "_comment": "J-FE-4: and the one the sulfur form switches on.",
+          "lhs": "fe_sulfurLevel",
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "output_idx": ["e"],
+            "ranges": { "e": { "from": "fe_expression_rows" }, "p": { "from": "fe_property_rows" } },
+            "join": [ { "on": [["fe_propFormulationID", "fe_expressionFormulationID"],
+                               ["fe_propPropertyID", "fe_expressionSulfurPropertyID"]] } ],
+            "reduce": "+",
+            "expr": { "op": "index", "args": ["fe_propValue", "p"] }
+          }
+        },
+        {
+          "lhs": "fe_logLinearRatio",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "log_linear_ratio",
+            "bindings": { "exponent": "fe_exponent", "base": "fe_expressionBase" }
+          }
+        },
+        {
+          "lhs": "fe_biodieselRatio",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "biodiesel_ester_ratio",
+            "bindings": { "ester_volume": "fe_esterVolume",
+                          "coefficient": "fe_expressionBiodieselCoefficient" }
+          }
+        },
+        {
+          "lhs": "fe_sulfurRatio",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "sulfur_switch_ratio",
+            "bindings": {
+              "exponent": "fe_exponent",
+              "base": "fe_expressionBase",
+              "gpa_factor": "fe_expressionGpaFactor",
+              "sulfur_ppm": "fe_sulfurLevel",
+              "bracket_intercept": "fe_expressionSulfurBracketIntercept",
+              "power": "fe_expressionSulfurPower",
+              "multiplier": "fe_expressionSulfurMultiplier",
+              "low_pivot_ppm": "fe_expressionSulfurLowPivot",
+              "low_slope": "fe_expressionSulfurLowSlope"
+            }
+          }
+        },
+        {
+          "_comment": "The form selector. All three arms are computed on every row -- an array `ifelse` has to -- so this file's header says what keeps the unselected ones finite.",
+          "lhs": "fe_fuelEffectRatio",
+          "rhs": {
+            "op": "ifelse",
+            "args": [
+              { "op": "<", "args": ["fe_expressionForm", 1.5] },
+              "fe_logLinearRatio",
+              { "op": "ifelse", "args": [
+                { "op": "<", "args": ["fe_expressionForm", 2.5] },
+                "fe_biodieselRatio",
+                "fe_sulfurRatio"] }
+            ]
+          }
+        }
+      ],
+      "tests": [
+        {
+          "id": "the_property_join_delivers_the_expressions_own_formulation",
+          "description": "J-FE-3 and J-FE-4 land each expression's own formulation's properties. Rows 5-9 are formulation 25003 and take 3.5 vol% of biodiesel ester; every other row takes 0. Row 11 is formulation 9114 at 7.15 ppm of sulfur and row 12 is formulation 1002 at 429.96, which is the pair the sulfur switch is asserted on below. What breaks if this is wrong: drop the `fe_propPropertyID` half of either `on` and each gather sums all seven of a formulation's properties -- 25003 would take 9.5 instead of 3.5 and its ratio would read 0.9259 instead of 0.9727, which is a 4.8% error that looks like a plausible biodiesel penalty. Drop the formulation half and every row takes the same total over all five formulations. Both failures are finite, both are the right order of magnitude, and only an assertion on the gathered value or on the ratio itself can see either.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "fe_esterVolume", "time": 0.0, "expected": 3.5, "coords": { "fe_expression_rows": 5 }, "tolerance": { "rel": 1e-12 } },
+            { "variable": "fe_esterVolume", "time": 0.0, "expected": 3.5, "coords": { "fe_expression_rows": 9 }, "tolerance": { "rel": 1e-12 } },
+            { "variable": "fe_esterVolume", "time": 0.0, "expected": 0.0, "coords": { "fe_expression_rows": 1 }, "tolerance": { "abs": 1e-12 } },
+            { "variable": "fe_esterVolume", "time": 0.0, "expected": 3.5, "reduce": "max", "tolerance": { "rel": 1e-12 } },
+            { "variable": "fe_sulfurLevel", "time": 0.0, "expected": 7.1500000953674316, "coords": { "fe_expression_rows": 11 }, "tolerance": { "rel": 1e-12 } },
+            { "variable": "fe_sulfurLevel", "time": 0.0, "expected": 429.95999145507812, "coords": { "fe_expression_rows": 12 }, "tolerance": { "rel": 1e-12 } },
+            { "variable": "fe_sulfurLevel", "time": 0.0, "expected": 6.0, "coords": { "fe_expression_rows": 5 }, "tolerance": { "rel": 1e-12 } },
+            { "variable": "fe_sulfurLevel", "time": 0.0, "expected": 429.95999145507812, "reduce": "max", "tolerance": { "rel": 1e-12 } }
+          ]
+        },
+        {
+          "id": "the_term_set_join_sums_the_right_coefficients_against_the_right_properties",
+          "description": "`fe_exponent`, the argument of the single `exp`. Rows 1 and 3 are the PM form on formulations 9114 and 27002 and both come to -0.005973416650506401, because the two formulations agree on all three properties the form reads and 27002's ethanol clamp is the identity at exactly 10.0 vol%. Row 5 is a biodiesel row: its term set is 0, it matches no coefficient, and its exponent is its intercept, which is 0. Row 11 is the criteria polynomial at formulation 9114 and comes to -4.5478068562772247, six terms including T50 at both powers. What breaks if this is wrong: drop the `fe_termSetID` clause and every expression sums all twelve coefficients, which for row 1 gives an exponent near -4.55 and a ratio near 0.0116 instead of 1.0909 -- ninety-four times too small, and still a finite number a plot would draw. These values are THIS PORT's; the reference does not carry the exponent, and what makes them evidence is the ratios below, which are the reference's.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "fe_exponent", "time": 0.0, "expected": -0.005973416650506401, "coords": { "fe_expression_rows": 1 }, "tolerance": { "rel": 1e-12 } },
+            { "variable": "fe_exponent", "time": 0.0, "expected": -0.005973416650506401, "coords": { "fe_expression_rows": 3 }, "tolerance": { "rel": 1e-12 } },
+            { "variable": "fe_exponent", "time": 0.0, "expected": 0.0, "coords": { "fe_expression_rows": 5 }, "tolerance": { "abs": 1e-14 } },
+            { "variable": "fe_exponent", "time": 0.0, "expected": 0.0, "coords": { "fe_expression_rows": 9 }, "tolerance": { "abs": 1e-14 } },
+            { "variable": "fe_exponent", "time": 0.0, "expected": -4.5478068562772247, "coords": { "fe_expression_rows": 11 }, "tolerance": { "rel": 1e-12 } },
+            { "variable": "fe_exponent", "time": 0.0, "expected": -4.7632892190484553, "coords": { "fe_expression_rows": 12 }, "tolerance": { "rel": 1e-12 } }
+          ]
+        },
+        {
+          "id": "the_log_linear_form_reproduces_the_reference_pm_ratio",
+          "description": "`generalFuelRatio.fuelEffectRatio` for the four log-linear reference rows, against `process-pm-exhaust`'s own column: 1.090910749585 for fuel type 1 formulation 9114 and for fuel type 5 formulation 27002, at both PM polProcessIDs. What breaks if this is wrong, in order of how quietly: (a) reading the capture's decimal text instead of the binary32 value MOVES held gives 1.090910826588803, a 7.06e-08 relative error that is INSIDE tolerance.toml's per-cell 2e-5 and so invisible to every fixture in this repository -- this assertion is the only thing in the port that decides it; (b) omitting the /0.911205970892 normalisation gives 0.99404 instead, a 9% error; (c) forgetting to centre a property moves the ratio by a factor of e to the coefficient, between 2% and 4% per term. The twelve digits are the reference's own DECIMAL(20,12) storage; the whole-corpus reproduction in docs/fuel-effects-generator.md 6.5 lands all 194 cells at 1.608e-14, which is below that storage's granularity, so 1e-11 here is about seven hundred times the measured residual and still four orders inside (a).",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "fe_fuelEffectRatio", "time": 0.0, "expected": 1.090910749585, "coords": { "fe_expression_rows": 1 }, "tolerance": { "rel": 1e-11 } },
+            { "variable": "fe_fuelEffectRatio", "time": 0.0, "expected": 1.090910749585, "coords": { "fe_expression_rows": 2 }, "tolerance": { "rel": 1e-11 } },
+            { "variable": "fe_fuelEffectRatio", "time": 0.0, "expected": 1.090910749585, "coords": { "fe_expression_rows": 3 }, "tolerance": { "rel": 1e-11 } },
+            { "variable": "fe_fuelEffectRatio", "time": 0.0, "expected": 1.090910749585, "coords": { "fe_expression_rows": 4 }, "tolerance": { "rel": 1e-11 } }
+          ]
+        },
+        {
+          "id": "the_biodiesel_form_reproduces_all_four_reference_coefficients",
+          "description": "The five biodiesel reference rows against two snapshots' own columns: 0.9727 for PM at both polProcessIDs (`process-pm-exhaust`), and 0.975325, 0.97585 and 1.003850 for THC, CO and NOx at Crankcase Running Exhaust (`process-crankcase-running`). All five are 3.5 vol% of ester on formulation 25003 and differ only in the coefficient, so what this set really asserts is that the coefficient travels with the polProcessID: swap the THC and NOx rows and the answers are 1.003850 and 0.975325, both plausible, both within 3% of the truth, and only the pairing tells them apart. The `max` and `min` reductions are over `fe_biodieselRatio` and not over `fe_fuelEffectRatio`, because the latter carries three probe rows whose ratios are not the reference's -- a whole-array reduction over a relation that mixes reference rows with probes would assert nothing about either. The NOx row is the one worth reading twice -- it is the only reference ratio in this file ABOVE 1, and a port that clamped the ratio to at most 1 would pass the other four.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "fe_fuelEffectRatio", "time": 0.0, "expected": 0.9727, "coords": { "fe_expression_rows": 5 }, "tolerance": { "rel": 1e-11 } },
+            { "variable": "fe_fuelEffectRatio", "time": 0.0, "expected": 0.9727, "coords": { "fe_expression_rows": 6 }, "tolerance": { "rel": 1e-11 } },
+            { "variable": "fe_fuelEffectRatio", "time": 0.0, "expected": 0.975325, "coords": { "fe_expression_rows": 7 }, "tolerance": { "rel": 1e-11 } },
+            { "variable": "fe_fuelEffectRatio", "time": 0.0, "expected": 0.97585, "coords": { "fe_expression_rows": 8 }, "tolerance": { "rel": 1e-11 } },
+            { "variable": "fe_fuelEffectRatio", "time": 0.0, "expected": 1.00385, "coords": { "fe_expression_rows": 9 }, "tolerance": { "rel": 1e-11 } },
+            { "variable": "fe_biodieselRatio", "time": 0.0, "expected": 1.00385, "reduce": "max", "tolerance": { "rel": 1e-11 } },
+            { "variable": "fe_biodieselRatio", "time": 0.0, "expected": 0.9727, "reduce": "min", "tolerance": { "rel": 1e-11 } }
+          ]
+        },
+        {
+          "id": "the_ethanol_clamp_is_ported_and_the_corpus_cannot_see_it",
+          "description": "PROBE -- THIS FACES THE PORT, NOT THE REFERENCE. Row 10 is the E85 log-linear expression evaluated against formulation 27001, whose `ETOHVolume` is 74 vol%. Clamped at 10 the ratio is 29.869096664491575 and unclamped it is 74.54429940370062, a factor of 2.5. No fuel supply in the corpus carries 27001, so MOVES never wrote this row and the expected value is docs/fuel-effects-generator.md 6.5's independent evaluation of the same expression string, not a captured number. The test exists because docs/esm-conventions.md 23 says to measure whether the corpus can SEE a stage before claiming it is checked there, and the measurement is that it cannot: the only E85 formulation any supply here carries is 27002, whose `ETOHVolume` is exactly 10.0, so `least(10, ETOHVolume)` is the identity on every one of the 194 compared cells and deleting the clamp entirely would leave the reference comparison bit-identical. Row 3's assertion above is therefore evidence about the log-linear form and no evidence at all about the clamp; this row is where the clamp is checked.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "fe_fuelEffectRatio", "time": 0.0, "expected": 29.869096664491575, "coords": { "fe_expression_rows": 10 }, "tolerance": { "rel": 1e-11 } },
+            { "variable": "fe_exponent", "time": 0.0, "expected": 3.3038380754455403, "coords": { "fe_expression_rows": 10 }, "tolerance": { "rel": 1e-11 } }
+          ]
+        },
+        {
+          "id": "the_sulfur_switch_takes_both_arms_and_neither_is_checked_against_moves",
+          "description": "PROBE -- THIS FACES THE PORT, NOT THE REFERENCE. Rows 11 and 12 are one real `generalFuelRatioExpression` string -- THC at Running Exhaust, fuel type 1 -- evaluated against two real corpus formulations that sit on opposite sides of its `sulfurLevel > 30` switch: 9114 at 7.15 ppm takes the LOW arm and gives 0.70663961359385519, and 1002 at 429.96 ppm takes the HIGH arm and gives 1.3197896196568011. Asserting both is docs/esm-conventions.md 12's rule about branches, and it is the only way the two arms' quite different shapes -- a linear sulfur correction on one side, a fractional-power bracket over a second divisor on the other -- are both exercised. NOTHING IN THE CORPUS CHECKS THIS FORM AGAINST MOVES. It is the corpus's dominant form, 1,013 of its 2,078 expression rows and 100 of its 118 distinct strings, and `doCOCalculations`, `doHCCalculations` and `doNOxCalculations` copy every one of those rows into `criteriaRatio` and delete them from `generalFuelRatio` before a snapshot is taken -- measured, on all 1,015 rows the port computes and MOVES does not keep. So these two expected values are docs/fuel-effects-generator.md 6.5's independent evaluation of the same string by a different implementation, which is evidence that the factoring into templates is faithful to the text and is not evidence that MOVES agrees. docs/esm-conventions.md 35.4, and 8.1 of the specification.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "fe_fuelEffectRatio", "time": 0.0, "expected": 0.70663961359385519, "coords": { "fe_expression_rows": 11 }, "tolerance": { "rel": 1e-11 } },
+            { "variable": "fe_fuelEffectRatio", "time": 0.0, "expected": 1.3197896196568011, "coords": { "fe_expression_rows": 12 }, "tolerance": { "rel": 1e-11 } },
+            { "variable": "fe_sulfurRatio", "time": 0.0, "expected": 0.70663961359385519, "coords": { "fe_expression_rows": 11 }, "tolerance": { "rel": 1e-11 } },
+            { "variable": "fe_sulfurRatio", "time": 0.0, "expected": 1.3197896196568011, "coords": { "fe_expression_rows": 12 }, "tolerance": { "rel": 1e-11 } }
+          ]
+        },
+        {
+          "id": "the_unselected_arms_stay_finite_and_the_selector_picks_the_right_one",
+          "description": "Every row computes all three forms; only one is kept. This checks that the two that are discarded are still numbers, because a NaN in an unselected arm propagates through `ifelse` in some evaluators and through nothing in others, and a document that relies on which is a document that breaks on an upgrade. Row 1's biodiesel arm is exactly 1 (its ester volume is 0 and its coefficient is 0); row 5's log-linear arm is exp(0)/1 = 1; row 5's sulfur arm is that same 1 times its low correction, whose slope is 0, so also exactly 1. What breaks if the guards are dropped: a `power` of 0 is what makes `exp(0*log(sulfurLevel))` equal 1 on a non-sulfur row, and a formulation with `sulfurLevel` 0 would still make `log` negative infinity -- no formulation here has one, and the specification records that as a fact about the corpus rather than about the model.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "fe_biodieselRatio", "time": 0.0, "expected": 1.0, "coords": { "fe_expression_rows": 1 }, "tolerance": { "rel": 1e-12 } },
+            { "variable": "fe_biodieselRatio", "time": 0.0, "expected": 1.0, "coords": { "fe_expression_rows": 11 }, "tolerance": { "rel": 1e-12 } },
+            { "variable": "fe_logLinearRatio", "time": 0.0, "expected": 1.0, "coords": { "fe_expression_rows": 5 }, "tolerance": { "rel": 1e-12 } },
+            { "variable": "fe_sulfurRatio", "time": 0.0, "expected": 1.0, "coords": { "fe_expression_rows": 5 }, "tolerance": { "rel": 1e-12 } },
+            { "variable": "fe_fuelEffectRatio", "time": 0.0, "expected": 0.9727, "coords": { "fe_expression_rows": 5 }, "tolerance": { "rel": 1e-11 } },
+            { "variable": "fe_fuelEffectRatio", "time": 0.0, "expected": 1.090910749585, "coords": { "fe_expression_rows": 1 }, "tolerance": { "rel": 1e-11 } }
+          ]
+        },
+        {
+          "id": "every_expression_is_evaluated_against_a_formulation_of_its_own_fuel_type",
+          "description": "`doGeneralFuelRatio` intersects `getFuelFormulations(fuelTypeID)` with `getFuelSupplyFormulations(fuelTypeID)`, so an expression NEVER meets a formulation of another fuel type. That constraint is structural rather than arithmetic and this file satisfies it by construction, so what is asserted is the construction: the fuel type on each expression row equals the fuel type of the formulation it names. What breaks if this is wrong: fuel type 2's biodiesel expression evaluated against gasoline formulation 9114 reads a `BioDieselEsterVolume` of 0 and returns exactly 1 -- a ratio MOVES's master loop then DELETES, so the row would vanish rather than be wrong, and the fixture would show a missing key rather than a bad number. That is the failure this constraint prevents, and it is why the oracle asserts 0 missing keys and not only a tolerance.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "fe_expressionFuelTypeID", "time": 0.0, "expected": 1.0, "coords": { "fe_expression_rows": 1 }, "tolerance": { "rel": 1e-12 } },
+            { "variable": "fe_expressionFuelTypeID", "time": 0.0, "expected": 5.0, "coords": { "fe_expression_rows": 3 }, "tolerance": { "rel": 1e-12 } },
+            { "variable": "fe_expressionFuelTypeID", "time": 0.0, "expected": 2.0, "coords": { "fe_expression_rows": 7 }, "tolerance": { "rel": 1e-12 } },
+            { "variable": "fe_expressionFormulationID", "time": 0.0, "expected": 9114.0, "coords": { "fe_expression_rows": 1 }, "tolerance": { "rel": 1e-12 } },
+            { "variable": "fe_expressionFormulationID", "time": 0.0, "expected": 27002.0, "coords": { "fe_expression_rows": 3 }, "tolerance": { "rel": 1e-12 } },
+            { "variable": "fe_expressionFormulationID", "time": 0.0, "expected": 25003.0, "coords": { "fe_expression_rows": 7 }, "tolerance": { "rel": 1e-12 } }
+          ]
+        }
+      ]
+    }
+  }
+}
