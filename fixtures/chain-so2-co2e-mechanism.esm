@@ -1298,6 +1298,45 @@
         "note": "7 rows: `SO2Calculator`'s `SO2FuelCalculation2` (so2_calculator.rs:2024-2050). Grams of SO2 per gram of fuel sulfur burned, by fuel type and a modelYearGroupID written self-described in ONE column, so lib/keys.esm's `model_year_in_group` decodes it. Gasoline and ethanol carry 1.99378e-06 at every model year; diesel steps from 1.89735e-06 to 1.76298e-06 at 2007. There is no fuelTypeID 9 row, which is one of TWO independent reasons no electricity cohort emits SO2.",
         "esio_format": "parquet"
       }
+    },
+    "at_pollutant": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/chain-so2-co2e-mechanism/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__pollutant.parquet"
+      },
+      "reader_options": {
+        "float_columns": [
+          "globalWarmingPotential"
+        ]
+      },
+      "extent": {
+        "metaparameter": "n_pollutant"
+      },
+      "metadata": {
+        "tags": [
+          "scope",
+          "chain"
+        ],
+        "note": "116 rows, read for TWO columns: `globalWarmingPotential` is the SQL's `CO2EqPollutant` extract (co2ae:1116-1131) and it is a nullable SMALLINT -- NULL on every pollutant outside the greenhouse set, so it is listed in `float_columns` and arrives as NaN (docs/esm-conventions.md 11). Methane is 28, N2O is 265 and Atmospheric CO2 is 1. The whole table is 116 rows with a maximum id of 3000, which is the measurement behind docs/chain-so2-co2e-mechanism.md 0.3: `TOGSpeciationCalculator`'s 184 advertised registrations are mostly for CB05 pollutants 1000-1018 that DO NOT EXIST in this database.",
+        "esio_format": "parquet"
+      }
+    },
+    "at_integratedspeciesset": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/chain-so2-co2e-mechanism/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__integratedspeciesset.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_integratedspeciesset"
+      },
+      "metadata": {
+        "tags": [
+          "speciation",
+          "chain"
+        ],
+        "note": "14 rows, ALL mechanismID 5 / integratedSpeciesSetID 4: the mechanism species `TOGSpeciationCalculator` subtracts from NMOG. THIS TABLE IS THE DISCRIMINATOR FOR THE WHOLE RUNG -- it is EMPTY in all 41 other snapshots of the corpus, including the one named `chain-tog-speciation`, and the calculator is class-loaded in every one of them because `ExecutionRunSpec` calls its static `needsFinalAggregation()`. Its fourteen pollutants are exactly this run's fourteen air toxics. `useISSyn` is not read: the Section Processing SQL's `inner join ... using (pollutantID)` carries no predicate on it (togspeciation.rs:121-125).",
+        "esio_format": "parquet"
+      }
     }
   },
   "metaparameters": {
@@ -1620,6 +1659,16 @@
       "type": "integer",
       "default": 0,
       "description": "Rows of `sulfateemissionrate`, discovered by extent."
+    },
+    "n_pollutant": {
+      "type": "integer",
+      "default": 0,
+      "description": "Rows of `pollutant`, discovered by extent."
+    },
+    "n_integratedspeciesset": {
+      "type": "integer",
+      "default": 0,
+      "description": "Rows of `integratedspeciesset`, discovered by extent."
     }
   },
   "index_sets": {
@@ -1924,6 +1973,14 @@
     "sulfateemissionrate_rows": {
       "kind": "interval",
       "size": "n_sulfateemissionrate"
+    },
+    "pollutant_rows": {
+      "kind": "interval",
+      "size": "n_pollutant"
+    },
+    "integratedspeciesset_rows": {
+      "kind": "interval",
+      "size": "n_integratedspeciesset"
     }
   },
   "enums": {
@@ -7199,14 +7256,6 @@
           ],
           "description": "Emits as a depth-3 chained row: the three air toxics."
         },
-        "rt_emits": {
-          "type": "unknown",
-          "units": "1",
-          "shape": [
-            "rate_rows"
-          ],
-          "description": "Whether this rate row becomes a MOVESOutput row: 124 THC and 5 x 104 species."
-        },
         "rt_prefixEmitted": {
           "type": "unknown",
           "units": "1",
@@ -7827,15 +7876,6 @@
             "runspecday_rows"
           ],
           "description": "S16, aggregate.rs:223-231: universalActivity = SHO / noOfRealDays."
-        },
-        "rtDay_quant": {
-          "type": "unknown",
-          "units": "1",
-          "shape": [
-            "rate_rows",
-            "runspecday_rows"
-          ],
-          "description": "The emitted quantity: the chain root's rate, this row's speciation chain, and the activity."
         },
         "rt_outputRank": {
           "type": "unknown",
@@ -8755,6 +8795,302 @@
             "run_rows"
           ],
           "description": "How many pollutant-processes are declared BOTH ways. Zero."
+        },
+        "pol_pollutantID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "pollutant_rows"
+          ],
+          "description": "pollutant.pollutantID.",
+          "update": {
+            "kind": "data",
+            "source": "at_pollutant",
+            "from": {
+              "file_variable": "pollutantID"
+            }
+          }
+        },
+        "pol_globalWarmingPotential": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "pollutant_rows"
+          ],
+          "description": "pollutant.globalWarmingPotential: 1, 28 and 265 on the three greenhouse pollutants and NaN on the other 113.",
+          "update": {
+            "kind": "data",
+            "source": "at_pollutant",
+            "from": {
+              "file_variable": "globalWarmingPotential"
+            }
+          }
+        },
+        "iss_mechanismID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "integratedspeciesset_rows"
+          ],
+          "description": "integratedspeciesset.mechanismID: 5 on every row.",
+          "update": {
+            "kind": "data",
+            "source": "at_integratedspeciesset",
+            "from": {
+              "file_variable": "mechanismID"
+            }
+          }
+        },
+        "iss_integratedSpeciesSetID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "integratedspeciesset_rows"
+          ],
+          "description": "integratedspeciesset.integratedSpeciesSetID: 4 on every row.",
+          "update": {
+            "kind": "data",
+            "source": "at_integratedspeciesset",
+            "from": {
+              "file_variable": "integratedSpeciesSetID"
+            }
+          }
+        },
+        "iss_pollutantID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "integratedspeciesset_rows"
+          ],
+          "description": "integratedspeciesset.pollutantID: the fourteen species subtracted from NMOG.",
+          "update": {
+            "kind": "data",
+            "source": "at_integratedspeciesset",
+            "from": {
+              "file_variable": "pollutantID"
+            }
+          }
+        },
+        "rspp_isTotalOrganicGases": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecpollutantprocess_rows"
+          ],
+          "description": "hcspeciation.rs:767. TOG is NMOG plus methane -- a SUM of two species this document already emits, not a ratio applied to a parent -- and `HCSpeciationCalculator` writes it as a code constant. `runspecchainedto` does carry BOTH inputs for 8601, which is the only pollutant-process in this run with two chain rows, and reading them as a single multiplicative parent would give the nonsense id 8501."
+        },
+        "rspp_isCO2Equivalent": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecpollutantprocess_rows"
+          ],
+          "description": "co2ae:168's `CO2_EQUIVALENT_INPUTS`, the Java macro `##CO2Step2pollutantIDs##` = \"90,5,6\". Step 2 runs AFTER step 1a's INSERT and reads `MOVESWorkerOutput` back, so the Atmospheric CO2 rows it sums are ones this same calculator has just written."
+        },
+        "rspp_isNonHapTog": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecpollutantprocess_rows"
+          ],
+          "description": "togspeciation.rs:40. NonHAPTOG is NMOG minus the mechanism's integrated species, clamped at zero -- fifteen summands with a sign, and the only pollutant `TOGSpeciationCalculator` ever writes."
+        },
+        "rspp_isSummed": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecpollutantprocess_rows"
+          ],
+          "description": "Whether this pollutant-process is a SUM of other emitted rows rather than a ratio applied to one. Three of this run's twenty-six are, and all three constants are the calculators' own: MOVES's `runspecchainedto` is read by `AirToxicsCalculator` alone (docs/findings/F41). A summed row has no multiplicative chain parent, which is what the gate below says."
+        },
+        "rt_isTotalOrganicGases": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "Read back onto the rate relation from `rspp_isTotalOrganicGases`."
+        },
+        "rt_isCO2Equivalent": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "Read back onto the rate relation from `rspp_isCO2Equivalent`."
+        },
+        "rt_isNonHapTog": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "Read back onto the rate relation from `rspp_isNonHapTog`."
+        },
+        "rtDay_directQuant": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows",
+            "runspecday_rows"
+          ],
+          "description": "The MULTIPLICATIVE stage's emitted quantity: the chain root's rate, this row's speciation chain and the activity. Exactly zero on the three summed pollutant-processes, which have no root and no ratio."
+        },
+        "rt_multiplicativeEmits": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "Whether this rate row becomes a MOVESOutput row by the multiplicative stage: a root with a rate, or a chained row whose ratio and parent both exist."
+        },
+        "rtDay_totalOrganicGasesSum": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows",
+            "runspecday_rows"
+          ],
+          "description": "hcspeciation.rs:767's `emission_sum(nmog, methane)`, on the emitted rows rather than inside the speciation: the two summands are both MOVESOutput rows of this run, and MOVES forms TOG from the same two gated species. On this run's twenty ethanol cohorts of model year 2001 or later the two come from DIFFERENT blocks -- methane from the ordinary THC block and NMOG from the altTHC copy, which suppresses NMOG on the ordinary path -- and the sum is still over the same output cell, which is why it is taken here and not inside `rtSup_hcSpeciesFactor`."
+        },
+        "rt_totalOrganicGasesEmits": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "A TOG row exists where either summand does -- hcspeciation.rs:767 omits TOG only when both are absent. The union is the 104 NMOG cohorts here, because methane's are the same 104."
+        },
+        "pol_isCO2EquivalentInput": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "pollutant_rows"
+          ],
+          "description": "co2ae:168's three Java constants: Atmospheric CO2, methane and N2O. The macro is a literal string \"90,5,6\" in the Java and there is no table that says so, which is why the three ids are written here rather than read."
+        },
+        "pol_co2EquivalentWeight": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "pollutant_rows"
+          ],
+          "description": "The weight a pollutant enters the CO2 Equivalent sum with: its global warming potential where the SQL's `CO2EqPollutant` extract keeps it, and 0 everywhere else. The template is where the NaN of the 113 non-greenhouse pollutants is stopped -- a flag-times-value spelling would multiply 0 by NaN and get NaN (docs/esm-conventions.md 19.4a, 29.2)."
+        },
+        "rtDay_co2EquivalentSum": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows",
+            "runspecday_rows"
+          ],
+          "description": "co2ae:1136-1152, step 2: sum(emission x globalWarmingPotential) over the Atmospheric CO2, methane and N2O rows of the same output cell. It reads step 1a's OWN output back -- the SQL inserts the CO2 rows into `MOVESWorkerOutput` and then selects from it -- which is why this document forms it from `rtDay_directQuant` and not from the energy."
+        },
+        "rt_co2EquivalentEmits": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "A CO2 Equivalent row exists where any of the three summands does. The union is the 125 Atmospheric CO2 cohorts, a strict superset of methane's 104 and N2O's 124."
+        },
+        "rtDay_nonHapTogNmog": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows",
+            "runspecday_rows"
+          ],
+          "description": "The POSITIVE term of togspeciation.rs's step 2 fan-out. The SQL synthesises an NMOG (80) row into every `(mechanismID, integratedSpeciesSetID)` that lacks one -- `insert ignore ... select distinct ... 80` -- and signs it `+` while every other member of the set is signed `-`. `integratedspeciesset` carries no 80 row, so the synthesis is written here as the separate join it is."
+        },
+        "rtDay_nonHapTogSpecies": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows",
+            "runspecday_rows"
+          ],
+          "description": "The NEGATIVE term: every emitted row whose pollutant `integratedspeciesset` lists. Fourteen of them here, and each contributes to EVERY (mechanism, set) that lists it -- this run has one such pair, so the fan-out is a fan-out of one and the document cannot check the multi-mechanism case; `run_integratedSpeciesMechanismSpread` says so by asserting the corpus has one mechanism rather than by leaving it unstated."
+        },
+        "rtDay_nonHapTogRaw": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows",
+            "runspecday_rows"
+          ],
+          "description": "The signed sum before the clamp. It is POSITIVE on all 208 emitted cells of this run -- the fourteen species take 16.1 % to 48.6 % of NMOG and the smallest residual is 4.57e-04 g -- so the clamp below is a no-op HERE and is checked nowhere in this fixture (docs/esm-conventions.md 23; docs/chain-so2-co2e-mechanism.md 7.5)."
+        },
+        "rtDay_nonHapTogQuant": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows",
+            "runspecday_rows"
+          ],
+          "description": "togspeciation.rs's `greatest(sum(...), 0)`. The clamp is on the GROUPED sum, so it comes after the market-share collapse and not per fuel formulation."
+        },
+        "rt_nonHapTogEmits": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "A NonHAPTOG row exists where any member of the integration does -- the SQL groups the signed fan-out and every group becomes a row. NMOG's 104 cohorts and the species' 104 and 64 union to the same 104."
+        },
+        "rt_nonHapTogNmogEmits": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "The positive term's half of the same union, written separately because the synthesised NMOG row is not in the table."
+        },
+        "rtDay_quant": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows",
+            "runspecday_rows"
+          ],
+          "description": "The emitted quantity: the multiplicative stage plus the additive one. The four terms are disjoint by pollutant -- a rate row has one pollutant-process and reaches exactly one of them -- so the sum is a union."
+        },
+        "rt_emits": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "Whether this rate row becomes a MOVESOutput row, by either stage: 2,767 of them."
+        },
+        "run_integratedSpeciesMechanismMax": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "run_rows"
+          ],
+          "description": "The largest mechanismID in `integratedspeciesset`."
+        },
+        "run_integratedSpeciesMechanismMin": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "run_rows"
+          ],
+          "description": "The smallest."
+        },
+        "run_integratedSpeciesMechanismSpread": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "run_rows"
+          ],
+          "description": "Zero: this run selects ONE mechanism, so the per-(mechanism, set) fan-out of togspeciation.rs's step 2 has one member and a second mechanism would have to be checked elsewhere. Asserted so the limitation is a number rather than a sentence."
         }
       },
       "equations": [
@@ -9874,6 +10210,104 @@
           }
         },
         {
+          "lhs": "rspp_isNonHapTog",
+          "rhs": {
+            "op": "ifelse",
+            "args": [
+              {
+                "op": "==",
+                "args": [
+                  "rspp_pollutantID",
+                  {
+                    "op": "enum",
+                    "args": [
+                      "pollutant",
+                      "NonHapTog"
+                    ]
+                  }
+                ]
+              },
+              1.0,
+              0.0
+            ]
+          }
+        },
+        {
+          "lhs": "rspp_isSummed",
+          "rhs": {
+            "op": "ifelse",
+            "args": [
+              {
+                "op": ">",
+                "args": [
+                  {
+                    "op": "+",
+                    "args": [
+                      {
+                        "op": "+",
+                        "args": [
+                          "rspp_isTotalOrganicGases",
+                          "rspp_isCO2Equivalent"
+                        ]
+                      },
+                      "rspp_isNonHapTog"
+                    ]
+                  },
+                  0.5
+                ]
+              },
+              1.0,
+              0.0
+            ]
+          }
+        },
+        {
+          "lhs": "rspp_isCO2Equivalent",
+          "rhs": {
+            "op": "ifelse",
+            "args": [
+              {
+                "op": "==",
+                "args": [
+                  "rspp_pollutantID",
+                  {
+                    "op": "enum",
+                    "args": [
+                      "pollutant",
+                      "CO2Equivalent"
+                    ]
+                  }
+                ]
+              },
+              1.0,
+              0.0
+            ]
+          }
+        },
+        {
+          "lhs": "rspp_isTotalOrganicGases",
+          "rhs": {
+            "op": "ifelse",
+            "args": [
+              {
+                "op": "==",
+                "args": [
+                  "rspp_pollutantID",
+                  {
+                    "op": "enum",
+                    "args": [
+                      "pollutant",
+                      "TotalOrganicGases"
+                    ]
+                  }
+                ]
+              },
+              1.0,
+              0.0
+            ]
+          }
+        },
+        {
           "_comment": "engine.rs:1286-1310's membership rule, via lib/onroad_activity.esm. The two energy pollutants this run does NOT select are named anyway, because the rule is the port and not the run.",
           "lhs": "rspp_isEnergy",
           "rhs": {
@@ -10004,12 +10438,25 @@
           }
         },
         {
+          "_comment": "The two declarations unioned, and the summed pollutant-processes held out. They are disjoint by construction -- MOVES writes a `runspecchainedto` row for a pollutant-process exactly when a calculator does not carry its input as a constant -- and `run_chainDeclarationOverlap` asserts that. The gate is not cosmetic: 8601 has TWO `runspecchainedto` rows and the aggregate below them would sum 8001 and 501 into 8501.",
           "lhs": "rspp_chainInputPolProcessID",
           "rhs": {
-            "op": "+",
+            "op": "*",
             "args": [
-              "rspp_declaredChainInputPolProcessID",
-              "rspp_calculatorChainInputPolProcessID"
+              {
+                "op": "-",
+                "args": [
+                  1.0,
+                  "rspp_isSummed"
+                ]
+              },
+              {
+                "op": "+",
+                "args": [
+                  "rspp_declaredChainInputPolProcessID",
+                  "rspp_calculatorChainInputPolProcessID"
+                ]
+              }
             ]
           }
         },
@@ -14558,6 +15005,114 @@
               1.0,
               0.0
             ]
+          }
+        },
+        {
+          "lhs": "rt_isNonHapTog",
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "p": {
+                "from": "runspecpollutantprocess_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rt_polProcOrdinal",
+                    "rspp_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "rspp_isNonHapTog",
+                "p"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rt_isCO2Equivalent",
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "p": {
+                "from": "runspecpollutantprocess_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rt_polProcOrdinal",
+                    "rspp_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "rspp_isCO2Equivalent",
+                "p"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rt_isTotalOrganicGases",
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "p": {
+                "from": "runspecpollutantprocess_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rt_polProcOrdinal",
+                    "rspp_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "rspp_isTotalOrganicGases",
+                "p"
+              ]
+            }
           }
         },
         {
@@ -21091,7 +21646,7 @@
         },
         {
           "_comment": "Whether this rate row becomes a MOVESOutput row. Four disjoint arms, one per chain depth: a pollutant-process sits at exactly one depth, so at most one term is non-zero and the sum is a union. 124 at depth 0, and 104 at each of depths 1, 2 and 3 x the three toxics -- 644.",
-          "lhs": "rt_emits",
+          "lhs": "rt_multiplicativeEmits",
           "rhs": {
             "op": "+",
             "args": [
@@ -21110,6 +21665,435 @@
               },
               "rt_emitsAtDepth3"
             ]
+          }
+        },
+        {
+          "lhs": "rt_totalOrganicGasesEmits",
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "semiring": "bool_and_or",
+            "output_idx": [
+              "b"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "b2": {
+                "from": "rate_rows"
+              }
+            },
+            "join": [
+              {
+                "syms": [
+                  "b",
+                  "b2"
+                ],
+                "on": [
+                  [
+                    "rt_cohortOrdinal",
+                    "rt_cohortOrdinal"
+                  ]
+                ]
+              }
+            ],
+            "filter": {
+              "op": "and",
+              "args": [
+                {
+                  "op": ">",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "rt_isTotalOrganicGases",
+                        "b"
+                      ]
+                    },
+                    0.5
+                  ]
+                },
+                {
+                  "op": "or",
+                  "args": [
+                    {
+                      "op": "==",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "rt_pollutantID",
+                            "b2"
+                          ]
+                        },
+                        {
+                          "op": "enum",
+                          "args": [
+                            "pollutant",
+                            "NonMethaneOrganicGases"
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "op": "==",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "rt_pollutantID",
+                            "b2"
+                          ]
+                        },
+                        {
+                          "op": "enum",
+                          "args": [
+                            "pollutant",
+                            "Methane"
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            "expr": {
+              "op": "index",
+              "args": [
+                "rt_multiplicativeEmits",
+                "b2"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rt_co2EquivalentEmits",
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "semiring": "bool_and_or",
+            "output_idx": [
+              "b"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "b2": {
+                "from": "rate_rows"
+              },
+              "g": {
+                "from": "pollutant_rows"
+              }
+            },
+            "join": [
+              {
+                "syms": [
+                  "b",
+                  "b2"
+                ],
+                "on": [
+                  [
+                    "rt_cohortOrdinal",
+                    "rt_cohortOrdinal"
+                  ]
+                ]
+              },
+              {
+                "syms": [
+                  "b2",
+                  "g"
+                ],
+                "on": [
+                  [
+                    "rt_pollutantID",
+                    "pol_pollutantID"
+                  ]
+                ]
+              }
+            ],
+            "filter": {
+              "op": ">",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "rt_isCO2Equivalent",
+                    "b"
+                  ]
+                },
+                0.5
+              ]
+            },
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "pol_isCO2EquivalentInput",
+                    "g"
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "rt_multiplicativeEmits",
+                    "b2"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rt_nonHapTogEmits",
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "semiring": "bool_and_or",
+            "output_idx": [
+              "b"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "b2": {
+                "from": "rate_rows"
+              },
+              "i": {
+                "from": "integratedspeciesset_rows"
+              }
+            },
+            "join": [
+              {
+                "syms": [
+                  "b",
+                  "b2"
+                ],
+                "on": [
+                  [
+                    "rt_cohortOrdinal",
+                    "rt_cohortOrdinal"
+                  ]
+                ]
+              },
+              {
+                "syms": [
+                  "b2",
+                  "i"
+                ],
+                "on": [
+                  [
+                    "rt_pollutantID",
+                    "iss_pollutantID"
+                  ]
+                ]
+              }
+            ],
+            "filter": {
+              "op": ">",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "rt_isNonHapTog",
+                    "b"
+                  ]
+                },
+                0.5
+              ]
+            },
+            "expr": {
+              "op": "index",
+              "args": [
+                "rt_multiplicativeEmits",
+                "b2"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rt_nonHapTogNmogEmits",
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "semiring": "bool_and_or",
+            "output_idx": [
+              "b"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "b2": {
+                "from": "rate_rows"
+              }
+            },
+            "join": [
+              {
+                "syms": [
+                  "b",
+                  "b2"
+                ],
+                "on": [
+                  [
+                    "rt_cohortOrdinal",
+                    "rt_cohortOrdinal"
+                  ]
+                ]
+              }
+            ],
+            "filter": {
+              "op": "and",
+              "args": [
+                {
+                  "op": ">",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "rt_isNonHapTog",
+                        "b"
+                      ]
+                    },
+                    0.5
+                  ]
+                },
+                {
+                  "op": "==",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "rt_pollutantID",
+                        "b2"
+                      ]
+                    },
+                    {
+                      "op": "enum",
+                      "args": [
+                        "pollutant",
+                        "NonMethaneOrganicGases"
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            "expr": {
+              "op": "index",
+              "args": [
+                "rt_multiplicativeEmits",
+                "b2"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rt_emits",
+          "rhs": {
+            "op": "ifelse",
+            "args": [
+              {
+                "op": ">",
+                "args": [
+                  {
+                    "op": "+",
+                    "args": [
+                      {
+                        "op": "+",
+                        "args": [
+                          "rt_multiplicativeEmits",
+                          "rt_totalOrganicGasesEmits"
+                        ]
+                      },
+                      {
+                        "op": "+",
+                        "args": [
+                          "rt_co2EquivalentEmits",
+                          {
+                            "op": "+",
+                            "args": [
+                              "rt_nonHapTogEmits",
+                              "rt_nonHapTogNmogEmits"
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  0.5
+                ]
+              },
+              1.0,
+              0.0
+            ]
+          }
+        },
+        {
+          "lhs": "run_integratedSpeciesMechanismMin",
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "semiring": "min_sum",
+            "output_idx": [
+              "n"
+            ],
+            "ranges": {
+              "n": {
+                "from": "run_rows"
+              },
+              "i": {
+                "from": "integratedspeciesset_rows"
+              }
+            },
+            "expr": {
+              "op": "index",
+              "args": [
+                "iss_mechanismID",
+                "i"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "run_integratedSpeciesMechanismSpread",
+          "rhs": {
+            "op": "-",
+            "args": [
+              "run_integratedSpeciesMechanismMax",
+              "run_integratedSpeciesMechanismMin"
+            ]
+          }
+        },
+        {
+          "lhs": "run_integratedSpeciesMechanismMax",
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "semiring": "max_sum",
+            "output_idx": [
+              "n"
+            ],
+            "ranges": {
+              "n": {
+                "from": "run_rows"
+              },
+              "i": {
+                "from": "integratedspeciesset_rows"
+              }
+            },
+            "expr": {
+              "op": "index",
+              "args": [
+                "iss_mechanismID",
+                "i"
+              ]
+            }
           }
         },
         {
@@ -22644,7 +23628,7 @@
         },
         {
           "_comment": "S17 and S18: rate x activity, in grams. No unit divisor: not one of this run's six pollutants is an energy pollutant. There is no separate chained term -- unlike fixtures/process-crankcase-running.esm, where the chained quantity was its parent's OUTPUT times a ratio, both calculators here scale the same THC block, and the chain lives in `rt_fuelFactor` where it can be formed per FORMULATION.",
-          "lhs": "rtDay_quant",
+          "lhs": "rtDay_directQuant",
           "rhs": {
             "op": "aggregate",
             "args": [],
@@ -22682,6 +23666,395 @@
                 }
               ]
             }
+          }
+        },
+        {
+          "lhs": "rtDay_totalOrganicGasesSum",
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b",
+              "k"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "k": {
+                "from": "runspecday_rows"
+              },
+              "b2": {
+                "from": "rate_rows"
+              }
+            },
+            "join": [
+              {
+                "syms": [
+                  "b",
+                  "b2"
+                ],
+                "on": [
+                  [
+                    "rt_cohortOrdinal",
+                    "rt_cohortOrdinal"
+                  ]
+                ]
+              }
+            ],
+            "filter": {
+              "op": "and",
+              "args": [
+                {
+                  "op": ">",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "rt_isTotalOrganicGases",
+                        "b"
+                      ]
+                    },
+                    0.5
+                  ]
+                },
+                {
+                  "op": "or",
+                  "args": [
+                    {
+                      "op": "==",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "rt_pollutantID",
+                            "b2"
+                          ]
+                        },
+                        {
+                          "op": "enum",
+                          "args": [
+                            "pollutant",
+                            "NonMethaneOrganicGases"
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "op": "==",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "rt_pollutantID",
+                            "b2"
+                          ]
+                        },
+                        {
+                          "op": "enum",
+                          "args": [
+                            "pollutant",
+                            "Methane"
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            "expr": {
+              "op": "index",
+              "args": [
+                "rtDay_directQuant",
+                "b2",
+                "k"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rtDay_co2EquivalentSum",
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b",
+              "k"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "k": {
+                "from": "runspecday_rows"
+              },
+              "b2": {
+                "from": "rate_rows"
+              },
+              "g": {
+                "from": "pollutant_rows"
+              }
+            },
+            "join": [
+              {
+                "syms": [
+                  "b",
+                  "b2"
+                ],
+                "on": [
+                  [
+                    "rt_cohortOrdinal",
+                    "rt_cohortOrdinal"
+                  ]
+                ]
+              },
+              {
+                "syms": [
+                  "b2",
+                  "g"
+                ],
+                "on": [
+                  [
+                    "rt_pollutantID",
+                    "pol_pollutantID"
+                  ]
+                ]
+              }
+            ],
+            "filter": {
+              "op": ">",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "rt_isCO2Equivalent",
+                    "b"
+                  ]
+                },
+                0.5
+              ]
+            },
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "pol_co2EquivalentWeight",
+                    "g"
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "rtDay_directQuant",
+                    "b2",
+                    "k"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rtDay_nonHapTogNmog",
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b",
+              "k"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "k": {
+                "from": "runspecday_rows"
+              },
+              "b2": {
+                "from": "rate_rows"
+              }
+            },
+            "join": [
+              {
+                "syms": [
+                  "b",
+                  "b2"
+                ],
+                "on": [
+                  [
+                    "rt_cohortOrdinal",
+                    "rt_cohortOrdinal"
+                  ]
+                ]
+              }
+            ],
+            "filter": {
+              "op": "and",
+              "args": [
+                {
+                  "op": ">",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "rt_isNonHapTog",
+                        "b"
+                      ]
+                    },
+                    0.5
+                  ]
+                },
+                {
+                  "op": "==",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "rt_pollutantID",
+                        "b2"
+                      ]
+                    },
+                    {
+                      "op": "enum",
+                      "args": [
+                        "pollutant",
+                        "NonMethaneOrganicGases"
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            "expr": {
+              "op": "index",
+              "args": [
+                "rtDay_directQuant",
+                "b2",
+                "k"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rtDay_nonHapTogSpecies",
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b",
+              "k"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "k": {
+                "from": "runspecday_rows"
+              },
+              "b2": {
+                "from": "rate_rows"
+              },
+              "i": {
+                "from": "integratedspeciesset_rows"
+              }
+            },
+            "join": [
+              {
+                "syms": [
+                  "b",
+                  "b2"
+                ],
+                "on": [
+                  [
+                    "rt_cohortOrdinal",
+                    "rt_cohortOrdinal"
+                  ]
+                ]
+              },
+              {
+                "syms": [
+                  "b2",
+                  "i"
+                ],
+                "on": [
+                  [
+                    "rt_pollutantID",
+                    "iss_pollutantID"
+                  ]
+                ]
+              }
+            ],
+            "filter": {
+              "op": ">",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "rt_isNonHapTog",
+                    "b"
+                  ]
+                },
+                0.5
+              ]
+            },
+            "expr": {
+              "op": "index",
+              "args": [
+                "rtDay_directQuant",
+                "b2",
+                "k"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rtDay_nonHapTogRaw",
+          "rhs": {
+            "op": "-",
+            "args": [
+              "rtDay_nonHapTogNmog",
+              "rtDay_nonHapTogSpecies"
+            ]
+          }
+        },
+        {
+          "lhs": "rtDay_nonHapTogQuant",
+          "rhs": {
+            "op": "max",
+            "args": [
+              "rtDay_nonHapTogRaw",
+              0.0
+            ]
+          }
+        },
+        {
+          "_comment": "THE SECOND STAGE, AND WHY THERE HAS TO BE ONE. Every earlier fixture in this port computes an output row by SCALING one other row; three of this run's twenty-six SUM several. A summed row cannot be a multiplicative chain step at any depth, so it is a separate pass over the same relation -- and one pass is enough, because none of the three feeds another (docs/esm-conventions.md 40).",
+          "lhs": "rtDay_quant",
+          "rhs": {
+            "op": "+",
+            "args": [
+              {
+                "op": "+",
+                "args": [
+                  "rtDay_directQuant",
+                  "rtDay_totalOrganicGasesSum"
+                ]
+              },
+              {
+                "op": "+",
+                "args": [
+                  "rtDay_co2EquivalentSum",
+                  "rtDay_nonHapTogQuant"
+                ]
+              }
+            ]
           }
         },
         {
@@ -23573,6 +24946,77 @@
               "args": [],
               "name": "null_output_column",
               "bindings": {}
+            }
+          }
+        },
+        {
+          "lhs": "pol_isCO2EquivalentInput",
+          "rhs": {
+            "op": "ifelse",
+            "args": [
+              {
+                "op": "or",
+                "args": [
+                  {
+                    "op": "==",
+                    "args": [
+                      "pol_pollutantID",
+                      {
+                        "op": "enum",
+                        "args": [
+                          "pollutant",
+                          "AtmosphericCO2"
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "op": "or",
+                    "args": [
+                      {
+                        "op": "==",
+                        "args": [
+                          "pol_pollutantID",
+                          {
+                            "op": "enum",
+                            "args": [
+                              "pollutant",
+                              "Methane"
+                            ]
+                          }
+                        ]
+                      },
+                      {
+                        "op": "==",
+                        "args": [
+                          "pol_pollutantID",
+                          {
+                            "op": "enum",
+                            "args": [
+                              "pollutant",
+                              "NitrousOxide"
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              1.0,
+              0.0
+            ]
+          }
+        },
+        {
+          "lhs": "pol_co2EquivalentWeight",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "global_warming_potential_is_selected",
+            "bindings": {
+              "global_warming_potential": "pol_globalWarmingPotential",
+              "is_selected_pollutant": "pol_isCO2EquivalentInput"
             }
           }
         }
