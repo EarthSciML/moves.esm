@@ -41,10 +41,19 @@
 #     against 1.9e-11 (0.869). That is the whole of the difference, and it is
 #     the capture's rather than the port's.
 #
-# That third population is why this snapshot has NO .esm fixture: a per-cell
-# comparison against its MOVESOutput fails on 1,013 of 14,036 cells for ANY
-# correct implementation. `docs/nr-airtoxics-lawn-garden-county.md` §7.2 and §8
-# have the measurement and what it costs.
+# That third population is why `fixtures/nr-airtoxics-lawn-garden-county.esm`
+# emits 14,036 rows and COMPARES 13,068: tolerance.toml holds pollutants 131
+# and 142 out of the comparison as a declared scope, with the fitted rates as
+# its reason, and compares the other 27 at the capture's own resolution. The
+# gate itself is unchanged. `docs/nr-airtoxics-lawn-garden-county.md` §7.2 and
+# §8 have the measurement and both alternatives.
+#
+# THIS SCRIPT IS THE ATTRIBUTION TOOL FOR THAT: it computes the same 14,036
+# rows by a completely different route -- float32 NumPy straight from the
+# Parquet, no .esm anywhere -- so when the fixture and the snapshot disagree,
+# a third implementation says whether the document or the specification is
+# wrong. It also fits and asserts the two dioxin rates every run, which no
+# comparison against MOVESOutput could do.
 #
 # IT TAKES NOTHING FROM THE REFERENCE. `movesworkeroutput`, `baserateoutput`,
 # the `temporaryoutputimport` tables and `MOVESOutput` are read by nothing here

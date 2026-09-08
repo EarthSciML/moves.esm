@@ -38,6 +38,7 @@ line is the `nr-lawn-garden-county` run unchanged.
 | Pollutant/process | **29 pairs, all process 1**: 101, 501, 2001, 2101, 2301, 2401, 2501, 2601, 2701, 4501, 4601, 6001, 6301, 6501, 6601, 6701, 6901, 7901, 8001, 8601, 8701, 8801, 9901, 10001, 11001, 13101, 14201, 16901, 18501 |
 | Model years | 1971–2020 (50), ragged per SCC — 3 to 50 each |
 | Output | `db__out_nr_airtoxics_lawn_garden_county__movesoutput`, **14,036 rows** = 29 × **484** `(SCC, modelYearID)` cohorts |
+| Fixture | `fixtures/nr-airtoxics-lawn-garden-county.esm` — 14,036 rows emitted, **13,068 compared**, key set exact, worst compared cell **9.417 × 10⁻⁶** against an unchanged `[cell] rel = 2e-5` (§7.2, §8) |
 | Output units | grams; `outputtimestep` **Hour** |
 
 ### 0.1 Why 484 cohorts, and why every block is the same size
