@@ -331,13 +331,15 @@ fi
 
 head2 "known limitations (expected to fail)"
 
-# The positive control for F1/F2. join_leaf.esm is the relational leaf both of
-# those repros mount; on its own it must LOAD, VALIDATE and PASS. Without this,
-# a typo in the leaf would make both repros fail for the wrong reason and the
-# tripwire would report "still fails, as recorded" about nothing.
+# The positive control for F21. join_leaf.esm is the relational leaf that repro
+# mounts; on its own it must LOAD, VALIDATE and PASS. Without this, a typo in
+# the leaf would make the repro fail for the wrong reason and the tripwire would
+# report "still fails, as recorded" about nothing. It was F1's and F2's control
+# too and both are now retired, which is why the leaf stays: F21 reused it
+# rather than adding a fourth, so retiring them costs it nothing.
 if "$ESM" validate docs/findings/join_leaf.esm >/dev/null 2>&1 \
    && "$ESM" test docs/findings/join_leaf.esm >/dev/null 2>&1; then
-  pass "join_leaf (control) passes standalone, so F1/F2 are about the mount"
+  pass "join_leaf (control) passes standalone, so F21 is about the mount"
 else
   fail "join_leaf (control) — the shared leaf fixture is itself broken"
 fi

@@ -109,12 +109,16 @@ the predicate has to say so explicitly.)
 every expression that reads it divides by 100 first, and reading it as a
 fraction leaves the mole fraction a clean factor of 100 low and still finite.
 `barometricPressure` is in **inches of mercury** and every use of it multiplies
-by 3.38639 to reach kilopascals. That unit cannot be DECLARED: the format's unit
-registry is a closed list holding `mmHg` but no inch, and it carries
-no numeric scale factor, so `inHg`, `in`, `inch`, `25.4 mmHg` and five other
-spellings are all refused. The three pressure variables in
-`components/meteorology.esm` are therefore declared dimensionless with a
-sentence of prose each — finding **F34**.
+by 3.38639 to reach kilopascals. That unit **can now be declared**: `inHg`
+entered the registry at exactly 25.4 mmHg with EarthSciAST `fa7ffb01e`, which
+retired finding **F34**, and the three pressure variables in
+`components/meteorology.esm` carry `units: "inHg"` where they used to carry
+`units: "1"` and a sentence of apology each. What that buys is a dimensional
+check on the equations that carry the pressure — it caught the two fixtures'
+`run_barometricPressure` still declared dimensionless — and **not** a check on
+the 3.38639 itself, which is a scale and not a dimension; `mmHg`, wrong by
+25.4×, validates just as happily. The general fix F34 asked for, a numeric scale
+factor in a unit string, did not land.
 
 All five value columns are decimal TEXT in the snapshot parquet, twelve decimal
 places, holding `real*4` values widened — `63.799999237061` is what `float(63.8)`

@@ -1,13 +1,20 @@
 # Findings: conventions the format or the toolchain could not express
 
 Thirty-one things PLAN.md §3 Phase 1 through Phase 5 assumed, or that an author
-would reasonably assume, that did not hold. **Sixteen are fixed upstream and retired**
+would reasonably assume, that did not hold. **Eighteen are fixed upstream and retired**
 from the tripwire, listed at the bottom with their sections kept above so the
 workarounds they forced can be traced. The rest still hold at the pinned
-toolchain (`esm-version.lock`: EarthSciAST `3a01c56fc`, EarthSciIO
+toolchain (`esm-version.lock`: EarthSciAST `3aa046d65`, EarthSciIO
 `d109951d4`, `--features esio,parallel`).
 
-F2, F3, F5, F13, F14, F20, F21, F22, F28, F34 and F41 each have a minimal `.esm` repro in
+**F2 and F34 were retired at that rebuild**, which moved the pin 272 commits
+from `3a01c56fc` (2026-09-05) to `3aa046d65` (2026-09-08). Both went green in
+the tripwire, which is how this file was told, and both entries are at the
+bottom now. Nothing else changed state: the other nine repro-carrying findings
+— ten files, F22 having two — still fail exactly as recorded, no spec, fixture
+or oracle regressed, and no tolerance moved.
+
+F3, F5, F13, F14, F20, F21, F22, F28 and F41 each have a minimal `.esm` repro in
 this directory — F22 has two, one per construct; F8 is a CLI behaviour rather than a
 document, and is checked by command against the ordinary files of the repo.
 **F17, F31 and F33 deliberately have no repro file**: a repro
@@ -29,9 +36,11 @@ polarity and it is deliberate — a known limitation that quietly gets fixed is 
 workaround left in the tree for no reason.
 
 Three files are excluded from that loop by name. **`join_leaf.esm`** is a leaf
-that two repros mount and that passes standalone, which is what makes their
-failures attributable to the mount — F21 reuses it rather than adding a fourth
-leaf, so that finding needed no change to `run-tests.sh`. **F18's control** is
+that a repro mounts and that passes standalone, which is what makes the failure
+attributable to the mount. It was F1's and F2's control and is now F21's alone,
+both of those being retired; F21 reused it rather than adding a fourth leaf,
+which is why retiring them costs the leaf nothing and needed no change to
+`run-tests.sh` beyond the name in its message. **F18's control** is
 meant to pass, and checks the guarantee the port depends on from both sides: the
 key-collapse half of F18 is resolved by a per-variable `element_type` override
 that is explicit by design, so the behaviour its old repro asserted will never
@@ -77,13 +86,12 @@ passing was the defect. It is fixed, so that check is gone.
 The repros are excluded from the ordinary `validate` and `test` stages, because
 three of them do not load.
 
-**All nine repro-carrying findings open at the pin are now filed upstream** (2026-09-08): F2 #261, F3 #265, F5 #266, F13 #260, F14 #259, F20 #262, F21 #263, F22 #264, F28 #267.
+**All nine repro-carrying findings open at the `3a01c56fc` pin were filed upstream** (2026-09-08): F2 #261, F3 #265, F5 #266, F13 #260, F14 #259, F20 #262, F21 #263, F22 #264, F28 #267. **F2 is closed and retired** (below); the other eight are open and still reproduce on `3aa046d65`, measured rather than assumed.
 
-**F2 (#261) has since been FIXED upstream and CLOSED** — EarthSciAST `0ab4f5925` via PR #208, which merges a top-level `{ref}` mount's `index_sets` the way a subsystem mount does, and adds §4.7's conflict check at that edge. It is **not** in our pinned binary: the fix landed 2026-09-08 at 12:06, three days after the pin (`3a01c56fc`, 2026-09-05), so `F2_toplevel_ref_does_not_merge_index_sets.esm` still fails here and stays in the tripwire until the next rebuild. Retire it at that rebuild, not before — a repro that goes green is how this file learns the defect is gone, and retiring it early would remove the very check that confirms the rebuild worked. The upstream fix covers Julia, Rust and Python only; TypeScript and Go do not implement the top-level mount form at all, tracked as #280. Each was A/B'd against EarthSciAST `68574b653` before filing and still reproduces there; none of the 104 commits since the pin fixed any of them. F3, F5 and F28 were filed as DIAGNOSTIC/DOCUMENTATION requests rather than defects, because this file already records each as correct-or-conforming behaviour -- F28 says so in as many words. F34 was fixed by #238, which is merged.
+**F2 (#261) and F34 (#238) are FIXED upstream and RETIRED** at the `3aa046d65` rebuild. **The commit this file used to name for F2 was the wrong one**: it said `0ab4f5925`, which is the merge of PR #241 (conformance-harness reuse) and has nothing to do with it. The fix is `19f929981`, merged as `859ef5e93`, PR #208. Both are on `origin/main` and neither was in the `3a01c56fc` pin, checked with `git merge-base --is-ancestor` rather than read off a log. F34's is `fa7ffb01e` (PR #238), same check. Their entries are under "Fixed upstream" at the bottom and their repro files are gone. Each was A/B'd against EarthSciAST `68574b653` before filing and still reproduced there. Of the eight that remain open, none of the 272 commits between `3a01c56fc` and `3aa046d65` fixed any — checked by running each repro on the rebuilt binary, not by reading the log. F3, F5 and F28 were filed as DIAGNOSTIC/DOCUMENTATION requests rather than defects, because this file already records each as correct-or-conforming behaviour -- F28 says so in as many words.
 
 | | Finding | Fails at | Silent? |
 |---|---|---|---|
-| **F2** | A top-level `models` `{ref}` does not merge the referenced file's `index_sets` | validate | no |
 | **F3** | An `enums` block does not cross an `expression_template_imports` edge | load | no |
 | **F5** | `skolem` / `distinct` / `rank` value invention does not evaluate | — | **yes** |
 | **F8** | A layered template library does not round-trip to a self-contained form | re-load | no |
@@ -187,11 +195,12 @@ top-level `models` `{ref}` form instead — see docs/esm-conventions.md §5.
 renaming a subsystem's variables, rewrite each `join.on` pair whose name is a
 mounted sibling, leaving this node's own binders alone.
 
-## F2 — a top-level `{ref}` does not merge `index_sets`
+## F2 — a top-level `{ref}` does not merge `index_sets` **[fixed upstream, retired]**
 
-**Filed upstream: [EarthSciML/EarthSciAST#261](https://github.com/EarthSciML/EarthSciAST/issues/261)**, verified still reproducing on `68574b653`.
+**Filed upstream: [EarthSciML/EarthSciAST#261](https://github.com/EarthSciML/EarthSciAST/issues/261)** — fixed, closed, and retired here at the `3aa046d65` rebuild. The repro file is gone; the section stays so the workaround it forced can be traced. What it recorded, and what it now costs, is below the fix.
 
-`F2_toplevel_ref_does_not_merge_index_sets.esm`.
+The repro was `F2_toplevel_ref_does_not_merge_index_sets.esm`, and it went green
+in the tripwire on the rebuilt binary, which is how this file was told.
 
 ```
 Aggregate range references undeclared index set 'leaf_left'
@@ -204,12 +213,23 @@ sound: the importing model's variables may be shaped over the mesh file's axes
 without redeclaring them."* A **nested** `subsystems: {X: {ref}}` edge does
 merge them; a **top-level** `models: {X: {ref}}` edge does not.
 
-**Impact.** F1 and F2 are complementary, and together they mean an assembly
-cannot both mount a relational leaf and inherit its axes. The assembly takes
-the top-level form (the one that works) and restates the axes, and
-`run-tests.sh` compares an assembly's `index_sets` against every file it refs —
-the merge's conflict check, performed by the harness because the loader does
-not perform it here.
+**Impact, while it held.** F1 and F2 are complementary, and together they meant
+an assembly could not both mount a relational leaf and inherit its axes. The
+assembly took the top-level form (the one that works) and restated the axes, and
+`tools/check-conventions.py` compared an assembly's `index_sets` against every
+file it refs — the merge's conflict check, performed by the harness because the
+loader did not perform it here.
+
+**What the fix leaves behind.** The restatement in all four assemblies is now
+redundancy rather than necessity, and `check-conventions.py`'s rule is defence
+in depth rather than a stand-in: perturbing one restated `size` in
+`runs/micro_exhaust_run.esm` now draws `subsystem_index_set_conflict` from the
+*loader*, naming both definitions and suggesting `index_set_rename` — so the
+harness rule and the loader agree, and the harness one can be deleted the day
+the restatements go. Removing them is real follow-up work and deliberately NOT
+done at the rebuild: it touches four assemblies, and its own `check-conventions`
+rule currently *requires* the restatement it would remove, so the rule and the
+documents have to move together. See `docs/esm-conventions.md` §5.
 
 ## F3 — `enums` do not cross a template import
 
@@ -1180,11 +1200,22 @@ So the leaf wants `domain.element_type: "Float32"`. Declaring it does not work,
 and the way it fails is the shape this repository fears:
 
 * `runs/nr_logging_county_run.esm` mounts the leaf through a top-level `models`
-  `{ref}` and **re-runs the leaf's own inline tests**. With `Float32` on the
+  `{ref}` and **re-ran the leaf's own inline tests**. With `Float32` on the
   leaf, those tests ran in **binary64** under the mount and the third grown
   fraction came back as exactly `0` against an expected
   `5.888558263222876e-08`. Nothing was rejected and nothing was logged: the
   leaf's declared precision is simply not part of what the mount carries.
+
+  **That symptom can no longer occur, and the finding is not therefore closed.**
+  EarthSciAST `d2f2d328e` drops a mounted component's `tests` at the mount edge
+  (esm-spec §6.6, and `docs/esm-conventions.md` §5), so from the `3aa046d65`
+  rebuild the leaf's assertions do not run under the assembly at all — the
+  binary64 re-run that produced the `0` has nothing to re-run. What that removes
+  is the *observation*, not the gap: whether a mount carries the leaf's declared
+  `element_type` into the ASSEMBLY's own arithmetic was never separately
+  measured, and is not measured at the rebuild either. It is now harder to see
+  rather than fixed, which is the wrong direction for a silent finding, and
+  measuring it is open work.
 * Declaring it on the **assembly** instead is not a workaround. Measured: **119
   of 295** assertions fail, across ten leaves that were authored and checked in
   binary64.
@@ -1462,7 +1493,12 @@ instead of the guess.
 
 ---
 
-## F34 — a unit the registry lacks cannot be scaled, so the quantity goes undeclared
+## F34 — a unit the registry lacks cannot be scaled, so the quantity goes undeclared **[fixed upstream, retired]**
+
+**Fixed by EarthSciAST `fa7ffb01e` (PR #238) and retired at the `3aa046d65` rebuild**, where
+`F34_a_unit_the_registry_lacks_cannot_be_scaled.esm` went green in the tripwire.
+The repro file is gone; the section stays so the workaround it forced can be
+traced, and because option (a) below — the general fix — did **not** land.
 
 `MeteorologyGenerator` reads `County.barometricPressure`, which MOVES stores in
 **inches of mercury**, and every expression that touches it multiplies by
@@ -1533,19 +1569,57 @@ says — that is the general fix and it is not about pressure;
 (b) the **inch** in the registry, so `inch` composes — `ft` is already there, so this is a gap in the imperial set rather than its absence;
 (c) `inHg` as a registry entry, which fixes this document and nothing else.
 
-Any of the three turns
-`F34_a_unit_the_registry_lacks_cannot_be_scaled.esm` green, at which point
+Any of the three would have turned the repro green, and (c) did — at which point
 `components/meteorology.esm`'s three `units: "1"` declarations and their
-apologies should be replaced with the real unit.
+apologies were replaced with the real unit, along with two fixtures' worth of
+the same. What that cost and what it caught is under "Filed upstream" below.
 
-**Filed upstream:** (c) is open as
-[EarthSciAST#238](https://github.com/EarthSciML/EarthSciAST/pull/238), one
-registry entry at exactly 25.4 x the existing `mmHg`. Verified against a build
-of that branch: this repro validates and its assertion passes 1/0/0, while the
-pinned binary still refuses it. So the tripwire will fire the moment
-`esm-version.lock` moves past that merge, and it should -- that is the retirement
-signal, not a regression. (a) is the fix that generalises and is NOT part of
-that PR.
+**Filed upstream, and what landed:** (c). `inHg` is in the registry as of
+EarthSciAST `fa7ffb01e` ([#238](https://github.com/EarthSciML/EarthSciAST/pull/238)),
+at exactly 25.4 mmHg — `pascal_scaled(3386.388640341)`, pinned upstream by a test
+that checks it to the last bit rather than to a tolerance. `esm-spec.md`'s
+pressure row now reads `atm uatm bar hPa kPa mbar Torr mmHg inHg psi`. The
+tripwire fired at the rebuild, which is the retirement signal working as designed.
+
+**(a) and (b) did NOT land, and the difference is worth keeping.** There is
+still no numeric scale factor in a unit string and still no `inch`; only the one
+entry that fixes this document. So the finding's general half is unresolved and
+this repository simply no longer has an instance of it.
+
+**The workaround is removed, and removing it is what measured what the field
+buys.** `components/meteorology.esm`'s three pressure variables and the
+`cty_barometricPressure` of `fixtures/process-nox-speciation.esm` and
+`fixtures/process-crankcase-running.esm` now declare `units: "inHg"` instead of
+`"1"` plus a paragraph of apology each. Declaring it in the two fixtures
+immediately drew
+
+```
+✗ /models/ProcessNoxSpeciation/equations/31: Left-hand side has units of
+    dimensionless but right-hand side has units of length^-1*mass*time^-2
+```
+
+because `run_barometricPressure` gathers the county value and was still declared
+dimensionless — a real inconsistency the field found the moment it was told the
+truth, and the reason the change is four documents rather than three.
+
+**But this section's claim about what a dimensional check would catch was too
+strong, and the measurement says so.** It said the inHg × 3.38639 → kPa step is
+"the one arithmetic step in this chain that a dimensional check COULD catch". It
+is not, and no declaration makes it one: 3.38639 is a bare number, `inHg` and
+`kPa` share a dimension, and the quotient that consumes the result is
+dimensionless either way. Probed three ways on the rebuilt binary:
+
+| change | verdict |
+|---|---|
+| `met_barometricPressure` → `m` (wrong dimension, gathered downstream) | **refused**, naming equation 11 and both dimensions |
+| `met_rawBarometricPressure` → `m` (wrong dimension, ingested, no unit-bearing RHS) | accepted |
+| all three → `mmHg` (right dimension, wrong by 25.4×) | accepted |
+
+So what the declaration buys is a *dimensional* check on the plain equations
+that carry the pressure — which is what caught `run_barometricPressure` — and
+nothing at all on scale or on the conversion itself. That is still worth having
+and it is less than this section promised. The unit is now stated rather than
+apologised for; the 3.38639 remains unguarded, and only (a) would change that.
 
 ---
 
@@ -1555,6 +1629,8 @@ Retired from the tripwire; the repros are gone because the fixing commits carry
 their own regression tests. Kept here so the workarounds they forced can be
 traced.
 
+- **F2** — EarthSciAST `19f929981`, merged as `859ef5e93` (PR #208, issue #261) — a top-level `models` `{ref}` now merges the referenced file's `index_sets` into the importing document's registry, the way a subsystem mount always did, and applies §4.7's conflict check at that edge. Retired at the `3aa046d65` rebuild, where the repro went green. **The workaround is still in the tree and that is deliberate**: all four assemblies restate every mounted leaf's axes, `tools/check-conventions.py` still requires them to, and the two have to move together — the loader's own refusal is now the better one (`subsystem_index_set_conflict`, naming both definitions and suggesting `index_set_rename`), so the harness rule is defence in depth until the restatements go. The fix covers Julia, Rust and Python; TypeScript and Go do not implement the top-level mount form at all, tracked upstream as #280.
+- **F34** — EarthSciAST `fa7ffb01e` (PR #238) — `inHg` is in the unit registry at exactly 25.4 mmHg, so `County.barometricPressure` can declare the unit it is in. Retired at the `3aa046d65` rebuild. The workaround IS gone: four documents that carried `units: "1"` with a paragraph of apology now carry `units: "inHg"`. **Only option (c) of the three landed** — there is still no numeric scale factor in a unit string and still no `inch`, so the finding's general half is unresolved and this repository merely no longer has an instance of it. Removing the workaround also corrected the section's own claim: declaring the unit caught a real inconsistency (`run_barometricPressure` gathering an inHg column while declared dimensionless, refused at equation 31) and does **not** catch the inHg × 3.38639 → kPa conversion the section said it would, because that is a scale and not a dimension — `mmHg`, wrong by 25.4×, validates.
 - **F17** — EarthSciAST `fe86d784b` — a multi-clause `join` now chooses its driving gate by **selectivity** rather than by document position, and then drives the **conjunction** by intersecting partner lists. Normative as CONFORMANCE_SPEC §5.24 and `BEHAV-11-001..008`. J11 in its worst clause order goes 272,523,600 leaves to **4,455** (floor 2,601; the 1.71× gap is a second contracted axis the floor does not count) and the whole document 515.88 s to **3.71 s**; `mixed-onroad`'s `cohMode_rate` spelled as six clauses goes 158,030,400 leaves to **3,772**, which is exactly what the hand-fused composite key costs — so the workaround is no longer load-bearing. **It was retired on paper and then measured, and the measurement says keep it.** Six clauses emit a byte-identical relation, so the fusion is no longer needed for CORRECTNESS and no longer needed to avoid a blow-up; but `esm simulate` on the whole fixture is **2.8 s fused and 5.1 s unfused** (three runs each, 2.69/2.78/2.99 against 5.01/5.19/5.19), a consistent **1.85×**. Equal leaf counts are not equal cost: resolving six clauses builds six equijoins where one composite builds one, which is the same effect this entry already records as making part 1 a wash on `nr-logging-county`. So `fixtures/mixed-onroad.esm` keeps the fused key, and keeps it for a *stated reason that is now a measurement* rather than for a defect that no longer exists. Part 1 alone is a *wash* on `nr-logging-county` as written: resolving every clause costs equijoins that first-clause-wins skipped, and 13.9% fewer leaves does not pay for them. Essentially all of the win is the intersection.
 
   **But the finding was not what it said it was, and the correction is the important part.** F17 was filed as a COST finding — the answer is right, the run does not end. Reordering three `join` clauses on `out_emissionQuant` changes **32 of 144 emitted rows on the merge-base binary**, which makes it a silent WRONG ANSWER finding that had been sitting under a performance headline. Root cause: every resolved `on` pair is also lowered into the node's `filter` so a non-driving clause is still tested per leaf — that is the whole of §5.5.8's "which clause drives cannot change the result" — but `precision_infer::annotate_models` runs at `problem.rs` stage (1c)/(3b) while `join::resolve_aggregate_joins` runs inside the array compile at stage (4). The lowered `left == right` is built *after* annotation, carries no marker, and evaluated at the document's **working precision**. This document works in binary32, where the spacing at SCC magnitudes is **256** and `2265007010` and `2265007015` are the same number. The gate compared exact `i64` keys and separated them; the filter did not, so two cohorts' emissions were summed into the wrong output row (1.784 + 0.480 = 2.264). Fixed by marking the comparison binary64 where it is built (`8bb234629`), and now normative in §5.5.8: **a key comparison is exact, not the document's precision.** Every fidelity number this repository has published for `nr-logging-county` was correct only because the SCC clause happened to be written first.

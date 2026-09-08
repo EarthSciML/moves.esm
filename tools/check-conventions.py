@@ -151,9 +151,17 @@ def check_assembly_index_sets(p: pathlib.Path, doc) -> None:
 
     esm-spec §4.7 says a subsystem ref merges the referenced file's index sets
     into the mounting document's registry, and that a non-equal collision is a
-    load error. At a top-level `models` {ref} edge the merge does not happen
-    (docs/findings F2), so the assembly restates the axes and this check stands
-    in for the conflict detection the loader would have done.
+    load error. At a top-level `models` {ref} edge the merge USED not to happen
+    (docs/findings F2), so the assemblies here restate the axes and this rule
+    stood in for the conflict detection the loader did not do.
+
+    F2 is fixed (EarthSciAST 19f929981): the loader merges at that edge and
+    raises `subsystem_index_set_conflict` on a disagreement, naming both
+    definitions. So this rule is now DEFENCE IN DEPTH and not a stand-in, and it
+    keeps its second half -- "declares an index set this document does not
+    restate" -- only for as long as the assemblies restate at all. When they
+    stop, delete the rule rather than weakening it: a rule that cannot fail is
+    worse than no rule, because it reads like coverage.
     """
     for name, entry in (doc.get("models") or {}).items():
         if not isinstance(entry, dict) or "ref" not in entry:
