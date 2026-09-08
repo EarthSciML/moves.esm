@@ -1,0 +1,361 @@
+{
+  "esm": "1.0.0",
+  "metadata": {
+    "name": "NrAirToxics",
+    "description": "One calculator, one file (PLAN.md §3 Phase 1). Ports `NRAirToxicsCalculator` -- crates/moves-calculators/src/calculators/nrairtoxics.rs `air_toxics_for_emission` and `non_hap_tog_block`, itself a port of calc/nrairtoxics/nrairtoxics.go -- which derives twenty air toxics from three upstream NONROAD tallies and then forms NonHAPTOG in a second pass. Specified in docs/nr-airtoxics-lawn-garden-county.md §2.6 and §2.7; every coefficient below is that document's §6.2, read from the nr-airtoxics-lawn-garden-county snapshot parquet for engine technology G4N1O at fuel subtype 12, category S, gasoline.\n\nFIVE TABLES, TWO FORMS, ONE RELATION. `nrATRatio`, `nrPAHGasRatio`, `nrPAHParticleRatio`, `nrDioxinEmissionRate` and `nrMetalEmissionRate` differ in their key shape and in which upstream pollutant they scale, and in nothing else: each maps a key to a LIST of (output pollutant, multiplier) details and each output is its input times that multiplier. So they ride one nineteen-row relation here whose columns are the source pollutant, the output pollutant and the multiplier, exactly as docs/esm-conventions.md §33.3 carries a seven-by-four composition as four share columns rather than as seven branches. `tox_quant` has NO branch on the output pollutant at all, and the twenty output pollutant ids are never named: they arrive as the tables' own `pollutantID` column (§32.4).\n\nWHAT SEPARATES THE TWO FORMS is a unit, not a shape. The dioxin and metal rates are per GALLON of fuel while the fuel-consumption input is in grams, so those two paths carry `grams_to_gallons_factor` and the others carry 1. The Go computes `atRatio*gallonsFactor` as ONE product and then scales, and lib/nonroad_speciation.esm's `rate_scaled` is that association; `ratio_scaled` is the other four. The factor itself is TWO SEQUENTIAL DIVISIONS -- `1.0/453.592` then `/= density` -- and this component asserts that against the algebraically equal single division, because the two differ by one unit in the last place and nothing downstream of here could see it.\n\nAND THE DENSITY IS 6.17, NOT THE 6.237 THE ENGINE USED. `NonroadOutputDataLoader.java:1052` turned the engine's gallons into grams with 6.237 lb/gal; this calculator turns them back into gallons with a hard-coded 6.17. The round trip is therefore NOT the identity, by a factor of 1.010859. It is a fact about MOVES, it is asserted below, and it is the kind of thing a reader would otherwise assume was a typo and quietly fix.\n\nNonHAPTOG is `NMOG - sum(nrIntegratedSpecies)`, formed in a second pass out of signed partial rows. The membership test is a semi-join against the nine-row `nrIntegratedSpecies` table, and `tox_isIntegrated` is asserted to be 0 on the ten produced pollutants that are NOT in it -- without which the subtraction would be a sum over everything and would still look plausible.",
+    "authors": ["EarthSciML Authors and Contributors"],
+    "tags": ["moves", "nonroad", "air-toxics", "component"]
+  },
+
+  "enums": {
+    "pollutant": {
+      "NonMethaneOrganicGases": 80,
+      "VolatileOrganicCompounds": 87,
+      "NonHAPTOG": 88,
+      "BrakeSpecificFuelConsumption": 99,
+      "PrimaryExhaustPM25Total": 110
+    },
+    "process": {
+      "RunningExhaust": 1
+    }
+  },
+
+  "index_sets": {
+    "input_rows": { "kind": "interval", "size": 3 },
+    "ratio_rows": { "kind": "interval", "size": 19 },
+    "integrated_species_rows": { "kind": "interval", "size": 9 },
+    "run_scope_rows": { "kind": "interval", "size": 1 }
+  },
+
+  "coordinates": {
+    "toxic_output_pollutant": {
+      "source": "rat_outputPollutantID",
+      "standard_name": "pollutant_identifier"
+    }
+  },
+
+  "models": {
+    "NrAirToxics": {
+      "expression_template_imports": [
+        { "ref": "../lib/nonroad_speciation.esm",
+          "only": ["ratio_scaled", "rate_scaled", "grams_to_gallons_factor",
+                   "non_hap_tog", "grams_per_pound",
+                   "air_toxics_gasoline_density",
+                   "nonroad_engine_gasoline_density"] }
+      ],
+
+      "tolerance": { "rel": 1e-12 },
+
+      "variables": {
+        "run_gallonsFactor": {
+          "type": "unknown", "shape": ["run_scope_rows"], "units": "1",
+          "description": "The grams-to-gallons factor the dioxin and metal paths carry, written as the Go writes it: (1/453.592) then divided by 6.17. A run-level quantity is a ONE-ROW RELATION and never a scalar (docs/esm-conventions.md §11, §16.1) -- a scalar cannot be a join key and is not materialized in a document that ingests."
+        },
+        "run_gallonsFactorOneDivision": {
+          "type": "unknown", "shape": ["run_scope_rows"], "units": "1",
+          "description": "The algebraically equal 1/(453.592 x 6.17), computed only so that the difference between the two associations can be asserted. It is not used by any emission."
+        },
+        "run_gallonsFactorAssociationGap": {
+          "type": "unknown", "shape": ["run_scope_rows"], "units": "1",
+          "description": "The difference of the two. Exactly one unit in the last place of binary64, and the reason lib/nonroad_speciation.esm spells the two divisions out."
+        },
+        "run_densityRoundTrip": {
+          "type": "unknown", "shape": ["run_scope_rows"], "units": "1",
+          "description": "6.237 / 6.17 -- the engine's gasoline density over the air-toxics calculator's. The two are different constants in MOVES and this is how far the gallons-to-grams-to-gallons round trip is from the identity."
+        },
+
+        "in_pollutantID": {
+          "type": "unknown", "shape": ["input_rows"],
+          "description": "The upstream pollutant a block carries: VOC (87), PM2.5 (110) or fuel consumption (99). Column 1 of the input relation. These three ARE named, because nrairtoxics.rs names them as constants; the twenty outputs are not."
+        },
+        "in_quant": {
+          "type": "unknown", "shape": ["input_rows"], "units": "g",
+          "description": "The block's emission quantity. Column 2. VOC 100 g and PM2.5 50 g so the ratio paths read their coefficient off; fuel 1000 g so the two rate paths carry a whole gallons factor."
+        },
+
+        "rat_sourcePollutantID": {
+          "type": "unknown", "shape": ["ratio_rows"],
+          "description": "Which input the row scales. Column 1 of the ratio relation, ordered so that each value occupies ONE CONTIGUOUS RUN of rows -- rows 1-10 are VOC, 11-12 PM2.5, 13-19 fuel -- because a makearray region addresses one range per dimension (docs/esm-conventions.md §16.2)."
+        },
+        "rat_outputPollutantID": {
+          "type": "unknown", "shape": ["ratio_rows"],
+          "description": "The table's own `pollutantID` column, written as data and named nowhere: the join both finds the coefficient and says which pollutant the row is (docs/esm-conventions.md §32.4). Rows 1-8 nrATRatio, 9-10 nrPAHGasRatio, 11-12 nrPAHParticleRatio, 13-14 nrDioxinEmissionRate, 15-19 nrMetalEmissionRate."
+        },
+        "rat_multiplier": {
+          "type": "unknown", "shape": ["ratio_rows"], "units": "1",
+          "description": "`atRatio` for the four ratio tables and `meanBaseRate` (g/gal) for the two rate tables. Column 3."
+        },
+        "rat_isRate": {
+          "type": "unknown", "shape": ["ratio_rows"], "units": "1",
+          "description": "1 where the multiplier is a per-gallon RATE and therefore needs the unit conversion, 0 where it is a dimensionless ratio. Column 4, and the whole of the difference between the two forms."
+        },
+
+        "isp_pollutantID": {
+          "type": "unknown", "shape": ["integrated_species_rows"],
+          "description": "nrIntegratedSpecies.pollutantID -- the nine species subtracted from NMOG to make NonHAPTOG. The table's only column."
+        },
+
+        "nmogQuant": {
+          "type": "parameter", "units": "g", "default": 89.4401,
+          "description": "The NMOG the upstream NRHCSpeciationCalculator produced for this block: components/nr_hc_speciation.esm's block 2, at 100 g of THC. Carried as a parameter rather than recomputed, so this file ports one calculator (docs/esm-conventions.md §1)."
+        },
+
+        "tox_unitFactor": {
+          "type": "unknown", "shape": ["ratio_rows"], "units": "1",
+          "description": "The gallons factor on a rate row and 1 on a ratio row. Written as a value rather than as a multiplicative flag: the two forms differ in their ASSOCIATION, so the choice has to be made where the product is built."
+        },
+        "tox_quant": {
+          "type": "unknown", "shape": ["ratio_rows"], "units": "g",
+          "description": "One emitted toxic per ratio row: its source block's quantity scaled by the row's multiplier, in the source's own association. No branch on the output pollutant appears anywhere in this expression."
+        },
+        "tox_isIntegrated": {
+          "type": "unknown", "shape": ["ratio_rows"], "units": "1",
+          "description": "1 where the output pollutant is in nrIntegratedSpecies. A semi-join, spelled bool_and_or with a numeric body of 1 (docs/esm-conventions.md §3)."
+        },
+        "integratedSpeciesSum": {
+          "type": "unknown", "units": "g",
+          "description": "The mass NonHAPTOG subtracts. A sum over the produced toxics that are integrated species, which is the second pass's negative partials collected."
+        },
+        "nonHapTogQuant": {
+          "type": "unknown", "units": "g",
+          "description": "Pollutant 88 = NMOG - sum(integrated species). MOVES emits this as signed partial rows and lets the output aggregation add them; the sum is the same number and this is where it is checkable."
+        }
+      },
+
+      "equations": [
+        {
+          "lhs": "run_gallonsFactor",
+          "rhs": {
+            "op": "aggregate", "args": [], "output_idx": ["z"],
+            "ranges": { "z": { "from": "run_scope_rows" } },
+            "expr": { "op": "apply_expression_template", "args": [], "name": "grams_to_gallons_factor",
+              "bindings": { "fuel_density": { "op": "apply_expression_template", "args": [],
+                                              "name": "air_toxics_gasoline_density", "bindings": {} } } }
+          }
+        },
+        {
+          "_comment": "The association the Go does NOT use, computed only to be compared with the one it does.",
+          "lhs": "run_gallonsFactorOneDivision",
+          "rhs": {
+            "op": "aggregate", "args": [], "output_idx": ["z"],
+            "ranges": { "z": { "from": "run_scope_rows" } },
+            "expr": { "op": "/", "args": [1.0,
+              { "op": "*", "args": [
+                { "op": "apply_expression_template", "args": [], "name": "grams_per_pound", "bindings": {} },
+                { "op": "apply_expression_template", "args": [], "name": "air_toxics_gasoline_density", "bindings": {} }
+              ] } ] }
+          }
+        },
+        {
+          "lhs": "run_gallonsFactorAssociationGap",
+          "rhs": {
+            "op": "aggregate", "args": [], "output_idx": ["z"],
+            "ranges": { "z": { "from": "run_scope_rows" } },
+            "expr": { "op": "-", "args": [
+              { "op": "index", "args": ["run_gallonsFactor", "z"] },
+              { "op": "index", "args": ["run_gallonsFactorOneDivision", "z"] } ] }
+          }
+        },
+        {
+          "lhs": "run_densityRoundTrip",
+          "rhs": {
+            "op": "aggregate", "args": [], "output_idx": ["z"],
+            "ranges": { "z": { "from": "run_scope_rows" } },
+            "expr": { "op": "/", "args": [
+              { "op": "apply_expression_template", "args": [], "name": "nonroad_engine_gasoline_density", "bindings": {} },
+              { "op": "apply_expression_template", "args": [], "name": "air_toxics_gasoline_density", "bindings": {} } ] }
+          }
+        },
+
+        {
+          "_comment": "The three input blocks. nrairtoxics.rs names exactly these three pollutants as constants, so they are enums here and the twenty outputs are not.",
+          "lhs": "in_pollutantID",
+          "rhs": { "op": "makearray", "args": [],
+            "regions": [[[1, 1]], [[2, 2]], [[3, 3]]],
+            "values": [
+              { "op": "enum", "args": ["pollutant", "VolatileOrganicCompounds"] },
+              { "op": "enum", "args": ["pollutant", "PrimaryExhaustPM25Total"] },
+              { "op": "enum", "args": ["pollutant", "BrakeSpecificFuelConsumption"] }
+            ] }
+        },
+        {
+          "lhs": "in_quant",
+          "rhs": { "op": "const", "args": [], "value": [100.0, 50.0, 1000.0] }
+        },
+
+        {
+          "_comment": "The five tables as one relation, grouped by source pollutant so that the enum-built source key is three contiguous runs.",
+          "lhs": "rat_sourcePollutantID",
+          "rhs": { "op": "makearray", "args": [],
+            "regions": [[[1, 10]], [[11, 12]], [[13, 19]]],
+            "values": [
+              { "op": "enum", "args": ["pollutant", "VolatileOrganicCompounds"] },
+              { "op": "enum", "args": ["pollutant", "PrimaryExhaustPM25Total"] },
+              { "op": "enum", "args": ["pollutant", "BrakeSpecificFuelConsumption"] }
+            ] }
+        },
+        {
+          "lhs": "rat_outputPollutantID",
+          "rhs": { "op": "const", "args": [],
+            "value": [20, 21, 24, 25, 26, 27, 45, 46,
+                      169, 185,
+                      23, 69,
+                      131, 142,
+                      60, 63, 65, 66, 67] }
+        },
+        {
+          "lhs": "rat_multiplier",
+          "rhs": { "op": "const", "args": [],
+            "value": [0.0459, 0.0303, 0.0124, 0.0176, 0.00897, 0.000449, 0.0777, 0.0699,
+                      5.6e-05, 0.00207,
+                      6.38e-05, 7.81e-05,
+                      1.105e-09, 1.9e-11,
+                      1.8e-06, 6.33e-05, 2.2e-07, 2.72e-05, 3.06e-05] }
+        },
+        {
+          "lhs": "rat_isRate",
+          "rhs": { "op": "makearray", "args": [],
+            "regions": [[[1, 12]], [[13, 19]]],
+            "values": [0.0, 1.0] }
+        },
+
+        {
+          "lhs": "isp_pollutantID",
+          "rhs": { "op": "const", "args": [], "value": [20, 21, 24, 25, 26, 27, 45, 46, 185] }
+        },
+
+        {
+          "lhs": "tox_unitFactor",
+          "rhs": {
+            "op": "aggregate", "args": [], "output_idx": ["r"],
+            "ranges": { "r": { "from": "ratio_rows" }, "z": { "from": "run_scope_rows" } },
+            "expr": { "op": "ifelse", "args": [
+              { "op": ">", "args": [{ "op": "index", "args": ["rat_isRate", "r"] }, 0.0] },
+              { "op": "index", "args": ["run_gallonsFactor", "z"] },
+              1.0 ] }
+          }
+        },
+        {
+          "_comment": "The whole calculator. One aggregate over (ratio row x input block) joined on the source pollutant, whose body selects between the two forms lib/nonroad_speciation.esm carries. `ifelse` selects a RESULT and both arms are finite here, so this is safe -- unlike the NULL-bearing cases of §29.2, where the branch has to be written at the relation.",
+          "lhs": "tox_quant",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "sum_product",
+            "output_idx": ["r"],
+            "ranges": { "r": { "from": "ratio_rows" }, "i": { "from": "input_rows" } },
+            "join": [ { "on": [["rat_sourcePollutantID", "in_pollutantID"]] } ],
+            "expr": { "op": "ifelse", "args": [
+              { "op": ">", "args": [{ "op": "index", "args": ["rat_isRate", "r"] }, 0.0] },
+              { "op": "apply_expression_template", "args": [], "name": "rate_scaled",
+                "bindings": { "input_quant": { "op": "index", "args": ["in_quant", "i"] },
+                              "mean_base_rate": { "op": "index", "args": ["rat_multiplier", "r"] },
+                              "unit_factor": { "op": "index", "args": ["tox_unitFactor", "r"] } } },
+              { "op": "apply_expression_template", "args": [], "name": "ratio_scaled",
+                "bindings": { "input_quant": { "op": "index", "args": ["in_quant", "i"] },
+                              "ratio": { "op": "index", "args": ["rat_multiplier", "r"] } } }
+            ] }
+          }
+        },
+        {
+          "lhs": "tox_isIntegrated",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "bool_and_or",
+            "output_idx": ["r"],
+            "ranges": { "r": { "from": "ratio_rows" }, "p": { "from": "integrated_species_rows" } },
+            "join": [ { "on": [["rat_outputPollutantID", "isp_pollutantID"]] } ],
+            "expr": 1.0
+          }
+        },
+        {
+          "lhs": "integratedSpeciesSum",
+          "rhs": {
+            "op": "aggregate", "args": [], "semiring": "sum_product",
+            "output_idx": [],
+            "ranges": { "r": { "from": "ratio_rows" } },
+            "expr": { "op": "*", "args": [
+              { "op": "index", "args": ["tox_isIntegrated", "r"] },
+              { "op": "index", "args": ["tox_quant", "r"] } ] }
+          }
+        },
+        {
+          "lhs": "nonHapTogQuant",
+          "rhs": { "op": "apply_expression_template", "args": [], "name": "non_hap_tog",
+            "bindings": { "nmog": "nmogQuant", "integrated_species_sum": "integratedSpeciesSum" } }
+        }
+      ],
+
+      "tests": [
+        {
+          "id": "the_four_ratio_tables_are_one_form",
+          "description": "docs/nr-airtoxics-lawn-garden-county.md §6.2: eight nrATRatio species and two gaseous PAH off 100 g of VOC, two particulate PAH off 50 g of PM2.5. Every one is its coefficient times its input and NOTHING in tox_quant branches on which pollutant it is -- a document that wrote nineteen cases would be checked here in exactly the same way and would be unreadable.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "tox_quant", "time": 0.0, "expected": 4.590000000000001, "coords": { "ratio_rows": 1 } },
+            { "variable": "tox_quant", "time": 0.0, "expected": 3.0300000000000002, "coords": { "ratio_rows": 2 } },
+            { "variable": "tox_quant", "time": 0.0, "expected": 1.24, "coords": { "ratio_rows": 3 } },
+            { "variable": "tox_quant", "time": 0.0, "expected": 1.76, "coords": { "ratio_rows": 4 } },
+            { "variable": "tox_quant", "time": 0.0, "expected": 0.897, "coords": { "ratio_rows": 5 } },
+            { "variable": "tox_quant", "time": 0.0, "expected": 0.0449, "coords": { "ratio_rows": 6 } },
+            { "variable": "tox_quant", "time": 0.0, "expected": 7.7700000000000005, "coords": { "ratio_rows": 7 } },
+            { "variable": "tox_quant", "time": 0.0, "expected": 6.99, "coords": { "ratio_rows": 8 } },
+            { "variable": "tox_quant", "time": 0.0, "expected": 0.0056, "coords": { "ratio_rows": 9 } },
+            { "variable": "tox_quant", "time": 0.0, "expected": 0.207, "coords": { "ratio_rows": 10 } },
+            { "variable": "tox_quant", "time": 0.0, "expected": 0.00319, "coords": { "ratio_rows": 11 } },
+            { "variable": "tox_quant", "time": 0.0, "expected": 0.003905, "coords": { "ratio_rows": 12 } }
+          ]
+        },
+        {
+          "id": "the_two_rate_tables_carry_a_unit_and_the_others_do_not",
+          "description": "The dioxin and metal rates are per GALLON, so their five and two rows scale 1000 g of fuel by rate x 3.573135e-04 while every row above scales by the coefficient alone. tox_unitFactor is asserted at both values, because a document that applied the gallons factor to all nineteen rows would be wrong by 2,800x on the twelve ratio rows and would still produce a plausible table.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "tox_unitFactor", "time": 0.0, "expected": 1.0, "coords": { "ratio_rows": 1 } },
+            { "variable": "tox_unitFactor", "time": 0.0, "expected": 1.0, "coords": { "ratio_rows": 12 } },
+            { "variable": "tox_unitFactor", "time": 0.0, "expected": 0.000357313520289105, "coords": { "ratio_rows": 13 } },
+            { "variable": "tox_unitFactor", "time": 0.0, "expected": 0.000357313520289105, "coords": { "ratio_rows": 19 } },
+            { "variable": "tox_quant", "time": 0.0, "expected": 3.94831439919461e-10, "coords": { "ratio_rows": 13 } },
+            { "variable": "tox_quant", "time": 0.0, "expected": 6.788956885492994e-12, "coords": { "ratio_rows": 14 } },
+            { "variable": "tox_quant", "time": 0.0, "expected": 6.431643365203889e-07, "coords": { "ratio_rows": 15 } },
+            { "variable": "tox_quant", "time": 0.0, "expected": 2.2617945834300343e-05, "coords": { "ratio_rows": 16 } },
+            { "variable": "tox_quant", "time": 0.0, "expected": 7.86089744636031e-08, "coords": { "ratio_rows": 17 } },
+            { "variable": "tox_quant", "time": 0.0, "expected": 9.718927751863656e-06, "coords": { "ratio_rows": 18 } },
+            { "variable": "tox_quant", "time": 0.0, "expected": 1.0933793720846611e-05, "coords": { "ratio_rows": 19 } }
+          ]
+        },
+        {
+          "id": "the_gallons_factor_is_two_divisions_and_it_matters_by_one_ulp",
+          "description": "nrairtoxics.go writes `gallonsFactor := 1.0/453.592` then `gallonsFactor /= density`. The algebraically equal 1/(453.592 x 6.17) is a DIFFERENT binary64 number: 0.000357313520289105 against 0.00035731352028910493, a gap of 5.421010862427522e-20, which is one unit in the last place. The gap is asserted rather than the inequality, so it cannot drift to zero unnoticed; a relative tolerance is meaningful here because the expected value is not zero.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "run_gallonsFactor", "time": 0.0, "expected": 0.000357313520289105, "coords": { "run_scope_rows": 1 } },
+            { "variable": "run_gallonsFactorOneDivision", "time": 0.0, "expected": 0.00035731352028910493, "coords": { "run_scope_rows": 1 } },
+            { "variable": "run_gallonsFactorAssociationGap", "time": 0.0, "expected": 5.421010862427522e-20, "coords": { "run_scope_rows": 1 } }
+          ]
+        },
+        {
+          "id": "the_two_gasoline_densities_are_different_constants",
+          "description": "The NONROAD engine divided fuel by CMFGAS = 6.237 lb/gal and NonroadOutputDataLoader multiplied it back by the same 6.237, so pollutant 99 is grams. This calculator then divides by 6.17. The round trip is 1.0108590 rather than 1, which is a fact about MOVES: a reader who assumed one density and cancelled the pair would be 1.09 % low on every dioxin and metal cell.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "run_densityRoundTrip", "time": 0.0, "expected": 1.0108589951377633, "coords": { "run_scope_rows": 1 } }
+          ]
+        },
+        {
+          "id": "nonhaptog_subtracts_the_nine_integrated_species_and_no_others",
+          "description": "docs/nr-airtoxics-lawn-garden-county.md §2.7. Nine of the nineteen produced pollutants are in nrIntegratedSpecies -- the eight nrATRatio species and naphthalene GAS (185) -- and the other ten, including naphthalene PARTICLE (23), are not. tox_isIntegrated is pinned on both sides of that line, because a membership test stuck at 1 would subtract 26.54164 instead of 26.5289 and give a NonHAPTOG of 62.89846 instead of 62.9112 -- 0.02 % out, which is not a number anyone would question.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "tox_isIntegrated", "time": 0.0, "expected": 1.0, "coords": { "ratio_rows": 1 } },
+            { "variable": "tox_isIntegrated", "time": 0.0, "expected": 1.0, "coords": { "ratio_rows": 8 } },
+            { "variable": "tox_isIntegrated", "time": 0.0, "expected": 0.0, "coords": { "ratio_rows": 9 } },
+            { "variable": "tox_isIntegrated", "time": 0.0, "expected": 1.0, "coords": { "ratio_rows": 10 } },
+            { "variable": "tox_isIntegrated", "time": 0.0, "expected": 0.0, "coords": { "ratio_rows": 11 } },
+            { "variable": "tox_isIntegrated", "time": 0.0, "expected": 0.0, "coords": { "ratio_rows": 13 } },
+            { "variable": "tox_isIntegrated", "time": 0.0, "expected": 0.0, "coords": { "ratio_rows": 19 } },
+            { "variable": "integratedSpeciesSum", "time": 0.0, "expected": 26.5289 },
+            { "variable": "nonHapTogQuant", "time": 0.0, "expected": 62.9112 }
+          ]
+        }
+      ]
+    }
+  }
+}
