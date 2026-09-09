@@ -146,51 +146,6 @@ def check_library_purity(p: pathlib.Path, doc) -> None:
                  f"a template-library file must not declare {forbidden}")
 
 
-def check_assembly_index_sets(p: pathlib.Path, doc) -> None:
-    """RULE: an assembly's index sets agree with those of every file it mounts.
-
-    esm-spec §4.7 says a subsystem ref merges the referenced file's index sets
-    into the mounting document's registry, and that a non-equal collision is a
-    load error. At a top-level `models` {ref} edge the merge USED not to happen
-    (docs/findings F2), so the assemblies here restate the axes and this rule
-    stood in for the conflict detection the loader did not do.
-
-    F2 is fixed (EarthSciAST 19f929981): the loader merges at that edge and
-    raises `subsystem_index_set_conflict` on a disagreement, naming both
-    definitions. So this rule is now DEFENCE IN DEPTH and not a stand-in, and it
-    keeps its second half -- "declares an index set this document does not
-    restate" -- only for as long as the assemblies restate at all. When they
-    stop, delete the rule rather than weakening it: a rule that cannot fail is
-    worse than no rule, because it reads like coverage.
-    """
-    for name, entry in (doc.get("models") or {}).items():
-        if not isinstance(entry, dict) or "ref" not in entry:
-            continue
-        target = (p.parent / entry["ref"]).resolve()
-        if not target.is_file():
-            fail(p, f"/models/{name}/ref", "assembly-index-sets",
-                 f"referenced file not found: {entry['ref']}")
-            continue
-        try:
-            ref_doc = json.loads(target.read_text(encoding="utf-8"))
-        except json.JSONDecodeError as exc:
-            fail(p, f"/models/{name}/ref", "assembly-index-sets",
-                 f"referenced file is not valid JSON: {exc}")
-            continue
-        mine = doc.get("index_sets") or {}
-        for set_name, definition in (ref_doc.get("index_sets") or {}).items():
-            if set_name not in mine:
-                fail(p, "/index_sets", "assembly-index-sets",
-                     f"{entry['ref']} declares index set {set_name!r} and this "
-                     "document does not restate it (the §4.7 merge does not run "
-                     "on a top-level {ref} edge)")
-            elif mine[set_name] != definition:
-                fail(p, f"/index_sets/{set_name}", "assembly-index-sets",
-                     f"disagrees with {entry['ref']}: "
-                     f"{json.dumps(mine[set_name], sort_keys=True)} vs "
-                     f"{json.dumps(definition, sort_keys=True)}")
-
-
 def check_assembly_enums(p: pathlib.Path, doc) -> None:
     """RULE: an assembly's enums cover, and agree with, those of every file it mounts.
 
@@ -202,6 +157,17 @@ def check_assembly_enums(p: pathlib.Path, doc) -> None:
     That is what this rule catches -- the conflict detection esm-spec §4.7
     performs for index sets, performed here for enums because the loader does
     not perform it at all.
+
+    It also reports a `ref` that does not resolve or does not parse, which is
+    every mount edge's precondition rather than anything to do with enums. That
+    reporting used to live in `check_assembly_index_sets`, which compared an
+    assembly's restated `index_sets` against each leaf's. F2 is fixed
+    (EarthSciAST 19f929981, PR #208): the loader merges a top-level {ref}'s
+    index sets and raises `subsystem_index_set_conflict` on a disagreement,
+    naming both definitions -- so the assemblies stopped restating and that rule
+    was DELETED rather than weakened, per its own instruction. A rule that
+    cannot fail reads like coverage and is worse than no rule. The loader is the
+    check now; run-tests.sh proves it by perturbation.
     """
     mine = doc.get("enums") or {}
     for name, entry in (doc.get("models") or {}).items():
@@ -209,11 +175,15 @@ def check_assembly_enums(p: pathlib.Path, doc) -> None:
             continue
         target = (p.parent / entry["ref"]).resolve()
         if not target.is_file():
-            continue  # reported by check_assembly_index_sets
+            fail(p, f"/models/{name}/ref", "assembly-enums",
+                 f"referenced file not found: {entry['ref']}")
+            continue
         try:
             ref_doc = json.loads(target.read_text(encoding="utf-8"))
-        except json.JSONDecodeError:
-            continue  # reported by check_assembly_index_sets
+        except json.JSONDecodeError as exc:
+            fail(p, f"/models/{name}/ref", "assembly-enums",
+                 f"referenced file is not valid JSON: {exc}")
+            continue
         for enum_name, symbols in (ref_doc.get("enums") or {}).items():
             for symbol, value in symbols.items():
                 if enum_name not in mine or symbol not in mine[enum_name]:
@@ -234,7 +204,6 @@ CHECKS = (
     check_reserved_loop_symbols,
     check_join_clauses_are_on,
     check_library_purity,
-    check_assembly_index_sets,
     check_assembly_enums,
 )
 

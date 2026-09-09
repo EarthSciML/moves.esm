@@ -220,16 +220,27 @@ assembly took the top-level form (the one that works) and restated the axes, and
 file it refs — the merge's conflict check, performed by the harness because the
 loader did not perform it here.
 
-**What the fix leaves behind.** The restatement in all four assemblies is now
-redundancy rather than necessity, and `check-conventions.py`'s rule is defence
-in depth rather than a stand-in: perturbing one restated `size` in
-`runs/micro_exhaust_run.esm` now draws `subsystem_index_set_conflict` from the
-*loader*, naming both definitions and suggesting `index_set_rename` — so the
-harness rule and the loader agree, and the harness one can be deleted the day
-the restatements go. Removing them is real follow-up work and deliberately NOT
-done at the rebuild: it touches four assemblies, and its own `check-conventions`
-rule currently *requires* the restatement it would remove, so the rule and the
-documents have to move together. See `docs/esm-conventions.md` §5.
+**What the fix left behind is now cleaned up.** The workaround is gone, in one
+change, because it had to be: `check-conventions.py`'s `assembly-index-sets`
+rule *required* the restatement it would have removed, so the rule and the four
+documents could not move separately. **109 restated entries were dropped** —
+`evap_leaks_run` 23, `micro_exhaust_run` 5, `mixed_onroad_run` 18,
+`nr_logging_county_run` 63 — leaving each assembly only the axes no leaf
+declares (four in total, and two assemblies now have no `index_sets` block at
+all). All four `esm test` outputs are byte-identical to before the removal. The
+harness rule was **deleted rather than weakened**, per its own docstring's
+instruction; the ref-resolves and ref-parses reporting it carried moved into
+`check_assembly_enums`, which is a mount-edge precondition rather than index-set
+logic. Five rules remain.
+
+**The check that replaced it is falsifiable, which the comparison of two copies
+had stopped being.** `run-tests.sh` stage 6 writes
+`runs/.index_set_merge_probe.esm` — the micro assembly with `rate_rows` restated
+one larger than `components/deteriorated_emission_rate.esm` declares it — and
+requires `subsystem_index_set_conflict`. Verified on **all nineteen mount edges
+of the four assemblies**, before the removal and again after: every one raises
+it, naming both definitions and suggesting `index_set_rename`. See
+`docs/esm-conventions.md` §5.
 
 ## F3 — `enums` do not cross a template import
 
@@ -1220,9 +1231,9 @@ and the way it fails is the shape this repository fears:
   of 295** assertions fail, across ten leaves that were authored and checked in
   binary64.
 
-This is F2's family — a top-level `{ref}` does not merge the referenced file's
-`index_sets` either — but with a worse failure mode: F2 fails at `validate`,
-this one changes an answer.
+This is F2's family — a top-level `{ref}` did not merge the referenced file's
+`index_sets` either, until it was fixed — but with a worse failure mode: F2
+failed at `validate`, this one changes an answer.
 
 **What the port does instead.** The leaf stays in binary64 and **pins both
 precisions**, in the two places they are actually evaluated. Its own arithmetic
@@ -1629,7 +1640,7 @@ Retired from the tripwire; the repros are gone because the fixing commits carry
 their own regression tests. Kept here so the workarounds they forced can be
 traced.
 
-- **F2** — EarthSciAST `19f929981`, merged as `859ef5e93` (PR #208, issue #261) — a top-level `models` `{ref}` now merges the referenced file's `index_sets` into the importing document's registry, the way a subsystem mount always did, and applies §4.7's conflict check at that edge. Retired at the `3aa046d65` rebuild, where the repro went green. **The workaround is still in the tree and that is deliberate**: all four assemblies restate every mounted leaf's axes, `tools/check-conventions.py` still requires them to, and the two have to move together — the loader's own refusal is now the better one (`subsystem_index_set_conflict`, naming both definitions and suggesting `index_set_rename`), so the harness rule is defence in depth until the restatements go. The fix covers Julia, Rust and Python; TypeScript and Go do not implement the top-level mount form at all, tracked upstream as #280.
+- **F2** — EarthSciAST `19f929981`, merged as `859ef5e93` (PR #208, issue #261) — a top-level `models` `{ref}` now merges the referenced file's `index_sets` into the importing document's registry, the way a subsystem mount always did, and applies §4.7's conflict check at that edge. Retired at the `3aa046d65` rebuild, where the repro went green. **The workaround is removed**: the four assemblies no longer restate their leaves' axes (109 entries) and `tools/check-conventions.py`'s `assembly-index-sets` rule is deleted — the two moved in one change, because the rule required the restatement it would remove. The loader's own refusal is the check now (`subsystem_index_set_conflict`, naming both definitions and suggesting `index_set_rename`), and `run-tests.sh` stage 6 perturbs one assembly on every run so that check can still be seen to fail. The fix covers Julia, Rust and Python; TypeScript and Go do not implement the top-level mount form at all, tracked upstream as #280.
 - **F34** — EarthSciAST `fa7ffb01e` (PR #238) — `inHg` is in the unit registry at exactly 25.4 mmHg, so `County.barometricPressure` can declare the unit it is in. Retired at the `3aa046d65` rebuild. The workaround IS gone: four documents that carried `units: "1"` with a paragraph of apology now carry `units: "inHg"`. **Only option (c) of the three landed** — there is still no numeric scale factor in a unit string and still no `inch`, so the finding's general half is unresolved and this repository merely no longer has an instance of it. Removing the workaround also corrected the section's own claim: declaring the unit caught a real inconsistency (`run_barometricPressure` gathering an inHg column while declared dimensionless, refused at equation 31) and does **not** catch the inHg × 3.38639 → kPa conversion the section said it would, because that is a scale and not a dimension — `mmHg`, wrong by 25.4×, validates.
 - **F17** — EarthSciAST `fe86d784b` — a multi-clause `join` now chooses its driving gate by **selectivity** rather than by document position, and then drives the **conjunction** by intersecting partner lists. Normative as CONFORMANCE_SPEC §5.24 and `BEHAV-11-001..008`. J11 in its worst clause order goes 272,523,600 leaves to **4,455** (floor 2,601; the 1.71× gap is a second contracted axis the floor does not count) and the whole document 515.88 s to **3.71 s**; `mixed-onroad`'s `cohMode_rate` spelled as six clauses goes 158,030,400 leaves to **3,772**, which is exactly what the hand-fused composite key costs — so the workaround is no longer load-bearing. **It was retired on paper and then measured, and the measurement says keep it.** Six clauses emit a byte-identical relation, so the fusion is no longer needed for CORRECTNESS and no longer needed to avoid a blow-up; but `esm simulate` on the whole fixture is **2.8 s fused and 5.1 s unfused** (three runs each, 2.69/2.78/2.99 against 5.01/5.19/5.19), a consistent **1.85×**. Equal leaf counts are not equal cost: resolving six clauses builds six equijoins where one composite builds one, which is the same effect this entry already records as making part 1 a wash on `nr-logging-county`. So `fixtures/mixed-onroad.esm` keeps the fused key, and keeps it for a *stated reason that is now a measurement* rather than for a defect that no longer exists. Part 1 alone is a *wash* on `nr-logging-county` as written: resolving every clause costs equijoins that first-clause-wins skipped, and 13.9% fewer leaves does not pay for them. Essentially all of the win is the intersection.
 
