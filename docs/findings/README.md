@@ -1231,9 +1231,9 @@ and the way it fails is the shape this repository fears:
   of 295** assertions fail, across ten leaves that were authored and checked in
   binary64.
 
-This is F2's family — a top-level `{ref}` does not merge the referenced file's
-`index_sets` either — but with a worse failure mode: F2 fails at `validate`,
-this one changes an answer.
+This is F2's family — a top-level `{ref}` did not merge the referenced file's
+`index_sets` either, until it was fixed — but with a worse failure mode: F2
+failed at `validate`, this one changes an answer.
 
 **What the port does instead.** The leaf stays in binary64 and **pins both
 precisions**, in the two places they are actually evaluated. Its own arithmetic
