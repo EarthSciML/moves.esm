@@ -820,7 +820,12 @@ for (pol, proc, day, my, fuel) in rows:
 expected_cohorts = {(3, 1): 124, (32, 1): 104, (33, 1): 104, (34, 1): 104}
 got = {k: len(v) for k, v in cohorts_by_pp.items()}
 assert got == expected_cohorts, (got, expected_cohorts)
-assert days == set(DAYS) and len(days) == 2, days
+# The run selects ONE day type. `<day id="5">` is a literal dayID and is
+# honoured; the earlier `<day key="5">` was an out-of-range 0-based INDEX into
+# the sorted DayOfAnyWeek list [2, 5], selected nothing, and fell back to BOTH
+# day types (moves.rs PR #55). The count is pinned because it is the corpus's
+# shape and a fixture that stopped noticing it would stop noticing a regression.
+assert days == set(DAYS) and len(days) == 1, days
 parent = cohorts_by_pp[(3, 1)]
 for species in (32, 33, 34):
     assert cohorts_by_pp[(species, 1)] < parent, species

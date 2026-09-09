@@ -1214,8 +1214,13 @@ assert {f for _,f in shared}=={1,2,5}, shared
 assert sorted(my for my,f in shared if f==1)==list(range(1980,2021))
 assert sorted(my for my,f in shared if f==2)==list(range(1980,2020))
 assert sorted(my for my,f in shared if f==5)==list(range(1998,2021))
-assert days==set(DAYS) and len(days)==2, days
-assert len(cohorts_by_pp)*len(shared)*len(days)==len(ref)==1456
+# The run selects ONE day type. `<day id="5">` is a literal dayID and is
+# honoured; the earlier `<day key="5">` was an out-of-range 0-based INDEX into
+# the sorted DayOfAnyWeek list [2, 5], selected nothing, and fell back to BOTH
+# day types (moves.rs PR #55). The count is pinned because it is the corpus's
+# shape and a fixture that stopped noticing it would stop noticing a regression.
+assert days==set(DAYS) and len(days)==1, days
+assert len(cohorts_by_pp)*len(shared)*len(days)==len(ref)==728
 print("key set:        7 blocks x 104 cohorts x %d day types = %d rows, exact, and ALL SEVEN"
       " BLOCKS CARRY THE SAME 104 COHORTS"%(len(days),len(ref)))
 # The parent that is NOT emitted: the rate relation carries 124 cohorts, and the

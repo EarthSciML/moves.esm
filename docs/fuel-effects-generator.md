@@ -316,8 +316,13 @@ exp( +(0.1126*((ETOHVolume-10.313704)/(7.879557)))
 | **exponent** | **−0.005973416650506401** |
 | `exp(exponent)/0.911205970892` | **1.0909107495849824** |
 
-The snapshot's `fuelEffectRatio` is `1.090910749585` — its `DECIMAL(20,12)`
-storage of that number, and the residual is 1.608e−14 relative.
+The snapshot's `fuelEffectRatio` is `1.0909107495849824` — **the same f64, to
+the digit**. It used to read `1.090910749585`, and this document used to
+attribute those twelve decimals to a `DECIMAL(20,12)` column. They were not a
+column type: they were `moves-snapshot/v1` writing every float at twelve
+DECIMAL places. `moves-snapshot/v2` writes the shortest decimal that
+round-trips the f64, and the 1.608e−14 residual §7.1 used to report is now
+**zero** — it was the capture's rounding from end to end.
 
 Fuel type 5's expression is the same three terms with `least(10, ETOHVolume)` in
 place of `ETOHVolume`, and formulation 27002's `ETOHVolume` is exactly 10, so it
@@ -703,10 +708,19 @@ print("generalFuelRatioExpression: %d snapshots carry it; MOVES loaded the "
       "generator in %d and not in %d" % (len(ran) + len(idle), len(ran), len(idle)))
 print("               %d rows compared, %d cells, %d missing / %d extra keys, "
       "%d extras unaccounted for" % (cells // 2, cells, missing, extra, unaccounted))
-print("               worst relative error %.3e at %s fuel %d formulation %d "
-      "polProcess %d sourceType %d"
-      % (worst[("float", "double")], worst_key[0], worst_key[1], worst_key[2],
-         worst_key[3], worst_key[8]))
+# `worst_key` is None exactly when NOTHING beat 0.0 -- which under
+# `moves-snapshot/v2` is the answer: the FLOAT-promoted hypothesis is
+# bit-identical to the reference on every compared cell, where v1's twelve
+# decimal places left a 1.608e-14 residual that was the CAPTURE's and not the
+# arithmetic's. Say that instead of subscripting None.
+if worst_key is None:
+    print("               worst relative error 0.000e+00 -- BIT-IDENTICAL on "
+          "every compared cell")
+else:
+    print("               worst relative error %.3e at %s fuel %d formulation %d "
+          "polProcess %d sourceType %d"
+          % (worst[("float", "double")], worst_key[0], worst_key[1], worst_key[2],
+             worst_key[3], worst_key[8]))
 print("subscription:  %d snapshots checked against ONROAD x processes "
       "{1,2,9,10,11,12,13,90}; %d disagree" % (predicate_checked, len(predicate_wrong)))
 print("FLOAT columns: promoting binary32 gives %.3e, reading the capture's "
@@ -726,8 +740,18 @@ assert worst[("float", "double")] < 1e-12, \
 assert not predicate_wrong, predicate_wrong
 # The FLOAT question is decided here and nowhere else: 7.06e-08 is INSIDE
 # tolerance.toml's per-cell 2e-5, so no fixture comparison could see it.
-assert worst[("double", "double")] > 1e3 * worst[("float", "double")], \
-    "the two promotions are not distinguishable"
+#
+# A RATIO WOULD NOT DO IT ANY MORE. Under v1 the FLOAT hypothesis left a
+# 1.608e-14 residual and `> 1e3 x` was a real separation; under v2 it leaves
+# ZERO, and `> 1e3 x 0` is satisfied by any positive number at all -- a gate
+# that reads as a comparison and tests nothing. So the two ends are asserted
+# separately and absolutely: the wrong promotion must miss by a margin the
+# capture cannot explain, and the right one must land inside f64 noise.
+assert worst[("double", "double")] > 1e-9, \
+    "the two promotions are not distinguishable: reading the capture's decimal " \
+    "straight is within %.3e, so this corpus no longer decides the FLOAT " \
+    "question" % worst[("double", "double")]
+assert worst[("float", "double")] < 1e-13, worst[("float", "double")]
 # The int/int question is NOT decided here, and these two assertions say so
 # rather than leaving a reader to assume it was: the corpus holds no such
 # division, so the two candidates are bit-identical on every compared cell. If
@@ -743,17 +767,19 @@ Result:
 ```
 generalFuelRatioExpression: 42 snapshots carry it; MOVES loaded the generator in 24 and not in 18
                97 rows compared, 194 cells, 0 missing / 1015 extra keys, 0 extras unaccounted for
-               worst relative error 1.608e-14 at process-pm-exhaust fuel 5 formulation 27002 polProcess 11201 sourceType 32
+               worst relative error 0.000e+00 -- BIT-IDENTICAL on every compared cell
 subscription:  42 snapshots checked against ONROAD x processes {1,2,9,10,11,12,13,90}; 0 disagree
-FLOAT columns: promoting binary32 gives 1.608e-14, reading the capture's decimal straight gives 7.059e-08
-int/int:       0 integer-literal divisions in the corpus's expressions; DECIMAL rounding gives 1.608e-14 against IEEE's 1.608e-14
+FLOAT columns: promoting binary32 gives 0.000e+00, reading the capture's decimal straight gives 7.059e-08
+int/int:       0 integer-literal divisions in the corpus's expressions; DECIMAL rounding gives 0.000e+00 against IEEE's 0.000e+00
 ```
 
 **Two of those numbers are dated and the rest are not**, and §7.5 is why knowing
 which is which matters. The 42, the 24/18 split and the 1,015 move whenever the
 corpus grows. The 97 rows, the 194 cells, the 0 missing and 0 unaccounted, the
-1.608e−14 and the predicate's `0 disagree` are per-snapshot invariants that any
-new capture has to satisfy on its own terms.
+bit-identity and the predicate's `0 disagree` are per-snapshot invariants that
+any new capture has to satisfy on its own terms. **The residual itself was
+dated and nobody knew it**: it was 1.608e−14 for as long as the capture wrote
+twelve decimal places, and 0 the moment it stopped — see §7.1.
 
 ### 6.6 What the component's inline tests check
 
@@ -781,15 +807,23 @@ here (`docs/esm-conventions.md` §35.4).
 ### 7.1 The measured result
 
 All 97 rows of the corpus's populated `generalFuelRatio` — 194 cells, from
-`process-pm-exhaust` (58) and `process-crankcase-running` (39) — at a worst
-**1.608 × 10⁻¹⁴** relative, 0 missing keys, and 1,015 extra keys every one of
-which `criteriaRatio`, `altCriteriaRatio` or `ATRatio` claims by the same
+`process-pm-exhaust` (58) and `process-crankcase-running` (39) — **bit-identical**
+to the reference, 0 missing keys, and 1,015 extra keys every one of which
+`criteriaRatio`, `altCriteriaRatio` or `ATRatio` claims by the same
 `(fuelFormulationID, polProcessID)`.
 
-1.608e−14 is **below** the reference column's own resolution: `fuelEffectRatio`
-is `DECIMAL(20,12)`, so a value near 1.09 is stored to about 4.6e−13 relative.
-The residual is storage-limited and this port's arithmetic is not measurably
-distinguishable from MOVES's.
+**It was 1.608 × 10⁻¹⁴, and that residual was the CAPTURE's.** This section used
+to explain it as the reference column's own resolution — `fuelEffectRatio` read
+as a `DECIMAL(20,12)`, about 4.6e−13 relative on a ratio near 1 — and that
+explanation was wrong. `moves-snapshot/v1` wrote every float at twelve DECIMAL
+places, so a stored 1.090910749585 was indistinguishable from a
+`DECIMAL(20,12)` column holding the same string. `moves-snapshot/v2` records
+1.0909107495849824 and the residual goes to exactly **zero**, which no column
+type could have allowed: a `DECIMAL(20,12)` cannot hold that number.
+
+So this port's arithmetic is not *measurably indistinguishable* from MOVES's on
+these cells — it is **identical**, and the only reason that could not be said
+before is the format the reference was written in.
 
 ### 7.2 The `FLOAT` columns, decided by measurement
 
@@ -803,11 +837,15 @@ Running the corpus both ways:
 
 | what a property value is taken to be | worst relative error over 194 cells |
 |---|---|
-| the `FLOAT` widened — `float32(23.14)` | **1.608e−14** |
+| the `FLOAT` widened — `float32(23.14)` | **0.000e+00** (bit-identical) |
 | the capture's decimal text read as a double | **7.059e−08** |
 
-4,400× apart, and the wrong one is 150× the reference column's own storage
-granularity — so the corpus decides it cleanly.
+One is exact and the other misses by 7 × 10⁻⁸, so the corpus decides it as
+cleanly as a corpus can. Under v1 these read 1.608e−14 and 7.059e−08 and the
+test was a RATIO — 4,400× apart. That form does not survive an exact answer:
+`> 1e3 ×` of zero is any positive number at all. §6.5 now asserts the two ends
+absolutely instead, which is the general lesson — a separation stated as a
+ratio stops testing anything the moment the good hypothesis becomes exact.
 
 **But note what would have missed it.** 7.059e−08 is comfortably inside
 `tolerance.toml`'s per-cell `rel = 2e-5`. A fixture comparison — the mechanism
@@ -847,8 +885,8 @@ residuals for both are the same number rather than merely close:
 
 | hypothesis for `<int literal> / <int literal>` | worst relative error over 194 cells |
 |---|---|
-| IEEE binary64 division | 1.608e−14 |
-| MariaDB `DECIMAL`, rounded to `div_precision_increment` = 4 | 1.608e−14 |
+| IEEE binary64 division | 0.000e+00 |
+| MariaDB `DECIMAL`, rounded to `div_precision_increment` = 4 | 0.000e+00 |
 
 Bit-identical, because no expression exercises the difference. **This is not a
 finding that MOVES divides one way or the other. It is a finding that the
@@ -870,9 +908,12 @@ instead of quietly staying answered wrong. `docs/esm-conventions.md` §38.
 3. **`exp(g·ln(x))` against `pow(x, g)`** — form C only, and form C is not
    checked against MOVES, so this is unmeasured here. Kept in the SQL's spelling
    rather than decided (§4).
-4. **The reference column's `DECIMAL(20,12)` storage** — 4.6e−13 relative on a
-   ratio near 1, which is the floor the 1.608e−14 residual sits below and the
-   reason the oracle's gate is 1e−12 rather than 1e−15.
+4. ~~**The reference column's `DECIMAL(20,12)` storage**~~ — **retired, and it
+   was never real.** The 4.6e−13 floor this item claimed was
+   `moves-snapshot/v1`'s twelve decimal places wearing a column type's name.
+   With v2 the comparison is bit-identical, so there is no storage floor here
+   at all and the oracle's gate is 1e−13 as an f64-noise guard rather than as a
+   storage allowance.
 
 ### 7.5 The corpus grew by two snapshots while this rung was being verified
 
@@ -898,7 +939,7 @@ What that moved, and what it did not:
 | extra keys, all accounted for | 669 | 1,015 |
 | **rows compared against MOVES** | **97** | **97** |
 | **cells** | **194** | **194** |
-| **worst relative error** | **1.608e−14** | **1.608e−14** |
+| **worst relative error** | **1.608e−14** | **1.608e−14** *(both under `moves-snapshot/v1`; 0 under v2 — see §7.1)* |
 | **missing / unaccounted keys** | **0 / 0** | **0 / 0** |
 | **snapshots disagreeing with the predicate** | **0** | **0** |
 

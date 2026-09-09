@@ -3591,7 +3591,7 @@ two plausible answers. Measured over the corpus's 194 compared cells:
 
 | a property value is taken to be | worst relative error |
 |---|---|
-| the `FLOAT` widened | **1.608e−14** |
+| the `FLOAT` widened | **0.000e+00** (bit-identical; **1.608e−14** under `moves-snapshot/v1`) |
 | the capture's decimal read as a double | **7.059e−08** |
 
 That looks like §35.3's table and it is not the same situation, because of where
@@ -3602,11 +3602,20 @@ this repository would have passed with the wrong promotion and reported nothing.
 
 **The rule: after measuring both candidates, compare the loser against the
 FIXTURE GATE, and if it falls inside, say so and put the assertion somewhere
-that can see it.** Here that is `components/fuel_effects.esm` at `rel 1e-11` and
-`run-fuel-effects-oracle.sh` at `1e-12`, and both say in words that they are the
+that can see it.** Here that is `components/fuel_effects.esm` at `rel 1e-15` and
+`run-fuel-effects-oracle.sh` at `1e-13`, and both say in words that they are the
 only things in the port that decide it. A fidelity choice whose wrong answer is
 inside the tolerance of every check you own is not a choice you have made; it is
 a coin you have not looked at.
+
+**And DO NOT STATE THE SEPARATION AS A RATIO.** The oracle's gate was
+`worst[double] > 1e3 x worst[float]`, which was a real test while the winner
+left a 1.608e−14 residual. The recapture made the winner EXACT, and `> 1e3 x 0`
+is satisfied by any positive number at all: a gate that reads as a comparison
+and tests nothing. Both ends are now asserted absolutely — the loser must miss
+by more than 1e−9, the winner must land inside 1e−13. A separation expressed as
+a ratio between two measurements silently dies the day one of them reaches
+zero, which is the day the port gets it exactly right.
 
 The corollary is the uncomfortable one. `tolerance.toml`'s 2e-5 is right for a
 `real*4` oracle comparison and it is three to four orders too loose to
@@ -3631,7 +3640,8 @@ therefore a `DOUBLE` — which takes the expression out of MariaDB's exact-value
 path entirely.
 
 So the two hypotheses are not close on this corpus; they are **bit-identical**,
-at 1.608e−14 each, because nothing exercises the difference. Two ways to record
+at 0.000e+00 each (1.608e−14 each under `moves-snapshot/v1`), because nothing
+exercises the difference. Two ways to record
 that, and only one of them survives contact with a growing corpus:
 
 * *"Not resolvable; we chose IEEE."* — true on the day it is written, and

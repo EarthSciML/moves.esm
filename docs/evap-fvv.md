@@ -1594,9 +1594,15 @@ QuarterHourTemperature     96 cells, worst relative error 1.175e-14
 emissionQuant             128 cells, worst relative error 7.495e-06
 ```
 
-`MOVESOutput.emissionQuant` is a `DECIMAL(20,12)` fed from a `FLOAT` working
-column, i.e. six significant figures; `7.495e-06` is that storage, not
-accumulated error. `OpModeDistribution` matching to **0.000e+00 absolute** on
+`MOVESOutput.emissionQuant` carries six significant figures, because it is fed
+from a `FLOAT` working column (`CreateWorker.sql:79` declares it `FLOAT`);
+`7.495e-06` is that storage, not accumulated error. This document used to call
+the output column a `DECIMAL(20,12)` as well, which the recapture disproved:
+`moves-snapshot/v1` wrote every float at twelve DECIMAL places and made every
+column in the corpus LOOK like one, but v2 stores `emissionQuant` values as
+small as 4.877e-17 in `nr-airtoxics-lawn-garden-county`, which a
+`DECIMAL(20,12)` cannot hold. The six significant figures are real and the
+column type was inferred from a capture artifact. `OpModeDistribution` matching to **0.000e+00 absolute** on
 all six rows is the strongest single check in this document — it is the
 quantity §0.3 turns on.
 
