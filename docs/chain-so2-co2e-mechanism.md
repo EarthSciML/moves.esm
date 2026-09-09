@@ -1112,7 +1112,7 @@ print("emissionQuant: %4d rows, %d missing, %d extra, worst relative error %.3e 
 # ASSERTED, not merely printed (docs/esm-conventions.md 21).
 assert not missing, missing[:8]
 assert not extra, extra[:8]
-assert len(rows) == len(out) == 5534, (len(rows), len(out))
+assert len(rows) == len(out) == 2767, (len(rows), len(out))
 assert worst < 2e-5, "emissionQuant: worst relative error %.3e exceeds 2e-5" % worst
 
 # --- the KEY SET, exactly, and not merely its size -------------------------
@@ -1130,10 +1130,14 @@ for pol in (20, 24, 25, 26, 27, 40, 41, 42, 43, 44, 45, 46, 79, 80, 86, 87, 88, 
     expected_cohorts[(pol, 1)] = 104
 got = {k: len(v) for k, v in cohorts_by_pp.items()}
 assert got == expected_cohorts, (got, expected_cohorts)
-assert days == set(DAYS) == {2, 5}, days
-assert sum(expected_cohorts.values()) * len(days) == len(out) == 5534
+# The run selects ONE day type. `<day id="5">` is a literal dayID and is honoured;
+# the earlier `<day key="5">` was an out-of-range 0-based INDEX into the sorted
+# DayOfAnyWeek list [2, 5], selected nothing and fell back to BOTH (moves.rs PR #55).
+assert days == set(DAYS) == {5}, days
+assert sum(expected_cohorts.values()) * len(days) == len(out) == 2767
 print("key set:       124 THC + 124 N2O + 3 x 125 energy/CO2/CO2e + 64 ethanol + 18 x 104")
-print("               = 2,767 cohorts x %d day types = %d rows, exact." % (len(days), len(out)))
+print("               = 2,767 cohorts x %d day type%s = %d rows, exact."
+      % (len(days), "" if len(days) == 1 else "s", len(out)))
 # The 125-blocks are a strict superset of the 124-block, which is a strict
 # superset of the 104s, and the one cohort between 125 and 124 is the model
 # year 2000 electricity one `emissionratebyage` has no age-group row for.

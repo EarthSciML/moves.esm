@@ -3764,7 +3764,7 @@ output only when it does not.** And a subscription list is a declaration, not a
 measurement — `docs/process-brakewear.md` §8 already said as much about a
 *calculator*'s registrations, and this is the generator-side instance of the
 same lesson.
-## 39. A generator family shares a row, not a spine **[Phase 5, 262,442 + 124 + 300 rows]**
+## 39. A generator family shares a row, not a spine **[Phase 5, 201,665 + 84 + 168 rows]**
 
 Section 38 is reserved for the `FuelEffectsGenerator` rung, which was in
 progress in a sibling worktree while this was written; this section is 39 to
@@ -3776,12 +3776,14 @@ rungs, after `MeteorologyGenerator`, and the first pair to be ported together.
 They were briefed as one family with a shared spine. They are not, and the four
 subsections below are what came of measuring that instead of inheriting it.
 
-**Where the row counts come from**, since the heading claims them: 262,442 is
+**Where the row counts come from**, since the heading claims them: 201,665 is
 every `StartOpMode` row in the corpus — the per-trip soak classification, the
-generator's own captured intermediate; 124 is every `StartOpModeDistribution`
-row; 300 is every `RatesOpModeDistribution` row at `avgSpeedBinID` 0, which is
+generator's own captured intermediate; 84 is every `StartOpModeDistribution`
+row; 168 is every `RatesOpModeDistribution` row at `avgSpeedBinID` 0, which is
 the partition these two generators own. None is a `MOVESOutput` count and none
-is comparable to §§29–34's.
+is comparable to §§29–34's. All three were 262,442 / 124 / 300 before the
+`<day key=> -> <day id=>` correction halved every day-keyed table in 28 of the
+42 snapshots (§42).
 
 ### 39.1 Test the family hypothesis before you factor for it
 
