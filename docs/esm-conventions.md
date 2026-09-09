@@ -4166,6 +4166,15 @@ and **asserts it is lossless**: pointed at a v1 corpus it fails loudly rather
 than reporting a clean comparison of a capture it is silently mismodelling.
 That assertion is the honest form of "this specification describes v2".
 
+**And measure what the pinning costs, rather than asserting it.** Run this tree
+against the v1 corpus and `./run-tests.sh` exits 1 with **19 failures**: the
+data-sources gate, all twelve day-halving fixtures' inline assertions,
+`nr-airtoxics-lawn-garden-county`'s (its execution-database id differs between
+the two captures), and five oracles. Against v2 it is 191 ok, 0 FAIL. So this
+tree must land in the same window as the corpus it describes — which is what
+`moves.rs/docs/snapshot-v2-migration.md` recommended, and the number is here so
+that nobody has to rediscover it by running the suite against the wrong branch.
+
 ### 41.3 The retirement is a measurement, and the retired numbers stay
 
 What was deleted, measured on the v2 corpus with `[cell] rel` untouched at

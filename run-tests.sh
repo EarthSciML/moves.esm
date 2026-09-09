@@ -14,6 +14,14 @@
 #   6. limitations — the known upstream defects in docs/findings/ still fail
 #   7. fixtures    — end-to-end comparison against the moves.rs snapshots
 #
+# WHICH CORPUS. Stages 2, 3 and 7 and the oracles read
+# `../moves.rs/characterization/snapshots`, and they require a
+# `moves-snapshot/v2` corpus with the `<day id=>` correction. `compare-output.py`
+# itself reads BOTH formats -- it is the fixtures and the specifications that pin
+# one (docs/esm-conventions.md §41.2, §42). Against a v1 corpus this script exits
+# 1 with 19 failures, every one a stale row count or ordinal and none a defect.
+# Override the location with SNAPSHOTS=/path.
+#
 # Stage 6 has the opposite polarity to the rest and that is deliberate: each
 # file under docs/findings/ is a repro whose inline test asserts the behaviour
 # we WANT, and which fails today. If one goes green, an upstream defect has been
