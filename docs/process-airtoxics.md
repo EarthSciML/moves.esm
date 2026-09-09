@@ -53,12 +53,12 @@ rung has:
 | RunSpec | `../moves.rs/characterization/fixtures/process-airtoxics.xml` |
 | Model | ONROAD, `modelscale` `Inv` (inventory), `modeldomain` `DEFAULT` |
 | Geography | county 26161 (Washtenaw, Michigan), zone 261610, link 2616104 |
-| Time | year 2020, month **8**, hour **7**, day types **2 (weekend) and 5 (weekday)** |
+| Time | year 2020, month **8**, hour **7**, day type **5 (weekday)** |
 | Vehicles | sourceTypeID 21 (passenger car); fuel types **1, 2, 5, 9** |
 | Road | roadTypeID 4 (urban restricted access) |
 | Pollutant/process | **101** (THC × Running Exhaust) and its five chained species **7901** (NMHC), **8701** (VOC), **2001** (benzene), **2401** (1,3-butadiene) and **2501** (formaldehyde) |
 | Model years | 1980–2020 (41) |
-| Output | `db__out_process_airtoxics__movesoutput`, **1,288 rows** |
+| Output | `db__out_process_airtoxics__movesoutput`, **644 rows** |
 | Output units | **grams** for all six pollutants; `outputtimestep` **Hour** |
 | Calculator path | `TotalActivityGenerator` → `SourceBinDistributionGenerator` → `BaseRateGenerator` → `BaseRateCalculator` → **`HCSpeciationCalculator`**, **`AirToxicsCalculator`** → output aggregation |
 | Snapshot | 368 tables, **251 non-empty** |
@@ -72,9 +72,9 @@ database's `runspecmonth`, `runspechour` and `runspecday` say month 8, hour 7,
 and day types 2 **and** 5, and `runspecpollutantprocess` says 101, 2001, 2401,
 2501, 7901 and 8701. The execution database is the authority.
 
-### 0.2 Why 1,288 rows, and which cohorts each block drops
+### 0.2 Why 644 rows, and which cohorts each block drops
 
-1,288 = (124 + 104 × 5) × 2 day types.
+644 = 124 + 104 × 5, at the one day type this run selects (it was 1,288 over two; docs/esm-conventions.md §42).
 
 | | THC (101) | each of the five species |
 |---|---|---|
@@ -611,10 +611,18 @@ see.
 #!/usr/bin/env python3
 """process-airtoxics reproduction from the snapshot's own input tables."""
 import sys, collections, math
+import glob
 import pyarrow.parquet as pq
 
+# "1 day types" is not English and this line is quoted in section 7.
+_s = lambda n: "" if n == 1 else "s"
+
 SNAP = sys.argv[1]
-P = SNAP + "/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__"
+# The execution database's name carries a per-run id, so the prefix is
+# DISCOVERED and not written down: a recapture renames every table in the
+# snapshot and a hardcoded id fails as a missing FILE, which reads like a
+# missing table rather than like a stale name.
+P = glob.glob(SNAP + "/tables/db__movesexecution*__year.parquet")[0][:-len("year.parquet")]
 def T(n): return pq.read_table(P+n+".parquet").to_pylist()
 
 YEAR, MONTH, HOUR, ZONE, ROAD, ST = 2020, 8, 7, 261610, 4, 21
@@ -1004,15 +1012,20 @@ expected_cohorts = {(1, 1): 124, (20, 1): 104, (24, 1): 104,
                     (25, 1): 104, (79, 1): 104, (87, 1): 104}
 got = {k: len(v) for k, v in cohorts_by_pp.items()}
 assert got == expected_cohorts, (got, expected_cohorts)
-assert days == set(DAYS) and len(days) == 2, days
+# The run selects ONE day type. `<day id="5">` is a literal dayID and is
+# honoured; the earlier `<day key="5">` was an out-of-range 0-based INDEX into
+# the sorted DayOfAnyWeek list [2, 5], selected nothing, and fell back to BOTH
+# day types (moves.rs PR #55). The count is pinned because it is the corpus's
+# shape and a fixture that stopped noticing it would stop noticing a regression.
+assert days == set(DAYS) and len(days) == 1, days
 parent = cohorts_by_pp[(THC, 1)]
 for species in (20, 24, 25, 79, 87):
     assert cohorts_by_pp[(species, 1)] < parent, species
     assert (parent - cohorts_by_pp[(species, 1)]) == \
         {c for c in parent if c[1] == ELECTRICITY}, species
-assert sum(expected_cohorts.values()) * len(days) == len(out) == 1288
-print("key set:       124 THC + 5 x 104 species cohorts x %d day types = %d rows, exact;"
-      % (len(days), len(out)))
+assert sum(expected_cohorts.values()) * len(days) == len(out) == 644
+print("key set:       124 THC + 5 x 104 species cohorts x %d day type%s = %d rows, exact;"
+      % (len(days), _s(len(days)), len(out)))
 print("               the 20 cohorts every species drops are exactly the ELECTRICITY ones,"
       " and every species set is a strict subset of the parent's")
 chained = sum(1 for (pol, _, _, _, _) in rows if pol != THC)
@@ -1053,13 +1066,38 @@ assert not both, both[:4]
 print("NOTE:          no (formulation, model year, output) reaches BOTH ATRatioGas1 and"
       " ATRatioNonGas, so the")
 print("               append-both-ratios semantics is a sum of one term and is untested.")
-# 3. Diesel's two subtypes carry identical ratios, so reading the SUPPLIED
-#    subtype (21, biodiesel blend) rather than the fuel type's default (20) is
-#    unfalsifiable in this snapshot.
+# 3. Diesel's two subtypes carry ratios that agree to WITHIN ONE ULP, so
+#    reading the SUPPLIED subtype (21, biodiesel blend) rather than the fuel
+#    type's default (20) is unfalsifiable in this snapshot -- but not for the
+#    reason this document gave until `moves-snapshot/v2`.
+#
+#    Under v1 the two columns were BIT-IDENTICAL on all 141 pairs, and that is
+#    what the assertion here said. v1 wrote twelve decimal places, which erased
+#    the difference: v2 records 7.835437543690205e-03 against
+#    7.8354375436902e-03, and 51 of the 141 pairs now differ, by 1, 3, 7 or 23
+#    ulps -- 1.277e-16 to 3.093e-15 relative. So the two subtypes are NOT the
+#    same number in MOVES, and the reason this snapshot cannot decide which the
+#    port should read is now a quantitative one: the difference is three orders
+#    below the tightest gate in this repository (1e-12) and ten below the
+#    fixture gate.
+#
+#    The bound is asserted rather than the equality, and the two counts are
+#    pinned, so a capture that ever moved them apart by more than an ulp would
+#    make this go red instead of quietly staying true.
 pairs = {(r["polProcessID"], r["modelYearGroupID"]): {} for r in T("atrationongas")}
 for r in T("atrationongas"):
     pairs[(r["polProcessID"], r["modelYearGroupID"])][r["fuelSubtypeID"]] = float(r["ATRatio"])
-assert all(v[20] == v[21] for v in pairs.values() if 20 in v and 21 in v)
+both_subtypes = [v for v in pairs.values() if 20 in v and 21 in v]
+apart = [v for v in both_subtypes if v[20] != v[21]]
+worst_ulp = max((abs(v[20] - v[21]) / abs(v[20]) for v in apart), default=0.0)
+assert len(both_subtypes) == 141, len(both_subtypes)
+assert len(apart) == 51, len(apart)
+assert worst_ulp < 1e-14, worst_ulp
+print("NOTE:          diesel subtypes 20 and 21 differ on %d of the %d ATRatio pairs,"
+      % (len(apart), len(both_subtypes)))
+print("               by at most %.3e relative -- 23 ulps at the worst. Under v1's"
+      % worst_ulp)
+print("               twelve decimals they were bit-identical and this document said so.")
 assert all(v[51] == v[52] for v in pairs.values() if 51 in v and 52 in v)
 print("NOTE:          atRatioNonGas is identical on fuel subtypes 20/21 and on 51/52, so"
       " reading the SUPPLIED subtype")
@@ -1093,8 +1131,8 @@ Result:
 ```
 sho:             82 rows, worst relative error 3.610e-06
 baseRateByAge:  208 non-zero rows of 248, worst relative error 4.468e-06
-emissionQuant: 1288 rows, 0 missing, 0 extra, worst relative error 8.100e-06 at (pollutant 20, process 1, day 2, MY 1991, fuel 2)
-key set:       124 THC + 5 x 104 species cohorts x 2 day types = 1288 rows, exact;
+emissionQuant:  644 rows, 0 missing, 0 extra, worst relative error 7.564e-06 at (pollutant 1, process 1, day 5, MY 1990, fuel 2)
+key set:       124 THC + 5 x 104 species cohorts x 1 day type = 644 rows, exact;
                the 20 cohorts every species drops are exactly the ELECTRICITY ones, and every species set is a strict subset of the parent's
                1040 of the 1288 rows are SPECIATED -- computed from the 101 rows, from no rate of their own
 ```

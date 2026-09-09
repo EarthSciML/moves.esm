@@ -2,7 +2,7 @@
   "esm": "1.0.0",
   "metadata": {
     "name": "moves.fixture.process_tirewear",
-    "description": "The `process-tirewear` fixture: 750 rows of MOVESOutput -- tire-wear PM10 and PM2.5 AND running-exhaust Total Energy Consumption for passenger cars on urban restricted-access roads in Washtenaw County, August, 7am, 2020 -- computed from the snapshot's own INPUT tables. It ports docs/process-tirewear.md end to end and reuses the whole of docs/mixed-onroad.md's spine and docs/process-brakewear.md's rate relation: the activity chain S1-S9, the cohort structure and the fuel-usage rebase S10-S12, the base rate S13-S14, the calculator's adjustments S15 and the output row S16-S18.\n\nWHAT IS NEW HERE IS ONE STAGE, AND IT IS THE ONE A READER WOULD EXPECT TO BE SHARED. Tire wear's `emissionrate` rows live on operating modes 400-416, which are binned on AVERAGE SPEED alone -- `operatingmode` gives them speedLower/speedUpper and no VSP bounds -- and the drive-cycle classification never produces one. They come from a second generator: `AverageSpeedOperatingModeDistributionGenerator` handles process 10 and nothing else (avg_speed_op_mode_distribution.rs:110-116), `BaseRateGenerator` drives the cycles itself only for processes 1 and 9 (mod.rs:156-161), and `avgspeedbin.opModeIDTirewear` -- one nullable column of a sixteen-row table -- is the whole of the tire-wear operating-mode model. So W acquires a POLLUTANT-PROCESS AXIS here: `pp_W[p, k, m]` is one aggregate over the same speed-bin weights with the mode fraction selected per pollutant-process, not two relations and a branch downstream. Retargeting `process-brakewear` onto this snapshot reproduces its 250 energy rows and returns EXACTLY 0 on all 500 particulate rows, which is the measurement that says so (docs/process-tirewear.md 6.4).\n\nA UNION WOULD HAVE WORKED AND IS NOT WHAT THIS DOES. The two mode families are disjoint in `emissionrate`, so a single 39-mode W carrying both would reproduce all 750 rows -- and would be writing down a coincidence of the data rather than the rule, and would make `pp_WModeCount` (23 and 16) and `pp_WTotal` (1 on each family) unstatable. Those two assertions are the only place in the suite where the difference is visible, which is exactly why they are here.\n\nTHE SHORT MODEL-YEAR GROUP IS 0 ON EVERY TIRE-WEAR ROW, and that is the third value the rate relation exists to carry. `pollutantprocessmodelyear` maps model year 2020 to short group 40 for 9101 (a two-digit year), to 6 for brake wear's 11609 (a decade band) and to 0 for 11710 -- modelYearGroup 0, whose `modelyeargroup` row is named \"Doesn't Matter\" -- and all 31 of `emissionrate`'s 11710 source bins carry 00 in that slot. A document that computed one short group per COHORT would meet 527 tire-wear rate rows with a source bin of 40 or 80 and produce a rate of exactly zero. Hence `rate_rows`, the pollutant-process crossed with the cohort candidate grid -- 3 x 164, every factor a discovered extent, all its key columns one-dimensional (docs/esm-conventions.md 2).\n\nNO REFERENCE TABLE IS AN INPUT. `baserate_1_2020`, `baserate_10_2020`, `sourcebindistribution`, `sho` and `MOVESOutput` are generator or expected output and none is a `data_sources` entry here. `ratesopmodedistribution` needed a decision rather than a look-up: it is captured NON-EMPTY in this snapshot, 32 rows, and those rows are precisely what the tire-wear arm computes -- so reading them would transcribe the answer to the one question this fixture exists to ask, and it reads them nowhere. Values out of the generator tables DO appear as `expected` in the inline tests below, which is the opposite direction.\n\nTHE PM10 BLOCK IS A CHAIN, NOT A SECOND RATE, and it is a WEAKER check than brake wear's. `runspecchainedto` says 10710 <- 11710 and `pm10emissionratio` carries the ratio; the document reads both and never writes `107 = ratio x 117`. Its own rate path evaluates to exactly 0 and its whole quantity arrives through a self-join of the rate relation on (chained-from pollutant-process, cohort). But the ratio table here is four rows, one model-year range and one value, 6.6667, so a document that dropped the range predicate AND the fuel key would still reproduce all 250 PM10 rows. J36 is carried in full anyway and docs/process-tirewear.md 7.2 records that its discriminating half is checked by `process-brakewear` and by nothing here.\n\nWHAT THE TIRE-WEAR ROWS DO CHECK, and it is the mirror of brake wear's. Brake wear's rate table covered five of W's 23 drive-cycle modes, 12.8 % of the weekend weight. Tire wear's covers all sixteen live speed-bin modes -- 100 % -- so a perturbation of any speed bin moves all 500 particulate rows. What they do not touch at all is the drive-cycle physics: `driveschedulesecond`'s 63,602 speeds, the VSP polynomial, the braking thresholds and the bracketing weights are still exercised by the 250 energy rows alone.\n\nDECLARED: one number, `n_outputCohort` = 125, the length of each output block's cohort run. WHICH 125 of the 164 candidates survive is a result of the chain and is never written down (docs/esm-conventions.md 22). `cohortSurvivorCount`, `pp_selectedCohortCount` (125, 0, 125) and `run_chainedRowCount` keep it honest.\n\nTHE PACKED IDENTIFIER IS NEVER BUILT, ONLY UNPACKED. `emissionrate`'s 57,567 rows carry `sourceBinID` = 1e18 + fuel x 1e16 + engTech x 1e14 + regClass x 1e12 + shortModYrGroup x 1e10, past 2^53. `lib/onroad_activity.esm`'s `source_bin_slot` reads the four components out; nothing here composes one, and no element type is declared for the same reason (finding F18).",
+    "description": "The `process-tirewear` fixture: 750 rows of MOVESOutput -- tire-wear PM10 and PM2.5 AND running-exhaust Total Energy Consumption for passenger cars on urban restricted-access roads in Washtenaw County, August, 7am, 2020 -- computed from the snapshot's own INPUT tables. It ports docs/process-tirewear.md end to end and reuses the whole of docs/mixed-onroad.md's spine and docs/process-brakewear.md's rate relation: the activity chain S1-S9, the cohort structure and the fuel-usage rebase S10-S12, the base rate S13-S14, the calculator's adjustments S15 and the output row S16-S18.\n\nWHAT IS NEW HERE IS ONE STAGE, AND IT IS THE ONE A READER WOULD EXPECT TO BE SHARED. Tire wear's `emissionrate` rows live on operating modes 400-416, which are binned on AVERAGE SPEED alone -- `operatingmode` gives them speedLower/speedUpper and no VSP bounds -- and the drive-cycle classification never produces one. They come from a second generator: `AverageSpeedOperatingModeDistributionGenerator` handles process 10 and nothing else (avg_speed_op_mode_distribution.rs:110-116), `BaseRateGenerator` drives the cycles itself only for processes 1 and 9 (mod.rs:156-161), and `avgspeedbin.opModeIDTirewear` -- one nullable column of a sixteen-row table -- is the whole of the tire-wear operating-mode model. So W acquires a POLLUTANT-PROCESS AXIS here: `pp_W[p, k, m]` is one aggregate over the same speed-bin weights with the mode fraction selected per pollutant-process, not two relations and a branch downstream. Retargeting `process-brakewear` onto this snapshot reproduces its 250 energy rows and returns EXACTLY 0 on all 500 particulate rows, which is the measurement that says so (docs/process-tirewear.md 6.4).\n\nA UNION WOULD HAVE WORKED AND IS NOT WHAT THIS DOES. The two mode families are disjoint in `emissionrate`, so a single 39-mode W carrying both would reproduce all 750 rows -- and would be writing down a coincidence of the data rather than the rule, and would make `pp_WModeCount` (23 and 16) and `pp_WTotal` (1 on each family) unstatable. Those two assertions are the only place in the suite where the difference is visible, which is exactly why they are here.\n\nTHE SHORT MODEL-YEAR GROUP IS 0 ON EVERY TIRE-WEAR ROW, and that is the third value the rate relation exists to carry. `pollutantprocessmodelyear` maps model year 2020 to short group 40 for 9101 (a two-digit year), to 6 for brake wear's 11609 (a decade band) and to 0 for 11710 -- modelYearGroup 0, whose `modelyeargroup` row is named \"Doesn't Matter\" -- and all 31 of `emissionrate`'s 11710 source bins carry 00 in that slot. A document that computed one short group per COHORT would meet 527 tire-wear rate rows with a source bin of 40 or 80 and produce a rate of exactly zero. Hence `rate_rows`, the pollutant-process crossed with the cohort candidate grid -- 3 x 164, every factor a discovered extent, all its key columns one-dimensional (docs/esm-conventions.md 2).\n\nNO REFERENCE TABLE IS AN INPUT. `baserate_1_2020`, `baserate_10_2020`, `sourcebindistribution`, `sho` and `MOVESOutput` are generator or expected output and none is a `data_sources` entry here. `ratesopmodedistribution` needed a decision rather than a look-up: it is captured NON-EMPTY in this snapshot, 32 rows, and those rows are precisely what the tire-wear arm computes -- so reading them would transcribe the answer to the one question this fixture exists to ask, and it reads them nowhere. Values out of the generator tables DO appear as `expected` in the inline tests below, which is the opposite direction.\n\nTHE PM10 BLOCK IS A CHAIN, NOT A SECOND RATE, and it is a WEAKER check than brake wear's. `runspecchainedto` says 10710 <- 11710 and `pm10emissionratio` carries the ratio; the document reads both and never writes `107 = ratio x 117`. Its own rate path evaluates to exactly 0 and its whole quantity arrives through a self-join of the rate relation on (chained-from pollutant-process, cohort). But the ratio table here is four rows, one model-year range and one value, 6.6667, so a document that dropped the range predicate AND the fuel key would still reproduce all 250 PM10 rows. J36 is carried in full anyway and docs/process-tirewear.md 7.2 records that its discriminating half is checked by `process-brakewear` and by nothing here.\n\nWHAT THE TIRE-WEAR ROWS DO CHECK, and it is the mirror of brake wear's. Brake wear's rate table covered five of W's 23 drive-cycle modes, 12.8 % of the weekday weight. Tire wear's covers all sixteen live speed-bin modes -- 100 % -- so a perturbation of any speed bin moves all 500 particulate rows. What they do not touch at all is the drive-cycle physics: `driveschedulesecond`'s 63,602 speeds, the VSP polynomial, the braking thresholds and the bracketing weights are still exercised by the 250 energy rows alone.\n\nDECLARED: one number, `n_outputCohort` = 125, the length of each output block's cohort run. WHICH 125 of the 164 candidates survive is a result of the chain and is never written down (docs/esm-conventions.md 22). `cohortSurvivorCount`, `pp_selectedCohortCount` (125, 0, 125) and `run_chainedRowCount` keep it honest.\n\nTHE PACKED IDENTIFIER IS NEVER BUILT, ONLY UNPACKED. `emissionrate`'s 57,567 rows carry `sourceBinID` = 1e18 + fuel x 1e16 + engTech x 1e14 + regClass x 1e12 + shortModYrGroup x 1e10, past 2^53. `lib/onroad_activity.esm`'s `source_bin_slot` reads the four components out; nothing here composes one, and no element type is declared for the same reason (finding F18).",
     "authors": [
       "EarthSciML Authors and Contributors"
     ],
@@ -77,7 +77,7 @@
         "tags": [
           "scope"
         ],
-        "note": "2 rows, dayID 2 and 5. The second factor of the activity axis and of the output axis.",
+        "note": "1 row, dayID 5 (weekday). The second factor of the activity axis and of the output axis, and its extent is one in this run: `<day id=\"5\">` selects one day type where the earlier `<day key=\"5\">` was an out-of-range INDEX and fell back to both (moves.rs PR #55).",
         "esio_format": "parquet"
       }
     },
@@ -341,7 +341,7 @@
         "tags": [
           "activity"
         ],
-        "note": "8 rows. A share of the MONTH's VMT, which is what makes S7's weeksPerMonth divisor necessary and what S16 divides out again through noOfRealDays.",
+        "note": "4 rows. A share of the MONTH's VMT, which is what makes S7's weeksPerMonth divisor necessary and what S16 divides out again through noOfRealDays. One day type, so four rows and not eight.",
         "esio_format": "parquet"
       }
     },
@@ -362,7 +362,7 @@
         "tags": [
           "activity"
         ],
-        "note": "192 rows. A share of that day type's own 24 hours.",
+        "note": "96 rows. A share of that day type's own 24 hours, for the one day type this run selects.",
         "esio_format": "parquet"
       }
     },
@@ -871,7 +871,7 @@
         "tags": [
           "output"
         ],
-        "note": "48 rows. hourDayID to (dayID, hourID). The packed key is LOOKED UP, so hourID x 10 + dayID appears nowhere in this document.",
+        "note": "24 rows. hourDayID to (dayID, hourID), one day type. The packed key is LOOKED UP, so hourID x 10 + dayID appears nowhere in this document.",
         "esio_format": "parquet"
       }
     },
@@ -892,7 +892,7 @@
         "tags": [
           "output"
         ],
-        "note": "2 rows: 2 real days in a weekend, 5 in a week of weekdays. S16's divisor, and the factor S7 multiplied in.",
+        "note": "1 row: 5 real days in a week of weekdays. S16's divisor, and the factor S7 multiplied in. The weekend row is not in this run's execution database, so the divisor is exercised at ONE value.",
         "esio_format": "parquet"
       }
     },
@@ -5098,7 +5098,7 @@
           "shape": [
             "output_rows"
           ],
-          "description": "J35: 2 for the weekend block, 5 for the weekday block."
+          "description": "J35: 5, this run's only day type being the weekday one (docs/esm-conventions.md 42). It was 2 for the weekend block and 5 for the weekday block while the RunSpec's out-of-range `<day key=>` selected both."
         },
         "out_activity": {
           "type": "unknown",
@@ -5106,7 +5106,7 @@
           "shape": [
             "output_rows"
           ],
-          "description": "S16, mod.rs:1602-1608: SHO over noOfRealDays. Leaving the divisor out gives 1.79 for the weekend and 4.48 for the weekday where \u00a76.1 wants 0.8955."
+          "description": "S16, mod.rs:1602-1608: SHO over noOfRealDays. Leaving the divisor out gives 4.48 on the weekday rows this run emits where \u00a76.1 wants 0.8955."
         },
         "out_yearID": {
           "type": "unknown",
@@ -5978,7 +5978,7 @@
           "shape": [
             "runspecday_rows"
           ],
-          "description": "dayofanyweek.noOfRealDays: 2 for the weekend type and 5 for the weekday one. mod.rs:1584-1590 makes a missing divisor a hard error rather than a 1."
+          "description": "dayofanyweek.noOfRealDays: 5 for the weekday type, the only one this run selects; the weekend type's 2 is not in this execution database (docs/esm-conventions.md 42). mod.rs:1584-1590 makes a missing divisor a hard error rather than a 1."
         },
         "rtDay_sho": {
           "type": "unknown",
@@ -16618,26 +16618,8 @@
               "time": 0.0,
               "expected": 1.0,
               "coords": {
-                "runspecpollutantprocess_rows": 1,
-                "runspecday_rows": 2
-              }
-            },
-            {
-              "variable": "pp_WTotal",
-              "time": 0.0,
-              "expected": 1.0,
-              "coords": {
                 "runspecpollutantprocess_rows": 3,
                 "runspecday_rows": 1
-              }
-            },
-            {
-              "variable": "pp_WTotal",
-              "time": 0.0,
-              "expected": 1.0,
-              "coords": {
-                "runspecpollutantprocess_rows": 3,
-                "runspecday_rows": 2
               }
             },
             {
@@ -16647,15 +16629,6 @@
               "coords": {
                 "runspecpollutantprocess_rows": 1,
                 "runspecday_rows": 1
-              }
-            },
-            {
-              "variable": "pp_WModeCount",
-              "time": 0.0,
-              "expected": 23.0,
-              "coords": {
-                "runspecpollutantprocess_rows": 1,
-                "runspecday_rows": 2
               }
             },
             {
@@ -16677,30 +16650,12 @@
               }
             },
             {
-              "variable": "pp_WModeCount",
-              "time": 0.0,
-              "expected": 16.0,
-              "coords": {
-                "runspecpollutantprocess_rows": 3,
-                "runspecday_rows": 2
-              }
-            },
-            {
               "variable": "pp_tireIdleWeight",
               "time": 0.0,
               "expected": 0.0,
               "coords": {
                 "runspecpollutantprocess_rows": 3,
                 "runspecday_rows": 1
-              }
-            },
-            {
-              "variable": "pp_tireIdleWeight",
-              "time": 0.0,
-              "expected": 0.0,
-              "coords": {
-                "runspecpollutantprocess_rows": 3,
-                "runspecday_rows": 2
               }
             },
             {
@@ -16759,33 +16714,9 @@
             {
               "variable": "act_averageSpeed",
               "time": 0.0,
-              "expected": 67.0416879,
-              "coords": {
-                "activity_rows": 1
-              }
-            },
-            {
-              "variable": "act_averageSpeed",
-              "time": 0.0,
               "expected": 56.361205525,
               "coords": {
-                "activity_rows": 42
-              }
-            },
-            {
-              "variable": "act_sho",
-              "time": 0.0,
-              "expected": 27.33,
-              "coords": {
                 "activity_rows": 1
-              }
-            },
-            {
-              "variable": "act_sho",
-              "time": 0.0,
-              "expected": 2.43728,
-              "coords": {
-                "activity_rows": 41
               }
             },
             {
@@ -16793,7 +16724,7 @@
               "time": 0.0,
               "expected": 260.057,
               "coords": {
-                "activity_rows": 42
+                "activity_rows": 1
               }
             },
             {
@@ -16801,7 +16732,7 @@
               "time": 0.0,
               "expected": 83.6255,
               "coords": {
-                "activity_rows": 62
+                "activity_rows": 21
               }
             },
             {
@@ -16809,7 +16740,7 @@
               "time": 0.0,
               "expected": 23.1918,
               "coords": {
-                "activity_rows": 82
+                "activity_rows": 41
               }
             }
           ]
@@ -16828,7 +16759,7 @@
             {
               "variable": "rtDay_meanBaseRate",
               "time": 0.0,
-              "expected": 207997.0,
+              "expected": 176680.0,
               "coords": {
                 "rate_rows": 1,
                 "runspecday_rows": 1
@@ -16837,16 +16768,7 @@
             {
               "variable": "rtDay_meanBaseRate",
               "time": 0.0,
-              "expected": 176680.0,
-              "coords": {
-                "rate_rows": 1,
-                "runspecday_rows": 2
-              }
-            },
-            {
-              "variable": "rtDay_meanBaseRate",
-              "time": 0.0,
-              "expected": 392141.0,
+              "expected": 333651.0,
               "coords": {
                 "rate_rows": 41,
                 "runspecday_rows": 1
@@ -16855,7 +16777,7 @@
             {
               "variable": "rtDay_meanBaseRate",
               "time": 0.0,
-              "expected": 187.636,
+              "expected": 159.385,
               "coords": {
                 "rate_rows": 89,
                 "runspecday_rows": 1
@@ -16867,15 +16789,6 @@
               "expected": 19.1615,
               "coords": {
                 "rate_rows": 144,
-                "runspecday_rows": 2
-              }
-            },
-            {
-              "variable": "rtDay_meanBaseRate",
-              "time": 0.0,
-              "expected": 0.0599881,
-              "coords": {
-                "rate_rows": 329,
                 "runspecday_rows": 1
               }
             },
@@ -16885,13 +16798,13 @@
               "expected": 0.055599,
               "coords": {
                 "rate_rows": 329,
-                "runspecday_rows": 2
+                "runspecday_rows": 1
               }
             },
             {
               "variable": "rtDay_meanBaseRate",
               "time": 0.0,
-              "expected": 0.0596743,
+              "expected": 0.0553082,
               "coords": {
                 "rate_rows": 369,
                 "runspecday_rows": 1
@@ -16900,7 +16813,7 @@
             {
               "variable": "rtDay_meanBaseRate",
               "time": 0.0,
-              "expected": 4.58408e-05,
+              "expected": 4.24868e-05,
               "coords": {
                 "rate_rows": 417,
                 "runspecday_rows": 1
@@ -16912,15 +16825,6 @@
               "expected": 1.82925e-05,
               "coords": {
                 "rate_rows": 472,
-                "runspecday_rows": 2
-              }
-            },
-            {
-              "variable": "rtDay_meanBaseRateACAdj",
-              "time": 0.0,
-              "expected": 30166.7,
-              "coords": {
-                "rate_rows": 1,
                 "runspecday_rows": 1
               }
             },
@@ -16930,13 +16834,13 @@
               "expected": 26899.6,
               "coords": {
                 "rate_rows": 1,
-                "runspecday_rows": 2
+                "runspecday_rows": 1
               }
             },
             {
               "variable": "rtDay_meanBaseRateACAdj",
               "time": 0.0,
-              "expected": 57185.1,
+              "expected": 51142.5,
               "coords": {
                 "rate_rows": 41,
                 "runspecday_rows": 1
@@ -16948,7 +16852,7 @@
               "expected": 2.52938,
               "coords": {
                 "rate_rows": 144,
-                "runspecday_rows": 2
+                "runspecday_rows": 1
               }
             },
             {
@@ -17241,14 +17145,14 @@
               "expected": 0.0,
               "coords": {
                 "rate_rows": 308,
-                "runspecday_rows": 2
+                "runspecday_rows": 1
               }
             }
           ]
         },
         {
           "id": "the_worked_examples_reach_MOVESOutput_in_all_three_blocks",
-          "description": "docs/process-tirewear.md 6.1-6.5, asserted against the numbers MOVESOutput stores rather than against this document's own. Four rows per block, chosen so that every factor is exercised somewhere and the two chained blocks can be checked against each other: (MY 1980, gasoline, weekend) is the largest 9101 base rate; (MY 2020, gasoline, weekday) the largest activity; (MY 2000, electricity, weekday) is the row the EV efficiency divisor and the live EV temperature factor both act on, and it is the smallest cell in the fixture. 5.46494 / 0.819737 is 6.66670 and 0.484812 / 0.0727215 is 6.66670, so the two PM blocks check the chain against each other as well as against the reference. The SCCs are exact integers and are asserted exactly -- 2201210401 for the energy block and 2201210410 for both PM blocks, and an SCC whose process digits read 09 instead of 10 relabels tire wear as brake wear and still passes a per-pollutant sum.",
+          "description": "docs/process-tirewear.md 6.1-6.5, asserted against the numbers MOVESOutput stores rather than against this document's own. Four rows per block, chosen so that every factor is exercised somewhere and the two chained blocks can be checked against each other: (MY 1980, gasoline) is the largest 9101 base rate; (MY 2020, gasoline) the largest activity; (MY 2000, electricity) is the row the EV efficiency divisor and the live EV temperature factor both act on, and it is the smallest cell in the fixture. 5.46494 / 0.819737 is 6.66670 and 0.484812 / 0.0727215 is 6.66670, so the two PM blocks check the chain against each other as well as against the reference. The SCCs are exact integers and are asserted exactly -- 2201210401 for the energy block and 2201210410 for both PM blocks, and an SCC whose process digits read 09 instead of 10 relabels tire wear as brake wear and still passes a per-pollutant sum.",
           "time_span": {
             "start": 0.0,
             "end": 0.0
@@ -17260,7 +17164,15 @@
             {
               "variable": "out_emissionQuant",
               "time": 0.0,
-              "expected": 0.452942,
+              "expected": 8.70984,
+              "coords": {
+                "output_rows": 1
+              }
+            },
+            {
+              "variable": "out_emissionQuant",
+              "time": 0.0,
+              "expected": 1.46683,
               "coords": {
                 "output_rows": 41
               }
@@ -17268,7 +17180,7 @@
             {
               "variable": "out_emissionQuant",
               "time": 0.0,
-              "expected": 0.0471637,
+              "expected": 0.140851,
               "coords": {
                 "output_rows": 105
               }
@@ -17276,33 +17188,9 @@
             {
               "variable": "out_emissionQuant",
               "time": 0.0,
-              "expected": 8.70984,
-              "coords": {
-                "output_rows": 126
-              }
-            },
-            {
-              "variable": "out_emissionQuant",
-              "time": 0.0,
               "expected": 0.000396237,
               "coords": {
-                "output_rows": 250
-              }
-            },
-            {
-              "variable": "out_emissionQuant",
-              "time": 0.0,
-              "expected": 5.46494,
-              "coords": {
-                "output_rows": 251
-              }
-            },
-            {
-              "variable": "out_emissionQuant",
-              "time": 0.0,
-              "expected": 0.484812,
-              "coords": {
-                "output_rows": 291
+                "output_rows": 125
               }
             },
             {
@@ -17310,7 +17198,23 @@
               "time": 0.0,
               "expected": 19.2786,
               "coords": {
-                "output_rows": 376
+                "output_rows": 126
+              }
+            },
+            {
+              "variable": "out_emissionQuant",
+              "time": 0.0,
+              "expected": 1.71027,
+              "coords": {
+                "output_rows": 166
+              }
+            },
+            {
+              "variable": "out_emissionQuant",
+              "time": 0.0,
+              "expected": 0.831594,
+              "coords": {
+                "output_rows": 230
               }
             },
             {
@@ -17318,23 +17222,7 @@
               "time": 0.0,
               "expected": 0.00203964,
               "coords": {
-                "output_rows": 500
-              }
-            },
-            {
-              "variable": "out_emissionQuant",
-              "time": 0.0,
-              "expected": 0.819737,
-              "coords": {
-                "output_rows": 501
-              }
-            },
-            {
-              "variable": "out_emissionQuant",
-              "time": 0.0,
-              "expected": 0.0727215,
-              "coords": {
-                "output_rows": 541
+                "output_rows": 250
               }
             },
             {
@@ -17342,7 +17230,23 @@
               "time": 0.0,
               "expected": 2.89178,
               "coords": {
-                "output_rows": 626
+                "output_rows": 251
+              }
+            },
+            {
+              "variable": "out_emissionQuant",
+              "time": 0.0,
+              "expected": 0.256539,
+              "coords": {
+                "output_rows": 291
+              }
+            },
+            {
+              "variable": "out_emissionQuant",
+              "time": 0.0,
+              "expected": 0.124738,
+              "coords": {
+                "output_rows": 355
               }
             },
             {
@@ -17350,7 +17254,7 @@
               "time": 0.0,
               "expected": 0.000305944,
               "coords": {
-                "output_rows": 750
+                "output_rows": 375
               }
             },
             {
@@ -17366,7 +17270,7 @@
               "time": 0.0,
               "expected": 107.0,
               "coords": {
-                "output_rows": 251
+                "output_rows": 126
               }
             },
             {
@@ -17374,7 +17278,7 @@
               "time": 0.0,
               "expected": 117.0,
               "coords": {
-                "output_rows": 501
+                "output_rows": 251
               }
             },
             {
@@ -17390,7 +17294,7 @@
               "time": 0.0,
               "expected": 10.0,
               "coords": {
-                "output_rows": 251
+                "output_rows": 126
               }
             },
             {
@@ -17406,7 +17310,7 @@
               "time": 0.0,
               "expected": 2020.0,
               "coords": {
-                "output_rows": 251
+                "output_rows": 126
               }
             },
             {
@@ -17414,15 +17318,7 @@
               "time": 0.0,
               "expected": 9.0,
               "coords": {
-                "output_rows": 250
-              }
-            },
-            {
-              "variable": "out_dayID",
-              "time": 0.0,
-              "expected": 2.0,
-              "coords": {
-                "output_rows": 41
+                "output_rows": 125
               }
             },
             {
@@ -17430,7 +17326,15 @@
               "time": 0.0,
               "expected": 5.0,
               "coords": {
-                "output_rows": 126
+                "output_rows": 1
+              }
+            },
+            {
+              "variable": "out_dayID",
+              "time": 0.0,
+              "expected": 5.0,
+              "coords": {
+                "output_rows": 375
               }
             },
             {
@@ -17446,7 +17350,7 @@
               "time": 0.0,
               "expected": 2209210401.0,
               "coords": {
-                "output_rows": 250
+                "output_rows": 125
               }
             },
             {
@@ -17454,7 +17358,7 @@
               "time": 0.0,
               "expected": 2201210410.0,
               "coords": {
-                "output_rows": 251
+                "output_rows": 126
               }
             },
             {
@@ -17462,7 +17366,7 @@
               "time": 0.0,
               "expected": 2209210410.0,
               "coords": {
-                "output_rows": 750
+                "output_rows": 375
               }
             }
           ]

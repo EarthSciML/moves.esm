@@ -74,12 +74,12 @@ checkpoints buys.
 | RunSpec | `../moves.rs/characterization/fixtures/process-pm-exhaust.xml` |
 | Model | ONROAD, `modelscale` `Inv` (inventory), `modeldomain` `DEFAULT` |
 | Geography | county 26161 (Washtenaw, Michigan), zone 261610, link 2616104 |
-| Time | year 2020, month **8**, hour **7**, day types **2 (weekend) and 5 (weekday)** |
+| Time | year 2020, month **8**, hour **7**, day type **5 (weekday)** |
 | Vehicles | sourceTypeID 21 (passenger car); fuel types **1, 2, 5, 9** selected, **1, 2, 5** emitted |
 | Road | roadTypeID 4 (urban restricted access) |
 | Pollutant/process | seven, all on Running Exhaust: **11201** (elemental carbon) and **11801** (composite NonECPM) are rated; **11501** (sulfate), **11901** (H2O aerosol), **11101** (organic carbon), **11001** (PM2.5 total) and **10001** (PM10 total) are computed from them |
 | Model years | 1980–2020 (41) |
-| Output | `db__out_process_pm_exhaust__movesoutput`, **1,456 rows** |
+| Output | `db__out_process_pm_exhaust__movesoutput`, **728 rows** |
 | Output units | **grams** for all seven pollutants; `outputtimestep` **Hour** |
 | Calculator path | `TotalActivityGenerator` → `SourceBinDistributionGenerator` → `BaseRateGenerator` → `BaseRateCalculator` → **`SulfatePMCalculator`**, **`PM10EmissionCalculator`** → output aggregation |
 | Snapshot | 360 tables, **228 non-empty** |
@@ -94,9 +94,9 @@ not identifiers. The execution database's `runspecmonth`, `runspechour` and
 `runspecpollutantprocess` says 10001, 11001, 11101, 11201, 11501, 11801 and
 11901. The execution database is the authority.
 
-### 0.2 Why 1,456 rows, and why every block is the same size
+### 0.2 Why 728 rows, and why every block is the same size
 
-1,456 = 7 pollutants × 104 cohorts × 2 day types, and **all seven blocks carry
+728 = 7 pollutants × 104 cohorts at the one day type this run selects, and **all seven blocks carry
 the same 104 cohorts** — which is the one thing that makes this fixture's key
 set easier than `process-airtoxics`' and its *cause* harder.
 
@@ -772,10 +772,18 @@ and **asserts** its worst relative error against `sho`, against
 #!/usr/bin/env python3
 """process-pm-exhaust reproduction from the snapshot's own input tables."""
 import sys, collections, math
+import glob
 import pyarrow.parquet as pq
 
+# "1 day types" is not English and this line is quoted in section 7.
+_s = lambda n: "" if n == 1 else "s"
+
 SNAP = sys.argv[1]
-P = SNAP + "/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__"
+# The execution database's name carries a per-run id, so the prefix is
+# DISCOVERED and not written down: a recapture renames every table in the
+# snapshot and a hardcoded id fails as a missing FILE, which reads like a
+# missing table rather than like a stale name.
+P = glob.glob(SNAP + "/tables/db__movesexecution*__year.parquet")[0][:-len("year.parquet")]
 def T(n): return pq.read_table(P+n+".parquet").to_pylist()
 
 YEAR, MONTH, HOUR, ZONE, ROAD, ST = 2020, 8, 7, 261610, 4, 21
@@ -1209,10 +1217,15 @@ assert {f for _,f in shared}=={1,2,5}, shared
 assert sorted(my for my,f in shared if f==1)==list(range(1980,2021))
 assert sorted(my for my,f in shared if f==2)==list(range(1980,2020))
 assert sorted(my for my,f in shared if f==5)==list(range(1998,2021))
-assert days==set(DAYS) and len(days)==2, days
-assert len(cohorts_by_pp)*len(shared)*len(days)==len(ref)==1456
-print("key set:        7 blocks x 104 cohorts x %d day types = %d rows, exact, and ALL SEVEN"
-      " BLOCKS CARRY THE SAME 104 COHORTS"%(len(days),len(ref)))
+# The run selects ONE day type. `<day id="5">` is a literal dayID and is
+# honoured; the earlier `<day key="5">` was an out-of-range 0-based INDEX into
+# the sorted DayOfAnyWeek list [2, 5], selected nothing, and fell back to BOTH
+# day types (moves.rs PR #55). The count is pinned because it is the corpus's
+# shape and a fixture that stopped noticing it would stop noticing a regression.
+assert days==set(DAYS) and len(days)==1, days
+assert len(cohorts_by_pp)*len(shared)*len(days)==len(ref)==728
+print("key set:        7 blocks x 104 cohorts x %d day type%s = %d rows, exact, and ALL SEVEN"
+      " BLOCKS CARRY THE SAME 104 COHORTS"%(len(days),_s(len(days)),len(ref)))
 # The parent that is NOT emitted: the rate relation carries 124 cohorts, and the
 # 20 electricity ones reach `spmOutput` before they die.
 candidates={(my,fuel) for (my,fuel,_e,_r) in cohorts(EC_PP)}
@@ -1297,8 +1310,8 @@ base_ratios=sorted({base_rate_fuel_factor(pp,f,m)
                     for pp in (EC_PP,NONEC_PP) for f in (1,2,5) for m in RUNSPEC_MY})
 spm_ratios=sorted({gfr(p,f,m) for p in (EC,SULFATE,WATER,RESIDUE)
                    for f in (1,2,5) for m in RUNSPEC_MY})
-assert base_ratios==[0.9727,1.0,1.090910749585], base_ratios
-assert spm_ratios==[0.9727,1.0,1.090910749585], spm_ratios
+assert base_ratios==[0.9727,1.0,1.0909107495849824], base_ratios
+assert spm_ratios==[0.9727,1.0,1.0909107495849824], spm_ratios
 assert all(gfr(EC,f,m)==1.0 for f in (1,2,5) for m in RUNSPEC_MY)
 print("NOTE:           `criteriaratio` has 0 rows, so `generalfuelratio` is the ONLY live fuel"
       " effect -- and its two")
@@ -1379,8 +1392,8 @@ sho:             82 rows, worst relative error 3.610e-06
 sbWeightedRate: 4784 non-zero rows of 5704, worst relative error 4.795e-06
 baseRateByAge 11201: 208 non-zero rows of 248, worst relative error 4.397e-06
 baseRateByAge 11801: 208 non-zero rows of 248, worst relative error 4.900e-06
-emissionQuant: 1456 rows, 0 missing, 0 extra, worst relative error 9.910e-06 at (pollutant 100, process 1, day 2, MY 1991, fuel 1)
-key set:        7 blocks x 104 cohorts x 2 day types = 1456 rows, exact, and ALL SEVEN BLOCKS CARRY THE SAME 104 COHORTS
+emissionQuant:  728 rows, 0 missing, 0 extra, worst relative error 7.516e-06 at (pollutant 115, process 1, day 5, MY 1991, fuel 2)
+key set:        7 blocks x 104 cohorts x 1 day type = 728 rows, exact, and ALL SEVEN BLOCKS CARRY THE SAME 104 COHORTS
                 the 124-cohort rate relation loses exactly the 20 ELECTRICITY cohorts, and it loses them TWICE:
                 `sulfatefractions` has no fuel-9 row (the 118 split) and `crankcaseemissionratio` has none either (the
                 EC copy) -- either miss alone would suffice, so the row set is not evidence for which one MOVES uses.

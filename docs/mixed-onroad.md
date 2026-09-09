@@ -26,12 +26,12 @@ the way.
 | RunSpec | `../moves.rs/characterization/fixtures/mixed-onroad.xml` |
 | Model | ONROAD, `modelscale` `Inv` (inventory), `modeldomain` `DEFAULT` |
 | Geography | county 26161 (Washtenaw, Michigan), zone 261610, link 2616104 |
-| Time | year 2020, month **8**, hour **9**, day types **2 (weekend) and 5 (weekday)** |
+| Time | year 2020, month **8**, hour **9**, day type **5 (weekday)** |
 | Vehicles | sourceTypeID 21 (passenger car); fuel types **1, 2, 5, 9** |
 | Road | roadTypeID 4 (urban restricted access) |
 | Pollutant/process | **polProcessID 9101 only** — pollutant 91 (Total Energy Consumption) × process 1 (Running Exhaust) |
 | Model years | 1980–2020 (41) |
-| Output | `db__out_mixed_onroad__movesoutput`, **250 rows** |
+| Output | `db__out_mixed_onroad__movesoutput`, **125 rows** |
 | Output units | energy in **Million BTU**, `outputtimestep` **Hour** |
 | Calculator path | rates-first: `TotalActivityGenerator` → `SourceBinDistributionGenerator` → `BaseRateGenerator` → `BaseRateCalculator` → output aggregation |
 
@@ -47,6 +47,17 @@ the way.
 > `DayOfAnyWeek` list `[2, 5]`, where an out-of-range key means "no day
 > selected" and falls back to all day types. All 27 onroad fixtures in the
 > corpus show the identical offsets, which a stale rewrite would not reproduce.
+>
+> **SECOND CORRECTION (snapshot v2 recapture).** The `<day key>` row of the
+> table below is now GONE, because the RunSpec was wrong and has been fixed.
+> `<day key="5">` was an out-of-range index and selected NOTHING, so 28 of the
+> 42 snapshots ran BOTH day types against a one-day intent. Canonical
+> `RunSpecXML.save` writes `<day id="…">` with the literal dayID
+> (`RunSpecXML.java:2040`), the fixtures were corrected to `<day id="5"/>` and
+> recaptured, and the XML and the execution database now AGREE on the day
+> (moves.rs PR #55). Every day-keyed table in this snapshot halved, and
+> `MOVESOutput` went from 250 rows to 125. The rule is unchanged and the
+> disagreement is down from five dimensions to four.
 > `docs/evap-leaks.md` §0.1 has the measurement and the citations; §8.3 there
 > records the one row of the table below that was not re-derived (the
 > pollutant/process row). Read the rule, not the diagnosis.
@@ -65,7 +76,7 @@ recomputed from the rewritten file. The tables were not re-captured.
 |---|---|---|
 | month | 7 | **8** (`runspecmonth`) |
 | hour | 8 | **9** (`runspechour`) |
-| day types | 5 | **2 and 5** (`runspecday`, 2 rows) |
+| ~~day types~~ | `<day id="5"/>` | **5** (`runspecday`, 1 row) — **agrees**, since the correction |
 | fuel types | 1 | **1, 2, 5, 9** (`runspecfueltype`, 4 rows) |
 | pollutant/process | 9101, 9102, 9301, 9302 | **9101, 9102** (`runspecpollutantprocess`) |
 
@@ -86,7 +97,7 @@ whose comment records exactly this case: *"the captured execution
 selection"*). The month, hour, day and pollutant differences are not
 expansions and have no such explanation.
 
-### 0.2 Why only 250 rows, and why no start exhaust
+### 0.2 Why only 125 rows, and why no start exhaust
 
 `runspecpollutantprocess` carries 9101 *and* 9102 (start exhaust energy), and
 `baserate_2_2020` has 1,664 rows — yet `MOVESOutput` contains **no processID 2
@@ -101,10 +112,10 @@ with the reasoning spelled out verbatim at `mod.rs:762-772`). Every
 process-2 row is on road type 1, so every process-2 row is discarded, the
 calculator's block list comes out empty, and nothing reaches the aggregator.
 
-So the 250 rows are polProcessID 9101 alone:
+So the 125 rows are polProcessID 9101 alone:
 
 ```
-250 = 125 (modelYearID, fuelTypeID) cohorts  x  2 day types
+125 = 125 (modelYearID, fuelTypeID) cohorts  x  1 day type
 ```
 
 and the 125 is **ragged** — 41 model years for fuel 1, 40 for fuel 2, 23 for
@@ -1265,10 +1276,18 @@ Purpose: attribution. When a `.esm` disagrees with the snapshot, a third
 implementation says whether the document or the specification is wrong."""
 import sys
 import collections
+import glob
 import pyarrow.parquet as pq
 
+# "1 day types" is not English and this line is quoted in section 7.
+_s = lambda n: "" if n == 1 else "s"
+
 SNAP = sys.argv[1]
-P = SNAP + "/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__"
+# The execution database's name carries a per-run id, so the prefix is
+# DISCOVERED and not written down: a recapture renames every table in the
+# snapshot and a hardcoded id fails as a missing FILE, which reads like a
+# missing table rather than like a stale name.
+P = glob.glob(SNAP + "/tables/db__movesexecution*__year.parquet")[0][:-len("year.parquet")]
 
 
 def T(n):
@@ -1591,16 +1610,16 @@ print("emissionQuant: %3d rows, worst relative error %.3e at (day %d, MY %d, fue
 assert len(rows) == len(out), (len(rows), len(out))
 assert set(rows) == {(o["dayID"], o["modelYearID"], o["fuelTypeID"]) for o in out}
 assert worst < 2e-5, "emissionQuant: worst relative error %.3e exceeds 2e-5" % worst
-print("key set:       %3d cohorts x %d day types = %d rows, exact"
-      % (len(cohort), len(DAYS), len(rows)))
+print("key set:       %3d cohorts x %d day type%s = %d rows, exact"
+      % (len(cohort), len(DAYS), _s(len(DAYS)), len(rows)))
 ```
 
 Result:
 
 ```
 sho:            82 rows, worst relative error 4.138e-06
-emissionQuant: 250 rows, worst relative error 8.320e-06 at (day 5, MY 2015, fuel 5)
-key set:       125 cohorts x 2 day types = 250 rows, exact
+emissionQuant: 125 rows, worst relative error 8.319e-06 at (day 5, MY 2015, fuel 5)
+key set:       125 cohorts x 1 day type = 125 rows, exact
 ```
 
 ### 6.6 Suggested inline `.esm` tests
@@ -1771,10 +1790,10 @@ So is the value in each cell, now that §10's `W` is computed.
 **Measured, `fixtures/mixed-onroad.esm` against the snapshot's `MOVESOutput`:**
 
 ```
-rows: 250 actual / 250 expected
+rows: 125 actual / 125 expected
 identity: 19 columns, 4 varying (dayID, fuelTypeID, modelYearID, SCC); 15 constant
-key set: 250 shared, 0 missing, 0 extra
-worst cell: rel=8.320e-06 over 250 cells        (tolerance 2e-05)
+key set: 125 shared, 0 missing, 0 extra
+worst cell: rel=8.319e-06 over 125 cells        (tolerance 2e-05)
 worst per-pollutant emissionQuant sum: rel=9.675e-08 (onroad tolerance 1e-03)
 ```
 

@@ -82,7 +82,7 @@ Different, and each of these is a section below:
 | the calculator | `MultidayTankVaporVentingCalculator`, §2.6–§2.14 — the largest calculator SQL file in MOVES |
 | the temperature / RVP adjustment | new; TVV-8, §2.13. **The only place `AverageTankGasoline` is load-bearing here** |
 
-### 0.2 Why 128 rows
+### 0.2 Why 64 rows
 
 Exactly the leaks slice's key set, for exactly the reasons `docs/evap-leaks.md`
 §0.2 gives: `emissionRateByAge` carries rows for the 22 gasoline and 19 E85
@@ -877,6 +877,9 @@ import glob
 import collections
 import pyarrow.parquet as pq
 
+# "1 day types" is not English and this line is quoted in section 7.
+_s = lambda n: "" if n == 1 else "s"
+
 SNAP = sys.argv[1]
 _PREFIX = glob.glob(SNAP + "/tables/db__movesexecution*__year.parquet")[0][:-len("year.parquet")]
 
@@ -1551,8 +1554,9 @@ for o in out:
     assert o["processID"] == process_id and o["pollutantID"] == pollutant_id
 worst(dict(rows), expected, "emissionQuant", 2e-5)
 
-print("%-28s %d cohorts x %d day types = %d rows, exact; SCCs %s"
-      % ("key set:", len(rows) // len(DAYS), len(DAYS), len(rows), sorted(set(sccs.values()))))
+print("%-28s %d cohorts x %d day type%s = %d rows, exact; SCCs %s"
+      % ("key set:", len(rows) // len(DAYS), len(DAYS), _s(len(DAYS)), len(rows),
+         sorted(set(sccs.values()))))
 print("%-28s %.6f g computed / %.6f g in MOVESOutput"
       % ("total THC:", sum(rows.values()), sum(expected.values())))
 
@@ -1594,9 +1598,15 @@ QuarterHourTemperature     96 cells, worst relative error 1.175e-14
 emissionQuant             128 cells, worst relative error 7.495e-06
 ```
 
-`MOVESOutput.emissionQuant` is a `DECIMAL(20,12)` fed from a `FLOAT` working
-column, i.e. six significant figures; `7.495e-06` is that storage, not
-accumulated error. `OpModeDistribution` matching to **0.000e+00 absolute** on
+`MOVESOutput.emissionQuant` carries six significant figures, because it is fed
+from a `FLOAT` working column (`CreateWorker.sql:79` declares it `FLOAT`);
+`7.495e-06` is that storage, not accumulated error. This document used to call
+the output column a `DECIMAL(20,12)` as well, which the recapture disproved:
+`moves-snapshot/v1` wrote every float at twelve DECIMAL places and made every
+column in the corpus LOOK like one, but v2 stores `emissionQuant` values as
+small as 4.877e-17 in `nr-airtoxics-lawn-garden-county`, which a
+`DECIMAL(20,12)` cannot hold. The six significant figures are real and the
+column type was inferred from a capture artifact. `OpModeDistribution` matching to **0.000e+00 absolute** on
 all six rows is the strongest single check in this document — it is the
 quantity §0.3 turns on.
 

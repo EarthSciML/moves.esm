@@ -3204,6 +3204,14 @@ hour.
 
 ## 36. A fixed-decimal capture is part of the reference, and it is not always absorbable **[Phase 5, 14,036 rows]**
 
+> **The instance in this section is HISTORY; the rule is not.** The corpus was
+> recaptured to `moves-snapshot/v2`, which stores the shortest decimal that
+> round-trips the f64, and every concession measured below was retired — see
+> **§41**. Read §36 for how to attribute a residual to a capture, and §41 for
+> what to do when the capture is then fixed. Numbers below describe
+> `moves-snapshot/v1` and are kept because they are the measurement that
+> justified the fix.
+
 `nr-airtoxics-lawn-garden-county` is the last two NONROAD calculators —
 `NRHCSpeciationCalculator` and `NRAirToxicsCalculator` — and the first slice in
 this port whose limiting factor is neither the format, nor the toolchain, nor
@@ -3214,18 +3222,21 @@ shortfall.
 
 ### 36.1 Measure the capture's precision before attributing a residual
 
-`moves.rs/crates/moves-snapshot/src/format.rs:17` is
-`pub const FLOAT_DECIMALS: u32 = 12;`, and every table's `.meta.json` in the
-corpus carries `"float_decimals": 12`. So a captured float is a decimal string
-with twelve places after the point, and it keeps
+Under `moves-snapshot/v1`, `crates/moves-snapshot/src/format.rs:17` was
+`pub const FLOAT_DECIMALS: u32 = 12;` and every table's `.meta.json` carried
+`"float_decimals": 12`. So a captured float was a decimal string with twelve
+places after the point, and it kept
 
 ```
 12 + floor(log10|v|) + 1     significant digits
 ```
 
 — six for a value of 10⁻¹, **one** for a value of 10⁻¹², none at all below
-5 × 10⁻¹³. That is not a rounding preference: it is the resolution of the only
-copy of the reference this repository has.
+5 × 10⁻¹³. That was not a rounding preference: it was the resolution of the
+only copy of the reference this repository had. **Read the encoding; never
+assume it.** A v2 sidecar carries `float_encoding` and OMITS `float_decimals`
+entirely, precisely so that a consumer still reading the old field fails
+instead of deriving a floor the data no longer supports.
 
 **Measured over the whole corpus**, every `MOVESOutput` table under
 `characterization/snapshots`: **136,552 cells, of which 7,308 (5.35 %) are
@@ -3277,7 +3288,15 @@ reference must have used, and show it is inside half a stored quantum.**
 captured value is a correct rounding of the fitted one and there is no
 arithmetic left to find. Do the fit on the cells the output stores best, and
 assert it in the oracle so the claim is re-checked every run rather than
-asserted once. `run-nr-airtoxics-oracle.sh` does.
+asserted once.
+
+**And the fits were later checked against the real numbers, which is the only
+reason to trust the method.** `moves-snapshot/v2` records the two rates as
+1.1045 × 10⁻⁹ and 1.94345 × 10⁻¹¹. The fits were off by 1.9 × 10⁻⁶ and
+1.5 × 10⁻⁷ relative — two orders inside the `[cell] rel` they were used to
+justify. A fitted coefficient is a hypothesis; this one turned out right, and
+it is worth saying that it was checkable at all only because the capture was
+fixed.
 
 ### 36.3 A declared SCOPE is a third thing, and it needs its own vocabulary
 
@@ -3572,7 +3591,7 @@ two plausible answers. Measured over the corpus's 194 compared cells:
 
 | a property value is taken to be | worst relative error |
 |---|---|
-| the `FLOAT` widened | **1.608e−14** |
+| the `FLOAT` widened | **0.000e+00** (bit-identical; **1.608e−14** under `moves-snapshot/v1`) |
 | the capture's decimal read as a double | **7.059e−08** |
 
 That looks like §35.3's table and it is not the same situation, because of where
@@ -3583,11 +3602,20 @@ this repository would have passed with the wrong promotion and reported nothing.
 
 **The rule: after measuring both candidates, compare the loser against the
 FIXTURE GATE, and if it falls inside, say so and put the assertion somewhere
-that can see it.** Here that is `components/fuel_effects.esm` at `rel 1e-11` and
-`run-fuel-effects-oracle.sh` at `1e-12`, and both say in words that they are the
+that can see it.** Here that is `components/fuel_effects.esm` at `rel 1e-15` and
+`run-fuel-effects-oracle.sh` at `1e-13`, and both say in words that they are the
 only things in the port that decide it. A fidelity choice whose wrong answer is
 inside the tolerance of every check you own is not a choice you have made; it is
 a coin you have not looked at.
+
+**And DO NOT STATE THE SEPARATION AS A RATIO.** The oracle's gate was
+`worst[double] > 1e3 x worst[float]`, which was a real test while the winner
+left a 1.608e−14 residual. The recapture made the winner EXACT, and `> 1e3 x 0`
+is satisfied by any positive number at all: a gate that reads as a comparison
+and tests nothing. Both ends are now asserted absolutely — the loser must miss
+by more than 1e−9, the winner must land inside 1e−13. A separation expressed as
+a ratio between two measurements silently dies the day one of them reaches
+zero, which is the day the port gets it exactly right.
 
 The corollary is the uncomfortable one. `tolerance.toml`'s 2e-5 is right for a
 `real*4` oracle comparison and it is three to four orders too loose to
@@ -3612,7 +3640,8 @@ therefore a `DOUBLE` — which takes the expression out of MariaDB's exact-value
 path entirely.
 
 So the two hypotheses are not close on this corpus; they are **bit-identical**,
-at 1.608e−14 each, because nothing exercises the difference. Two ways to record
+at 0.000e+00 each (1.608e−14 each under `moves-snapshot/v1`), because nothing
+exercises the difference. Two ways to record
 that, and only one of them survives contact with a growing corpus:
 
 * *"Not resolvable; we chose IEEE."* — true on the day it is written, and
@@ -3735,7 +3764,7 @@ output only when it does not.** And a subscription list is a declaration, not a
 measurement — `docs/process-brakewear.md` §8 already said as much about a
 *calculator*'s registrations, and this is the generator-side instance of the
 same lesson.
-## 39. A generator family shares a row, not a spine **[Phase 5, 262,442 + 124 + 300 rows]**
+## 39. A generator family shares a row, not a spine **[Phase 5, 201,665 + 84 + 168 rows]**
 
 Section 38 is reserved for the `FuelEffectsGenerator` rung, which was in
 progress in a sibling worktree while this was written; this section is 39 to
@@ -3747,12 +3776,14 @@ rungs, after `MeteorologyGenerator`, and the first pair to be ported together.
 They were briefed as one family with a shared spine. They are not, and the four
 subsections below are what came of measuring that instead of inheriting it.
 
-**Where the row counts come from**, since the heading claims them: 262,442 is
+**Where the row counts come from**, since the heading claims them: 201,665 is
 every `StartOpMode` row in the corpus — the per-trip soak classification, the
-generator's own captured intermediate; 124 is every `StartOpModeDistribution`
-row; 300 is every `RatesOpModeDistribution` row at `avgSpeedBinID` 0, which is
+generator's own captured intermediate; 84 is every `StartOpModeDistribution`
+row; 168 is every `RatesOpModeDistribution` row at `avgSpeedBinID` 0, which is
 the partition these two generators own. None is a `MOVESOutput` count and none
-is comparable to §§29–34's.
+is comparable to §§29–34's. All three were 262,442 / 124 / 300 before the
+`<day key=> -> <day id=>` correction halved every day-keyed table in 28 of the
+42 snapshots (§42).
 
 ### 39.1 Test the family hypothesis before you factor for it
 
@@ -4076,3 +4107,220 @@ Two things make the re-addressing checkable rather than a leap:
   re-read its `expected` from the new snapshot's `MOVESOutput`. The document
   says WHERE and the reference says WHAT, which is §12's rule surviving a
   change of address.
+
+---
+
+## 41. A concession to the capture is retired by re-measuring it, and the retirement is worth as much as the concession **[Phase 5 continued, 14,036 cells, one exception deleted]**
+
+§36 is this repository's record of a residual that belonged to the *capture*
+rather than to the port, and of the vocabulary invented to say so: a declared
+**scope**, holding 968 cells out of a comparison and allowing a 5 × 10⁻¹³
+absolute floor beneath the relative gate on 2,629 more. `moves.rs` then fixed
+the capture — `moves-snapshot/v2` writes the shortest decimal that round-trips
+the f64 — and the whole concession came out. What that cost, and what it taught,
+is different from what §36 taught.
+
+### 41.1 Read the encoding. A replaced field must not be defaulted
+
+`moves-snapshot/v1`'s sidecar carried `"float_decimals": 12`, from which a
+consumer derived a storage quantum of `0.5 × 10⁻¹²`. v2 carries
+
+```json
+"float_encoding": { "kind": "shortest_round_trip", "max_significant_digits": 17 }
+```
+
+and **omits `float_decimals` entirely**. That omission is the design: there is
+no fixed decimal count under the new rule, so any number written into the old
+field would be a lie a consumer would silently turn into a wrong tolerance
+floor. An un-updated consumer fails instead.
+
+So the consumer's job is not to substitute a default; it is to **name every
+branch and refuse the rest**. `compare-output.py`'s `FloatEncoding` answers one
+question — how much absolute difference the reference is incapable of
+recording — and answers it for `fixed_decimals` (`0.5 × 10⁻ᵈ`),
+`shortest_round_trip` (**zero**), an absent sidecar (`None`, which is a third
+fact and not a synonym for either), and nothing else. An unknown `kind`, or a
+sidecar carrying neither field, raises.
+
+**Derive the concession from the ENCODING, not from the flag.** The
+`allow_storage_quantum` declaration is unchanged in the comparator, but against
+a lossless capture the floor it computes is `0.0`, so the declaration allows
+nothing and says so in the report. A flag whose obstacle has disappeared should
+go inert on its own, before anyone remembers to delete it — otherwise the
+window between "the corpus was fixed" and "someone edited the config" is a
+window in which the gate is quietly weaker than it reads.
+
+### 41.2 Both formats are read by the COMPARATOR; only one by the specifications
+
+These are different lifetimes and conflating them costs a working test suite.
+
+* The **comparator** reads v1 and v2, because a corpus migrates on a branch and
+  a checkout that can judge only one format can be tested against only one
+  branch.
+* The **specifications and fixtures** pin exactly one corpus, because a spec
+  quotes values and a fixture asserts ordinals, and those differ between the
+  two captures for reasons that have nothing to do with tolerance.
+
+Say which, in the document. `run-nr-airtoxics-oracle.sh` now READS the encoding
+and **asserts it is lossless**: pointed at a v1 corpus it fails loudly rather
+than reporting a clean comparison of a capture it is silently mismodelling.
+That assertion is the honest form of "this specification describes v2".
+
+**And measure what the pinning costs, rather than asserting it.** Run this tree
+against the v1 corpus and `./run-tests.sh` exits 1 with **19 failures**: the
+data-sources gate, all twelve day-halving fixtures' inline assertions,
+`nr-airtoxics-lawn-garden-county`'s (its execution-database id differs between
+the two captures), and five oracles. Against v2 it is 191 ok, 0 FAIL. So this
+tree must land in the same window as the corpus it describes — which is what
+`moves.rs/docs/snapshot-v2-migration.md` recommended, and the number is here so
+that nobody has to rediscover it by running the suite against the wrong branch.
+
+### 41.3 The retirement is a measurement, and the retired numbers stay
+
+What was deleted, measured on the v2 corpus with `[cell] rel` untouched at
+2 × 10⁻⁵ and the whole scope removed:
+
+| | scope in place (v1) | scope deleted (v2) |
+|---|---|---|
+| rows compared | 13,068 of 14,036 | **14,036 of 14,036** |
+| absolute floor | 5 × 10⁻¹³ | **none** |
+| worst cell the gate saw | 9.417 × 10⁻⁶ in EXCESS of the floor | **9.417 × 10⁻⁶ raw** |
+| pollutant 131 | not compared | 6.836 × 10⁻⁶ |
+| pollutant 142 | not compared | 9.183 × 10⁻⁶ |
+| worst of all 29 pollutants | — | 9.417 × 10⁻⁶, a factor of 2.1 inside |
+
+The same worst cell over 968 more of them, with 2,629 fewer excused. The
+independent float32 reproduction, which takes nothing from the reference but
+the final comparison, reports 9.425 × 10⁻⁶ on the same 14,036 — so the
+retirement is checked by two routes, which is §12's rule applied to the
+*removal* of a concession rather than to its addition.
+
+**Keep the retired numbers in the file that used to carry the exception.**
+`tolerance.toml`'s `[fixtures]` section now has no scope and, in its place, the
+measurement that removed one and the cost of the choice: on a v1 snapshot 1,012
+of 14,036 cells exceed the gate, so the deleted scope would be needed again.
+A deleted exception with no record is indistinguishable from an exception that
+was never justified.
+
+### 41.4 A fitted coefficient is a hypothesis, and a recapture is the only thing that can mark it
+
+§36.2's method — fit the coefficient the reference must have used, show it is
+inside half a stored quantum, assert it in the oracle every run — produced
+1.1045021 × 10⁻⁹ and 1.9434497 × 10⁻¹¹ for the two dioxin rates. v2 records
+**1.1045 × 10⁻⁹** and **1.94345 × 10⁻¹¹**: the fits were right to 1.9 × 10⁻⁶
+and 1.5 × 10⁻⁷ relative, two orders inside the gate they were used to justify.
+
+That is a vindication of the method and it must not be read as a licence. The
+fit was never *evidence* that the arithmetic was right — it was evidence that
+the arithmetic was *consistent with* a rate the capture could have rounded to
+what it stored, which is a weaker claim, and the only reason it can now be
+graded is that someone fixed the capture. When a fit is the best available
+answer, say in the document that it is a hypothesis and name the recapture that
+would settle it.
+
+---
+
+## 42. A RunSpec correction is not a tolerance question, and what it costs is coverage **[Phase 5 continued, 28 of 42 snapshots, 12 of 14 fixtures]**
+
+The `moves-snapshot/v2` recapture carried a second change that has nothing to do
+with floats. `<day key="5">` is a 0-based **INDEX** into the sorted
+`DayOfAnyWeek` list `[2, 5]` (`RunSpecXML.java:517-532`), not a dayID: 5 is out
+of range, it selected nothing, and MOVES fell back to **all** day types. So 28
+of the 42 snapshots had been running BOTH days against a one-day intent.
+Canonical `RunSpecXML.save` writes `<day id="…">` with the literal dayID
+(`RunSpecXML.java:2040`); the fixtures were corrected and recaptured, and every
+day-keyed table halved (moves.rs PR #55).
+
+### 42.1 The model did not change, and that is the measurement worth keeping
+
+Twelve of this repository's fourteen fixtures halve. **Not one equation was
+edited**, in any of them. Every day axis is sized by a metaparameter whose value
+the SOURCE's own `extent` supplies — `n_runspecday`, `default: 0` — so the
+documents ingested a one-row `runspecday` and emitted 125, 375, 644, 684, 728,
+2,767 rows and so on with no intervention at all, and every one of them matched
+its snapshot's `MOVESOutput` key set exactly on the first run.
+
+That is the strongest evidence available that the day axis was factored
+correctly, and it is evidence that only a corpus-shape change could ever have
+produced. **A dimension whose size is written down is a dimension nobody has
+tested.** The rule is already in §12 for values; this is the same rule for
+extents, and the way to check it is to change the corpus and see whether the
+document notices by itself.
+
+### 42.2 What DID have to change, and none of it is model logic
+
+| | count |
+|---|---|
+| `metadata.note` row counts in `data_sources` | **65**, over 12 fixtures |
+| inline assertion coordinates re-addressed or re-valued | **461** |
+| inline assertions deleted as weekend-only claims | **110** (2,564 → 2,454) |
+| oracle-fence hardcoded totals and `len(days) == 2` asserts | 7 |
+| corpus-wide FLOORS in `run-omd-oracle.sh` | 3, and they went DOWN |
+
+`tools/check-sources.py` caught all 65 notes one at a time, which is what it was
+built for. Nothing caught the assertion prose; §42.5 is what to do about that.
+
+### 42.3 Re-address by KEY, and MEASURE the layout rather than deriving it
+
+§40's rule — an output assertion is re-addressed by the KEY it named, not by
+arithmetic on its ordinal — is what this pass ran on, and the day correction
+adds the reason it cannot be shortcut.
+
+**The day is the outermost factor of `output_rows` in seven fixtures and the
+innermost in five**:
+
+| layout | fixtures |
+|---|---|
+| blocked, day outermost (`o -> o - N/2`) | mixed-onroad, process-brakewear, process-tirewear, process-evap-fvv, process-evap-leaks, process-evap-permeation, process-nox-speciation |
+| interleaved, day innermost (`2r-1`/`2r`, `o -> o/2`) | process-airtoxics, process-crankcase-running, process-pm-exhaust, process-refueling, chain-so2-co2e-mechanism |
+
+The index-set declaration is the **same product either way** —
+`{"op": "*", "args": ["n_outputCohort", "n_runspecday"]}` — so the layout is a
+property of the equations that fill the relation and cannot be read off the
+size. Worse, the two can differ WITHIN one document: `activity_rows` is
+day-outermost in all twelve, including the five whose `output_rows` is not.
+
+So the layout is measured, per fixture and per axis, by emitting the old
+document's key columns and reading `out_dayID` down the ordinals. A mapping
+that had been assumed uniform would have silently re-pointed five fixtures'
+assertions at the wrong rows — and they would still have PASSED, because an
+interleaved fixture's `o/2` and a blocked fixture's `o - N/2` both land on
+real rows with plausible values.
+
+### 42.4 A weekend claim has three fates and they are not interchangeable
+
+Of the 571 assertions this pass touched, each was one of:
+
+* **an address change** — the same claim at a new ordinal, value untouched.
+  The majority, and the safe kind.
+* **a claim change** — a worked example that named a weekend row now names the
+  SAME COHORT on the weekday. The value is re-read from the reference
+  (`MOVESOutput`, `baserate_*_2020` or `baseratebyage_*_2020` at hourDayID 95),
+  never rescaled from the weekend number and never rounded off the port's own
+  answer. `mixed-onroad`'s example A goes 0.895519 → 1.99515 that way.
+* **a deletion** — 110 of them, and every one is a loss. Where the weekend
+  assertion was half of a two-day pair, the weekday half already carried the
+  same number and nothing is lost but a duplicate. Where it was not, a claim
+  goes: the weekend drive-cycle weight total 1.0000004, the weekend arithmetic
+  mean speed 66.094076 and 67.0416879, `process-pm-exhaust`'s `act_dayID` 2 /
+  `act_hourDayID` 72 / `day_noOfRealDays` 2, and
+  `process-evap-permeation`'s whole `pc5_divides_by_the_day_types_real_days`
+  premise.
+
+### 42.5 Say what the correction cost, in the test that lost it
+
+**Every two-valued day factor in this repository is now exercised at one
+value.** `noOfRealDays` is 5 and never 2; `hourDayID` is 75 and never 72;
+`dayVMTFraction` has four rows and not eight; the drive-cycle weight vector is
+built once and not twice. A port that dropped the divisor entirely, or that
+hardcoded 5, now passes every fixture here.
+
+That is a real regression in what the suite can catch, it is the direct price
+of running what the RunSpec meant, and the corpus already contains the cure:
+**`expand-day` is the one snapshot that still carries both day types** and it
+has no `.esm` fixture. Porting it is the cheapest coverage in the tree.
+
+The rule: when a corpus correction removes a case, write the loss into the test
+that used to cover it, not only into a migration note. Each affected test's own
+`description` now says which value it stopped checking, because the reader who
+needs to know is the one adding the next assertion to that test.

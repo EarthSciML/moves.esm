@@ -38,7 +38,10 @@
 #                                        one is checked against those tables by
 #                                        its own (fuelFormulationID, polProcessID)
 #                                        rather than waved through
-#     the worst relative error           < 1e-12  (measured: 1.608e-14)
+#     the worst relative error           < 1e-13  (measured: 0.0, bit-identical
+#                                          on all 194 cells; it was 1.608e-14
+#                                          under moves-snapshot/v1, and that
+#                                          residual was the CAPTURE's)
 #     the scheduling predicate           every snapshot agrees (40 of 40 today)
 #     the two FLOAT promotions           distinguishable by > 1000x
 #     the integer-literal division       count is ZERO, and the two candidate

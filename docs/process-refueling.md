@@ -45,13 +45,13 @@ restated; what is specified here is the five things that are new:
 | RunSpec | `../moves.rs/characterization/fixtures/process-refueling.xml` |
 | Model | ONROAD, `modelscale` `Inv` (inventory), `modeldomain` `DEFAULT` |
 | Geography | county 26161 (Washtenaw, Michigan), zone 261610, link 2616104 |
-| Time | year 2020, month **8**, hour **7**, day types **2 (weekend) and 5 (weekday)** |
+| Time | year 2020, month **8**, hour **7**, day type **5 (weekday)** |
 | Vehicles | sourceTypeID 21 (passenger car); fuel types **1, 2, 5, 9** |
 | Road | roadTypeID 4 (urban restricted access) |
 | Pollutant/process emitted | **118** (THC x Refueling Displacement Vapor Loss) and **119** (THC x Refueling Spillage Loss) |
 | Pollutant/process consumed | **9101**, **9102**, **9190** (Total Energy Consumption x running / start / extended-idle exhaust) |
 | Model years | 1980–2020 (41) |
-| Output | `db__out_process_refueling__movesoutput`, **336 rows** |
+| Output | `db__out_process_refueling__movesoutput`, **168 rows** |
 | Output units | **grams**; `outputtimestep` **Hour** |
 | Calculator path | `TotalActivityGenerator` → `SourceBinDistributionGenerator` → `BaseRateGenerator` → `BaseRateCalculator` → **`RefuelingLossCalculator`** → output aggregation |
 | Snapshot | 237 non-empty tables |
@@ -68,7 +68,7 @@ tables.
 |---|---|---|
 | month | 7 | **8** (`runspecmonth`) |
 | hour | 6 | **7** (`runspechour`) |
-| day types | 5 | **2 and 5** (`runspecday`, 2 rows) |
+| ~~day types~~ | `<day id="5"/>` | **5** (`runspecday`, 1 row) — **agrees**, since the `<day key=>` correction (docs/esm-conventions.md §42) |
 | fuel types | 1 | **1, 2, 5, 9** (`runspecsourcefueltype`, 4 rows) |
 | pollutant/process | 8618, 8619, 118, 119 | **118, 119, 8618, 8619, 9101, 9102, 9190** |
 
@@ -88,10 +88,10 @@ byte-identical between the two snapshots on all 250 of its 9101 rows, so the
 energy spine here is `process-brakewear`'s energy block and, one rung further
 back, `mixed-onroad`'s 250 rows at a different hour.
 
-### 0.2 Why 336 rows, and why the two blocks are different sizes
+### 0.2 Why 168 rows, and why the two blocks are different sizes
 
 ```
-336 = 64 displacement cohorts x 2 day types  +  104 spillage cohorts x 2 day types
+168 = 64 displacement cohorts  +  104 spillage cohorts x 2 day types
 ```
 
 Every earlier multi-block fixture in this repository emits the same cohort set
@@ -599,10 +599,15 @@ the two things §7.2 says the fixture cannot see.
 #!/usr/bin/env python3
 """process-refueling reproduction from the snapshot's own input tables."""
 import sys, collections
+import glob
 import pyarrow.parquet as pq
 
 SNAP = sys.argv[1]
-P = SNAP + "/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__"
+# The execution database's name carries a per-run id, so the prefix is
+# DISCOVERED and not written down: a recapture renames every table in the
+# snapshot and a hardcoded id fails as a missing FILE, which reads like a
+# missing table rather than like a stale name.
+P = glob.glob(SNAP + "/tables/db__movesexecution*__year.parquet")[0][:-len("year.parquet")]
 def T(n): return pq.read_table(P+n+".parquet").to_pylist()
 
 YEAR, MONTH, HOUR, ZONE, ROAD, ST = 2020, 8, 7, 261610, 4, 21
@@ -955,8 +960,8 @@ Result:
 
 ```
 sho:            82 rows, worst relative error 3.610e-06
-emissionQuant: 336 rows, worst relative error 7.434e-06 at (pollutant 1, process 19, day 2, MY 2002, fuel 2)
-key set:       128 displacement + 208 spillage = 336 rows, exact
+emissionQuant: 168 rows, worst relative error 6.981e-06 at (pollutant 1, process 19, day 5, MY 2006, fuel 5)
+key set:        64 displacement + 104 spillage = 168 rows, exact
                the two blocks are DIFFERENT sizes: refuelingcontroltechnology carries fuel types [1, 5] only
 energy spine:  332539532 kJ from process 1, [2, 90] discarded on the road-type join, off-network road types selected: 0
 NOTE:          both Stage II program reductions are 0.0, so this fixture cannot distinguish (1 - P) from 1; components/refueling_loss_rate.esm carries them at 0.2 and 0.3

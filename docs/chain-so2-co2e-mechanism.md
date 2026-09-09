@@ -33,12 +33,12 @@ of them changed how the document is written rather than only what it computes.
 | RunSpec | `../moves.rs/characterization/fixtures/chain-so2-co2e-mechanism.xml` |
 | Model | ONROAD, `modelscale` `Inv` (inventory), `modeldomain` `DEFAULT` |
 | Geography | county 26161 (Washtenaw, Michigan), zone 261610, link 2616104 |
-| Time | year 2020, month **8**, hour **7**, day types **2 (weekend) and 5 (weekday)** |
+| Time | year 2020, month **8**, hour **7**, day type **5 (weekday)** |
 | Vehicles | sourceTypeID 21 (passenger car); fuel types **1, 2, 5, 9** |
 | Road | roadTypeID 4 (urban restricted access) |
 | Pollutant/process | **twenty-seven selected, twenty-six emitting**, all on process 1 |
 | Model years | 1980–2020 (41) |
-| Output | `db__out_chain_so2_co2e_mechanism__movesoutput`, **5,534 rows** |
+| Output | `db__out_chain_so2_co2e_mechanism__movesoutput`, **2,767 rows** |
 | Output units | **Million BTU** for pollutant 91, **grams** for the other twenty-five; `outputtimestep` **Hour** |
 | Calculator path | rates-first: `TotalActivityGenerator` → `SourceBinDistributionGenerator` → `BaseRateGenerator` → `BaseRateCalculator` → `HCSpeciationCalculator`, `AirToxicsCalculator`, **`SO2Calculator`**, **`CO2AERunningStartExtendedIdleCalculator`**, **`TOGSpeciationCalculator`** → output aggregation |
 | Control | `chain-so2-co2e-mechanism-control`, five `<pollutantprocessassociation>` lines apart |
@@ -58,9 +58,9 @@ and falls back to ALL day types.** So this run is not weekday-only, and every
 row count in this document is over both day types. The execution database is
 the authority.
 
-### 0.2 Why 5,534 rows, and which cohorts each block drops
+### 0.2 Why 2,767 rows, and which cohorts each block drops
 
-5,534 = 2,767 cohorts × 2 day types, and the 2,767 are not one block size:
+2,767 = 2,767 cohorts at the one day type this run selects, and the 2,767 are not one block size (it was 5,534 over two days; docs/esm-conventions.md §42):
 
 | block | cohorts | pollutant-processes |
 |---|---:|---|
@@ -570,10 +570,15 @@ comparison against `MOVESOutput` could not see.
 #!/usr/bin/env python3
 """process-airtoxics reproduction from the snapshot's own input tables."""
 import sys, collections, math
+import glob
 import pyarrow.parquet as pq
 
 SNAP = sys.argv[1]
-P = SNAP + "/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__"
+# The execution database's name carries a per-run id, so the prefix is
+# DISCOVERED and not written down: a recapture renames every table in the
+# snapshot and a hardcoded id fails as a missing FILE, which reads like a
+# missing table rather than like a stale name.
+P = glob.glob(SNAP + "/tables/db__movesexecution*__year.parquet")[0][:-len("year.parquet")]
 def T(n): return pq.read_table(P+n+".parquet").to_pylist()
 
 YEAR, MONTH, HOUR, ZONE, ROAD, ST = 2020, 8, 7, 261610, 4, 21
@@ -1107,7 +1112,7 @@ print("emissionQuant: %4d rows, %d missing, %d extra, worst relative error %.3e 
 # ASSERTED, not merely printed (docs/esm-conventions.md 21).
 assert not missing, missing[:8]
 assert not extra, extra[:8]
-assert len(rows) == len(out) == 5534, (len(rows), len(out))
+assert len(rows) == len(out) == 2767, (len(rows), len(out))
 assert worst < 2e-5, "emissionQuant: worst relative error %.3e exceeds 2e-5" % worst
 
 # --- the KEY SET, exactly, and not merely its size -------------------------
@@ -1125,10 +1130,14 @@ for pol in (20, 24, 25, 26, 27, 40, 41, 42, 43, 44, 45, 46, 79, 80, 86, 87, 88, 
     expected_cohorts[(pol, 1)] = 104
 got = {k: len(v) for k, v in cohorts_by_pp.items()}
 assert got == expected_cohorts, (got, expected_cohorts)
-assert days == set(DAYS) == {2, 5}, days
-assert sum(expected_cohorts.values()) * len(days) == len(out) == 5534
+# The run selects ONE day type. `<day id="5">` is a literal dayID and is honoured;
+# the earlier `<day key="5">` was an out-of-range 0-based INDEX into the sorted
+# DayOfAnyWeek list [2, 5], selected nothing and fell back to BOTH (moves.rs PR #55).
+assert days == set(DAYS) == {5}, days
+assert sum(expected_cohorts.values()) * len(days) == len(out) == 2767
 print("key set:       124 THC + 124 N2O + 3 x 125 energy/CO2/CO2e + 64 ethanol + 18 x 104")
-print("               = 2,767 cohorts x %d day types = %d rows, exact." % (len(days), len(out)))
+print("               = 2,767 cohorts x %d day type%s = %d rows, exact."
+      % (len(days), "" if len(days) == 1 else "s", len(out)))
 # The 125-blocks are a strict superset of the 124-block, which is a strict
 # superset of the 104s, and the one cohort between 125 and 124 is the model
 # year 2000 electricity one `emissionratebyage` has no age-group row for.

@@ -23,7 +23,7 @@ domain, and `OpModeDistribution` is empty in all 42 snapshots.
 | Writes | `StartOpModeDistribution`, `SOMDGOpModes`, `StartsPerVehicleDay` and `RatesOpModeDistribution` |
 | Output | **no `MOVESOutput` rows at all** — both are generators, and their product is an execution-database table |
 | Calculator path | **`StartOperatingModeDistributionGenerator`**, **`RatesOperatingModeDistributionGenerator`** — two generators writing one table, with the rates-mode calculators downstream of it outside this slice |
-| Rows | 262,442 `StartOpMode` + 124 `StartOpModeDistribution` + 300 `RatesOpModeDistribution` across the corpus (§7.1) |
+| Rows | 201,665 `StartOpMode` + 84 `StartOpModeDistribution` + 168 `RatesOpModeDistribution` across the corpus (§7.1) |
 | Ported by | `lib/operating_mode.esm` (the shapes), `components/start_operating_mode_distribution.esm` and `components/rates_operating_mode_distribution.esm` |
 | Java | `.../ghg/StartOperatingModeDistributionGenerator.java` (479 lines), `.../ghg/RatesOperatingModeDistributionGenerator.java` (2,275 lines, of which two pages are live) |
 | Rust | `../moves.rs/crates/moves-calculators/src/generators/start_operating_mode_distribution.rs`, `.../rates_op_mode_distribution.rs` |
@@ -143,7 +143,7 @@ matches nothing**, because each clause is then `NULL OR FALSE` = UNKNOWN and
 That fourth case is the whole of the risk in this step. `OperatingMode` has 60
 rows and **52 carry no soak band** — every VSP mode, braking, idling, the four
 hotelling modes, and operating mode 100, "Starting (Used for all starts)".
-Read an absent bound as an unbounded one and all 262,442 classified starts fall
+Read an absent bound as an unbounded one and all 201,665 classified starts fall
 into all 52. `lib/drive_cycle.esm`'s `in_half_open_range` reads it exactly that
 way, which is why this port does not reuse it; `lib/operating_mode.esm`'s
 `soak_band_contains` factors the two mirror-image clauses into one
@@ -296,7 +296,10 @@ carries them, are
 Two round down and two round up, which distinguishes rounding from truncation as
 well as from the exact ratio. All four are what
 `../moves.rs/characterization/snapshots/process-refueling`'s
-`StartOpModeDistribution` stores, to twelve decimals.
+`StartOpModeDistribution` stores. It stores them EXACTLY, in four decimals:
+`moves-snapshot/v1` padded every float to twelve decimal places and this
+sentence used to read "to twelve decimals", which described the capture format
+and not the column.
 
 ### 6.3 Worked example C — the two hotelling snapshots
 
@@ -639,10 +642,22 @@ def main(root):
     # property. The counts pinned EXACTLY are the per-snapshot ones -- zero
     # missing, zero extra, zero scheduling disagreements -- which are
     # properties of the model rather than of the corpus.
+    #
+    # THESE FLOORS WENT DOWN ONCE, LEGITIMATELY, AND THAT IS THE ONLY WAY THEY
+    # MAY. `<day key="5">` was an out-of-range 0-based INDEX into the sorted
+    # DayOfAnyWeek list [2, 5]: it selected nothing and MOVES fell back to BOTH
+    # day types, so 28 of the 42 snapshots ran two days against a one-day
+    # intent. With `<day id="5">` honoured (moves.rs PR #55) every day-keyed
+    # table halves, and these three counts fell from 262,442 / 124 / 300 to
+    # 201,665 / 84 / 168 -- not by 2, because only 28 of the 42 were affected.
+    # A floor over a shared corpus assumes the corpus's SHAPE is monotone as
+    # well as its size. It is not: a correction to the RunSpec can shrink it.
+    # Lowering a floor is therefore a claim about the corpus that has to be
+    # justified by the correction, and this comment is that justification.
     bad = []
     if som_bad:                      bad.append("StartOpMode differs on %d rows" % som_bad)
-    if som_rows < 262442:            bad.append("StartOpMode rows %d < 262442" % som_rows)
-    if somd_rows < 124:              bad.append("StartOpModeDistribution rows %d < 124" % somd_rows)
+    if som_rows < 201665:            bad.append("StartOpMode rows %d < 201665" % som_rows)
+    if somd_rows < 84:               bad.append("StartOpModeDistribution rows %d < 84" % somd_rows)
     if somd_decimal_exact != somd_rows:
         bad.append("the four-decimal quotient is not bit-exact on %d rows"
                    % (somd_rows - somd_decimal_exact))
@@ -653,7 +668,7 @@ def main(root):
     if rates_missing or rates_extra:
         bad.append("RatesOpModeDistribution key set: %d missing, %d extra"
                    % (rates_missing, rates_extra))
-    if rates_rows < 300:             bad.append("RatesOpModeDistribution rows %d < 300" % rates_rows)
+    if rates_rows < 168:             bad.append("RatesOpModeDistribution rows %d < 168" % rates_rows)
     if rates_worst >= 2e-5:          bad.append("worst relative error %.4g >= 2e-5" % rates_worst)
     if sched_bad:                    bad.append("%d snapshots disagree with the "
                                                 "scheduling predicate" % sched_bad)
@@ -696,14 +711,22 @@ temporary table — and everything downstream of them faces the reference.
 
 | | |
 |---|---|
-| `StartOpMode` (steps 100 + 200) | **262,442** rows, 0 missing / 0 extra |
-| `StartOpModeDistribution` (step 300) | **124** rows, key set 0 missing / 0 extra |
+| `StartOpMode` (steps 100 + 200) | **201,665** rows, 0 missing / 0 extra |
+| `StartOpModeDistribution` (step 300) | **84** rows, key set 0 missing / 0 extra |
 | `SOMDGOpModes` | 0 snapshots disagreeing on the distinct set |
-| `RatesOpModeDistribution` (step 400, R-1, R-2) | **300** rows, 0 missing / 0 extra |
-| worst relative error | **4.388 × 10⁻⁶** |
-| four-decimal quotient | bit-exact on **124 of 124** |
-| exact IEEE ratio | bit-exact on **15 of 124**, worst relative **5.767 × 10⁻³** |
+| `RatesOpModeDistribution` (step 400, R-1, R-2) | **168** rows, 0 missing / 0 extra |
+| worst relative error | **4.026 × 10⁻⁶** |
+| four-decimal quotient | bit-exact on **84 of 84** |
+| exact IEEE ratio | bit-exact on **7 of 84**, worst relative **5.767 × 10⁻³** |
 | scheduling predicate | **42** snapshots, **0** disagreeing |
+
+All four row counts came DOWN at the `<day key=> -> <day id=>` correction
+(moves.rs PR #55), which is the only legitimate way a floor over this corpus
+may fall: 28 of the 42 snapshots had been running BOTH day types against a
+one-day intent, so every day-keyed table halves. They were 262,442 / 124 / 300
+with a worst of 4.388 × 10⁻⁶ and the exact ratio bit-exact on 15 of 124. The
+ratio is not 2 because only 28 of the 42 were affected. §6.5's floors carry the
+same note.
 
 The 4.388 × 10⁻⁶ is not accumulated error. It is the single-precision `FLOAT`
 column `RatesOpModeDistribution.opModeFraction` against the `DOUBLE` input
