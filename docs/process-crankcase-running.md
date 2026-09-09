@@ -522,10 +522,15 @@ it.
 #!/usr/bin/env python3
 """process-crankcase-running reproduction from the snapshot's own input tables."""
 import sys, collections
+import glob
 import pyarrow.parquet as pq
 
 SNAP = sys.argv[1]
-P = SNAP + "/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__"
+# The execution database's name carries a per-run id, so the prefix is
+# DISCOVERED and not written down: a recapture renames every table in the
+# snapshot and a hardcoded id fails as a missing FILE, which reads like a
+# missing table rather than like a stale name.
+P = glob.glob(SNAP + "/tables/db__movesexecution*__year.parquet")[0][:-len("year.parquet")]
 def T(n): return pq.read_table(P+n+".parquet").to_pylist()
 
 YEAR, MONTH, HOUR, ZONE, ROAD, ST = 2020, 8, 7, 261610, 4, 21

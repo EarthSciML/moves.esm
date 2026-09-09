@@ -1265,10 +1265,15 @@ Purpose: attribution. When a `.esm` disagrees with the snapshot, a third
 implementation says whether the document or the specification is wrong."""
 import sys
 import collections
+import glob
 import pyarrow.parquet as pq
 
 SNAP = sys.argv[1]
-P = SNAP + "/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__"
+# The execution database's name carries a per-run id, so the prefix is
+# DISCOVERED and not written down: a recapture renames every table in the
+# snapshot and a hardcoded id fails as a missing FILE, which reads like a
+# missing table rather than like a stale name.
+P = glob.glob(SNAP + "/tables/db__movesexecution*__year.parquet")[0][:-len("year.parquet")]
 
 
 def T(n):

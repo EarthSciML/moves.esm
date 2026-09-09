@@ -1524,13 +1524,18 @@ Parquet tables. Run from the moves.rs repo root (or pass the snapshot dir).
 """
 import sys
 import numpy as np
+import glob
 import pyarrow.parquet as pq
 
 f = np.float32
 MXAGYR = 51
 SNAP = sys.argv[1] if len(sys.argv) > 1 else "characterization/snapshots/nr-logging-county"
 D = SNAP + "/tables/"
-PRE = "db__movesexecution1ccc0232_campuscluster_illinois_edu__"
+# The execution database's name carries a per-run id, so the prefix is
+# DISCOVERED and not written down: a recapture renames every table in the
+# snapshot and a hardcoded id fails as a missing FILE, which reads like a
+# missing table rather than like a stale name.
+PRE = glob.glob(D + "db__movesexecution*__year.parquet")[0][len(D):-len("year.parquet")]
 rd = lambda t: pq.read_table(D + PRE + t + ".parquet").to_pandas()
 
 # ---------------------------------------------------------------- run scope

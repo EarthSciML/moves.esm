@@ -85,7 +85,7 @@ only for what it says unambiguously.
 
 Every table `docs/nonroad-logging-county.md` §1.2 lists is read here for the
 same reason and with the same meaning, against this snapshot's own copies
-(`db__movesexecution1ccc0236_…`). Three of them behave differently at this
+(`db__movesexecution…`, whose per-run id the oracle discovers by glob rather than writing down). Three of them behave differently at this
 sector's scale and are re-specified in §2.1.
 
 ### 1.2 The nine tables this rung adds
@@ -446,6 +446,9 @@ NRAirToxicsCalculator, in float32 straight from the snapshot Parquet.
 
 Run as:  repro.py <snapshot directory>
 """
+import collections
+import glob
+import json
 import math
 import sys
 
@@ -463,7 +466,11 @@ PM25_OF_PM10 = 0.92              # NonroadOutputDataLoader.java:458, gasoline
 
 SNAP = sys.argv[1]
 D = SNAP + "/tables/"
-PRE = "db__movesexecution1ccc0236_campuscluster_illinois_edu__"
+# The execution database's name carries a per-run id, so the prefix is
+# DISCOVERED and not written down: a recapture renames every table in the
+# snapshot and a hardcoded id fails as a missing FILE, which reads like a
+# missing table rather than like a stale name.
+PRE = glob.glob(D + "db__movesexecution*__year.parquet")[0][len(D):-len("year.parquet")]
 rd = lambda t: pq.read_table(D + PRE + t + ".parquet").to_pandas()
 
 COUNTY, STATE, YEAR, MONTH, DAYID, NDAYS = 26161, 26, 2020, 8, 5, 31
@@ -867,87 +874,68 @@ exp = pq.read_table(D + "db__out_nr_airtoxics_lawn_garden_county__movesoutput.pa
 obs = {(int(r.pollutantID), r.SCC, int(r.modelYearID)): float(r.emissionQuant)
        for r in exp.itertuples()}
 
-# `float_decimals: 12` in every table's .meta.json: the capture writes floats
-# with twelve DECIMAL places, so a stored value keeps
-# 12 + floor(log10|v|) + 1 significant digits and no more.
-QUANTUM = 1e-12
-
-
-def sig_digits(v):
-    return 0 if v == 0 else max(0, 12 + int(math.floor(math.log10(abs(v)))) + 1)
-
-
-DIOXIN_STORED = {131: 1.105e-09, 142: 1.9e-11}   # nrdioxinemissionrate, gasoline
+# THE CAPTURE'S RESOLUTION IS READ, NOT ASSUMED. Under `moves-snapshot/v1`
+# this comparison had to be split into three populations, because that format
+# wrote twelve DECIMAL places and a cell of 1e-12 kept ONE significant digit
+# (§7.2 keeps the measurement). `moves-snapshot/v2` writes the shortest
+# decimal that round-trips the f64, so there is no storage quantum and no
+# population to hold out -- but a script that merely assumed that would report
+# a clean comparison against a v1 corpus it was silently misreading. So the
+# encoding is read off a sidecar and the losslessness is an ASSERTION.
+enc = json.loads(open(glob.glob(D + "*__movesoutput.meta.json")[0]).read())
+enc = enc.get("float_encoding")
+assert enc and enc["kind"] == "shortest_round_trip", enc
 
 missing = sorted(set(obs) - set(totals))
 extra = sorted(set(totals) - set(obs))
-full = storage_limited = 0
-worst_full = worst_limited = 0.0
-worst_full_at = worst_limited_at = None
+compared = 0
+worst = 0.0
+worst_at = None
+per_pol = collections.defaultdict(float)
 for k, want in obs.items():
     got = totals[k] if k in totals else None
     if got is None:
         continue
     rel = abs(got - want) / abs(want) if want else abs(got)
-    if k[0] in DIOXIN_STORED:
-        continue                       # accounted for separately, below
-    if sig_digits(want) >= 8:
-        full += 1
-        if rel > worst_full:
-            worst_full, worst_full_at = rel, k
-    else:
-        storage_limited += 1
-        # The stored value is a rounding of the true one to twelve decimals, so
-        # half a quantum of absolute slack is the reference's own resolution --
-        # not a tolerance chosen here.
-        excess = max(0.0, abs(got - want) - 0.5 * QUANTUM)
-        r = excess / abs(want) if want else excess
-        if r > worst_limited:
-            worst_limited, worst_limited_at = r, k
+    compared += 1
+    per_pol[k[0]] = max(per_pol[k[0]], rel)
+    if rel > worst:
+        worst, worst_at = rel, k
 
 print("%d rows compared, %d missing, %d extra"
       % (len(obs) - len(missing), len(missing), len(extra)))
-print("  fully stored cells   %5d  worst relative error %.3e  at %s"
-      % (full, worst_full, worst_full_at))
-print("  storage-limited      %5d  worst relative error %.3e in excess of the"
-      % (storage_limited, worst_limited))
-print("                              12-decimal capture quantum, at %s"
-      % (worst_limited_at,))
+print("  ONE population: the capture is lossless, so every cell is compared on"
+      " its raw")
+print("  relative error with no storage floor and nothing held out.")
+print("  all cells          %5d  worst relative error %.3e  at %s"
+      % (compared, worst, worst_at))
 
-# The two dioxin congeners are a different failure and get their own account:
-# their `nrdioxinemissionrate.meanBaseRate` is 1.105e-09 and 1.9e-11, which
-# twelve decimals store to four and TWO significant figures. Fit the rate the
-# reference must have used and show it is inside half a quantum of the stored
-# one -- that is the whole of the difference, and it is the capture's.
-implied = {}
-for pol, stored in DIOXIN_STORED.items():
-    minsig = 5 if pol == 131 else 4
-    num = den = 0.0
-    for k, want in obs.items():
-        if k[0] != pol or want == 0 or sig_digits(want) < minsig:
-            continue
-        num += want * totals[k]
-        den += totals[k] * totals[k]
-    scale = num / den
-    implied[pol] = stored * scale
-    worst = max(abs(totals[k] * scale - want) / abs(want)
-                for k, want in obs.items()
-                if k[0] == pol and sig_digits(want) >= minsig)
-    print("  pollutant %-3d rate stored %.6g, implied %.8g "
-          "(%.3f half-quanta); rescaled worst %.3e"
-          % (pol, stored, implied[pol], abs(implied[pol] - stored) / (0.5 * QUANTUM),
-             worst))
+# THE TWO DIOXIN CONGENERS ARE NO LONGER A SEPARATE ACCOUNT, and that is the
+# whole point of the recapture. `nrdioxinemissionrate.meanBaseRate` is an
+# INPUT: v1 stored it as 0.000000001105 and 0.000000000019, four significant
+# figures and TWO, and no tolerance reading can restore an input. v2 records
+# 1.1045e-09 and 1.94345e-11 -- so the rate this document reads is now the
+# rate MOVES read, and the two blocks compare like every other toxic. The
+# rates are printed with the worst error they produce, because the ONE thing
+# no comparison against MOVESOutput can check is that the input is right.
+DIOXIN_RATE = {int(r.pollutantID): float(r.meanBaseRate)
+               for r in rd("nrdioxinemissionrate")
+               .query("processID == 1 and fuelTypeID == 1").itertuples()}
+for pol in sorted(DIOXIN_RATE):
+    print("  pollutant %-3d rate %.6g read from the capture; worst relative "
+          "error %.3e" % (pol, DIOXIN_RATE[pol], per_pol[pol]))
 
 assert len(obs) == 14036, len(obs)
 assert not missing and not extra, (len(missing), len(extra))
-assert full == 10439, full
-# tolerance.toml [cell] rel, unmodified, on every cell the capture stores in full
-assert worst_full < 2e-5, worst_full
-# and on the rest, once the capture's own quantum is allowed for
-assert worst_limited < 2e-5, worst_limited
-# both dioxin rates are inside half a stored quantum of the value MOVES used
-for pol, stored in DIOXIN_STORED.items():
-    assert abs(implied[pol] - stored) < 0.5 * QUANTUM, (pol, implied[pol])
+# EVERY cell, at tolerance.toml's [cell] rel, unmodified. There is no
+# held-out population and no absolute floor: 14,036 of 14,036.
+assert compared == 14036, compared
+assert worst < 2e-5, (worst, worst_at)
+# and no single pollutant is carried by the others' margin
+assert max(per_pol.values()) < 2e-5, sorted(per_pol.items(), key=lambda x: -x[1])[:3]
+# the two dioxin rates are the ones the capture records, to the digit
+assert abs(DIOXIN_RATE[131] - 1.1045e-09) < 1e-15, DIOXIN_RATE[131]
+assert abs(DIOXIN_RATE[142] - 1.94345e-11) < 1e-17, DIOXIN_RATE[142]
 ```
 
 ### 6.6 What the fixture's and the components' inline tests check
