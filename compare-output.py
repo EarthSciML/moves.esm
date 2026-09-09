@@ -43,10 +43,19 @@ The contract itself — which columns are identity, which are compared, which ar
 excused — lives in `tolerance.toml`, next to the prose explaining why.
 
 Values arrive as decimal *text* on both sides (`emissionQuant` is a string
-column in the snapshot, 12 decimal places), so they are parsed with `Decimal`
-and compared as floats. Parsing via float() directly would be fine for these
-magnitudes, but Decimal makes the "the snapshot is text" fact visible at the
-one place it matters, rather than a silent implicit conversion.
+column in the snapshot), so they are parsed with `Decimal` and compared as
+floats. Parsing via float() directly would be fine for these magnitudes, but
+Decimal makes the "the snapshot is text" fact visible at the one place it
+matters, rather than a silent implicit conversion.
+
+HOW MUCH of that text is meaningful depends on the capture, and the two
+`moves-snapshot` format versions disagree: v1 wrote twelve decimal PLACES and
+threw away every digit below them, v2 writes the shortest decimal that
+round-trips the f64 and throws away nothing. `FloatEncoding` below reads which
+one a table used off its `.meta.json` and answers the only question a
+comparison has of it — how much absolute difference the reference is unable to
+record. Both versions are read, because the corpus migrates one branch at a
+time and a checkout that can only judge one of them can only test one of them.
 
 Usage:
     compare-output.py --fixture nr-logging-county --actual out.csv
@@ -75,6 +84,90 @@ NONROAD_PREFIX = "nr-"
 
 class Failure(Exception):
     """A comparison failed. The message is the report."""
+
+
+# --------------------------------------------------------------------------
+# how the capture stores a float
+
+
+class FloatEncoding:
+    """What the snapshot's capture can and cannot resolve.
+
+    `moves-snapshot` has had two float encodings and they differ in the one
+    thing a comparison needs to know — how much of a difference the REFERENCE
+    is incapable of recording:
+
+      * `moves-snapshot/v1` wrote a fixed number of decimal PLACES (twelve).
+        That is not twelve significant digits: a cell of 1e-12 keeps one, and
+        below 5e-13 nothing survives at all. Half a stored quantum,
+        `0.5 x 10^-decimals`, is the resolution the reference actually has.
+      * `moves-snapshot/v2` writes the shortest correctly-rounded decimal that
+        parses back to a bit-identical f64. Nothing is lost, so the quantum is
+        ZERO and there is no storage floor to allow.
+
+    The v2 sidecar does not restate `float_decimals` with some stand-in value;
+    it OMITS the field, so a consumer that still reads it fails instead of
+    silently deriving a 5e-13 floor that the data does not justify. This class
+    is the other half of that contract: the encoding is read from the sidecar,
+    every branch is named, and an unrecognised one raises.
+    """
+
+    def __init__(self, kind: str, decimals: int | None = None):
+        self.kind = kind
+        self.decimals = decimals
+
+    @property
+    def lossless(self) -> bool:
+        return self.kind == "shortest_round_trip"
+
+    @property
+    def half_quantum(self) -> float:
+        """Absolute slack the ENCODING accounts for. Zero when it loses nothing."""
+        return 0.0 if self.lossless else 0.5 * 10.0 ** (-self.decimals)
+
+    def __str__(self) -> str:
+        if self.lossless:
+            return "shortest_round_trip (moves-snapshot/v2, lossless)"
+        return f"fixed_decimals, decimals = {self.decimals} (moves-snapshot/v1)"
+
+
+def read_float_encoding(meta_path: pathlib.Path) -> FloatEncoding | None:
+    """Read a table's float encoding off its `.meta.json`. `None` if there is none.
+
+    `None` means "no sidecar at all", which is a different fact from either
+    encoding and is kept distinguishable: a fixture whose comparison depends on
+    the capture's resolution must not proceed on a guess.
+    """
+    if not meta_path.exists():
+        return None
+    import json as _json
+    meta = _json.loads(meta_path.read_text())
+    enc = meta.get("float_encoding")
+    if enc is not None:
+        kind = enc.get("kind")
+        if kind == "shortest_round_trip":
+            return FloatEncoding("shortest_round_trip")
+        if kind == "fixed_decimals":
+            d = enc.get("decimals")
+            if not isinstance(d, int):
+                raise Failure(
+                    f"{meta_path.name} declares float_encoding kind "
+                    f"'fixed_decimals' with no integer `decimals`: {enc!r}"
+                )
+            return FloatEncoding("fixed_decimals", d)
+        raise Failure(
+            f"{meta_path.name} declares an unknown float_encoding kind "
+            f"{kind!r}. This comparator knows 'fixed_decimals' and "
+            f"'shortest_round_trip'; refusing to guess a tolerance floor."
+        )
+    if "float_decimals" in meta:
+        # moves-snapshot/v1, which had no `float_encoding` field at all.
+        return FloatEncoding("fixed_decimals", int(meta["float_decimals"]))
+    raise Failure(
+        f"{meta_path.name} carries neither `float_encoding` nor "
+        f"`float_decimals`, so how much precision the capture holds is "
+        f"unknown. Refusing to guess."
+    )
 
 
 # --------------------------------------------------------------------------
@@ -259,7 +352,7 @@ def relerr(actual: float, expected: float) -> float:
 
 
 def compare(expected: list[dict], actual: list[dict], tol: dict, fixture: str,
-            capture_decimals: int | None = None) -> list[str]:
+            encoding: FloatEncoding | None = None) -> list[str]:
     """Return a list of report lines. Raises `Failure` with the report on a diff."""
     cfg = tol["compare"]
     structure = tol.get("structure", {})
@@ -317,19 +410,35 @@ def compare(expected: list[dict], actual: list[dict], tol: dict, fixture: str,
     # that no other fixture's gate moves, and it is an ABSOLUTE floor: the
     # relative gate is unchanged above it and every cell the capture stores in
     # full is held to it exactly as before.
+    #
+    # The floor is DERIVED FROM THE ENCODING and not from the flag. Against a
+    # `moves-snapshot/v2` capture the encoding loses nothing, the floor is 0.0,
+    # and the declaration therefore allows NOTHING -- the flag goes inert on
+    # its own when the obstacle it names disappears, rather than quietly
+    # keeping a 5e-13 concession the data no longer needs. That is said out
+    # loud in the report, because "the same flag, now allowing nothing" is a
+    # change of gate a reader must be able to see.
     half_quantum = 0.0
     if scope.get("allow_storage_quantum"):
-        if capture_decimals is None:
+        if encoding is None:
             raise Failure(
-                f"{fixture} declares allow_storage_quantum but the snapshot's "
-                f"MOVESOutput sidecar carries no float_decimals to derive it from"
+                f"{fixture} declares allow_storage_quantum but there is no "
+                f"MOVESOutput `.meta.json` beside the snapshot parquet, so the "
+                f"capture's resolution is unknown"
             )
-        half_quantum = 0.5 * 10.0 ** (-capture_decimals)
-        report.append(
-            f"       storage: comparing at the capture's own resolution, "
-            f"float_decimals = {capture_decimals}, so {half_quantum:g} absolute "
-            f"is allowed beneath the relative gate"
-        )
+        half_quantum = encoding.half_quantum
+        if half_quantum:
+            report.append(
+                f"       storage: comparing at the capture's own resolution, "
+                f"{encoding}, so {half_quantum:g} absolute "
+                f"is allowed beneath the relative gate"
+            )
+        else:
+            report.append(
+                f"       storage: the capture is {encoding}, so the declared "
+                f"storage floor allows NOTHING and every cell is held to the "
+                f"relative gate. The declaration is now dead weight."
+            )
 
     keys = key_columns(list(expected[0].keys()), cfg)
 
@@ -618,10 +727,10 @@ def _self_test() -> int:
     # the only way to test logic that nothing else can reach.
     extra_failures = 0
 
-    def alone(name, exp, act, cfg_tol, should_pass, decimals=None):
+    def alone(name, exp, act, cfg_tol, should_pass, encoding=None):
         nonlocal extra_failures
         try:
-            compare(exp, act, cfg_tol, "nr-self-test", capture_decimals=decimals)
+            compare(exp, act, cfg_tol, "nr-self-test", encoding=encoding)
             ok = True
         except Failure:
             ok = False
@@ -701,19 +810,80 @@ def _self_test() -> int:
 
     # --- the storage floor ---------------------------------------------------
     #
-    # It must absorb a difference the CAPTURE explains and nothing larger.
+    # It must absorb a difference the CAPTURE explains and nothing larger, and
+    # it must be derived from the encoding the sidecar declares rather than from
+    # the flag -- so the SAME declaration against a lossless capture absorbs
+    # nothing. All three directions are falsified here, because the middle one
+    # is the whole content of the v1 -> v2 consumer change and a floor that
+    # silently survived the migration would be indistinguishable from one that
+    # correctly went to zero.
+    V1_12 = FloatEncoding("fixed_decimals", 12)
+    V2 = FloatEncoding("shortest_round_trip")
     q = {**tol, "fixtures": {"nr-self-test": {"scope": {
         "allow_storage_quantum": True, "excluded_pollutants": [], "why": "x"}}}}
     tiny = rows((1, "A", 2020, "0.000000000001"), (1, "A", 2021, "200.0"),
                 (2, "A", 2020, "300.0"))
-    # 4e-13 out on a cell stored as 1e-12 is inside half a quantum: absorbed.
+    tiny_off = rows((1, "A", 2020, "0.0000000000014"), (1, "A", 2021, "200.0"),
+                    (2, "A", 2020, "300.0"))
+    # 4e-13 out on a cell stored as 1e-12 is inside half a v1 quantum: absorbed.
     alone("storage floor: a difference inside half a stored quantum is absorbed",
-          tiny, rows((1, "A", 2020, "0.0000000000014"), (1, "A", 2021, "200.0"),
-                     (2, "A", 2020, "300.0")), q, True, decimals=12)
-    # 5% on a cell the capture stores in full is NOT.
+          tiny, tiny_off, q, True, encoding=V1_12)
+    # The same difference against a LOSSLESS capture is a 40% error and fails:
+    # v2 leaves no storage slack for the flag to spend.
+    alone("storage floor: under moves-snapshot/v2 the same difference FAILS",
+          tiny, tiny_off, q, False, encoding=V2)
+    # 5% on a cell the capture stores in full is NOT absorbed under either.
     alone("storage floor: a real error on a well-stored cell still fails",
           tiny, rows((1, "A", 2020, "0.000000000001"), (1, "A", 2021, "210.0"),
-                     (2, "A", 2020, "300.0")), q, False, decimals=12)
+                     (2, "A", 2020, "300.0")), q, False, encoding=V1_12)
+    # And the flag with no sidecar at all is refused rather than defaulted.
+    alone("storage floor: declared with no sidecar encoding, refused",
+          tiny, tiny, q, False, encoding=None)
+
+    # --- reading the encoding off a sidecar ----------------------------------
+    #
+    # `float_decimals` was REPLACED by `float_encoding` and not restated, so
+    # that an un-updated consumer fails loudly instead of deriving a floor the
+    # data does not support. These four cases pin both spellings, the
+    # deliberate loudness, and the refusal to guess.
+    import json as _json
+    import tempfile as _tempfile
+    with _tempfile.TemporaryDirectory() as _td:
+        def enc_of(name, payload):
+            p = pathlib.Path(_td) / f"{name}.meta.json"
+            p.write_text(_json.dumps(payload))
+            return read_float_encoding(p)
+
+        def enc_case(name, payload, want):
+            nonlocal extra_failures
+            try:
+                got = str(enc_of(name.replace(" ", "_"), payload))
+            except Failure as exc:
+                got = f"refused: {exc}"
+            ok = want in got
+            print(f"  {'ok  ' if ok else 'FAIL'} encoding: {name}")
+            if not ok:
+                extra_failures += 1
+                print(f"       wanted {want!r} in {got!r}")
+
+        enc_case("v1 float_decimals is read", {"float_decimals": 12},
+                 "decimals = 12")
+        enc_case("v2 float_encoding is read",
+                 {"float_encoding": {"kind": "shortest_round_trip",
+                                     "max_significant_digits": 17}}, "lossless")
+        enc_case("an explicit fixed_decimals encoding is read",
+                 {"float_encoding": {"kind": "fixed_decimals", "decimals": 6}},
+                 "decimals = 6")
+        enc_case("an unknown kind is refused, not guessed",
+                 {"float_encoding": {"kind": "posits"}}, "refused")
+        enc_case("a sidecar declaring neither is refused",
+                 {"schema": []}, "refused")
+        missing = read_float_encoding(pathlib.Path(_td) / "absent.meta.json")
+        ok = missing is None
+        print(f"  {'ok  ' if ok else 'FAIL'} encoding: an absent sidecar is None, "
+              f"not an encoding")
+        if not ok:
+            extra_failures += 1
 
     # a duplicate key is a bug, not a tie
     cases.append(("duplicate key", base, base + [dict(base[0])], False))
@@ -768,13 +938,9 @@ def main(argv=None) -> int:
         tol = load_tolerance(args.tolerance)
         exp_path = args.expected or snapshot_output_path(args.snapshots, args.fixture)
         meta = exp_path.with_suffix("").with_suffix(".meta.json")
-        decimals = None
-        if meta.exists():
-            import json as _json
-            decimals = _json.loads(meta.read_text()).get("float_decimals")
         report = compare(
             read_expected(exp_path), read_actual(args.actual), tol, args.fixture,
-            capture_decimals=decimals,
+            encoding=read_float_encoding(meta),
         )
     except Failure as exc:
         print(f"FAIL {args.fixture}", file=sys.stderr)
