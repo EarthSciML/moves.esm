@@ -1307,8 +1307,8 @@ base_ratios=sorted({base_rate_fuel_factor(pp,f,m)
                     for pp in (EC_PP,NONEC_PP) for f in (1,2,5) for m in RUNSPEC_MY})
 spm_ratios=sorted({gfr(p,f,m) for p in (EC,SULFATE,WATER,RESIDUE)
                    for f in (1,2,5) for m in RUNSPEC_MY})
-assert base_ratios==[0.9727,1.0,1.090910749585], base_ratios
-assert spm_ratios==[0.9727,1.0,1.090910749585], spm_ratios
+assert base_ratios==[0.9727,1.0,1.0909107495849824], base_ratios
+assert spm_ratios==[0.9727,1.0,1.0909107495849824], spm_ratios
 assert all(gfr(EC,f,m)==1.0 for f in (1,2,5) for m in RUNSPEC_MY)
 print("NOTE:           `criteriaratio` has 0 rows, so `generalfuelratio` is the ONLY live fuel"
       " effect -- and its two")

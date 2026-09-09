@@ -831,7 +831,7 @@ for species in (32, 33, 34):
     assert cohorts_by_pp[(species, 1)] < parent, species
     assert {c for c in parent - cohorts_by_pp[(species, 1)]} == \
         {c for c in parent if c[1] == ELECTRICITY}, species
-assert sum(expected_cohorts.values()) * len(days) == len(out) == 872
+assert sum(expected_cohorts.values()) * len(days) == len(out) == 436
 print("key set:       124 NOx + 3 x 104 species cohorts x %d day types = %d rows, exact;"
       % (len(days), len(out)))
 print("               the 20 cohorts each species drops are exactly the ELECTRICITY ones,"

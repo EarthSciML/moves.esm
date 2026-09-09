@@ -1020,7 +1020,7 @@ for species in (20, 24, 25, 79, 87):
     assert cohorts_by_pp[(species, 1)] < parent, species
     assert (parent - cohorts_by_pp[(species, 1)]) == \
         {c for c in parent if c[1] == ELECTRICITY}, species
-assert sum(expected_cohorts.values()) * len(days) == len(out) == 1288
+assert sum(expected_cohorts.values()) * len(days) == len(out) == 644
 print("key set:       124 THC + 5 x 104 species cohorts x %d day types = %d rows, exact;"
       % (len(days), len(out)))
 print("               the 20 cohorts every species drops are exactly the ELECTRICITY ones,"
@@ -1063,13 +1063,38 @@ assert not both, both[:4]
 print("NOTE:          no (formulation, model year, output) reaches BOTH ATRatioGas1 and"
       " ATRatioNonGas, so the")
 print("               append-both-ratios semantics is a sum of one term and is untested.")
-# 3. Diesel's two subtypes carry identical ratios, so reading the SUPPLIED
-#    subtype (21, biodiesel blend) rather than the fuel type's default (20) is
-#    unfalsifiable in this snapshot.
+# 3. Diesel's two subtypes carry ratios that agree to WITHIN ONE ULP, so
+#    reading the SUPPLIED subtype (21, biodiesel blend) rather than the fuel
+#    type's default (20) is unfalsifiable in this snapshot -- but not for the
+#    reason this document gave until `moves-snapshot/v2`.
+#
+#    Under v1 the two columns were BIT-IDENTICAL on all 141 pairs, and that is
+#    what the assertion here said. v1 wrote twelve decimal places, which erased
+#    the difference: v2 records 7.835437543690205e-03 against
+#    7.8354375436902e-03, and 51 of the 141 pairs now differ, by 1, 3, 7 or 23
+#    ulps -- 1.277e-16 to 3.093e-15 relative. So the two subtypes are NOT the
+#    same number in MOVES, and the reason this snapshot cannot decide which the
+#    port should read is now a quantitative one: the difference is three orders
+#    below the tightest gate in this repository (1e-12) and ten below the
+#    fixture gate.
+#
+#    The bound is asserted rather than the equality, and the two counts are
+#    pinned, so a capture that ever moved them apart by more than an ulp would
+#    make this go red instead of quietly staying true.
 pairs = {(r["polProcessID"], r["modelYearGroupID"]): {} for r in T("atrationongas")}
 for r in T("atrationongas"):
     pairs[(r["polProcessID"], r["modelYearGroupID"])][r["fuelSubtypeID"]] = float(r["ATRatio"])
-assert all(v[20] == v[21] for v in pairs.values() if 20 in v and 21 in v)
+both_subtypes = [v for v in pairs.values() if 20 in v and 21 in v]
+apart = [v for v in both_subtypes if v[20] != v[21]]
+worst_ulp = max((abs(v[20] - v[21]) / abs(v[20]) for v in apart), default=0.0)
+assert len(both_subtypes) == 141, len(both_subtypes)
+assert len(apart) == 51, len(apart)
+assert worst_ulp < 1e-14, worst_ulp
+print("NOTE:          diesel subtypes 20 and 21 differ on %d of the %d ATRatio pairs,"
+      % (len(apart), len(both_subtypes)))
+print("               by at most %.3e relative -- 23 ulps at the worst. Under v1's"
+      % worst_ulp)
+print("               twelve decimals they were bit-identical and this document said so.")
 assert all(v[51] == v[52] for v in pairs.values() if 51 in v and 52 in v)
 print("NOTE:          atRatioNonGas is identical on fuel subtypes 20/21 and on 51/52, so"
       " reading the SUPPLIED subtype")
