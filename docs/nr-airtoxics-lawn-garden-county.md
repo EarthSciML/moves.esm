@@ -983,58 +983,55 @@ input tables and taking nothing from the reference but the final comparison:
 
 ```
 14036 rows compared, 0 missing, 0 extra
-  fully stored cells   10439  worst relative error 9.425e-06  at (88, '2265004010', 1981)
-  storage-limited       2629  worst relative error 8.655e-06 in excess of the
-                              12-decimal capture quantum, at (60, '2265004015', 2010)
-  pollutant 131 rate stored 1.105e-09, implied 1.1045021e-09 (0.996 half-quanta); rescaled worst 4.239e-05
-  pollutant 142 rate stored 1.9e-11,   implied 1.9434497e-11 (0.869 half-quanta); rescaled worst 3.300e-04
+  ONE population: the capture is lossless, so every cell is compared on its raw
+  relative error with no storage floor and nothing held out.
+  all cells          14036  worst relative error 9.425e-06  at (88, '2265004010', 1981)
+  pollutant 131 rate 1.1045e-09 read from the capture; worst relative error 6.874e-06
+  pollutant 142 rate 1.94345e-11 read from the capture; worst relative error 9.217e-06
 ```
 
-10,439 + 2,629 + 968 = 14,036, the 968 being pollutants 131 and 142.
+14,036 of 14,036, one population, against the unmodified `[cell] rel = 2e-5`.
 
-### 7.2 The snapshot capture stores twelve DECIMAL places, and that is the gate
+### 7.2 The capture used to store twelve DECIMAL places. It no longer does.
 
-Every table's `.meta.json` in this corpus carries `"float_decimals": 12`. The
-capture therefore writes a float as a decimal string with twelve places after
-the point, so a stored value keeps `12 + floor(log10|v|) + 1` **significant**
-digits — six for a value of 10⁻¹, but **one** for a value of 10⁻¹². Two
-consequences, and they are different failures:
+This section had three populations and a fitted input rate. `moves-snapshot/v2`
+retired all of it, and the before-and-after is worth keeping, because it is the
+clearest measurement in this repository of what a capture format costs a port.
 
-**(a) On the output side.** 3,597 of the 14,036 `MOVESOutput` cells are stored
-with fewer than eight significant digits, and 1,208 of them are stored as
-`0.000000000000` outright. `compare-output.py` already concedes the second case
-— "when only the expectation is zero, fall back to absolute, since there is no
-scale to be relative to" — and the general form of that concession is what §7.1
-reports separately: allow the capture's own half-quantum, 5 × 10⁻¹³ absolute,
-and the worst of those 2,629 cells is **8.655 × 10⁻⁶**, inside the unmodified
-`[cell] rel = 2e-5`. Without that allowance, **283** of them exceed
-2 × 10⁻⁵ under the comparator's own rule, which falls back to an absolute
-error where the expectation is an exact zero.
+**What v1 did.** Every table's `.meta.json` carried `"float_decimals": 12`: a
+float was written as a decimal string with twelve places after the point, so a
+stored value kept `12 + floor(log10|v|) + 1` **significant** digits — six for
+a value of 10⁻¹, but **one** for 10⁻¹², and none below 5 × 10⁻¹³. Two
+consequences, and they were different failures:
 
-**(b) On the INPUT side, which no gate reading can fix.**
-`nrdioxinemissionrate.meanBaseRate` for gasoline running exhaust is
-`0.000000001105` and `0.000000000019` — **four** and **two** significant
-figures. MOVES read those from a MySQL `double`; the port can only read the
-capture. Fit the rate the reference must have used, from the pollutant's own
-output cells:
+* **On the output side**, 3,597 of the 14,036 `MOVESOutput` cells were stored
+  with fewer than eight significant digits and **1,208** as
+  `0.000000000000` outright. 2,629 of them needed a 5 × 10⁻¹³ absolute floor
+  to compare; without it **283** exceeded 2 × 10⁻⁵.
+* **On the input side**, which no gate reading could fix,
+  `nrdioxinemissionrate.meanBaseRate` was stored as `0.000000001105` and
+  `0.000000000019` — **four** significant figures and **two**. The port could
+  only read the capture, so pollutants 131 and 142 carried a uniform bias of
+  4.5 × 10⁻⁴ and 2.24 × 10⁻² and had to be held out of the comparison
+  altogether: **968** cells.
 
-| pollutant | stored | implied by the output | distance | uniform bias it causes |
-|---|---|---|---|---|
-| 131 (OCDD) | 1.105 × 10⁻⁹ | 1.1045021 × 10⁻⁹ | 0.996 half-quanta | 4.5 × 10⁻⁴ |
-| 142 (2,3,7,8-TCDD) | 1.9 × 10⁻¹¹ | 1.9434497 × 10⁻¹¹ | 0.869 half-quanta | 2.24 × 10⁻² |
+**What v2 records.** The shortest decimal that round-trips the f64. The two
+rates are `1.1045e-09` and `1.94345e-11`, and the smallest non-zero cell in
+this `MOVESOutput` is **4.877 × 10⁻¹⁷** where v1's floor put it at 10⁻¹²:
+1,458 of the 14,036 cells changed value, **164** of them from a literal zero
+to a real number.
 
-Both implied rates are **inside half a stored quantum** of the captured value,
-which is the whole of the difference and is decisive: rescale by the fitted
-factor and the worst residual over each pollutant's better-stored cells falls
-to 4.239 × 10⁻⁵ and 3.300 × 10⁻⁴, which is those cells' own output
-quantisation. There is no arithmetic here to correct.
+**The v1 document's fits were right, and this is the check on them.** With no
+digits to read, §7.2 fitted the rate the reference must have used from its own
+output and got 1.1045021 × 10⁻⁹ and 1.9434497 × 10⁻¹¹. The capture now says
+1.1045 × 10⁻⁹ and 1.94345 × 10⁻¹¹ — the fits were off by 1.9 × 10⁻⁶ and
+1.5 × 10⁻⁷ relative, two orders inside the `[cell] rel` they were used to
+justify. The method was sound; it just should never have been necessary.
 
-**What that costs, stated plainly.** A per-cell comparison of this snapshot's
-`MOVESOutput` against any correct implementation fails on **1,013 of 14,036
-cells** at `[cell] rel = 2e-5`: **729** of pollutants 131 and 142 (cause (b);
-the other 239 of their cells are stored as an outright zero, which the
-comparator's own absolute fallback lets through) and **283** more from cause
-(a). §8 records what follows for the fixture.
+**What it costs now.** Nothing. Every cell of every pollutant compares on its
+raw relative error, and the worst of the 29 pollutants is 9.42 × 10⁻⁶ — a
+factor of 2.1 inside the gate, with no pollutant carried by another's margin.
+§8 records what that did to the fixture's declared scope.
 
 ### 7.3 Precision-sensitive operations, ranked
 
@@ -1057,29 +1054,26 @@ comparator's own absolute fallback lets through) and **283** more from cause
 ## 8. Gaps and things not verified
 
 **`fixtures/nr-airtoxics-lawn-garden-county.esm` emits all 14,036 rows and
-compares 13,068 of them.** The 968 it does not compare are pollutants 131 and
-142, for §7.2(b)'s reason: they are emitted, with the right keys and the right
-arithmetic, and the rate they are computed from was captured to two and four
-significant figures, so no implementation reading this capture can be closer.
-`tolerance.toml` records that as a **scope** — a third thing beside a tolerance
-and a shortfall (`docs/esm-conventions.md` §36.3) — with the fitted rates and
-the half-quantum distances in a mandatory `why`, and `compare-output.py` prints
-what it held out on every run. The gate itself is untouched: `[cell] rel` is
-still 2 × 10⁻⁵ and the fixture's worst compared cell is **9.417 × 10⁻⁶** over
-13,068 cells, with the key set exact and the worst per-pollutant sum
-1.442 × 10⁻⁶.
+compares all 14,036.** It used to compare 13,068: `tolerance.toml` carried a
+declared **scope** (`docs/esm-conventions.md` §36.3) that held pollutants 131
+and 142 out and allowed a 5 × 10⁻¹³ storage floor beneath the relative gate on
+everything else. Both halves of that scope are **gone**, because the obstacle
+they named was the capture and the capture was fixed. Measured on the v2
+corpus with the whole scope deleted and `[cell] rel` untouched at 2 × 10⁻⁵:
 
-The 283 cells of cause (a) are compared and pass, because the same `scope`
-declares `allow_storage_quantum`: the comparison is made at the resolution the
-snapshot is stored in, half a quantum — 5 × 10⁻¹³, **read off the snapshot's
-own `.meta.json`** rather than chosen — as an absolute floor beneath the
-unchanged relative gate. It is the concession `relerr` already makes for an
-expected zero, one step earlier, and it is opt-in so that no other fixture's
-gate moves.
+| | with the scope (v1 corpus) | scope deleted (v2 corpus) |
+|---|---|---|
+| rows compared | 13,068 of 14,036 | **14,036 of 14,036** |
+| absolute floor allowed | 5 × 10⁻¹³ | **none** |
+| worst cell the gate saw | 9.417 × 10⁻⁶ *in excess of the floor* | **9.417 × 10⁻⁶ raw** |
+| worst cell, pollutant 131 | not compared | **6.836 × 10⁻⁶** |
+| worst cell, pollutant 142 | not compared | **9.183 × 10⁻⁶** |
+| worst per-pollutant sum | 1.442 × 10⁻⁶ | 1.448 × 10⁻⁶ |
 
-The correct fix for the dioxins is upstream: re-capture with more significant
-digits — `FLOAT_DECIMALS` is a single constant,
-`moves.rs/crates/moves-snapshot/src/format.rs:17`.
+The same worst cell, over 968 more of them and with 2,629 fewer excused: a
+strictly stronger gate. The upstream fix this section used to ask for —
+"re-capture with more significant digits" — is `moves-snapshot/v2`, and it
+happened.
 
 **Everything below is a stage that runs but is not discriminated by this
 snapshot**, measured rather than assumed:

@@ -3204,6 +3204,14 @@ hour.
 
 ## 36. A fixed-decimal capture is part of the reference, and it is not always absorbable **[Phase 5, 14,036 rows]**
 
+> **The instance in this section is HISTORY; the rule is not.** The corpus was
+> recaptured to `moves-snapshot/v2`, which stores the shortest decimal that
+> round-trips the f64, and every concession measured below was retired — see
+> **§41**. Read §36 for how to attribute a residual to a capture, and §41 for
+> what to do when the capture is then fixed. Numbers below describe
+> `moves-snapshot/v1` and are kept because they are the measurement that
+> justified the fix.
+
 `nr-airtoxics-lawn-garden-county` is the last two NONROAD calculators —
 `NRHCSpeciationCalculator` and `NRAirToxicsCalculator` — and the first slice in
 this port whose limiting factor is neither the format, nor the toolchain, nor
@@ -3214,18 +3222,21 @@ shortfall.
 
 ### 36.1 Measure the capture's precision before attributing a residual
 
-`moves.rs/crates/moves-snapshot/src/format.rs:17` is
-`pub const FLOAT_DECIMALS: u32 = 12;`, and every table's `.meta.json` in the
-corpus carries `"float_decimals": 12`. So a captured float is a decimal string
-with twelve places after the point, and it keeps
+Under `moves-snapshot/v1`, `crates/moves-snapshot/src/format.rs:17` was
+`pub const FLOAT_DECIMALS: u32 = 12;` and every table's `.meta.json` carried
+`"float_decimals": 12`. So a captured float was a decimal string with twelve
+places after the point, and it kept
 
 ```
 12 + floor(log10|v|) + 1     significant digits
 ```
 
 — six for a value of 10⁻¹, **one** for a value of 10⁻¹², none at all below
-5 × 10⁻¹³. That is not a rounding preference: it is the resolution of the only
-copy of the reference this repository has.
+5 × 10⁻¹³. That was not a rounding preference: it was the resolution of the
+only copy of the reference this repository had. **Read the encoding; never
+assume it.** A v2 sidecar carries `float_encoding` and OMITS `float_decimals`
+entirely, precisely so that a consumer still reading the old field fails
+instead of deriving a floor the data no longer supports.
 
 **Measured over the whole corpus**, every `MOVESOutput` table under
 `characterization/snapshots`: **136,552 cells, of which 7,308 (5.35 %) are
@@ -3277,7 +3288,15 @@ reference must have used, and show it is inside half a stored quantum.**
 captured value is a correct rounding of the fitted one and there is no
 arithmetic left to find. Do the fit on the cells the output stores best, and
 assert it in the oracle so the claim is re-checked every run rather than
-asserted once. `run-nr-airtoxics-oracle.sh` does.
+asserted once.
+
+**And the fits were later checked against the real numbers, which is the only
+reason to trust the method.** `moves-snapshot/v2` records the two rates as
+1.1045 × 10⁻⁹ and 1.94345 × 10⁻¹¹. The fits were off by 1.9 × 10⁻⁶ and
+1.5 × 10⁻⁷ relative — two orders inside the `[cell] rel` they were used to
+justify. A fitted coefficient is a hypothesis; this one turned out right, and
+it is worth saying that it was checkable at all only because the capture was
+fixed.
 
 ### 36.3 A declared SCOPE is a third thing, and it needs its own vocabulary
 
@@ -4076,3 +4095,104 @@ Two things make the re-addressing checkable rather than a leap:
   re-read its `expected` from the new snapshot's `MOVESOutput`. The document
   says WHERE and the reference says WHAT, which is §12's rule surviving a
   change of address.
+
+---
+
+## 41. A concession to the capture is retired by re-measuring it, and the retirement is worth as much as the concession **[Phase 5 continued, 14,036 cells, one exception deleted]**
+
+§36 is this repository's record of a residual that belonged to the *capture*
+rather than to the port, and of the vocabulary invented to say so: a declared
+**scope**, holding 968 cells out of a comparison and allowing a 5 × 10⁻¹³
+absolute floor beneath the relative gate on 2,629 more. `moves.rs` then fixed
+the capture — `moves-snapshot/v2` writes the shortest decimal that round-trips
+the f64 — and the whole concession came out. What that cost, and what it taught,
+is different from what §36 taught.
+
+### 41.1 Read the encoding. A replaced field must not be defaulted
+
+`moves-snapshot/v1`'s sidecar carried `"float_decimals": 12`, from which a
+consumer derived a storage quantum of `0.5 × 10⁻¹²`. v2 carries
+
+```json
+"float_encoding": { "kind": "shortest_round_trip", "max_significant_digits": 17 }
+```
+
+and **omits `float_decimals` entirely**. That omission is the design: there is
+no fixed decimal count under the new rule, so any number written into the old
+field would be a lie a consumer would silently turn into a wrong tolerance
+floor. An un-updated consumer fails instead.
+
+So the consumer's job is not to substitute a default; it is to **name every
+branch and refuse the rest**. `compare-output.py`'s `FloatEncoding` answers one
+question — how much absolute difference the reference is incapable of
+recording — and answers it for `fixed_decimals` (`0.5 × 10⁻ᵈ`),
+`shortest_round_trip` (**zero**), an absent sidecar (`None`, which is a third
+fact and not a synonym for either), and nothing else. An unknown `kind`, or a
+sidecar carrying neither field, raises.
+
+**Derive the concession from the ENCODING, not from the flag.** The
+`allow_storage_quantum` declaration is unchanged in the comparator, but against
+a lossless capture the floor it computes is `0.0`, so the declaration allows
+nothing and says so in the report. A flag whose obstacle has disappeared should
+go inert on its own, before anyone remembers to delete it — otherwise the
+window between "the corpus was fixed" and "someone edited the config" is a
+window in which the gate is quietly weaker than it reads.
+
+### 41.2 Both formats are read by the COMPARATOR; only one by the specifications
+
+These are different lifetimes and conflating them costs a working test suite.
+
+* The **comparator** reads v1 and v2, because a corpus migrates on a branch and
+  a checkout that can judge only one format can be tested against only one
+  branch.
+* The **specifications and fixtures** pin exactly one corpus, because a spec
+  quotes values and a fixture asserts ordinals, and those differ between the
+  two captures for reasons that have nothing to do with tolerance.
+
+Say which, in the document. `run-nr-airtoxics-oracle.sh` now READS the encoding
+and **asserts it is lossless**: pointed at a v1 corpus it fails loudly rather
+than reporting a clean comparison of a capture it is silently mismodelling.
+That assertion is the honest form of "this specification describes v2".
+
+### 41.3 The retirement is a measurement, and the retired numbers stay
+
+What was deleted, measured on the v2 corpus with `[cell] rel` untouched at
+2 × 10⁻⁵ and the whole scope removed:
+
+| | scope in place (v1) | scope deleted (v2) |
+|---|---|---|
+| rows compared | 13,068 of 14,036 | **14,036 of 14,036** |
+| absolute floor | 5 × 10⁻¹³ | **none** |
+| worst cell the gate saw | 9.417 × 10⁻⁶ in EXCESS of the floor | **9.417 × 10⁻⁶ raw** |
+| pollutant 131 | not compared | 6.836 × 10⁻⁶ |
+| pollutant 142 | not compared | 9.183 × 10⁻⁶ |
+| worst of all 29 pollutants | — | 9.417 × 10⁻⁶, a factor of 2.1 inside |
+
+The same worst cell over 968 more of them, with 2,629 fewer excused. The
+independent float32 reproduction, which takes nothing from the reference but
+the final comparison, reports 9.425 × 10⁻⁶ on the same 14,036 — so the
+retirement is checked by two routes, which is §12's rule applied to the
+*removal* of a concession rather than to its addition.
+
+**Keep the retired numbers in the file that used to carry the exception.**
+`tolerance.toml`'s `[fixtures]` section now has no scope and, in its place, the
+measurement that removed one and the cost of the choice: on a v1 snapshot 1,012
+of 14,036 cells exceed the gate, so the deleted scope would be needed again.
+A deleted exception with no record is indistinguishable from an exception that
+was never justified.
+
+### 41.4 A fitted coefficient is a hypothesis, and a recapture is the only thing that can mark it
+
+§36.2's method — fit the coefficient the reference must have used, show it is
+inside half a stored quantum, assert it in the oracle every run — produced
+1.1045021 × 10⁻⁹ and 1.9434497 × 10⁻¹¹ for the two dioxin rates. v2 records
+**1.1045 × 10⁻⁹** and **1.94345 × 10⁻¹¹**: the fits were right to 1.9 × 10⁻⁶
+and 1.5 × 10⁻⁷ relative, two orders inside the gate they were used to justify.
+
+That is a vindication of the method and it must not be read as a licence. The
+fit was never *evidence* that the arithmetic was right — it was evidence that
+the arithmetic was *consistent with* a rate the capture could have rounded to
+what it stored, which is a weaker claim, and the only reason it can now be
+graded is that someone fixed the capture. When a fit is the best available
+answer, say in the document that it is a hypothesis and name the recapture that
+would settle it.

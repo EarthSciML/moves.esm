@@ -20,33 +20,30 @@
 # twenty toxics plus the NonHAPTOG pass. It reproduces all 14,036 MOVESOutput
 # rows over 29 pollutant-process pairs, key set exact.
 #
-# WHY THE REPORT HAS THREE LINES INSTEAD OF ONE. Every table in this corpus is
-# captured with `float_decimals: 12` (`moves.rs/crates/moves-snapshot/
-# src/format.rs:17`), which stores a float as twelve DECIMAL places -- so a
-# value of 1e-12 keeps ONE significant digit. That splits the comparison into
-# three populations, and conflating them would hide the one that matters:
+# WHY THE REPORT IS ONE POPULATION, AND USED TO BE THREE. `moves-snapshot/v2`
+# stores a float as the shortest decimal that round-trips the f64, so the
+# capture destroys nothing and every one of the 14,036 cells is judged on its
+# raw relative error against tolerance.toml's UNMODIFIED [cell] rel = 2e-5.
+# Worst 9.425e-06; 6.874e-06 on pollutant 131 and 9.217e-06 on 142.
 #
-#   * 10,439 cells the capture stores in full (>= 8 significant digits). Worst
-#     9.425e-06, asserted against tolerance.toml's UNMODIFIED [cell] rel = 2e-5.
-#   * 2,629 cells stored with fewer digits. Their error is asserted in EXCESS of
-#     the capture's own half-quantum (5e-13 absolute) -- the same concession
-#     compare-output.py already makes for an exactly-zero expectation, and not a
-#     tolerance chosen here. Worst 8.655e-06.
-#   * 968 cells of pollutants 131 and 142, whose INPUT rate
-#     (`nrdioxinemissionrate.meanBaseRate`) is captured as 0.000000001105 and
-#     0.000000000019 -- four and TWO significant figures. No tolerance reading
-#     can fix an input. Instead the script FITS the rate the reference must have
-#     used and asserts it lies within half a stored quantum of the captured one:
-#     1.1045021e-09 against 1.105e-09 (0.996 half-quanta) and 1.9434497e-11
-#     against 1.9e-11 (0.869). That is the whole of the difference, and it is
-#     the capture's rather than the port's.
+# The script READS the encoding off a `.meta.json` and ASSERTS it is lossless.
+# That is deliberate: pointed at a `moves-snapshot/v1` corpus it fails loudly
+# rather than reporting a clean comparison it is silently misreading.
 #
-# That third population is why `fixtures/nr-airtoxics-lawn-garden-county.esm`
-# emits 14,036 rows and COMPARES 13,068: tolerance.toml holds pollutants 131
-# and 142 out of the comparison as a declared scope, with the fitted rates as
-# its reason, and compares the other 27 at the capture's own resolution. The
-# gate itself is unchanged. `docs/nr-airtoxics-lawn-garden-county.md` §7.2 and
-# §8 have the measurement and both alternatives.
+# Under v1 this report had three lines, because twelve DECIMAL places left a
+# value of 1e-12 with ONE significant digit: 10,439 cells stored in full,
+# 2,629 that needed a 5e-13 absolute floor, and 968 cells of pollutants 131
+# and 142 whose INPUT rate (`nrdioxinemissionrate.meanBaseRate`) was captured
+# as 0.000000001105 and 0.000000000019 -- four significant figures and TWO --
+# which no tolerance reading can fix, so the script had to FIT the rate the
+# reference must have used. v2 records 1.1045e-09 and 1.94345e-11 and the
+# script now reads them; the old fits, 1.1045021e-09 and 1.9434497e-11, were
+# right to 1.9e-06 and 1.5e-07 relative.
+#
+# That is why `fixtures/nr-airtoxics-lawn-garden-county.esm` emits 14,036 rows
+# and now COMPARES all 14,036 where it used to compare 13,068, and why
+# tolerance.toml no longer carries a scope for it at all.
+# `docs/nr-airtoxics-lawn-garden-county.md` §7.2 and §8 have the before-and-after.
 #
 # THIS SCRIPT IS THE ATTRIBUTION TOOL FOR THAT: it computes the same 14,036
 # rows by a completely different route -- float32 NumPy straight from the

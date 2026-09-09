@@ -215,56 +215,48 @@ pollutant_column = "pollutantID"
 
 # --- declared scope ---------------------------------------------------------
 #
-# NOT a tolerance, and not a shortfall. `[cell] rel` above is unchanged at 2e-5
-# and applies at full strength to everything a fixture emits; `[shortfall]`
-# records rows a fixture does NOT emit. This records the opposite thing: rows
-# that ARE emitted, with the right keys and the right arithmetic, and that the
-# SNAPSHOT cannot support a comparison for. compare-output.py holds the named
-# pollutants out of both sides and prints what it held out and why; `why` is
-# mandatory and an exclusion without one is refused.
+# There is none, and the last one is worth recording rather than deleting in
+# silence, because it was the largest single concession this file ever made and
+# it was retired by MEASUREMENT rather than by argument.
 #
-# Use it only where the obstacle is in the capture rather than in the port, and
-# only with the measurement that shows which. Anything else belongs in
-# [shortfall] or in a bug.
-
-[fixtures."nr-airtoxics-lawn-garden-county".scope]
-excluded_pollutants = [131, 142]
-allow_storage_quantum = true
-why = "the two dioxin congeners are computed from nrDioxinEmissionRate.meanBaseRate, which every table in this corpus stores at float_decimals = 12 (moves.rs/crates/moves-snapshot/src/format.rs:17) -- so the 1.105e-09 of pollutant 131 keeps four significant figures and the 1.9e-11 of pollutant 142 keeps TWO, against the double MOVES itself read. Fitting the rate the reference must have used from its own output gives 1.1045021e-09 and 1.9434497e-11, both inside HALF A STORED QUANTUM of the captured value, which is the whole of the difference: no implementation reading this capture can be closer, and the uniform bias it leaves is 4.5e-04 and 2.24e-02 on the two blocks. run-nr-airtoxics-oracle.sh fits and asserts both rates every run, so the claim is checked rather than asserted once; docs/nr-airtoxics-lawn-garden-county.md 7.2 has the derivation. The fix is upstream, in the capture."
-
-# `allow_storage_quantum` is the OTHER half of the same fact and a different
-# remedy, because it is the OUTPUT side rather than the input side. 3,597 of
-# this snapshot's 14,036 MOVESOutput cells are stored with fewer than eight
-# significant digits and 1,208 of them as an outright zero, because a trace
-# pollutant at 1e-12 g keeps ONE significant digit at twelve decimal places.
-# compare-output.py already concedes exactly this for an expected zero ("when
-# only the expectation is zero, fall back to absolute, since there is no scale
-# to be relative to"); setting this flag makes the same concession one step
-# earlier, allowing half a stored quantum -- 5e-13 here, DERIVED from the
-# snapshot's own `.meta.json` float_decimals and not chosen -- as an absolute
-# floor beneath the unchanged 2e-5 relative gate. Measured: it takes the
-# 2,629 storage-limited cells of the 27 compared pollutants from 283 over the
-# gate to a worst of 8.655e-06, and it moves nothing on a cell the capture
-# stores in full. It is opt-in per fixture so that no other fixture's gate
-# moves, and the self-test falsifies it both ways: a difference inside half a
-# quantum is absorbed, and a real error on a well-stored cell still fails.
-
-# THE ALTERNATIVE WAS MEASURED, and this is the record of the choice. Without
-# `allow_storage_quantum`, 283 of the 13,068 remaining cells exceed the 2e-5
-# gate -- all of them in the seven trace pollutants 23, 60, 63, 65, 66, 67 and
-# 69, whose raw relative errors run from 5.388e-05 to 4.479e-01 because their
-# stored values keep one to five significant digits. Making the suite green
-# that way needs those seven pollutants excluded as well: NINE excluded
-# pollutants, 4,356 of 14,036 rows held out, 9,680 compared, worst cell
-# 9.417e-06.
+# A `scope` is not a tolerance and not a shortfall. `[cell] rel` above applies
+# at full strength to everything a fixture emits; `[shortfall]` records rows a
+# fixture does NOT emit. A scope recorded the opposite thing: rows that ARE
+# emitted, with the right keys and the right arithmetic, and that the SNAPSHOT
+# could not support a comparison for. compare-output.py still implements it,
+# `why` is still mandatory, and the self-test still falsifies it both ways --
+# so the mechanism is available if a capture ever again destroys the evidence.
 #
-# With the storage floor: TWO excluded pollutants, 968 rows held out, 13,068
-# compared, worst cell in excess of the quantum 9.417e-06 -- the same number,
-# over 3,388 more cells. Per pollutant, the worst excess is 6.798e-06 (23),
-# 7.712e-06 (60), 6.221e-06 (63), 5.683e-06 (65), 7.349e-06 (66), 6.749e-06
-# (67) and 7.155e-06 (69): every one inside the unchanged gate with a factor of
-# 2.6 or more to spare, and none of them within a factor of 100 of it by
-# accident. Checking 13,068 cells is a stronger gate than checking 9,680, so
-# the floor is kept -- but it IS a change to how the comparison is read, it is
-# opt-in per fixture, and the exclusion-only numbers are here so the decision
-# can be revisited without re-deriving them.
+# WHAT IT WAS. `[fixtures."nr-airtoxics-lawn-garden-county".scope]` held
+# pollutants 131 and 142 out of the comparison -- 968 of 14,036 cells -- and
+# allowed a 5e-13 absolute floor beneath the relative gate on the rest. Both
+# halves named the same cause: `moves-snapshot/v1` stored a float as twelve
+# DECIMAL places, so nrDioxinEmissionRate.meanBaseRate arrived as
+# 0.000000001105 and 0.000000000019 (four significant figures and TWO) and
+# 3,597 of the output cells arrived with fewer than eight, 1,208 of them as an
+# outright zero.
+#
+# WHY IT IS GONE. `moves-snapshot/v2` stores the shortest decimal that
+# round-trips the f64. The two rates are 1.1045e-09 and 1.94345e-11, and the
+# smallest non-zero output cell is 4.877e-17 where v1's floor put it at 1e-12.
+# Measured on the v2 corpus with the whole scope deleted and [cell] rel
+# untouched at 2e-5:
+#
+#   rows compared        14,036 of 14,036   (was 13,068)
+#   absolute floor       none               (was 5e-13)
+#   worst cell           9.417e-06 RAW      (was 9.417e-06 in EXCESS of the floor)
+#   worst, pollutant 131 6.836e-06          (was not compared)
+#   worst, pollutant 142 9.183e-06          (was not compared)
+#   worst of all 29 pollutants  9.417e-06, a factor of 2.1 inside the gate
+#
+# The same worst cell, over 968 more of them, with 2,629 fewer excused and no
+# floor at all. run-nr-airtoxics-oracle.sh reproduces the same 14,036 cells by
+# a completely different route (float32 NumPy, no .esm) and reports a worst of
+# 9.425e-06, so the retirement is checked twice.
+#
+# WHAT IT COSTS. This file now judges the v2 corpus and only the v2 corpus. On
+# a v1 snapshot the deleted scope would be needed again: 1,012 of 14,036 cells
+# exceed 2e-5 there -- 729 of pollutants 131 and 142 plus 283 of the seven
+# trace pollutants 23, 60, 63, 65, 66, 67 and 69. compare-output.py still
+# READS both formats, and would report those 1,012 rather than mis-scale them;
+# it is this fixture layer, not the comparator, that is pinned to v2.
