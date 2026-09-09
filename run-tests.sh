@@ -22,6 +22,11 @@
 # 1 with 19 failures, every one a stale row count or ordinal and none a defect.
 # Override the location with SNAPSHOTS=/path.
 #
+# AND CLEAR THE CACHE WHEN THE CORPUS CHANGES. `esm` caches every ingested
+# source by URL and never revalidates it (finding F42): swap the corpus under
+# `../moves.rs` and the fixtures keep reading the old one. Stage 2b now refuses
+# the run when that has happened; `rm -rf $TMPDIR/earthsci-esm-cache` fixes it.
+#
 # Stage 6 has the opposite polarity to the rest and that is deliberate: each
 # file under docs/findings/ is a repro whose inline test asserts the behaviour
 # we WANT, and which fails today. If one goes green, an upstream defect has been
@@ -171,6 +176,22 @@ fi
 # files on every run. That is findings F7 and F15 again -- a CWD-anchored path
 # -- in the tool this repository wrote to catch data-source mistakes, and it
 # went unnoticed for exactly one reason: nothing ran it.
+# --- 2b. the data-source cache ------------------------------------------
+#
+# BEFORE anything reads a snapshot. `esm` caches each ingested source under
+# $TMPDIR/earthsci-esm-cache keyed by the URL and never revalidates (finding
+# F42), so a corpus replaced in place -- which the moves-snapshot/v2 recapture
+# did -- stays invisible to every stage below. It cost a day the first time,
+# presenting as ten fixtures red with numbers from the previous corpus, and it
+# can equally fail GREEN against a corpus that has been deleted.
+head2 "data-source cache"
+if out=$(python3 tools/check-source-cache.py 2>&1); then
+  printf '%s\n' "$out"
+else
+  fail "data-source cache is stale"
+  printf '%s\n' "$out"
+fi
+
 head2 "data sources"
 if out=$(python3 tools/check-sources.py 2>&1); then
   printf '%s\n' "$out"

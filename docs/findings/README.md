@@ -17,14 +17,17 @@ or oracle regressed, and no tolerance moved.
 F3, F5, F13, F14, F20, F21, F22, F28 and F41 each have a minimal `.esm` repro in
 this directory — F22 has two, one per construct; F8 is a CLI behaviour rather than a
 document, and is checked by command against the ordinary files of the repo.
-**F17, F31 and F33 deliberately have no repro file**: a repro
+**F17, F31, F33 and F42 deliberately have no repro file**: a repro
 for any of them would assert the RIGHT answer and pass, and the tripwire stage
 below reads a passing file in this directory as "the defect is fixed". F17 and
 F31 were cost findings, where the right answer arrives too slowly rather than
 wrong; F33 is about bindings this repository does not execute, so its repro
 would pass on `./esm` for a reason that has nothing to do with the defect. Each
 was reproduced inline in its own section instead, with the measurements that
-made it a finding. F17 and F31 are now fixed upstream and retired — and F17 turned out not to be
+made it a finding. **F42 cannot have one for a fourth reason**: its trigger is
+state OUTSIDE the repository — a warm cache in `$TMPDIR` — so the same file
+would pass or fail depending on what was run before it, which is precisely what
+a tripwire cannot read. It is gated by `tools/check-source-cache.py` instead. F17 and F31 are now fixed upstream and retired — and F17 turned out not to be
 a cost finding at all, which is why the rule that a performance repro cannot be
 a tripwire is worth keeping even though both of its instances are gone: the
 thing that had no repro was hiding a WRONG ANSWER, and only a document that
@@ -2155,3 +2158,78 @@ of assertions and cannot be obeyed at the granularity it names.
 `F41_an_assertion_cannot_say_why.esm` both validates and passes the day one
 exists, so the ordinary tripwire loop watches it with no change to
 `run-tests.sh`.
+
+---
+
+## F42 — the data-source cache is keyed by URL and never revalidated
+
+**Not fixed. Gated, not tripwired: `tools/check-source-cache.py`, stage 2b of
+`run-tests.sh`.**
+
+`esm` caches every ingested data source under
+`$TMPDIR/earthsci-esm-cache/<source name>/v1/`, with a `meta/<hash>.json` per
+entry recording the resolved `url`, the `bytes` and the `sha256_content` of what
+it stored. On the next run the entry is returned **for the same URL string, with
+no check that the file at that path still says the same thing**. Replace a file
+in place and every document that had already read it keeps reading the old
+bytes, indefinitely.
+
+### What it cost
+
+The `moves-snapshot/v2` recapture replaced the whole corpus under
+`../moves.rs`. After the merge, ten of the fourteen fixtures failed in the
+canonical checkout while the identical commit passed elsewhere, and the numbers
+were not obviously wrong — `act_sho` came out **27.33** where the snapshot on
+disk holds **260.057**, which is a real source-hours figure, just the previous
+corpus's. The index sets gave it away only once someone asked for them
+directly:
+
+| axis | what the run used | what the parquet on disk holds |
+|---|---:|---:|
+| `runspecday_rows` | 2 | **1** |
+| `activity_rows` | 82 | **41** |
+| `output_rows` | 1288 | **644** |
+| `agecategory_rows` | 41 | 41 (day-independent, so it agreed) |
+
+The cached record named it exactly: `at_runspecday` for
+`file:///…/code/moves.rs/…/process-airtoxics/…__runspecday.parquet`, fetched
+`2026-09-07T19:11:30Z`, **371 bytes**; the file on disk is **363 bytes** with a
+different hash. One is the two-day v1 table, the other the one-day v2 table.
+
+### What makes it hard to see, and how to attribute it
+
+The key is the **URL string, not the file**. Reaching the identical directory
+through a differently-named symlink is a cache MISS and reads the truth, so:
+
+```
+../../moves.rs/characterization/…      →  239 pass / 44 FAIL
+../.probe-D/characterization/…         →  283 pass /  0 FAIL   (symlink to the same directory)
+/absolute/path/to/moves.rs/…           →  239 pass / 44 FAIL   (same string as the first)
+```
+
+Same bytes, same binary, same document, same working directory. That is the
+discriminator: **if a run's result changes when you spell the corpus path
+differently, it is this.** It also explains the corollary that first looks like
+proof of something worse — a layout whose result is independent of what its
+corpus symlink points at, *including at a path that does not exist*, is simply a
+layout whose entries are all warm.
+
+### Why it is worse than a wrong answer
+
+It can fail **green**. A warm entry outlives the file it came from, so a suite
+can pass against a corpus that has been deleted, moved or replaced, and report
+per-cell agreement with data no longer on disk. That is the direction no gate in
+this repository was watching, and it is why stage 2b runs before every stage
+that reads a snapshot rather than being a note in a runbook.
+
+### What would fix it upstream
+
+Revalidate on `(size, mtime)` before serving, or key the entry on the file's
+content hash rather than on its URL. Either makes a corpus replaced in place a
+cache miss instead of a silent substitution. Until then:
+
+```sh
+rm -rf $TMPDIR/earthsci-esm-cache        # after any change to ../moves.rs
+python3 tools/check-source-cache.py      # or let stage 2b refuse the run
+```
+
