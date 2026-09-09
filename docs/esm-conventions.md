@@ -253,18 +253,46 @@ This port's assemblies still use the top-level `{ref}` form the defect forced.
 That is deliberate: they work, they are tested, and rewriting them buys nothing
 today. A *new* assembly may use either, and should prefer the nested form.
 
-**The cost of the working form used to be that index sets do not merge across
-it** (finding F2), so every assembly here restates the axes of each file it
-mounts. **F2 is fixed** (EarthSciAST `19f929981`, PR #208): a top-level `{ref}`
-now merges the leaf's `index_sets` into the mounting document's registry and
-applies §4.7's conflict check at that edge — perturbing one restated `size`
-gives `subsystem_index_set_conflict` from the loader, naming both definitions.
-The restatement is therefore redundancy rather than necessity. It is left in
-place for now — the assemblies work and are tested — and removing it is scoped
-follow-up rather than a rule. `tools/check-conventions.py` still compares the
-two definitions and fails on disagreement **[checked]**; it is now defence in
-depth rather than a stand-in, and goes vacuous the day an assembly stops
-restating.
+**An assembly declares only its OWN axes; a mounted leaf's merge across the
+mount.** This is new, and it is the reversal of what this section said for two
+phases. The cost of the working form *used* to be that index sets do not merge
+across it (finding F2), so every assembly restated the axes of every file it
+mounted. **F2 is fixed** (EarthSciAST `19f929981`, merged `859ef5e93`, PR #208):
+a top-level `{ref}` now merges the leaf's `index_sets` into the mounting
+document's registry and applies §4.7's conflict check at that edge. The
+restatements are **gone** — 109 entries across the four assemblies, `evap_leaks`
+23, `micro_exhaust` 5, `mixed_onroad` 18, `nr_logging_county` 63 — and every
+one of the four `esm test` outputs is byte-identical to before the removal.
+
+What is left in an assembly's `index_sets` is what the assembly itself declares
+and no leaf does: `micro_exhaust_run`'s `micro_run_fuel_kind_rows`, and
+`nr_logging_county_run`'s `run_scc_rows`, `run_model_year_rows` and
+`run_engine_fuel_kind_rows` — the one-row key relations that pin the run's
+scope. `evap_leaks_run` and `mixed_onroad_run` have no axis of their own and so
+have **no `index_sets` block at all**, which is the honest shape: everything
+they are indexed over belongs to a leaf.
+
+An assembly's own equations shape freely over a mounted leaf's axes — the roll-up
+in `mixed_onroad_run` is over `output_rows` and `svp_rows`, neither of which it
+declares — and that is the merge doing the work, not an omission. **A redeclaration
+is still legal when it is deep-equal**; it is simply noise, so do not write one.
+
+`tools/check-conventions.py`'s `assembly-index-sets` rule is **deleted**, not
+weakened. Its second half required the restatement it would have removed, so the
+rule and the documents had to move in one change; and a rule whose subject no
+longer exists cannot fail, which reads like coverage. Five rules remain, and the
+enum one stays, because `enums` still do not conflict-check (F13, open).
+
+What replaced it is a **falsifiable** check rather than a comparison of two
+copies: `run-tests.sh` stage 6 writes `runs/.index_set_merge_probe.esm` — the
+micro assembly with `rate_rows` restated one larger than its leaf declares it,
+`tools/make-index-set-probe.py` reading the true size off the leaf — and requires
+the loader to refuse it as `subsystem_index_set_conflict`. Stage 1 already covers
+the positive half for free: the same assembly shapes a variable over `rate_rows`,
+so a merge that stopped happening would stop that document validating. Measured
+on all nineteen mount edges of the four assemblies, before the removal and again
+after: every one raises the conflict, naming both definitions and suggesting
+`index_set_rename`.
 
 **A mounted leaf's own tests do NOT run under the mount.** They used to, and
 this section used to call that a feature — the check that mounting preserved

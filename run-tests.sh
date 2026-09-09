@@ -137,9 +137,13 @@ done
 # The rules in docs/esm-conventions.md that a machine can check: no equality
 # `filter` standing in for a join, no loop symbol shadowing the independent
 # variable, every join clause an `on` clause, lib/ files are template libraries,
-# and an assembly's index sets agree with those of every file it mounts. The
-# last one stands in for the §4.7 merge the loader does not perform on a
-# top-level {ref} edge (docs/findings F2).
+# and an assembly restates the union of its mounted leaves' enums.
+#
+# There used to be a sixth: an assembly's index sets agree with those of every
+# file it mounts. It stood in for the §4.7 merge the loader did not perform on
+# a top-level {ref} edge (F2). F2 is fixed, the assemblies stopped restating,
+# and the rule was deleted rather than left to pass vacuously. Stage 6's F2
+# control checks the loader itself instead.
 
 head2 "conventions"
 if out=$(python3 tools/check-conventions.py 2>&1); then
@@ -433,6 +437,41 @@ if "$ESM" validate "$F28_CONTROL" >/dev/null 2>&1 && "$ESM" test "$F28_CONTROL" 
 else
   fail "F28 contracted-lag control — the one spelling this repository has for a data-named predecessor no longer works, which is what a TTG-4 port would be built on"
 fi
+
+# F2's control, and the only thing left checking F2's fix. F2 was that a
+# top-level `models` {ref} did NOT merge the referenced file's index_sets into
+# the mounting document's registry, so all four assemblies restated every
+# mounted leaf's axes and tools/check-conventions.py compared the two copies.
+# F2 is fixed (EarthSciAST 19f929981, PR #208), the restatements are gone, and
+# that harness rule is gone with them -- deleted rather than weakened, because a
+# rule whose subject no longer exists reads like coverage.
+#
+# So this is what replaces it, and it checks the half that matters. Stage 1
+# already covers the POSITIVE half for free: runs/micro_exhaust_run.esm shapes
+# its own `adjustedEmissionRate` over `rate_rows`, which only the mounted leaf
+# declares, so if the merge stopped happening that document would stop
+# validating. What stage 1 cannot see is whether the merge still CONFLICT-CHECKS
+# -- a merge that silently took one side would validate identically. So the
+# probe restates one axis at the WRONG size and requires the loader to refuse it
+# by name.
+#
+# The probe is a hidden .esm on purpose: DOCS is collected once at the top of
+# this script and excludes hidden files, so a transient copy cannot leak into a
+# later stage. See the collect-documents block.
+INDEX_SET_PROBE=runs/.index_set_merge_probe.esm
+if "$PYTHON" tools/make-index-set-probe.py "$INDEX_SET_PROBE" >/dev/null 2>&1; then
+  if out=$("$ESM" validate "$INDEX_SET_PROBE" 2>&1); then
+    fail "F2 index-set-merge control -- a top-level {ref} ACCEPTED a restated axis at the wrong size. The merge is no longer conflict-checked and nothing in this repo compares the two copies any more"
+  elif grep -q 'subsystem_index_set_conflict' <<<"$out"; then
+    pass "F2 control: a restatement that disagrees with the leaf is refused as subsystem_index_set_conflict"
+  else
+    fail "F2 index-set-merge control -- the probe was refused, but not as subsystem_index_set_conflict"
+    sed 's/^/       /' <<<"$out"
+  fi
+else
+  fail "F2 index-set-merge control -- could not write the probe"
+fi
+rm -f "$INDEX_SET_PROBE"
 
 mapfile -t REPROS < <(find docs/findings -name '*.esm' -not -name '.*' -not -name 'join_leaf.esm' \
   -not -name 'F3_lib_with_enum.esm' \
