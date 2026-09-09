@@ -51,12 +51,12 @@ particulate rungs never touched:
 | RunSpec | `../moves.rs/characterization/fixtures/process-nox-speciation.xml` |
 | Model | ONROAD, `modelscale` `Inv` (inventory), `modeldomain` `DEFAULT` |
 | Geography | county 26161 (Washtenaw, Michigan), zone 261610, link 2616104 |
-| Time | year 2020, month **8**, hour **7**, day types **2 (weekend) and 5 (weekday)** |
+| Time | year 2020, month **8**, hour **7**, day type **5 (weekday)** |
 | Vehicles | sourceTypeID 21 (passenger car); fuel types **1, 2, 5, 9** |
 | Road | roadTypeID 4 (urban restricted access) |
 | Pollutant/process | **301** (Oxides of Nitrogen × Running Exhaust) and its three chained species **3201** (NO), **3301** (NO2) and **3401** (HONO) |
 | Model years | 1980–2020 (41) |
-| Output | `db__out_process_nox_speciation__movesoutput`, **872 rows** |
+| Output | `db__out_process_nox_speciation__movesoutput`, **436 rows** |
 | Output units | **grams** for all four pollutants; `outputtimestep` **Hour** |
 | Calculator path | `TotalActivityGenerator` → `SourceBinDistributionGenerator` → `BaseRateGenerator` → `BaseRateCalculator` → **`NOCalculator`**, **`NO2Calculator`** → output aggregation |
 | Snapshot | 373 tables, **246 non-empty** |
@@ -70,9 +70,9 @@ hour 6, day 5; the execution database's `runspecmonth`, `runspechour` and
 `runspecday` say month 8, hour 7, and day types 2 **and** 5. The execution
 database is the authority.
 
-### 0.2 Why 872 rows, and why the four blocks are not the same size
+### 0.2 Why 436 rows, and why the four blocks are not the same size
 
-872 = (124 + 104 + 104 + 104) × 2 day types.
+436 = 124 + 104 + 104 + 104, at the one day type this run selects (it was 872 over two; docs/esm-conventions.md §42).
 
 * **124** cohorts of total NOx. 125 of the 164 (model year, fuel type)
   candidates pass `stmyFraction > 0`; the one that is selected and still not
@@ -492,6 +492,9 @@ import sys, collections, math
 import glob
 import pyarrow.parquet as pq
 
+# "1 day types" is not English and this line is quoted in section 7.
+_s = lambda n: "" if n == 1 else "s"
+
 SNAP = sys.argv[1]
 # The execution database's name carries a per-run id, so the prefix is
 # DISCOVERED and not written down: a recapture renames every table in the
@@ -832,8 +835,8 @@ for species in (32, 33, 34):
     assert {c for c in parent - cohorts_by_pp[(species, 1)]} == \
         {c for c in parent if c[1] == ELECTRICITY}, species
 assert sum(expected_cohorts.values()) * len(days) == len(out) == 436
-print("key set:       124 NOx + 3 x 104 species cohorts x %d day types = %d rows, exact;"
-      % (len(days), len(out)))
+print("key set:       124 NOx + 3 x 104 species cohorts x %d day type%s = %d rows, exact;"
+      % (len(days), _s(len(days)), len(out)))
 print("               the 20 cohorts each species drops are exactly the ELECTRICITY ones,"
       " and every species set is a strict subset of the parent's")
 chained = sum(1 for (pol, _, _, _, _) in rows if pol != NOX)
@@ -872,8 +875,8 @@ Result:
 ```
 sho:             82 rows, worst relative error 3.610e-06
 baseRateByAge:  208 non-zero rows, worst relative error 5.945e-06
-emissionQuant:  872 rows, 0 missing, 0 extra, worst relative error 9.482e-06 at (pollutant 33, process 1, day 5, MY 1990, fuel 2)
-key set:       124 NOx + 3 x 104 species cohorts x 2 day types = 872 rows, exact;
+emissionQuant:  436 rows, 0 missing, 0 extra, worst relative error 9.482e-06 at (pollutant 33, process 1, day 5, MY 1990, fuel 2)
+key set:       124 NOx + 3 x 104 species cohorts x 1 day type = 436 rows, exact;
                the 20 cohorts each species drops are exactly the ELECTRICITY ones, and every species set is a strict subset of the parent's
                624 of the 872 rows are CHAINED -- computed from the 301 rows by NOxRatio, from no rate of their own
 ```

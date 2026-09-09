@@ -31,12 +31,12 @@ here. What this document specifies is the four things that are new:
 | RunSpec | `../moves.rs/characterization/fixtures/process-brakewear.xml` |
 | Model | ONROAD, `modelscale` `Inv` (inventory), `modeldomain` `DEFAULT` |
 | Geography | county 26161 (Washtenaw, Michigan), zone 261610, link 2616104 |
-| Time | year 2020, month **8**, hour **7**, day types **2 (weekend) and 5 (weekday)** |
+| Time | year 2020, month **8**, hour **7**, day type **5 (weekday)** |
 | Vehicles | sourceTypeID 21 (passenger car); fuel types **1, 2, 5, 9** |
 | Road | roadTypeID 4 (urban restricted access) |
 | Pollutant/process | **9101** (Total Energy × Running Exhaust), **11609** (PM2.5 Brakewear × Brakewear) and **10609** (PM10 Brakewear × Brakewear, *chained*) |
 | Model years | 1980–2020 (41) |
-| Output | `db__out_process_brakewear__movesoutput`, **750 rows** |
+| Output | `db__out_process_brakewear__movesoutput`, **375 rows** |
 | Output units | energy in Million BTU, particulate in **grams**, `outputtimestep` **Hour** |
 | Calculator path | `TotalActivityGenerator` → `SourceBinDistributionGenerator` → `BaseRateGenerator` → `BaseRateCalculator` → **`PM10BrakeTireCalculator`** → output aggregation |
 | Snapshot | 372 tables, **237 non-empty** |
@@ -52,7 +52,7 @@ execution database's own `runspec*` tables.
 |---|---|---|
 | month | 7 | **8** (`runspecmonth`) |
 | hour | 6 | **7** (`runspechour`) |
-| day types | 5 | **2 and 5** (`runspecday`, 2 rows) |
+| ~~day types~~ | `<day id="5"/>` | **5** (`runspecday`, 1 row) — **agrees**, since the `<day key=>` correction (docs/esm-conventions.md §42) |
 | fuel types | 1 | **1, 2, 5, 9** (`runspecsourcefueltype`, 4 rows) |
 | pollutant/process | 10609, 11609, 9101 | **9101, 10609, 11609** (`runspecpollutantprocess`) |
 
@@ -66,10 +66,10 @@ single `(21, 1)` `onroadvehicleselection` becomes all four `(21, f)` pairs
 because `ExecutionRunSpec` expands each selected source type over every fuel
 type `fuelengtechassoc` lists for it.
 
-### 0.2 Why 750 rows, and what the three blocks are
+### 0.2 Why 375 rows, and what the three blocks are
 
 ```
-750 = 3 pollutant-processes  x  125 (modelYearID, fuelTypeID) cohorts  x  2 day types
+375 = 3 pollutant-processes  x  125 (modelYearID, fuelTypeID) cohorts  x  2 day types
 ```
 
 The 125 is the same ragged set as `mixed-onroad`'s — 41 gasoline model years, 40
@@ -552,6 +552,9 @@ import sys, collections
 import glob
 import pyarrow.parquet as pq
 
+# "1 day types" is not English and this line is quoted in section 7.
+_s = lambda n: "" if n == 1 else "s"
+
 SNAP = sys.argv[1]
 # The execution database's name carries a per-run id, so the prefix is
 # DISCOVERED and not written down: a recapture renames every table in the
@@ -821,8 +824,8 @@ assert set(rows) == {(o["pollutantID"], o["processID"], o["dayID"], o["modelYear
                       o["fuelTypeID"]) for o in out}
 assert worst < 2e-5, "emissionQuant: worst relative error %.3e exceeds 2e-5" % worst
 chained = sum(1 for k in rows if (k[0], k[1]) == (106, 9))
-print("key set:       %3d pollutant-processes x %d cohorts x %d day types = %d rows, exact"
-      % (len(POLPROCS), len(cohorts(9101)), len(DAYS), len(rows)))
+print("key set:       %3d pollutant-processes x %d cohorts x %d day type%s = %d rows, exact"
+      % (len(POLPROCS), len(cohorts(9101)), len(DAYS), _s(len(DAYS)), len(rows)))
 print("               %3d of them are CHAINED -- computed from the 11609 rows by "
       "PM10PM25Ratio, from no rate of their own" % chained)
 ```
@@ -831,8 +834,8 @@ Result:
 
 ```
 sho:            82 rows, worst relative error 3.610e-06
-emissionQuant: 750 rows, worst relative error 8.250e-06 at (pollutant 106, process 9, day 5, MY 2016, fuel 9)
-key set:         3 pollutant-processes x 125 cohorts x 2 day types = 750 rows, exact
+emissionQuant: 375 rows, worst relative error 8.251e-06 at (pollutant 106, process 9, day 5, MY 2016, fuel 9)
+key set:         3 pollutant-processes x 125 cohorts x 1 day type = 375 rows, exact
                250 of them are CHAINED -- computed from the 11609 rows by PM10PM25Ratio, from no rate of their own
 ```
 

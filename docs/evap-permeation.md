@@ -114,10 +114,10 @@ The regulatory class does not disappear — PC-1b puts it back, weighted by
 `RegClassSourceTypeFraction.regClassFraction`, which for source type 21 is a
 single row per `(fuel, model year)` at fraction 1.0.
 
-### 0.2 Why 128 rows
+### 0.2 Why 64 rows
 
 ```
-128 = 64 (modelYearID, fuelTypeID) cohorts  x  2 day types
+64 = 64 (modelYearID, fuelTypeID) cohorts  x  1 day type
 64  = 41 model years on gasoline (1980-2020) + 23 on E85 (1998-2020)
 ```
 
@@ -414,6 +414,9 @@ import sys
 import glob
 import collections
 import pyarrow.parquet as pq
+
+# "1 day types" is not English and this line is quoted in section 7.
+_s = lambda n: "" if n == 1 else "s"
 
 SNAP = sys.argv[1]
 _PREFIX = glob.glob(SNAP + "/tables/db__movesexecution*__year.parquet")[0][:-len("year.parquet")]
@@ -821,8 +824,9 @@ for o in out:
     assert sccs[k] == o["SCC"], (sccs[k], o["SCC"])
     assert o["processID"] == process_id and o["pollutantID"] == pollutant_id
 w = worst(dict(rows), expected, "emissionQuant", 2e-5)   # tolerance.toml's per-cell gate
-print("%-28s %d cohorts x %d day types = %d rows, exact; SCCs %s"
-      % ("key set:", len(rows) // len(DAYS), len(DAYS), len(rows), sorted(set(sccs.values()))))
+print("%-28s %d cohorts x %d day type%s = %d rows, exact; SCCs %s"
+      % ("key set:", len(rows) // len(DAYS), len(DAYS), _s(len(DAYS)), len(rows),
+         sorted(set(sccs.values()))))
 print("%-28s %.6f g computed / %.6f g in MOVESOutput"
       % ("total THC:", sum(rows.values()), sum(expected.values())))
 print("%-28s %d of %d AverageTankTemperature cells computed (mode 151, TTG-1),"

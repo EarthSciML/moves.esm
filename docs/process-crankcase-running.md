@@ -38,12 +38,12 @@ that are new, and they are independent of each other:
 | RunSpec | `../moves.rs/characterization/fixtures/process-crankcase-running.xml` |
 | Model | ONROAD, `modelscale` `Inv` (inventory), `modeldomain` `DEFAULT` |
 | Geography | county 26161 (Washtenaw, Michigan), zone 261610, link 2616104 |
-| Time | year 2020, month **8**, hour **7**, day types **2 (weekend) and 5 (weekday)** |
+| Time | year 2020, month **8**, hour **7**, day type **5 (weekday)** |
 | Vehicles | sourceTypeID 21 (passenger car); fuel types **1, 2, 5, 9** |
 | Road | roadTypeID 4 (urban restricted access) |
 | Pollutant/process | **101, 201, 301** (THC, CO, NOx × Running Exhaust) and **115, 215, 315** (the same three × Crankcase Running Exhaust, *chained*) |
 | Model years | 1980–2020 (41) |
-| Output | `db__out_process_crankcase_running__movesoutput`, **1,368 rows** |
+| Output | `db__out_process_crankcase_running__movesoutput`, **684 rows** |
 | Output units | grams, `outputtimestep` **Hour** |
 | Calculator path | `TotalActivityGenerator` → `SourceBinDistributionGenerator` → `BaseRateGenerator` → `BaseRateCalculator` → **`CrankcaseEmissionCalculatorNonPM`** → output aggregation |
 | Snapshot | 370 tables, **247 non-empty** |
@@ -59,7 +59,7 @@ authority is the execution database's own `runspec*` tables — the same rule as
 |---|---|---|
 | month | 7 | **8** (`runspecmonth`) |
 | hour | 6 | **7** (`runspechour`) |
-| day types | 5 | **2 and 5** (`runspecday`, 2 rows) |
+| ~~day types~~ | `<day id="5"/>` | **5** (`runspecday`, 1 row) — **agrees**, since the `<day key=>` correction (docs/esm-conventions.md §42) |
 | fuel types | 1 | **1, 2, 5, 9** (`runspecsourcefueltype`, 4 rows) |
 | pollutant/process | 3, 1, 2 × 15 and 1 | **101, 115, 201, 215, 301, 315** (`runspecpollutantprocess`, 6 rows) |
 
@@ -68,7 +68,7 @@ Measured: `sho`, `avgspeeddistribution`, `driveschedulesecond`,
 `process-brakewear`'s and `process-tirewear`'s. Any disagreement can therefore
 be attributed to the criteria-pollutant half or the crankcase half immediately.
 
-### 0.2 Why 1,368 rows, and why the two processes differ
+### 0.2 Why 684 rows, and why the two processes differ
 
 | | process 1 | process 15 |
 |---|---|---|
@@ -323,7 +323,7 @@ crankcase row emits when its exhaust row did **and** the ratio table has a row
 for it.
 
 `pp_emittedCohortCount` then recomputes 124/104/124/104/124/104 per
-pollutant-process. **That is the assertion a row count cannot make**: 1,368 is
+pollutant-process. **That is the assertion a row count cannot make**: 684 is
 equally consistent with six blocks of 114.
 
 ---
@@ -524,6 +524,9 @@ it.
 import sys, collections
 import glob
 import pyarrow.parquet as pq
+
+# "1 day types" is not English and this line is quoted in section 7.
+_s = lambda n: "" if n == 1 else "s"
 
 SNAP = sys.argv[1]
 # The execution database's name carries a per-run id, so the prefix is
@@ -858,10 +861,10 @@ assert len(exhaust)==124 and len(crank)==104, (len(exhaust),len(crank))
 assert {f for _,f in exhaust}=={1,2,5,9} and {f for _,f in crank}=={1,2,5}
 assert set(crank)<set(exhaust)
 assert crank_rows==3*len(crank)*len(DAYS) and direct_rows==3*len(exhaust)*len(DAYS)
-print("key set:       process  1 -- 3 pollutants x %d cohorts x %d day types = %d rows"
-      %(len(exhaust),len(DAYS),direct_rows))
-print("key set:       process 15 -- 3 pollutants x %d cohorts x %d day types = %d rows"
-      %(len(crank),len(DAYS),crank_rows))
+print("key set:       process  1 -- 3 pollutants x %d cohorts x %d day type%s = %d rows"
+      %(len(exhaust),len(DAYS),_s(len(DAYS)),direct_rows))
+print("key set:       process 15 -- 3 pollutants x %d cohorts x %d day type%s = %d rows"
+      %(len(crank),len(DAYS),_s(len(DAYS)),crank_rows))
 print("key set:       %d rows, exact, and process 15 is a STRICT SUBSET of "
       "process 1: the 20 electricity cohorts carry no crankcaseEmissionRatio "
       "row and are dropped by its inner join" % len(rows))

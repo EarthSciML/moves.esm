@@ -53,12 +53,12 @@ rung has:
 | RunSpec | `../moves.rs/characterization/fixtures/process-airtoxics.xml` |
 | Model | ONROAD, `modelscale` `Inv` (inventory), `modeldomain` `DEFAULT` |
 | Geography | county 26161 (Washtenaw, Michigan), zone 261610, link 2616104 |
-| Time | year 2020, month **8**, hour **7**, day types **2 (weekend) and 5 (weekday)** |
+| Time | year 2020, month **8**, hour **7**, day type **5 (weekday)** |
 | Vehicles | sourceTypeID 21 (passenger car); fuel types **1, 2, 5, 9** |
 | Road | roadTypeID 4 (urban restricted access) |
 | Pollutant/process | **101** (THC × Running Exhaust) and its five chained species **7901** (NMHC), **8701** (VOC), **2001** (benzene), **2401** (1,3-butadiene) and **2501** (formaldehyde) |
 | Model years | 1980–2020 (41) |
-| Output | `db__out_process_airtoxics__movesoutput`, **1,288 rows** |
+| Output | `db__out_process_airtoxics__movesoutput`, **644 rows** |
 | Output units | **grams** for all six pollutants; `outputtimestep` **Hour** |
 | Calculator path | `TotalActivityGenerator` → `SourceBinDistributionGenerator` → `BaseRateGenerator` → `BaseRateCalculator` → **`HCSpeciationCalculator`**, **`AirToxicsCalculator`** → output aggregation |
 | Snapshot | 368 tables, **251 non-empty** |
@@ -72,9 +72,9 @@ database's `runspecmonth`, `runspechour` and `runspecday` say month 8, hour 7,
 and day types 2 **and** 5, and `runspecpollutantprocess` says 101, 2001, 2401,
 2501, 7901 and 8701. The execution database is the authority.
 
-### 0.2 Why 1,288 rows, and which cohorts each block drops
+### 0.2 Why 644 rows, and which cohorts each block drops
 
-1,288 = (124 + 104 × 5) × 2 day types.
+644 = 124 + 104 × 5, at the one day type this run selects (it was 1,288 over two; docs/esm-conventions.md §42).
 
 | | THC (101) | each of the five species |
 |---|---|---|
@@ -614,6 +614,9 @@ import sys, collections, math
 import glob
 import pyarrow.parquet as pq
 
+# "1 day types" is not English and this line is quoted in section 7.
+_s = lambda n: "" if n == 1 else "s"
+
 SNAP = sys.argv[1]
 # The execution database's name carries a per-run id, so the prefix is
 # DISCOVERED and not written down: a recapture renames every table in the
@@ -1021,8 +1024,8 @@ for species in (20, 24, 25, 79, 87):
     assert (parent - cohorts_by_pp[(species, 1)]) == \
         {c for c in parent if c[1] == ELECTRICITY}, species
 assert sum(expected_cohorts.values()) * len(days) == len(out) == 644
-print("key set:       124 THC + 5 x 104 species cohorts x %d day types = %d rows, exact;"
-      % (len(days), len(out)))
+print("key set:       124 THC + 5 x 104 species cohorts x %d day type%s = %d rows, exact;"
+      % (len(days), _s(len(days)), len(out)))
 print("               the 20 cohorts every species drops are exactly the ELECTRICITY ones,"
       " and every species set is a strict subset of the parent's")
 chained = sum(1 for (pol, _, _, _, _) in rows if pol != THC)
@@ -1128,8 +1131,8 @@ Result:
 ```
 sho:             82 rows, worst relative error 3.610e-06
 baseRateByAge:  208 non-zero rows of 248, worst relative error 4.468e-06
-emissionQuant: 1288 rows, 0 missing, 0 extra, worst relative error 8.100e-06 at (pollutant 20, process 1, day 2, MY 1991, fuel 2)
-key set:       124 THC + 5 x 104 species cohorts x 2 day types = 1288 rows, exact;
+emissionQuant:  644 rows, 0 missing, 0 extra, worst relative error 7.564e-06 at (pollutant 1, process 1, day 5, MY 1990, fuel 2)
+key set:       124 THC + 5 x 104 species cohorts x 1 day type = 644 rows, exact;
                the 20 cohorts every species drops are exactly the ELECTRICITY ones, and every species set is a strict subset of the parent's
                1040 of the 1288 rows are SPECIATED -- computed from the 101 rows, from no rate of their own
 ```

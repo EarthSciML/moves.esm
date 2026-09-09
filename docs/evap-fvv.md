@@ -82,7 +82,7 @@ Different, and each of these is a section below:
 | the calculator | `MultidayTankVaporVentingCalculator`, §2.6–§2.14 — the largest calculator SQL file in MOVES |
 | the temperature / RVP adjustment | new; TVV-8, §2.13. **The only place `AverageTankGasoline` is load-bearing here** |
 
-### 0.2 Why 128 rows
+### 0.2 Why 64 rows
 
 Exactly the leaks slice's key set, for exactly the reasons `docs/evap-leaks.md`
 §0.2 gives: `emissionRateByAge` carries rows for the 22 gasoline and 19 E85
@@ -877,6 +877,9 @@ import glob
 import collections
 import pyarrow.parquet as pq
 
+# "1 day types" is not English and this line is quoted in section 7.
+_s = lambda n: "" if n == 1 else "s"
+
 SNAP = sys.argv[1]
 _PREFIX = glob.glob(SNAP + "/tables/db__movesexecution*__year.parquet")[0][:-len("year.parquet")]
 
@@ -1551,8 +1554,9 @@ for o in out:
     assert o["processID"] == process_id and o["pollutantID"] == pollutant_id
 worst(dict(rows), expected, "emissionQuant", 2e-5)
 
-print("%-28s %d cohorts x %d day types = %d rows, exact; SCCs %s"
-      % ("key set:", len(rows) // len(DAYS), len(DAYS), len(rows), sorted(set(sccs.values()))))
+print("%-28s %d cohorts x %d day type%s = %d rows, exact; SCCs %s"
+      % ("key set:", len(rows) // len(DAYS), len(DAYS), _s(len(DAYS)), len(rows),
+         sorted(set(sccs.values()))))
 print("%-28s %.6f g computed / %.6f g in MOVESOutput"
       % ("total THC:", sum(rows.values()), sum(expected.values())))
 

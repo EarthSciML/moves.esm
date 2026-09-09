@@ -101,10 +101,10 @@ every fixture, which no amount of re-capturing would fix.
 `the_scope_columns_come_from_the_execution_database` test is still the right
 test; only its description's reasoning needs the correction.
 
-### 0.2 Why 128 rows, and why only THC
+### 0.2 Why 64 rows, and why only THC
 
 ```
-128 = 64 (modelYearID, fuelTypeID) cohorts  x  2 day types
+64 = 64 (modelYearID, fuelTypeID) cohorts  x  1 day type
 64  = 41 model years on gasoline (1980-2020) + 23 on E85 (1998-2020)
 ```
 
@@ -1151,6 +1151,9 @@ import glob
 import collections
 import pyarrow.parquet as pq
 
+# "1 day types" is not English and this line is quoted in section 7.
+_s = lambda n: "" if n == 1 else "s"
+
 SNAP = sys.argv[1]
 _PREFIX = glob.glob(SNAP + "/tables/db__movesexecution*__year.parquet")[0][:-len("year.parquet")]
 
@@ -1436,8 +1439,9 @@ for o in out:
     assert sccs[k] == o["SCC"], (sccs[k], o["SCC"])
     assert o["processID"] == process_id and o["pollutantID"] == pollutant_id
 w = worst(dict(rows), expected, "emissionQuant", 2e-5)   # tolerance.toml's per-cell gate
-print("%-26s %d cohorts x %d day types = %d rows, exact; SCCs %s"
-      % ("key set:", len(rows) // len(DAYS), len(DAYS), len(rows), sorted(set(sccs.values()))))
+print("%-26s %d cohorts x %d day type%s = %d rows, exact; SCCs %s"
+      % ("key set:", len(rows) // len(DAYS), len(DAYS), _s(len(DAYS)), len(rows),
+         sorted(set(sccs.values()))))
 print("%-26s %.6f g computed / %.6f g in MOVESOutput"
       % ("total THC:", sum(rows.values()), sum(expected.values())))
 ```
@@ -1657,11 +1661,11 @@ something.
 
 ```
 ok process-evap-leaks
-  rows: 128 actual / 128 expected
+  rows: 64 actual / 64 expected
   identity: 19 columns, 4 varying (dayID, fuelTypeID, modelYearID, SCC); 15 constant
-  key set: 128 shared, 0 missing, 0 extra
-  worst cell: rel=7.294e-06 over 128 cells (tolerance 2e-05)
-  worst per-pollutant emissionQuant sum: rel=5.161e-07 (onroad tolerance 0.001)
+  key set: 64 shared, 0 missing, 0 extra
+  worst cell: rel=7.294e-06 over 64 cells (tolerance 2e-05)
+  worst per-pollutant emissionQuant sum: rel=7.243e-07 (onroad tolerance 0.001)
 ```
 
 **7.294 × 10⁻⁶ is the same worst cell §6.5's oracle reports, to the digit** —

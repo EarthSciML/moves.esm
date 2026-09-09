@@ -33,12 +33,12 @@ of them changed how the document is written rather than only what it computes.
 | RunSpec | `../moves.rs/characterization/fixtures/chain-so2-co2e-mechanism.xml` |
 | Model | ONROAD, `modelscale` `Inv` (inventory), `modeldomain` `DEFAULT` |
 | Geography | county 26161 (Washtenaw, Michigan), zone 261610, link 2616104 |
-| Time | year 2020, month **8**, hour **7**, day types **2 (weekend) and 5 (weekday)** |
+| Time | year 2020, month **8**, hour **7**, day type **5 (weekday)** |
 | Vehicles | sourceTypeID 21 (passenger car); fuel types **1, 2, 5, 9** |
 | Road | roadTypeID 4 (urban restricted access) |
 | Pollutant/process | **twenty-seven selected, twenty-six emitting**, all on process 1 |
 | Model years | 1980–2020 (41) |
-| Output | `db__out_chain_so2_co2e_mechanism__movesoutput`, **5,534 rows** |
+| Output | `db__out_chain_so2_co2e_mechanism__movesoutput`, **2,767 rows** |
 | Output units | **Million BTU** for pollutant 91, **grams** for the other twenty-five; `outputtimestep` **Hour** |
 | Calculator path | rates-first: `TotalActivityGenerator` → `SourceBinDistributionGenerator` → `BaseRateGenerator` → `BaseRateCalculator` → `HCSpeciationCalculator`, `AirToxicsCalculator`, **`SO2Calculator`**, **`CO2AERunningStartExtendedIdleCalculator`**, **`TOGSpeciationCalculator`** → output aggregation |
 | Control | `chain-so2-co2e-mechanism-control`, five `<pollutantprocessassociation>` lines apart |
@@ -58,9 +58,9 @@ and falls back to ALL day types.** So this run is not weekday-only, and every
 row count in this document is over both day types. The execution database is
 the authority.
 
-### 0.2 Why 5,534 rows, and which cohorts each block drops
+### 0.2 Why 2,767 rows, and which cohorts each block drops
 
-5,534 = 2,767 cohorts × 2 day types, and the 2,767 are not one block size:
+2,767 = 2,767 cohorts at the one day type this run selects, and the 2,767 are not one block size (it was 5,534 over two days; docs/esm-conventions.md §42):
 
 | block | cohorts | pollutant-processes |
 |---|---:|---|

@@ -4208,3 +4208,110 @@ what it stored, which is a weaker claim, and the only reason it can now be
 graded is that someone fixed the capture. When a fit is the best available
 answer, say in the document that it is a hypothesis and name the recapture that
 would settle it.
+
+---
+
+## 42. A RunSpec correction is not a tolerance question, and what it costs is coverage **[Phase 5 continued, 28 of 42 snapshots, 12 of 14 fixtures]**
+
+The `moves-snapshot/v2` recapture carried a second change that has nothing to do
+with floats. `<day key="5">` is a 0-based **INDEX** into the sorted
+`DayOfAnyWeek` list `[2, 5]` (`RunSpecXML.java:517-532`), not a dayID: 5 is out
+of range, it selected nothing, and MOVES fell back to **all** day types. So 28
+of the 42 snapshots had been running BOTH days against a one-day intent.
+Canonical `RunSpecXML.save` writes `<day id="…">` with the literal dayID
+(`RunSpecXML.java:2040`); the fixtures were corrected and recaptured, and every
+day-keyed table halved (moves.rs PR #55).
+
+### 42.1 The model did not change, and that is the measurement worth keeping
+
+Twelve of this repository's fourteen fixtures halve. **Not one equation was
+edited**, in any of them. Every day axis is sized by a metaparameter whose value
+the SOURCE's own `extent` supplies — `n_runspecday`, `default: 0` — so the
+documents ingested a one-row `runspecday` and emitted 125, 375, 644, 684, 728,
+2,767 rows and so on with no intervention at all, and every one of them matched
+its snapshot's `MOVESOutput` key set exactly on the first run.
+
+That is the strongest evidence available that the day axis was factored
+correctly, and it is evidence that only a corpus-shape change could ever have
+produced. **A dimension whose size is written down is a dimension nobody has
+tested.** The rule is already in §12 for values; this is the same rule for
+extents, and the way to check it is to change the corpus and see whether the
+document notices by itself.
+
+### 42.2 What DID have to change, and none of it is model logic
+
+| | count |
+|---|---|
+| `metadata.note` row counts in `data_sources` | **65**, over 12 fixtures |
+| inline assertion coordinates re-addressed or re-valued | **461** |
+| inline assertions deleted as weekend-only claims | **110** (2,564 → 2,454) |
+| oracle-fence hardcoded totals and `len(days) == 2` asserts | 7 |
+| corpus-wide FLOORS in `run-omd-oracle.sh` | 3, and they went DOWN |
+
+`tools/check-sources.py` caught all 65 notes one at a time, which is what it was
+built for. Nothing caught the assertion prose; §42.5 is what to do about that.
+
+### 42.3 Re-address by KEY, and MEASURE the layout rather than deriving it
+
+§40's rule — an output assertion is re-addressed by the KEY it named, not by
+arithmetic on its ordinal — is what this pass ran on, and the day correction
+adds the reason it cannot be shortcut.
+
+**The day is the outermost factor of `output_rows` in seven fixtures and the
+innermost in five**:
+
+| layout | fixtures |
+|---|---|
+| blocked, day outermost (`o -> o - N/2`) | mixed-onroad, process-brakewear, process-tirewear, process-evap-fvv, process-evap-leaks, process-evap-permeation, process-nox-speciation |
+| interleaved, day innermost (`2r-1`/`2r`, `o -> o/2`) | process-airtoxics, process-crankcase-running, process-pm-exhaust, process-refueling, chain-so2-co2e-mechanism |
+
+The index-set declaration is the **same product either way** —
+`{"op": "*", "args": ["n_outputCohort", "n_runspecday"]}` — so the layout is a
+property of the equations that fill the relation and cannot be read off the
+size. Worse, the two can differ WITHIN one document: `activity_rows` is
+day-outermost in all twelve, including the five whose `output_rows` is not.
+
+So the layout is measured, per fixture and per axis, by emitting the old
+document's key columns and reading `out_dayID` down the ordinals. A mapping
+that had been assumed uniform would have silently re-pointed five fixtures'
+assertions at the wrong rows — and they would still have PASSED, because an
+interleaved fixture's `o/2` and a blocked fixture's `o - N/2` both land on
+real rows with plausible values.
+
+### 42.4 A weekend claim has three fates and they are not interchangeable
+
+Of the 571 assertions this pass touched, each was one of:
+
+* **an address change** — the same claim at a new ordinal, value untouched.
+  The majority, and the safe kind.
+* **a claim change** — a worked example that named a weekend row now names the
+  SAME COHORT on the weekday. The value is re-read from the reference
+  (`MOVESOutput`, `baserate_*_2020` or `baseratebyage_*_2020` at hourDayID 95),
+  never rescaled from the weekend number and never rounded off the port's own
+  answer. `mixed-onroad`'s example A goes 0.895519 → 1.99515 that way.
+* **a deletion** — 110 of them, and every one is a loss. Where the weekend
+  assertion was half of a two-day pair, the weekday half already carried the
+  same number and nothing is lost but a duplicate. Where it was not, a claim
+  goes: the weekend drive-cycle weight total 1.0000004, the weekend arithmetic
+  mean speed 66.094076 and 67.0416879, `process-pm-exhaust`'s `act_dayID` 2 /
+  `act_hourDayID` 72 / `day_noOfRealDays` 2, and
+  `process-evap-permeation`'s whole `pc5_divides_by_the_day_types_real_days`
+  premise.
+
+### 42.5 Say what the correction cost, in the test that lost it
+
+**Every two-valued day factor in this repository is now exercised at one
+value.** `noOfRealDays` is 5 and never 2; `hourDayID` is 75 and never 72;
+`dayVMTFraction` has four rows and not eight; the drive-cycle weight vector is
+built once and not twice. A port that dropped the divisor entirely, or that
+hardcoded 5, now passes every fixture here.
+
+That is a real regression in what the suite can catch, it is the direct price
+of running what the RunSpec meant, and the corpus already contains the cure:
+**`expand-day` is the one snapshot that still carries both day types** and it
+has no `.esm` fixture. Porting it is the cheapest coverage in the tree.
+
+The rule: when a corpus correction removes a case, write the loss into the test
+that used to cover it, not only into a migration note. Each affected test's own
+`description` now says which value it stopped checking, because the reader who
+needs to know is the one adding the next assertion to that test.
