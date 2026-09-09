@@ -26,12 +26,12 @@ the way.
 | RunSpec | `../moves.rs/characterization/fixtures/mixed-onroad.xml` |
 | Model | ONROAD, `modelscale` `Inv` (inventory), `modeldomain` `DEFAULT` |
 | Geography | county 26161 (Washtenaw, Michigan), zone 261610, link 2616104 |
-| Time | year 2020, month **8**, hour **9**, day types **2 (weekend) and 5 (weekday)** |
+| Time | year 2020, month **8**, hour **9**, day type **5 (weekday)** |
 | Vehicles | sourceTypeID 21 (passenger car); fuel types **1, 2, 5, 9** |
 | Road | roadTypeID 4 (urban restricted access) |
 | Pollutant/process | **polProcessID 9101 only** — pollutant 91 (Total Energy Consumption) × process 1 (Running Exhaust) |
 | Model years | 1980–2020 (41) |
-| Output | `db__out_mixed_onroad__movesoutput`, **250 rows** |
+| Output | `db__out_mixed_onroad__movesoutput`, **125 rows** |
 | Output units | energy in **Million BTU**, `outputtimestep` **Hour** |
 | Calculator path | rates-first: `TotalActivityGenerator` → `SourceBinDistributionGenerator` → `BaseRateGenerator` → `BaseRateCalculator` → output aggregation |
 
@@ -47,6 +47,17 @@ the way.
 > `DayOfAnyWeek` list `[2, 5]`, where an out-of-range key means "no day
 > selected" and falls back to all day types. All 27 onroad fixtures in the
 > corpus show the identical offsets, which a stale rewrite would not reproduce.
+>
+> **SECOND CORRECTION (snapshot v2 recapture).** The `<day key>` row of the
+> table below is now GONE, because the RunSpec was wrong and has been fixed.
+> `<day key="5">` was an out-of-range index and selected NOTHING, so 28 of the
+> 42 snapshots ran BOTH day types against a one-day intent. Canonical
+> `RunSpecXML.save` writes `<day id="…">` with the literal dayID
+> (`RunSpecXML.java:2040`), the fixtures were corrected to `<day id="5"/>` and
+> recaptured, and the XML and the execution database now AGREE on the day
+> (moves.rs PR #55). Every day-keyed table in this snapshot halved, and
+> `MOVESOutput` went from 250 rows to 125. The rule is unchanged and the
+> disagreement is down from five dimensions to four.
 > `docs/evap-leaks.md` §0.1 has the measurement and the citations; §8.3 there
 > records the one row of the table below that was not re-derived (the
 > pollutant/process row). Read the rule, not the diagnosis.
@@ -65,7 +76,7 @@ recomputed from the rewritten file. The tables were not re-captured.
 |---|---|---|
 | month | 7 | **8** (`runspecmonth`) |
 | hour | 8 | **9** (`runspechour`) |
-| day types | 5 | **2 and 5** (`runspecday`, 2 rows) |
+| ~~day types~~ | `<day id="5"/>` | **5** (`runspecday`, 1 row) — **agrees**, since the correction |
 | fuel types | 1 | **1, 2, 5, 9** (`runspecfueltype`, 4 rows) |
 | pollutant/process | 9101, 9102, 9301, 9302 | **9101, 9102** (`runspecpollutantprocess`) |
 
