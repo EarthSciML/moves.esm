@@ -1388,8 +1388,19 @@ One top-level document per domain — **`moves-onroad.esm`** and
 tables and separate arithmetic; one document covering both was considered and
 rejected as the largest and riskiest option). Each reads the default database
 and computes `MOVESOutput`. Then one thin `.esm` per fixture that imports the
-domain document **by reference**, configures it, and asserts against canonical
-output in its own `tests` section.
+domain document **by reference**, configures it, and checks it against
+canonical output.
+
+**Two shape constraints, both measured in 7a and neither of them optional.**
+An ingesting document holds exactly **one** model (F45), and that model is the
+mount — so the fixture has nowhere to put an inline `tests` block beside
+it, and `"tests"` as a sibling of the `ref` is refused outright. A mounted
+child's own inline tests never run either (F47). So a fixture is verified by
+**emitting its relation and comparing** — exactly what `run-tests.sh`'s
+fixture stage already does — not by an assertion. And because a mounted
+document whose models reference each other cannot itself be mounted,
+**`moves-onroad.esm` must be a single model**, composed internally through
+expression templates rather than nested mounts.
 
 **No intermediate checkpoint.** The 44 captured execution databases are *not*
 reproduced as an intermediate target; the documents go straight to
@@ -1414,14 +1425,35 @@ EarthSciAST `3aa046d65`:
 - **A child can leave its shape open and the parent closes it.** A child
   declaring `index_sets: {rows: {size: "n_rows"}}` and no `n_rows` fails
   alone — `invalid type: string "n_rows", expected i64` — and **validates
-  through a parent** that declares `n_rows` and refs it. So per-fixture
-  configuration needs no override mechanism: the shared document is open at the
-  top, and the fixture closes it by supplying `data_sources` and
-  `metaparameters`.
+  through a parent** that declares `n_rows` and refs it. So the shared document
+  is open at the top and the fixture closes it.
+- **But validation is not the build, and 7a found the gap (F46).** The mounting
+  document must **restate the child's `index_sets` verbatim**; without them
+  `esm validate` passes and the build fails (`aggregate range 'g' references
+  index set '…', which is not declared in the document index_sets
+  registry`), because the build reads the mounting document's own registry.
+  F2's merge is real and reaches the validator only. Measured both ways at the
+  mount edge: a child's **`metaparameters` do not merge up**, and its
+  **`data_sources` do**. That asymmetry is load-bearing — it is what lets
+  the shared document carry the whole default-DB catalogue while the fixture
+  carries the metaparameters and the axes.
 
-**`ref` with overrides is therefore NOT needed.** `{"ref": …, "metaparameters":
-…}` is refused (`Additional properties are not allowed`), and it does not have
-to be permitted — that was a misreading of what configuration requires.
+**`ref` with overrides EXISTS, and this plan previously said it did not.** That
+conclusion came from `{"ref": …, "metaparameters": …}` being refused
+(`Additional properties are not allowed`) — but the key was wrong, not the
+feature. `SubsystemRef` takes **`bindings`**, **`model`**, **`index_set_rename`**
+and **`expression_template_imports`** (`esm-schema.json`,
+`additionalProperties: false`). Measured: `{"ref": "./child.esm", "bindings":
+{"n_cat": "n_spike_agecategory"}}` closes a child's *own* open metaparameters
+from the parent, with a runtime-discovered `extent` flowing through. Two
+limits: a metaparameter closed by `bindings` is **not readable in an equation**
+(—`bindings` closes sizes only), and it does **not** remove the index-set
+restatement above.
+
+So configuration has three working channels, not none: a per-fixture
+`data_sources` key the shared document binds by name; a metaparameter declared
+in the mounting document with a literal `default` and read as a scalar in a
+child equation; and `bindings` at the mount edge for sizes.
 
 ### 7.3 The default database: convert the whole of it, monolithically
 
@@ -1436,6 +1468,12 @@ fixture want to address a *file*:
 | `fuelUsageFraction` | 89 MB | 3,230 | ~21 KB |
 | `regionCounty` | 39 MB | 3,233 | ~7 KB |
 | `nrStateSurrogate` | 26 MB | 3,285 | ~4 KB |
+
+**7a measured this table and it is not what it looks like.** `IMCoverage`'s
+378 MB is not data: it is 21,625 files of ~17 KB that are overwhelmingly
+Parquet footer. Concatenated it is **791,123 bytes over 2,024,874 rows**, a
+478× reduction, and it loads in **0.46 s**. The table this section named as
+one of the two whose parse cost had to be measured costs half a second.
 
 **Convert the entire database, one monolithic Parquet per table.** Not a
 corpus-scoped cut: a database that only holds the geographies today's fixtures
@@ -1457,7 +1495,29 @@ So: no partitions to address, no `url_template` parameterisation, no document-
 level row filtering, and the *output* shapes stay match-sized because the join
 drives them.
 
-**The one cost that is real, and must be measured in 7b rather than assumed:**
+**The load cost is now measured, in 7a rather than 7b.** `esm test`, one table
+per throwaway document, wall clock, `TMPDIR` on disk:
+
+| table | on disk | rows | cold | warm |
+|---|---|---|---|---|
+| `EmissionRateByAge` | 105.7 MiB | 1,590,830 | **4.94 s** | **0.33 s** |
+| `IMCoverage`, consolidated | 0.8 MiB | 2,024,874 | **0.46 s** | **0.41 s** |
+
+So `EmissionRateByAge` is the only one of the two that was ever a real cost,
+and warm it is a third of a second. This does not dictate the layout.
+
+**Two things 7b must not trip over.** First, the ingested-source cache lives in
+`$TMPDIR`, which is `/tmp`, which is **`tmpfs` on this host** — it had
+reached 758 MB before anyone looked. Converting a whole database with the
+default `TMPDIR` will put the lot in RAM and OOM the machine; **set `TMPDIR` to
+disk first.** Second, the converted database at
+`/scratch/$USER/movesdb/movesdb20241112` is **220 monolithic tables plus 12
+still-partitioned directories** (`IMCoverage` 21,625 files,
+`nrStateSurrogate` 3,287, `regionCounty` 3,235, `fuelUsageFraction` 3,232, and
+8 more). Those 12 are 7b's actual job.
+
+**The original statement of the cost, retained because it is what was
+assumed:**
 `data_sources` are loaded per `esm` invocation, so a run pays the parse of
 whatever tables it declares — `IMCoverage` at 378 MB and
 `EmissionRateByAge` at 106 MB being the two that matter. `run-tests.sh` invokes
@@ -1468,9 +1528,11 @@ the layout.
 
 ### 7.4 The one remaining upstream ask
 
-**None.** Both candidates are retired: `ref`-with-overrides by §7.2 (the shared
-document is open at the top and the fixture closes it), and `url_template`
-parameterisation by §7.3 (there are no partitions left to address). The units
+**Still none, but for a better reason than this section originally gave.**
+`ref`-with-overrides is not an ask because it **already exists**, spelled
+`bindings` (§7.2) — not, as first written here, because configuration can
+do without it. `url_template` parameterisation is retired by §7.3: there are
+no partitions left to address. The units
 gap is separate and already filed as EarthSciAST **PR #297** (`mi`, `lb`, `hp`,
 `gal` across all five bindings), which retires F44 and lets the eight
 `units: "1"` in `components/link_operating_mode_distribution.esm` be declared.
@@ -1486,7 +1548,18 @@ gap is separate and already filed as EarthSciAST **PR #297** (`mi`, `lb`, `hp`,
 | **7e** | `moves-nonroad.esm`, same shape | 12 `nr-*` fixtures |
 | **7f** | The five fixtures needing a second input database (four `-single` on `washtenaw_cdb`, `scale-project` on the project DB) | last, because they are the only ones whose model input is not the default DB |
 
-**7a is the gate and it is not yet run.** What is proven is *scoping and
+**7a is a GO, run 2026-09-10.** A ref'd, parent-fed, parent-shaped model
+evaluates end to end against the real default database: `spikes/7a/` reads
+`AgeCategory` (41 rows) and `AgeGroup` (7), joins on `ageGroupID`, and reports
+4/2/2/2/5/5/21 categories and 6/9/13/17/60/85/630 age totals — verified
+against the raw Parquet independently of the document, and falsified by
+perturbing the table and watching exactly the predicted cells move. It is
+`run-tests.sh` stage 8, which is two-sided: it fails if the parent-shaped child
+ever starts validating *alone*, so the open-shape control cannot rot. The
+corrections it forced are folded into §7.1, §7.2 and §7.3 above. What follows
+is the original framing, kept because it is what the gate was for.
+
+**The original framing.** What is proven is *scoping and
 validation*: a parent-shaped, parent-fed ref **validates**. What is not proven
 is that it **evaluates** — and the existing evidence is split in exactly the
 wrong way. `runs/*.esm` ref components and do evaluate under the suite, but
