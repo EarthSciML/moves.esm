@@ -4463,3 +4463,61 @@ assertions that existed before this one landed, **zero** named an ingested
 parameter. Every fixture pins its inputs one stage in, because that is where
 the arithmetic starts. A document whose subject is an input is the only kind
 that meets the wall.
+
+## 47. Writing down the date a figure was true is not a mechanism **[58 claims, 20 of them stale]**
+
+§35.5's corollary asked prose that states a corpus-wide count to write down the
+date it was true. `docs/omd-generator-reachability.md` did exactly that —
+"43 snapshot directories, 42 with an `execution-trace.json` … at `moves.rs`
+commit `3c07836`" — and then rotted anyway. The `moves-snapshot/v2` recapture
+with the `<day id=>` correction halved most of the per-snapshot row counts in
+its two grids, and fourteen of twenty-three went wrong in one merge. Nothing in
+the suite noticed, because nothing in the suite was reading them. The note went
+on being cited as the evidence for a porting decision, with the stale commit
+hash sitting at the top of it like a receipt.
+
+The date is doing something real — it tells a reader the figure is *as of* a
+moment rather than *forever*. But it only helps a reader who already suspects
+the number, and the whole reason to write a measurement down is so that later
+readers do not have to re-derive it. **A date says a figure could be stale; it
+never says that one is.**
+
+### 47.1 Make the document state the numbers and the checker re-derive them
+
+`tools/check-reachability-counts.py` parses the figures out of the document and
+recomputes each from `$SNAPSHOTS`; `run-tests.sh` stage 2c fails on a
+disagreement. The direction matters: the document holds the answers and the
+tool holds only the code to derive them. Invert that — put the expected numbers
+in the checker — and you have two copies to keep in step, and the document goes
+back to being unverified prose next to a test that passes.
+
+This is the same shape as the oracles (§35.5) and as `run-omd-oracle.sh`
+extracting its reproduction from the specification rather than keeping a second
+copy, and it generalises past this one note: **a figure in prose that is a
+function of the corpus is a test that has not been written yet.**
+
+### 47.2 Check the arithmetic, not the verdict
+
+The checker deliberately skips the `reachable?` column and every sentence of
+interpretation around the table. Those are conclusions — argued from the counts
+by a person, revised when someone changes their mind — and a test asserting one
+would only be asserting that nobody had. Splitting the file this way also let
+this change and a parallel one revising those same verdicts land without
+fighting over the same lines.
+
+The line is worth stating generally, because it is where this kind of check
+turns from useful to obstructive: **assert what the corpus determines; leave
+what judgement determines to review.** A count of snapshots is the first; "and
+therefore this generator is not worth porting" is the second.
+
+### 47.3 Perturb the checker in both directions
+
+Per §23, an assertion that cannot fail is decoration, and a document checker
+has two independent ways to be vacuous: it can fail to read the document, and
+it can fail to read the corpus. Both were measured before this was registered.
+Changing one row count in the document (`mixed-onroad` 9 → 10) turns up exactly
+one failure; hiding one snapshot from the corpus (`process-tirewear`) turns up
+twenty, across the corpus-size sentence, the `kind` histogram, seven
+denominators, two class-load counts and the grid membership. Unperturbed, 58
+claims hold. A checker that only ever saw the document would have passed the
+second test, and that is the failure that actually happens.

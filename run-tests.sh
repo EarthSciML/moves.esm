@@ -200,6 +200,26 @@ else
   printf '%s\n' "$out"
 fi
 
+# --- 2c. document figures that count the corpus -------------------------
+#
+# docs/omd-generator-reachability.md is a MEASUREMENT of the snapshot corpus
+# written as prose, and prose does not notice a recapture. The v2 day
+# correction halved most of its per-snapshot row counts and nothing went red;
+# the note went on being cited as evidence with fourteen wrong numbers in it.
+# The note itself had already predicted this and asked for a date to be
+# written down (§35.5), which is exactly what it had, and which did not help.
+#
+# So the figures are checked rather than dated. The document states them, the
+# checker re-derives them from $SNAPSHOTS, and the verdicts around them are
+# deliberately left alone -- those are argued by hand, not measured.
+head2 "document figures vs the corpus"
+if out=$(SNAPSHOTS="$SNAPSHOTS" python3 tools/check-reachability-counts.py 2>&1); then
+  printf '%s\n' "$out"
+else
+  fail "document figures no longer match the corpus"
+  printf '%s\n' "$out"
+fi
+
 # Every port specification's `| Calculator path |` row is checked against
 # ../moves.rs's calculator-dag.json -- the module inventory built from the
 # pinned MOVES CalculatorInfo.txt. A spec may not name a module MOVES does not
