@@ -1,8 +1,8 @@
 {
   "esm": "1.0.0",
   "metadata": {
-    "name": "mixed-onroad fixture",
-    "description": "The `mixed-onroad` fixture: 250 rows of MOVESOutput -- running-exhaust Total Energy Consumption for passenger cars on urban restricted-access roads in Washtenaw County, August, 9am, 2020 -- computed from the snapshot's own INPUT tables. Ports docs/mixed-onroad.md end to end: the activity chain S1-S9, the cohort structure and the fuel-usage rebase S10-S12, the drive-cycle operating-mode weights and the base rate S13-S14, the calculator's adjustments S15 and the output row S16-S18.\n\nWHAT IS COMPUTED AND WHAT IS DECLARED.\n\nCOMPUTED, from the input tables and nothing else: every number. In particular `dc_W[dayType, opModeID]`, the speed-bin-weighted drive-cycle operating-mode distribution -- 46 numbers that \u00a78.1 recorded as the ONE relation this port could not compute, because MOVES 5 computes it inside the worker and drops it. It is computed here from `driveschedulesecond`'s 63,602 second-by-second speeds, and the four neighbouring-second reads it needs are `driveschedulesecond` joined to ITSELF, which finding F11 refused until EarthSciAST 107a15152. NO REFERENCE TABLE IS AN INPUT. `baserate_1_2020`, `sourcebindistributionfuelusage_1_26161_2020`, `sho` and `MOVESOutput` are all generator or expected output, and none of them is a `data_sources` entry here -- nothing flows from them into a number. Values out of the first and third DO appear, as `expected` in the inline tests below, which is the opposite direction and the whole point of a fixture: `cohDay_meanBaseRate` is checked against what `baserate_1_2020` stores and `act_sho` against what `sho` stores, and if either check is deleted the arithmetic is unchanged.\n\nCOMPUTED, and worth saying because a reader would assume otherwise: the SHAPES. The activity relation's 82 rows are `n_agecategory x n_runspecday` and the cohort candidate grid's 164 are `n_agecategory x n_runspecsourcefueltype`, both metaparameter expressions over extents the runtime discovers from the files.\n\nDECLARED: one number, `n_outputCohort` = 125, the length of the output relation's cohort block. WHICH 125 of the 164 candidates survive is a result of the chain -- \u00a72.2's `stmyFraction > 0` rule -- and materialising them as an index set is finding F5's value invention, which validates and materialises EMPTY. So the count is declared, as fixtures/nr-logging-county.esm and fixtures/process-evap-leaks.esm declare theirs, and three things keep it honest: the surviving cohorts are reached by a RANK (docs/esm-conventions.md \u00a722) rather than by a transcribed block map, so no key column is written down; `cohortSurvivorCount` computes 125 from the chain and a test pins the two together; and the comparator's exact key set fails on any row whose rank found no cohort.\n\nTHE PACKED IDENTIFIER IS NEVER BUILT, ONLY UNPACKED. `emissionrate`'s 69,200 rows carry `sourceBinID` = 1e18 + fuel x 1e16 + engTech x 1e14 + regClass x 1e12 + shortModYrGroup x 1e10, about 1.01e18 and past 2^53. `lib/onroad_activity.esm`'s `source_bin_slot` reads the four components out; nothing here composes one, and no element type is declared for the same reason (\u00a72.2, finding F18).\n\nTWO CLAMPS EVALUATE TO ZERO HERE AND BOTH ARE COMPUTED, not assumed. The A/C activity term is -0.0189 at 66.9 degF and clamps to 0; the EV temperature term is -0.00419 and clamps to 0. Measured against this snapshot's own coefficients, the A/C quadratic crosses 0 at a heat index of 67.4340633418 degF (0.534 degF up from 66.9) and the EV temperature quadratic has its nearer zero at 63.9642857143 (2.936 degF down); the EV heat-index SUPPRESSION at 67.0 is the tight one, 0.0999985 degF up. The A/C factor is worth 14.6% of the MY1980 gasoline rate -- so this document computes both from `monthgrouphour`, `zonemonthhour` and `temperatureadjustment` rather than writing the zero down. What the FIXTURE cannot check is what those zeros multiply: `cohDay_meanBaseRateACAdj` is modelled because \u00a72.3(a) is part of S13 and a document without it is incomplete, but it reaches the answer through an exactly-zero factor and docs/esm-conventions.md \u00a723 says a stage in that position is not to be checked THROUGH THE OUTPUT -- but `baserate_1_2020` carries it in its own column, so it is asserted directly instead, and it agrees to 3.6e-07. What genuinely cannot be checked at this fixture is the NON-ZERO arm of the A/C factor, which needs a different hour; components/onroad_energy_output.esm moves the heat index and asserts both arms of both clamps.",
+    "name": "expand-day fixture",
+    "description": "The `expand-day` fixture: 250 rows of MOVESOutput -- running-exhaust Total Energy Consumption for passenger cars on urban restricted-access roads in Washtenaw County, August, 7am, 2020, on BOTH day types -- computed from the snapshot's own INPUT tables. Ports docs/expand-day.md, which is docs/mixed-onroad.md's chain at a colder hour over a second day: the activity chain S1-S9, the cohort structure and the fuel-usage rebase S10-S12, the drive-cycle operating-mode weights and the base rate S13-S14, the calculator's adjustments S15 and the output row S16-S18.\n\nWHY THIS FIXTURE EXISTS, AND IT IS NOT THE 250 ROWS. `<day key=\"5\">` in the checked-in RunSpecs was a 0-based INDEX into the sorted DayOfAnyWeek list and selected nothing, so 28 of the 42 snapshots ran both day types against a one-day intent. The RunSpecs were corrected and recaptured, every day-keyed table halved, and the cost was coverage: after the correction NO fixture in this repository exercised a two-valued day factor at more than one value -- noOfRealDays always 5, hourDayID always 75, dayVMTFraction four rows and not eight -- so a port that hardcoded any of them passed the entire suite. `expand-day` is the one snapshot in the corpus that still carries both day types and was verified invariant across the recapture. docs/esm-conventions.md \u00a742.5 names porting it as the cure; this is that port, and `the_day_axis_is_exercised_at_both_of_its_values` is where the coverage is actually spent.\n\nHOW MUCH OF IT IS NEW. Structurally, almost none: this document is fixtures/mixed-onroad.esm retargeted -- 46 url_templates, the source prefix, the model name -- and NOT ONE EQUATION WAS EDITED to make it emit 250 rows instead of 125. Every day axis is sized by `n_runspecday`, whose value the source's own `extent` supplies, so `activity_rows` went 41 -> 82 and `output_rows` 125 -> 250 by themselves and the key set matched on the first run. That is docs/esm-conventions.md \u00a742.1's measurement run in the other direction, and it is the strongest available evidence that the day axis is factored rather than written down. What IS new is every assertion: 109 of them, re-addressed by key and re-valued from this snapshot's own `averagespeed`, `sho`, `baserate_1_2020` and `MOVESOutput`, never rescaled from `mixed-onroad`'s numbers and never rounded off this port's own answer (\u00a742.4).\n\nWHAT THE COLDER HOUR ADDS, AND WHAT IT DOES NOT. The heat index is 59.5 degF against `mixed-onroad`'s 66.9. That crosses the EV temperature quadratic's nearer zero at 63.964 degF, so its raw adjustment is +0.015625 instead of -0.0041922, the `adj < 0` clamp does NOT fire, and the regClassID-0 WILDCARD row of `temperatureadjustment` reaches emissionQuant directly on all 82 electricity rows -- the arm that was invisible at 66.9 degF and whose absence was a silent 1.56% error until docs/esm-conventions.md \u00a727.3. It does NOT help the A/C clamp: at 59.5 degF the activity term is -0.2969815 where it was -0.0189, which is FURTHER inside the clamp, so the non-zero A/C arm still has no fixture and \u00a723 says to write that down rather than let a colder hour imply more coverage than it bought.\n\nWHAT IS COMPUTED AND WHAT IS DECLARED.\n\nCOMPUTED, from the input tables and nothing else: every number. In particular `dc_W[dayType, opModeID]`, the speed-bin-weighted drive-cycle operating-mode distribution -- 46 numbers here, 23 per day type, where the one-day fixtures carry 23 and cannot tell an indexed relation from a shared vector. It is computed from `driveschedulesecond`'s 63,602 second-by-second speeds, and the four neighbouring-second reads it needs are `driveschedulesecond` joined to ITSELF, which finding F11 refused until EarthSciAST 107a15152. NO REFERENCE TABLE IS AN INPUT. `baserate_1_2020`, `sourcebindistributionfuelusage_1_26161_2020`, `sho`, `averagespeed` and `MOVESOutput` are all generator or expected output, and none of them is a `data_sources` entry here. Values out of them DO appear, as `expected` in the inline tests below, which is the opposite direction and the whole point of a fixture.\n\nCOMPUTED, and worth saying because a reader would assume otherwise: the SHAPES. The activity relation's 82 rows are `n_agecategory x n_runspecday` and the cohort candidate grid's 164 are `n_agecategory x n_runspecsourcefueltype`, both metaparameter expressions over extents the runtime discovers from the files. The cohort grid is DAY-FREE and stays 164; the day enters one level down, at `cohDay_*`, which is why 250 output rows are 125 cohorts x 2 days and not 250 cohorts.\n\nDECLARED: one number, `n_outputCohort` = 125, the length of the output relation's cohort block -- unchanged from the one-day fixture, because it is a cohort count and not a row count. WHICH 125 of the 164 candidates survive is a result of the chain -- \u00a72.2's `stmyFraction > 0` rule -- and materialising them as an index set is finding F5's value invention, which validates and materialises EMPTY. So the count is declared, and three things keep it honest: the surviving cohorts are reached by a RANK (docs/esm-conventions.md \u00a722) rather than by a transcribed block map; `cohortSurvivorCount` computes 125 from the chain and a test pins the two together; and the comparator's exact key set fails on any row whose rank found no cohort.\n\nTHE PACKED IDENTIFIER IS NEVER BUILT, ONLY UNPACKED. `emissionrate`'s 69,688 rows carry `sourceBinID` = 1e18 + fuel x 1e16 + engTech x 1e14 + regClass x 1e12 + shortModYrGroup x 1e10, about 1.01e18 and past 2^53. `lib/onroad_activity.esm`'s `source_bin_slot` reads the four components out; nothing here composes one, and no element type is declared for the same reason (\u00a72.2, finding F18).\n\nAN INGESTED COLUMN CANNOT BE ASSERTED, which is finding F43 and which shaped this document's tests rather than its equations. `esm test` refuses an assertion naming a `kind: data` parameter with `array state '...' has no cells in var_map` -- probed on seven columns from seven tables, all of them -- so `dayofanyweek.noOfRealDays` is pinned at `outNoOfRealDays`, where it is USED, and not at `dow_noOfRealDays`, where it is read. That is the stronger claim of the two and no coverage is lost, but it is a constraint and not a preference.",
     "authors": [
       "EarthSciML Authors and Contributors"
     ],
@@ -11,7 +11,8 @@
       "onroad",
       "energy",
       "fixture",
-      "mixed-onroad"
+      "expand-day",
+      "two-day"
     ]
   },
   "data_sources": {
@@ -27,7 +28,7 @@
         "tags": [
           "scope"
         ],
-        "note": "1 row, yearID 2020. The scope comes from these tables and never from the RunSpec XML, whose @key attributes are 0-based indices into sorted ID lists (docs/mixed-onroad.md \u00a70.1).",
+        "note": "1 row, yearID 2020. The scope comes from these tables and never from the RunSpec XML, whose @key attributes are 0-based indices into sorted ID lists (docs/expand-day.md \u00a70.1) -- which is the very defect the `<day key=>` correction fixed, and this snapshot is the one the correction did not change.",
         "esio_format": "parquet"
       }
     },
@@ -59,7 +60,7 @@
         "tags": [
           "scope"
         ],
-        "note": "1 row, hourID 9.",
+        "note": "1 row, hourID 7. Two hours earlier than `mixed-onroad`'s 9, which is 7.4 degF colder and moves both of \u00a72.3's clamps.",
         "esio_format": "parquet"
       }
     },
@@ -75,7 +76,7 @@
         "tags": [
           "scope"
         ],
-        "note": "1 row, dayID 5 (weekday). The second factor of the activity axis and of the output axis, and its extent is one in this run: `<day id=\"5\">` selects one day type where the earlier `<day key=\"5\">` was an out-of-range INDEX and fell back to both (moves.rs PR #55).",
+        "note": "2 rows, dayID 2 (weekend) and 5 (weekday). The second factor of the activity axis and of the output axis, and the reason this fixture exists: `<day id=\"2\"/><day id=\"5\"/>` selects both, where 28 of the 42 snapshots selected both by ACCIDENT before the correction and now select one on purpose (moves.rs PR #55, docs/esm-conventions.md \u00a742.5). n_runspecday is 2 here and 1 in every other fixture in this tree.",
         "esio_format": "parquet"
       }
     },
@@ -107,7 +108,7 @@
         "tags": [
           "scope"
         ],
-        "note": "1 row, roadTypeID 4. J27: this is the join that suppresses every process-2 row, because start exhaust lives on the off-network road type 1 and the RunSpec does not select it (\u00a70.2).",
+        "note": "1 row, roadTypeID 4. J27: this is the join that suppresses every process-2 AND every process-90 row, because start exhaust and extended idle both live on the off-network road type 1 and the RunSpec does not select it (\u00a70.2).",
         "esio_format": "parquet"
       }
     },
@@ -339,7 +340,7 @@
         "tags": [
           "activity"
         ],
-        "note": "4 rows. A share of the MONTH's VMT, which is what makes S7's weeksPerMonth divisor necessary and what S16 divides out again through noOfRealDays. One day type, so four rows and not eight.",
+        "note": "8 rows, TWO PER ROAD TYPE. A share of the MONTH's VMT, which is what makes S7's weeksPerMonth divisor necessary and what S16 divides out again through noOfRealDays. Road type 4's pair is 0.237635 for the weekend and 0.762365 for the weekday; the twelve one-day fixtures see four rows and one value.",
         "esio_format": "parquet"
       }
     },
@@ -360,7 +361,7 @@
         "tags": [
           "activity"
         ],
-        "note": "96 rows. A share of that day type's own 24 hours, for the one day type this run selects.",
+        "note": "192 rows. A share of that day type's own 24 hours, for BOTH day types: at (21, 4, hour 7) it is 0.0184304 on the weekend and 0.0459565 on the weekday, a factor of 2.49 that no one-day fixture in this tree can see.",
         "esio_format": "parquet"
       }
     },
@@ -421,7 +422,7 @@
           "activity",
           "drive-cycle"
         ],
-        "note": "3,072 rows. S6 is the ARITHMETIC mean of this distribution; the harmonic mean gives 49.44 instead of 66.09 and SHO is then 34% high. The same column is W's speed-bin weight.",
+        "note": "3,072 rows. S6 is the ARITHMETIC mean of this distribution; the harmonic mean gives 54.2427 instead of 67.0417 on the weekend and 35.5757 instead of 56.3612 on the weekday, and SHO is then 24% and 58% high. The same column is W's speed-bin weight, and because it is keyed by hourDayID it is what makes W a relation over the day types rather than a vector.",
         "esio_format": "parquet"
       }
     },
@@ -588,7 +589,7 @@
         "tags": [
           "cohorts"
         ],
-        "note": "222 rows. Model year to model-year GROUP per pollutant-process, and an existence condition on the cohort.",
+        "note": "333 rows. Model year to model-year GROUP per pollutant-process, and an existence condition on the cohort. Three polProcessIDs here against `mixed-onroad`'s two, because this RunSpec also selects 9190; the extra 111 rows reach no output row, for J27's reason.",
         "esio_format": "parquet"
       }
     },
@@ -663,7 +664,7 @@
         "tags": [
           "rates"
         ],
-        "note": "69,200 rows, arriving with `sourceBinID` already packed and NO component columns -- which is why J22 keys on the four unpacked slots and not on the id (\u00a72.2).",
+        "note": "69,688 rows, arriving with `sourceBinID` already packed and NO component columns -- which is why J22 keys on the four unpacked slots and not on the id (\u00a72.2). 488 more rows than `mixed-onroad`'s 69,200, all of them polProcessID 9190, and none of them reaches an output row.",
         "esio_format": "parquet"
       }
     },
@@ -766,7 +767,7 @@
         "tags": [
           "adjustment"
         ],
-        "note": "1 row. The three coefficients of S15(d)'s A/C activity quadratic. At 66.9 degF they give -0.0189 and the clamp makes the A/C factor exactly 0; 0.3 degF warmer and a 14.6% addition to the MY1980 gasoline rate switches on.",
+        "note": "1 row. The three coefficients of S15(d)'s A/C activity quadratic. At 59.5 degF they give -0.2969815 and the clamp makes the A/C factor exactly 0. This is FURTHER inside the clamp than `mixed-onroad`'s -0.0189 at 66.9 degF, so the colder hour checks the A/C arm no better and docs/esm-conventions.md \u00a723 says to say so: the non-zero arm still needs components/onroad_energy_output.esm.",
         "esio_format": "parquet"
       }
     },
@@ -788,7 +789,7 @@
         "tags": [
           "adjustment"
         ],
-        "note": "24 rows. Supplies the 66.900001525879 degF at hour 9 -- the tightest heat index in the fixture corpus, one tenth of a degree below the EV suppression's 67.0. `heatIndex` is NOT read: it is DERIVED from `temperature` and `relHumidity` through lib/meteorology.esm's `heat_index` (docs/meteorology-generator.md 8.2), which is also why `temperature` is now a column this fixture USES rather than one it declared and never bound.",
+        "note": "24 rows. Supplies the 59.5 degF at hour 7, 7.4 degF below `mixed-onroad`'s heat index and on the other side of the EV temperature quadratic's nearer zero at 63.964 degF -- which is what makes the regClassID-0 wildcard row visible in this fixture and invisible there. `heatIndex` is NOT read: it is DERIVED from `temperature` and `relHumidity` through lib/meteorology.esm's `heat_index` (docs/meteorology-generator.md 8.2), which is also why `temperature` is a column this fixture USES rather than one it declared and never bound.",
         "esio_format": "parquet"
       }
     },
@@ -831,7 +832,7 @@
         "tags": [
           "adjustment"
         ],
-        "note": "7 rows, of which exactly one carries polProcessID 9101 and it is fuelTypeID 9. For fuels 1, 2 and 5 there is no row, the terms default to zero and the standard quadratic is exactly 1; for fuel 9 the dedicated EV branch runs and its own `adj < 0` clamp returns 1. J32 carries the same model-year range predicate as J25.",
+        "note": "7 rows, of which exactly one carries polProcessID 9101 and it is fuelTypeID 9 at the regClassID 0 WILDCARD. For fuels 1, 2 and 5 there is no row, the terms default to zero and the standard quadratic is exactly 1; for fuel 9 the dedicated EV branch runs and at 59.5 degF its raw adjustment is +0.015625, so the `adj < 0` clamp does NOT fire and the factor is 1.015625. That is the arm `mixed-onroad` cannot reach -- at 66.9 degF the same lookup gives -0.0041922 and is clamped to 1 (docs/esm-conventions.md \u00a727.3). J32 carries the same model-year range predicate as J25.",
         "esio_format": "parquet"
       }
     },
@@ -869,7 +870,7 @@
         "tags": [
           "output"
         ],
-        "note": "24 rows. hourDayID to (dayID, hourID), one day type. The packed key is LOOKED UP, so hourID x 10 + dayID appears nowhere in this document.",
+        "note": "48 rows. hourDayID to (dayID, hourID), BOTH day types: (2, 7) is 72 and (5, 7) is 75. The packed key is LOOKED UP, so hourID x 10 + dayID appears nowhere in this document -- and with two day types in the table a document that composed it arithmetically instead would still be right, which is why the claim is made on the lookup and not on the value.",
         "esio_format": "parquet"
       }
     },
@@ -890,7 +891,7 @@
         "tags": [
           "output"
         ],
-        "note": "1 row: 5 real days in a week of weekdays. S16's divisor, and the factor S7 multiplied in. The weekend row is not in this run's execution database, so the divisor is exercised at ONE value.",
+        "note": "2 rows: 2 real days in a week of weekend, 5 in a week of weekdays. S16's divisor, and the factor S7 multiplied in. THIS IS THE COLUMN docs/esm-conventions.md \u00a742.5 records as exercised at one value everywhere else in this repository; here it is exercised at both, and `outNoOfRealDays` pins it on each output block.",
         "esio_format": "parquet"
       }
     },
@@ -909,7 +910,7 @@
           "oracle",
           "expected-output"
         ],
-        "note": "The 250-row expected output, shipped in the same snapshot so no canonical MOVES, MariaDB or JVM is needed to develop against it. DECLARED AND CONSUMED BY NOTHING -- reading it would transcribe the answer and its extent would transcribe the answer's shape. compare-output.py reads it directly under tolerance.toml.",
+        "note": "The 250-row expected output -- 125 cohorts on each of two day types -- shipped in the same snapshot so no canonical MOVES, MariaDB or JVM is needed to develop against it. DECLARED AND CONSUMED BY NOTHING: reading it would transcribe the answer and its extent would transcribe the answer's shape. compare-output.py reads it directly under tolerance.toml.",
         "esio_format": "parquet"
       }
     }
