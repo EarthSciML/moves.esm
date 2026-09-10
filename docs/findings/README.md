@@ -2410,9 +2410,13 @@ otherwise.
 The repro holds two models. `Ingest` reads `runspecmonth.monthID` — one row,
 one column, the smallest table in the corpus — and lifts it onto a scalar.
 `Bystander` computes `1 + 1`, touches no data and names nothing outside itself.
-**Both assertions error.** Delete `Bystander` and both pass; delete the
-`update` block instead, leaving two models and no ingest, and both pass too.
-Two models is fine. Ingesting is fine. The conjunction is refused.
+**Both assertions error.** Delete `Bystander` and the remaining assertion
+passes, 8, still ingesting. Delete the `update` block instead, leaving two
+models and no ingest, and the document **builds**: `Bystander` passes and
+`Ingest` reports `actual=0 expected=8` — a wrong NUMBER, because the parameter
+now has no source, which is a different complaint and the point is that it is
+a complaint about arithmetic rather than a refusal to build. Two models is
+fine. Ingesting is fine. The conjunction is refused.
 
 `runs/micro_exhaust_run.esm` is the other half of that control and it is
 already in the tree: three models, two of them mounted `{ref}`s, nine
