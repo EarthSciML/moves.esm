@@ -4394,6 +4394,16 @@ outright if `runspecday` is not `[2, 5]`, because every claim in it is vacuous
 on a one-day run and a vacuous pass is the failure mode the whole exercise is
 about.
 
+**And do it to the DOCUMENT too, beside a one-day sibling, because that is the
+comparison that states the loss.** The same two edits — `outNoOfRealDays`
+rewritten to the constant 5.0, and the `act_dayID` key pair deleted from the
+two S7 shares' `join.on` — turn 6 and 18 of `expand-day`'s 109 assertions red
+and **0 and 0** of `mixed-onroad`'s 59. The day-collapsed `mixed-onroad` also
+passes the comparator, 125 of 125 rows at the same 8.319 × 10⁻⁶ worst cell as
+the correct document. §42.5 said a port that hardcoded 5 would pass every test
+here; that is now a measurement rather than an inference, and the fixture that
+falsifies it is the evidence it was worth writing.
+
 The specification carries the same argument in the other direction: §6.6 of
 `docs/expand-day.md` lists, per collapse, **which named assertions go red**, and
 then lists the 40 of 109 that a day-collapsed port would still pass. Saying

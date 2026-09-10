@@ -981,8 +981,27 @@ script **asserts** all three rather than printing them, for
 `docs/esm-conventions.md` §21's reason: a coverage claim that is only printed
 is a coverage claim nobody is checking.
 
-The same perturbation applied to any other fixture in this repository moves
-**nothing**, because there is only one day type to collapse onto.
+**The same collapses were applied to the `.esm` itself**, which is the half the
+oracle cannot speak for, and to `fixtures/mixed-onroad.esm` beside it — the
+same two edits, the same equations, the sibling snapshot:
+
+| perturbation of the document | `expand-day` | `mixed-onroad` |
+|---|---|---|
+| `outNoOfRealDays` rewritten to the constant 5.0 | **6 of 109 red** | 0 of 59 red |
+| the `act_dayID` key pair deleted from `act_dayVMTFraction` and `act_hourVMTFraction`'s `join.on` | **18 of 109 red** | 0 of 59 red |
+
+The six are the four day-2 `emissionQuant` cells — each at exactly 0.4× its
+reference value, 0.18117640 against 0.452942 and so on — and the two day-2
+`outNoOfRealDays` cells. The eighteen add all six `act_sho` cells and the
+day-5 output as well, because deleting the key pair makes the aggregate sum
+both days' shares instead of selecting one.
+
+**`mixed-onroad` does not merely pass those perturbations' assertions; it
+passes the comparator.** The day-collapsed document emits 125 of 125 rows,
+key set exact, worst cell 8.319 × 10⁻⁶ — the same worst cell, at the same key,
+as the unperturbed one. So the statement in §0.2 is literal and now measured
+from the document side as well: before this fixture, a port that hardcoded
+`noOfRealDays = 5` passed every test in this repository.
 
 ---
 
