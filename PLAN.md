@@ -11,6 +11,13 @@ This plan is grounded in probes run against the current EarthSciAST tree
 in [§1](#1-what-the-probes-established) with their evidence, because two of them
 overturn the obvious design.
 
+**§2 and §3 cover the second half of the pipeline only** — execution database to
+`MOVESOutput`, which is where all 734 of the fixtures' `data_sources` read. The
+front half, RunSpec XML and the default database, is
+[Phase 7](#phase-7--runspec-to-output-in-esm-planned-2026-09-10), and it is not
+started. Module coverage is a real number that measures a different thing than
+the goal does.
+
 ---
 
 ## 1. What the probes established
@@ -1352,3 +1359,149 @@ is Total Activity Generator. The number went up because the denominator got
 smaller and more honest, not because more was ported — nothing in this rung
 added a counted module, and saying so is the point of §6.2's rule that the
 figure is derived rather than recorded.
+
+---
+
+## Phase 7 — runspec to output, in `.esm` (planned 2026-09-10)
+
+Everything above stops at the same place, and the goal does not. **Every one of
+the 734 `data_sources` entries across `fixtures/*.esm` reads a canonical MOVES
+*execution database* snapshot.** MOVES has already parsed the RunSpec XML and
+materialised `RunSpecDay`, `RunSpecMonth`, `RunSpecHour` and the rest into that
+database before the capture is taken. So the ladder in §2 measures the second
+half of the pipeline:
+
+```
+RunSpec XML ──► [MOVES master: parse, importers, build execution DB] ──► execution DB ──► [calculators, generators] ──► MOVESOutput
+                └────────────── not modelled in .esm ─────────────────┘                   └──── §2's ladder, 30/32 ────┘
+```
+
+Zero `.esm` documents read a RunSpec XML; zero read the default database. The
+`runspec*` tables they consume are that phase's **output**, not its input.
+Module coverage is a real number and it measures a different thing than the
+goal does. Phase 7 is the front half.
+
+### 7.1 The shape of the target
+
+One top-level document per domain — **`moves-onroad.esm`** and
+**`moves-nonroad.esm`** (they are separate executables in MOVES with separate
+tables and separate arithmetic; one document covering both was considered and
+rejected as the largest and riskiest option). Each reads the default database
+and computes `MOVESOutput`. Then one thin `.esm` per fixture that imports the
+domain document **by reference**, configures it, and asserts against canonical
+output in its own `tests` section.
+
+**No intermediate checkpoint.** The 44 captured execution databases are *not*
+reproduced as an intermediate target; the documents go straight to
+`MOVESOutput`. The cost of that choice is localisation — a wrong number does
+not say which of ~30 modules produced it — and the mitigation is free: the 15
+existing snapshot-fed fixtures **stay** as module-level tests. They already
+localise a failure to a generator and cost nothing to retain. Phase 7 adds no
+intermediate assertions; it does not remove the ones we have.
+
+### 7.2 What the format already does, measured
+
+Three probes, run against the pinned `esm 0.2.0` /
+EarthSciAST `3aa046d65`:
+
+- **Shape is already data-driven.** Every fixture's `index_sets` are sized by
+  metaparameters, and those are bound at load time from a `data_sources`
+  entry's `extent`. Nothing about that needs to change.
+- **Components carry no data.** `components/onroad_travel_fraction.esm` and
+  `onroad_source_hours.esm` declare `enums`, `index_sets`, `coordinates`,
+  `models` — logic and shape only, no `data_sources`. That is already the split
+  Phase 7 wants.
+- **A child can leave its shape open and the parent closes it.** A child
+  declaring `index_sets: {rows: {size: "n_rows"}}` and no `n_rows` fails
+  alone — `invalid type: string "n_rows", expected i64` — and **validates
+  through a parent** that declares `n_rows` and refs it. So per-fixture
+  configuration needs no override mechanism: the shared document is open at the
+  top, and the fixture closes it by supplying `data_sources` and
+  `metaparameters`.
+
+**`ref` with overrides is therefore NOT needed.** `{"ref": …, "metaparameters":
+…}` is refused (`Additional properties are not allowed`), and it does not have
+to be permitted — that was a misreading of what configuration requires.
+
+### 7.3 The default database: convert the whole of it, monolithically
+
+The release asset (`default-db-movesdb20241112.tar.gz`, 64.5 MB) unpacks to
+**781 MB of Parquet over 240 tables** — 220 monolithic, 17 partitioned by
+county / year / modelYear, 3 schema-only. The partitioned ones are what make a
+fixture want to address a *file*:
+
+| table | size | partitions | one county needs |
+|---|---|---|---|
+| `IMCoverage` | 378 MB | 21,625 (county × year) | ~8 KB |
+| `fuelUsageFraction` | 89 MB | 3,230 | ~21 KB |
+| `regionCounty` | 39 MB | 3,233 | ~7 KB |
+| `nrStateSurrogate` | 26 MB | 3,285 | ~4 KB |
+
+**Convert the entire database, one monolithic Parquet per table.** Not a
+corpus-scoped cut: a database that only holds the geographies today's fixtures
+name is not "the MOVES database", it silently limits what can ever be run, and
+it would have to be re-cut every time a fixture is added.
+
+**This removes the only upstream ask, and §1.3 is why it costs nothing.** The
+naive objection to a monolithic national table is that selecting one county out
+of 3,232 means paying for all of them. That was true before the equi-join gate,
+and it is exactly what the gate was built to fix: `join.on` in EarthSciAST
+`28bda86ac` **drives enumeration from the match set**, so cost tracks matches
+rather than the product — 10⁸ combinations with 10⁴ matches in 0.032 s, against
+a timeout at 10⁷ before. A national `IMCoverage` joined against the run's
+county selection is enumerated by the join, not scanned per row. This project
+built that gate as its first deliverable; Phase 7 is the first thing that
+collects the dividend.
+
+So: no partitions to address, no `url_template` parameterisation, no document-
+level row filtering, and the *output* shapes stay match-sized because the join
+drives them.
+
+**The one cost that is real, and must be measured in 7b rather than assumed:**
+`data_sources` are loaded per `esm` invocation, so a run pays the parse of
+whatever tables it declares — `IMCoverage` at 378 MB and
+`EmissionRateByAge` at 106 MB being the two that matter. `run-tests.sh` invokes
+the binary many times. If that parse dominates, the answer is a reader-level
+concern (projection or predicate pushdown, or a per-table lazy read), not a
+reason to re-partition the data — but it needs a number before 7c commits to
+the layout.
+
+### 7.4 The one remaining upstream ask
+
+**None.** Both candidates are retired: `ref`-with-overrides by §7.2 (the shared
+document is open at the top and the fixture closes it), and `url_template`
+parameterisation by §7.3 (there are no partitions left to address). The units
+gap is separate and already filed as EarthSciAST **PR #297** (`mi`, `lb`, `hp`,
+`gal` across all five bindings), which retires F44 and lets the eight
+`units: "1"` in `components/link_operating_mode_distribution.esm` be declared.
+
+### 7.5 Sequence
+
+| step | deliverable | gate |
+|---|---|---|
+| **7a** | The spike: one ref'd, data-fed, **parent-shaped** model evaluating end to end against a real table | go / no-go for the whole phase |
+| **7b** | Full-database monolithic conversion (240 tables, one Parquet each) + a measured load cost for `IMCoverage` and `EmissionRateByAge` | the parse cost per `esm` invocation, before 7c commits to the layout |
+| **7c** | `moves-onroad.esm`: default DB → `MOVESOutput` for `process-tirewear` (one process; its port residual is already 2.5e-07), plus `fixtures/tirewear.esm` that refs, configures and asserts | first end-to-end number |
+| **7d** | Widen the runspec surface one selection dimension at a time — pollutant-process, source type, road type, timespan, geography | each dimension added only with a fixture that **discriminates** it (§23) |
+| **7e** | `moves-nonroad.esm`, same shape | 12 `nr-*` fixtures |
+| **7f** | The five fixtures needing a second input database (four `-single` on `washtenaw_cdb`, `scale-project` on the project DB) | last, because they are the only ones whose model input is not the default DB |
+
+**7a is the gate and it is not yet run.** What is proven is *scoping and
+validation*: a parent-shaped, parent-fed ref **validates**. What is not proven
+is that it **evaluates** — and the existing evidence is split in exactly the
+wrong way. `runs/*.esm` ref components and do evaluate under the suite, but
+supply **no data** (no `data_sources`, no `metaparameters`, no `index_sets`).
+`fixtures/*.esm` supply data but **inline everything** rather than ref'ing. The
+combination Phase 7 rests on is the one combination nothing in the tree
+currently exercises. Do 7a before committing to 7b–7f.
+
+Note also that the components' index sets are hardcoded probe sizes (5, 7, 3,
+4) for self-contained unit tests. Making them parent-sized is real work across
+~27 files, not a rename.
+
+### 7.6 What this does not change
+
+`docs/findings/*.esm` keep their inverted polarity, `run-tests.sh` keeps its
+stages, and the snapshot-fed fixtures keep asserting. Phase 7 is additive: it
+builds the half of the pipeline that has never been modelled, beside the half
+that is at 30 of 32.
