@@ -1469,11 +1469,22 @@ fixture want to address a *file*:
 | `regionCounty` | 39 MB | 3,233 | ~7 KB |
 | `nrStateSurrogate` | 26 MB | 3,285 | ~4 KB |
 
-**7a measured this table and it is not what it looks like.** `IMCoverage`'s
-378 MB is not data: it is 21,625 files of ~17 KB that are overwhelmingly
-Parquet footer. Concatenated it is **791,123 bytes over 2,024,874 rows**, a
-478× reduction, and it loads in **0.46 s**. The table this section named as
-one of the two whose parse cost had to be measured costs half a second.
+**7a measured this table, got the right number for the wrong reason, and 7b
+corrected it.** `IMCoverage`'s 378 MB is mostly not data — it is 21,625
+files of ~17 KB dominated by Parquet footer. But 7a's headline "791,123 bytes,
+a 478× reduction" was produced by **pyarrow with Snappy and dictionary
+encoding**, while the converter writes uncompressed, no dictionary, no
+statistics, under a deliberate byte-determinism contract. That was a
+*compression* result labelled as a *de-partitioning* one.
+
+De-partitioning alone, like for like: **262,910,040 → 204,574,768 bytes**,
+i.e. **1.29×**, over the same 2,024,874 rows. The compression win is real,
+unclaimed and larger than the layout win — the whole database re-encodes
+from 515.8 MiB to **15.8 MiB** (Snappy+dict) or 12.0 MiB (Zstd+dict), and
+reads get *faster* with it. It is deliberately not taken here: it trades the
+byte-determinism contract for a compressor's version stability, and it needs a
+check that the EarthSciAST reader decompresses Snappy. **That is a 7c
+decision, not a layout one.**
 
 **Convert the entire database, one monolithic Parquet per table.** Not a
 corpus-scoped cut: a database that only holds the geographies today's fixtures
@@ -1501,7 +1512,10 @@ per throwaway document, wall clock, `TMPDIR` on disk:
 | table | on disk | rows | cold | warm |
 |---|---|---|---|---|
 | `EmissionRateByAge` | 105.7 MiB | 1,590,830 | **4.94 s** | **0.33 s** |
-| `IMCoverage`, consolidated | 0.8 MiB | 2,024,874 | **0.46 s** | **0.41 s** |
+| `IMCoverage`, consolidated | 0.8 MiB (Snappy+dict) | 2,024,874 | **0.46 s** | **0.41 s** |
+
+The `IMCoverage` row is the Snappy+dictionary file, not what the converter
+ships; as shipped it is 195.1 MiB and reads in 0.102 s.
 
 So `EmissionRateByAge` is the only one of the two that was ever a real cost,
 and warm it is a third of a second. This does not dictate the layout.
@@ -1511,10 +1525,9 @@ and warm it is a third of a second. This does not dictate the layout.
 reached 758 MB before anyone looked. Converting a whole database with the
 default `TMPDIR` will put the lot in RAM and OOM the machine; **set `TMPDIR` to
 disk first.** Second, the converted database at
-`/scratch/$USER/movesdb/movesdb20241112` is **220 monolithic tables plus 12
-still-partitioned directories** (`IMCoverage` 21,625 files,
-`nrStateSurrogate` 3,287, `regionCounty` 3,235, `fuelUsageFraction` 3,232, and
-8 more). Those 12 are 7b's actual job.
+`/scratch/$USER/movesdb/movesdb20241112` was **220 monolithic tables plus 11
+still-partitioned directories** (the twelfth directory is `_tsv`, not a
+table). **7b has since converted it**: see below.
 
 **The original statement of the cost, retained because it is what was
 assumed:**
@@ -1525,6 +1538,48 @@ the binary many times. If that parse dominates, the answer is a reader-level
 concern (projection or predicate pushdown, or a per-table lazy read), not a
 reason to re-partition the data — but it needs a number before 7c commits to
 the layout.
+
+### 7.3.1 7b, done 2026-09-10: the conversion, and what it measured
+
+**The database is monolithic.** 237 monolithic Parquet tables plus 3
+schema-only sidecars, **zero partition directories**, **517 MB** against
+781 MB, converted in **15.6 s**, byte-identical across two runs. Output at
+`/scratch/$USER/agent-7b/movesdb20241112-monolithic/`; the old tree is left
+in place because a `moves.esm` test stage skips against it.
+
+**The policy moved, not the capability.** `audit-schema.py::_classify_partition`
+is now one rule; `partition.rs` and `plan.rs` still implement and unit-test all
+five strategies, so the layout stays expressible. A test pins the shipped audit
+at 237+3 so a strategy cannot reappear unnoticed.
+
+**The equi-join premise, verified on the real table rather than assumed.** On
+the national 2,024,874-row `IMCoverage` joined on `countyID`: 1 county →
+3,884 matches in 0.17 s; 405 counties → 2,024,874 matches in 2.23 s. **40.5×
+the cartesian pairs for 8.6× the wall clock**, about a microsecond per match.
+And the single-county join at 0.17 s **beats the same selection written as a
+filter over all 2 M rows at 0.39 s** — reading nationally and joining is
+the faster spelling, not a tolerated one. Peak RSS tracks the materialised
+match set, which is worth remembering before joining two multi-million-row
+tables on a low-cardinality key.
+
+**Two incidental findings.** Five of the eleven populated "partitioned" tables
+had been sharded into exactly **one** file, on an estimated upper bound the
+real data never approached. Six more had zero rows and so produced **no
+artifact at all**; monolithic writes an empty Parquet carrying the schema.
+
+**The validator had a hole, and closing it is the durable part.** `Utf8` and
+`Boolean` columns were only counted for non-nulls and the float sum quantises
+at 1e-9, so a changed string cell in a 2 M-row table, a changed county name,
+and a 1e-12 float change all passed **clean**. A per-column exact content
+digest over every cell of every type including nulls, plus an order-independent
+row-multiset digest, closes it. All seven planted corruptions are now red;
+three were green before.
+
+**Not released.** The tarball is a public asset on the EarthSciML org and
+replacing it is a separate decision. Note the asset is 1.1 GB unpacked, not
+781 MB: `_tsv/` is 337 MB of it, 59% of the compressed tarball. The
+recommendation on record is to ship it as a sibling asset, which also removes
+an exclusion three CI workflows each re-implement.
 
 ### 7.4 The one remaining upstream ask
 
@@ -1541,8 +1596,8 @@ gap is separate and already filed as EarthSciAST **PR #297** (`mi`, `lb`, `hp`,
 
 | step | deliverable | gate |
 |---|---|---|
-| **7a** | The spike: one ref'd, data-fed, **parent-shaped** model evaluating end to end against a real table | go / no-go for the whole phase |
-| **7b** | Full-database monolithic conversion (240 tables, one Parquet each) + a measured load cost for `IMCoverage` and `EmissionRateByAge` | the parse cost per `esm` invocation, before 7c commits to the layout |
+| **7a** ✅ | The spike: one ref'd, data-fed, **parent-shaped** model evaluating end to end against a real table — **GO, 2026-09-10** | met; three corrections folded into §7.1–§7.3 |
+| **7b** ✅ | Full-database monolithic conversion — **done 2026-09-10**: 237 monolithic + 3 schema-only, 0 partition directories, 517 MB, 15.6 s, validator extended and all 7 planted corruptions red (§7.3.1) | met; the load cost is measured and does not dictate the layout |
 | **7c** | `moves-onroad.esm`: default DB → `MOVESOutput` for `process-tirewear` (one process; its port residual is already 2.5e-07), plus `fixtures/tirewear.esm` that refs, configures and asserts | first end-to-end number |
 | **7d** | Widen the runspec surface one selection dimension at a time — pollutant-process, source type, road type, timespan, geography | each dimension added only with a fixture that **discriminates** it (§23) |
 | **7e** | `moves-nonroad.esm`, same shape | 12 `nr-*` fixtures |
