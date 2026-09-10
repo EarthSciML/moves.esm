@@ -20,7 +20,7 @@ Java classes MOVES loaded for that run.
 > **The brief for this work said the evidence is a `kind: "generator"` entry in
 > `java_classes`. There is no such entry anywhere in the corpus.** Rolled over
 > all 42 traces, `java_classes[*].kind` takes exactly five values —
-> `common` (2,451), `framework` (2,644), `master` (1,895), `utils` (74) and
+> `common` (2,450), `framework` (2,645), `master` (1,890), `utils` (74) and
 > `worker` (42). Generators are `kind: "master"` (or `framework`, for the
 > abstract `Generator` base). The signal that works is the class NAME.
 
@@ -46,12 +46,39 @@ it writes, read from the parquet footer (`pq.ParquetFile(f).metadata.num_rows`
 
 The corpus as measured: **43 snapshot directories, 42 with an
 `execution-trace.json`** (`mixed-onroad-nonroad` carries `tables/` only), at
-`moves.rs` commit `3c07836`. It was 41 and 40 when this note was first written;
+`moves.rs` commit `eb11cb71`. It was 41 and 40 when this note was first written;
 `chain-so2-co2e-mechanism` and its control landed while the rung was in
 progress and moved every count below, which is §35.5's point about writing down
-the date a corpus-wide figure was true. **Neither changes a verdict**: both are
+the date a corpus-wide figure was true. Writing it down turned out not to be
+enough — see "Keeping these numbers honest" below. **Neither changes a verdict**: both are
 ONROAD, both class-load `RatesOperatingModeDistributionGenerator` for Running
 Exhaust, and both emit **zero** `RatesOpModeDistribution` rows.
+
+## Keeping these numbers honest
+
+It rotted anyway. The `moves-snapshot/v2` recapture with the `<day id=>`
+correction went in, and every figure in this note that counts ROWS rather than
+snapshots was silently wrong from that moment: fourteen of the twenty-three
+per-snapshot counts in the two grids below, most of them exactly halved,
+because the fixtures that had been running two days were now running one.
+Nothing failed. The note went on being read as evidence for months, with the
+date it was true written at the top of it, exactly as §35.5 asks.
+
+So the date is not the mechanism. `tools/check-reachability-counts.py` is: it
+parses the figures out of THIS FILE and re-derives each one from the corpus,
+and `run-tests.sh` stage 2c fails when they disagree. 58 claims, covering the
+corpus-size sentence, the `kind` histogram, every count in the table below,
+`FuelEffectsGenerator`'s count in the prose under it, both per-snapshot grids
+(membership and every row count), and the three-way set equality this note
+calls its corroboration.
+
+The document stays the source of truth — the checker holds no copy of the
+answers, only the code to re-derive them. Edit a number here and the checker
+says whether the corpus agrees; change the corpus and it says which sentences
+need rewriting. What it deliberately does not check is the `reachable?` column
+and the interpretation around it: those are verdicts, argued from these
+numbers and revised by hand, and a test that asserted them would only be
+asserting that nobody had changed their mind.
 
 ## The table
 
@@ -74,13 +101,13 @@ a parallel rung; it is listed here only so the eight add up.
 
 | snapshot | rows | | snapshot | rows |
 |---|---:|---|---|---:|
-| `expand-counties` | 18 | | `process-apu` | 6 |
-| `expand-criteria` | 66 | | `process-apu-single` | 6 |
-| `expand-day` | 18 | | `process-extended-idle` | 2 |
-| `expand-fueltype-diesel` | 36 | | `process-extended-idle-single` | 2 |
-| `expand-month` | 9 | | `process-refueling` | 18 |
-| `expand-sourcetype` | 92 | | `process-tirewear` | 32 |
-| `mixed-onroad` | 18 | | `sample-runspec` | 9 |
+| `expand-counties` | 9 | | `process-apu` | 3 |
+| `expand-criteria` | 33 | | `process-apu-single` | 3 |
+| `expand-day` | 18 | | `process-extended-idle` | 1 |
+| `expand-fueltype-diesel` | 18 | | `process-extended-idle-single` | 1 |
+| `expand-month` | 9 | | `process-refueling` | 9 |
+| `expand-sourcetype` | 46 | | `process-tirewear` | 16 |
+| `mixed-onroad` | 9 | | `sample-runspec` | 9 |
 
 `StartOpModeDistribution` is non-empty in 9, and they are **exactly** the 9 in
 which `StartOperatingModeDistributionGenerator` was class-loaded — set-equal,
@@ -88,10 +115,10 @@ not merely equinumerous:
 
 | snapshot | rows | | snapshot | rows |
 |---|---:|---|---|---:|
-| `expand-counties` | 9 | | `expand-sourcetype` | 43 |
-| `expand-criteria` | 9 | | `mixed-onroad` | 13 |
-| `expand-day` | 9 | | `process-refueling` | 9 |
-| `expand-fueltype-diesel` | 20 | | `sample-runspec` | 4 |
+| `expand-counties` | 5 | | `expand-sourcetype` | 29 |
+| `expand-criteria` | 5 | | `mixed-onroad` | 7 |
+| `expand-day` | 9 | | `process-refueling` | 5 |
+| `expand-fueltype-diesel` | 12 | | `sample-runspec` | 4 |
 | `expand-month` | 8 | | | |
 
 The same 9 are the only ones carrying `SOMDGOpModes` (the generator's own
