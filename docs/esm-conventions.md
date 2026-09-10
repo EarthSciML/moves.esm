@@ -4521,3 +4521,68 @@ twenty, across the corpus-size sentence, the `kind` histogram, seven
 denominators, two class-load counts and the grid membership. Unperturbed, 58
 claims hold. A checker that only ever saw the document would have passed the
 second test, and that is the failure that actually happens.
+
+## 48. An identity is what a reproduction can omit without ever finding out **[four fuels, two reasons, one of them conditional]**
+
+`docs/mixed-onroad.md` §6.5 reproduced 125 of 125 rows at a worst cell of
+8.319 × 10⁻⁶ while implementing **no temperature adjustment at all**. It was
+not wrong. At that fixture the temperature factor is exactly 1 on every one of
+its four fuels, so the stage multiplies by one and omitting it is free — and
+invisible, because a missing identity leaves no residue for a tolerance to
+catch. It stayed invisible until the same chain was retargeted to hour 7 in
+`fixtures/expand-day.esm`, where the worst cell went to 1.539 × 10⁻².
+
+§23 is the rule for the fixture side of this: do not assert a stage the fixture
+cannot see. This is the rule for the *reproduction* side, and it points the
+other way — **an oracle should compute the identity and assert it, precisely
+because it is an identity.** A stage that is absent and a stage that is present
+and inert look the same in the output and completely different the next time
+the corpus moves.
+
+### 48.1 Name the reason, and say whether it survives a change of input
+
+Establishing that a factor is 1 is not the finding. `mixed-onroad`'s
+temperature factor is 1 on all four fuels for **two different reasons**:
+
+* fuels 1, 2 and 5 — `temperatureadjustment` has no row for them at this
+  polProcessID at all, both terms default to zero, and the quadratic is 1 at
+  **every** temperature. Structural.
+* fuel 9 — the terms are real, the raw EV adjustment is −0.0041922, and the
+  `adj < 0` clamp returns 1. Conditional, and the condition is narrow: the
+  quadratic's roots put the clamp's window at 63.964 °F to 72 °F, and this
+  fixture sits at 66.9 °F.
+
+The document had recorded both as "exactly zero, by a second clamp", which
+merges a permanent fact with a temporary one. **A document that says a stage is
+inert must say which of its inputs would make it live**, or the next reader
+cannot tell whether retargeting is safe — and retargeting is this
+repository's first move (§27.3, §43.1).
+
+### 48.2 The scope belongs in the reproduction, not only in the prose
+
+The script now prints its own clamp values and asserts them, so the claim
+travels with the code that depends on it:
+
+```
+temperature:   heat index 66.9000 degF, A/C term -0.0188998 -> factor 0, EV term -0.0041922 -> clamped, factor 1
+```
+
+Every other number is unchanged to the last digit. That is the evidence the
+stage is an identity, and it is also why nothing would have noticed its
+absence.
+
+### 48.3 Perturb an inert-stage assertion, and order the assertions by cause
+
+Per §23 an assertion over a stage that evaluates to 1 is decoration until
+something is shown to make it fail, so all three were perturbed against the
+unmodified snapshot: heat index → 59.5 °F fires the EV clamp assertion
+(`+0.0156250`), heat index → 80 °F fires the A/C clamp assertion
+(`+0.3992600`), and removing the `regClassID 0` wildcard step fires the
+wildcard assertion.
+
+The last one carries a rule of its own. Without a dedicated assertion, deleting
+the wildcard step surfaces as the *clamp* assertion failing with `-0.0000000`
+— a message about temperature, for a lookup defect that has nothing to do with
+temperature, and exactly the misdirection that let the defect survive until
+`process-brakewear` found it. **When one assertion can fail as a side effect of
+another's cause, assert the cause first.**

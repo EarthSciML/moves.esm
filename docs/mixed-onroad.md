@@ -682,11 +682,30 @@ C −0.000276) and `zonemonthhour[8, 261610, 9].heatIndex` = 66.900001525879:
 work, not an absent table. Nineteen hundredths of one unit the other way and
 every one of the 250 rows changes.
 
-**(e) The temperature adjustment is exactly zero, by a second clamp.**
+**(e) The temperature adjustment is exactly 1 on all four fuels — but for two
+different reasons, and only one of them is a clamp.**
 `temperatureadjustment` has exactly one 9101 row and it is `fuelTypeID 9`
-(termA 0.00225, termB 0.00028). For fuels 1, 2 and 5 there is no row, the
-lookup `unwrap_or_default()`s to all-zero terms (`adjust.rs:515`), and the
-standard quadratic `1 + (T−75)(a + b(T−75))` is exactly 1.
+(termA 0.00225, termB 0.00028).
+
+| fuels | why the factor is 1 | survives a change of hour? |
+|---|---|---:|
+| 1, 2, 5 | **no row at all.** The lookup `unwrap_or_default()`s to all-zero terms (`adjust.rs:515`) and the standard quadratic `1 + (T−75)(a + b(T−75))` is identically 1 | **yes** — at every temperature |
+| 9 | **the `adj < 0` clamp.** The terms are real and the raw adjustment is −0.0041922 | **no** |
+
+An earlier revision of this section said "exactly zero, by a second clamp" for
+all of them. That is right for fuel 9 and wrong for fuels 1, 2 and 5, and the
+difference is the entire scope of §6.5's reproduction: three of the four fuels
+need no temperature stage under any conditions, and the fourth needs one
+outside a window this fixture happens to sit inside.
+
+**The window.** The EV quadratic `d(a + b·d)`, `d = heatIndex − 72`, has roots
+at `d = 0` and `d = −a/b = −8.0357`, so it is negative — and the clamp fires —
+only for `63.964 °F < heatIndex < 72 °F`. Above 72 °F the
+`heatIndex > 67` suppression holds the factor at 1 anyway. So for this
+fixture's sourceType 21, **the factor departs from 1 exactly when the heat
+index falls below 63.964 °F.** At 66.9 it does not; at `expand-day`'s 59.5 it
+does, giving 1.015625, and a reproduction without the stage is 1.56 % low on
+fuel 9 there (`docs/expand-day.md` §2.2).
 
 > **CORRECTION (Phase 5).** That row is keyed `regClassID` **0**, which is a
 > WILDCARD, and this fixture's passenger car is regulatory class 20.
@@ -1272,6 +1291,13 @@ It used to read `baserate_1_2020.meanBaseRate`, because the operating-mode
 distribution the base rate needs is computed inside the MOVES worker and dropped
 (section 8.1). Section 10 says how it is computed instead.
 
+SCOPE. The S15 multiplicative adjustments are all identities AT THIS FIXTURE,
+and the script now computes them and asserts that rather than omitting them.
+Only one of the two temperature-driven ones is an identity because of a CLAMP,
+and a clamp is a property of 66.9 degF and not of the model: at 59.5 degF it
+stops firing and this reproduction would be 1.56% low on fuel 9. See section
+2.3(e), and `docs/expand-day.md`, which is that same chain at hour 7.
+
 Purpose: attribution. When a `.esm` disagrees with the snapshot, a third
 implementation says whether the document or the specification is wrong."""
 import sys
@@ -1563,6 +1589,84 @@ for (my, fuel, om), v in sbweighted.items():
     for d in DAYS:
         base_rate[(HD[d], my, fuel)] += v * W[(HD[d], om)]
 
+# ---------------- S15(d), S15(e): the two temperature-driven adjustments
+#
+# COMPUTED AND ASSERTED, NOT OMITTED. Both return an exact identity here, so a
+# script that left them out would agree with the snapshot to the last bit --
+# and would be right by accident, because only one of them is an identity for
+# a reason that survives a change of hour. Section 2.3 has the arithmetic.
+zmh = next(r for r in T("zonemonthhour")
+           if r["zoneID"] == ZONE and r["monthID"] == MONTH and r["hourID"] == HOUR)
+HEATINDEX = float(zmh["heatIndex"])
+
+# (d) The A/C activity quadratic, setup.rs:409-411, clamped to [0, 1]. Worth
+# asserting rather than assuming: `meanBaseRateACAdj` is 14.6% of the MY1980
+# gasoline rate, so "inert here" is a claim about a large number, and the raw
+# term is -0.0189 -- two hundredths from the clamp boundary.
+mgh = next(r for r in T("monthgrouphour")
+           if r["hourID"] == HOUR and r["monthGroupID"] == MONTH)
+ac_raw = (float(mgh["ACActivityTermA"])
+          + HEATINDEX * (float(mgh["ACActivityTermB"])
+                         + float(mgh["ACActivityTermC"]) * HEATINDEX))
+AC_FACTOR = min(max(ac_raw, 0.0), 1.0)
+assert AC_FACTOR == 0.0, "the A/C activity term is %+.7f and no longer clamps" % ac_raw
+
+# (e) The temperature adjustment, adjust.rs:495-535, with the regClassID
+# PRECEDENCE of :495-520 -- exact regulatory class first, the regClassID 0
+# WILDCARD second. The table's one 9101 row IS the wildcard, so a lookup that
+# stops at the exact class silently finds nothing and returns the right answer
+# for the wrong reason (section 2.3(e)'s CORRECTION).
+tadj = [r for r in T("temperatureadjustment") if r["polProcessID"] == POLPROC]
+
+
+def temp_terms(fuel, regclass, my):
+    for want in (regclass, 0):                 # exact, then wildcard
+        for r in tadj:
+            if (r["fuelTypeID"] == fuel and r["regClassID"] == want
+                    and r["minModelYearID"] <= my <= r["maxModelYearID"]):
+                return float(r["tempAdjustTermA"]), float(r["tempAdjustTermB"])
+    return 0.0, 0.0
+
+
+def temperature_factor(fuel, regclass, my):
+    """adjust.rs:107-124 for electricity, the standard quadratic otherwise."""
+    a, b = temp_terms(fuel, regclass, my)
+    if fuel == ELECTRICITY:
+        if ST < 40 and HEATINDEX > 67.0:       # the suppression, :119-121
+            return 1.0
+        d = HEATINDEX - 72.0
+        return 1.0 + max(d * (a + b * d), 0.0)
+    d = HEATINDEX - 75.0
+    return 1.0 + d * (a + b * d)
+
+
+# The identity holds for two DIFFERENT reasons, and the difference is the
+# whole scope of this reproduction:
+#
+#   fuels 1, 2, 5 -- `temperatureadjustment` has NO 9101 row at these fuels at
+#     all, so both terms are zero and the quadratic is 1 at EVERY temperature.
+#     Nothing about 66.9 degF is doing any work.
+#   fuel 9        -- the wildcard row's terms are real and the raw EV
+#     adjustment is -0.0041922. It is the `adj < 0` CLAMP that returns 1, and
+#     it only fires between the quadratic's two roots, 63.96 and 72.0 degF.
+#     Below 63.96 the factor is > 1 and this script would be wrong.
+# Order matters: the wildcard check goes FIRST. Drop the wildcard step and the
+# terms come back (0, 0), the raw adjustment is -0.0 and the clamp assertion
+# below fires too -- with a message about temperature, for a defect that has
+# nothing to do with temperature.
+EV_TERMS = temp_terms(ELECTRICITY, 20, 2000)
+assert EV_TERMS != (0.0, 0.0), \
+    "the regClassID 0 wildcard lookup found nothing; the identity below would " \
+    "hold for the wrong reason (section 2.3(e) CORRECTION)"
+ev_raw = (HEATINDEX - 72.0) * (EV_TERMS[0] + EV_TERMS[1] * (HEATINDEX - 72.0))
+assert ev_raw < 0.0, "the EV temperature term is %+.7f; the clamp no longer fires" % ev_raw
+TEMP_FACTOR = {}
+for (my, fuel, engtech, regclass) in cohort:
+    TEMP_FACTOR[(my, fuel, regclass)] = temperature_factor(fuel, regclass, my)
+assert set(TEMP_FACTOR.values()) == {1.0}, sorted(set(TEMP_FACTOR.values()))
+print("temperature:   heat index %.4f degF, A/C term %+.7f -> factor %.0f, "
+      "EV term %+.7f -> clamped, factor 1" % (HEATINDEX, ac_raw, AC_FACTOR, ev_raw))
+
 # ------------------------------ S15(f): the EV energy-efficiency divisor
 agegroup = {r["ageID"]: r["ageGroupID"] for r in T("agecategory")}
 eveff = {r["ageGroupID"]: float(r["batteryEfficiency"]) * float(r["chargingEfficiency"])
@@ -1580,7 +1684,7 @@ def onroad_scc(fuel, source, road, process):
 rows = {}
 for (my, fuel, engtech, regclass), frac in cohort.items():
     for d in DAYS:
-        rate = base_rate[(HD[d], my, fuel)]
+        rate = base_rate[(HD[d], my, fuel)] * TEMP_FACTOR[(my, fuel, regclass)]
         if fuel == ELECTRICITY:
             rate /= eveff[agegroup[YEAR - my]]
         activity = sho[(HD[d], YEAR - my)] / realdays[d]
@@ -1617,10 +1721,35 @@ print("key set:       %3d cohorts x %d day type%s = %d rows, exact"
 Result:
 
 ```
-sho:            82 rows, worst relative error 4.138e-06
+temperature:   heat index 66.9000 degF, A/C term -0.0188998 -> factor 0, EV term -0.0041922 -> clamped, factor 1
+sho:            41 rows, worst relative error 4.138e-06
 emissionQuant: 125 rows, worst relative error 8.319e-06 at (day 5, MY 2015, fuel 5)
 key set:       125 cohorts x 1 day type = 125 rows, exact
 ```
+
+Every number below the first line is unchanged by adding the S15 stage, to the
+last digit, which is the point: **the adjustments are identities here, and an
+identity is exactly what a reproduction can omit without ever finding out.**
+
+### 6.5.1 What the S15 assertions can see (§23)
+
+Three of them, and per §23 each was perturbed before it was trusted — an
+assertion over a stage that evaluates to 1 is decoration until something is
+shown to make it fail. Perturbations applied to the extracted script, run
+against the unmodified snapshot:
+
+| perturbation | which assertion fires | message |
+|---|---|---|
+| `HEATINDEX` → 59.5 °F (`expand-day`'s hour 7) | the EV clamp | `the EV temperature term is +0.0156250; the clamp no longer fires` |
+| `HEATINDEX` → 80.0 °F | the A/C clamp | `the A/C activity term is +0.3992600 and no longer clamps` |
+| the `regClassID 0` wildcard step removed | the wildcard lookup | `the regClassID 0 wildcard lookup found nothing; the identity below would hold for the wrong reason` |
+| none | — | green, 125/125, worst cell 8.319 × 10⁻⁶ |
+
+The third is the one worth having. It is the defect `process-brakewear` found
+(§2.3(e)'s CORRECTION), and without a dedicated assertion it would surface as
+the *clamp* assertion failing with `-0.0000000` — a message about temperature,
+for a defect that has nothing to do with temperature. The ordering in the
+script is deliberate for that reason.
 
 ### 6.6 Suggested inline `.esm` tests
 
