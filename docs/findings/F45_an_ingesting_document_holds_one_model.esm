@@ -1,0 +1,90 @@
+{
+  "esm": "1.0.0",
+  "metadata": {
+    "name": "F45AnIngestingDocumentHoldsOneModel",
+    "description": "Finding F45. A document that ingests may hold exactly ONE model. Add a second — a mounted leaf, or an inert model like `Bystander` below — and EVERY assertion in the document errors with `Interpreter build failed: document holds several models; pass model_name`, including assertions that touch no ingested value at all.\n\nWHAT MAKES IT ATTRIBUTABLE, and it is one line. Delete `Bystander` and both of `Ingest`'s assertions pass. Delete `Ingest`'s `update: {kind: \"data\"}` block instead, leaving two models and no ingest, and they pass too — `runs/micro_exhaust_run.esm` is that case in the tree today, three models and nine assertions, green. Two models is fine. Ingesting is fine. The two together are refused, and the refusal is at interpreter build, after `esm validate` has passed.\n\nWHAT IT COSTS. It is the wall PLAN.md §7's architecture meets. Phase 7 mounts a shared domain document into a thin per-fixture document that configures it and asserts canonical output in its own `tests` section; the fixture's asserting model is the second model, and the mount is the first. Measured in `spikes/7a/`: the mount evaluates correctly and emits the right relation, and the moment an asserting model is added beside it, all of it errors. `--model NAME` does not rescue it — it narrows which tests are REPORTED without reaching the build — and building the asserting model alone (`esm simulate --model Check`) loses the mounted names entirely, `E_TREEWALK_UNBOUND_NAME: 'AgeGroupCensus.totalAge'`. The four `runs/*.esm` assemblies in this tree are green only because none of them ingests.\n\nA SECOND MEASUREMENT, taken at the same time and the same root cause. `pkg/earthsci-ast-rs/src/prepare.rs` picks ONE model and builds it, and the index-set registry it uses is `file.index_sets`, the document's own. So a `subsystems` child is invisible to this path as well: mounted as a `{ref}` stub it is never resolved, and INLINED as a literal model body it still leaves `Census.totalAge` unbound at build while `esm validate` accepts the document. There is no nesting spelling that reaches the ingesting interpreter.\n\nTHIS REPRO. `Ingest` reads one column of one row — runspecmonth.monthID, monthID 8, the smallest table in the corpus, chosen because the point is that ANY ingest is enough. `Bystander` computes 1 + 1. The intended behaviour is that both assertions pass; today both error.\n\nFIX SHAPE. Build every model in the document, as the scalar path already does, and resolve a name across models the way the flattener does — or, more narrowly, let the ingesting build take the union of the document's models when no `model_name` is given, which is the behaviour a document with one model already gets.",
+    "authors": ["EarthSciML Authors and Contributors"],
+    "tags": ["moves", "finding", "repro"]
+  },
+
+  "data_sources": {
+    "f45_runspecmonth": {
+      "kind": "static",
+      "source": { "url_template": "../../../moves.rs/characterization/snapshots/nr-logging-county/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecmonth.parquet" },
+      "extent": { "metaparameter": "n_f45_runspecmonth" },
+      "metadata": { "tags": ["runspec"], "esio_format": "parquet", "note": "One row, monthID 8." }
+    }
+  },
+
+  "metaparameters": {
+    "n_f45_runspecmonth": {
+      "type": "integer", "default": 0,
+      "description": "Rows in runspecmonth, discovered by the source's own extent. 1."
+    }
+  },
+
+  "index_sets": {
+    "f45_month_rows": { "kind": "interval", "size": "n_f45_runspecmonth" }
+  },
+
+  "models": {
+    "Ingest": {
+      "tolerance": { "rel": 1e-12 },
+      "variables": {
+        "rsm_monthID": {
+          "type": "parameter", "units": "1", "default": 0.0, "shape": ["f45_month_rows"],
+          "description": "runspecmonth.monthID. 8.",
+          "update": { "kind": "data", "source": "f45_runspecmonth", "from": { "file_variable": "monthID" } }
+        },
+        "monthTotal": {
+          "type": "unknown", "units": "1",
+          "description": "8, lifted onto a scalar because a kind: data parameter is not assertable (finding F43)."
+        }
+      },
+      "equations": [
+        {
+          "lhs": "monthTotal",
+          "rhs": { "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": [],
+            "ranges": { "m": { "from": "f45_month_rows" } },
+            "expr": { "op": "index", "args": ["rsm_monthID", "m"] } }
+        }
+      ],
+      "tests": [
+        {
+          "id": "the_ingested_value_is_readable",
+          "description": "8. Passes the moment `Bystander` is deleted from this file, which is what attributes the failure to the model COUNT and not to the ingest.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "monthTotal", "time": 0.0, "expected": 8.0 }
+          ]
+        }
+      ]
+    },
+
+    "Bystander": {
+      "tolerance": { "rel": 1e-12 },
+      "variables": {
+        "two": { "type": "unknown", "units": "1", "description": "2. Touches no data and no other model." }
+      },
+      "equations": [
+        {
+          "lhs": "two",
+          "rhs": { "op": "+", "args": [
+            { "op": "const", "args": [], "value": 1.0 },
+            { "op": "const", "args": [], "value": 1.0 }
+          ] }
+        }
+      ],
+      "tests": [
+        {
+          "id": "arithmetic_that_touches_no_data_still_fails",
+          "description": "1 + 1. This model neither ingests nor names anything outside itself, and its assertion errors for the same reason the one above does: the DOCUMENT ingests, so the whole build is refused.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "two", "time": 0.0, "expected": 2.0 }
+          ]
+        }
+      ]
+    }
+  }
+}

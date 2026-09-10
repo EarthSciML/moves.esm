@@ -4815,21 +4815,57 @@ Finding F46. **Restate the child's `index_sets` in the mounting document, and
 say in a comment that it is load-bearing**, or the next reader will delete
 them as duplication.
 
-### 49.1 Per-fixture configuration needs no override mechanism, and here is what it does need
+### 49.1 A `{ref}` mount edge is NOT a closed shape, and one of its four extra fields is the override mechanism
 
-`{"ref": …, "metaparameters": …}` is refused by the schema, and so is
-`{"ref": …, "tests": …}`: a `{ref}` entry is a closed shape that takes nothing
-else. Two channels remain, and between them they are enough:
+`{"ref": …, "metaparameters": …}` is refused and `{"ref": …, "tests": …}` is
+refused, which is easy to read as "a `{ref}` takes nothing but a path". It is
+not what the schema says. `SubsystemRef` accepts four more fields, and the one
+that matters was looked for under the wrong name:
+
+| field | what it does |
+|---|---|
+| `bindings` | **closes the referenced document's own metaparameters at the mount edge** (esm-spec §9.7.6 site 3). Each value is a metaparameter expression over the MOUNTING document's metaparameters — an integer literal, or a name, or `NX*NY` — folded at the mount. |
+| `model` | selects one of several top-level models in the referenced file |
+| `index_set_rename` | renames a mounted axis, so two mounts that both use `lev` at different lengths do not collide |
+| `expression_template_imports` | registers a template library into the REFERENCED component's scope — assembler-chosen discretization without editing the leaf |
+
+**So ref-with-overrides exists, spelled `bindings`.** Measured: a child that
+declares `index_sets: {cat_rows: {size: "n_cat"}}` and nothing else is closed
+by `{"ref": "./bind_child.esm", "bindings": {"n_cat": "n_spike_agecategory"}}`,
+and the runtime-discovered `extent` of the parent's source flows through the
+binding — the same 41 rows and the same 6/9/13/17/60/85/630. It does **not**
+remove F46's index-set restatement: with `bindings` and no `index_sets` in the
+parent, the build still says `'grp_rows' … is not declared in the document
+index_sets registry`.
+
+**`model` does not make a mounted document composable.** A referenced file with
+two models is refused (`resolves to 2 models; add a "model" selector`), and
+selecting the one that names its sibling then fails validation
+(`Scoped reference 'Census.totalAge' cannot be resolved`). A mounted document
+whose models reference each other cannot be mounted at all — which, with §50,
+means a fixture mounts exactly one model and a shared domain document composes
+through *expression templates*, not through nested mounts.
+
+### 49.2 Per-fixture configuration: two channels, both already in the fixture
 
 * **a `data_sources` key.** The shared document binds `source: "runspec_day"`
   and never declares it; each fixture declares that key against its own table.
-  This is how a runspec's *selections* travel.
-* **a metaparameter, read as a number.** A metaparameter declared in the
-  mounting document is readable in a ref'd child's equation as an ordinary
-  scalar — measured: `metaEcho = n_spike_agegroup` evaluates to 7. The fixture
-  has to declare its metaparameters anyway (§49's table), so this channel costs
-  nothing. Verified for `type: "integer"`; a `number` metaparameter validates
-  and was not evaluated.
+  This is how a runspec's *selections* travel, and §7.3's monolithic conversion
+  makes the default-database half of the catalogue identical for every fixture,
+  so it can live in the shared document instead.
+* **a metaparameter with a literal `default`, read as a number.** A
+  metaparameter declared in the MOUNTING document is readable in a ref'd
+  child's equation as an ordinary scalar. Measured twice: `metaEcho =
+  n_spike_agegroup` gives 7 (an `extent`-discovered count) and `cfgEcho =
+  cfg_year` gives 2020 (a literal the fixture wrote). That is the per-fixture
+  numeric channel, and the fixture has to declare its metaparameters anyway.
+
+One asymmetry worth knowing, because it is the trap between the two: a
+metaparameter closed at the mount edge by `bindings` is **not** readable in an
+equation — `Variable 'cfg_year' referenced in equation is not declared`, both
+at validate and at build. `bindings` closes *sizes*. To pass a NUMBER into the
+shared logic, declare the metaparameter in the mounting document and let the
+child name it.
 
 ## 50. An ingesting document holds ONE model, so an assembly is verified by its relation and not by an assertion **[PLAN.md step 7a, three closed spellings]**
 

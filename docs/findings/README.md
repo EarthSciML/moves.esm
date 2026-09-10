@@ -2590,7 +2590,7 @@ the three spellings is closed by something different:
 | spelling | refused by |
 |---|---|
 | an asserting model beside the mount | `document holds several models` (F45) |
-| `tests` beside the `{ref}` | the schema — `Additional properties are not allowed ('tests' was unexpected)`, the same closed shape that refuses `{"ref": …, "metaparameters": …}` |
+| `tests` beside the `{ref}` | the schema — `Additional properties are not allowed ('tests' was unexpected)`. A `{ref}` is not a closed shape in general: it accepts `model`, `bindings`, `index_set_rename` and `expression_template_imports` (§49.1). It does not accept `tests`, and there is no near-miss field that would do instead. |
 | an assertion naming `Child.value` | F21, which is a year older than this finding |
 
 ### What it costs
