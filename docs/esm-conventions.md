@@ -4765,3 +4765,184 @@ the wildcard step surfaces as the *clamp* assertion failing with `-0.0000000`
 temperature, and exactly the misdirection that let the defect survive until
 `process-brakewear` found it. **When one assertion can fail as a side effect of
 another's cause, assert the cause first.**
+
+## 49. What crosses a `{ref}` mount into an INGESTING build, measured **[PLAN.md step 7a, four blocks, two of them do not]**
+
+`runs/*.esm` mount components and evaluate; `fixtures/*.esm` read Parquet and
+inline everything. The combination — a mounted component that reads Parquet —
+was not exercised by anything in this tree until step 7a, and it does not
+behave like either half. `spikes/7a/` is the measurement.
+
+**The headline holds: a data BINDING crosses the mount.** A variable declared
+inside a ref'd child may carry
+
+```json
+"update": { "kind": "data", "source": "spike_agecategory",
+            "from": { "file_variable": "ageID" } }
+```
+
+where `data_sources.spike_agecategory` is declared **only in the mounting
+document**. It is read, the join runs, and the numbers are the default
+database's own. That is the assumption PLAN.md §7.1 rests on and it is now
+measured rather than assumed.
+
+**It also crosses the other way, which is the more useful half.** The child may
+declare the `data_sources` entry itself and the parent supply nothing but the
+metaparameter and the index set. So a shared domain document can carry the
+whole default-database catalogue and a per-fixture document add only its own
+runspec sources.
+
+**Two blocks do NOT cross, and `esm validate` does not say so.**
+
+| block | may live in the child | must be restated by the mounting document |
+|---|---|---|
+| `variables`, `equations`, `update` bindings | yes | no |
+| `data_sources` | yes | no |
+| `metaparameters` | **no** | **yes** |
+| `index_sets` | yes, and ignored | **yes, verbatim** |
+
+The index-set half is the one that will catch an author out, because the
+document validates. F2 merges a top-level `{ref}`'s index sets into the
+registry `esm validate` reads; the ingesting build reads a different registry —
+`file.index_sets`, the mounting document's own — and reports
+
+```
+aggregate range 'g' references index set 'spike_agegroup_rows', which is not
+declared in the document `index_sets` registry
+```
+
+Finding F46. **Restate the child's `index_sets` in the mounting document, and
+say in a comment that it is load-bearing**, or the next reader will delete
+them as duplication.
+
+### 49.1 A `{ref}` mount edge is NOT a closed shape, and one of its four extra fields is the override mechanism
+
+`{"ref": …, "metaparameters": …}` is refused and `{"ref": …, "tests": …}` is
+refused, which is easy to read as "a `{ref}` takes nothing but a path". It is
+not what the schema says. `SubsystemRef` accepts four more fields, and the one
+that matters was looked for under the wrong name:
+
+| field | what it does |
+|---|---|
+| `bindings` | **closes the referenced document's own metaparameters at the mount edge** (esm-spec §9.7.6 site 3). Each value is a metaparameter expression over the MOUNTING document's metaparameters — an integer literal, or a name, or `NX*NY` — folded at the mount. |
+| `model` | selects one of several top-level models in the referenced file |
+| `index_set_rename` | renames a mounted axis, so two mounts that both use `lev` at different lengths do not collide |
+| `expression_template_imports` | registers a template library into the REFERENCED component's scope — assembler-chosen discretization without editing the leaf |
+
+**So ref-with-overrides exists, spelled `bindings`.** Measured: a child that
+declares `index_sets: {cat_rows: {size: "n_cat"}}` and nothing else is closed
+by `{"ref": "./bind_child.esm", "bindings": {"n_cat": "n_spike_agecategory"}}`,
+and the runtime-discovered `extent` of the parent's source flows through the
+binding — the same 41 rows and the same 6/9/13/17/60/85/630. It does **not**
+remove F46's index-set restatement: with `bindings` and no `index_sets` in the
+parent, the build still says `'grp_rows' … is not declared in the document
+index_sets registry`.
+
+**`model` does not make a mounted document composable.** A referenced file with
+two models is refused (`resolves to 2 models; add a "model" selector`), and
+selecting the one that names its sibling then fails validation
+(`Scoped reference 'Census.totalAge' cannot be resolved`). A mounted document
+whose models reference each other cannot be mounted at all — which, with §50,
+means a fixture mounts exactly one model and a shared domain document composes
+through *expression templates*, not through nested mounts.
+
+### 49.2 Per-fixture configuration: two channels, both already in the fixture
+
+* **a `data_sources` key.** The shared document binds `source: "runspec_day"`
+  and never declares it; each fixture declares that key against its own table.
+  This is how a runspec's *selections* travel, and §7.3's monolithic conversion
+  makes the default-database half of the catalogue identical for every fixture,
+  so it can live in the shared document instead.
+* **a metaparameter with a literal `default`, read as a number.** A
+  metaparameter declared in the MOUNTING document is readable in a ref'd
+  child's equation as an ordinary scalar. Measured twice: `metaEcho =
+  n_spike_agegroup` gives 7 (an `extent`-discovered count) and `cfgEcho =
+  cfg_year` gives 2020 (a literal the fixture wrote). That is the per-fixture
+  numeric channel, and the fixture has to declare its metaparameters anyway.
+
+One asymmetry worth knowing, because it is the trap between the two: a
+metaparameter closed at the mount edge by `bindings` is **not** readable in an
+equation — `Variable 'cfg_year' referenced in equation is not declared`, both
+at validate and at build. `bindings` closes *sizes*. To pass a NUMBER into the
+shared logic, declare the metaparameter in the mounting document and let the
+child name it.
+
+## 50. An ingesting document holds ONE model, so an assembly is verified by its relation and not by an assertion **[PLAN.md step 7a, three closed spellings]**
+
+The moment any variable in a document carries `update: {kind: "data"}`, the
+document may declare exactly one model. A second — a mounted `{ref}` beside an
+asserting model, which is precisely PLAN.md §7.1's shape — makes **every**
+assertion in the document error with `document holds several models; pass
+model_name`, including assertions that touch no ingested value. Finding F45.
+
+`runs/micro_exhaust_run.esm` is green today with three models and nine
+assertions because it ingests nothing. Add one `kind: data` variable to a copy
+of it and all nine error. **The four assemblies in `runs/` are one data source
+away from that**, which is worth knowing before one of them is retargeted at
+the default database.
+
+And a mounted component's own inline tests do not run — `esm test` says so —
+while a *parent-shaped* component cannot be a test target either, because it
+does not load alone. Finding F47. So all three ways to assert are closed:
+
+| spelling | refused by |
+|---|---|
+| an asserting model beside the mount | `document holds several models` (F45) |
+| `tests` beside the `{ref}` | the schema: `Additional properties are not allowed` |
+| an assertion naming `Child.value` | F21 |
+
+**So a ref'd, data-fed assembly is checked by emitting its relation and
+comparing it** — `simulate --format csv` against a recorded CSV, which is what
+the fixture stage already does and what `run-tests.sh`'s 7a stage now does.
+Write the assertions in the child anyway, as `spikes/7a/age_group_census.esm`
+does, and have the harness assert that they still do not run: the day they do,
+the suite says so instead of the weaker check quietly remaining the only one.
+
+## 51. A name crosses a mount downward only **[PLAN.md step 7a, two spellings, two different refusals]**
+
+A mounting document can name what it mounted (`Rates.emissionRate`, and every
+`join.on` in `runs/`). A mounted child cannot name what mounted it, and the
+toolchain says so twice over rather than once:
+
+* the **bare** name — the child's equation says `hostVal`, declared only in the
+  parent — is refused by `esm validate` **on the child's own file**:
+  `Variable 'hostVal' referenced in equation is not declared`. A child's
+  equation is resolved in the child's scope, full stop;
+* the **scoped** name — `Host.hostVal` — is refused at load as
+  `circular reference (cycle) detected: Host -> Child -> Host`.
+
+The mount graph is a DAG pointed downward, and the second message is the useful
+one: reaching up is not an unimplemented feature, it is a cycle. **So the
+shared document must be the leaf of the assembly, never the root.** Any
+spelling that puts the per-fixture data above the shared logic and has the
+logic reach up for it does not exist.
+
+## 52. What a `data_source` costs per `esm` invocation, and where the cache lives **[PLAN.md step 7a, two tables, 106 MB and 2.0 M rows]**
+
+`data_sources` load per invocation and `run-tests.sh` invokes the binary many
+times, so PLAN.md §7.3 flags the parse as a cost that must be measured rather
+than assumed. Measured, on the pinned toolchain, one table per throwaway
+document, `esm test` wall clock:
+
+| table | on disk | rows | cold | warm |
+|---|---|---|---|---|
+| `EmissionRateByAge` | 105.7 MiB | 1,590,830 | **4.94 s** | **0.33 s** |
+| `IMCoverage`, consolidated | 0.8 MiB | 2,024,874 | **0.46 s** | **0.41 s** |
+
+Two things in that table are worth more than the timings.
+
+**A monolithic conversion is not merely convenient, it is 470× smaller for the
+worst table.** `IMCoverage` is quoted as 378 MB, and it is — as 21,625
+Parquet files of ~17 KB each, partitioned county × year. Concatenated it is
+**0.8 MiB** over 2.02 M rows: essentially all of the 378 MB is per-file footer
+and metadata. Consolidating it took 17.2 s once. The table PLAN.md §7.3 names
+as one of the two that matter costs half a second.
+
+**The ingested-source cache is in `$TMPDIR`, and on this machine `$TMPDIR` is
+`/tmp`, which is a RAM-backed tmpfs.** `/tmp/earthsci-esm-cache` was already
+379 MB during this work. CLAUDE.md's rule about not putting large things in
+`/tmp` therefore applies to a tool nobody thinks of as writing there, and a run
+that ingests the whole 1.1 GB default database would put roughly that much into
+RAM. Set `TMPDIR` to a disk-backed directory before a whole-database run. (The
+cache is also the F42 hazard: keyed by URL and never revalidated, so a table
+edited in place is not re-read.)

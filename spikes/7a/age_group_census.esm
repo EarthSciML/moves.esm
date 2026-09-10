@@ -1,0 +1,128 @@
+{
+  "esm": "1.0.0",
+  "metadata": {
+    "name": "AgeGroupCensus",
+    "description": "PLAN.md step 7a, the child half. A PARENT-SHAPED, PARENT-FED component: it holds the logic and the data BINDINGS, and it holds neither the data nor the shape.\n\nWHAT IS BEING PROVED. Phase 7 §7.1 puts the logic in one shared domain document and the configuration in a thin per-fixture document that mounts it by `{ref}`. §7.2 proved that assembly VALIDATES. What nothing in the tree exercised is whether it EVALUATES with data, because `runs/*.esm` ref components but supply no data and `fixtures/*.esm` supply data but inline everything. This file is the missing half: its three `parameter` variables carry `update: {kind: \"data\", source: \"spike_agecategory\"}` and `\"spike_agegroup\"`, and NEITHER key is declared here. `data_sources` lives in the mounting document (`spike_parent.esm`), as do the two metaparameters that close the index sets below. Data binding is variable-level, and this file is the question of whether that binding resolves across a mount edge.\n\nWHY IT CANNOT RUN ALONE, and that is the point. `spike_agecategory_rows` is sized by `n_spike_agecategory`, which no declaration in this file provides, so `esm validate` on this file fails with `invalid type: string \"n_spike_agecategory\", expected i64` — the same open-shape failure §7.2 measured. run-tests.sh asserts that failure rather than tolerating it, because a shape that closed itself by accident would make the parent's success meaningless.\n\nTHE ARITHMETIC IS DELIBERATELY BORING. `AgeCategory` (41 rows) is grouped by `AgeGroup` (7 rows) on `ageGroupID` — one equi-join, two aggregates — and the numbers are the real default database's: 41 categories over 7 groups, ageIDs summing to 820, and group 2099 holding 21 of the 41. Nothing here is a MOVES calculation; the subject is the mount edge, and a recognisable number is what makes a false positive visible.\n\nTHE TESTS BELOW DO NOT RUN TODAY, and that is recorded rather than hidden. On the pinned toolchain `esm test` reports of a mounted leaf: \"a mounted component's inline tests are not run here; they run when its own file is a test target\" — and this file cannot BE a test target, because its shape is open and it does not load alone. So a parent-shaped component has no reachable inline-test path at all (finding F47), and the parent cannot supply one either: an asserting model beside the mount makes every assertion in the document error with `document holds several models` (finding F45). run-tests.sh therefore checks this assembly by emitting its relation and diffing it, the fixture stage's own pattern, AND asserts that `esm test` on the parent still finds zero assertions — so the day these four become reachable, the suite says so.\n\nThey are written as if they ran, and they are written one stage downstream of the ingest on purpose: a scoped name is not assertable (F21) and neither is a `kind: data` parameter (F43), so the columns this file INGESTS are pinned through `groupCategoryCount` and `totalAge`, exactly as F43 requires.",
+    "authors": ["EarthSciML Authors and Contributors"],
+    "tags": ["moves", "spike", "phase7", "component"]
+  },
+
+  "index_sets": {
+    "spike_agecategory_rows": { "kind": "interval", "size": "n_spike_agecategory" },
+    "spike_agegroup_rows": { "kind": "interval", "size": "n_spike_agegroup" }
+  },
+
+  "models": {
+    "AgeGroupCensus": {
+      "tolerance": { "rel": 1e-12 },
+
+      "variables": {
+        "ac_ageID": {
+          "type": "parameter", "units": "1", "default": 0.0, "shape": ["spike_agecategory_rows"],
+          "description": "agecategory.ageID, 0..40. Ingested from a `data_sources` entry the MOUNTING document declares.",
+          "update": { "kind": "data", "source": "spike_agecategory", "from": { "file_variable": "ageID" } }
+        },
+        "ac_ageGroupID": {
+          "type": "parameter", "units": "1", "default": 0.0, "shape": ["spike_agecategory_rows"],
+          "description": "agecategory.ageGroupID. The join key on the many side.",
+          "update": { "kind": "data", "source": "spike_agecategory", "from": { "file_variable": "ageGroupID" } }
+        },
+        "ag_ageGroupID": {
+          "type": "parameter", "units": "1", "default": 0.0, "shape": ["spike_agegroup_rows"],
+          "description": "agegroup.ageGroupID — 3, 405, 607, 809, 1014, 1519, 2099. The join key on the one side, materialized as a SECOND relation because a relation cannot be joined to itself (finding F11).",
+          "update": { "kind": "data", "source": "spike_agegroup", "from": { "file_variable": "ageGroupID" } }
+        },
+
+        "ac_unit": {
+          "type": "unknown", "units": "1", "shape": ["spike_agecategory_rows"],
+          "description": "One per agecategory row, formed elementwise so the count below sums an indexed operand rather than a literal the constant folder could lift out of the aggregate (finding F20 is that hazard's neighbour)."
+        },
+        "groupCategoryCount": {
+          "type": "unknown", "units": "1", "shape": ["spike_agegroup_rows"],
+          "description": "How many agecategory rows each agegroup holds: 4, 2, 2, 2, 5, 5, 21."
+        },
+        "groupAgeTotal": {
+          "type": "unknown", "units": "1", "shape": ["spike_agegroup_rows"],
+          "description": "Sum of ageID within each agegroup: 6, 9, 13, 17, 60, 85, 630."
+        },
+        "totalCategories": {
+          "type": "unknown", "units": "1",
+          "description": "41. The join loses nothing: every agecategory row has exactly one agegroup partner."
+        },
+        "totalAge": {
+          "type": "unknown", "units": "1",
+          "description": "820, which is 0 + 1 + ... + 40. The scalar an assertion can name without depending on the ingested row ORDER, which is why it is the primary claim."
+        }
+      },
+
+      "equations": [
+        {
+          "_comment": "One per row, elementwise over the ingested column so the counting aggregate below has an indexed operand.",
+          "lhs": "ac_unit",
+          "rhs": { "op": "ifelse", "args": [
+            { "op": ">=", "args": ["ac_ageID", { "op": "const", "args": [], "value": 0.0 }] },
+            { "op": "const", "args": [], "value": 1.0 },
+            { "op": "const", "args": [], "value": 1.0 }
+          ] }
+        },
+        {
+          "_comment": "The equi-join, driven from the match set (§1.3's gate): 7 x 41 candidate pairs, 41 matches.",
+          "lhs": "groupCategoryCount",
+          "rhs": { "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["g"],
+            "ranges": { "g": { "from": "spike_agegroup_rows" }, "c": { "from": "spike_agecategory_rows" } },
+            "join": [ { "on": [["ag_ageGroupID", "ac_ageGroupID"]] } ],
+            "expr": { "op": "index", "args": ["ac_unit", "c"] } }
+        },
+        {
+          "lhs": "groupAgeTotal",
+          "rhs": { "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["g"],
+            "ranges": { "g": { "from": "spike_agegroup_rows" }, "c": { "from": "spike_agecategory_rows" } },
+            "join": [ { "on": [["ag_ageGroupID", "ac_ageGroupID"]] } ],
+            "expr": { "op": "index", "args": ["ac_ageID", "c"] } }
+        },
+        {
+          "lhs": "totalCategories",
+          "rhs": { "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": [],
+            "ranges": { "g": { "from": "spike_agegroup_rows" } },
+            "expr": { "op": "index", "args": ["groupCategoryCount", "g"] } }
+        },
+        {
+          "lhs": "totalAge",
+          "rhs": { "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": [],
+            "ranges": { "g": { "from": "spike_agegroup_rows" } },
+            "expr": { "op": "index", "args": ["groupAgeTotal", "g"] } }
+        }
+      ],
+
+      "tests": [
+        {
+          "id": "the_join_conserves_every_category_row",
+          "description": "41 agecategory rows, all of them matched. A dropped key or an unread column shows here first, and as a SMALLER number rather than as an error.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "totalCategories", "time": 0.0, "expected": 41.0 }
+          ]
+        },
+        {
+          "id": "the_ingested_column_carries_its_values",
+          "description": "0 + 1 + ... + 40 = 820, summed through the join rather than over the raw column, because a `kind: data` parameter is not assertable (finding F43). This is the assertion that fails if the parquet is read as zeros: the count above would still be 41.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "totalAge", "time": 0.0, "expected": 820.0 }
+          ]
+        },
+        {
+          "id": "the_groups_are_the_default_databases_own",
+          "description": "Per-group counts in the file's row order: group 3 holds ages 0-3, and group 2099 holds the twenty-one ages 20-40. These two depend on the ingested ROW ORDER as well as the values, which the scalars above deliberately do not.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "groupCategoryCount", "time": 0.0, "expected": 4.0, "coords": { "spike_agegroup_rows": 1 } },
+            { "variable": "groupCategoryCount", "time": 0.0, "expected": 21.0, "coords": { "spike_agegroup_rows": 7 } },
+            { "variable": "groupAgeTotal", "time": 0.0, "expected": 6.0, "coords": { "spike_agegroup_rows": 1 } },
+            { "variable": "groupAgeTotal", "time": 0.0, "expected": 630.0, "coords": { "spike_agegroup_rows": 7 } }
+          ]
+        }
+      ]
+    }
+  }
+}

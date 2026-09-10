@@ -14,7 +14,7 @@ bottom now. Nothing else changed state: the other nine repro-carrying findings
 — ten files, F22 having two — still fail exactly as recorded, no spec, fixture
 or oracle regressed, and no tolerance moved.
 
-F3, F5, F13, F14, F20, F21, F22, F28, F41 and F43 each have a minimal `.esm` repro in
+F3, F5, F13, F14, F20, F21, F22, F28, F41, F43 and F45 each have a minimal `.esm` repro in
 this directory — F22 has two, one per construct; F8 is a CLI behaviour rather than a
 document, and is checked by command against the ordinary files of the repo.
 **F17, F31, F33 and F42 deliberately have no repro file**: a repro
@@ -27,7 +27,12 @@ was reproduced inline in its own section instead, with the measurements that
 made it a finding. **F42 cannot have one for a fourth reason**: its trigger is
 state OUTSIDE the repository — a warm cache in `$TMPDIR` — so the same file
 would pass or fail depending on what was run before it, which is precisely what
-a tripwire cannot read. It is gated by `tools/check-source-cache.py` instead. F17 and F31 are now fixed upstream and retired — and F17 turned out not to be
+a tripwire cannot read. It is gated by `tools/check-source-cache.py` instead. **F46 and F47 are the fifth and sixth, and their reason is new**: both can only be
+shown in a document whose sole model is a mounted `{ref}`, and such a document
+discovers ZERO assertions (that is F47 itself), so `esm test` on it exits 0 and
+the tripwire would read it as green from the day it was written. A document
+that cannot make a claim cannot be a tripwire. Both are gated by command in
+`run-tests.sh`'s 7a stage, two-sided. F17 and F31 are now fixed upstream and retired — and F17 turned out not to be
 a cost finding at all, which is why the rule that a performance repro cannot be
 a tripwire is worth keeping even though both of its instances are gone: the
 thing that had no repro was hiding a WRONG ANSWER, and only a document that
@@ -2373,4 +2378,246 @@ the second data point for that claim rather than a fresh complaint.
 declare `1609.344 m` without the registry needing a name for it; (b) the
 narrow fix — `mi`, `yd` and `in` in the registry beside `ft`, which is one
 table entry each and which is what landed for `inHg`. (b) unblocks this
-repository; only (a) stops the next rung filing F45.
+repository; only (a) stops the next rung filing another one. (This sentence
+used to name F45; F45 turned out to be something else entirely, filed the same
+week from PLAN.md step 7a, and the placeholder is removed rather than
+renumbered.)
+
+---
+
+## F45 — an ingesting document may hold only one model
+
+**Not fixed. Repro: `F45_an_ingesting_document_holds_one_model.esm`.** Found
+running PLAN.md step 7a, the Phase 7 gate.
+
+A document whose build reads a `data_sources` entry — that is, any document
+with a variable carrying `update: {kind: "data"}` — may declare exactly **one**
+model. Declare two and every assertion in the document errors, at interpreter
+build, after `esm validate` has passed:
+
+```
+simulate failed: Compile failed: Interpreter build failed:
+document holds several models; pass model_name
+```
+
+`pkg/earthsci-ast-rs/src/prepare.rs:1403` is the line, and the shape of the
+code around it is the rest of the finding: the ingesting build picks ONE model
+by name, defaults to the only one when there is only one, and refuses
+otherwise.
+
+### What makes it attributable, and it is one line either way
+
+The repro holds two models. `Ingest` reads `runspecmonth.monthID` — one row,
+one column, the smallest table in the corpus — and lifts it onto a scalar.
+`Bystander` computes `1 + 1`, touches no data and names nothing outside itself.
+**Both assertions error.** Delete `Bystander` and the remaining assertion
+passes, 8, still ingesting. Delete the `update` block instead, leaving two
+models and no ingest, and the document **builds**: `Bystander` passes and
+`Ingest` reports `actual=0 expected=8` — a wrong NUMBER, because the parameter
+now has no source, which is a different complaint and the point is that it is
+a complaint about arithmetic rather than a refusal to build. Two models is
+fine. Ingesting is fine. The conjunction is refused.
+
+`runs/micro_exhaust_run.esm` is the other half of that control and it is
+already in the tree: three models, two of them mounted `{ref}`s, nine
+assertions, green. Adding an **unused** `data_sources` entry to a copy leaves
+it green — an entry no variable binds does not select this path. Adding one
+`kind: data` variable makes all nine of its existing assertions error with the
+message above. That is the sharpest form of the finding: **the day one of these
+assemblies ingests, every assertion it already has stops evaluating.**
+
+### `--model` does not rescue it, in either direction
+
+`esm test --model Check` narrows which tests are *reported* and never reaches
+the build; the error is unchanged. `esm simulate --model Check` does reach the
+build, and builds that model **alone**, so a name from the mounted sibling is
+then bound by nothing:
+
+```
+E_TREEWALK_UNBOUND_NAME: 'AgeGroupCensus.totalAge' is referenced in an
+expression but bound by NOTHING in scope
+```
+
+There is no invocation that builds one model and keeps another in scope.
+
+### A second measurement, same root cause: `subsystems` are invisible too
+
+The build takes one model and knows that model's own variables. A nested
+`subsystems` child does not reach it, in either spelling:
+
+* as a `{ref}` stub — `subsystems: {Census: {ref: "./age_group_census.esm"}}`
+  — the include is never resolved (`esm info` reports the mounting model with
+  its own single variable) and `Census.totalAge` is unbound at build;
+* **inlined as a literal model body**, with no `ref` anywhere, `esm validate`
+  PASSES and `Census.totalAge` is still unbound at build.
+
+The second bullet is the one that matters: this is not an unresolved include,
+it is that the ingesting interpreter has no notion of a subsystem at all. No
+nesting spelling reaches it, so F1's old argument about which mount form to
+prefer has nothing to offer here.
+
+### What it costs
+
+It is the wall PLAN.md §7's architecture meets. §7.1 puts a shared domain
+document at the bottom and a thin per-fixture document on top that imports it
+by reference, configures it, "and asserts against canonical output in its own
+`tests` section". The mount is the first model; the asserting one is the
+second. Measured in `spikes/7a/`: the assembly evaluates, reads two Parquet
+tables of the default database, runs an equi-join and emits exactly the right
+relation — and adding an asserting model that does nothing but
+`parentTotalAge = AgeGroupCensus.totalAge` turns all of it into errors.
+
+With F47 this leaves **a ref'd, data-fed assembly with no inline-test path at
+all**; its only available verification is the fixture stage's emit-and-compare.
+`run-tests.sh`'s 7a stage does that, and watches this finding through the repro.
+
+### What would fix it
+
+Build every model in the document, as the scalar path already does, and resolve
+a cross-model name the way the flattener already does. A narrower fix that
+would unblock Phase 7 on its own: when no `model_name` is given, take the union
+of the document's models rather than refusing — the behaviour a one-model
+document already gets, extended to the case the schema plainly allows.
+
+---
+
+## F46 — a mounted child's `index_sets` and `metaparameters` do not reach the ingesting build
+
+**Not fixed. No repro file, for the reason below; gated two-sided by
+`run-tests.sh`'s 7a stage.** Found running PLAN.md step 7a.
+
+PLAN.md §7.2 measured that a child declaring `index_sets: {rows: {size:
+"n_rows"}}` and no `n_rows` **validates through a parent** that declares
+`n_rows`, and concluded that "per-fixture configuration needs no override
+mechanism: the shared document is open at the top, and the fixture closes it by
+supplying `data_sources` and `metaparameters`". That is true of `esm validate`
+and false of evaluation, in two separate places.
+
+**1. The index sets must be RESTATED by the mounting document.** Leave them to
+the child and `esm validate` passes while the build fails:
+
+```
+$ ./esm validate spikes/7a/.probe_a2.esm
+✓ Validation passed
+$ ./esm simulate spikes/7a/.probe_a2.esm --time 0 --format csv -o /dev/null
+problem build failed: Compile failed: Interpreter build failed:
+resolve ranges for groupAgeTotal: aggregate range 'g' references index set
+'spike_agegroup_rows', which is not declared in the document `index_sets`
+registry (no implicit interval inference; RFC semiring-faq-unified-ir §5.2)
+```
+
+The registry the build reads is `file.index_sets` — the *mounting document's
+own* — so F2's merge, which is real and is what makes `esm validate` pass, does
+not reach it. Copy the two entries verbatim into the parent and the same
+document evaluates. `spikes/7a/spike_parent.esm` carries them for that reason
+and says so, because they read exactly like duplication.
+
+**2. A mounted child's `metaparameters` do not merge up at all.** Leave the
+extent metaparameter to the child and the document does not load:
+
+```
+[metaparameter_unbound] document: index_sets.spike_agegroup_rows.size
+references unbound name(s) n_spike_agegroup (esm-spec §9.7.6)
+```
+
+and with the index set left to the child as well, the source's own extent has
+nowhere to bind:
+
+```
+re-loading with the discovered source extents: Schema validation error:
+[template_import_unknown_name] loader API binds metaparameter
+'n_spike_agegroup', which the document does not declare (esm-spec §9.7.6)
+```
+
+**3. `data_sources`, by contrast, cross the mount both ways.** This is the half
+that works, and it is what Phase 7 can be built on. A variable inside a ref'd
+child may carry `update: {kind: "data", source: "X"}` where `data_sources.X` is
+declared only in the parent — 7a's headline result — **and** the child may
+declare the `data_sources` entry itself with the parent supplying only the
+metaparameter and the index set. Measured both ways against the real default
+database; both read the Parquet and evaluate to the same numbers.
+
+So the division of labour that actually holds is:
+
+| block | may live in the shared child | must be in the mounting document |
+|---|---|---|
+| `variables`, `equations`, and their `update` data bindings | yes | — |
+| `data_sources` | yes | or here |
+| `metaparameters` | no — they do not merge up | **yes** |
+| `index_sets` | declared here, and ignored by the build | **yes, restated** |
+
+### Why there is no repro file
+
+A repro under `docs/findings/` must FAIL today and PASS when fixed, and the
+tripwire reads a passing file as "the defect is fixed". This defect can only be
+shown in a document whose sole model is a mount — and such a document discovers
+**zero assertions** (F47), so `esm test` on it exits 0 and the tripwire would
+read it as green from the day it was written. It is the same exclusion as F25's
+and F26's and for a sharper reason: those are documents that are *meant* to be
+invalid; this is a document that cannot make a claim at all. The 7a stage
+checks it by command instead, in both directions — the probe must still
+validate, and must still fail to build.
+
+### What would fix it
+
+Merge a mounted file's `index_sets` and `metaparameters` into the registry the
+ingesting build reads, which is the registry `esm validate` already merges them
+into. One of the two is arguably already promised: F2's fix is recorded above
+as merging a top-level `{ref}`'s index sets "into the importing document's
+registry", and it turns out there are two registries.
+
+---
+
+## F47 — a mounted component's inline tests are never run, and a parent-shaped one can never run them anywhere
+
+**Not fixed. No repro file — a repro would exit 0 today, which the tripwire
+reads as fixed.** Gated by `run-tests.sh`'s 7a stage. Found running PLAN.md
+step 7a.
+
+`esm test` on a document that mounts a leaf prints:
+
+```
+Mounted: 1 (esm-spec §6.6 — a mounted component's inline tests are not run
+here; they run when its own file is a test target)
+```
+
+For every component in `components/` that is fine: each is also its own test
+target, so its tests run in stage 3. For a **parent-shaped** component it is
+not, because such a component does not load alone — that is what parent-shaped
+means. `esm test` on its own file reports a parse error; `esm test` on the
+document that closes its shape reports zero assertions. There is no third place
+to run them from.
+
+Nor can the mounting document supply the assertion in the leaf's place. Each of
+the three spellings is closed by something different:
+
+| spelling | refused by |
+|---|---|
+| an asserting model beside the mount | `document holds several models` (F45) |
+| `tests` beside the `{ref}` | the schema — `Additional properties are not allowed ('tests' was unexpected)`. A `{ref}` is not a closed shape in general: it accepts `model`, `bindings`, `index_set_rename` and `expression_template_imports` (§49.1). It does not accept `tests`, and there is no near-miss field that would do instead. |
+| an assertion naming `Child.value` | F21, which is a year older than this finding |
+
+### What it costs
+
+**A ref'd, data-fed assembly cannot carry an inline assertion.** Its only
+verification is to emit its relation and compare it — `simulate --format csv`
+against a recorded CSV, which is what the fixture stage already does for all
+fifteen fixtures and what the 7a stage now does for the spike. What is lost is
+the other half of what a fixture does today: the inline claims that pin
+intermediate values by name, one per interesting quantity, each with its own
+tolerance and its own description. A CSV diff says the relation changed; it
+does not say which claim about the model is now false. That is §12's rule
+losing its instrument on exactly the documents Phase 7 is about to write.
+
+`spikes/7a/age_group_census.esm` keeps its four assertions, written as if they
+ran, so that the day this is fixed they are already there. The 7a stage asserts
+that `esm test` still finds zero of them, so that day is announced rather than
+discovered.
+
+### What would fix it
+
+Run a mounted component's inline tests in the mounting document's context,
+which is the only context in which a parent-shaped one can run at all — the
+mount is where its shape is closed and its data arrives. Failing that, permit
+`tests` beside a `{ref}`, or fix F21 so the mounting document can name what it
+mounted.

@@ -13,6 +13,8 @@
 #   5. join gate   — a `join.on` contraction still costs O(matches), not O(N·M)
 #   6. limitations — the known upstream defects in docs/findings/ still fail
 #   7. fixtures    — end-to-end comparison against the moves.rs snapshots
+#   8. 7a spike    — the Phase 7 shape: a ref'd, data-fed, parent-shaped
+#                    model evaluated against the default MOVES database
 #
 # WHICH CORPUS. Stages 2, 3 and 7 and the oracles read
 # `../moves.rs/characterization/snapshots`, and they require a
@@ -109,6 +111,10 @@ COVERAGE_DAG=../moves.rs/characterization/calculator-chains/calculator-dag.json
 #
 # docs/findings/ is excluded from stages 1–3: those files are deliberate repros
 # of upstream defects and three of them do not load at all. Stage 5 runs them.
+# spikes/ is excluded from stages 1–4 for the same kind of reason:
+# spikes/7a/age_group_census.esm is PARENT-SHAPED and deliberately does not
+# load alone, which stage 1 would report as a failure. The 7a stage runs it,
+# and asserts that exact failure rather than tolerating it.
 # gates/ is excluded from stage 3 only, because stage 4 runs it and times it.
 
 # `-not -name '.*'` is load-bearing, not tidiness. This list is collected ONCE,
@@ -120,7 +126,7 @@ COVERAGE_DAG=../moves.rs/characterization/calculator-chains/calculator-dag.json
 # that. Hidden files are not part of the document set.
 mapfile -t DOCS < <(find . -name '*.esm' -not -name '.*' \
   -not -path './.moves/*' -not -path './target/*' -not -path './docs/findings/*' \
-  -not -path './.fixtures-run/*' \
+  -not -path './.fixtures-run/*' -not -path './spikes/*' \
   | sort)
 
 if [[ ${#DOCS[@]} -eq 0 ]]; then
@@ -260,7 +266,7 @@ fi
 # would just run them twice.
 mapfile -t TEST_TARGETS < <(find . -maxdepth 1 -mindepth 1 -type d \
   -not -name '.*' -not -name 'target' -not -name 'gates' -not -name 'docs' \
-  -not -name 'tools' -not -name 'fixtures' | sort)
+  -not -name 'tools' -not -name 'fixtures' -not -name 'spikes' | sort)
 
 head2 "test (${TEST_TARGETS[*]})"
 if "$ESM" test "${TEST_TARGETS[@]}" 2>&1 | sed 's/^/  /'; then
@@ -758,6 +764,139 @@ PYEOF
         --report --explain <<<"$out" | sed 's/^/       /'
     fi
   done
+fi
+
+# --- the Phase 7 spike ------------------------------------------------------
+#
+# PLAN.md step 7a. A shared component that carries logic and variable-level data
+# BINDINGS with an OPEN shape, mounted by a thin document that supplies the
+# `data_sources`, the metaparameters and the index sets. It is the one
+# combination nothing else in this tree exercises -- `runs/` refs components and
+# supplies no data, `fixtures/` supply data and inline everything -- and the
+# whole of Phase 7 rests on it, so it is checked here rather than assumed.
+#
+# WHY spikes/ IS EXCLUDED FROM STAGES 1-4, the way docs/findings/ is:
+# spikes/7a/age_group_census.esm is PARENT-SHAPED and deliberately does not load
+# alone. Stage 1 would report that as a failure; here it is asserted, by its
+# exact message, because a child that closed its own shape by accident would
+# make the parent's success prove nothing.
+#
+# WHY THE CHECK IS A CSV DIFF AND NOT AN ASSERTION. It is the only verification
+# the format leaves available for this shape. An asserting model beside the
+# mount makes every assertion in the document error (finding F45), and a mounted
+# component's own inline tests are not run (finding F47). So this stage borrows
+# the fixture stage's emit-and-compare, and watches BOTH findings two-sided: the
+# day either is fixed, it says so instead of quietly staying the weaker check.
+#
+# THE DATABASE IS READ IN PLACE and its path is absolute. It is 1.1 GB and is
+# not in this repository, so the document cannot name it relatively the way a
+# fixture names a snapshot. This stage SKIPS when it is absent, as the fixture
+# stage does. The path is read out of the document rather than configured here,
+# so there is exactly one place that says where the database is.
+head2 "phase 7 spike (7a)"
+SPIKE_PARENT=spikes/7a/spike_parent.esm
+SPIKE_CHILD=spikes/7a/age_group_census.esm
+SPIKE_EXPECTED=spikes/7a/expected/age_group_census.csv
+
+if [[ ! -f "$SPIKE_PARENT" ]]; then
+  say "  none"
+else
+  mapfile -t SPIKE_INPUTS < <("$PYTHON" - "$SPIKE_PARENT" <<'PYEOF'
+import json, sys, urllib.parse
+doc = json.load(open(sys.argv[1]))
+for entry in (doc.get("data_sources") or {}).values():
+    url = entry["source"]["url_template"]
+    print(urllib.parse.urlparse(url).path if url.startswith("file://") else url)
+PYEOF
+)
+  spike_missing=""
+  for f in "${SPIKE_INPUTS[@]}"; do
+    [[ -f "$f" ]] || spike_missing="$f"
+  done
+
+  if [[ -n "$spike_missing" ]]; then
+    skip "7a spike" "the default MOVES database is not where $SPIKE_PARENT names it ($spike_missing)"
+  else
+    # 1. The child must still fail alone, by the message that says its shape is
+    #    open rather than merely broken.
+    if out=$("$ESM" validate "$SPIKE_CHILD" 2>&1); then
+      fail "7a open-shape control — the parent-shaped child now validates ALONE. Its shape is no longer open and the assembly below proves nothing about parent-supplied configuration"
+    elif grep -q 'invalid type: string "n_spike_agecategory", expected i64' <<<"$out"; then
+      pass "7a — the child's shape is open: it does not load alone"
+    else
+      fail "7a open-shape control — the child was refused, but not as an open shape"
+      sed 's/^/       /' <<<"$out"
+    fi
+
+    # 2. The assembly validates, round-trips, and emits the database's numbers.
+    if out=$("$ESM" validate "$SPIKE_PARENT" 2>&1); then
+      pass "7a — the assembly validates"
+    else
+      fail "7a — the assembly no longer validates"
+      sed 's/^/       /' <<<"$out"
+    fi
+    if "$ESM" round-trip "$SPIKE_PARENT" >/dev/null 2>&1; then
+      pass "7a — the assembly round-trips"
+    else
+      fail "7a — the assembly does not round-trip"
+    fi
+
+    mkdir -p "$RUNDIR"
+    # The emitted columns are read from the expected relation's own header, so
+    # adding a column to the spike needs no edit here.
+    IFS=, read -r -a SPIKE_COLS < <(head -1 "$SPIKE_EXPECTED")
+    spike_obs=()
+    for c in "${SPIKE_COLS[@]:1}"; do spike_obs+=(--observed "$c"); done
+    SPIKE_CSV="$RUNDIR/spike-7a.csv"
+    if out=$("$ESM" simulate "$SPIKE_PARENT" --time 0 --format csv \
+               "${spike_obs[@]}" --output "$SPIKE_CSV" 2>&1); then
+      if diff -u "$SPIKE_EXPECTED" "$SPIKE_CSV" >/dev/null 2>&1; then
+        pass "7a — a ref'd, parent-fed, parent-shaped model evaluates against the default database"
+        say "       41 agecategory rows over 7 agegroups; ageIDs 0..40 summing to 820"
+      else
+        fail "7a — the assembly evaluates but its relation is not the recorded one"
+        diff -u "$SPIKE_EXPECTED" "$SPIKE_CSV" | sed 's/^/       /' | head -20
+      fi
+    else
+      fail "7a — the ref'd, parent-fed assembly does not evaluate. PLAN.md §7.1 rests on this"
+      sed 's/^/       /' <<<"$out" | tail -5
+    fi
+
+    # 3. F47, two-sided: a mounted component's inline tests are not run, and the
+    #    child cannot be a test target, so this document discovers no assertions.
+    out=$("$ESM" test "$SPIKE_PARENT" 2>&1)
+    if grep -qE '^Assertions: +0$' <<<"$out"; then
+      pass "F47 watch: a mounted component's inline tests are still not run"
+    else
+      fail "F47 watch — \`esm test $SPIKE_PARENT\` now discovers assertions. A mounted component's tests run: replace the CSV diff above with the child's own assertions, and retire F47"
+      sed 's/^/       /' <<<"$out" | head -8
+    fi
+
+    # 4. F46, two-sided: without the parent's RESTATED index sets the document
+    #    still validates and still fails to build. If that ever stops being
+    #    true, the restatement in spike_parent.esm is dead weight and, more to
+    #    the point, §7.2's account of how a fixture closes an open shape becomes
+    #    correct as written.
+    F46_PROBE=spikes/7a/.f46_index_set_registry_probe.esm
+    if "$PYTHON" - "$SPIKE_PARENT" "$F46_PROBE" <<'PYEOF'
+import json, sys
+doc = json.load(open(sys.argv[1]))
+doc.pop("index_sets", None)
+json.dump(doc, open(sys.argv[2], "w"), indent=2)
+PYEOF
+    then
+      if ! "$ESM" validate "$F46_PROBE" >/dev/null 2>&1; then
+        fail "F46 watch — the probe no longer VALIDATES. The finding is that validate passes where the build fails; if validate now refuses it, the gap is closed at the right end and F46 should be re-read"
+      elif "$ESM" simulate "$F46_PROBE" --time 0 >/dev/null 2>&1; then
+        fail "F46 watch — a mounted child's index sets now reach the ingesting interpreter. The parent's restated index_sets are dead weight; remove them and retire F46"
+      else
+        pass "F46 watch: a mounted child's index sets still do not enter the interpreter's registry"
+      fi
+    else
+      fail "F46 watch — could not write the probe"
+    fi
+    rm -f "$F46_PROBE"
+  fi
 fi
 
 # --- the two chains agree ---------------------------------------------------
