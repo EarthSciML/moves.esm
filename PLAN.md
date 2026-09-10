@@ -898,22 +898,47 @@ per CLAUDE.md.
 ## 6. Immediate next steps
 
 Phases 0, 1, 2 and 3 are done and merged, and Phase 4 has two of its slices
-wired, and Phase 5's first three rungs are landed. Seven fixtures match the
-reference completely, with an exact key set and no `[shortfall]`:
+wired, and Phase 5's rungs are landing. **All fifteen** fixtures match the
+reference completely, with an exact key set and no `[shortfall]`.
+
+The table below is read off one `./run-tests.sh` run rather than accumulated
+commit by commit, and it had to be, because the `moves-snapshot/v2` day
+correction halved twelve of these row counts and the accumulated version still
+carried the pre-correction ones (`mixed-onroad` 250, `process-brakewear` 750,
+`process-refueling` 336, `process-pm-exhaust` 1,456 — all of them the two-day
+figures for one-day runs). A count assembled from memory cannot be told from a
+stale one; `tools/calculator-coverage.py` exists for that reason and this table
+now follows the same rule.
 
 | fixture | rows | worst cell | phase |
 |---|---:|---|---|
 | `nr-logging-county` | 144 / 144 | 4.561e-06 | 2 |
-| `mixed-onroad` | 250 / 250 | 8.320e-06 | 3 |
-| `process-evap-leaks` | 128 / 128 | 7.294e-06 | 4 |
-| `process-evap-fvv` | 128 / 128 | 7.495e-06 | 4 |
-| `process-brakewear` | 750 / 750 | 8.250e-06 | 5 |
-| `process-tirewear` | 750 / 750 | 8.151e-06 | 5 |
-| `process-refueling` | 336 / 336 | 7.434e-06 | 5 |
-| `process-pm-exhaust` | 1,456 / 1,456 | 9.910e-06 | 5 |
+| `mixed-onroad` | 125 / 125 | 8.319e-06 | 3 |
+| `process-evap-leaks` | 64 / 64 | 7.294e-06 | 4 |
+| `process-evap-fvv` | 64 / 64 | 7.517e-06 | 4 |
+| `process-evap-permeation` | 64 / 64 | 6.174e-06 | 4 |
+| `process-brakewear` | 375 / 375 | 8.251e-06 | 5 |
+| `process-tirewear` | 375 / 375 | 8.128e-06 | 5 |
+| `process-refueling` | 168 / 168 | 6.981e-06 | 5 |
+| `process-airtoxics` | 644 / 644 | 7.564e-06 | 5 |
+| `process-crankcase-running` | 684 / 684 | 7.805e-06 | 5 |
+| `process-nox-speciation` | 436 / 436 | 9.485e-06 | 5 |
+| `process-pm-exhaust` | 728 / 728 | 7.516e-06 | 5 |
+| `chain-so2-co2e-mechanism` | 2,767 / 2,767 | 8.201e-06 | 5 |
+| `nr-airtoxics-lawn-garden-county` | 14,036 / 14,036 | 9.417e-06 | 5 |
+| **`expand-day`** | **250 / 250** | **7.106e-06** | 5 |
 
 all against `tolerance.toml`'s 2e-05, which has never been widened for any of
-them. What follows is ordered by what blocks what.
+them.
+
+`expand-day` is the last of the fifteen and is the only one that is not about a
+new calculator: it is `mixed-onroad`'s chain at hour 7 over BOTH day types, and
+it exists to restore the two-day coverage the RunSpec correction removed from
+the other fourteen (`docs/esm-conventions.md` §42.5, §43). Measured: the two
+day-collapsing perturbations that turn 6 and 18 of its 109 assertions red turn
+**none** of `mixed-onroad`'s 59 red, and the day-collapsed `mixed-onroad` still
+passes the comparator at its usual worst cell. What follows is ordered by what
+blocks what.
 
 1. **Scale out (Phase 5).** This is now the main line, and three rungs are
    landed. The first: `fixtures/process-brakewear.esm` matches all 750 rows with an

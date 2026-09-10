@@ -4320,7 +4320,146 @@ of running what the RunSpec meant, and the corpus already contains the cure:
 **`expand-day` is the one snapshot that still carries both day types** and it
 has no `.esm` fixture. Porting it is the cheapest coverage in the tree.
 
+**It has been ported.** `fixtures/expand-day.esm` and `docs/expand-day.md`,
+250 of 250 rows at 7.106 × 10⁻⁶, 109 assertions of which 69 are day-keyed. §43
+is what that cost and what it bought.
+
 The rule: when a corpus correction removes a case, write the loss into the test
 that used to cover it, not only into a migration note. Each affected test's own
 `description` now says which value it stopped checking, because the reader who
 needs to know is the one adding the next assertion to that test.
+
+---
+
+## 43. Restoring a case a corpus correction removed **[Phase 5 continued, 250 rows, the corpus's only two-day snapshot]**
+
+§42.5 named the loss and named the cure. `fixtures/expand-day.esm` is the cure
+taken: `fixtures/mixed-onroad.esm`'s chain at hour 7 over both day types, 250
+of 250 rows, key set exact, worst cell 7.106 × 10⁻⁶, no tolerance added or
+widened. `docs/expand-day.md` is its specification. Four things are worth
+keeping, and one of them is a limitation nobody had met before.
+
+### 43.1 A retarget that changes no equation is the measurement, not the shortcut
+
+The whole of the model work was 46 `url_template`s, a `data_sources` prefix and
+a model name. **Not one equation was edited**, and the document emitted the
+correct 250-row key set on its first run, because every day axis is sized by
+`n_runspecday` out of the source's own `extent`.
+
+§42.1 made that measurement in the shrinking direction — twelve fixtures halved
+with no intervention. This is the same measurement in the growing direction,
+and it is the stronger of the two: halving an axis to one can be survived by a
+document that mishandles the axis, since a one-element loop and a scalar are
+indistinguishable. Doubling it cannot. **A dimension that grows correctly with
+no edit is a dimension that was factored; a dimension that only ever shrinks to
+one has not been tested at all.**
+
+The corollary is a scheduling one. Retargeting is already this repository's
+first move on a new rung (§27.3), and it should be the first move on a *corpus
+change* too: the cheapest question you can ask a new corpus is what the
+existing documents do with it before anything is edited.
+
+### 43.2 A two-valued factor is covered by the PAIR, not by either value
+
+`dc_WTotal` is 1 on each day type and `dc_WModeCount` is 23 on each. Both are
+real structural tests, both were restored to two rows here, and **neither can
+tell a per-day `W` from one shared vector indexed twice**. The assertion that
+can is `cohDay_meanBaseRate` at the same cohort on both days, where the two
+values differ by 15 % to 28 % because 67.0 mph and 56.4 mph weight the
+operating modes differently.
+
+Same for the divisor. `outNoOfRealDays` = 2 and 5 says the right numbers
+arrived; `out_emissionQuant` at the same cohort on both days says they were
+applied, and it is the only one of the two that a port hardcoding 5 fails at
+2.5×. **State the structural claim and the value claim separately, and expect
+only the second to falsify a collapse.**
+
+### 43.3 Prove the coverage by collapsing the axis, in the oracle, with an assert
+
+A fixture that ingests a two-valued dimension and never distinguishes it is
+decoration, and the difference is not visible by reading. So
+`run-expand-day-oracle.sh` recomputes the whole answer three more times, with
+the day axis collapsed three different ways, and **asserts** that each moves at
+least half the output rows by more than the fixture's own cell gate:
+
+| collapse | rows moved | worst relative move |
+|---|---|---|
+| `noOfRealDays` pinned at 5 | 125 of 250 | 0.600 |
+| the divisor dropped | 250 of 250 | 4.00 |
+| one shared `W` and one shared `sho` | 125 of 250 | 7.14 |
+
+This is §21's rule — an oracle must assert its tolerance, not print it — applied
+to a *coverage* claim rather than to an accuracy one. The script also refuses
+outright if `runspecday` is not `[2, 5]`, because every claim in it is vacuous
+on a one-day run and a vacuous pass is the failure mode the whole exercise is
+about.
+
+**And do it to the DOCUMENT too, beside a one-day sibling, because that is the
+comparison that states the loss.** The same two edits — `outNoOfRealDays`
+rewritten to the constant 5.0, and the `act_dayID` key pair deleted from the
+two S7 shares' `join.on` — turn 6 and 18 of `expand-day`'s 109 assertions red
+and **0 and 0** of `mixed-onroad`'s 59. The day-collapsed `mixed-onroad` also
+passes the comparator, 125 of 125 rows at the same 8.319 × 10⁻⁶ worst cell as
+the correct document. §42.5 said a port that hardcoded 5 would pass every test
+here; that is now a measurement rather than an inference, and the fixture that
+falsifies it is the evidence it was worth writing.
+
+The specification carries the same argument in the other direction: §6.6 of
+`docs/expand-day.md` lists, per collapse, **which named assertions go red**, and
+then lists the 40 of 109 that a day-collapsed port would still pass. Saying
+which assertions do *not* cover the thing is what keeps the claim honest.
+
+### 43.4 A scope move audits the stage whose CLAMP it crosses, and says which one it did not
+
+Hour 7 is 59.5 °F against `mixed-onroad`'s 66.9. Two clamped stages sit in the
+chain and the colder hour moves them in opposite directions:
+
+* the **EV temperature adjustment** crosses its quadratic's nearer zero at
+  63.964 °F, so the raw adjustment is +0.015625 instead of −0.0041922, the
+  `adj < 0` clamp does not fire, and `temperatureadjustment`'s `regClassID` 0
+  WILDCARD row reaches `emissionQuant` on all 82 electricity rows. Removing the
+  wildcard step moves the worst cell from 7.106 × 10⁻⁶ to 1.539 × 10⁻², which
+  is the same figure §27.3 measured from the `.esm` side, reached independently.
+* the **A/C activity term** goes from −0.0189 to −0.2969815, which is *further*
+  inside its clamp. The colder hour bought nothing here, and the specification
+  says so in §2.1 rather than letting a reader infer that a moved scope
+  exercises more of everything.
+
+**The rule, refining §27.3:** a scope move audits the stages whose *branch* it
+changes, and a spec that reports only the branch it gained is reporting half a
+measurement. Name the clamp you moved away from too.
+
+It also found a defect in a neighbour, which is the other half of §27.3's
+argument for retargeting: `docs/mixed-onroad.md` §6.5's reproduction script
+implements no temperature adjustment at all. At 66.9 °F that is an exact
+identity and the script is right; at 59.5 °F it is 1.54 % wrong on 82 rows. A
+stage that is only correct because a clamp fires is not correct, in an oracle
+exactly as in a document.
+
+### 43.5 A claim about an INPUT has to be made one stage downstream
+
+Finding **F43**: an inline assertion naming a `kind: data` parameter cannot be
+evaluated — `array state '…' has no cells in var_map`, at run time, after the
+document validates and after the source has been read correctly. Measured over
+seven columns from seven tables; seven of seven.
+
+It bit exactly where it would hurt most. The three columns that carry the day
+axis into this chain — `runspecday.dayID`, `dayofanyweek.dayID`,
+`dayofanyweek.noOfRealDays` — are all ingested parameters, and this is the
+fixture whose subject is the day axis. Six assertions had to move.
+
+Where they moved to is the part worth keeping: **pin the value where it is
+USED, not where it is read.** `outNoOfRealDays` on both output blocks is a
+strictly stronger claim than `dow_noOfRealDays` would have been, because a
+divisor that arrives correctly and is then not applied fails the first and
+passes the second. So no coverage was lost here — but that is a property of
+this particular column and not a general reprieve, and the loss it *does* cost
+is stated in the finding: an input that arrives wrong and an input that is
+never used stopped being distinguishable.
+
+Nothing in this repository had met F43 before, and the reason is worth writing
+down as a rule of thumb rather than as an accident: of the 2,454 fixture
+assertions that existed before this one landed, **zero** named an ingested
+parameter. Every fixture pins its inputs one stage in, because that is where
+the arithmetic starts. A document whose subject is an input is the only kind
+that meets the wall.

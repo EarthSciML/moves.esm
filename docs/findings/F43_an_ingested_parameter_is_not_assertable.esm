@@ -1,0 +1,85 @@
+{
+ "esm": "1.0.0",
+ "metadata": {
+  "name": "F43AnIngestedParameterIsNotAssertable",
+  "description": "FINDING F43 — an inline assertion naming a variable whose `update` is `kind: data` cannot be evaluated. It is refused at run time, not at load time, with `assertion evaluation failed: array state '<name>' has no cells in var_map`.\n\nTHE DOCUMENT IS TWO ASSERTIONS OVER ONE COLUMN, and that is the whole design. `dayofanyweek.noOfRealDays` is ingested into `d_noOfRealDays`; `d_weekdayRealDays` is the SAME NUMBER lifted onto a scalar by a one-line aggregate. The lifted one passes, so the source is bound, the parquet is read and the value is right; the ingested one errors. Nothing separates them but which variable the assertion names.\n\nWHY IT MATTERS RATHER THAN BEING A CURIOSITY. docs/esm-conventions.md §12 asks a fixture to pin the values it depends on, and the values a fixture depends on MOST are the ones it does not compute — a run-scope id, a lookup coefficient, a divisor. Those are exactly the `kind: data` parameters. So the rule in practice is: a claim about an INPUT can only be stated one stage downstream of where the input arrives, and the document has to carry an equation whose only purpose is to make the claim sayable. fixtures/expand-day.esm hit this on six assertions — `rsd_dayID`, `dow_dayID` and `dow_noOfRealDays`, the three columns that carry the day axis into the chain — and pins `outNoOfRealDays` instead, which is the same number where it is USED. That is the better claim here and it is not always going to be.\n\nMEASURED, on the pinned toolchain, over seven columns from seven tables of the `expand-day` snapshot (`runspecday.dayID`, `dayofanyweek.dayID`, `dayofanyweek.noOfRealDays`, `monthofanyyear.noOfDays`, `hourvmtfraction.hourVMTFraction`, `dayvmtfraction.dayVMTFraction`, `avgspeedbin.avgBinSpeed`): seven of seven error, none passes and none fails as a wrong VALUE. It is not a property of these tables — no fixture in this repository asserts an ingested parameter, which is why it went unnoticed for fourteen of them.\n\nWHAT WOULD FIX IT. Materialize a data-backed parameter's cells into the assertion's variable map, the way a computed array's are. The workaround costs one equation per claim and is silent when omitted, because an unasserted input reads exactly like an input nobody needed to assert.",
+  "authors": ["EarthSciML Authors and Contributors"],
+  "tags": ["finding", "assertions", "data-sources", "expected-to-fail"]
+ },
+ "data_sources": {
+  "f43_dayofanyweek": {
+   "kind": "static",
+   "source": {
+    "url_template": "../../../moves.rs/characterization/snapshots/expand-day/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__dayofanyweek.parquet"
+   },
+   "reader_options": { "float_columns": ["noOfRealDays"] },
+   "extent": { "metaparameter": "n_f43_dayofanyweek" },
+   "metadata": { "tags": ["output"], "esio_format": "parquet",
+     "note": "2 rows: dayID 2 with 2 real days, dayID 5 with 5. The divisor of MOVES's S16, and the one column in the corpus that docs/esm-conventions.md §42.5 records as exercised at a single value everywhere else." }
+  }
+ },
+ "metaparameters": {
+  "n_f43_dayofanyweek": { "type": "integer", "default": 0, "description": "Rows in dayofanyweek, discovered by the source's own extent. 2." }
+ },
+ "index_sets": {
+  "f43_day_rows": { "kind": "interval", "size": "n_f43_dayofanyweek" }
+ },
+ "models": {
+  "F43AnIngestedParameterIsNotAssertable": {
+   "tolerance": { "rel": 0.0, "abs": 0.0 },
+   "variables": {
+    "d_noOfRealDays": {
+     "type": "parameter", "units": "1", "default": 0.0, "shape": ["f43_day_rows"],
+     "description": "dayofanyweek.noOfRealDays, ingested: [2, 5]. The variable the finding is about.",
+     "update": { "kind": "data", "source": "f43_dayofanyweek", "from": { "file_variable": "noOfRealDays" } }
+    },
+    "d_weekdayRealDays": {
+     "type": "unknown", "units": "1",
+     "description": "The SAME column's second row, lifted onto a scalar by an aggregate that selects it. 5. This is the control: it passes, so the source is bound and the value is right, and the only difference from the assertion below is which variable is named."
+    },
+    "d_totalRealDays": {
+     "type": "unknown", "units": "1",
+     "description": "The same column summed: 7. Carried so the control covers BOTH rows -- a selector that silently read row 2 twice would give 10 here and 5 above."
+    }
+   },
+   "equations": [
+    {
+     "lhs": "d_weekdayRealDays",
+     "rhs": {
+      "op": "aggregate", "args": [], "output_idx": [],
+      "ranges": { "j": { "from": "f43_day_rows" } },
+      "expr": {
+       "op": "ifelse",
+       "args": [
+        { "op": "==", "args": ["j", 2] },
+        { "op": "index", "args": ["d_noOfRealDays", "j"] },
+        0.0
+       ]
+      }
+     }
+    },
+    {
+     "lhs": "d_totalRealDays",
+     "rhs": {
+      "op": "aggregate", "args": [], "output_idx": [],
+      "ranges": { "j": { "from": "f43_day_rows" } },
+      "expr": { "op": "index", "args": ["d_noOfRealDays", "j"] }
+     }
+    }
+   ],
+   "tests": [
+    {
+     "id": "an_ingested_column_can_be_asserted_where_it_arrives",
+     "description": "INTENDED behaviour, at ZERO tolerance: an assertion may name a `kind: data` parameter and is judged against the ingested cell, exactly as it is for a computed array.\n\nOBSERVED: the two control assertions PASS -- the column is bound, both rows are present, 5 and 7 -- and the two that name `d_noOfRealDays` directly ERROR with `array state 'd_noOfRealDays' has no cells in var_map`. Not a wrong value; no value at all.\n\nThe controls are first on purpose. A repro whose only assertion errors is indistinguishable from a repro whose source failed to load, and this file's whole claim is that the source loaded fine.",
+     "time_span": { "start": 0.0, "end": 0.0 },
+     "assertions": [
+      { "variable": "d_weekdayRealDays", "time": 0.0, "expected": 5.0 },
+      { "variable": "d_totalRealDays", "time": 0.0, "expected": 7.0 },
+      { "variable": "d_noOfRealDays", "time": 0.0, "expected": 2.0, "coords": { "f43_day_rows": 1 } },
+      { "variable": "d_noOfRealDays", "time": 0.0, "expected": 5.0, "coords": { "f43_day_rows": 2 } }
+     ]
+    }
+   ]
+  }
+ }
+}
