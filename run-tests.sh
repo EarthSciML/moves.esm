@@ -899,6 +899,175 @@ PYEOF
   fi
 fi
 
+
+# --- the Phase 7 mount shape at fixture scale (7c) --------------------------
+#
+# PLAN.md step 7c. 7a proved the mount shape on 2 tables and 8 variables; this
+# is the same shape carrying a REAL fixture -- 49 data_sources, 49
+# metaparameters, 53 index sets, 411 variables and 245 equations, split into
+# `spikes/7c/tirewear_logic.esm` (the logic, with an open shape) and
+# `spikes/7c/tirewear_mount.esm` (the configuration, which closes it).
+#
+# WHAT MAKES IT A REGRESSION TEST AND NOT A DEMONSTRATION. The logic half is
+# `fixtures/process-tirewear.esm`'s own text, so the assembly has an exact
+# expected result: the inlined fixture's relation, emitted by the stage above
+# in this same run. The two are compared byte for byte -- 375 rows over 27
+# columns -- so a mount that quietly changed a number could not pass. The
+# comparison is against the fixture stage's own output rather than against a
+# recorded CSV on purpose: there is no third file to update when the port
+# improves, and the pair cannot drift apart silently.
+#
+# It also watches four format behaviours two-sided, because each one is a cost
+# Phase 7 is currently budgeting for and would want to stop paying:
+#   F46/F48  the mounting document must restate the child's index_sets
+#   F47      a mounted component's inline tests still do not run
+#   F49      `index_set_rename` is still refused at this mount edge
+#   and that `bindings` still validates at 45 names, since conventions 54 says
+#   it scales and buys nothing -- if it stops working, that claim is stale too.
+head2 "phase 7 at fixture scale (7c)"
+C7_LOGIC=spikes/7c/tirewear_logic.esm
+C7_MOUNT=spikes/7c/tirewear_mount.esm
+C7_BASE="$RUNDIR/process-tirewear.emitted.csv"
+
+if [[ ! -f "$C7_MOUNT" ]]; then
+  say "  none"
+elif [[ ! -f "$C7_BASE" ]]; then
+  skip "7c split" "the fixture stage produced no $C7_BASE to compare against"
+else
+  # 1. The open-shape control. The logic half must not load alone, or the
+  #    mount is closing nothing and the comparison below proves nothing.
+  #    The message is NOT the one 7a's child gives for the same defect
+  #    (`invalid type: string ... expected i64`); an open shape has more than
+  #    one spelling and this stage pins the one this document actually gets.
+  if out=$("$ESM" validate "$C7_LOGIC" 2>&1); then
+    fail "7c open-shape control — the logic half now validates ALONE. Its shape is no longer open, and the assembly below stops proving anything about parent-supplied configuration"
+  elif grep -q 'metaparameter_unbound' <<<"$out"; then
+    pass "7c — the logic half's shape is open: it does not load alone"
+  else
+    fail "7c open-shape control — the logic half was refused, but not as an open shape"
+    sed 's/^/       /' <<<"$out" | head -4
+  fi
+
+  # 2. The assembly validates and round-trips.
+  if "$ESM" validate "$C7_MOUNT" >/dev/null 2>&1; then
+    pass "7c — the 411-variable assembly validates"
+  else
+    fail "7c — the assembly no longer validates"
+    "$ESM" validate "$C7_MOUNT" 2>&1 | sed 's/^/       /' | head -6
+  fi
+  if "$ESM" round-trip "$C7_MOUNT" >/dev/null 2>&1; then
+    pass "7c — the assembly round-trips"
+  else
+    fail "7c — the assembly does not round-trip"
+  fi
+
+  # 3. The numbers. Same emitted fields as the fixture stage, read out of the
+  #    logic document rather than listed here.
+  mapfile -t C7_FIELDS < <("$PYTHON" - "$C7_LOGIC" <<'PYEOF'
+import json, sys
+doc = json.load(open(sys.argv[1]))
+for model in doc.get("models", {}).values():
+    for name in (model.get("variables") or {}):
+        if name.startswith("out_"):
+            print(name)
+PYEOF
+)
+  c7_obs=()
+  for f in "${C7_FIELDS[@]}"; do c7_obs+=(--observed "$f"); done
+  C7_CSV="$RUNDIR/tirewear-7c.emitted.csv"
+  if out=$("$ESM" simulate "$C7_MOUNT" --time 0 --format csv \
+             "${c7_obs[@]}" --output "$C7_CSV" 2>&1); then
+    if cmp -s "$C7_BASE" "$C7_CSV"; then
+      pass "7c — the split assembly reproduces the inlined fixture's relation byte for byte"
+      say "       $(( $(wc -l < "$C7_CSV") - 1 )) rows, ${#C7_FIELDS[@]} emitted fields, from the same snapshot tables"
+    else
+      fail "7c — the split assembly evaluates, but not to the inlined fixture's numbers. One of the two documents has changed and the other has not"
+      diff -u "$C7_BASE" "$C7_CSV" | sed 's/^/       /' | head -12
+    fi
+  else
+    fail "7c — the split assembly does not evaluate. PLAN.md §7.1's shape does not survive at fixture scale"
+    sed 's/^/       /' <<<"$out" | tail -5
+  fi
+
+  # 4. F47, two-sided, as the 7a stage does it: a mounted component's inline
+  #    tests are not run, so this document discovers no assertions. The logic
+  #    half carries all eleven of the fixture's `tests` blocks; the day they
+  #    run, this stage says so instead of the byte comparison quietly staying
+  #    the only check.
+  out=$("$ESM" test "$C7_MOUNT" 2>&1)
+  if grep -qE '^Assertions: +0$' <<<"$out"; then
+    pass "F47 watch: the eleven mounted tests are still not run"
+  else
+    fail "F47 watch — \`esm test $C7_MOUNT\` now discovers assertions. Replace the byte comparison above with the logic half's own eleven tests, and retire F47"
+    sed 's/^/       /' <<<"$out" | head -8
+  fi
+
+  # 5. F46 and F48, two-sided and at fixture scale. Deleting the mounting
+  #    document's restated index_sets must still break the assembly -- and
+  #    WHICH tool reports it depends on whether the child declares a
+  #    literal-sized index set, which is F48 and is the half 7a could not see.
+  C7_P1=spikes/7c/.f46_loud_probe.esm
+  if "$PYTHON" tools/make-7c-probes.py f46-loud "$C7_P1" >/dev/null 2>&1; then
+    if "$ESM" validate "$C7_P1" >/dev/null 2>&1; then
+      fail "F46/F48 watch — the mount validates without its restated index_sets. Either the child's block now reaches the mounting document's registry (retire the restatement) or the aggregate-range check has stopped running"
+    else
+      pass "F46 watch: the restated index_sets are still load-bearing"
+    fi
+  else
+    fail "F46/F48 watch — could not write the f46-loud probe"
+  fi
+  rm -f "$C7_P1"
+
+  C7_P2=spikes/7c/.f48_silent_probe.esm
+  if "$PYTHON" tools/make-7c-probes.py f46-silent "$C7_P2" >/dev/null 2>&1; then
+    if ! "$ESM" validate "$C7_P2" >/dev/null 2>&1; then
+      fail "F48 watch — the probe no longer VALIDATES. F48 is that \`esm validate\` is BLIND to a missing restatement whenever every one of the child's index sets is metaparameter-sized; if validate now refuses it, the gap is closed at the right end and F48 should be re-read"
+    elif "$ESM" simulate "$C7_P2" --time 0 --format csv \
+           --observed out_emissionQuant --output /dev/null >/dev/null 2>&1; then
+      fail "F46 watch — a mounted child's index sets now reach the ingesting build. The restatement in $C7_MOUNT is dead weight; remove it and retire F46"
+    else
+      pass "F48 watch: with every child size a name, validate is still blind and the build still fails"
+    fi
+  else
+    fail "F48 watch — could not write the f46-silent probe"
+  fi
+  rm -f "$C7_P2" "${C7_P2%.esm}_child.esm"
+
+  # 6. F49, two-sided. `index_set_rename` is the one SubsystemRef field that
+  #    would let a shared domain document's axes be namespaced per fixture, and
+  #    it is refused at the only mount form an ingesting document can use.
+  C7_P3=spikes/7c/.rename_probe.esm
+  if "$PYTHON" tools/make-7c-probes.py rename "$C7_P3" >/dev/null 2>&1; then
+    if out=$("$ESM" validate "$C7_P3" 2>&1); then
+      fail "F49 watch — \`index_set_rename\` is now accepted at a top-level models {ref}. A fixture can namespace the shared document's axes; retire F49 and re-read the restatement burden in conventions 53"
+    elif grep -q 'subsystem_index_set_rename_unsupported_mount_form' <<<"$out"; then
+      pass "F49 watch: index_set_rename is still refused at this mount form"
+    else
+      fail "F49 watch — the rename probe was refused, but not by the mount-form rule"
+      sed 's/^/       /' <<<"$out" | head -4
+    fi
+  else
+    fail "F49 watch — could not write the rename probe"
+  fi
+  rm -f "$C7_P3"
+
+  # 7. `bindings` at 45 names. Conventions 54 says it works at scale and
+  #    removes nothing; the first half of that has to keep being true or the
+  #    second half is a claim about a feature that no longer functions.
+  C7_P4=spikes/7c/.bindings_probe.esm
+  if "$PYTHON" tools/make-7c-probes.py bindings "$C7_P4" >/dev/null 2>&1; then
+    if "$ESM" validate "$C7_P4" >/dev/null 2>&1; then
+      pass "bindings still closes 45 of the child's metaparameters at one mount edge"
+    else
+      fail "bindings — 45 names at one mount edge no longer validate. conventions 54 measures this; re-read it"
+      "$ESM" validate "$C7_P4" 2>&1 | sed 's/^/       /' | head -4
+    fi
+  else
+    fail "bindings probe — could not write it"
+  fi
+  rm -f "$C7_P4"
+fi
+
 # --- the two chains agree ---------------------------------------------------
 
 # runs/nr_logging_county_run.esm and fixtures/nr-logging-county.esm are separate
