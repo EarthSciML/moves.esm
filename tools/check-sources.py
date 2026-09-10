@@ -323,9 +323,28 @@ def main() -> int:
     n = 0
     for doc in docs:
         d = json.loads(doc.read_text())
+        rel = doc.relative_to(HERE).as_posix()
+
+        # spikes/ reads the DEFAULT MOVES DATABASE, which is 1.1 GB, is not in
+        # this repository, and is therefore named by an absolute machine-local
+        # path. `run-tests.sh`'s 7a stage skips when it is absent; this checker
+        # has to agree, or a checkout without the database fails stage 2 for a
+        # missing input rather than for a mistake. Only spikes/ is treated this
+        # way: a fixture's snapshot path is repository-relative and its absence
+        # IS a mistake.
+        if rel.startswith("spikes/"):
+            absent = [
+                p for p in (resolve((e.get("source") or {}).get("url_template", ""), doc.parent)
+                            for e in (d.get("data_sources") or {}).values())
+                if p is not None and not p.exists()
+            ]
+            if absent:
+                notes.append(f"{rel} — skipped, the default MOVES database is not at {absent[0]}")
+                continue
+
         for name, entry in (d.get("data_sources") or {}).items():
             n += 1
-            check_source(doc.relative_to(HERE).as_posix(), doc.parent, name, entry)
+            check_source(rel, doc.parent, name, entry)
 
     for line in notes:
         print(f"  note: {line}")
