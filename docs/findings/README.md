@@ -2299,3 +2299,78 @@ the way a computed array's are. Until then the workaround is one equation per
 claim, and it is silent when omitted: an unasserted input reads exactly like an
 input nobody needed to assert.
 
+
+---
+
+## F44 — the unit registry has no mile, so MOVES's activity unit goes undeclared
+
+**Not fixed. Repro: `F44_the_unit_registry_has_no_mile.esm`.**
+
+`esm validate` refuses `units: "mi/h"` and `units: "mi"`:
+
+```
+✗ /models/F44/variables/link_avg_speed: Unit string 'mi/h' is not a recognised unit
+✗ /models/F44/variables/link_length:    Unit string 'mi' is not a recognised unit
+```
+
+Measured against the pinned toolchain (`esm 0.2.0`, EarthSciAST
+`3aa046d6568bc27e555e03c9e3d4408f791557ae`), one string at a time in an
+otherwise identical one-variable document that differs in nothing else:
+
+| accepted | refused |
+|---|---|
+| `m`, `km`, `ft`, `kW`, `tonne` | `mi`, `mile`, `miles`, `in`, `yd`, `t`, `hp` |
+| `km/h`, `m/s`, `m/s^2`, `m s^-1`, `m*s^-1`, `W/kg`, `kW/tonne` | `mi/h`, `mph`, `mi h-1`, `mi/s`, `mi/yr`, `kW/t`, `m/s2` |
+
+So it is **not** a syntax question about compound units — `km/h` and `m/s^2`
+are accepted in exactly the position `mi/h` is refused — and **not** a general
+absence of imperial length, because `ft` is there. It is the mile, with the
+yard and the inch.
+
+### Why this is not a curiosity
+
+The mile is the unit of MOVES's onroad activity model:
+
+* `link.linkAvgSpeed` and `driveSchedule.averageSpeed` are miles per hour, and
+  they are the inputs `LinkOperatingModeDistributionGenerator` brackets and
+  interpolates on (`docs/link-operating-mode-distribution.md` §2.2);
+* `driveScheduleSecond.speed` is miles per hour, and the `0.44704` that
+  converts it appears three times in one SQL statement
+  (`LinkOperatingModeDistributionGenerator.java:1006-1015`);
+* `link.linkLength` is miles; VMT is vehicle-**miles** travelled and is the
+  spine of `TotalActivityGenerator`; `SourceTypeYearVMT`, `HPMSVtypeYear`,
+  `MonthVMTFraction`, `DayVMTFraction`, `HourVMTFraction`, `SourceTypeDayVMT`
+  and `HPMSVtypeDay` are all keyed on it;
+* every RunSpec in the corpus writes
+  `<distancefactors selected="true" units="Miles"/>`.
+
+### What the workaround costs, measured
+
+Eight variables in `components/link_operating_mode_distribution.esm` carry
+`units: "1"` for a quantity in miles per hour. The cost is not untidiness. The
+one conversion in that file a units system could check is precisely the one it
+cannot: `lomd_speedMs` **is** declared, as `m/s`, and is computed from an
+undeclared `lomd_speed` by multiplying by a dimensionless `0.44704`. A port
+that fed metres per second into the polynomial's speed slot would be caught by
+a declared input and is not caught now — and that is a real mistake to make,
+because the VSP polynomial takes both quantities and they differ by 2.24×.
+
+### Relation to F34, which is retired
+
+F34 was this finding's shape for `inHg`, and was fixed by EarthSciAST
+`fa7ffb01e` (PR #238) adding that one unit. Its entry under "Fixed upstream"
+records that **only option (c) of its three landed** — one unit was added, and
+neither a general scale-factor syntax nor the inch. This is what "neither the
+inch" looks like from the next document along: the registry grew by exactly
+the unit that was asked for, so the next quantity in an imperial unit meets the
+same wall one rung later. Filing the mile is worth doing. Filing it *instead
+of* the general fix is how F34's own note says this repeats, and this entry is
+the second data point for that claim rather than a fresh complaint.
+
+### What would fix it
+
+(a) the general fix — a scale factor in a unit string, so a document can
+declare `1609.344 m` without the registry needing a name for it; (b) the
+narrow fix — `mi`, `yd` and `in` in the registry beside `ft`, which is one
+table entry each and which is what landed for `inHg`. (b) unblocks this
+repository; only (a) stops the next rung filing F45.

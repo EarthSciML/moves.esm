@@ -24,8 +24,9 @@ no copy of the answers:
   2. the `java_classes[*].kind` histogram -- "`common` (2,451)", one per kind;
   3. the reachability table -- for each row, the generator, the count of
      snapshots that CLASS-LOADED it, the denominator, the execution-database
-     table it writes, and the count of snapshots in which that table is
-     non-empty;
+     table it writes, and the count of snapshots in which THAT GENERATOR both
+     ran and left rows in that table -- `loaded AND non-empty`, not the row
+     count of the table alone. See "ONE TABLE, SEVERAL GENERATORS" below;
   4. the two per-snapshot row-count tables under "Which snapshots, exactly",
      each a `| snapshot | rows | | snapshot | rows |` grid, keyed by the
      table named in the sentence that introduces it;
@@ -33,6 +34,35 @@ no copy of the answers:
      SET-EQUAL to the snapshots carrying `SOMDGOpModes` and a populated
      `StartOpMode` -- the note calls this "three independent corroborations of
      one predicate", so it is checked as one.
+
+ONE TABLE, SEVERAL GENERATORS -- why the with-rows column is an INTERSECTION.
+An earlier version of this file derived that column from the table name alone:
+"how many snapshots carry a non-empty `OpModeDistribution`". Three of the seven
+generators in the table write `OpModeDistribution`, so the moment ONE of them
+produced rows -- `LinkOperatingModeDistributionGenerator`, when `scale-project`
+joined the corpus -- the table-keyed count read 1 for all three, and the
+document would have had to claim that two generators no snapshot ever loaded
+had nonetheless written something. `RatesOpModeDistribution` is worse: FOUR
+generators write it.
+
+The column now means "snapshots in which this generator was class-loaded AND
+the table it writes is non-empty" -- the intersection of the two sets, not the
+size of the second. That is the conjunction the document's `reachable?` verdict
+actually rests on, and it is what makes the three OMD rows distinguishable:
+`Link…` 1, the other two 0.
+
+It is a NECESSARY condition, not a sufficient one: a generator that was loaded
+alongside another generator's non-empty output still counts here. Attributing a
+ROW to a generator needs the table's own partitioning key (for
+`RatesOpModeDistribution` that is `(roadTypeID, avgSpeedBinID)` --
+`docs/operating-mode-distribution.md` §6.5), which is a per-table argument this
+generic checker cannot make. What the intersection buys is that a generator no
+snapshot loaded can no longer be credited with output, which was the actual
+failure.
+
+The two per-snapshot grids under "Which snapshots, exactly" stay keyed on the
+TABLE, because that is what their introducing sentence says they are: "`X` is
+non-empty in N". Those are table measurements and are checked as such.
 
 WHAT IT DELIBERATELY DOES NOT CHECK. The `reachable?` column, and every
 sentence of interpretation around the tables. Those are verdicts, not
@@ -241,10 +271,16 @@ def main() -> int:
         # An em-dash in the with-rows cell means "no table to count", which is
         # a statement about the DAG, not about the corpus — nothing to derive.
         if named and n_rows != "—":
+            # INTERSECTED with the class-loaded set, not the bare table count:
+            # three of these generators share `OpModeDistribution` and four
+            # share `RatesOpModeDistribution`, so a table-keyed count credits
+            # every one of them with a sibling's rows. See the module
+            # docstring, "ONE TABLE, SEVERAL GENERATORS".
+            with_rows = set(measure_table(dirs, named[0])) & loaded.get(gen, set())
             claim(
-                f"{gen} snapshots with non-empty `{named[0]}`",
+                f"{gen} snapshots where it ran and `{named[0]}` is non-empty",
                 int(n_rows.strip("*")),
-                len(measure_table(dirs, named[0])),
+                len(with_rows),
             )
     if seen_generators < 7:
         problems.append(

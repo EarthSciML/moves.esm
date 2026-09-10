@@ -1,0 +1,2176 @@
+{
+  "esm": "1.0.0",
+  "metadata": {
+    "name": "moves.link_operating_mode_distribution",
+    "description": "`LinkOperatingModeDistributionGenerator` steps 105 and 110: the operating-mode distribution MOVES computes for a PROJECT-domain link from its average speed. Ports gov/epa/otaq/moves/master/implementation/ghg/LinkOperatingModeDistributionGenerator.java and crates/moves-calculators/src/generators/link_op_mode_distribution.rs, and is specified in docs/link-operating-mode-distribution.md. The VSP polynomial and the half-open rectangles are lib/drive_cycle.esm; the five-decimal quotient is lib/operating_mode.esm.\\n\\nWHY THIS FILE EXISTS AT ALL, AND WHY IT DID NOT BEFORE. `OpModeDistribution` is empty in 43 of the corpus's 44 snapshots, and until `scale-project` was captured on 2026-09-10 it was empty in all of them. docs/omd-generator-reachability.md is the measurement that said so and the measurement that changed. This is the only generator in that note whose verdict moved, and it moved because a capture was made for it rather than because anything was rewritten.\\n\\nWHAT THE GENERATOR DOES. A project link is one road segment with an average speed. MOVES has no second-by-second trace for it, so it brackets the link between the two nearest driving cycles it does have traces for, computes each cycle's operating-mode distribution second by second, and interpolates. The two brackets are materialised as PSEUDO-LINKS with negative ids -- the corpus's link 1 is bracketed by -1021 and -153 -- which is why a one-link project produces three link ids in the table.\\n\\nWHAT IS COMPUTED HERE RATHER THAN COPIED. Two things, and they are the two the reference can actually check. The first is the per-second OPERATING MODE: eight seconds of drive schedule 153 are carried with their three predecessors, and this file computes their accelerations, their vehicle-specific power and the mode the ordered `CASE` assigns, from the same `operatingMode` rectangles MOVES builds its `CASE` from. The eight are chosen so that each takes a different arm -- the first second with no predecessor, a coast that is not a brake, a brake at exactly the inclusive threshold, the three-second brake arm failing on its first term, the two unbounded VSP edges, the unbounded speed edge, a stopped second and an idle second whose accelerations WOULD brake if the idle arm did not come first. The second is the DISTRIBUTION: the 21 modes' second counts become five-decimal quotients and are interpolated onto the link.\\n\\nWHAT IS CARRIED AS DATA, AND WHY THAT IS NOT A CHEAT. The 21 pairs of second counts are counts of a 905-second and a 456-second trace. Recomputing them here would mean carrying 1,361 speeds, and the file would then assert its own arithmetic over data no reader could check. What it does instead is carry the counts, compute the eight seconds' assignment in full so the counting RULE faces the reference, and leave the sweep over all 1,361 seconds to docs/link-operating-mode-distribution.md 6.5, which does exactly that and reports 122 of 122 cells exact. This is the arrangement docs/esm-conventions.md 35.4 describes: the component asserts the arithmetic, the oracle asserts the sweep, and neither stands in for the other.\\n\\nTHE FIVE-DECIMAL QUOTIENT IS THE SHARPEST THING IN THIS FILE. `secondCount * 1.0 / secondTotal` is a DECIMAL of scale five, not a double and not the four decimals its sibling generator gets: MariaDB gives a quotient the DIVIDEND's scale plus `div_precision_increment`, the `* 1.0` makes the dividend scale 1, and 1+4 = 5. Over the corpus's 80 bracketing cells the five-decimal answer is bit-exact on all 80 and the four-decimal answer misses 76. lib/operating_mode.esm now takes the scale as a parameter for that reason, with `op_mode_fraction` at four and `link_op_mode_fraction` at five.\\n\\nTHE ABSENT BAND BOUNDS ARE SENTINELS HERE AND NaN IN THE INGESTED PATH. `operatingMode` leaves `VSPLower` null on modes 11, 21 and 33, `VSPUpper` null on 16, 30 and 40, and `speedUpper` null on 33 onwards, and lib/drive_cycle.esm's `in_half_open_range` tests absence as `bound == bound`, which is how a NaN from `float_columns` arrives. JSON has no NaN literal, so this file writes -1e30 and 1e30 instead. That is a substitution and not the same expression: it is sound only because every value compared against them is finite and bounded far inside them, which speed and VSP are. Three of the eight seconds land in a band with an absent bound, so the substitution is exercised rather than assumed.\\n\\nWHICH ASSERTIONS FACE THE REFERENCE (docs/esm-conventions.md 35.4). The eight assigned modes face MOVES: they are what the snapshot's own `OpModeDistribution` counts are made of, and the oracle checks the whole 1,361-second sweep they are drawn from. The interpolated fractions face MOVES directly -- they are the snapshot's `OpModeDistribution` values for link 1, at the six significant digits a FLOAT column stores. The bracket choice and the factor face MOVES through the pseudo-link ids the snapshot carries. The +1000 offset and the road type in the rates copy face MOVES. The `avgSpeedBinID` 0 does not: it is an SQL literal and asserting it proves it was copied.\\n\\nPERTURBED, NOT MERELY RUN (docs/esm-conventions.md 23). Eleven single edits were injected one at a time and reverted: the sibling four-decimal quotient (error, the template arity differs), the physics offset zeroed (1 fail), the stopped arm made unreachable (1), the rates road type set to the siblings' literal 1 (1), the braking threshold moved to -2.5 (2), the idle threshold to 0.3 mi/h (2), the band-match test inverted (6), the wrong low bracket (2), and mode 11's and mode 21's absent VSPLower read as 0 (1 each). TEN went red. The eleventh -- mode 1's absent VSPLower read as 0 -- did NOT, and that is a confirming result rather than a gap: mode 1's rectangle is the unreachable one, because the `speed < 1` arm has already claimed every second it could match, so no change to its bounds can be visible. The two reachable unbounded bounds both are.",
+    "authors": [
+      "EarthSciML Authors and Contributors"
+    ],
+    "tags": [
+      "moves",
+      "onroad",
+      "project-scale",
+      "operating-mode",
+      "drive-cycle",
+      "generator"
+    ]
+  },
+  "index_sets": {
+    "lomd_mode_rows": {
+      "kind": "interval",
+      "size": 21
+    },
+    "lomd_second_rows": {
+      "kind": "interval",
+      "size": 8
+    },
+    "lomd_band_rows": {
+      "kind": "interval",
+      "size": 22
+    }
+  },
+  "coordinates": {
+    "link_operating_mode": {
+      "source": "lomd_opModeID",
+      "standard_name": "moves_operating_mode_identifier"
+    }
+  },
+  "models": {
+    "LinkOperatingModeDistribution": {
+      "expression_template_imports": [
+        {
+          "ref": "../lib/drive_cycle.esm",
+          "only": [
+            "mph_to_meters_per_second",
+            "vehicle_specific_power",
+            "in_half_open_range",
+            "grade_acceleration",
+            "grade_specific_power"
+          ]
+        },
+        {
+          "ref": "../lib/operating_mode.esm",
+          "only": [
+            "link_op_mode_fraction",
+            "truth",
+            "off_network_avg_speed_bin"
+          ]
+        }
+      ],
+      "tolerance": {
+        "rel": 1e-12
+      },
+      "variables": {
+        "lomd_linkAvgSpeed": {
+          "type": "unknown",
+          "shape": [
+            "lomd_mode_rows"
+          ],
+          "description": "`link.linkAvgSpeed` for the project's one link, in mi/h. Selects the brackets and is the point interpolated to. UNITS ARE `1` AND THE QUANTITY IS MILES PER HOUR: the EarthSciAST unit registry has `m`, `km` and `ft` but no mile, so `mi/h` is refused by `esm validate`. docs/findings/README.md F44.",
+          "units": "1"
+        },
+        "lomd_linkAvgGrade": {
+          "type": "unknown",
+          "shape": [
+            "lomd_mode_rows"
+          ],
+          "description": "`link.linkAvgGrade`, per cent. ZERO in the corpus, which is why every grade term below is exactly 0 and why docs/link-operating-mode-distribution.md 8.4 records the grade path as unexercised rather than verified.",
+          "units": "percent"
+        },
+        "lomd_lowScheduleSpeed": {
+          "type": "unknown",
+          "shape": [
+            "lomd_mode_rows"
+          ],
+          "description": "`driveSchedule.averageSpeed` of the LOW bracket -- schedule 1021, `Final FC11LOSF Cycle`, 20.6006 mi/h. The greatest of the eleven candidates for (source type 21, road type 4) that is at or below the link's 30. UNITS ARE `1` AND THE QUANTITY IS MILES PER HOUR: the EarthSciAST unit registry has `m`, `km` and `ft` but no mile, so `mi/h` is refused by `esm validate`. docs/findings/README.md F44.",
+          "units": "1"
+        },
+        "lomd_highScheduleSpeed": {
+          "type": "unknown",
+          "shape": [
+            "lomd_mode_rows"
+          ],
+          "description": "`driveSchedule.averageSpeed` of the HIGH bracket -- schedule 153, `LD LOS E Freeway`, 30.5 mi/h. The least candidate at or above 30. The nearest others are 15.733 below and 46.132 above, so the bracket is not close-run. UNITS ARE `1` AND THE QUANTITY IS MILES PER HOUR: the EarthSciAST unit registry has `m`, `km` and `ft` but no mile, so `mi/h` is refused by `esm validate`. docs/findings/README.md F44.",
+          "units": "1"
+        },
+        "lomd_interpolationFactor": {
+          "type": "unknown",
+          "shape": [
+            "lomd_mode_rows"
+          ],
+          "description": "`(linkAvgSpeed - lowAverageSpeed) / (highAverageSpeed - lowAverageSpeed)`, and 0 when the low bracket is not strictly slower. Computed, not written: the whole point of the bracket columns is that this number follows from them."
+        },
+        "lomd_lowSecondTotal": {
+          "type": "unknown",
+          "shape": [
+            "lomd_mode_rows"
+          ],
+          "description": "`secondTotal` for the low bracket: 905 seconds in drive schedule 1021. The divisor, constant across the mode axis because it is a `count(*)` of the whole schedule."
+        },
+        "lomd_highSecondTotal": {
+          "type": "unknown",
+          "shape": [
+            "lomd_mode_rows"
+          ],
+          "description": "`secondTotal` for the high bracket: 456 seconds in drive schedule 153."
+        },
+        "lomd_opModeID": {
+          "type": "unknown",
+          "shape": [
+            "lomd_mode_rows"
+          ],
+          "description": "The 21 operating modes the two brackets between them enter, AFTER mode 501 has folded into mode 1. These are the raw modes the `CASE` assigns; the snapshot stores them offset by 1000."
+        },
+        "lomd_lowSecondCount": {
+          "type": "unknown",
+          "shape": [
+            "lomd_mode_rows"
+          ],
+          "description": "`secondCount` per mode for drive schedule 1021, summing to 905. Two entries are 0 -- modes 30 and 40, which the slower cycle never reaches -- and they are the reason the interpolation runs over the full mode band rather than the intersection."
+        },
+        "lomd_highSecondCount": {
+          "type": "unknown",
+          "shape": [
+            "lomd_mode_rows"
+          ],
+          "description": "`secondCount` per mode for drive schedule 153, summing to 456. All 21 are non-zero."
+        },
+        "lomd_lowFraction": {
+          "type": "unknown",
+          "shape": [
+            "lomd_mode_rows"
+          ],
+          "description": "The low bracket's `opModeFraction`: a FIVE-decimal half-up DECIMAL of `secondCount * 1.0 / secondTotal`. Faces the reference -- these are the snapshot's `OpModeDistribution` rows for pseudo-link -1021."
+        },
+        "lomd_highFraction": {
+          "type": "unknown",
+          "shape": [
+            "lomd_mode_rows"
+          ],
+          "description": "The high bracket's `opModeFraction`, the same way. Faces the reference at pseudo-link -153."
+        },
+        "lomd_interpolatedFraction": {
+          "type": "unknown",
+          "shape": [
+            "lomd_mode_rows"
+          ],
+          "description": "`low + (high - low) * factor`. Faces the reference at link 1. The reference stores it through a FLOAT column and renders six significant digits, so the assertions below are written at `rel 1e-6` -- which is the STORAGE limit and not a port tolerance; docs/link-operating-mode-distribution.md 7.1 has the whole-corpus measurement at 2.396e-06."
+        },
+        "lomd_isRetained": {
+          "type": "unknown",
+          "shape": [
+            "lomd_mode_rows"
+          ],
+          "description": "`delete from tempOpModeDistribution where opModeFraction <= 0`, as an indicator. 1 on all 21 here: even the two modes the low bracket never enters interpolate to a positive value, because the high bracket did enter them and the factor is not 1."
+        },
+        "lomd_physicsOpModeID": {
+          "type": "unknown",
+          "shape": [
+            "lomd_mode_rows"
+          ],
+          "description": "`opModeID + opModeIDOffset`, the model-year-physics renumbering `SourceTypePhysics.updateOperatingModeDistribution` applies. Offset 1000 for source type 21 in this snapshot. Faces the reference: the snapshot's modes are 1000..1040 and a reader looking for mode 23 will not find it."
+        },
+        "lomd_opModeIDOffset": {
+          "type": "unknown",
+          "shape": [
+            "lomd_mode_rows"
+          ],
+          "description": "`sourceUseTypePhysicsMapping.opModeIDOffset`, 1000. Carried as a column so the renumbering above is an addition rather than a rewritten literal."
+        },
+        "lomd_ratesRoadTypeID": {
+          "type": "unknown",
+          "shape": [
+            "lomd_mode_rows"
+          ],
+          "description": "The `roadTypeID` the rates copy writes -- the LINK's own road type, 4, not the literal 1 the two sibling generators write. This is the column that partitions `RatesOpModeDistribution` between them and it is the one docs/operating-mode-distribution.md 6.5 had to add."
+        },
+        "lomd_ratesAvgBinSpeed": {
+          "type": "unknown",
+          "shape": [
+            "lomd_mode_rows"
+          ],
+          "description": "The `avgBinSpeed` the rates copy writes -- the link's average speed, 30. Faces the reference on all 21 copied rows. UNITS ARE `1` AND THE QUANTITY IS MILES PER HOUR: the EarthSciAST unit registry has `m`, `km` and `ft` but no mile, so `mi/h` is refused by `esm validate`. docs/findings/README.md F44.",
+          "units": "1"
+        },
+        "lomd_ratesAvgSpeedBinID": {
+          "type": "unknown",
+          "shape": [
+            "lomd_mode_rows"
+          ],
+          "description": "`avgSpeedBinID` -- the SQL literal 0. Does NOT face the reference in any interesting sense; it is here because it is half of the partition key and a reader needs both halves."
+        },
+        "lomd_secondID": {
+          "type": "unknown",
+          "shape": [
+            "lomd_second_rows"
+          ],
+          "description": "`driveScheduleSecond.second` for the eight seconds of drive schedule 153 worked in docs/link-operating-mode-distribution.md 6.2 and 6.6. Carried as a column rather than taken to be the row number (docs/esm-conventions.md 2)."
+        },
+        "lomd_speed": {
+          "type": "unknown",
+          "shape": [
+            "lomd_second_rows"
+          ],
+          "description": "`driveScheduleSecond.speed` at that second, mi/h. UNITS ARE `1` AND THE QUANTITY IS MILES PER HOUR: the EarthSciAST unit registry has `m`, `km` and `ft` but no mile, so `mi/h` is refused by `esm validate`. docs/findings/README.md F44.",
+          "units": "1"
+        },
+        "lomd_prevSpeed": {
+          "type": "unknown",
+          "shape": [
+            "lomd_second_rows"
+          ],
+          "description": "The speed one second earlier. 0 where there is none, paired with `lomd_hasPrevSpeed` 0 -- the value is not what makes it absent, the indicator is. UNITS ARE `1` AND THE QUANTITY IS MILES PER HOUR: the EarthSciAST unit registry has `m`, `km` and `ft` but no mile, so `mi/h` is refused by `esm validate`. docs/findings/README.md F44.",
+          "units": "1"
+        },
+        "lomd_prevSpeed2": {
+          "type": "unknown",
+          "shape": [
+            "lomd_second_rows"
+          ],
+          "description": "The speed two seconds earlier. UNITS ARE `1` AND THE QUANTITY IS MILES PER HOUR: the EarthSciAST unit registry has `m`, `km` and `ft` but no mile, so `mi/h` is refused by `esm validate`. docs/findings/README.md F44.",
+          "units": "1"
+        },
+        "lomd_prevSpeed3": {
+          "type": "unknown",
+          "shape": [
+            "lomd_second_rows"
+          ],
+          "description": "The speed three seconds earlier. UNITS ARE `1` AND THE QUANTITY IS MILES PER HOUR: the EarthSciAST unit registry has `m`, `km` and `ft` but no mile, so `mi/h` is refused by `esm validate`. docs/findings/README.md F44.",
+          "units": "1"
+        },
+        "lomd_hasPrevSpeed": {
+          "type": "unknown",
+          "shape": [
+            "lomd_second_rows"
+          ],
+          "description": "1 where the `LEFT JOIN` to `secondID - 1` found a row. 0 only for second 0, which is the case the whole `coalesce` exists for."
+        },
+        "lomd_gradeAcceleration": {
+          "type": "unknown",
+          "shape": [
+            "lomd_second_rows"
+          ],
+          "description": "`9.81/0.44704 * sin(atan(grade/100))`, the gravity component every acceleration carries. Exactly 0 here because the link's grade is 0."
+        },
+        "lomd_at0": {
+          "type": "unknown",
+          "shape": [
+            "lomd_second_rows"
+          ],
+          "description": "`coalesce((speed[t]-speed[t-1]) + gradeAcceleration, 0.0)`. The fallback is 0.0 and NOT a forward difference: the Java's `@algorithm` comment claims a `speed[t+1]-speed[t]` second argument and the SQL two lines below it has none. docs/link-operating-mode-distribution.md 2.3 and 8.4."
+        },
+        "lomd_at1": {
+          "type": "unknown",
+          "shape": [
+            "lomd_second_rows"
+          ],
+          "description": "`coalesce((speed[t-1]-speed[t-2]) + gradeAcceleration, 0.0)`."
+        },
+        "lomd_at2": {
+          "type": "unknown",
+          "shape": [
+            "lomd_second_rows"
+          ],
+          "description": "`coalesce((speed[t-2]-speed[t-3]) + gradeAcceleration, 0.0)`."
+        },
+        "lomd_speedMs": {
+          "type": "unknown",
+          "shape": [
+            "lomd_second_rows"
+          ],
+          "description": "`speed * 0.44704`, metres per second.",
+          "units": "m/s"
+        },
+        "lomd_accelerationMs": {
+          "type": "unknown",
+          "shape": [
+            "lomd_second_rows"
+          ],
+          "description": "`coalesce(speed[t]-speed[t-1], 0.0) * 0.44704`. NOTE that this coalesce has no grade term where `lomd_at0`'s does -- the SQL's two fallbacks are different expressions and writing one for both is the mistake this column exists to prevent.",
+          "units": "m/s^2"
+        },
+        "lomd_vsp": {
+          "type": "unknown",
+          "shape": [
+            "lomd_second_rows"
+          ],
+          "description": "Vehicle-specific power, kW/tonne: the road-load polynomial plus the mass-acceleration term, all over `fixedMassFactor`, plus the grade term. `sourceMass` and `fixedMassFactor` are both 1.4788 in this snapshot, so the division is the identity and a port that dropped it would pass; docs/link-operating-mode-distribution.md 8.4 says so.",
+          "units": "kW/tonne"
+        },
+        "lomd_isStopped": {
+          "type": "unknown",
+          "shape": [
+            "lomd_second_rows"
+          ],
+          "description": "The `CASE`'s first arm, `speed = 0`. Second 198 is the only one of the eight."
+        },
+        "lomd_isIdle": {
+          "type": "unknown",
+          "shape": [
+            "lomd_second_rows"
+          ],
+          "description": "The second arm, `speed < 1`. Second 452 is 0.4 mi/h."
+        },
+        "lomd_isBraking": {
+          "type": "unknown",
+          "shape": [
+            "lomd_second_rows"
+          ],
+          "description": "The third arm, `At0 <= -2 or (At0 < -1 and At1 < -1 and At2 < -1)`. Second 11 has At0 exactly -2 and takes the first disjunct; second 452 satisfies the SECOND disjunct comprehensively (-1.5, -3.5, -3.0) and is nevertheless idle, because the idle arm is tested first. Second 22 fails the second disjunct on its first term alone (-0.7)."
+        },
+        "lomd_assignedOpMode": {
+          "type": "unknown",
+          "shape": [
+            "lomd_second_rows"
+          ],
+          "description": "The mode the ordered `CASE` assigns. Faces the reference: these eight are drawn from the 1,361 seconds whose counts the mode axis above divides."
+        },
+        "lomd_bandOpMode": {
+          "type": "unknown",
+          "shape": [
+            "lomd_second_rows"
+          ],
+          "description": "The lowest-numbered `operatingMode` rectangle the (speed, VSP) pair falls in, or 99999 when none does. The `CASE`'s fourth arm. Separated from `lomd_assignedOpMode` so a document cannot be right about the mode while wrong about which arm produced it."
+        },
+        "lomd_bandID": {
+          "type": "unknown",
+          "shape": [
+            "lomd_band_rows"
+          ],
+          "description": "`operatingMode.opModeID` for the 22 rectangles `buildOpModeClause` emits: 1..99 EXCLUDING 26 and 36, which the Java calls redundant with others. Mode 1's rectangle is unreachable -- the `speed < 1` arm has already claimed everything it could match -- and it is in the list because the SQL selects on `opModeID >= 1`."
+        },
+        "lomd_bandVSPLower": {
+          "type": "unknown",
+          "shape": [
+            "lomd_band_rows"
+          ],
+          "description": "`operatingMode.VSPLower`, with -1e30 where the column is NULL. See the header on why a sentinel and not a NaN."
+        },
+        "lomd_bandVSPUpper": {
+          "type": "unknown",
+          "shape": [
+            "lomd_band_rows"
+          ],
+          "description": "`operatingMode.VSPUpper`, 1e30 where NULL."
+        },
+        "lomd_bandSpeedLower": {
+          "type": "unknown",
+          "shape": [
+            "lomd_band_rows"
+          ],
+          "description": "`operatingMode.speedLower`, -1e30 where NULL."
+        },
+        "lomd_bandSpeedUpper": {
+          "type": "unknown",
+          "shape": [
+            "lomd_band_rows"
+          ],
+          "description": "`operatingMode.speedUpper`, 1e30 where NULL."
+        },
+        "lomd_bandMatches": {
+          "type": "unknown",
+          "shape": [
+            "lomd_second_rows",
+            "lomd_band_rows"
+          ],
+          "description": "1 where the second's VSP and speed both fall in the band's half-open ranges. Lower bounds inclusive, upper bounds exclusive, in both dimensions, as `buildOpModeClause` writes them."
+        }
+      },
+      "equations": [
+        {
+          "_comment": "link.linkAvgSpeed = 30 mi/h, and the grade is 0.",
+          "lhs": "lomd_linkAvgSpeed",
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              30.0,
+              30.0,
+              30.0,
+              30.0,
+              30.0,
+              30.0,
+              30.0,
+              30.0,
+              30.0,
+              30.0,
+              30.0,
+              30.0,
+              30.0,
+              30.0,
+              30.0,
+              30.0,
+              30.0,
+              30.0,
+              30.0,
+              30.0,
+              30.0
+            ]
+          }
+        },
+        {
+          "lhs": "lomd_linkAvgGrade",
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0
+            ]
+          }
+        },
+        {
+          "_comment": "driveSchedule.averageSpeed of schedules 1021 and 153.",
+          "lhs": "lomd_lowScheduleSpeed",
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              20.6006,
+              20.6006,
+              20.6006,
+              20.6006,
+              20.6006,
+              20.6006,
+              20.6006,
+              20.6006,
+              20.6006,
+              20.6006,
+              20.6006,
+              20.6006,
+              20.6006,
+              20.6006,
+              20.6006,
+              20.6006,
+              20.6006,
+              20.6006,
+              20.6006,
+              20.6006,
+              20.6006
+            ]
+          }
+        },
+        {
+          "lhs": "lomd_highScheduleSpeed",
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              30.5,
+              30.5,
+              30.5,
+              30.5,
+              30.5,
+              30.5,
+              30.5,
+              30.5,
+              30.5,
+              30.5,
+              30.5,
+              30.5,
+              30.5,
+              30.5,
+              30.5,
+              30.5,
+              30.5,
+              30.5,
+              30.5,
+              30.5,
+              30.5
+            ]
+          }
+        },
+        {
+          "_comment": "@step 105: the factor, and its zero branch when the low bracket is not strictly slower.",
+          "lhs": "lomd_interpolationFactor",
+          "rhs": {
+            "op": "ifelse",
+            "args": [
+              {
+                "op": "<",
+                "args": [
+                  "lomd_lowScheduleSpeed",
+                  "lomd_highScheduleSpeed"
+                ]
+              },
+              {
+                "op": "/",
+                "args": [
+                  {
+                    "op": "-",
+                    "args": [
+                      "lomd_linkAvgSpeed",
+                      "lomd_lowScheduleSpeed"
+                    ]
+                  },
+                  {
+                    "op": "-",
+                    "args": [
+                      "lomd_highScheduleSpeed",
+                      "lomd_lowScheduleSpeed"
+                    ]
+                  }
+                ]
+              },
+              0.0
+            ]
+          }
+        },
+        {
+          "lhs": "lomd_lowSecondTotal",
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              905.0,
+              905.0,
+              905.0,
+              905.0,
+              905.0,
+              905.0,
+              905.0,
+              905.0,
+              905.0,
+              905.0,
+              905.0,
+              905.0,
+              905.0,
+              905.0,
+              905.0,
+              905.0,
+              905.0,
+              905.0,
+              905.0,
+              905.0,
+              905.0
+            ]
+          }
+        },
+        {
+          "lhs": "lomd_highSecondTotal",
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              456.0,
+              456.0,
+              456.0,
+              456.0,
+              456.0,
+              456.0,
+              456.0,
+              456.0,
+              456.0,
+              456.0,
+              456.0,
+              456.0,
+              456.0,
+              456.0,
+              456.0,
+              456.0,
+              456.0,
+              456.0,
+              456.0,
+              456.0,
+              456.0
+            ]
+          }
+        },
+        {
+          "lhs": "lomd_opModeID",
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              0.0,
+              1.0,
+              11.0,
+              12.0,
+              13.0,
+              14.0,
+              15.0,
+              16.0,
+              21.0,
+              22.0,
+              23.0,
+              24.0,
+              25.0,
+              27.0,
+              28.0,
+              30.0,
+              33.0,
+              35.0,
+              37.0,
+              38.0,
+              40.0
+            ]
+          }
+        },
+        {
+          "_comment": "secondCount per mode, mode 501 already folded into mode 1 (20+23 low, 3+5 high).",
+          "lhs": "lomd_lowSecondCount",
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              76.0,
+              43.0,
+              158.0,
+              217.0,
+              60.0,
+              47.0,
+              8.0,
+              2.0,
+              50.0,
+              49.0,
+              44.0,
+              59.0,
+              34.0,
+              28.0,
+              9.0,
+              0.0,
+              6.0,
+              6.0,
+              7.0,
+              2.0,
+              0.0
+            ]
+          }
+        },
+        {
+          "lhs": "lomd_highSecondCount",
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              52.0,
+              8.0,
+              39.0,
+              43.0,
+              34.0,
+              12.0,
+              17.0,
+              3.0,
+              33.0,
+              48.0,
+              25.0,
+              25.0,
+              17.0,
+              21.0,
+              3.0,
+              1.0,
+              22.0,
+              25.0,
+              20.0,
+              7.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "_comment": "@step 110: `secondCount * 1.0 / secondTotal`, a five-decimal half-up DECIMAL.",
+          "lhs": "lomd_lowFraction",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "link_op_mode_fraction",
+            "bindings": {
+              "second_count": "lomd_lowSecondCount",
+              "second_total": "lomd_lowSecondTotal"
+            }
+          }
+        },
+        {
+          "lhs": "lomd_highFraction",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "link_op_mode_fraction",
+            "bindings": {
+              "second_count": "lomd_highSecondCount",
+              "second_total": "lomd_highSecondTotal"
+            }
+          }
+        },
+        {
+          "_comment": "@step 105 tail: low + (high - low) * factor, over the full mode band.",
+          "lhs": "lomd_interpolatedFraction",
+          "rhs": {
+            "op": "+",
+            "args": [
+              "lomd_lowFraction",
+              {
+                "op": "*",
+                "args": [
+                  {
+                    "op": "-",
+                    "args": [
+                      "lomd_highFraction",
+                      "lomd_lowFraction"
+                    ]
+                  },
+                  "lomd_interpolationFactor"
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "lhs": "lomd_isRetained",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "truth",
+            "bindings": {
+              "condition": {
+                "op": ">",
+                "args": [
+                  "lomd_interpolatedFraction",
+                  0.0
+                ]
+              }
+            }
+          }
+        },
+        {
+          "lhs": "lomd_opModeIDOffset",
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              1000.0,
+              1000.0,
+              1000.0,
+              1000.0,
+              1000.0,
+              1000.0,
+              1000.0,
+              1000.0,
+              1000.0,
+              1000.0,
+              1000.0,
+              1000.0,
+              1000.0,
+              1000.0,
+              1000.0,
+              1000.0,
+              1000.0,
+              1000.0,
+              1000.0,
+              1000.0,
+              1000.0
+            ]
+          }
+        },
+        {
+          "lhs": "lomd_physicsOpModeID",
+          "rhs": {
+            "op": "+",
+            "args": [
+              "lomd_opModeID",
+              "lomd_opModeIDOffset"
+            ]
+          }
+        },
+        {
+          "_comment": "@step 200: the rates copy takes the LINK's road type and the LINK's average speed.",
+          "lhs": "lomd_ratesRoadTypeID",
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              4.0,
+              4.0,
+              4.0,
+              4.0,
+              4.0,
+              4.0,
+              4.0,
+              4.0,
+              4.0,
+              4.0,
+              4.0,
+              4.0,
+              4.0,
+              4.0,
+              4.0,
+              4.0,
+              4.0,
+              4.0,
+              4.0,
+              4.0,
+              4.0
+            ]
+          }
+        },
+        {
+          "lhs": "lomd_ratesAvgBinSpeed",
+          "rhs": "lomd_linkAvgSpeed"
+        },
+        {
+          "lhs": "lomd_ratesAvgSpeedBinID",
+          "rhs": {
+            "op": "+",
+            "args": [
+              {
+                "op": "apply_expression_template",
+                "args": [],
+                "name": "off_network_avg_speed_bin",
+                "bindings": {}
+              },
+              {
+                "op": "const",
+                "args": [],
+                "value": [
+                  0.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  0.0
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "lhs": "lomd_secondID",
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              0.0,
+              3.0,
+              11.0,
+              22.0,
+              38.0,
+              198.0,
+              309.0,
+              452.0
+            ]
+          }
+        },
+        {
+          "lhs": "lomd_speed",
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              33.8,
+              31.9,
+              32.6,
+              20.0,
+              17.7,
+              0.0,
+              55.7,
+              0.4
+            ]
+          }
+        },
+        {
+          "lhs": "lomd_prevSpeed",
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              0.0,
+              33.0,
+              34.6,
+              20.7,
+              14.6,
+              1.2,
+              56.1,
+              1.9
+            ]
+          }
+        },
+        {
+          "lhs": "lomd_prevSpeed2",
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              0.0,
+              33.4,
+              35.3,
+              21.9,
+              12.3,
+              2.7,
+              55.3,
+              5.4
+            ]
+          }
+        },
+        {
+          "lhs": "lomd_prevSpeed3",
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              0.0,
+              33.8,
+              36.1,
+              23.4,
+              11.1,
+              2.3,
+              54.9,
+              8.4
+            ]
+          }
+        },
+        {
+          "lhs": "lomd_hasPrevSpeed",
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              0.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "lhs": "lomd_gradeAcceleration",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "grade_acceleration",
+            "bindings": {
+              "grade_percent": {
+                "op": "const",
+                "args": [],
+                "value": [
+                  0.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  0.0
+                ]
+              }
+            }
+          }
+        },
+        {
+          "_comment": "@step 110: the three backward differences, each coalescing to 0.0 through its OWN indicator.",
+          "lhs": "lomd_at0",
+          "rhs": {
+            "op": "ifelse",
+            "args": [
+              {
+                "op": ">",
+                "args": [
+                  "lomd_hasPrevSpeed",
+                  0.0
+                ]
+              },
+              {
+                "op": "+",
+                "args": [
+                  {
+                    "op": "-",
+                    "args": [
+                      "lomd_speed",
+                      "lomd_prevSpeed"
+                    ]
+                  },
+                  "lomd_gradeAcceleration"
+                ]
+              },
+              0.0
+            ]
+          }
+        },
+        {
+          "lhs": "lomd_at1",
+          "rhs": {
+            "op": "ifelse",
+            "args": [
+              {
+                "op": ">",
+                "args": [
+                  "lomd_hasPrevSpeed",
+                  0.0
+                ]
+              },
+              {
+                "op": "+",
+                "args": [
+                  {
+                    "op": "-",
+                    "args": [
+                      "lomd_prevSpeed",
+                      "lomd_prevSpeed2"
+                    ]
+                  },
+                  "lomd_gradeAcceleration"
+                ]
+              },
+              0.0
+            ]
+          }
+        },
+        {
+          "lhs": "lomd_at2",
+          "rhs": {
+            "op": "ifelse",
+            "args": [
+              {
+                "op": ">",
+                "args": [
+                  "lomd_hasPrevSpeed",
+                  0.0
+                ]
+              },
+              {
+                "op": "+",
+                "args": [
+                  {
+                    "op": "-",
+                    "args": [
+                      "lomd_prevSpeed2",
+                      "lomd_prevSpeed3"
+                    ]
+                  },
+                  "lomd_gradeAcceleration"
+                ]
+              },
+              0.0
+            ]
+          }
+        },
+        {
+          "lhs": "lomd_speedMs",
+          "rhs": {
+            "op": "*",
+            "args": [
+              "lomd_speed",
+              {
+                "op": "apply_expression_template",
+                "args": [],
+                "name": "mph_to_meters_per_second",
+                "bindings": {}
+              }
+            ]
+          }
+        },
+        {
+          "_comment": "The VSP acceleration term's coalesce has NO grade addend; the At0 coalesce does.",
+          "lhs": "lomd_accelerationMs",
+          "rhs": {
+            "op": "*",
+            "args": [
+              {
+                "op": "ifelse",
+                "args": [
+                  {
+                    "op": ">",
+                    "args": [
+                      "lomd_hasPrevSpeed",
+                      0.0
+                    ]
+                  },
+                  {
+                    "op": "-",
+                    "args": [
+                      "lomd_speed",
+                      "lomd_prevSpeed"
+                    ]
+                  },
+                  0.0
+                ]
+              },
+              {
+                "op": "apply_expression_template",
+                "args": [],
+                "name": "mph_to_meters_per_second",
+                "bindings": {}
+              }
+            ]
+          }
+        },
+        {
+          "_comment": "The road-load polynomial (lib/drive_cycle.esm, shared with the base-rate path) plus the grade term the project path adds. Both divide by fixedMassFactor; see that library's header on the split.",
+          "lhs": "lomd_vsp",
+          "rhs": {
+            "op": "+",
+            "args": [
+              {
+                "op": "apply_expression_template",
+                "args": [],
+                "name": "vehicle_specific_power",
+                "bindings": {
+                  "rolling_term_a": {
+                    "op": "const",
+                    "args": [],
+                    "value": [
+                      0.156461,
+                      0.156461,
+                      0.156461,
+                      0.156461,
+                      0.156461,
+                      0.156461,
+                      0.156461,
+                      0.156461
+                    ]
+                  },
+                  "rotating_term_b": {
+                    "op": "const",
+                    "args": [],
+                    "value": [
+                      0.00200193,
+                      0.00200193,
+                      0.00200193,
+                      0.00200193,
+                      0.00200193,
+                      0.00200193,
+                      0.00200193,
+                      0.00200193
+                    ]
+                  },
+                  "drag_term_c": {
+                    "op": "const",
+                    "args": [],
+                    "value": [
+                      0.000492646,
+                      0.000492646,
+                      0.000492646,
+                      0.000492646,
+                      0.000492646,
+                      0.000492646,
+                      0.000492646,
+                      0.000492646
+                    ]
+                  },
+                  "source_mass": {
+                    "op": "const",
+                    "args": [],
+                    "value": [
+                      1.4788,
+                      1.4788,
+                      1.4788,
+                      1.4788,
+                      1.4788,
+                      1.4788,
+                      1.4788,
+                      1.4788
+                    ]
+                  },
+                  "fixed_mass_factor": {
+                    "op": "const",
+                    "args": [],
+                    "value": [
+                      1.4788,
+                      1.4788,
+                      1.4788,
+                      1.4788,
+                      1.4788,
+                      1.4788,
+                      1.4788,
+                      1.4788
+                    ]
+                  },
+                  "speed_ms": "lomd_speedMs",
+                  "acceleration_ms": "lomd_accelerationMs"
+                }
+              },
+              {
+                "op": "apply_expression_template",
+                "args": [],
+                "name": "grade_specific_power",
+                "bindings": {
+                  "source_mass": {
+                    "op": "const",
+                    "args": [],
+                    "value": [
+                      1.4788,
+                      1.4788,
+                      1.4788,
+                      1.4788,
+                      1.4788,
+                      1.4788,
+                      1.4788,
+                      1.4788
+                    ]
+                  },
+                  "fixed_mass_factor": {
+                    "op": "const",
+                    "args": [],
+                    "value": [
+                      1.4788,
+                      1.4788,
+                      1.4788,
+                      1.4788,
+                      1.4788,
+                      1.4788,
+                      1.4788,
+                      1.4788
+                    ]
+                  },
+                  "grade_percent": {
+                    "op": "const",
+                    "args": [],
+                    "value": [
+                      0.0,
+                      0.0,
+                      0.0,
+                      0.0,
+                      0.0,
+                      0.0,
+                      0.0,
+                      0.0
+                    ]
+                  },
+                  "speed_ms": "lomd_speedMs"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "lhs": "lomd_bandID",
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              1.0,
+              11.0,
+              12.0,
+              13.0,
+              14.0,
+              15.0,
+              16.0,
+              21.0,
+              22.0,
+              23.0,
+              24.0,
+              25.0,
+              27.0,
+              28.0,
+              29.0,
+              30.0,
+              33.0,
+              35.0,
+              37.0,
+              38.0,
+              39.0,
+              40.0
+            ]
+          }
+        },
+        {
+          "lhs": "lomd_bandVSPLower",
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              -1e+30,
+              -1e+30,
+              0.0,
+              3.0,
+              6.0,
+              9.0,
+              12.0,
+              -1e+30,
+              0.0,
+              3.0,
+              6.0,
+              9.0,
+              12.0,
+              18.0,
+              24.0,
+              30.0,
+              -1e+30,
+              6.0,
+              12.0,
+              18.0,
+              24.0,
+              30.0
+            ]
+          }
+        },
+        {
+          "lhs": "lomd_bandVSPUpper",
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              1e+30,
+              0.0,
+              3.0,
+              6.0,
+              9.0,
+              12.0,
+              1e+30,
+              0.0,
+              3.0,
+              6.0,
+              9.0,
+              12.0,
+              18.0,
+              24.0,
+              30.0,
+              1e+30,
+              6.0,
+              12.0,
+              18.0,
+              24.0,
+              30.0,
+              1e+30
+            ]
+          }
+        },
+        {
+          "lhs": "lomd_bandSpeedLower",
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              -1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              25.0,
+              25.0,
+              25.0,
+              25.0,
+              25.0,
+              25.0,
+              25.0,
+              25.0,
+              25.0,
+              50.0,
+              50.0,
+              50.0,
+              50.0,
+              50.0,
+              50.0
+            ]
+          }
+        },
+        {
+          "lhs": "lomd_bandSpeedUpper",
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              1.0,
+              25.0,
+              25.0,
+              25.0,
+              25.0,
+              25.0,
+              25.0,
+              50.0,
+              50.0,
+              50.0,
+              50.0,
+              50.0,
+              50.0,
+              50.0,
+              50.0,
+              50.0,
+              1e+30,
+              1e+30,
+              1e+30,
+              1e+30,
+              1e+30,
+              1e+30
+            ]
+          }
+        },
+        {
+          "_comment": "buildOpModeClause's per-rectangle conjunction: VSP in [lower, upper) and speed in [lower, upper).",
+          "lhs": "lomd_bandMatches",
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "i",
+              "j"
+            ],
+            "ranges": {
+              "i": {
+                "from": "lomd_second_rows"
+              },
+              "j": {
+                "from": "lomd_band_rows"
+              }
+            },
+            "expr": {
+              "op": "min",
+              "args": [
+                {
+                  "op": "apply_expression_template",
+                  "args": [],
+                  "name": "in_half_open_range",
+                  "bindings": {
+                    "value": {
+                      "op": "index",
+                      "args": [
+                        "lomd_vsp",
+                        "i"
+                      ]
+                    },
+                    "lower": {
+                      "op": "index",
+                      "args": [
+                        "lomd_bandVSPLower",
+                        "j"
+                      ]
+                    },
+                    "upper": {
+                      "op": "index",
+                      "args": [
+                        "lomd_bandVSPUpper",
+                        "j"
+                      ]
+                    }
+                  }
+                },
+                {
+                  "op": "apply_expression_template",
+                  "args": [],
+                  "name": "in_half_open_range",
+                  "bindings": {
+                    "value": {
+                      "op": "index",
+                      "args": [
+                        "lomd_speed",
+                        "i"
+                      ]
+                    },
+                    "lower": {
+                      "op": "index",
+                      "args": [
+                        "lomd_bandSpeedLower",
+                        "j"
+                      ]
+                    },
+                    "upper": {
+                      "op": "index",
+                      "args": [
+                        "lomd_bandSpeedUpper",
+                        "j"
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "_comment": "The CASE takes the FIRST matching arm, and the arms are in ascending opModeID order, so the lowest matching band id is the answer. 99999 stands for the `else -1` arm, which no second in the corpus reaches.",
+          "lhs": "lomd_bandOpMode",
+          "rhs": {
+            "op": "aggregate",
+            "args": [],
+            "semiring": "min_sum",
+            "output_idx": [
+              "i"
+            ],
+            "ranges": {
+              "i": {
+                "from": "lomd_second_rows"
+              },
+              "j": {
+                "from": "lomd_band_rows"
+              }
+            },
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                {
+                  "op": ">",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "lomd_bandMatches",
+                        "i",
+                        "j"
+                      ]
+                    },
+                    0.5
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "lomd_bandID",
+                    "j"
+                  ]
+                },
+                99999.0
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "lomd_isStopped",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "truth",
+            "bindings": {
+              "condition": {
+                "op": "==",
+                "args": [
+                  "lomd_speed",
+                  0.0
+                ]
+              }
+            }
+          }
+        },
+        {
+          "lhs": "lomd_isIdle",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "truth",
+            "bindings": {
+              "condition": {
+                "op": "<",
+                "args": [
+                  "lomd_speed",
+                  1.0
+                ]
+              }
+            }
+          }
+        },
+        {
+          "lhs": "lomd_isBraking",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "truth",
+            "bindings": {
+              "condition": {
+                "op": "or",
+                "args": [
+                  {
+                    "op": "<=",
+                    "args": [
+                      "lomd_at0",
+                      -2.0
+                    ]
+                  },
+                  {
+                    "op": "and",
+                    "args": [
+                      {
+                        "op": "<",
+                        "args": [
+                          "lomd_at0",
+                          -1.0
+                        ]
+                      },
+                      {
+                        "op": "<",
+                        "args": [
+                          "lomd_at1",
+                          -1.0
+                        ]
+                      },
+                      {
+                        "op": "<",
+                        "args": [
+                          "lomd_at2",
+                          -1.0
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "_comment": "The CASE, in its own order: stopped, then idle, then braking, then the rectangles.",
+          "lhs": "lomd_assignedOpMode",
+          "rhs": {
+            "op": "ifelse",
+            "args": [
+              {
+                "op": ">",
+                "args": [
+                  "lomd_isStopped",
+                  0.5
+                ]
+              },
+              501.0,
+              {
+                "op": "ifelse",
+                "args": [
+                  {
+                    "op": ">",
+                    "args": [
+                      "lomd_isIdle",
+                      0.5
+                    ]
+                  },
+                  1.0,
+                  {
+                    "op": "ifelse",
+                    "args": [
+                      {
+                        "op": ">",
+                        "args": [
+                          "lomd_isBraking",
+                          0.5
+                        ]
+                      },
+                      0.0,
+                      "lomd_bandOpMode"
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "tests": [
+        {
+          "id": "the_case_is_ordered_and_each_of_its_arms_is_reached",
+          "description": "FACES THE REFERENCE, through the counts the mode axis divides. Eight seconds of drive schedule 153, each taking a different arm of `buildOpModeClause`'s `CASE`. Second 198 is stopped (speed exactly 0) and takes arm 1. Second 452 is 0.4 mi/h and takes arm 2 -- and its accelerations are -1.5, -3.5 and -3.0, which satisfy the BRAKING disjunct comprehensively, so it is the assertion that pins the arm ORDER rather than the arm. Second 11 has At0 exactly -2.0 and brakes on the INCLUSIVE first disjunct; flip that `<=` to `<` and the whole 1,361-second sweep in the oracle moves. Second 22 has At0 -0.7 with At1 -1.2 and At2 -1.5, so it fails the three-second disjunct on its first term alone and coasts. What breaks if the order is wrong: second 452 becomes braking (mode 0) instead of idle (mode 1), which in the corpus moves 8 seconds between two modes whose emission rates differ by the whole of the deceleration fuel cut.",
+          "time_span": {
+            "start": 0.0,
+            "end": 0.0
+          },
+          "assertions": [
+            {
+              "variable": "lomd_assignedOpMode",
+              "time": 0.0,
+              "expected": 501.0,
+              "coords": {
+                "lomd_second_rows": 6
+              },
+              "tolerance": {
+                "abs": 1e-12
+              }
+            },
+            {
+              "variable": "lomd_isStopped",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "lomd_second_rows": 6
+              },
+              "tolerance": {
+                "abs": 1e-12
+              }
+            },
+            {
+              "variable": "lomd_assignedOpMode",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "lomd_second_rows": 8
+              },
+              "tolerance": {
+                "abs": 1e-12
+              }
+            },
+            {
+              "variable": "lomd_isIdle",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "lomd_second_rows": 8
+              },
+              "tolerance": {
+                "abs": 1e-12
+              }
+            },
+            {
+              "variable": "lomd_isBraking",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "lomd_second_rows": 8
+              },
+              "tolerance": {
+                "abs": 1e-12
+              }
+            },
+            {
+              "variable": "lomd_assignedOpMode",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "lomd_second_rows": 3
+              },
+              "tolerance": {
+                "abs": 1e-12
+              }
+            },
+            {
+              "variable": "lomd_at0",
+              "time": 0.0,
+              "expected": -2.0,
+              "coords": {
+                "lomd_second_rows": 3
+              },
+              "tolerance": {
+                "abs": 1e-12
+              }
+            },
+            {
+              "variable": "lomd_isBraking",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "lomd_second_rows": 3
+              },
+              "tolerance": {
+                "abs": 1e-12
+              }
+            },
+            {
+              "variable": "lomd_isBraking",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "lomd_second_rows": 4
+              },
+              "tolerance": {
+                "abs": 1e-12
+              }
+            },
+            {
+              "variable": "lomd_assignedOpMode",
+              "time": 0.0,
+              "expected": 11.0,
+              "coords": {
+                "lomd_second_rows": 4
+              },
+              "tolerance": {
+                "abs": 1e-12
+              }
+            }
+          ]
+        },
+        {
+          "id": "the_first_second_has_no_predecessor_and_coalesces_to_zero",
+          "description": "FACES THE REFERENCE. Second 0 of every drive schedule has no `secondID - 1` row, so the `LEFT JOIN` gives NULL, `(a.speed - b.speed) + grade` is NULL, and `coalesce(..., 0.0)` makes At0 zero. The VSP acceleration term coalesces separately and to a different expression -- no grade addend -- and is likewise zero, so the VSP is the road-load polynomial alone: 15.109952 * (0.156461 + 15.109952 * (0.00200193 + 0.000492646 * 15.109952)) / 1.4788 = 3.0570003101339895. Speed 33.8 is in [25, 50) and VSP in [3, 6), so mode 23. The Java's own `@algorithm` comment claims a forward difference here and the SQL beneath it has none; docs/link-operating-mode-distribution.md 8.4 measures that the corpus cannot tell the two apart, so this assertion pins the SQL's answer and the document says why it is the SQL's and not the corpus's.",
+          "time_span": {
+            "start": 0.0,
+            "end": 0.0
+          },
+          "assertions": [
+            {
+              "variable": "lomd_hasPrevSpeed",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "lomd_second_rows": 1
+              },
+              "tolerance": {
+                "abs": 1e-12
+              }
+            },
+            {
+              "variable": "lomd_at0",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "lomd_second_rows": 1
+              },
+              "tolerance": {
+                "abs": 1e-12
+              }
+            },
+            {
+              "variable": "lomd_accelerationMs",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "lomd_second_rows": 1
+              },
+              "tolerance": {
+                "abs": 1e-12
+              }
+            },
+            {
+              "variable": "lomd_vsp",
+              "time": 0.0,
+              "expected": 3.0570003101339895,
+              "coords": {
+                "lomd_second_rows": 1
+              },
+              "tolerance": {
+                "rel": 1e-12
+              }
+            },
+            {
+              "variable": "lomd_assignedOpMode",
+              "time": 0.0,
+              "expected": 23.0,
+              "coords": {
+                "lomd_second_rows": 1
+              },
+              "tolerance": {
+                "abs": 1e-12
+              }
+            }
+          ]
+        },
+        {
+          "id": "an_absent_band_bound_does_not_exclude",
+          "description": "FACES THE REFERENCE. Three of the 22 rectangles the `CASE` is built from have a NULL bound, and `buildOpModeClause` simply omits the term rather than supplying a default -- an absent bound is a bound that cannot exclude. Second 3 has VSP -4.26 and lands in mode 21, whose `VSPLower` is NULL; second 38 has VSP 12.05 and lands in mode 16, whose `VSPUpper` is NULL; second 309 is 55.7 mi/h and lands in mode 33, whose `speedUpper` is NULL. This file writes those bounds as -1e30 and 1e30 rather than NaN, because JSON has no NaN literal, and these three assertions are what makes the substitution exercised rather than assumed. What breaks if an absent bound is read as 0: second 3's VSP is negative, so mode 21 would be excluded and the second would fall through to no rectangle at all.",
+          "time_span": {
+            "start": 0.0,
+            "end": 0.0
+          },
+          "assertions": [
+            {
+              "variable": "lomd_assignedOpMode",
+              "time": 0.0,
+              "expected": 21.0,
+              "coords": {
+                "lomd_second_rows": 2
+              },
+              "tolerance": {
+                "abs": 1e-12
+              }
+            },
+            {
+              "variable": "lomd_vsp",
+              "time": 0.0,
+              "expected": -4.262308318302009,
+              "coords": {
+                "lomd_second_rows": 2
+              },
+              "tolerance": {
+                "rel": 1e-12
+              }
+            },
+            {
+              "variable": "lomd_assignedOpMode",
+              "time": 0.0,
+              "expected": 16.0,
+              "coords": {
+                "lomd_second_rows": 5
+              },
+              "tolerance": {
+                "abs": 1e-12
+              }
+            },
+            {
+              "variable": "lomd_vsp",
+              "time": 0.0,
+              "expected": 12.052453000393367,
+              "coords": {
+                "lomd_second_rows": 5
+              },
+              "tolerance": {
+                "rel": 1e-12
+              }
+            },
+            {
+              "variable": "lomd_assignedOpMode",
+              "time": 0.0,
+              "expected": 33.0,
+              "coords": {
+                "lomd_second_rows": 7
+              },
+              "tolerance": {
+                "abs": 1e-12
+              }
+            },
+            {
+              "variable": "lomd_bandOpMode",
+              "time": 0.0,
+              "expected": 33.0,
+              "coords": {
+                "lomd_second_rows": 7
+              },
+              "tolerance": {
+                "abs": 1e-12
+              }
+            }
+          ]
+        },
+        {
+          "id": "the_quotient_is_a_five_decimal_decimal_and_not_a_four",
+          "description": "FACES THE REFERENCE. The snapshot stores the low bracket's braking fraction as `8.398e-02` and the high bracket's as `1.1404e-01`. 76/905 is 0.083977900552... and 52/456 is 0.114035087719..., so neither is the IEEE ratio and neither is a four-decimal DECIMAL (0.0840 and 0.1140). Five decimals, half-up, is what MariaDB gives `secondCount * 1.0 / secondTotal`: the dividend's scale is 1 because of the `* 1.0`, and `div_precision_increment` adds 4. Over the whole corpus the five-decimal answer is bit-exact on 80 of 80 bracketing cells and the four-decimal answer misses 76. What breaks at four decimals: every fraction moves by up to 5e-5 relative, which is more than twice tolerance.toml's per-cell 2e-5, and 118 of the oracle's 122 cells go red.",
+          "time_span": {
+            "start": 0.0,
+            "end": 0.0
+          },
+          "assertions": [
+            {
+              "variable": "lomd_lowFraction",
+              "time": 0.0,
+              "expected": 0.08398,
+              "coords": {
+                "lomd_mode_rows": 1
+              },
+              "tolerance": {
+                "abs": 1e-15
+              }
+            },
+            {
+              "variable": "lomd_highFraction",
+              "time": 0.0,
+              "expected": 0.11404,
+              "coords": {
+                "lomd_mode_rows": 1
+              },
+              "tolerance": {
+                "abs": 1e-15
+              }
+            },
+            {
+              "variable": "lomd_lowFraction",
+              "time": 0.0,
+              "expected": 0.23978,
+              "coords": {
+                "lomd_mode_rows": 4
+              },
+              "tolerance": {
+                "abs": 1e-15
+              }
+            },
+            {
+              "variable": "lomd_highFraction",
+              "time": 0.0,
+              "expected": 0.0943,
+              "coords": {
+                "lomd_mode_rows": 4
+              },
+              "tolerance": {
+                "abs": 1e-15
+              }
+            },
+            {
+              "variable": "lomd_lowFraction",
+              "time": 0.0,
+              "expected": 0.04751,
+              "coords": {
+                "lomd_mode_rows": 2
+              },
+              "tolerance": {
+                "abs": 1e-15
+              }
+            },
+            {
+              "variable": "lomd_highFraction",
+              "time": 0.0,
+              "expected": 0.01754,
+              "coords": {
+                "lomd_mode_rows": 2
+              },
+              "tolerance": {
+                "abs": 1e-15
+              }
+            }
+          ]
+        },
+        {
+          "id": "the_link_is_interpolated_between_its_two_brackets",
+          "description": "FACES THE REFERENCE. The link's 30 mi/h sits between schedule 1021 at 20.6006 and schedule 153 at 30.5, so the factor is 9.3994/9.8994 = 0.9494918883972766 and the link is 95 % of the way to the faster cycle. The snapshot stores mode 1000 at `1.12522e-01` and mode 1011 at `9.00282e-02`; the assertions are at `rel 1e-6` because that is the reference's own FLOAT-column rendering and not a port tolerance -- the whole-corpus residual is 2.396e-06 and every one of the 122 cells is exact at six digits (docs/link-operating-mode-distribution.md 7.1). Mode 1030 is asserted because the LOW bracket never enters it: the interpolation runs over the full physics mode band with `coalesce(missing, 0)` and drops non-positives afterwards, so a mode only one bracket reached still appears. Running the union of the two brackets' modes instead loses 6 cells in the oracle.",
+          "time_span": {
+            "start": 0.0,
+            "end": 0.0
+          },
+          "assertions": [
+            {
+              "variable": "lomd_interpolationFactor",
+              "time": 0.0,
+              "expected": 0.9494918883972766,
+              "coords": {
+                "lomd_mode_rows": 1
+              },
+              "tolerance": {
+                "rel": 1e-15
+              }
+            },
+            {
+              "variable": "lomd_interpolatedFraction",
+              "time": 0.0,
+              "expected": 0.11252172616522213,
+              "coords": {
+                "lomd_mode_rows": 1
+              },
+              "tolerance": {
+                "rel": 1e-06
+              }
+            },
+            {
+              "variable": "lomd_interpolatedFraction",
+              "time": 0.0,
+              "expected": 0.09002825241933854,
+              "coords": {
+                "lomd_mode_rows": 3
+              },
+              "tolerance": {
+                "rel": 1e-06
+              }
+            },
+            {
+              "variable": "lomd_lowSecondCount",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "lomd_mode_rows": 16
+              },
+              "tolerance": {
+                "abs": 1e-12
+              }
+            },
+            {
+              "variable": "lomd_interpolatedFraction",
+              "time": 0.0,
+              "expected": 0.002079387235590036,
+              "coords": {
+                "lomd_mode_rows": 16
+              },
+              "tolerance": {
+                "rel": 1e-06
+              }
+            },
+            {
+              "variable": "lomd_isRetained",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "lomd_mode_rows": 16
+              },
+              "tolerance": {
+                "abs": 1e-12
+              }
+            }
+          ]
+        },
+        {
+          "id": "the_physics_offset_and_the_link_road_type_are_what_make_the_rows_findable",
+          "description": "FACES THE REFERENCE. Two renamings decide where these rows land, and both are easy to miss. `SourceTypePhysics.updateOperatingModeDistribution` adds `sourceUseTypePhysicsMapping.opModeIDOffset` -- 1000 for source type 21 -- to every mode and rewrites the temp source type 100 back to 21, so the snapshot holds modes 1000..1040 and a reader looking for mode 23 finds nothing. And the copy into `RatesOpModeDistribution` writes the LINK's road type, 4, where the two sibling generators write the literal 1: that column is the partition key between them and docs/operating-mode-distribution.md 6.5 had to be corrected to use it. What breaks without the offset: the oracle reports 143 missing and 80 extra, because nothing in the snapshot is numbered below 1000. What breaks without the road type: the sibling oracle counts these 21 rows as its own and reports 21 missing.",
+          "time_span": {
+            "start": 0.0,
+            "end": 0.0
+          },
+          "assertions": [
+            {
+              "variable": "lomd_physicsOpModeID",
+              "time": 0.0,
+              "expected": 1000.0,
+              "coords": {
+                "lomd_mode_rows": 1
+              },
+              "tolerance": {
+                "abs": 1e-12
+              }
+            },
+            {
+              "variable": "lomd_physicsOpModeID",
+              "time": 0.0,
+              "expected": 1023.0,
+              "coords": {
+                "lomd_mode_rows": 11
+              },
+              "tolerance": {
+                "abs": 1e-12
+              }
+            },
+            {
+              "variable": "lomd_physicsOpModeID",
+              "time": 0.0,
+              "expected": 1040.0,
+              "coords": {
+                "lomd_mode_rows": 21
+              },
+              "tolerance": {
+                "abs": 1e-12
+              }
+            },
+            {
+              "variable": "lomd_ratesRoadTypeID",
+              "time": 0.0,
+              "expected": 4.0,
+              "coords": {
+                "lomd_mode_rows": 1
+              },
+              "tolerance": {
+                "abs": 1e-12
+              }
+            },
+            {
+              "variable": "lomd_ratesAvgBinSpeed",
+              "time": 0.0,
+              "expected": 30.0,
+              "coords": {
+                "lomd_mode_rows": 1
+              },
+              "tolerance": {
+                "abs": 1e-12
+              }
+            },
+            {
+              "variable": "lomd_ratesAvgSpeedBinID",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "lomd_mode_rows": 1
+              },
+              "tolerance": {
+                "abs": 1e-12
+              }
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

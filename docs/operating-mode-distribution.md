@@ -5,11 +5,21 @@ the snapshot corpus. This specifies both, because they write the same table and
 the only way to check either against that table is to know which rows belong to
 the other.
 
-`docs/omd-generator-reachability.md` is the measurement that chose them; it also
-records why `OperatingModeDistributionGenerator`,
-`LinkOperatingModeDistributionGenerator` and the two `MesoscaleLookup` ones are
-not here — no RunSpec in the corpus selects the project or mesoscale-lookup
-domain, and `OpModeDistribution` is empty in all 42 snapshots.
+`docs/omd-generator-reachability.md` is the measurement that chose them.
+`LinkOperatingModeDistributionGenerator` has since been reached — `scale-project`
+joined the corpus on 2026-09-10 — and has its own specification,
+`docs/link-operating-mode-distribution.md`. The remaining three
+(`OperatingModeDistributionGenerator` and the two `MesoscaleLookup` ones) are
+not here because canonical MOVES never instantiates them under
+`CompilationFlags.DO_RATES_FIRST`; that is a stronger claim than "no RunSpec
+selects the domain" and it is argued in the reachability note.
+
+**`scale-project` is why this document had to change, and the change is
+instructive.** It contributes rows to `RatesOpModeDistribution` from a
+generator this specification does not model, and it takes a branch of step 400
+this specification did not know existed. Both are recorded below (§6.5's
+partition comment, §7.1, §8.3); both went red in `./run-omd-oracle.sh` the day
+the snapshot landed, which is what the oracle is for.
 
 ---
 
@@ -38,9 +48,9 @@ for the coverage tool's fixture leg (`docs/esm-conventions.md` §35.1).
 ### 0.1 Which runs they fire on, and how that was established
 
 Both halves of a generator's claim are checked (§35.2): the rows, and *which
-runs produce rows at all*. The predicates, asserted on all 42 snapshots
-carrying an execution database — 42 as this is written, and the corpus grows —
-including the 33 and 37 that fail them:
+runs produce rows at all*. The predicates, asserted on all 43 snapshots
+carrying an execution database — 43 as this is written, and the corpus grows —
+including the 33 and 38 that fail them:
 
 > `StartOpModeDistribution` populated ⇔ ONROAD **and** the run selects **Start
 > Exhaust (2)**
@@ -51,7 +61,7 @@ including the 33 and 37 that fail them:
 
 **The source type in the second predicate is not decoration, and leaving it out
 is the mistake this rung nearly made.** `RatesOperatingModeDistributionGenerator`
-subscribes to processes 1, 90 and 91 and is class-loaded in **30** of the 42
+subscribes to processes 1, 90 and 91 and is class-loaded in **31** of the 43
 snapshots, but all four of its live `INSERT` statements are pinned to source
 type 62 — through `sourceTypePolProcess` for the first of each pair and through
 `runSpecSourceType` for the second. Six snapshots select Extended Idle for
@@ -209,7 +219,7 @@ Running-Exhaust branch of `calculateOpModeFractions` in favour of
 subscription, step 200 and step 210.
 
 The corpus corroborates it rather than taking the flags' word: Running Exhaust
-is selected in 31 of the 42 snapshots and **not one row** of any snapshot's
+is selected in 32 of the 43 snapshots and **not one row** of any snapshot's
 `RatesOpModeDistribution` is attributable to this module on process 1.
 
 ## 5. The fact about `StartOperatingModeDistributionGenerator` most likely to be missed
@@ -441,11 +451,13 @@ def start_op_mode_distribution(root, snap, classified):
         counts[(st, hd, om)] = counts.get((st, hd, om), 0) + 1
     return starts, counts
 
-def rates_op_mode_distribution(root, snap, onroad, processes):
+def rates_op_mode_distribution(root, snap, onroad, processes, project=False):
     """RatesOMDG steps 200 and 210 plus StartOMDG step 400, under INSERT IGNORE.
 
     Returns {primary key -> opModeFraction}. The primary key is
     (sourceTypeID, roadTypeID, avgSpeedBinID, hourDayID, polProcessID, opModeID).
+
+    `project` selects step 400's PROJECT branch; see the comment on it below.
     """
     if not onroad:
         return {}
@@ -488,17 +500,53 @@ def rates_op_mode_distribution(root, snap, onroad, processes):
                             emit(62, hd, pp, om, 1.0)
 
     # ---- StartOperatingModeDistributionGenerator step 400, when 2 is selected
+    #
+    # Step 400 HAS TWO BRANCHES and they read different tables
+    # (StartOperatingModeDistributionGenerator.java:381-431). The condition is
+    # the model domain, spelled `@condition Project domain` in the Java's own
+    # annotation:
+    #
+    #   PROJECT      insert from OpModeDistribution, joined through
+    #                sourceTypePolProcess and opModePolProcAssoc
+    #   non-PROJECT  insert from startsOpModeDistribution, cross joined to
+    #                pollutantProcessAssoc where processID in (2,16)
+    #
+    # The All-Starts row (602 / 100, from runSpecHourDay x runSpecSourceType)
+    # is written AFTER the branch, on both paths.
+    #
+    # Every snapshot was non-PROJECT until `scale-project`, so only the second
+    # branch was modelled and nothing could see the omission. On scale-project
+    # the unbranched code predicted eight (21, 1, 0, 95, 9102, 101..108) rows
+    # canonical never wrote: MOVES took the PROJECT branch, whose join needs
+    # `omppa.opModeID = somd.opModeID`, and OpModeDistribution there holds only
+    # project VSP modes 1000-1040, which no START polProcess has in
+    # opModePolProcAssoc. The branch yields nothing, correctly.
     if 2 in processes:
         start_polprocs = sorted({p["polProcessID"] for p in ppa if p["processID"] in (2, 16)})
-        seen = set()
-        for r in starts_omd:                      # `select distinct ... cross join`
-            k = (r["sourceTypeID"], hour_day_id(r["hourID"], r["dayID"]),
-                 r["opModeID"], float(r["opModeFraction"]))
-            if k in seen:
-                continue
-            seen.add(k)
-            for pp in start_polprocs:
-                emit(k[0], k[1], pp, k[2], k[3])
+        if project:
+            omd = tab(root, snap, "opmodedistribution",
+                      ["sourceTypeID", "hourDayID", "opModeID", "opModeFraction"]) or []
+            pp_of_st = {}
+            for r in stpp:
+                pp_of_st.setdefault(r["sourceTypeID"], []).append(r["polProcessID"])
+            for r in omd:
+                for pp in pp_of_st.get(r["sourceTypeID"], []):
+                    if pp not in start_polprocs:
+                        continue
+                    if r["opModeID"] not in modes_of.get(pp, []):
+                        continue
+                    emit(r["sourceTypeID"], r["hourDayID"], pp,
+                         r["opModeID"], float(r["opModeFraction"]))
+        else:
+            seen = set()
+            for r in starts_omd:                  # `select distinct ... cross join`
+                k = (r["sourceTypeID"], hour_day_id(r["hourID"], r["dayID"]),
+                     r["opModeID"], float(r["opModeFraction"]))
+                if k in seen:
+                    continue
+                seen.add(k)
+                for pp in start_polprocs:
+                    emit(k[0], k[1], pp, k[2], k[3])
         for hd in hours:                          # the All Starts row, 602 / 100
             for st in src_types:
                 emit(st, hd, 602, 100, 1.0)
@@ -511,17 +559,22 @@ def rates_op_mode_distribution(root, snap, onroad, processes):
 # --- the sweep ---------------------------------------------------------------
 
 def run_scope(root, fixtures, snap):
-    """(is ONROAD, the processIDs the RunSpec selects) for one snapshot.
+    """(is ONROAD, the processIDs the RunSpec selects, is PROJECT) for one snapshot.
 
     The model comes from the RunSpec's `<model>` element, which is what MOVES
     reads; a RunSpec with no such element is ONROAD, which MOVES's own default
     is and which `sample-runspec` relies on. The processes come from
     `RunSpecPollutantProcess`, whose polProcessID is pollutantID*100 + processID.
+
+    The DOMAIN comes from `<modeldomain>`, absent meaning DEFAULT. It selects
+    step 400's branch, which reads a different table on each side.
     """
     xml = os.path.join(fixtures, snap + ".xml")
-    models = set(re.findall(r'<model value="(\w+)"', open(xml).read())) if os.path.exists(xml) else set()
+    text = open(xml).read() if os.path.exists(xml) else ""
+    models = set(re.findall(r'<model value="(\w+)"', text))
+    domain = (re.findall(r'<modeldomain value="(\w+)"', text) or ["DEFAULT"])[0]
     procs = {r["polProcessID"] % 100 for r in (tab(root, snap, "runspecpollutantprocess") or [])}
-    return models != {"NONROAD"}, procs
+    return models != {"NONROAD"}, procs, domain == "PROJECT"
 
 def main(root):
     fixtures = os.path.join(os.path.dirname(root.rstrip("/")), "fixtures")
@@ -540,7 +593,7 @@ def main(root):
         reference_rates = tab(root, snap, "ratesopmodedistribution")
         if reference_rates is None:
             continue                     # not an execution database this port models
-        onroad, procs = run_scope(root, fixtures, snap)
+        onroad, procs, project = run_scope(root, fixtures, snap)
 
         # --- StartOMDG steps 100-300, where the run selected Start Exhaust ----
         reference_som = tab(root, snap, "startopmode")
@@ -579,12 +632,25 @@ def main(root):
                 somdg_bad += 1
 
         # --- the RatesOpModeDistribution rows these two generators own --------
-        # avgSpeedBinID partitions the table: both of these generators write 0,
-        # AverageSpeedOperatingModeDistributionGenerator writes bins 1-16.
+        # FOUR generators write this table and the partition key is the PAIR
+        # (roadTypeID, avgSpeedBinID), not avgSpeedBinID alone:
+        #   RatesOMDG           roadTypeID 1, bin 0   (`1 as roadTypeID`)
+        #   StartOMDG step 400  roadTypeID 1, bin 0   (`1 as roadTypeID`)
+        #   AverageSpeedOMDG    bins 1-16
+        #   LinkOMDG            the LINK's own roadTypeID, bin 0
+        # `avgSpeedBinID == 0` alone was sufficient until a PROJECT snapshot
+        # existed. `scale-project` has 22 rows here: one is StartOMDG's
+        # All-Starts row at roadTypeID 1, and twenty-one are LinkOMDG copying
+        # its freshly-computed OpModeDistribution across at the project link's
+        # roadTypeID 4 with avgBinSpeed = linkAvgSpeed
+        # (LinkOperatingModeDistributionGenerator.java:448-458). Without the
+        # roadTypeID term those 21 read as 21 rows this specification failed to
+        # predict, which is a different generator's output counted against it.
         reference = {(r["sourceTypeID"], r["roadTypeID"], r["avgSpeedBinID"], r["hourDayID"],
                       r["polProcessID"], r["opModeID"]): float(r["opModeFraction"])
-                     for r in reference_rates if r["avgSpeedBinID"] == 0}
-        predicted = rates_op_mode_distribution(root, snap, onroad, procs)
+                     for r in reference_rates
+                     if r["avgSpeedBinID"] == 0 and r["roadTypeID"] == 1}
+        predicted = rates_op_mode_distribution(root, snap, onroad, procs, project)
         rates_missing += len(set(reference) - set(predicted))
         rates_extra += len(set(predicted) - set(reference))
         for k, v in reference.items():
@@ -668,11 +734,11 @@ def main(root):
     if rates_missing or rates_extra:
         bad.append("RatesOpModeDistribution key set: %d missing, %d extra"
                    % (rates_missing, rates_extra))
-    if rates_rows < 168:             bad.append("RatesOpModeDistribution rows %d < 168" % rates_rows)
+    if rates_rows < 169:             bad.append("RatesOpModeDistribution rows %d < 169" % rates_rows)
     if rates_worst >= 2e-5:          bad.append("worst relative error %.4g >= 2e-5" % rates_worst)
     if sched_bad:                    bad.append("%d snapshots disagree with the "
                                                 "scheduling predicate" % sched_bad)
-    if sched_checked < 42:           bad.append("only %d snapshots swept, expected >= 42"
+    if sched_checked < 43:           bad.append("only %d snapshots swept, expected >= 43"
                                                 % sched_checked)
     if bad:
         for b in bad:
@@ -707,18 +773,18 @@ temporary table — and everything downstream of them faces the reference.
 
 ### 7.1 The measured result
 
-`./run-omd-oracle.sh`, over all 42 snapshots carrying an execution database:
+`./run-omd-oracle.sh`, over all 43 snapshots carrying an execution database:
 
 | | |
 |---|---|
 | `StartOpMode` (steps 100 + 200) | **201,665** rows, 0 missing / 0 extra |
 | `StartOpModeDistribution` (step 300) | **84** rows, key set 0 missing / 0 extra |
 | `SOMDGOpModes` | 0 snapshots disagreeing on the distinct set |
-| `RatesOpModeDistribution` (step 400, R-1, R-2) | **168** rows, 0 missing / 0 extra |
+| `RatesOpModeDistribution` (step 400, R-1, R-2) | **169** rows, 0 missing / 0 extra |
 | worst relative error | **4.026 × 10⁻⁶** |
 | four-decimal quotient | bit-exact on **84 of 84** |
 | exact IEEE ratio | bit-exact on **7 of 84**, worst relative **5.767 × 10⁻³** |
-| scheduling predicate | **42** snapshots, **0** disagreeing |
+| scheduling predicate | **43** snapshots, **0** disagreeing |
 
 All four row counts came DOWN at the `<day key=> -> <day id=>` correction
 (moves.rs PR #55), which is the only legitimate way a floor over this corpus
@@ -775,14 +841,39 @@ and this is a fact about MOVES.
 
 ## 8. Gaps and things not verified
 
-### 8.1 Five generators of the family are not reachable
+### 8.1 Four generators of the family are not reachable, and never will be
 
-`OperatingModeDistributionGenerator`, `LinkOperatingModeDistributionGenerator`,
+`OperatingModeDistributionGenerator`,
 `MesoscaleLookupOperatingModeDistributionGenerator`,
 `MesoscaleLookupTotalActivityGenerator` and `NewTvvYearGenerator` are
-class-loaded in **0** of the 42 snapshots and `OpModeDistribution` is empty in
-all 42. Reaching any of them needs a project-scale or mesoscale-lookup RunSpec
-captured in `moves.rs`. `docs/omd-generator-reachability.md` has the evidence.
+class-loaded in **0** of the 43 snapshots.
+
+This used to read "five", with `LinkOperatingModeDistributionGenerator` among
+them and "needs a project-scale RunSpec captured in `moves.rs`" as the reason
+for all of them. The project-scale RunSpec was captured and exactly one of the
+five moved. The other four do not need a capture: three are discarded by
+`MOVESInstantiator.java:1449` under `DO_RATES_FIRST` and the fourth is not a
+Java class at all. `docs/omd-generator-reachability.md` has the evidence.
+
+### 8.3 Step 400's PROJECT arm is branched on but its INSERT emits nothing
+
+Step 400 has two arms and the model domain chooses between them
+(`StartOperatingModeDistributionGenerator.java:381-431`). §6.5 now takes the
+PROJECT arm on a PROJECT RunSpec, and that change is load-bearing: forcing the
+non-PROJECT arm on `scale-project` predicts eight
+`(21, 1, 0, 95, 9102, 101..108)` rows canonical never wrote, and the oracle
+goes red with `0 missing, 8 extra`.
+
+**What is NOT established is the arm's own arithmetic.** On the one PROJECT
+snapshot in the corpus it iterates 122 `OpModeDistribution` rows and emits
+**zero**, because its `omppa.opModeID = somd.opModeID` join has no match: the
+project link's operating modes are the VSP bins 1000–1040 and the only start
+polProcess in scope is 9102, which `opModePolProcAssoc` never pairs with them.
+So the corpus decides the branch CONDITION and not the branch BODY. The join is
+still doing work and can still fail — deleting it emits 21 rows and the oracle
+reports `0 missing, 21 extra` — but a snapshot in which the arm produces a row
+does not exist, and until one does the emitted values are ported from the SQL
+and unverified.
 
 ### 8.2 The inventory branch of step 400 is ported from the SQL and not checked
 

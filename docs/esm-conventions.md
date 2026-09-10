@@ -4464,6 +4464,185 @@ parameter. Every fixture pins its inputs one stage in, because that is where
 the arithmetic starts. A document whose subject is an input is the only kind
 that meets the wall.
 
+## 44. One output table, several generators: a table-keyed count is not a generator-keyed one **[Phase 5 last rung, three generators sharing a table, four sharing another]**
+
+§35.2 says a generator's claim has two halves — the rows, and *which runs
+produce rows*. Both halves are usually measured by looking at the generator's
+output table, and for a generator that owns its table that is right.
+
+**Three of MOVES's five operating-mode generators write `OpModeDistribution`.
+Four write `RatesOpModeDistribution`.** A count keyed on the table therefore
+reports the same number for every generator that writes it, and that stayed
+invisible for exactly as long as the table was empty.
+
+`scale-project` joined the corpus and
+`LinkOperatingModeDistributionGenerator` wrote 122 rows into
+`OpModeDistribution`. Two things went red the same day and both were the
+same mistake seen from different sides:
+
+* `tools/check-reachability-counts.py` derived
+  `docs/omd-generator-reachability.md`'s "snapshots with rows" column from
+  the table name, so it demanded the document claim output from
+  `OperatingModeDistributionGenerator` and
+  `MesoscaleLookupOperatingModeDistributionGenerator` — two generators no
+  snapshot has ever class-loaded.
+* `./run-omd-oracle.sh` partitioned `RatesOpModeDistribution` on
+  `avgSpeedBinID == 0`, with a comment saying that separates its two
+  generators from `AverageSpeedOperatingModeDistributionGenerator`'s bins
+  1-16. It does. It does not separate them from
+  `LinkOperatingModeDistributionGenerator`, which also writes bin 0, and its
+  21 rows were counted against the sibling specification as rows it had
+  failed to predict.
+
+### 44.1 The reachability count is an INTERSECTION, and it is necessary, not sufficient
+
+The fix for the first is one line: "snapshots with rows" means
+**class-loaded here AND the table non-empty here**, not the size of the second
+set. That distinguishes the three — `Link…` 1, the other two 0 — and it is
+also what the `reachable?` verdict beside it always meant.
+
+Say what it does not buy. An intersection does not attribute a ROW to a
+generator: a generator loaded alongside a sibling's non-empty output still
+counts. It buys exactly one thing, which is the thing that broke — a generator
+nothing loaded can no longer be credited with a sibling's rows.
+
+### 44.2 Attribution needs the table's own partition key, and it must be NAMED
+
+The second fix is not generic and cannot be. `RatesOpModeDistribution`'s
+partition key is the PAIR `(roadTypeID, avgSpeedBinID)`:
+
+| generator | roadTypeID | avgSpeedBinID |
+|---|---|---|
+| `RatesOperatingModeDistributionGenerator` | literal 1 | 0 |
+| `StartOperatingModeDistributionGenerator` step 400 | literal 1 | 0 |
+| `AverageSpeedOperatingModeDistributionGenerator` | — | 1-16 |
+| `LinkOperatingModeDistributionGenerator` | **the link's own** | 0 |
+
+The first two are not separated by it at all, and do not need to be: they are
+specified together, in one document, for that reason. What matters is that the
+key is written down in the reproduction beside the filter, with the Java line
+that sets each column, so that the next generator to write the table is
+noticed rather than absorbed.
+
+**A shared output table is not a defect and should not be normalized away.**
+MOVES writes one table because one table is what the downstream calculator
+reads. What has to change is the counting.
+
+### 44.3 The measurement that says a partition is still complete
+
+`avgSpeedBinID == 0` was sufficient for two years of this corpus and became
+insufficient without any code changing. The thing that made it insufficient
+was a capture. So the guard is not a code review, it is the oracle's own key
+set: `0 missing / 0 extra` over every snapshot, asserted exactly rather than
+within a tolerance, fails the moment a new writer appears — which is what it
+did, with `21 missing`, on the day `scale-project` landed.
+
+## 45. "No fixture exercises it" and "the model never runs it" are different claims **[Phase 5 last rung, one of five moved]**
+
+§35.5 and §39.3 both concern what a corpus can and cannot see. This is the
+case where the corpus cannot tell two situations apart at all, and where
+saying which one it is turned out to matter more than any number.
+
+`docs/omd-generator-reachability.md` recorded five generators as unreachable
+and gave **one reason for all five**: no RunSpec in the corpus selects the
+project or mesoscale-lookup domain. Every one of the five had
+`class-loaded in 0 / 42`, so the corpus gave no evidence that would separate
+them.
+
+`moves.rs` captured a project-domain RunSpec. **Exactly one of the five
+moved.** The other four were never a capture problem:
+
+* three are discarded by `MOVESInstantiator.java:1449`, which clears
+  `neededClassNames` under `CompilationFlags.DO_RATES_FIRST` and re-adds a
+  whitelist containing none of them. No RunSpec, in any domain, at any scale,
+  instantiates them while that flag is `true`;
+* the fourth is not a class. `NewTvvYearGenerator` is a named SQL section of
+  `MultidayTankVaporVentingCalculator.sql`.
+
+### 45.1 A zero has a reason, and the reason is not in the corpus
+
+"0 of 42 snapshots" is a measurement. "…because no RunSpec selects that
+domain" is an inference, and the corpus contains nothing that supports it over
+"…because MOVES never instantiates it". The two look identical from the
+snapshots and differ completely in what to do next: the first is a capture
+away, the second is unreachable for as long as the pinned source stands.
+
+So when a document records a zero, it must say which, and cite something
+outside the corpus for it — the instantiator's control flow, the absence of a
+class, the RunSpec element nothing sets. A reason drawn from the corpus alone
+is the reason the corpus cannot have.
+
+### 45.2 The cost of getting it wrong is a capture, and it was paid
+
+This is not a stylistic point. Reaching `LinkOperatingModeDistributionGenerator`
+took a new input database, a fixture correction, a capture and a 360-table
+snapshot in `moves.rs`. Had the note been right about the other four, the same
+work would have been proposed for each of them and none of it could have
+succeeded. The single sentence "no RunSpec selects that domain", applied to
+five modules on the strength of one shared zero, was a plan for four captures
+that cannot exist.
+
+### 45.3 Prove the negative where it can be proved, and prefer the oracle
+
+Three of the four need a reading of Java and stay prose, cited to line
+numbers. The fourth does not: `docs/new-tvv-year.md` rebuilds all three
+tables the SQL section produces from an existing snapshot, 1,750 cells
+bit-exact, and asserts **three negatives** alongside — no class named
+`NewTvvYear*` is loaded anywhere in the corpus, every snapshot that has the
+tables loads `TankVaporVentingCalculator` instead, and the DAG entry still
+carries `java_path: ""` with zero registrations.
+
+The negatives are the point. A document asserting only the table contents
+would go on passing after someone found the class. These fail, and the day
+they fail the document should be deleted rather than repaired.
+
+## 46. A quotient's decimal scale is a property of the EXPRESSION, not of the table **[Phase 5 last rung, 80 cells at five places, 124 at four]**
+
+§39.2 settled that MariaDB's exact-value division gives a DECIMAL whose scale
+is the dividend's plus `div_precision_increment`, and measured
+`COUNT(opModeID)/starts` at four places over 124 cells. The natural
+generalization — the one this rung nearly made — is that MOVES's operating-mode
+fractions are four-decimal DECIMALs.
+
+They are not. `LinkOperatingModeDistributionGenerator` writes
+
+```sql
+(secondCount * 1.0 / secondTotal) as opModeFraction
+```
+
+into the same family of tables, and `* 1.0` makes the dividend a DECIMAL of
+scale **1**, so the quotient has 1 + 4 = **five** places. Measured over the
+80 bracketing cells the corpus carries:
+
+| quotient | bit-exact cells |
+|---|---:|
+| DECIMAL to 5 places | **80 of 80** |
+| DECIMAL to 4 places | 4 of 80 |
+
+Two sibling generators, one `* 1.0` apart, one digit apart.
+
+### 46.1 Parameterise the scale; do not copy the rounding
+
+`lib/operating_mode.esm`'s `decimal_quotient` now takes `scale` as a
+parameter, and `op_mode_fraction` and `link_op_mode_fraction` bind 10⁴ and
+10⁵ to it. That is one rule with two bindings rather than two templates that
+happen to round the same way — and it is the same argument that file already
+makes for *not* reusing `lib/population.esm`'s `pop_file_rounding`, which
+rounds identically for an unrelated reason.
+
+The discriminator is worth keeping in the reproduction rather than only in
+prose: the wrong scale must MISS, measurably, or the assertion is decoration.
+118 of the LinkOMD oracle's 122 cells go red at four decimals.
+
+### 46.2 Read the operand types, including the ones a literal introduces
+
+The general form of both §39.2 and this section is: **the scale comes from
+the operands, and a literal is an operand.** `COUNT(x)` is a `BIGINT` of scale
+0. `x * 1.0` is a DECIMAL of scale 1. Neither is visible in the column
+definition, in the table, or in the value — only in the expression that wrote
+it. A port reading the schema, or the stored numbers, or the sibling
+generator, gets it wrong in three different ways.
+
 ## 47. Writing down the date a figure was true is not a mechanism **[58 claims, 20 of them stale]**
 
 §35.5's corollary asked prose that states a corpus-wide count to write down the
