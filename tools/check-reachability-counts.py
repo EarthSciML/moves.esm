@@ -195,6 +195,11 @@ PAIR_RE = re.compile(r"`([\w-]+)`\s*\|\s*(\d[\d,]*)\s*\|")
 INTRO_RE = re.compile(r"`(\w+)` is non-empty in (\d+)")
 
 
+# Per-kind java_classes counts drift by a class or two between faithful
+# captures; see the note at their check below.
+LAZY_CLASS_SLACK = 5
+
+
 def parse_int(s: str) -> int:
     return int(s.replace(",", ""))
 
@@ -251,8 +256,24 @@ def main() -> int:
         problems.append("the `java_classes[*].kind` histogram is gone from the document")
     else:
         claim("kinds named in the histogram", sorted(stated_kinds), sorted(kinds))
+        # The SET of kinds is the document's actual claim ("takes exactly five
+        # values") and is pinned exactly above. The per-kind COUNTS are not
+        # reproducible and must not be: canonical MOVES loads some classes
+        # lazily, so re-capturing one fixture with no change to its inputs
+        # moves a count by one. Measured during the zoneRoadType recapture —
+        # three captures of process-crankcase-start-single gave 136 / 136 /
+        # 137 classes, the extra being HeartbeatDetectionThread$ObservedFileStamp
+        # (characterization/snapshots/README.md, determinism-limits source 4).
+        #
+        # An exact pin here is therefore a tripwire that fires on a faithful
+        # recapture, which trains people to edit the number rather than read
+        # it. A tolerance keeps the claim honest AND useful: adding
+        # scale-project to the corpus moved these counts by ~70, far outside
+        # this band, so real corpus drift is still caught.
         for kind in sorted(set(stated_kinds) & set(kinds)):
-            claim(f"java_classes kind {kind!r}", stated_kinds[kind], kinds[kind])
+            stated, actual = stated_kinds[kind], kinds[kind]
+            if abs(stated - actual) > LAZY_CLASS_SLACK:
+                claim(f"java_classes kind {kind!r}", stated, actual)
 
     # 3. the reachability table
     seen_generators = 0
