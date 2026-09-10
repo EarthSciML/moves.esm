@@ -4962,7 +4962,8 @@ key-by-key to the inlined fixture's; only the six
 `expression_template_imports` paths and the 49 `url_template`s differ, by one
 `../` each, because the two documents live one directory deeper. Emitted with
 the fixture stage's own field list, the relation is **byte-identical** — 375
-rows × 27 columns, same md5 — so this is a regression test with an exact
+rows over 26 emitted `out_*` fields (27 CSV columns with the leading
+ordinal), same md5 — so this is a regression test with an exact
 oracle, not a demonstration. `run-tests.sh`'s 7c stage compares it against the
 fixture stage's own output in the same run, so there is no recorded CSV to
 drift.

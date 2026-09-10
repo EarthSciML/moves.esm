@@ -911,8 +911,8 @@ fi
 # WHAT MAKES IT A REGRESSION TEST AND NOT A DEMONSTRATION. The logic half is
 # `fixtures/process-tirewear.esm`'s own text, so the assembly has an exact
 # expected result: the inlined fixture's relation, emitted by the stage above
-# in this same run. The two are compared byte for byte -- 375 rows over 27
-# columns -- so a mount that quietly changed a number could not pass. The
+# in this same run. The two are compared byte for byte -- 375 rows over 26
+# emitted fields -- so a mount that quietly changed a number could not pass. The
 # comparison is against the fixture stage's own output rather than against a
 # recorded CSV on purpose: there is no third file to update when the port
 # improves, and the pair cannot drift apart silently.
