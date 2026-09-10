@@ -14,7 +14,7 @@ bottom now. Nothing else changed state: the other nine repro-carrying findings
 — ten files, F22 having two — still fail exactly as recorded, no spec, fixture
 or oracle regressed, and no tolerance moved.
 
-F3, F5, F13, F14, F20, F21, F22, F28 and F41 each have a minimal `.esm` repro in
+F3, F5, F13, F14, F20, F21, F22, F28, F41 and F43 each have a minimal `.esm` repro in
 this directory — F22 has two, one per construct; F8 is a CLI behaviour rather than a
 document, and is checked by command against the ordinary files of the repo.
 **F17, F31, F33 and F42 deliberately have no repro file**: a repro
@@ -2232,4 +2232,70 @@ cache miss instead of a silent substitution. Until then:
 rm -rf $TMPDIR/earthsci-esm-cache        # after any change to ../moves.rs
 python3 tools/check-source-cache.py      # or let stage 2b refuse the run
 ```
+
+## F43 — an ingested parameter is not an assertable variable
+
+**Not fixed. Repro: `F43_an_ingested_parameter_is_not_assertable.esm`.**
+
+An inline assertion naming a variable whose `update` is `kind: data` cannot be
+evaluated. The document loads, `esm validate` passes, the source is read
+correctly — and the assertion errors at run time:
+
+```
+assertion evaluation failed: array state 'd_noOfRealDays' has no cells in var_map
+```
+
+Not a wrong value. No value at all, and the same shape of message a typo in the
+variable name would produce.
+
+### What makes it attributable
+
+The repro is two assertions over **one column**. `dayofanyweek.noOfRealDays` is
+ingested into `d_noOfRealDays`; `d_weekdayRealDays` and `d_totalRealDays` are
+the same two cells lifted onto scalars by one-line aggregates. The lifted pair
+**passes**, at 5 and 7, so the parquet was read, both rows are present and the
+values are right. The pair that names the ingested variable errors. Nothing
+separates them but which variable the assertion names.
+
+Measured on the pinned toolchain over seven columns from seven tables of the
+`expand-day` snapshot — `runspecday.dayID`, `dayofanyweek.dayID`,
+`dayofanyweek.noOfRealDays`, `monthofanyyear.noOfDays`,
+`hourvmtfraction.hourVMTFraction`, `dayvmtfraction.dayVMTFraction`,
+`avgspeedbin.avgBinSpeed` — **seven of seven error**, and none fails as a wrong
+value. It is a property of the update kind, not of a table or a column type.
+
+### What it costs
+
+`docs/esm-conventions.md` §12 asks a fixture to pin the values it depends on,
+and the values a fixture depends on most are the ones it does **not** compute:
+a run-scope id, a lookup coefficient, a divisor. Those are exactly the
+`kind: data` parameters. So the rule in practice is that **a claim about an
+INPUT can only be stated one stage downstream of where the input arrives**, and
+the document has to carry an equation whose only purpose is to make the claim
+sayable.
+
+`fixtures/expand-day.esm` met it on six assertions, and they were not
+incidental ones: `rsd_dayID`, `dow_dayID` and `dow_noOfRealDays` are the three
+columns that carry the day axis into the chain, and that fixture exists to
+exercise the day axis (`docs/esm-conventions.md` §42.5). It pins
+`outNoOfRealDays` instead — the same number where it is *used* rather than
+where it is read — which is the stronger claim in that instance and is not
+going to be in every instance: a divisor that arrives wrong and a divisor that
+is never applied are different defects, and only the second one is now
+distinguishable.
+
+### Why it went unnoticed for fourteen fixtures
+
+Nothing in this repository had ever tried. Grepped across `fixtures/`: of the
+2,454 assertions before this one landed, **zero** name a `kind: data` variable.
+Every fixture pins its inputs one stage in, because that is where the
+interesting arithmetic starts, and the wall is only met by a document whose
+subject is an input.
+
+### What would fix it
+
+Materialize a data-backed parameter's cells into the assertion's variable map,
+the way a computed array's are. Until then the workaround is one equation per
+claim, and it is silent when omitted: an unasserted input reads exactly like an
+input nobody needed to assert.
 
