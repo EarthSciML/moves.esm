@@ -1,0 +1,47 @@
+{
+  "esm": "1.0.0",
+  "metadata": {
+    "name": "moves.finding.F44",
+    "description": "F44 REPRO — the EarthSciAST unit registry has no mile, so the unit MOVES's entire onroad activity model is expressed in cannot be declared.\n\nTHIS DOCUMENT IS EXPECTED TO FAIL `esm validate`. It is a repro, not model logic. `run-tests.sh` stage 6 runs docs/findings/ with the opposite polarity to the rest of the suite: if this one goes GREEN, the mile has entered the registry upstream and the workarounds it forced -- eight `units: \"1\"` declarations in components/link_operating_mode_distribution.esm, each with a paragraph of apology -- are dead weight and should be removed.\n\nWHAT IS REFUSED. `esm validate` reports\n\n    ✗ /models/F44/variables/link_avg_speed: Unit string 'mi/h' is not a recognised unit\n\nand the same for `mi`. Measured against the pinned toolchain (esm 0.2.0, EarthSciAST 3aa046d6568bc27e555e03c9e3d4408f791557ae), one unit string at a time in an otherwise identical one-variable document:\n\n    OK   m       OK   km      OK   ft      OK   km/h     OK   m/s\n    OK   kW      OK   tonne   OK   kW/tonne            OK   m/s^2\n    BAD  mi      BAD  mile    BAD  miles   BAD  mi/h     BAD  mph\n    BAD  mi h-1  BAD  mi/s    BAD  mi/yr   BAD  in       BAD  yd\n\nSo this is not a syntax question about how to spell a compound unit -- `km/h` and `m/s^2` are accepted in exactly the same position -- and it is not a general gap in imperial length either, because `ft` is there. It is the mile specifically, and the yard and inch with it.\n\nWHY IT MATTERS HERE RATHER THAN BEING A CURIOSITY. The mile is the unit of MOVES's onroad activity model, not an incidental appearance:\n\n  * `link.linkAvgSpeed` and `driveSchedule.averageSpeed` are miles per hour, and they are the inputs `LinkOperatingModeDistributionGenerator` brackets and interpolates on;\n  * `driveScheduleSecond.speed` is miles per hour, and the 0.44704 that converts it to metres per second appears three times in one SQL statement;\n  * `link.linkLength` is miles; VMT is vehicle-MILES travelled and is the spine of `TotalActivityGenerator`; `SourceTypeYearVMT`, `HPMSVtypeYear`, `MonthVMTFraction` and six more tables are keyed on it;\n  * every RunSpec in the corpus writes `<distancefactors selected=\"true\" units=\"Miles\"/>`.\n\nA declared `mi/h` would make the 0.44704 in lib/drive_cycle.esm a conversion the declaration accounts for, which is the same argument F34 made for `inHg` and 3.38639 and which was accepted upstream as PR #238.\n\nWHAT THE WORKAROUND COSTS, MEASURED. Eight variables in components/link_operating_mode_distribution.esm carry `units: \"1\"` for a quantity in miles per hour. That is not merely untidy: `lomd_speedMs` IS declared, as `m/s`, and is computed from `lomd_speed` by multiplying by a dimensionless 0.44704. So the one conversion in the file that a units system could check is precisely the one it cannot, because the input side is undeclared. Declaring the input would catch a port that fed metres per second into the polynomial's speed slot -- which is a real mistake to make, since the polynomial takes BOTH and they differ by 2.24x.\n\nTHE ASSERTION BELOW IS ARITHMETICALLY TRUE and is not what fails. 30 mi/h is 13.4112 m/s exactly, by the 0.44704 the SQL uses. The document fails structurally, at validation, before any assertion runs -- which is the finding.\n\nRELATION TO F34, WHICH IS RETIRED. F34 was the same shape for `inHg` and was fixed by EarthSciAST `fa7ffb01e` (PR #238) adding that one unit. Its README entry records that only option (c) of its three landed -- one unit was added, and neither a general scale-factor syntax nor the inch. This finding is what 'neither the inch' looks like from the next document along: the registry grew by exactly the unit that was asked for, so the next quantity in an imperial unit hits the same wall. Filing the mile is worth doing; filing it INSTEAD of the general fix is how F34's own note says this repeats.",
+    "authors": ["EarthSciML Authors and Contributors"],
+    "tags": ["finding", "units", "registry", "moves", "onroad"]
+  },
+  "index_sets": {
+    "f44_rows": { "kind": "interval", "size": 1 }
+  },
+  "models": {
+    "F44": {
+      "variables": {
+        "link_avg_speed": {
+          "type": "unknown", "shape": ["f44_rows"], "units": "mi/h",
+          "description": "`link.linkAvgSpeed` for the scale-project fixture's one link. THIS DECLARATION IS WHAT IS REFUSED."
+        },
+        "link_length": {
+          "type": "unknown", "shape": ["f44_rows"], "units": "mi",
+          "description": "`link.linkLength`, one mile. Carried as a second instance so the refusal is attributable to the mile and not to the compound `mi/h`."
+        },
+        "link_speed_ms": {
+          "type": "unknown", "shape": ["f44_rows"], "units": "m/s",
+          "description": "The same speed in metres per second. `m/s` IS in the registry, which is the asymmetry: the output of the conversion can be declared and its input cannot."
+        }
+      },
+      "equations": [
+        { "lhs": "link_avg_speed", "rhs": { "op": "const", "args": [], "value": [30.0] } },
+        { "lhs": "link_length", "rhs": { "op": "const", "args": [], "value": [1.0] } },
+        { "_comment": "0.44704 (m*h)/(mi*s), the constant LinkOperatingModeDistributionGenerator.java:1010-1014 writes three times in one statement.",
+          "lhs": "link_speed_ms",
+          "rhs": { "op": "*", "args": ["link_avg_speed", 0.44704] } }
+      ],
+      "tests": [
+        {
+          "id": "thirty_miles_per_hour_is_13_4112_metres_per_second",
+          "description": "Arithmetically true, and NOT what fails. The document is refused at validation, before this runs. It is here so that a reader who sees this file go green knows the unit was added rather than the assertion weakened.",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "link_speed_ms", "time": 0.0, "expected": 13.4112, "coords": { "f44_rows": 1 }, "tolerance": { "rel": 1e-15 } }
+          ]
+        }
+      ]
+    }
+  }
+}
