@@ -1082,8 +1082,8 @@ lands and gives no sign of it. What is recorded is where it comes from:
 
 - **The denominator** is `../moves.rs/characterization/calculator-chains/calculator-dag.json`,
   built by `moves-calculator-info` from the pinned MOVES `CalculatorInfo.txt`
-  and a scan of 62 Java files. 65 modules, of which **35 are live** — 19
-  calculators and 16 generators.
+  and a scan of 62 Java files. 65 modules, of which **32 are live** — 19
+  calculators and 13 generators.
 
   The liveness rule differs by kind, because the evidence does. A calculator
   is live iff it registers at least one `(pollutant, process)` pair;
@@ -1101,9 +1101,30 @@ lands and gives no sign of it. What is recorded is where it comes from:
   by reason, so the exclusion is auditable rather than buried in a predicate.
 
   A generator registers nothing by nature, so for generators subscription and
-  being chained from something are the evidence. Modules of kind `Unknown` are
-  excluded: `MasterLoopTest` is a test harness and `ProjectTAG` is
-  project-scale tagging.
+  being chained from something are the evidence. Most modules of kind
+  `Unknown` are excluded — `MasterLoopTest` is a test harness and the eight
+  control strategies are RunSpec-driven rather than master-loop modules — but
+  **`ProjectTAG` is not one of them, and this section used to say it was.**
+  It read "`ProjectTAG` is project-scale tagging". **TAG is Total Activity
+  Generator**: `ProjectTAG.java` is the PROJECT-domain counterpart of
+  `TotalActivityGenerator`, computing SHO, SHP, Starts and extended-idle
+  activity from link volumes and `offNetworkLink` (`:388-476`); it is on
+  canonical MOVES's `DO_RATES_FIRST` whitelist (`MOVESInstantiator.java:1465`);
+  and `scale-project` class-loads it. Its `kind: "Unknown"` is an artifact of
+  the DAG builder classifying by class-name suffix. It is a live generator and
+  is now counted as one.
+
+  **Two further exclusions**, both of them modules MOVES does not run and
+  neither of which existed as a category before Phase 5's last rung. The three
+  generators `MOVESInstantiator.java:1449` discards under `DO_RATES_FIRST`
+  (`OperatingModeDistributionGenerator` and both `MesoscaleLookup` ones) are
+  out, because no RunSpec in any domain can instantiate them while that flag
+  is `true`. `NewTvvYearGenerator` is out because there is no such class: it
+  is a named SQL section of `MultidayTankVaporVentingCalculator.sql`, and the
+  tool detects it derivably as "empty `java_path`, zero registrations, chained
+  from nothing" rather than by name. `docs/omd-generator-reachability.md` and
+  `docs/new-tvv-year.md` are the evidence for both, and the second is an
+  oracle rather than a paragraph.
 - **The numerator** is the `| Calculator path |` row each specification in
   `docs/` already carries. The spec's own claim, in the spec, moving in the
   same commit as the work.
@@ -1207,10 +1228,10 @@ rather than on their names.
 
 ### Phase 5, continued — the operating-mode-distribution generators, and what the family measurement found
 
-**Two of seven generators in this family are reachable from the corpus, and the
-other five need a RunSpec that does not exist yet.** Measured by rolling
-`java_classes` across the 42 snapshots carrying an `execution-trace.json` and
-corroborating each load against the generator's own output table:
+**Two of seven generators in this family were reachable from the corpus when
+this rung was planned, and the reason given for the other five turned out to
+be wrong for four of them.** The table below is as it stood then, over the 42
+snapshots that carried an `execution-trace.json`:
 
 | generator | class-loaded in | emits rows in | reachable? |
 |---|---:|---:|---|
@@ -1222,13 +1243,18 @@ corroborating each load against the generator's own output table:
 | `MesoscaleLookupTotalActivityGenerator` | 0 / 42 | 0 | no |
 | `NewTvvYearGenerator` | 0 / 42 | 0 | no |
 
-`docs/omd-generator-reachability.md` is the measurement. The five unreachable
-ones are not a gap of the same kind as the five unexercised calculators above:
-those need a RunSpec that selects different pollutants, these need a RunSpec
-that selects a different **domain** — project scale or mesoscale lookup — which
-is a larger change to the capture. `NewTvvYearGenerator` is worse still: its
-`java_path` in `calculator-dag.json` is the empty string, so `CalculatorInfo.txt`
-names it and the source scan found no class to attach it to.
+The reason recorded for all five was "these need a RunSpec that selects a
+different **domain** — project scale or mesoscale lookup". `moves.rs` then
+captured `scale-project`, and **exactly one of the five moved**. The other
+four never will: three are discarded by `MOVESInstantiator.java:1449` under
+`DO_RATES_FIRST` and the fourth is not a class. Both are argued in
+`docs/omd-generator-reachability.md`, and the fourth is proved by
+`./run-new-tvv-year-oracle.sh` over a snapshot that has been in the corpus
+since Phase 0.
+
+That is the correction worth carrying forward: **"no RunSpec selects that
+domain" and "MOVES never instantiates it" look identical from the corpus and
+are not the same claim**, and only the first is fixable by capturing more.
 
 **The 30-versus-5 line in that table is the point.** `RatesOMDG` is loaded in
 30 snapshots and emits in five, because all four of its live statements are
@@ -1239,8 +1265,10 @@ five times too large. `docs/esm-conventions.md` §39.3 is the rule.
 **What landed.** `docs/operating-mode-distribution.md`, `run-omd-oracle.sh`,
 `lib/operating_mode.esm`, `components/start_operating_mode_distribution.esm`
 (27 assertions) and `components/rates_operating_mode_distribution.esm` (21).
-Coverage moves from 24 of 35 live modules to **26 of 35**; generators from 8 of
-16 to **10 of 16**.
+Coverage moved from 24 of 35 live modules to **26 of 35**; generators from 8
+of 16 to **10 of 16**. *(Those are the denominators as they stood at that
+rung. The last rung of Phase 5 changed them — see below — so re-run
+`tools/calculator-coverage.py` rather than reading either figure forward.)*
 
 **What it left for the next rung.** The specification's §5 records that
 `moves.rs`'s `StartOperatingModeDistributionGenerator` models step 400 as a

@@ -90,6 +90,19 @@ NONROAD_CALCULATORS = {
 # A `| Calculator path | ... |` table row, and the `| RunSpec | ... |` row that
 # says which snapshot the spec is about. Both are existing conventions in
 # docs/; this reads them, it does not invent a new place to record things.
+# A module whose class name ends in neither `Generator` nor `Calculator`, so
+# the DAG builder filed it as `Unknown`, but whose ROLE is a generator. See
+# `is_live`'s docstring: TAG is Total Activity Generator.
+GENERATORS_BY_ROLE = {"ProjectTAG"}
+
+# The three generators canonical MOVES discards under DO_RATES_FIRST.
+# `MOVESInstantiator.java:1449` and the whitelist at :1457-1491.
+RATES_FIRST_DISCARDED = {
+    "OperatingModeDistributionGenerator",
+    "MesoscaleLookupOperatingModeDistributionGenerator",
+    "MesoscaleLookupTotalActivityGenerator",
+}
+
 PATH_ROW = re.compile(r"^\|\s*Calculator path\s*\|(.+)\|\s*$", re.M)
 # Which snapshot the spec is about. The Phase 5 specs say it with a `RunSpec`
 # row naming the XML; the four older ones say it with a `snapshot` row naming
@@ -140,17 +153,68 @@ def is_live(mod, dag):
     depends on it -- so for generators subscription and being chained from
     something are the evidence.
 
-    Modules of kind `Unknown` are excluded: `MasterLoopTest` is a test harness
-    and `ProjectTAG` is project-scale tagging, and neither is model arithmetic
-    a fixture could reproduce.
+    `PROJECTTAG IS A GENERATOR AND THIS FUNCTION USED TO SAY IT WAS NOT.` The
+    docstring here read "`ProjectTAG` is project-scale tagging, and neither is
+    model arithmetic a fixture could reproduce". **TAG is Total Activity
+    Generator.** `ProjectTAG.java` is the PROJECT-domain counterpart of
+    `TotalActivityGenerator`: it computes SHO, SHP, Starts and extended-idle
+    activity from link volumes and `offNetworkLink` (`:388-476`), it is on
+    canonical MOVES's `DO_RATES_FIRST` whitelist
+    (`MOVESInstantiator.java:1465`), `moves.rs` ports it as a generator, and
+    `scale-project` class-loads it. It is model arithmetic and a fixture CAN
+    reproduce it. Its `kind: "Unknown"` is an artifact of the DAG builder
+    classifying by class-name suffix -- `ProjectTAG` ends in neither
+    `Generator` nor `Calculator` -- and not a statement about the module.
+    So it is named here as a generator by role. `MasterLoopTest` really is a
+    test harness and the other eight `Unknown`s are control strategies, which
+    are RunSpec-driven and not master-loop modules.
+
+    TWO FURTHER EXCLUSIONS, both of them things MOVES does not run:
+
+    A PHANTOM is a DAG entry with no Java class behind it: empty `java_path`,
+    zero registrations, and named in nobody's `chained_downstream`. Exactly
+    one module answers that description -- `NewTvvYearGenerator`, which is a
+    named SQL section of `MultidayTankVaporVentingCalculator.sql` (335-432)
+    and not a class at all; `docs/new-tvv-year.md` proves it against the
+    corpus. The test is derived rather than a by-name list, and it is three
+    conditions rather than one because `CrankcaseEmissionCalculatorNonPM` also
+    has an empty `java_path` and is entirely real (180 registrations).
+
+    RATES-FIRST DISCARDS are the three generators
+    `MOVESInstantiator.generateExecutionGraph` throws away. Under
+    `CompilationFlags.DO_RATES_FIRST`, which is `true` in the pinned source,
+    `:1449` clears `neededClassNames`, `:1450-1456` re-adds three classes and
+    `:1457-1491` intersects a whitelist containing neither
+    `OperatingModeDistributionGenerator` nor either `MesoscaleLookup` one. The
+    swap that would restore `MesoscaleLookupTotalActivityGenerator` is
+    commented out; the one that would restore
+    `MesoscaleLookupOperatingModeDistributionGenerator` runs BEFORE the clear;
+    and `alsoInstantiate` -- the late escape hatch -- has zero call sites.
+    They are named rather than derived because the evidence is a control-flow
+    reading of Java the DAG does not encode, and `docs/omd-generator-reachability.md`
+    is where that reading is written down. This is a by-name list of the kind
+    the `DummyCalculator` note above warns about, and the difference is that
+    it is not an exception to a rule that disagrees with reality -- the DAG
+    simply has no field for "discarded by the instantiator", so there is no
+    rule to derive it from.
     """
+    if is_phantom(mod, dag) or mod["name"] in RATES_FIRST_DISCARDED:
+        return False
     if mod["kind"] == "Calculator":
         return mod["registrations_count"] > 0
-    if mod["kind"] == "Generator":
+    if mod["kind"] == "Generator" or mod["name"] in GENERATORS_BY_ROLE:
         return (mod["subscribes_directly"]
                 or any(mod["name"] in o.get("chained_downstream", [])
                        for o in dag.values()))
     return False
+
+
+def is_phantom(mod, dag):
+    """A DAG entry with no Java class behind it. See `is_live`'s docstring."""
+    return (not mod.get("java_path")
+            and mod["registrations_count"] == 0
+            and not any(mod["name"] in o.get("chained_downstream", [])
+                        for o in dag.values()))
 
 
 def specs():
@@ -457,9 +521,21 @@ def main():
               % (len(spec), len(dag), len(live)))
         return 1 if errors else 0
 
+    def bucket(name):
+        """The reporting bucket a live module belongs to.
+
+        `kind` alone would leave `ProjectTAG` in neither, because the DAG
+        files it as `Unknown` on its class-name suffix. It is a generator by
+        role (see `is_live`), so the two buckets have to sum to `len(live)`
+        and this is where that is enforced rather than assumed.
+        """
+        if name in GENERATORS_BY_ROLE:
+            return "Generator"
+        return dag[name]["kind"]
+
     def tally(kind):
-        n = sum(1 for m in live.values() if m["kind"] == kind)
-        c = sum(1 for x in covered if dag[x]["kind"] == kind)
+        n = sum(1 for name in live if bucket(name) == kind)
+        c = sum(1 for x in covered if bucket(x) == kind)
         return c, n
 
     if args.markdown:
@@ -472,8 +548,12 @@ def main():
 
     print("MOVES port coverage")
     print("  denominator: %s" % os.path.relpath(DAG, ROOT))
+    n_calc, n_gen = tally("Calculator")[1], tally("Generator")[1]
+    assert n_calc + n_gen == len(live), (
+        "the two buckets do not sum to the live set: %d + %d != %d"
+        % (n_calc, n_gen, len(live)))
     print("  %d modules, %d live (%d calculators, %d generators)"
-          % (len(dag), len(live), tally("Calculator")[1], tally("Generator")[1]))
+          % (len(dag), len(live), n_calc, n_gen))
     print()
     print("  %-26s %-26s %3s  %s" % ("spec", "snapshot", "mod", "evidence"))
     for name, snap, n, backed, fx, orc in rows:
@@ -515,10 +595,26 @@ def main():
         for n in which:
             print("      %s" % n)
     print()
+    # The three exclusions this tool makes on top of the calculator rule, each
+    # printed with the evidence rather than left implicit in is_live().
+    print("  not in the denominator, because canonical MOVES never "
+          "INSTANTIATES them (DO_RATES_FIRST):")
+    for n in sorted(RATES_FIRST_DISCARDED):
+        if n in dag:
+            print("      %-46s MOVESInstantiator.java:1449 clears it" % n)
+    phantoms = sorted(n for n, m in dag.items() if is_phantom(m, dag))
+    if phantoms:
+        print("  not in the denominator, because there is no such class:")
+        for n in phantoms:
+            print("      %-46s java_path '', 0 registrations, chained from "
+                  "nothing" % n)
+    print()
     print("  not yet ported:")
     for kind in ("Calculator", "Generator"):
         rest = sorted(n for n, m in live.items()
-                      if m["kind"] == kind and n not in covered)
+                      if (m["kind"] == kind
+                          or (kind == "Generator" and n in GENERATORS_BY_ROLE))
+                      and n not in covered)
         for n in rest:
             print("    %-9s %-42s %d registrations"
                   % (kind.lower(), n, dag[n]["registrations_count"]))
