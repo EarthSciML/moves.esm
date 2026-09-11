@@ -924,6 +924,33 @@ fi
 #   F49      `index_set_rename` is still refused at this mount edge
 #   and that `bindings` still validates at 45 names, since conventions 54 says
 #   it scales and buys nothing -- if it stops working, that claim is stale too.
+#
+# THIS WHOLE STAGE IS EXPECTED TO GO RED WHEN EarthSciAST PR #298 LANDS, and
+# that is the point of it rather than a defect in it. #298 makes a top-level
+# `models.<k>` {ref} run the SS4.7 edge pipeline, which resolves the leaf in its
+# own scope -- and this leaf's axes are sized by metaparameters only the MOUNT
+# declares, so a strict close refuses it with `metaparameter_unbound`. Python
+# already refuses this document, with that diagnostic, today; the pinned Rust
+# 0.2.0 accepts it only through the deferral #298 removes. So the shape below
+# is correct against the binary we pin and NOT conforming against the spec.
+#
+# Three shapes exist and all three were measured on 2026-09-10:
+#
+#   as committed here   leaf and mount both declare the 53 axes.
+#                       pinned 0.2.0: green.  #298: metaparameter_unbound.
+#   dual-compatible     delete the LEAF's index_sets; mount keeps its 53.
+#                       Green under both, saves 2 lines, and breaks the F48
+#                       probe below, which mutates the leaf's block.
+#   leaf-owns-shape     leaf declares the 49 metaparameters and owns the axes;
+#                       the MOUNT deletes its 250-line index_sets block.
+#                       pinned 0.2.0: 53x undefined_index_set.  #298: green,
+#                       numerically identical over 2,082,427 lines of output.
+#
+# The instruction when this stage goes red: adopt `leaf-owns-shape`, which is
+# the -250 lines Phase 7 is waiting for, and retire F46/F48/F49 together --
+# #298 closes all three. Staged copies of both alternatives, measured both
+# ways, are in /scratch/$USER/agent-f46/conforming/ (scratch is not backed up;
+# the shapes are described above precisely enough to rebuild).
 head2 "phase 7 at fixture scale (7c)"
 C7_LOGIC=spikes/7c/tirewear_logic.esm
 C7_MOUNT=spikes/7c/tirewear_mount.esm
