@@ -4946,3 +4946,173 @@ that ingests the whole 1.1 GB default database would put roughly that much into
 RAM. Set `TMPDIR` to a disk-backed directory before a whole-database run. (The
 cache is also the F42 hazard: keyed by URL and never revalidated, so a table
 edited in place is not re-read.)
+
+## 53. The Phase 7 mount shape survives at fixture scale, and the numbers are bit-identical **[PLAN.md step 7c, 411 variables, 375 rows, same md5]**
+
+§49–§52 measured the mount edge on 2 tables and 8 variables. `spikes/7c/` is
+the same shape carrying a real fixture: `fixtures/process-tirewear.esm` split
+into `tirewear_logic.esm` (49 → 0 `data_sources`, 411 variables, 245
+equations, 53 open index sets, all eleven `tests` blocks) and
+`tirewear_mount.esm` (49 `data_sources`, 49 metaparameters, 53 restated index
+sets, 6 restated enums, one `{ref}`).
+
+**It works, first try, and the split is not an approximation.** The logic
+half's `variables`, `equations`, `tolerance` and `tests` compare equal
+key-by-key to the inlined fixture's; only the six
+`expression_template_imports` paths and the 49 `url_template`s differ, by one
+`../` each, because the two documents live one directory deeper. Emitted with
+the fixture stage's own field list, the relation is **byte-identical** — 375
+rows over 26 emitted `out_*` fields (27 CSV columns with the leading
+ordinal), same md5 — so this is a regression test with an exact
+oracle, not a demonstration. `run-tests.sh`'s 7c stage compares it against the
+fixture stage's own output in the same run, so there is no recorded CSV to
+drift.
+
+**Falsified, not merely observed.** Scaling `emissionrate.meanBaseRate` by 1.5
+in a scratch copy of the snapshot moves exactly the cells it should: 250 of
+375 `meanBaseRate`, `adjustedMeanBaseRate` and `emissionQuantDirect` cells and
+**all 375** `emissionQuant` cells, each by exactly 1.500000, with all 22 key
+columns unchanged — and the split and the inlined fixture move *identically*,
+byte for byte, under the same perturbation. So the data reaches the equations
+through the mount, and the match is not a false positive from a document that
+reads nothing.
+
+**The mount costs no measurable time.** Alternating warm runs, `TMPDIR` on
+disk: inlined 3.04 / 3.07 / 2.91 / 3.50 s, split 2.97 / 3.43 / 3.34 / 2.92 s.
+Cold, cache wiped before each: inlined 4.24 / 4.29 s, split 4.30 / 4.21 s. The
+difference is inside the run-to-run noise of either one.
+
+### 53.1 The restatement, counted — and §7.1's word "thin" does not survive it
+
+| block | mount lines | entries | also declared by the logic half |
+|---|---|---|---|
+| `data_sources` | 954 | 49 | no |
+| `metaparameters` | 247 | 49 | no — they cannot be (F46) |
+| `index_sets` | 250 | 53 | **yes, all 53, byte-identical** |
+| `enums` | 31 | 6 (15 symbols) | **yes, all 15, byte-identical** |
+| `models` (the `{ref}`) | 6 | 1 | — |
+| **total** | **1505** | | **281 lines duplicated (18.7%)** |
+
+The split costs **+304 lines over the inlined fixture** (17,681 against
+17,377, +1.7%), which is the duplication plus a second document's header. That
+is the honest headline: the shape is cheap in the small.
+
+**What is not cheap is the per-fixture document, and it gets worse rather than
+better as the shared document grows.** Move the `data_sources` into the shared
+child — the layout PLAN.md §7.1 actually wants, and it evaluates to the same
+bytes — and the per-fixture document is **551 lines, of which 528 (96%) are
+declarations it cannot avoid**: 281 restated verbatim from the shared document
+and 247 metaparameters that exist only because a child's do not merge up
+(F46). It configures nothing. Its size is set by **the shared document's axis
+count**, not by what the fixture chooses, so every fixture mounting a
+`moves-onroad.esm` that covers the whole default database would carry that
+document's entire axis and extent-metaparameter list — the same hundreds of
+lines, thirty times over, differing in nothing.
+
+That is the number to put against §7.1's "one thin `.esm` per fixture". Thin
+is 6 lines of mount and 20 of runspec sources; measured is 551 for one
+process, and the growth is in the part nobody chose.
+
+## 54. The four override channels at the mount edge, measured at 49 names each **[PLAN.md step 7c, one of the four is unusable]**
+
+§49.1 read `SubsystemRef`'s four extra fields off the schema and ran one of
+them once. 7c ran them against a document with 49 metaparameters and 53 axes.
+
+**`bindings` scales, and buys nothing.** 45 of the child's metaparameters
+closed at one mount edge validate and emit the same 375 rows byte for byte, so
+the mechanism is not toy-sized. It removes nothing, in either direction: the
+mounting document still declares all 49 (renamed), still restates all 53 index
+sets, and gains a 45-line `bindings` block. It is strictly more text than
+declaring the names the child already uses.
+
+**The 45 is not 49, and the four that are missing are the rule.** A
+metaparameter closed by `bindings` is not readable in an equation (§49.2), and
+this fixture *reads* four of its metaparameters as scalars —
+`n_agecategory`, `n_outputCohort`, `n_runspecday`, `n_runspecsourcefueltype`.
+Binding all 49 fails at validate AND at build with `Variable 'n_agecategory'
+referenced in equation is not declared`. So the shape of the rule is: **a
+size may be bound, a number must be declared**, and a document that mixes the
+two has to know which of its metaparameters the logic reads.
+
+**`index_set_rename` cannot be used at all in this shape** —
+`subsystem_index_set_rename_unsupported_mount_form`, because it applies at a
+`subsystems.<k>` edge and the ingesting build cannot see a subsystem (F45).
+Finding F49. This is the field that would have replaced the restatement with a
+namespace, and it is the one that is closed.
+
+**`enums` cross the mount and reach the build** — the fourth block, which 7a
+had no occasion to test. Change a value in the mounted child and the emitted
+relation changes, so nothing about them needs restating for the build's sake.
+They are restated anyway, and `tools/check-conventions.py` requires it: enums
+merge **first-wins** and a same-name symbol at a different value is applied
+silently (F13), so an assembly that does not carry the union relabels data
+with no error the day a second leaf is mounted. Restated for collision safety,
+not for resolution — a distinction worth writing in the document, because the
+two look identical and only one of them would be caught by deleting it.
+
+**A metaparameter's `type` must be `"integer"`.** `"number"` is refused by the
+schema — `/metaparameters/cfg_scale/type: "integer" was expected` — whether it
+sizes an index set, is read in an equation, or is used by nothing at all.
+§49.2's "read as a number" means read as a numeric operand, not declared with
+a non-integer type; there is no non-integer metaparameter in `esm 0.2.0`. A
+per-fixture *scalar* configuration value that is not a whole number has no
+metaparameter spelling and has to arrive as data.
+
+## 55. Do not trust `esm validate` to catch a missing index-set restatement — unless the child declares a literal-sized axis **[PLAN.md step 7c, one `size: 1` decides which tool reports it]**
+
+F46 says the restatement's absence is silent at validate and loud at the
+build. At fixture scale it is loud at **validate**, and the difference is one
+size: a child all of whose index sets are metaparameter-sized keeps F46's
+silence, and a child with even one **literal** size (`{"kind": "interval",
+"size": 1}`) makes the mounting document's validate report `Aggregate range
+references undeclared index set`. Same deletion, same document but for that
+one entry, different tool. Finding F48, and it was confirmed in both
+directions — adding a literal-sized axis to 7a's child turns its recorded
+`✓ Validation passed` into the error.
+
+Two consequences, and the second is the useful one.
+
+* **A harness that watches F46 by requiring `validate` to pass is measuring
+  its own document, not the format.** `run-tests.sh`'s 7a stage does exactly
+  that, correctly for the document it holds. The 7c stage watches both halves
+  and says which is which.
+* **Give a shared domain document at least one literal-sized axis on
+  purpose.** A `run_rows` singleton, a 24-hour axis, a 12-month axis: any one
+  of them converts the whole class of missing-restatement mistakes from a
+  build failure deep in an aggregate into a validate error that names the
+  index set. It costs nothing and it is the cheapest tripwire in this file.
+
+## 56. A per-fixture document's size is set by the SHARED document, not by the fixture **[PLAN.md step 7c, 96% of 551 lines is not configuration]**
+
+The three blocks a mounting document must carry — `metaparameters` (F46),
+`index_sets` restated verbatim (F46, F48), `enums` restated for collision
+safety (§54) — are all keyed to what the **mounted** document declares. None
+of them expresses a choice the fixture makes. So as a shared domain document
+grows, every document that mounts it grows with it, by the same lines, and the
+per-fixture documents converge on being copies of each other.
+
+Measured on `process-tirewear`, one process of one fixture: 551 lines, 528 of
+them (96%) mechanical. `moves-onroad.esm` over the whole default database has
+more axes and more extent metaparameters than one process does, and Phase 7
+plans about thirty fixtures on top of it.
+
+Three ways out, in the order they should be tried, and the first two are not
+in this repository's gift:
+
+1. **Fix F46** — merge a mounted file's `index_sets` and `metaparameters` into
+   the registry the ingesting build reads. This removes 528 of the 551 lines
+   and is the single highest-value upstream ask this project has.
+2. **Fix F49** (or F45) — a rename at the mount edge would at least let the
+   restatement be generated per fixture under its own names, and would remove
+   the axis-name collision bound on mounting two domain documents.
+3. **Factor the restatement into a mounted leaf of its own.** Not tested here
+   and not obviously possible: the blocks that must be restated are exactly
+   the blocks that do not cross a mount, so a "shape" leaf would have the same
+   problem one level down. Anyone reaching for it should measure it before
+   believing it.
+
+Until one of those, PLAN.md §7.1's "one thin `.esm` per fixture" should be
+read as "one **mechanical** `.esm` per fixture", and the per-fixture documents
+should be reviewed for *agreement* with the shared document rather than read
+as configuration — which is what `tools/check-conventions.py` already does for
+enums and what F2's fix made unnecessary for index sets inside `runs/`.

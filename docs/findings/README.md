@@ -1,6 +1,6 @@
 # Findings: conventions the format or the toolchain could not express
 
-Thirty-one things PLAN.md §3 Phase 1 through Phase 5 assumed, or that an author
+Thirty-three things PLAN.md §3 Phase 1 through Phase 5 assumed, or that an author
 would reasonably assume, that did not hold. **Eighteen are fixed upstream and retired**
 from the tripwire, listed at the bottom with their sections kept above so the
 workarounds they forced can be traced. The rest still hold at the pinned
@@ -27,12 +27,15 @@ was reproduced inline in its own section instead, with the measurements that
 made it a finding. **F42 cannot have one for a fourth reason**: its trigger is
 state OUTSIDE the repository — a warm cache in `$TMPDIR` — so the same file
 would pass or fail depending on what was run before it, which is precisely what
-a tripwire cannot read. It is gated by `tools/check-source-cache.py` instead. **F46 and F47 are the fifth and sixth, and their reason is new**: both can only be
+a tripwire cannot read. It is gated by `tools/check-source-cache.py` instead. **F46, F47, F48 and F49 are the fifth through eighth, and their reason is new**: each can only be
 shown in a document whose sole model is a mounted `{ref}`, and such a document
 discovers ZERO assertions (that is F47 itself), so `esm test` on it exits 0 and
 the tripwire would read it as green from the day it was written. A document
-that cannot make a claim cannot be a tripwire. Both are gated by command in
-`run-tests.sh`'s 7a stage, two-sided. F17 and F31 are now fixed upstream and retired — and F17 turned out not to be
+that cannot make a claim cannot be a tripwire. F46 and F47 are gated by command in
+`run-tests.sh`'s 7a stage, two-sided; F48 and F49 in its 7c stage, the same way.
+F49 is the one that fails to LOAD today and would therefore fail the tripwire
+correctly — until it is fixed, at which point it becomes a mount with nothing
+to assert and reads as green for the wrong reason. F17 and F31 are now fixed upstream and retired — and F17 turned out not to be
 a cost finding at all, which is why the rule that a performance repro cannot be
 a tripwire is worth keeping even though both of its instances are gone: the
 thing that had no repro was hiding a WRONG ANSWER, and only a document that
@@ -2621,3 +2624,138 @@ which is the only context in which a parent-shaped one can run at all — the
 mount is where its shape is closed and its data arrives. Failing that, permit
 `tests` beside a `{ref}`, or fix F21 so the mounting document can name what it
 mounted.
+
+---
+
+## F48 — `esm validate` sees a missing index-set restatement only when the child declares no literal-sized axis
+
+**Not fixed. No repro file, for F46's reason; gated two-sided by
+`run-tests.sh`'s 7c stage.** Found running PLAN.md step 7c, splitting
+`fixtures/process-tirewear.esm` into the Phase 7 mount shape.
+
+F46 records that a mounting document must restate the child's `index_sets`,
+and that the omission is **silent at `esm validate`** and loud only at the
+build. At fixture scale that is only half true, and which half you get is
+decided by something nobody would look at: whether any one of the child's index
+sets has a **literal** size.
+
+Delete the restated `index_sets` from `spikes/7c/tirewear_mount.esm`, whose
+child declares 52 metaparameter-sized axes and one literal-sized one
+(`run_rows`, `size: 1`):
+
+```
+$ ./esm validate spikes/7c/.f46_loud_probe.esm ; echo $?
+✗ Validation failed
+Structural errors:
+  ✗ /models/ProcessTirewear/equations/0/rhs: Aggregate range references
+    undeclared index set 'runspecyear_rows'
+1
+```
+
+Now re-express that one literal size as a metaparameter the mounting document
+declares, so that **every** size in the child is a name, and delete the same
+block:
+
+```
+$ ./esm validate spikes/7c/.f48_silent_probe.esm ; echo $?
+✓ Validation passed
+0
+$ ./esm simulate spikes/7c/.f48_silent_probe.esm --time 0 … ; echo $?
+problem build failed: … aggregate range 'g' references index set
+'agecategory_rows', which is not declared in the document `index_sets` registry
+1
+```
+
+Same defect, same deletion, same document but for one size, and the tool that
+reports it changes. Confirmed in the other direction on 7a's own assembly:
+adding a single literal-sized index set to a copy of
+`spikes/7a/age_group_census.esm` turns F46's recorded `✓ Validation passed`
+into the structural error above. Four other candidate causes were tried on
+that assembly and are NOT it — an `enums` block, the number of index sets,
+expression-valued (`{"op": "*"}`) sizes, and whether the parent's validate can
+see the child's equations at all (it can: a bogus name in a child equation is
+reported against `/models/…/equations/0/rhs`).
+
+### Why it matters more than it sounds
+
+It is the difference between a defect you meet in a second and one you meet
+after writing the whole document. It also means **F46's "validate passes" is
+not a property of the format a harness can rely on**: `run-tests.sh`'s 7a stage
+watches F46 two-sided by requiring its probe to validate and then fail to
+build, and that watch happens to be measuring a document with no literal size.
+The 7c stage watches both halves and names which is which.
+
+And it cuts the other way for an author: a shared domain document that declares
+even one fixed-length axis — a 24-hour axis, a 12-month axis, the `run_rows`
+singleton — gets the loud failure for free. That is a reason to prefer a
+literal size over a metaparameter whose only job is to hold a constant.
+
+### What would fix it
+
+F46's fix subsumes it: merge a mounted file's `index_sets` into the registry
+the ingesting build reads. Failing that, make the validator's aggregate-range
+check consistent — it should either always see the merged registry or never.
+
+---
+
+## F49 — `index_set_rename` is refused at the only mount form an ingesting document can use
+
+**Not fixed. No repro file — see below; gated two-sided by `run-tests.sh`'s 7c
+stage.** Found running PLAN.md step 7c.
+
+`SubsystemRef` accepts `index_set_rename`, and conventions §49.1 records what
+it is for: "renames a mounted axis, so two mounts that both use `lev` at
+different lengths do not collide". For Phase 7 it is the one field that would
+let a per-fixture document namespace the shared domain document's axes instead
+of restating them under the shared document's own names. It cannot be used
+there at all:
+
+```
+$ ./esm validate spikes/7c/.rename_probe.esm
+[subsystem_index_set_rename_unsupported_mount_form] models.ProcessTirewear:
+`index_set_rename` is not supported at this mount form. This binding inlines a
+top-level `models.<k>` `{ref}` with a raw pre-pass that defers the leaf's §9.7
+resolution to the root document, so the edge has no resolved mounted document
+to rename and the leaf would merge under its ORIGINAL axis names. Mount the
+component at a `subsystems.<k>` `{ref}` edge instead, where the rename applies
+(esm-spec §4.7 "Mount-edge index-set renaming")
+```
+
+The message is clear, correct and names the alternative — and **the
+alternative is closed by F45**: the ingesting build has no notion of a
+subsystem at all, in either the `{ref}` or the inlined spelling, so a component
+mounted at `subsystems.<k>` is invisible to a document that reads data. A
+top-level `models.<k>` `{ref}` is the only mount form that both ingests and
+resolves, and it is the one form where the rename is refused.
+
+Reproduced away from the fixture too, on a four-line host mounting a leaf with
+`index_set_rename: {leaf_left: host_left}` and no `data_sources` anywhere: same
+error code. So this is about the mount form and not about ingestion.
+
+### What it costs
+
+Every per-fixture document carries the shared document's axis names, spelled
+exactly as the shared document spells them (F46), and cannot prefix them. Two
+mounted domain documents that both name an axis `rate_rows` at different sizes
+therefore cannot be assembled at all — a bound on Phase 7's shape and not only
+on its verbosity: `moves-onroad.esm` and `moves-nonroad.esm` could never be
+mounted into one document unless every axis name they share happens to agree.
+
+### Why there is no repro file
+
+The polarity cannot be made to work. A repro must fail today and pass when
+fixed; this document fails to LOAD today, which is the right verdict, but the
+day the rename is supported it becomes a document whose sole model is a mount,
+and such a document discovers zero assertions (F47), so `esm test` exits 0 and
+the tripwire reads "NOW PASSES" without anything having been asserted. It is
+F46's and F47's exclusion with one extra step. The 7c stage checks it by
+command, requiring the exact error code, so a change in either direction is
+reported.
+
+### What would fix it
+
+Support `index_set_rename` at a top-level `models.<k>` `{ref}` — the message
+says the pre-pass defers the leaf's §9.7 resolution to the root document, so
+the rename would have to be applied to the leaf's axes as they are inlined.
+Or fix F45 so that `subsystems` reach the ingesting build, which would open the
+mount form the message recommends.
