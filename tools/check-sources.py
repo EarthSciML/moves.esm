@@ -126,6 +126,69 @@ def resolve(url: str, doc_dir: pathlib.Path) -> pathlib.Path | None:
     return path if path.is_absolute() else (doc_dir / path).resolve()
 
 
+# Facts that depend only on the FILE, not on the entry that names it. Two
+# documents may legitimately name the same table -- a fixture and a mount that
+# configures the same component do exactly that -- and re-deriving these for
+# the second one reads the file again to reach the same answer. Keyed by
+# resolved path, so the saving is automatic rather than a special case.
+_file_facts: dict[pathlib.Path, dict] = {}
+
+
+def file_facts(path: pathlib.Path) -> dict:
+    import pyarrow.parquet as pq
+
+    hit = _file_facts.get(path)
+    if hit is None:
+        pf = pq.ParquetFile(path)
+        hit = {"schema": pf.schema_arrow, "num_rows": pf.metadata.num_rows, "polprocess": None}
+        _file_facts[path] = hit
+    return hit
+
+
+def polprocess_values(path: pathlib.Path) -> set:
+    import pyarrow.parquet as pq
+
+    facts = file_facts(path)
+    if facts["polprocess"] is None:
+        facts["polprocess"] = set(
+            pq.read_table(path, columns=["polProcessID"]).column("polProcessID").to_pylist()
+        )
+    return facts["polprocess"]
+
+
+_decimal_text: dict[tuple, object] = {}
+
+
+def is_decimal_text(path: pathlib.Path, column: str):
+    """Whether a column's leading values are all decimal TEXT.
+
+    Depends only on the file and the column, never on which entry is asking,
+    so it is cached: the same wide table named by two documents samples each
+    of its string columns once. Returns None if the column could not be read,
+    and the caller reports that.
+    """
+    import pyarrow.parquet as pq
+
+    key = (path, column)
+    if key in _decimal_text:
+        return _decimal_text[key]
+    try:
+        # Only the first 64 values are ever inspected, so read only those.
+        # This used to be `read_table(...).to_pylist()[:64]`, which pulled the
+        # WHOLE column into Python and threw all but 64 away -- once per
+        # undeclared string column, so a wide table was read end to end a
+        # dozen times over to look at its first few rows.
+        batch = next(iter(pq.ParquetFile(path).iter_batches(batch_size=64, columns=[column])), None)
+        sample = batch.column(column).to_pylist() if batch is not None else []
+    except Exception as exc:  # a column this reader cannot decode is not our business
+        _decimal_text[key] = exc
+        return exc
+    vals = [v for v in sample if v not in (None, "")]
+    verdict = bool(vals) and all(DECIMAL_TEXT.match(str(v)) for v in vals)
+    _decimal_text[key] = verdict
+    return verdict
+
+
 def check_source(doc_name: str, doc_dir: pathlib.Path, name: str, entry: dict) -> None:
     import pyarrow.parquet as pq
 
@@ -149,7 +212,7 @@ def check_source(doc_name: str, doc_dir: pathlib.Path, name: str, entry: dict) -
         fail(doc_name, name, f"file does not exist: {path}")
         return
 
-    schema = pq.ParquetFile(path).schema_arrow
+    schema = file_facts(path)["schema"]
     names = set(schema.names)
     declared = list(ro.get("float_columns") or [])
 
@@ -179,13 +242,11 @@ def check_source(doc_name: str, doc_dir: pathlib.Path, name: str, entry: dict) -
     for field in schema:
         if field.name in declared or not str(field.type).startswith(("string", "large_string")):
             continue
-        try:
-            sample = pq.read_table(path, columns=[field.name]).column(field.name).to_pylist()[:64]
-        except Exception as exc:  # a column this reader cannot decode is not our business
-            fail(doc_name, name, f"could not read column {field.name!r}: {exc}")
+        verdict = is_decimal_text(path, field.name)
+        if isinstance(verdict, Exception):
+            fail(doc_name, name, f"could not read column {field.name!r}: {verdict}")
             continue
-        vals = [v for v in sample if v not in (None, "")]
-        if vals and all(DECIMAL_TEXT.match(str(v)) for v in vals):
+        if verdict:
             missing.append(field.name)
     if missing:
         hard = [c for c in missing if c in projection]
@@ -229,7 +290,7 @@ def check_source(doc_name: str, doc_dir: pathlib.Path, name: str, entry: dict) -
     m = ROW_CLAIM.match((entry.get("metadata") or {}).get("note", "").strip())
     if m:
         claimed = int(m.group(1).replace(",", ""))
-        actual = pq.read_metadata(path).num_rows
+        actual = file_facts(path)["num_rows"]
         if claimed != actual:
             fail(doc_name, name,
                  f"the note opens by claiming {m.group(1)} row(s), but "
@@ -264,8 +325,7 @@ def check_source(doc_name: str, doc_dir: pathlib.Path, name: str, entry: dict) -
         claimed = set()
         for m in mentions:
             claimed |= {int(x) for x in re.findall(r"\d+", m.group(1))}
-        actual = set(pq.read_table(path, columns=["polProcessID"])
-                     .column("polProcessID").to_pylist())
+        actual = polprocess_values(path)
         # Every mention, not just the first, and every bare integer besides.
         # `search()` read only the leading `polProcessID` phrase, so a note
         # whose first such phrase belongs to a CONTRAST failed even when it
