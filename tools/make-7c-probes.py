@@ -8,21 +8,32 @@ after running it. They are generated rather than checked in for the reason
 from the real document, and a checked-in copy would drift away from the thing
 it is supposed to differ from by one field.
 
-The probes, and what each one watches:
+The split these probes edit is `leaf-owns-shape`, which EarthSciAST PR #298 made the
+conforming one: the LOGIC half declares the metaparameters and the index sets,
+the MOUNT declares the data_sources. Three probes here watched F46, F48 and
+F49, all of which #298 closed, and they are gone; what is left is F50 and the
+two capabilities Phase 7 now plans on.
 
-  f46-loud    the mount with its `index_sets` deleted. Must FAIL `esm validate`
-              -- because the logic document declares one LITERAL-sized index
-              set (`run_rows`, size 1), which is what stops the whole block
-              from reaching the validator (finding F48).
+  no-root-metaparameters
+              the mount with its `metaparameters` deleted. Must PASS
+              `esm validate` and FAIL the build with
+              `template_import_unknown_name` -- finding F50, that the root
+              document must declare every metaparameter an `extent` binds even
+              though the document owning the axes declares them too.
 
-  f46-silent  the same deletion, with `run_rows` re-expressed as a
-              metaparameter so that every size in the child is a name. Must
-              PASS `esm validate` and FAIL the build -- F46's original
-              behaviour, and the reason the restatement is load-bearing.
+  bindings-carries-the-names
+              F50's obvious workaround, and the measurement that it is not
+              available: the mount declares the 49, the LEAF does not, and the
+              edge binds each name to itself. Must be REFUSED at load, because
+              `bindings` is checked against what the REFERENCED document
+              declares, not against what the mount offers.
 
   rename      the mount with every axis renamed at the mount edge by
-              `index_set_rename`. Must be REFUSED as
-              `subsystem_index_set_rename_unsupported_mount_form` (F49).
+              `index_set_rename`. This was F49, refused with
+              `subsystem_index_set_rename_unsupported_mount_form`; since #298
+              it is accepted, so the stage runs it and compares BYTES. It is
+              what would let a shared domain document's axes be namespaced per
+              fixture.
 
   bindings    the 45 metaparameters the child does not read in an equation,
               closed at the mount edge by `bindings` instead of by name. Must
@@ -38,43 +49,31 @@ LOGIC = os.path.join(ROOT, "spikes", "7c", "tirewear_logic.esm")
 MOUNT = os.path.join(ROOT, "spikes", "7c", "tirewear_mount.esm")
 
 
-def rewrite_size(size, ren):
-    """Rename metaparameters inside an index-set size, literal or expression."""
-    if isinstance(size, str):
-        return ren.get(size, size)
-    if isinstance(size, dict):
-        return {k: ([rewrite_size(a, ren) for a in v] if k == "args" else v)
-                for k, v in size.items()}
-    return size
-
-
 def main(which, out_path):
     logic = json.load(open(LOGIC))
     mount = json.load(open(MOUNT))
     child_path = None
 
-    if which == "f46-loud":
-        del mount["index_sets"]
+    if which == "no-root-metaparameters":
+        del mount["metaparameters"]
 
-    elif which == "f46-silent":
-        literal = [k for k, v in logic["index_sets"].items()
-                   if not isinstance(v["size"], (str, dict))]
-        if not literal:
-            sys.exit("f46-silent: the logic document no longer declares a "
-                     "literal-sized index set, so F48's precondition is gone")
-        for k in literal:
-            logic["index_sets"][k] = {"kind": "interval", "size": "n_probe_" + k}
-            mount["metaparameters"]["n_probe_" + k] = {
-                "type": "integer", "default": 1, "description": "7c probe",
-            }
-        del mount["index_sets"]
+    elif which == "bindings-carries-the-names":
+        # The leaf keeps its axes and loses the names that size them; the mount
+        # keeps the names and offers them at the edge. If `bindings` closed a
+        # size the way it closes a metaparameter the leaf declares, this would
+        # be F50's fix and would cost one line per name instead of a block.
+        names = list(mount["metaparameters"])
+        del logic["metaparameters"]
         child_path = out_path.replace(".esm", "_child.esm")
         json.dump(logic, open(child_path, "w"), indent=2)
-        mount["models"]["ProcessTirewear"]["ref"] = "./" + os.path.basename(child_path)
+        mount["models"]["ProcessTirewear"] = {
+            "ref": "./" + os.path.basename(child_path),
+            "bindings": {n: n for n in names},
+        }
 
     elif which == "rename":
-        ren = {k: "tw_" + k for k in mount["index_sets"]}
-        mount["index_sets"] = {ren[k]: v for k, v in mount["index_sets"].items()}
+        # Every axis lives in the LEAF now, so the rename is read from there.
+        ren = {k: "tw_" + k for k in logic["index_sets"]}
         mount["models"]["ProcessTirewear"] = {
             "ref": "./tirewear_logic.esm", "index_set_rename": dict(ren),
         }
@@ -85,8 +84,6 @@ def main(which, out_path):
         # (conventions 49.2), so the ones the child READS keep their own names
         read = {n for n in mount["metaparameters"] if '"%s"' % n in equations}
         ren = {k: ("p_" + k if k not in read else k) for k in mount["metaparameters"]}
-        mount["index_sets"] = {k: dict(v, size=rewrite_size(v["size"], ren))
-                               for k, v in mount["index_sets"].items()}
         mount["metaparameters"] = {ren[k]: v for k, v in mount["metaparameters"].items()}
         for entry in mount["data_sources"].values():
             if "extent" in entry:
@@ -105,5 +102,7 @@ def main(which, out_path):
 
 if __name__ == "__main__":
     if len(sys.argv) != 3:
-        sys.exit("usage: make-7c-probes.py <f46-loud|f46-silent|rename|bindings> <out.esm>")
+        sys.exit("usage: make-7c-probes.py "
+                 "<no-root-metaparameters|bindings-carries-the-names|rename|bindings> "
+                 "<out.esm>")
     main(sys.argv[1], sys.argv[2])

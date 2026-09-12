@@ -13,7 +13,7 @@
 #   5. join gate   — a `join.on` contraction still costs O(matches), not O(N·M)
 #   6. limitations — the known upstream defects in docs/findings/ still fail
 #   7. fixtures    — end-to-end comparison against the moves.rs snapshots
-#   8. 7a spike    — the Phase 7 shape: a ref'd, data-fed, parent-shaped
+#   8. 7a spike    — the Phase 7 shape: a ref'd, data-fed, leaf-shaped
 #                    model evaluated against the default MOVES database
 #
 # WHICH CORPUS. Stages 2, 3 and 7 and the oracles read
@@ -112,8 +112,8 @@ COVERAGE_DAG=../moves.rs/characterization/calculator-chains/calculator-dag.json
 # docs/findings/ is excluded from stages 1–3: those files are deliberate repros
 # of upstream defects and three of them do not load at all. Stage 5 runs them.
 # spikes/ is excluded from stages 1–4 for the same kind of reason:
-# spikes/7a/age_group_census.esm is PARENT-SHAPED and deliberately does not
-# load alone, which stage 1 would report as a failure. The 7a stage runs it,
+# spikes/7a/age_group_census.esm is DATA-OPEN and deliberately does not load
+# alone, which stage 1 would report as a failure. The 7a stage runs it,
 # and asserts that exact failure rather than tolerating it.
 # gates/ is excluded from stage 3 only, because stage 4 runs it and times it.
 
@@ -768,17 +768,25 @@ fi
 
 # --- the Phase 7 spike ------------------------------------------------------
 #
-# PLAN.md step 7a. A shared component that carries logic and variable-level data
-# BINDINGS with an OPEN shape, mounted by a thin document that supplies the
-# `data_sources`, the metaparameters and the index sets. It is the one
-# combination nothing else in this tree exercises -- `runs/` refs components and
-# supplies no data, `fixtures/` supply data and inline everything -- and the
-# whole of Phase 7 rests on it, so it is checked here rather than assumed.
+# PLAN.md step 7a. A shared component that carries logic, its own shape, and
+# variable-level data BINDINGS to sources it does not declare, mounted by a thin
+# document that supplies the `data_sources`. It is the one combination nothing
+# else in this tree exercises -- `runs/` refs components and supplies no data,
+# `fixtures/` supply data and inline everything -- and the whole of Phase 7
+# rests on it, so it is checked here rather than assumed.
+#
+# THE SPLIT MOVED WHEN EarthSciAST PR #298 LANDED (2026-09-12). It used to be
+# the parent that declared the metaparameters AND the index sets, with the child
+# shape-open -- sized by names it did not declare. #298 resolves a mounted leaf
+# in its own scope, so that arrangement is now refused `metaparameter_unbound`;
+# Python had been refusing it all along, as `subsystem_index_set_conflict`, and
+# nothing here was measuring that. The child now owns its shape and the parent
+# owns the data. Both bindings accept the result, which is new.
 #
 # WHY spikes/ IS EXCLUDED FROM STAGES 1-4, the way docs/findings/ is:
-# spikes/7a/age_group_census.esm is PARENT-SHAPED and deliberately does not load
+# spikes/7a/age_group_census.esm is DATA-OPEN and deliberately does not load
 # alone. Stage 1 would report that as a failure; here it is asserted, by its
-# exact message, because a child that closed its own shape by accident would
+# exact message, because a child that supplied its own data by accident would
 # make the parent's success prove nothing.
 #
 # WHY THE CHECK IS A CSV DIFF AND NOT AN ASSERTION. It is the only verification
@@ -817,14 +825,21 @@ PYEOF
   if [[ -n "$spike_missing" ]]; then
     skip "7a spike" "the default MOVES database is not where $SPIKE_PARENT names it ($spike_missing)"
   else
-    # 1. The child must still fail alone, by the message that says its shape is
-    #    open rather than merely broken.
+    # 1. The child must still fail alone, by the message that says what it is
+    #    missing rather than merely that it is broken.
+    #
+    #    THE SPELLING CHANGED WITH THE SHAPE (PR #298). This child used to be
+    #    SHAPE-open -- sized by metaparameters only the parent declared, and
+    #    refused with `invalid type: string "n_spike_agecategory", expected
+    #    i64`. It now declares its own shape and is DATA-open: it reads two
+    #    sources the parent holds. A control still grepping for the old message
+    #    would go red at a document that is exactly as open as intended.
     if out=$("$ESM" validate "$SPIKE_CHILD" 2>&1); then
-      fail "7a open-shape control — the parent-shaped child now validates ALONE. Its shape is no longer open and the assembly below proves nothing about parent-supplied configuration"
-    elif grep -q 'invalid type: string "n_spike_agecategory", expected i64' <<<"$out"; then
-      pass "7a — the child's shape is open: it does not load alone"
+      fail "7a data-open control — the child now validates ALONE. It is no longer missing its data and the assembly below proves nothing about parent-supplied configuration"
+    elif grep -q 'names data source' <<<"$out"; then
+      pass "7a — the child is data-open: it does not load alone"
     else
-      fail "7a open-shape control — the child was refused, but not as an open shape"
+      fail "7a data-open control — the child was refused, but not for its missing data sources"
       sed 's/^/       /' <<<"$out"
     fi
 
@@ -851,7 +866,7 @@ PYEOF
     if out=$("$ESM" simulate "$SPIKE_PARENT" --time 0 --format csv \
                "${spike_obs[@]}" --output "$SPIKE_CSV" 2>&1); then
       if diff -u "$SPIKE_EXPECTED" "$SPIKE_CSV" >/dev/null 2>&1; then
-        pass "7a — a ref'd, parent-fed, parent-shaped model evaluates against the default database"
+        pass "7a — a ref'd, parent-fed model evaluates against the default database"
         say "       41 agecategory rows over 7 agegroups; ageIDs 0..40 summing to 820"
       else
         fail "7a — the assembly evaluates but its relation is not the recorded one"
@@ -872,30 +887,37 @@ PYEOF
       sed 's/^/       /' <<<"$out" | head -8
     fi
 
-    # 4. F46, two-sided: without the parent's RESTATED index sets the document
-    #    still validates and still fails to build. If that ever stops being
-    #    true, the restatement in spike_parent.esm is dead weight and, more to
-    #    the point, §7.2's account of how a fixture closes an open shape becomes
-    #    correct as written.
-    F46_PROBE=spikes/7a/.f46_index_set_registry_probe.esm
-    if "$PYTHON" - "$SPIKE_PARENT" "$F46_PROBE" <<'PYEOF'
+    # 4. F50, where F46's watch used to be. F46 -- that a mounted child's
+    #    index_sets do not reach the ingesting build, so the parent must restate
+    #    them -- was closed by PR #298, and this spike's parent no longer
+    #    declares an `index_sets` block at all. What did NOT close is the
+    #    metaparameter half: the parent's `data_sources` bind two names in
+    #    `extent`, and the loader API closes those at the ROOT, so the parent
+    #    must declare both even though the child declares them too and owns the
+    #    axes they size.
+    #
+    #    Two-sided, and it has to run BOTH tools: the deletion is SILENT at
+    #    validate and loud at the build, which is the shape F48 used to record
+    #    about the other block.
+    F50_PROBE=spikes/7a/.f50_root_metaparameter_probe.esm
+    if "$PYTHON" - "$SPIKE_PARENT" "$F50_PROBE" <<'PYEOF'
 import json, sys
 doc = json.load(open(sys.argv[1]))
-doc.pop("index_sets", None)
+doc.pop("metaparameters", None)
 json.dump(doc, open(sys.argv[2], "w"), indent=2)
 PYEOF
     then
-      if ! "$ESM" validate "$F46_PROBE" >/dev/null 2>&1; then
-        fail "F46 watch — the probe no longer VALIDATES. The finding is that validate passes where the build fails; if validate now refuses it, the gap is closed at the right end and F46 should be re-read"
-      elif "$ESM" simulate "$F46_PROBE" --time 0 >/dev/null 2>&1; then
-        fail "F46 watch — a mounted child's index sets now reach the ingesting interpreter. The parent's restated index_sets are dead weight; remove them and retire F46"
+      if ! "$ESM" validate "$F50_PROBE" >/dev/null 2>&1; then
+        fail "F50 watch — the probe no longer VALIDATES. The finding is that validate passes where the build fails; if validate now names the missing declaration, the gap is closed at the better end and F50 should be re-read"
+      elif "$ESM" simulate "$F50_PROBE" --time 0 >/dev/null 2>&1; then
+        fail "F50 watch — a root document no longer has to restate the metaparameters its data_sources bind. The parent's block is dead weight here and 247 lines of it are dead weight in spikes/7c: remove both and retire F50"
       else
-        pass "F46 watch: a mounted child's index sets still do not enter the interpreter's registry"
+        pass "F50 watch: the root must still declare every metaparameter its extents bind"
       fi
     else
-      fail "F46 watch — could not write the probe"
+      fail "F50 watch — could not write the probe"
     fi
-    rm -f "$F46_PROBE"
+    rm -f "$F50_PROBE"
   fi
 fi
 
@@ -905,8 +927,8 @@ fi
 # PLAN.md step 7c. 7a proved the mount shape on 2 tables and 8 variables; this
 # is the same shape carrying a REAL fixture -- 49 data_sources, 49
 # metaparameters, 53 index sets, 411 variables and 245 equations, split into
-# `spikes/7c/tirewear_logic.esm` (the logic, with an open shape) and
-# `spikes/7c/tirewear_mount.esm` (the configuration, which closes it).
+# `spikes/7c/tirewear_logic.esm` (the logic, which owns the shape) and
+# `spikes/7c/tirewear_mount.esm` (the configuration, which supplies the data).
 #
 # WHAT MAKES IT A REGRESSION TEST AND NOT A DEMONSTRATION. The logic half is
 # `fixtures/process-tirewear.esm`'s own text, so the assembly has an exact
@@ -917,40 +939,32 @@ fi
 # recorded CSV on purpose: there is no third file to update when the port
 # improves, and the pair cannot drift apart silently.
 #
-# It also watches four format behaviours two-sided, because each one is a cost
-# Phase 7 is currently budgeting for and would want to stop paying:
-#   F46/F48  the mounting document must restate the child's index_sets
-#   F47      a mounted component's inline tests still do not run
-#   F49      `index_set_rename` is still refused at this mount edge
-#   and that `bindings` still validates at 45 names, since conventions 54 says
-#   it scales and buys nothing -- if it stops working, that claim is stale too.
+# THE SHAPE CHANGED WHEN EarthSciAST PR #298 LANDED (2026-09-12), exactly as
+# the previous version of this header predicted it would. #298 makes a
+# top-level `models.<k>` {ref} run the §4.7 edge pipeline, resolving the leaf in
+# its own scope. The document committed before it declared the 53 axes in BOTH
+# halves and let the mount's metaparameters size the leaf's; a strict close
+# refuses that with `metaparameter_unbound`, and Python had been refusing it
+# with that diagnostic all along. So the split is now `leaf-owns-shape`:
 #
-# THIS WHOLE STAGE IS EXPECTED TO GO RED WHEN EarthSciAST PR #298 LANDS, and
-# that is the point of it rather than a defect in it. #298 makes a top-level
-# `models.<k>` {ref} run the SS4.7 edge pipeline, which resolves the leaf in its
-# own scope -- and this leaf's axes are sized by metaparameters only the MOUNT
-# declares, so a strict close refuses it with `metaparameter_unbound`. Python
-# already refuses this document, with that diagnostic, today; the pinned Rust
-# 0.2.0 accepts it only through the deferral #298 removes. So the shape below
-# is correct against the binary we pin and NOT conforming against the spec.
+#   the LOGIC half declares the 49 metaparameters and the 53 index sets;
+#   the MOUNT declares the 49 data_sources and nothing about shape.
 #
-# Three shapes exist and all three were measured on 2026-09-10:
+# Measured at the transition, against `9dd36c7f6`: the mount's 250-line
+# `index_sets` block is gone, the emitted relation is byte-identical to the
+# inlined fixture, and 1505 lines of mount became 1255.
 #
-#   as committed here   leaf and mount both declare the 53 axes.
-#                       pinned 0.2.0: green.  #298: metaparameter_unbound.
-#   dual-compatible     delete the LEAF's index_sets; mount keeps its 53.
-#                       Green under both, saves 2 lines, and breaks the F48
-#                       probe below, which mutates the leaf's block.
-#   leaf-owns-shape     leaf declares the 49 metaparameters and owns the axes;
-#                       the MOUNT deletes its 250-line index_sets block.
-#                       pinned 0.2.0: 53x undefined_index_set.  #298: green,
-#                       numerically identical over 2,082,427 lines of output.
-#
-# The instruction when this stage goes red: adopt `leaf-owns-shape`, which is
-# the -250 lines Phase 7 is waiting for, and retire F46/F48/F49 together --
-# #298 closes all three. Staged copies of both alternatives, measured both
-# ways, are in /scratch/$USER/agent-f46/conforming/ (scratch is not backed up;
-# the shapes are described above precisely enough to rebuild).
+# THREE FINDINGS RETIRED HERE, AND ONE REMAINS. F46 (a mounted child's
+# index_sets do not reach the ingesting build), F48 (whether `validate` sees
+# that depends on the child declaring one literal-sized axis) and F49
+# (`index_set_rename` refused at this mount form) were all the single deferral
+# #298 removed, and all three are closed -- the rename was re-measured here and
+# now both validates and evaluates to the same bytes over all 53 axes. What is
+# NOT closed is F50: the metaparameters an `extent` binds must be declared by
+# the ROOT document as well as by the document that owns the `data_sources`
+# entry, and `bindings` cannot carry them. That is the 247 lines below, and it
+# is the whole of what stands between this shape and a per-fixture document of
+# 23 lines. Checks 5 and 6 watch both halves of that.
 head2 "phase 7 at fixture scale (7c)"
 C7_LOGIC=spikes/7c/tirewear_logic.esm
 C7_MOUNT=spikes/7c/tirewear_mount.esm
@@ -961,17 +975,22 @@ if [[ ! -f "$C7_MOUNT" ]]; then
 elif [[ ! -f "$C7_BASE" ]]; then
   skip "7c split" "the fixture stage produced no $C7_BASE to compare against"
 else
-  # 1. The open-shape control. The logic half must not load alone, or the
-  #    mount is closing nothing and the comparison below proves nothing.
-  #    The message is NOT the one 7a's child gives for the same defect
-  #    (`invalid type: string ... expected i64`); an open shape has more than
-  #    one spelling and this stage pins the one this document actually gets.
+  # 1. The data-open control. The logic half must not load alone, or the mount
+  #    is supplying nothing and the comparison below proves nothing.
+  #
+  #    THE SPELLING CHANGED WITH THE SHAPE, and the change is worth reading
+  #    rather than absorbing. Before #298 this half was SHAPE-open: it named
+  #    metaparameters it did not declare and was refused with
+  #    `metaparameter_unbound`. It now declares its own shape and is refused for
+  #    the other half of the split -- it reads 49 data sources the mount holds.
+  #    A control that still grepped for the old diagnostic would have gone red
+  #    at a document that is exactly as open as intended.
   if out=$("$ESM" validate "$C7_LOGIC" 2>&1); then
-    fail "7c open-shape control — the logic half now validates ALONE. Its shape is no longer open, and the assembly below stops proving anything about parent-supplied configuration"
-  elif grep -q 'metaparameter_unbound' <<<"$out"; then
-    pass "7c — the logic half's shape is open: it does not load alone"
+    fail "7c data-open control — the logic half now validates ALONE. It is no longer missing its data, and the assembly below stops proving anything about parent-supplied configuration"
+  elif grep -q 'names data source' <<<"$out"; then
+    pass "7c — the logic half is data-open: it does not load alone"
   else
-    fail "7c open-shape control — the logic half was refused, but not as an open shape"
+    fail "7c data-open control — the logic half was refused, but not for its missing data sources"
     sed 's/^/       /' <<<"$out" | head -4
   fi
 
@@ -1029,62 +1048,85 @@ PYEOF
     sed 's/^/       /' <<<"$out" | head -8
   fi
 
-  # 5. F46 and F48, two-sided and at fixture scale. Deleting the mounting
-  #    document's restated index_sets must still break the assembly -- and
-  #    WHICH tool reports it depends on whether the child declares a
-  #    literal-sized index set, which is F48 and is the half 7a could not see.
-  C7_P1=spikes/7c/.f46_loud_probe.esm
-  if "$PYTHON" tools/make-7c-probes.py f46-loud "$C7_P1" >/dev/null 2>&1; then
-    if "$ESM" validate "$C7_P1" >/dev/null 2>&1; then
-      fail "F46/F48 watch — the mount validates without its restated index_sets. Either the child's block now reaches the mounting document's registry (retire the restatement) or the aggregate-range check has stopped running"
+  # 5. F50, the half of the duplication #298 did NOT remove, watched two-sided
+  #    where F46 used to be. The mount owns the `data_sources`, so it declares
+  #    the 48 metaparameters their `extent` binds; the LOGIC half declares the
+  #    same 48 again, because #298 closes it in its own scope and its axes are
+  #    sized by those names. Delete the mount's block and `esm validate` still
+  #    passes -- the refusal comes at the build, when the loader API has the
+  #    discovered counts and nothing at the root to bind them to.
+  #
+  #    It is the validate/build split F48 used to record, with the blocks
+  #    swapped, so the check has to run BOTH tools and not just the first.
+  C7_P1=spikes/7c/.f50_probe.esm
+  if "$PYTHON" tools/make-7c-probes.py no-root-metaparameters "$C7_P1" >/dev/null 2>&1; then
+    if ! "$ESM" validate "$C7_P1" >/dev/null 2>&1; then
+      fail "F50 watch — the probe no longer VALIDATES. F50 is that the duplication's absence is SILENT at validate and loud at the build; if validate now names it, the gap is closed at the better end and F50 should be re-read"
+    elif out=$("$ESM" simulate "$C7_P1" --time 0 --format csv \
+                 --observed out_emissionQuant --output /dev/null 2>&1); then
+      fail "F50 watch — the mount now builds without restating the leaf's extent metaparameters. That is 247 of this mount's 1255 lines and the last thing between a fixture and a 23-line document: delete the block, retire F50, and re-read conventions §56"
+    elif grep -q 'template_import_unknown_name' <<<"$out"; then
+      pass "F50 watch: the root must still restate all 48 extent metaparameters"
     else
-      pass "F46 watch: the restated index_sets are still load-bearing"
+      fail "F50 watch — the build refused the probe, but not as template_import_unknown_name"
+      sed 's/^/       /' <<<"$out" | tail -3
     fi
   else
-    fail "F46/F48 watch — could not write the f46-loud probe"
+    fail "F50 watch — could not write the no-root-metaparameters probe"
   fi
   rm -f "$C7_P1"
 
-  C7_P2=spikes/7c/.f48_silent_probe.esm
-  if "$PYTHON" tools/make-7c-probes.py f46-silent "$C7_P2" >/dev/null 2>&1; then
-    if ! "$ESM" validate "$C7_P2" >/dev/null 2>&1; then
-      fail "F48 watch — the probe no longer VALIDATES. F48 is that \`esm validate\` is BLIND to a missing restatement whenever every one of the child's index sets is metaparameter-sized; if validate now refuses it, the gap is closed at the right end and F48 should be re-read"
-    elif "$ESM" simulate "$C7_P2" --time 0 --format csv \
-           --observed out_emissionQuant --output /dev/null >/dev/null 2>&1; then
-      fail "F46 watch — a mounted child's index sets now reach the ingesting build. The restatement in $C7_MOUNT is dead weight; remove it and retire F46"
+  # 6. The other half of F50: `bindings` cannot carry those names either. This
+  #    is the obvious workaround -- the mount declares them, the leaf does not,
+  #    and the edge binds each to itself -- and it is refused at LOAD, because
+  #    `bindings` is checked against what the referenced document declares.
+  #    Without this check, "F50 needs a format change" would be an assertion
+  #    rather than a measurement.
+  C7_P2=spikes/7c/.f50_bindings_probe.esm
+  if "$PYTHON" tools/make-7c-probes.py bindings-carries-the-names "$C7_P2" >/dev/null 2>&1; then
+    if out=$("$ESM" validate "$C7_P2" 2>&1); then
+      fail "F50 watch — \`bindings\` now carries the extent metaparameters, so the leaf need not declare them. That is the cheaper half of F50 closing: re-read conventions §54 and §56"
+    elif grep -q 'template_import_unknown_name' <<<"$out"; then
+      pass "F50 watch: \`bindings\` still cannot carry an extent metaparameter for the leaf"
     else
-      pass "F48 watch: with every child size a name, validate is still blind and the build still fails"
-    fi
-  else
-    fail "F48 watch — could not write the f46-silent probe"
-  fi
-  rm -f "$C7_P2" "${C7_P2%.esm}_child.esm"
-
-  # 6. F49, two-sided. `index_set_rename` is the one SubsystemRef field that
-  #    would let a shared domain document's axes be namespaced per fixture, and
-  #    it is refused at the only mount form an ingesting document can use.
-  C7_P3=spikes/7c/.rename_probe.esm
-  if "$PYTHON" tools/make-7c-probes.py rename "$C7_P3" >/dev/null 2>&1; then
-    if out=$("$ESM" validate "$C7_P3" 2>&1); then
-      fail "F49 watch — \`index_set_rename\` is now accepted at a top-level models {ref}. A fixture can namespace the shared document's axes; retire F49 and re-read the restatement burden in conventions 53"
-    elif grep -q 'subsystem_index_set_rename_unsupported_mount_form' <<<"$out"; then
-      pass "F49 watch: index_set_rename is still refused at this mount form"
-    else
-      fail "F49 watch — the rename probe was refused, but not by the mount-form rule"
+      fail "F50 watch — the bindings-carries-the-names probe was refused, but not as template_import_unknown_name"
       sed 's/^/       /' <<<"$out" | head -4
     fi
   else
-    fail "F49 watch — could not write the rename probe"
+    fail "F50 watch — could not write the bindings-carries-the-names probe"
+  fi
+  rm -f "$C7_P2" "${C7_P2%.esm}_child.esm"
+
+  # 7. `index_set_rename` at 53 axes -- F49's probe, kept and inverted. It was
+  #    refused at this mount form before #298; it is now accepted, and Phase 7
+  #    plans on it (it is what lets a shared domain document's axes be
+  #    namespaced per fixture, so two domain documents can be mounted without
+  #    an axis-name collision). A capability this repository intends to build
+  #    on is worth a two-sided check, and validating is not enough: the probe
+  #    renames all 53 and must emit the same bytes.
+  C7_P3=spikes/7c/.rename_probe.esm
+  if "$PYTHON" tools/make-7c-probes.py rename "$C7_P3" >/dev/null 2>&1; then
+    C7_RENAMED="$RUNDIR/tirewear-7c.renamed.csv"
+    if "$ESM" simulate "$C7_P3" --time 0 --format csv \
+         "${c7_obs[@]}" --output "$C7_RENAMED" >/dev/null 2>&1 \
+       && cmp -s "$C7_BASE" "$C7_RENAMED"; then
+      pass "index_set_rename renames all 53 axes at this mount form and emits the same bytes"
+    else
+      fail "index_set_rename — renaming the mounted axes no longer reproduces the fixture's relation. PR #298 closed F49 and conventions §54 and §56 are written on that; re-read both"
+      "$ESM" validate "$C7_P3" 2>&1 | sed 's/^/       /' | head -4
+    fi
+  else
+    fail "index_set_rename watch — could not write the rename probe"
   fi
   rm -f "$C7_P3"
 
-  # 7. `bindings` at 45 names. Conventions 54 says it works at scale and
+  # 8. `bindings` at 45 names. Conventions 54 says it works at scale and
   #    removes nothing; the first half of that has to keep being true or the
   #    second half is a claim about a feature that no longer functions.
   C7_P4=spikes/7c/.bindings_probe.esm
   if "$PYTHON" tools/make-7c-probes.py bindings "$C7_P4" >/dev/null 2>&1; then
     if "$ESM" validate "$C7_P4" >/dev/null 2>&1; then
-      pass "bindings still closes 45 of the child's metaparameters at one mount edge"
+      pass "bindings still closes 45 of the mount's metaparameters at one mount edge"
     else
       fail "bindings — 45 names at one mount edge no longer validate. conventions 54 measures this; re-read it"
       "$ESM" validate "$C7_P4" 2>&1 | sed 's/^/       /' | head -4

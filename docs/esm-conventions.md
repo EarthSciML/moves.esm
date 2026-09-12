@@ -4792,28 +4792,38 @@ metaparameter and the index set. So a shared domain document can carry the
 whole default-database catalogue and a per-fixture document add only its own
 runspec sources.
 
-**Two blocks do NOT cross, and `esm validate` does not say so.**
+**One block does NOT cross, and `esm validate` does not say so.**
 
 | block | may live in the child | must be restated by the mounting document |
 |---|---|---|
 | `variables`, `equations`, `update` bindings | yes | no |
 | `data_sources` | yes | no |
-| `metaparameters` | **no** | **yes** |
-| `index_sets` | yes, and ignored | **yes, verbatim** |
+| `index_sets` | yes | no — **since EarthSciAST PR #298** |
+| `metaparameters` bound by an `extent` | yes, and must be | **yes, and must be** |
 
-The index-set half is the one that will catch an author out, because the
-document validates. F2 merges a top-level `{ref}`'s index sets into the
-registry `esm validate` reads; the ingesting build reads a different registry —
-`file.index_sets`, the mounting document's own — and reports
+**The index-set row used to be the trap and is now settled.** Until #298 a
+mounted child's `index_sets` reached the registry `esm validate` reads but not
+the one the ingesting build reads, so the mounting document had to restate them
+verbatim and a comment had to say the duplication was load-bearing. That was
+finding F46, and it is retired: neither `spikes/7a` nor `spikes/7c` declares an
+`index_sets` block in its mounting document any more.
 
-```
-aggregate range 'g' references index set 'spike_agegroup_rows', which is not
-declared in the document `index_sets` registry
-```
+**The metaparameter row replaced it, and it is a genuine duplication rather
+than a restatement.** A name an `extent` binds must be declared by the document
+that owns the axis it sizes *and* by the root document that is loaded, because
+#298 resolves a mounted leaf in its own scope while the loader API still binds
+discovered extents at the root. Delete either and the document is refused —
+the leaf's copy at load with `metaparameter_unbound`, the root's copy at the
+**build** with `template_import_unknown_name`, after `esm validate` has passed.
+Finding F50, and `bindings` cannot carry it.
 
-Finding F46. **Restate the child's `index_sets` in the mounting document, and
-say in a comment that it is load-bearing**, or the next reader will delete
-them as duplication.
+**Which document should own the axes: the leaf.** `leaf-owns-shape` — the leaf
+declares the metaparameters and the `index_sets`, the mount declares the
+`data_sources` — is the only arrangement measured to load under **both** the
+Rust and the Python bindings. The obvious alternative, a shape-open leaf sized
+by the root's metaparameters, is accepted by Rust and refused by Python unless
+the leaf happens to import an expression-template library, which is finding
+F51.
 
 ### 49.1 A `{ref}` mount edge is NOT a closed shape, and one of its four extra fields is the override mechanism
 
@@ -4830,13 +4840,19 @@ that matters was looked for under the wrong name:
 | `expression_template_imports` | registers a template library into the REFERENCED component's scope — assembler-chosen discretization without editing the leaf |
 
 **So ref-with-overrides exists, spelled `bindings`.** Measured: a child that
-declares `index_sets: {cat_rows: {size: "n_cat"}}` and nothing else is closed
-by `{"ref": "./bind_child.esm", "bindings": {"n_cat": "n_spike_agecategory"}}`,
-and the runtime-discovered `extent` of the parent's source flows through the
-binding — the same 41 rows and the same 6/9/13/17/60/85/630. It does **not**
-remove F46's index-set restatement: with `bindings` and no `index_sets` in the
-parent, the build still says `'grp_rows' … is not declared in the document
-index_sets registry`.
+declares `index_sets: {cat_rows: {size: "n_cat"}}` and a metaparameter `n_cat`
+is closed by `{"ref": "./bind_child.esm", "bindings": {"n_cat":
+"n_spike_agecategory"}}`, and the runtime-discovered `extent` of the parent's
+source flows through the binding — the same 41 rows and the same
+6/9/13/17/60/85/630.
+
+**What `bindings` cannot do is introduce a name.** It closes a metaparameter
+the referenced document **declares**; it is checked against the leaf's own
+declarations, so a leaf that omits the block is refused at load —
+`loader API binds metaparameter 'n_agecategory', which the document does not
+declare` — no matter what the mount offers. Measured at 49 names. That is why
+F50 is a format ask and not an authoring mistake: the cheap workaround is
+tested and unavailable.
 
 **`model` does not make a mounted document composable.** A referenced file with
 two models is refused (`resolves to 2 models; add a "model" selector`), and
@@ -4882,8 +4898,8 @@ away from that**, which is worth knowing before one of them is retargeted at
 the default database.
 
 And a mounted component's own inline tests do not run — `esm test` says so —
-while a *parent-shaped* component cannot be a test target either, because it
-does not load alone. Finding F47. So all three ways to assert are closed:
+while a *data-open* component cannot be a test target either, because it does
+not load alone. Finding F47. So all three ways to assert are closed:
 
 | spelling | refused by |
 |---|---|
@@ -4952,9 +4968,19 @@ edited in place is not re-read.)
 §49–§52 measured the mount edge on 2 tables and 8 variables. `spikes/7c/` is
 the same shape carrying a real fixture: `fixtures/process-tirewear.esm` split
 into `tirewear_logic.esm` (49 → 0 `data_sources`, 411 variables, 245
-equations, 53 open index sets, all eleven `tests` blocks) and
-`tirewear_mount.esm` (49 `data_sources`, 49 metaparameters, 53 restated index
-sets, 6 restated enums, one `{ref}`).
+equations, 49 metaparameters, 53 index sets, 6 enums, all eleven `tests`
+blocks) and `tirewear_mount.esm` (49 `data_sources`, the same 49
+metaparameters, the same 6 enums, one `{ref}`).
+
+**The division of the blocks moved once, at EarthSciAST PR #298.** As first
+written the mount owned the shape — 49 metaparameters, 53 index sets restated
+verbatim from the leaf, 6 enums restated — and the leaf was open. #298 resolves
+a mounted leaf in its own scope, which refuses that arrangement, so the leaf now
+owns the metaparameters and the axes, and the mount owns the data. The 250
+restated index sets are gone; the metaparameters are duplicated rather than
+moved (F50) and the enums are still restated, for collision safety rather than
+for resolution (§54). Everything measured below survived the move unchanged
+except the line counts in §53.1, which are the point of it.
 
 **It works, first try, and the split is not an approximation.** The logic
 half's `variables`, `equations`, `tolerance` and `tests` compare equal
@@ -4982,36 +5008,51 @@ disk: inlined 3.04 / 3.07 / 2.91 / 3.50 s, split 2.97 / 3.43 / 3.34 / 2.92 s.
 Cold, cache wiped before each: inlined 4.24 / 4.29 s, split 4.30 / 4.21 s. The
 difference is inside the run-to-run noise of either one.
 
-### 53.1 The restatement, counted — and §7.1's word "thin" does not survive it
+### 53.1 The duplication, counted — and what PR #298 removed from it
 
 | block | mount lines | entries | also declared by the logic half |
 |---|---|---|---|
 | `data_sources` | 954 | 49 | no |
-| `metaparameters` | 247 | 49 | no — they cannot be (F46) |
-| `index_sets` | 250 | 53 | **yes, all 53, byte-identical** |
+| `metaparameters` | 247 | 49 | **yes, all 49** — and must be (F50) |
 | `enums` | 31 | 6 (15 symbols) | **yes, all 15, byte-identical** |
 | `models` (the `{ref}`) | 6 | 1 | — |
-| **total** | **1505** | | **281 lines duplicated (18.7%)** |
+| **total** | **1255** | | **278 lines duplicated (22.2%)** |
 
-The split costs **+304 lines over the inlined fixture** (17,681 against
-17,377, +1.7%), which is the duplication plus a second document's header. That
-is the honest headline: the shape is cheap in the small.
+Before #298 the mount also restated the leaf's 53 `index_sets`, verbatim, and
+the total was 1505 with 281 duplicated. That block is gone — **−250 lines, the
+single largest thing this project has recovered from an upstream fix** — and
+what is left duplicated is the metaparameter block, which cannot be removed by
+authoring (F50), and the enums, which are restated for collision safety rather
+than for resolution (§54).
 
-**What is not cheap is the per-fixture document, and it gets worse rather than
-better as the shared document grows.** Move the `data_sources` into the shared
-child — the layout PLAN.md §7.1 actually wants, and it evaluates to the same
-bytes — and the per-fixture document is **551 lines, of which 528 (96%) are
-declarations it cannot avoid**: 281 restated verbatim from the shared document
-and 247 metaparameters that exist only because a child's do not merge up
-(F46). It configures nothing. Its size is set by **the shared document's axis
-count**, not by what the fixture chooses, so every fixture mounting a
-`moves-onroad.esm` that covers the whole default database would carry that
-document's entire axis and extent-metaparameter list — the same hundreds of
-lines, thirty times over, differing in nothing.
+The split now costs **+302 lines over the inlined fixture** (17,678 against
+17,376, +1.7%). The proportion is unchanged because what #298 removed from the
+mount it did not add to the leaf: the leaf already declared those axes.
 
-That is the number to put against §7.1's "one thin `.esm` per fixture". Thin
-is 6 lines of mount and 20 of runspec sources; measured is 551 for one
-process, and the growth is in the part nobody chose.
+### 53.2 The per-fixture document, measured three ways
+
+The number that matters is not the split's total but what **one fixture** has
+to carry, because Phase 7 plans about thirty of them on one shared document.
+Measured on `process-tirewear`, moving the `data_sources` catalogue into the
+shared document — the layout PLAN.md §7.1 wants, and the one §7.3's monolithic
+conversion makes identical for every fixture — and emitting the relation each
+time to confirm the bytes do not move:
+
+| the per-fixture document | lines | loads? |
+|---|---|---|
+| before #298, against the pinned `esm 0.2.0` | 551 | yes in Rust, **no** in Python |
+| after #298 | **270** | yes in Rust **and** Python |
+| after #298, with the metaparameter block deleted | 23 | **no** — F50 |
+
+All three emit, or would emit, the same 375 rows over 26 fields; the middle row
+was emitted and compared. The 270-line document is `metadata`, the 247-line
+`metaparameters` block, and one `{ref}`; it configures nothing, and 247 of its
+270 lines exist only because the loader API closes discovered extents at the
+root. Add 31 lines for the enum union this repository restates by convention
+(§54) and it is 301 — the format does not require them, `tools/check-conventions.py`
+does, and F13 is why. So the distance between "one
+mechanical `.esm` per fixture" and PLAN.md §7.1's "one **thin** `.esm` per
+fixture" is now exactly one finding wide, and the finding is F50.
 
 ## 54. The four override channels at the mount edge, measured at 49 names each **[PLAN.md step 7c, one of the four is unusable]**
 
@@ -5021,9 +5062,11 @@ them once. 7c ran them against a document with 49 metaparameters and 53 axes.
 **`bindings` scales, and buys nothing.** 45 of the child's metaparameters
 closed at one mount edge validate and emit the same 375 rows byte for byte, so
 the mechanism is not toy-sized. It removes nothing, in either direction: the
-mounting document still declares all 49 (renamed), still restates all 53 index
-sets, and gains a 45-line `bindings` block. It is strictly more text than
-declaring the names the child already uses.
+mounting document still declares all 49 (renamed) and gains a 45-line
+`bindings` block. It is strictly more text than declaring the names the child
+already uses — and since #298 it is also the workaround F50 would need and
+cannot have, because `bindings` closes a name the leaf declares and cannot
+supply one it lacks (§49.1).
 
 **The 45 is not 49, and the four that are missing are the rule.** A
 metaparameter closed by `bindings` is not readable in an equation (§49.2), and
@@ -5034,11 +5077,19 @@ referenced in equation is not declared`. So the shape of the rule is: **a
 size may be bound, a number must be declared**, and a document that mixes the
 two has to know which of its metaparameters the logic reads.
 
-**`index_set_rename` cannot be used at all in this shape** —
-`subsystem_index_set_rename_unsupported_mount_form`, because it applies at a
-`subsystems.<k>` edge and the ingesting build cannot see a subsystem (F45).
-Finding F49. This is the field that would have replaced the restatement with a
-namespace, and it is the one that is closed.
+**`index_set_rename` works, since #298, and it is the field Phase 7 needs.**
+It was refused at this mount form until then —
+`subsystem_index_set_rename_unsupported_mount_form`, finding F49, now retired.
+Re-measured at `9dd36c7f6`: renaming **all 53** of the fixture's axes at the
+mount edge validates *and* emits the same 375 rows byte for byte. `run-tests.sh`
+checks it by evaluating rather than by validating, because a rename that
+validated and quietly merged under the original names would pass the weaker
+check.
+
+This is what lets a per-fixture document namespace a shared domain document's
+axes instead of adopting its names, which is the precondition for mounting two
+domain documents that both spell an axis `rows` or `lev`. Nothing in this
+repository needs it yet; it is checked because Phase 7 plans on it.
 
 **`enums` cross the mount and reach the build** — the fourth block, which 7a
 had no occasion to test. Change a value in the mounted child and the emitted
@@ -5058,61 +5109,69 @@ a non-integer type; there is no non-integer metaparameter in `esm 0.2.0`. A
 per-fixture *scalar* configuration value that is not a whole number has no
 metaparameter spelling and has to arrive as data.
 
-## 55. Do not trust `esm validate` to catch a missing index-set restatement — unless the child declares a literal-sized axis **[PLAN.md step 7c, one `size: 1` decides which tool reports it]**
+## 55. Do not trust `esm validate` to catch a missing declaration — the tool that reports it is not the one you ran **[PLAN.md step 7c, two findings, same shape]**
 
-F46 says the restatement's absence is silent at validate and loud at the
-build. At fixture scale it is loud at **validate**, and the difference is one
-size: a child all of whose index sets are metaparameter-sized keeps F46's
-silence, and a child with even one **literal** size (`{"kind": "interval",
-"size": 1}`) makes the mounting document's validate report `Aggregate range
-references undeclared index set`. Same deletion, same document but for that
-one entry, different tool. Finding F48, and it was confirmed in both
-directions — adding a literal-sized axis to 7a's child turns its recorded
-`✓ Validation passed` into the error.
+F46 recorded that a mounting document's missing `index_sets` restatement was
+silent at `esm validate` and loud at the build, and F48 that whether you got the
+silence depended on one thing nobody would look at: whether the child declared
+any **literal**-sized axis. Both are retired — EarthSciAST PR #298 removed the
+restatement entirely — and the habit they were teaching is not.
 
-Two consequences, and the second is the useful one.
+**The same shape came straight back, one block over.** Delete the
+`metaparameters` block the mount declares for its `extent`s and `esm validate`
+passes; the refusal arrives at the build, as
+`template_import_unknown_name`. That is F50, and it is why
+`run-tests.sh`'s 7a and 7c stages each run `validate` **and** the build against
+their probe and require the exact code, rather than reading a green `validate`
+as a verdict.
 
-* **A harness that watches F46 by requiring `validate` to pass is measuring
-  its own document, not the format.** `run-tests.sh`'s 7a stage does exactly
-  that, correctly for the document it holds. The 7c stage watches both halves
-  and says which is which.
-* **Give a shared domain document at least one literal-sized axis on
-  purpose.** A `run_rows` singleton, a 24-hour axis, a 12-month axis: any one
-  of them converts the whole class of missing-restatement mistakes from a
-  build failure deep in an aggregate into a validate error that names the
-  index set. It costs nothing and it is the cheapest tripwire in this file.
+Three consequences, and the last is the durable one.
 
-## 56. A per-fixture document's size is set by the SHARED document, not by the fixture **[PLAN.md step 7c, 96% of 551 lines is not configuration]**
+* **A harness that watches a declaration by requiring `validate` to pass is
+  measuring its own document, not the format.** This was true of the 7a stage's
+  F46 watch for as long as it existed, correctly for the document it held.
+* **Give a shared domain document at least one literal-sized axis on purpose.**
+  A `run_rows` singleton, a 24-hour axis, a 12-month axis. F48's mechanism is
+  gone but the reasoning holds for the next gap of its kind: a literal size is
+  the cheapest way to convert a class of mistake from a build failure deep in an
+  aggregate into a validate error that names the thing.
+* **Prefer the arrangement that fails loudly in every binding.** F51 is this
+  rule's third instance: a shape-open leaf passes in Rust, fails in Python, and
+  which you get depends on whether the leaf imports an expression-template
+  library. `leaf-owns-shape` fails loudly or passes in both, and that is the
+  reason to write it that way rather than any measurement of lines.
 
-The three blocks a mounting document must carry — `metaparameters` (F46),
-`index_sets` restated verbatim (F46, F48), `enums` restated for collision
-safety (§54) — are all keyed to what the **mounted** document declares. None
-of them expresses a choice the fixture makes. So as a shared domain document
-grows, every document that mounts it grows with it, by the same lines, and the
-per-fixture documents converge on being copies of each other.
+## 56. A per-fixture document's size is set by the SHARED document, not by the fixture **[PLAN.md step 7c, 92% of 270 lines is one finding]**
 
-Measured on `process-tirewear`, one process of one fixture: 551 lines, 528 of
-them (96%) mechanical. `moves-onroad.esm` over the whole default database has
-more axes and more extent metaparameters than one process does, and Phase 7
-plans about thirty fixtures on top of it.
+The blocks a mounting document must carry are keyed to what the **mounted**
+document declares, not to any choice the fixture makes. So as a shared domain
+document grows, every document that mounts it grows with it, by the same lines,
+and the per-fixture documents converge on being copies of each other.
 
-Three ways out, in the order they should be tried, and the first two are not
-in this repository's gift:
+**PR #298 removed most of it, and the residue is sharper than the original.**
+This section used to read 551 lines per fixture, 528 of them (96%) mechanical,
+against three named ways out. Measured again at `9dd36c7f6` (§53.2): **270
+lines, of which 247 (92%) are the single duplication F50 records**, and the
+three ways out have become one.
 
-1. **Fix F46** — merge a mounted file's `index_sets` and `metaparameters` into
-   the registry the ingesting build reads. This removes 528 of the 551 lines
-   and is the single highest-value upstream ask this project has.
-2. **Fix F49** (or F45) — a rename at the mount edge would at least let the
-   restatement be generated per fixture under its own names, and would remove
-   the axis-name collision bound on mounting two domain documents.
-3. **Factor the restatement into a mounted leaf of its own.** Not tested here
-   and not obviously possible: the blocks that must be restated are exactly
-   the blocks that do not cross a mount, so a "shape" leaf would have the same
-   problem one level down. Anyone reaching for it should measure it before
-   believing it.
+1. ~~**Fix F46**~~ — **landed**, as EarthSciAST PR #298. This was called "the
+   single highest-value upstream ask this project has" and it was: it removed
+   281 of the 551 lines, and it moved the shape to one both bindings accept.
+2. ~~**Fix F49**~~ — **landed in the same PR.** `index_set_rename` works at
+   this mount form now (§54), so the axis-name collision bound on mounting two
+   domain documents is gone.
+3. **Factor the duplication into a mounted leaf of its own.** Still untested and
+   still not obviously possible, for the reason given the first time: the block
+   that must be duplicated is exactly the block that does not merge upward, so
+   a "shape" leaf would meet the same rule one level down. Anyone reaching for
+   it should measure it before believing it.
+4. **Fix F50** — bind discovered extents in the scope that declares the
+   `data_sources` entry rather than at the root. This is now the single
+   highest-value upstream ask, and it is worth 247 of the remaining 270 lines,
+   thirty times over.
 
-Until one of those, PLAN.md §7.1's "one thin `.esm` per fixture" should be
-read as "one **mechanical** `.esm` per fixture", and the per-fixture documents
-should be reviewed for *agreement* with the shared document rather than read
-as configuration — which is what `tools/check-conventions.py` already does for
-enums and what F2's fix made unnecessary for index sets inside `runs/`.
+Until then, PLAN.md §7.1's "one thin `.esm` per fixture" should be read as "one
+**mechanical** `.esm` per fixture" — but the mechanical part is now one block
+rather than four, and it is the same block in every fixture, so
+`tools/check-conventions.py` can check the thirty against the shared document by
+name rather than by diff.

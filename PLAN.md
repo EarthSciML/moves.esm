@@ -1391,6 +1391,15 @@ and computes `MOVESOutput`. Then one thin `.esm` per fixture that imports the
 domain document **by reference**, configures it, and checks it against
 canonical output.
 
+**"Thin" is 270 lines, measured, and 247 of them are one upstream finding.**
+7c split a real fixture this way and counted what the mounting document has to
+carry (conventions §53.2). Before EarthSciAST PR #298 it was 551 lines, 96%
+mechanical; after #298 it is **270**, of which 247 are the metaparameter block
+F50 requires at the root and 23 are the document. Delete that block and the
+per-fixture document is 23 lines and is refused. So this section's word "thin"
+is one finding away from being true, it is the same finding in all thirty
+fixtures, and F50 is what to ask for.
+
 **Two shape constraints, both measured in 7a and neither of them optional.**
 An ingesting document holds exactly **one** model (F45), and that model is the
 mount — so the fixture has nowhere to put an inline `tests` block beside
@@ -1412,8 +1421,9 @@ intermediate assertions; it does not remove the ones we have.
 
 ### 7.2 What the format already does, measured
 
-Three probes, run against the pinned `esm 0.2.0` /
-EarthSciAST `3aa046d65`:
+Three probes, first run against the pinned `esm 0.2.0` / EarthSciAST
+`3aa046d65` and re-run at `9dd36c7f6` after PRs #297 and #298 merged. Two of the
+four bullets below changed at that rebuild and say so:
 
 - **Shape is already data-driven.** Every fixture's `index_sets` are sized by
   metaparameters, and those are bound at load time from a `data_sources`
@@ -1427,16 +1437,25 @@ EarthSciAST `3aa046d65`:
   alone — `invalid type: string "n_rows", expected i64` — and **validates
   through a parent** that declares `n_rows` and refs it. So the shared document
   is open at the top and the fixture closes it.
-- **But validation is not the build, and 7a found the gap (F46).** The mounting
-  document must **restate the child's `index_sets` verbatim**; without them
-  `esm validate` passes and the build fails (`aggregate range 'g' references
-  index set '…', which is not declared in the document index_sets
-  registry`), because the build reads the mounting document's own registry.
-  F2's merge is real and reaches the validator only. Measured both ways at the
-  mount edge: a child's **`metaparameters` do not merge up**, and its
-  **`data_sources` do**. That asymmetry is load-bearing — it is what lets
-  the shared document carry the whole default-DB catalogue while the fixture
-  carries the metaparameters and the axes.
+- **A child could leave its shape open — and should not.** The third bullet is
+  how this worked against the pinned `0.2.0`, and EarthSciAST PR #298 ended it:
+  a mounted leaf is now resolved in its own scope, so a leaf sized by names only
+  the root declares is refused `metaparameter_unbound`. Python had been refusing
+  that arrangement all along, as `subsystem_index_set_conflict`, and nothing here
+  measured it (F51). **The portable shape is `leaf-owns-shape`**: the leaf
+  declares its metaparameters and its `index_sets`, the mount declares the
+  `data_sources`. Both bindings accept it; `spikes/7a` and `spikes/7c` are both
+  written that way.
+- **What #298 fixed, and what it left (F46 → F50).** The mounting document used
+  to have to **restate the child's `index_sets` verbatim** — F46, worth 250
+  lines in the 7c mount — and no longer does. What remains is the
+  metaparameter half: a name a `data_source`'s `extent` binds must be declared
+  by the document owning the axis **and** by the root, because the loader API
+  closes discovered extents at the root. That is F50; `bindings` cannot carry
+  it, measured at 49 names. Measured both ways at the mount edge: a child's
+  **`metaparameters` do not merge up**, and its **`data_sources` do**. That
+  asymmetry is load-bearing — it is what lets the shared document carry the
+  whole default-DB catalogue.
 
 **`ref` with overrides EXISTS, and this plan previously said it did not.** That
 conclusion came from `{"ref": …, "metaparameters": …}` being refused
@@ -1447,8 +1466,9 @@ and **`expression_template_imports`** (`esm-schema.json`,
 {"n_cat": "n_spike_agecategory"}}` closes a child's *own* open metaparameters
 from the parent, with a runtime-discovered `extent` flowing through. Two
 limits: a metaparameter closed by `bindings` is **not readable in an equation**
-(—`bindings` closes sizes only), and it does **not** remove the index-set
-restatement above.
+(—`bindings` closes sizes only), and it can only *close* a name the referenced
+document already declares, never *supply* one — which is why it is not F50's
+way out.
 
 So configuration has three working channels, not none: a per-fixture
 `data_sources` key the shared document binds by name; a metaparameter declared
@@ -1581,41 +1601,96 @@ replacing it is a separate decision. Note the asset is 1.1 GB unpacked, not
 recommendation on record is to ship it as a sibling asset, which also removes
 an exclusion three CI workflows each re-implement.
 
+### 7.3.2 7c, done 2026-09-10 and re-shaped 2026-09-12: the mount at fixture scale
+
+`fixtures/process-tirewear.esm` — 49 `data_sources`, 411 variables, 245
+equations, 53 axes — split into `spikes/7c/tirewear_logic.esm` and
+`spikes/7c/tirewear_mount.esm` and compared against the inlined fixture's own
+output in the same run: **byte-identical, 375 rows over 26 fields**, and
+falsified by perturbing `emissionrate.meanBaseRate` and watching both halves
+move identically. It costs about 7 seconds of the suite. Conventions §53.
+
+**It was committed knowingly non-conforming and is not any more.** The first
+split declared the 53 axes in both halves, which the pinned `0.2.0` accepted and
+the spec did not; `run-tests.sh`'s stage header said so and said what to do when
+PR #298 landed. #298 merged on 2026-09-12 and the stage went red exactly as
+written. The instruction was followed: the mount's 250-line `index_sets` block
+is gone, the leaf owns the shape, and **both the Rust and the Python bindings
+now load the result** — which neither `spikes/7a` nor `spikes/7c` had ever done
+before.
+
+Three findings retired with it (F46, F48, F49) and two opened (F50, F51). The
+line counts are in conventions §53.1 and §53.2; the short version is 1505 → 1255
+for the mount, and 551 → 270 for what a per-fixture document would carry.
+
 ### 7.4 The one remaining upstream ask
 
-**Still none, but for a better reason than this section originally gave.**
-`ref`-with-overrides is not an ask because it **already exists**, spelled
-`bindings` (§7.2) — not, as first written here, because configuration can
-do without it. `url_template` parameterisation is retired by §7.3: there are
-no partitions left to address. The units
-gap is separate and already filed as EarthSciAST **PR #297** (`mi`, `lb`, `hp`,
-`gal` across all five bindings), which retires F44 and lets the eight
-`units: "1"` in `components/link_operating_mode_distribution.esm` be declared.
+**F50: bind a discovered `extent` in the scope that declares the
+`data_sources` entry, not at the root.**
+
+This section has said "still none" and "already exists, spelled `bindings`" in
+turn, and both were right when written. What changed is that the two asks it
+was waiting on **landed**, four days apart, and left one behind:
+
+* **PR #297** (`mi`, `lb`, `hp`, `gal` across all five bindings) merged
+  2026-09-12, retiring F44. The eight `units: "1"` in
+  `components/link_operating_mode_distribution.esm` are declared `mi/h` and
+  their apologies are deleted. Note what it did **not** buy: `esm validate`
+  does not propagate units through equations (`esm units` says "dimensional
+  analysis needed" on all 43), so the declaration is documentation and not yet
+  a check. F44's retirement note records that correction.
+* **PR #298** (run the §4.7 edge pipeline at a top-level `models.<k>` `{ref}`)
+  merged 2026-09-12, retiring F46, F48 and F49 together — the "single
+  highest-value upstream ask this project has", and it was: −250 lines in one
+  mount, −281 in a per-fixture document, `index_set_rename` available for
+  namespacing a shared document's axes, and a shape both bindings accept.
+
+**What is left is F50, and it is worth 247 lines in every one of about thirty
+fixtures.** A `data_source` with `extent: {metaparameter: "n_x"}` needs `n_x`
+declared in the document that owns the axis it sizes *and* in the root document
+that is loaded. `bindings` cannot bridge it — measured at 49 names, refused at
+load, because `bindings` closes a name the leaf declares and cannot supply one
+it lacks. The fix is to bind discovered extents in the scope that declares the
+entry; the root already reaches that scope, since it is the root that inlines
+it.
+
+**A second, smaller one: F51**, a Rust/Python disagreement about a shape-open
+leaf that depends on whether the leaf imports an expression-template library.
+This repository is not blocked by it — `leaf-owns-shape` is accepted by both —
+but the two bindings cannot both be right and the spec should say which.
 
 ### 7.5 Sequence
 
 | step | deliverable | gate |
 |---|---|---|
-| **7a** ✅ | The spike: one ref'd, data-fed, **parent-shaped** model evaluating end to end against a real table — **GO, 2026-09-10** | met; three corrections folded into §7.1–§7.3 |
+| **7a** ✅ | The spike: one ref'd, data-fed model evaluating end to end against a real table — **GO, 2026-09-10**; re-shaped to `leaf-owns-shape` 2026-09-12 with §7.3.2 | met; three corrections folded into §7.1–§7.3 |
 | **7b** ✅ | Full-database monolithic conversion — **done 2026-09-10**: 237 monolithic + 3 schema-only, 0 partition directories, 517 MB, 15.6 s, validator extended and all 7 planted corruptions red (§7.3.1) | met; the load cost is measured and does not dictate the layout |
-| **7c** | `moves-onroad.esm`: default DB → `MOVESOutput` for `process-tirewear` (one process; its port residual is already 2.5e-07), plus `fixtures/tirewear.esm` that refs, configures and asserts | first end-to-end number |
+| **7c** ✅ | The mount shape at fixture scale — **done 2026-09-10, re-shaped to conform 2026-09-12** (§7.3.2): `fixtures/process-tirewear.esm` split into a logic half and a mount, byte-identical over 375 rows × 26 fields, loading under both the Rust and the Python bindings. Three findings retired, two opened | met; what it cost is measured (conventions §53.2) and what remains is F50 |
+| **7c′** | `moves-onroad.esm`: default DB → `MOVESOutput` for `process-tirewear`, reading the monolithic database of §7.3 rather than the process snapshot, plus the per-fixture document that mounts it | first end-to-end number |
 | **7d** | Widen the runspec surface one selection dimension at a time — pollutant-process, source type, road type, timespan, geography | each dimension added only with a fixture that **discriminates** it (§23) |
 | **7e** | `moves-nonroad.esm`, same shape | 12 `nr-*` fixtures |
 | **7f** | The five fixtures needing a second input database (four `-single` on `washtenaw_cdb`, `scale-project` on the project DB) | last, because they are the only ones whose model input is not the default DB |
 
-**7a is a GO, run 2026-09-10.** A ref'd, parent-fed, parent-shaped model
-evaluates end to end against the real default database: `spikes/7a/` reads
-`AgeCategory` (41 rows) and `AgeGroup` (7), joins on `ageGroupID`, and reports
-4/2/2/2/5/5/21 categories and 6/9/13/17/60/85/630 age totals — verified
-against the raw Parquet independently of the document, and falsified by
-perturbing the table and watching exactly the predicted cells move. It is
-`run-tests.sh` stage 8, which is two-sided: it fails if the parent-shaped child
-ever starts validating *alone*, so the open-shape control cannot rot. The
-corrections it forced are folded into §7.1, §7.2 and §7.3 above. What follows
-is the original framing, kept because it is what the gate was for.
+**7a is a GO, run 2026-09-10.** A ref'd, parent-fed model evaluates end to end
+against the real default database: `spikes/7a/` reads `AgeCategory` (41 rows)
+and `AgeGroup` (7), joins on `ageGroupID`, and reports 4/2/2/2/5/5/21 categories
+and 6/9/13/17/60/85/630 age totals — verified against the raw Parquet
+independently of the document, and falsified by perturbing the table and
+watching exactly the predicted cells move. It is `run-tests.sh` stage 8, which
+is two-sided: it fails if the child ever starts validating *alone*, so the
+control cannot rot. The corrections it forced are folded into §7.1, §7.2 and
+§7.3 above.
+
+**The word "parent-shaped" is retired, and the change is not cosmetic.** The
+spike was written with the child's axes sized by metaparameters only the parent
+declared. EarthSciAST PR #298 refuses that, and Python always had; the same
+relation is now produced by a child that declares its own shape and is merely
+**data-open** — it reads two sources the parent holds. The numbers are the
+recorded ones, unchanged. See §7.3.2 and findings F50 and F51. What follows is
+the original framing, kept because it is what the gate was for.
 
 **The original framing.** What is proven is *scoping and
-validation*: a parent-shaped, parent-fed ref **validates**. What is not proven
+validation*: a parent-fed ref **validates**. What is not proven
 is that it **evaluates** — and the existing evidence is split in exactly the
 wrong way. `runs/*.esm` ref components and do evaluate under the suite, but
 supply **no data** (no `data_sources`, no `metaparameters`, no `index_sets`).

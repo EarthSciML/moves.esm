@@ -2310,32 +2310,63 @@ input nobody needed to assert.
 
 ---
 
-## F44 — the unit registry has no mile, so MOVES's activity unit goes undeclared
+## F44 — the unit registry has no mile, so MOVES's activity unit goes undeclared **[fixed upstream, retired]**
 
-**Not fixed. Repro: `F44_the_unit_registry_has_no_mile.esm`.**
+**Fixed by EarthSciAST PR #297 (merged 2026-09-12) and retired at the
+`9dd36c7f6` rebuild**, where `F44_the_unit_registry_has_no_mile.esm` went green
+in the tripwire — `run-tests.sh` stage 6 reported *"F44 NOW PASSES — the defect
+it records is fixed"*, which is the whole purpose of the inverted-polarity
+stage. The repro file is gone; the section stays so the workaround it forced
+can be traced, and because option (a) below — the general fix — did **not**
+land.
 
-`esm validate` refuses `units: "mi/h"` and `units: "mi"`:
+**The workaround is removed.** The eight variables in
+`components/link_operating_mode_distribution.esm` that carried `units: "1"` for
+a quantity in miles per hour are now declared `mi/h`, and the paragraph of
+apology each one carried is deleted with them: `lomd_linkAvgSpeed`,
+`lomd_lowScheduleSpeed`, `lomd_highScheduleSpeed`, `lomd_ratesAvgBinSpeed`,
+`lomd_speed`, `lomd_prevSpeed`, `lomd_prevSpeed2`, `lomd_prevSpeed3`.
 
-```
-✗ /models/F44/variables/link_avg_speed: Unit string 'mi/h' is not a recognised unit
-✗ /models/F44/variables/link_length:    Unit string 'mi' is not a recognised unit
-```
+**What landed, swept the same way the finding was measured** (one unit string
+at a time in an otherwise identical one-variable document, against
+`9dd36c7f6`):
 
-Measured against the pinned toolchain (`esm 0.2.0`, EarthSciAST
-`3aa046d6568bc27e555e03c9e3d4408f791557ae`), one string at a time in an
-otherwise identical one-variable document that differs in nothing else:
-
-| accepted | refused |
+| now accepted | still refused |
 |---|---|
-| `m`, `km`, `ft`, `kW`, `tonne` | `mi`, `mile`, `miles`, `in`, `yd`, `t`, `hp` |
-| `km/h`, `m/s`, `m/s^2`, `m s^-1`, `m*s^-1`, `W/kg`, `kW/tonne` | `mi/h`, `mph`, `mi h-1`, `mi/s`, `mi/yr`, `kW/t`, `m/s2` |
+| `mi`, `hp`, `lb`, `gal`, `ft`, `km` | `mile`, `miles`, `in`, `yd`, `t` |
+| `mi/h`, `mi/s`, `mi/yr`, `lb/h`, `gal/h`, `hp*h`, `km/h` | `mph`, `mi h-1`, `kW/t`, `m/s2` |
 
-So it is **not** a syntax question about compound units — `km/h` and `m/s^2`
-are accepted in exactly the position `mi/h` is refused — and **not** a general
-absence of imperial length, because `ft` is there. It is the mile, with the
-yard and the inch.
+So the **narrow** fix landed — four registry entries — and the yard and the
+inch are still missing, as they were after F34. That is now the third data
+point for F34's own prediction: the registry grows by exactly the units that
+are asked for, and the next quantity in an imperial unit meets the same wall
+one rung later.
 
-### Why this is not a curiosity
+### The check this finding predicted does not exist yet
+
+The entry above used to claim that declaring the input would catch a port that
+fed metres per second into the VSP polynomial's speed slot. **Measured after
+the fix, that is not true today.** With `lomd_speed` declared `mi/h` and
+`lomd_speedMs` declared `m/s`, computed from it by a dimensionless `0.44704`,
+`esm validate` passes — and it still passes when `lomd_speedMs` is deliberately
+re-declared as `kg`. `esm units` says why, on every one of the file's 43
+equations:
+
+```
+Equation 0: dimensional analysis needed
+...
+Equation 43: dimensional analysis needed
+```
+
+Units are recorded and reported per variable; they are not propagated through
+equations. So what #297 bought is a **declaration** — the quantity can be
+stated, and `esm units` now prints `mi/h` beside the four speeds — and not a
+check. The declaration is still worth making, because it is the precondition
+for the check and because it is documentation the next reader can trust. But
+this repository should not claim a units guarantee it does not have. Filed as
+the successor ask; see F50 for the shape this project keeps hitting.
+
+### Why it was not a curiosity
 
 The mile is the unit of MOVES's onroad activity model:
 
@@ -2352,39 +2383,14 @@ The mile is the unit of MOVES's onroad activity model:
 * every RunSpec in the corpus writes
   `<distancefactors selected="true" units="Miles"/>`.
 
-### What the workaround costs, measured
-
-Eight variables in `components/link_operating_mode_distribution.esm` carry
-`units: "1"` for a quantity in miles per hour. The cost is not untidiness. The
-one conversion in that file a units system could check is precisely the one it
-cannot: `lomd_speedMs` **is** declared, as `m/s`, and is computed from an
-undeclared `lomd_speed` by multiplying by a dimensionless `0.44704`. A port
-that fed metres per second into the polynomial's speed slot would be caught by
-a declared input and is not caught now — and that is a real mistake to make,
-because the VSP polynomial takes both quantities and they differ by 2.24×.
-
-### Relation to F34, which is retired
-
-F34 was this finding's shape for `inHg`, and was fixed by EarthSciAST
-`fa7ffb01e` (PR #238) adding that one unit. Its entry under "Fixed upstream"
-records that **only option (c) of its three landed** — one unit was added, and
-neither a general scale-factor syntax nor the inch. This is what "neither the
-inch" looks like from the next document along: the registry grew by exactly
-the unit that was asked for, so the next quantity in an imperial unit meets the
-same wall one rung later. Filing the mile is worth doing. Filing it *instead
-of* the general fix is how F34's own note says this repeats, and this entry is
-the second data point for that claim rather than a fresh complaint.
-
-### What would fix it
+### What would have fixed it, and what did
 
 (a) the general fix — a scale factor in a unit string, so a document can
-declare `1609.344 m` without the registry needing a name for it; (b) the
-narrow fix — `mi`, `yd` and `in` in the registry beside `ft`, which is one
-table entry each and which is what landed for `inHg`. (b) unblocks this
-repository; only (a) stops the next rung filing another one. (This sentence
-used to name F45; F45 turned out to be something else entirely, filed the same
-week from PLAN.md step 7a, and the placeholder is removed rather than
-renumbered.)
+declare `1609.344 m` without the registry needing a name for it; (b) the narrow
+fix — `mi`, `yd` and `in` in the registry beside `ft`. **(b) landed, and only
+partly**: `mi` came with `hp`, `lb` and `gal`, which is what this repository
+asked for; `yd` and `in` did not. (a) is still the thing that would stop the
+next rung filing another one.
 
 ---
 
@@ -2484,10 +2490,26 @@ document already gets, extended to the case the schema plainly allows.
 
 ---
 
-## F46 — a mounted child's `index_sets` and `metaparameters` do not reach the ingesting build
+## F46 — a mounted child's `index_sets` and `metaparameters` do not reach the ingesting build **[half fixed upstream, retired]**
 
-**Not fixed. No repro file, for the reason below; gated two-sided by
-`run-tests.sh`'s 7a stage.** Found running PLAN.md step 7a.
+**Fixed by EarthSciAST PR #298 (merged 2026-09-12) and retired at the
+`9dd36c7f6` rebuild**, where both two-sided watches went red and said so: the
+7a stage reported *"a mounted child's index sets now reach the ingesting
+interpreter"*. Found running PLAN.md step 7a; what follows is the finding as it
+stood, kept because the workarounds it forced are traceable through it.
+
+**Half, and the half that remains is now F50.** #298 closed part 1 — a mounted
+child's `index_sets` reach the ingesting build, and neither `spikes/7a` nor
+`spikes/7c` restates them any more (−250 lines in the 7c mount alone). Part 2,
+that a child's `metaparameters` do not merge up, is unchanged and is why both
+mounts still carry a metaparameter block that the leaf also carries. It is
+refiled as **F50**, which states it in the form the fix left it in.
+
+**The shape of both documents changed with it**, and in the direction the
+finding did not anticipate: it is now the LEAF that declares the metaparameters
+and owns the axes, because #298 resolves a mounted leaf in its own scope. The
+arrangement this finding describes — leaf shape-open, parent supplying the
+sizes — is refused outright today.
 
 PLAN.md §7.2 measured that a child declaring `index_sets: {rows: {size:
 "n_rows"}}` and no `n_rows` **validates through a parent** that declares
@@ -2627,11 +2649,20 @@ mounted.
 
 ---
 
-## F48 — `esm validate` sees a missing index-set restatement only when the child declares no literal-sized axis
+## F48 — `esm validate` sees a missing index-set restatement only when the child declares no literal-sized axis **[fixed upstream, retired]**
 
-**Not fixed. No repro file, for F46's reason; gated two-sided by
-`run-tests.sh`'s 7c stage.** Found running PLAN.md step 7c, splitting
-`fixtures/process-tirewear.esm` into the Phase 7 mount shape.
+**Retired with F46 at the `9dd36c7f6` rebuild (EarthSciAST PR #298,
+2026-09-12).** F48 was a statement about *when F46 becomes visible*, so closing
+F46's index-set half closed it: there is no restatement to omit. Found running
+PLAN.md step 7c; kept because its conclusion outlived it.
+
+**What survives is the advice, and it applies to F50 unchanged.** The useful
+half of this finding was never the literal-size rule but what it implied:
+**give a shared domain document at least one literal-sized axis on purpose**,
+so that a whole class of mistake reports at `esm validate` instead of deep in a
+build. F50 is the same shape one block over — silent at validate, loud at the
+build — which is why `run-tests.sh` runs both tools against its probe rather
+than trusting the first.
 
 F46 records that a mounting document must restate the child's `index_sets`,
 and that the omission is **silent at `esm validate`** and loud only at the
@@ -2698,10 +2729,22 @@ check consistent — it should either always see the merged registry or never.
 
 ---
 
-## F49 — `index_set_rename` is refused at the only mount form an ingesting document can use
+## F49 — `index_set_rename` is refused at the only mount form an ingesting document can use **[fixed upstream, retired]**
 
-**Not fixed. No repro file — see below; gated two-sided by `run-tests.sh`'s 7c
-stage.** Found running PLAN.md step 7c.
+**Fixed by EarthSciAST PR #298 (merged 2026-09-12) and retired at the
+`9dd36c7f6` rebuild.** Found running PLAN.md step 7c. The rename is now
+accepted at a top-level `models.<k>` `{ref}`, and `run-tests.sh`'s 7c stage
+keeps the probe with its polarity inverted: it renames **all 53** of the
+fixture's axes at the mount edge and requires the emitted relation to be
+byte-identical to the un-renamed one. Measured green, 375 rows over 26 fields.
+
+That matters more than closing a refusal. This was the field that would let a
+per-fixture document namespace a shared domain document's axes rather than
+adopt its names, and it is the mechanism Phase 7 needs to mount two domain
+documents without an axis-name collision. It is now available, and it is
+checked by evaluation rather than by validation, because a rename that
+validated and quietly merged under the original names would pass the weaker
+check.
 
 `SubsystemRef` accepts `index_set_rename`, and conventions §49.1 records what
 it is for: "renames a mounted axis, so two mounts that both use `lev` at
@@ -2759,3 +2802,155 @@ says the pre-pass defers the leaf's §9.7 resolution to the root document, so
 the rename would have to be applied to the leaf's axes as they are inlined.
 Or fix F45 so that `subsystems` reach the ingesting build, which would open the
 mount form the message recommends.
+
+Both of those landed: PR #298 applied the rename at the inlining edge, and the
+7c stage now checks it by evaluating a 53-axis rename rather than by requiring
+the error code.
+
+---
+
+## F50 — the metaparameters a `data_source`'s `extent` binds must be declared twice
+
+**Not fixed. No repro file, for F46's reason; gated two-sided by
+`run-tests.sh`'s 7a and 7c stages.** Found at the `9dd36c7f6` rebuild, adopting
+EarthSciAST PR #298 — it is the half of F46 that the fix did not close, stated
+in the form the fix left it in.
+
+A `data_sources` entry with `extent: {metaparameter: "n_x"}` discovers its row
+count at load. Two different documents must declare `n_x`:
+
+* **the document that owns the axis** sized by it, because #298 resolves a
+  mounted leaf in its own scope and refuses `metaparameter_unbound` otherwise;
+* **the root document that is loaded**, because the loader API binds the
+  discovered extents there.
+
+When those are the same document nothing is duplicated. In the Phase 7 mount
+shape they are never the same document: the logic half owns the axes and the
+mount holds the catalogue.
+
+### Measured, both halves
+
+Delete the mount's `metaparameters` from `spikes/7c/tirewear_mount.esm` and
+`esm validate` **passes**. The build does not:
+
+```
+$ ./esm simulate spikes/7c/.f50_probe.esm --time 0 ...
+[template_import_unknown_name] loader API binds metaparameter(s) n_agecategory,
+n_avgspeedbin, ... n_zoneroadtype but the document declares none
+(esm-spec §9.7.6)
+```
+
+That is the same validate/build split F48 recorded about the other block, one
+block over, which is why the watch runs both tools.
+
+### `bindings` cannot carry them, which is what makes this a format ask
+
+The obvious workaround is the one `SubsystemRef` seems to offer: let the mount
+declare the 49 names and bind each to itself at the edge, so the leaf declares
+none. It is refused at **load**:
+
+```
+[template_import_unknown_name] loader API binds metaparameter 'n_agecategory',
+which the document does not declare (esm-spec §9.7.6)
+```
+
+`bindings` is checked against what the **referenced** document declares, not
+against what the mount offers, so it closes a name the leaf already has and
+cannot supply one it lacks. Measured at all 49 names. Without this half, "F50
+needs a format change" would be an assertion; with it, it is a measurement.
+
+### What it costs, and why it is the last thing in the way
+
+Counted on `spikes/7c` after #298:
+
+| | before #298 | after | after F50 |
+|---|---|---|---|
+| mount total | 1505 | **1255** | — |
+| `data_sources` | 954 | 954 | 954 |
+| `metaparameters` | 247 | **247** | **0** |
+| `index_sets` | 250 | **0** | 0 |
+| `enums` | 31 | 31 | 31 |
+
+The third column is not a projection. Moving the `data_sources` catalogue into
+the shared document — the layout PLAN.md §7.1 wants, and §7.3's monolithic
+conversion makes identical for every fixture — leaves a per-fixture document of
+**metadata, one `{ref}`, and the 247-line metaparameter block**: 270 lines,
+measured, byte-identical output. Delete the block and the same document is
+**23 lines**, and is refused only by this finding. So F50 is the whole of the
+distance between "one mechanical `.esm` per fixture" and PLAN.md §7.1's "one
+thin `.esm` per fixture", across about thirty fixtures.
+
+### What would fix it
+
+Bind the discovered extents in the scope that declares the `data_sources`
+entry, rather than at the root — the root already reaches that scope, because
+it is the root that inlines it. Failing that, let `bindings` introduce a name
+into the referenced document rather than only close one it declares; that is a
+smaller change and would cost one line per name instead of a block, though it
+leaves the asymmetry in place.
+
+### Why there is no repro file
+
+F46's reason exactly. The failure is at the build of a two-document assembly
+whose sole model is a mount, and such a document discovers zero assertions
+(F47), so `esm test` exits 0 and the tripwire would read "NOW PASSES" without
+anything having been asserted. Both stages check it by command instead, running
+`validate` **and** the build and requiring the exact error code, so a change in
+either direction is reported.
+
+---
+
+## F51 — Rust and Python disagree about a shape-open leaf, unless it imports a template
+
+**Not fixed. No repro file, for F46's reason; not gated, because this
+repository no longer contains a document of the shape that triggers it.** Found
+at the `9dd36c7f6` rebuild while adopting EarthSciAST PR #298, from the
+document `spikes/7a/spike_parent.esm` had been for four days.
+
+A mounted leaf whose `index_sets` are sized by metaparameters only the ROOT
+declares is accepted by the Rust binding and refused by the Python one —
+**unless** the leaf also carries `expression_template_imports`, in which case
+both refuse it, with the same code. Measured at `9dd36c7f6` on the same two
+files, one field apart:
+
+| the mounted leaf | Rust | Python |
+|---|---|---|
+| shape-open, no template imports | **accepts** | `subsystem_index_set_conflict` |
+| shape-open, **plus one unused** `expression_template_imports` entry | `metaparameter_unbound` | `metaparameter_unbound` |
+| declares its own metaparameters (`leaf-owns-shape`) | accepts | accepts |
+
+The middle row is a single added import of a library the leaf never calls. It
+is what makes this a finding rather than a note: the strictness of the leaf's
+close is decided by an unrelated declaration, so a document can be conforming
+until someone factors an expression into a library.
+
+**How it was found, which is the part worth keeping.** `spikes/7a` was written
+before #298 in the shape the first row describes, and `run-tests.sh` reported it
+green on every run — correctly, for the binary it runs. Nothing in this
+repository executes the Python binding, so the disagreement was invisible until
+#298's strict close forced `spikes/7c` (whose leaf *does* import templates) into
+`leaf-owns-shape` and the same treatment was applied to `spikes/7a` for
+consistency. Both spikes now load under both bindings, which they never did
+before.
+
+**This is F48's shape again** — a behaviour whose visibility depends on
+something nobody would think to look at — and it is the third instance in this
+project (F48, F44's registry, this). The general lesson is in conventions §55:
+prefer the arrangement that fails loudly in every binding over the one that
+happens to pass in the binding you run.
+
+### What would fix it
+
+Make the two bindings agree, in whichever direction the spec intends: §9.7.5
+says an importing model's variables may be shaped over an imported file's axes
+**without redeclaring them**, which reads as the Rust behaviour, while §9.7.6's
+strict close reads as the Python one. The two rows of the table are the same
+document, so at most one of them can be right.
+
+### Why this repository is not blocked by it
+
+`leaf-owns-shape` — the leaf declares the metaparameters and owns the axes — is
+accepted by both bindings in every case measured, costs nothing beyond F50's
+duplication, and is what `spikes/7a` and `spikes/7c` both do now. The finding is
+recorded so that the next author who writes a shape-open leaf, and sees it pass,
+knows why it is not portable.
