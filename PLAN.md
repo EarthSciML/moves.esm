@@ -1635,10 +1635,13 @@ was waiting on **landed**, four days apart, and left one behind:
 * **PR #297** (`mi`, `lb`, `hp`, `gal` across all five bindings) merged
   2026-09-12, retiring F44. The eight `units: "1"` in
   `components/link_operating_mode_distribution.esm` are declared `mi/h` and
-  their apologies are deleted. Note what it did **not** buy: `esm validate`
-  does not propagate units through equations (`esm units` says "dimensional
-  analysis needed" on all 43), so the declaration is documentation and not yet
-  a check. F44's retirement note records that correction.
+  their apologies are deleted. Note what it did **not** buy: the conversion on
+  those lines is still unchecked, because a multiplicative literal gives the
+  whole equation an indeterminate dimension — 37 of 61 wrong unit declarations
+  in this repository validate clean. That is EarthSciAST #302, with #303 for
+  the `esm units` stub that hid it. F44's retirement note has the measurement;
+  an earlier draft of it said units were not propagated at all, which was
+  wrong — they are, and the multiplicative path is where it stops.
 * **PR #298** (run the §4.7 edge pipeline at a top-level `models.<k>` `{ref}`)
   merged 2026-09-12, retiring F46, F48 and F49 together — the "single
   highest-value upstream ask this project has", and it was: −250 lines in one
@@ -1654,10 +1657,21 @@ it lacks. The fix is to bind discovered extents in the scope that declares the
 entry; the root already reaches that scope, since it is the root that inlines
 it.
 
-**A second, smaller one: F51**, a Rust/Python disagreement about a shape-open
-leaf that depends on whether the leaf imports an expression-template library.
-This repository is not blocked by it — `leaf-owns-shape` is accepted by both —
-but the two bindings cannot both be right and the spec should say which.
+**Filed 2026-09-12, all against EarthSciML/EarthSciAST:**
+
+* **#301** — F50, above, with a three-row two-document repro and the case
+  matrix. It also carries the sub-observation that whether the *leaf* must
+  declare the name is decided by whether it imports an expression-template
+  library, which looks wrong on its own.
+* **#302** — a multiplicative literal silently disables an equation's
+  dimensional check; 37 of 61 wrong unit declarations in this repository
+  validate clean.
+* **#303** — `esm units` never calls the analyser `validate` runs, and prints
+  `dimensional analysis needed` for every equation.
+
+**Recorded but not filed: F51**, a Rust/Python disagreement about a shape-open
+leaf. This repository is not blocked by it — `leaf-owns-shape` is accepted by
+both — and the cross-binding question is not what this project is chasing now.
 
 ### 7.5 Sequence
 

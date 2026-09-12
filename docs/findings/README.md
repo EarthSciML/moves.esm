@@ -2342,29 +2342,44 @@ point for F34's own prediction: the registry grows by exactly the units that
 are asked for, and the next quantity in an imperial unit meets the same wall
 one rung later.
 
-### The check this finding predicted does not exist yet
+### The check this finding predicted does not fire on this file
 
-The entry above used to claim that declaring the input would catch a port that
-fed metres per second into the VSP polynomial's speed slot. **Measured after
-the fix, that is not true today.** With `lomd_speed` declared `mi/h` and
-`lomd_speedMs` declared `m/s`, computed from it by a dimensionless `0.44704`,
-`esm validate` passes — and it still passes when `lomd_speedMs` is deliberately
-re-declared as `kg`. `esm units` says why, on every one of the file's 43
-equations:
+The entry above claimed that declaring the input would catch a port that fed
+metres per second into the VSP polynomial's speed slot. **It does not, and the
+reason is narrower and more interesting than "units are not checked".**
+
+`esm validate` does propagate dimensions through expressions, and it does refuse
+a mismatch: `c [kg] = a [m] / b [s]` is rejected with *"Left-hand side has units
+of mass but right-hand side has units of length*time^-1"*. An earlier version of
+this note said units were not propagated at all; that was wrong, and it was
+wrong because it generalised from this file plus the output of `esm units`,
+which is a stub that prints `dimensional analysis needed` for every equation
+without calling the analyser (EarthSciAST #303).
+
+**What actually happens is that a multiplicative literal switches the check
+off.** `src/units.rs` gives a bare numeric literal — and a `const` node, and an
+`apply_expression_template` call — an *indeterminate* dimension rather than a
+dimensionless one, deliberately and for a good reason (`273.15` may be an
+offset). But `*` and `/` return indeterminate as soon as any operand is, and an
+indeterminate right-hand side is never compared to the left. So
 
 ```
-Equation 0: dimensional analysis needed
-...
-Equation 43: dimensional analysis needed
+lomd_speedMs [m/s] = lomd_speed [mi/h] * 0.44704
 ```
 
-Units are recorded and reported per variable; they are not propagated through
-equations. So what #297 bought is a **declaration** — the quantity can be
-stated, and `esm units` now prints `mi/h` beside the four speeds — and not a
-check. The declaration is still worth making, because it is the precondition
-for the check and because it is documentation the next reader can trust. But
-this repository should not claim a units guarantee it does not have. Filed as
-the successor ask; see F50 for the shape this project keeps hitting.
+is unchecked, and `lomd_speedMs` can be declared `kg` without complaint.
+Measured across this repository: change the declared units of every equation LHS
+that has them, one at a time, and **37 of 61 wrong declarations validate
+clean** — 10 of 12 in `link_operating_mode_distribution.esm`, which multiplies
+by a conversion constant on almost every line, and 0 of 9 in
+`tank_temperature.esm`, whose arithmetic is additive. Filed as EarthSciAST #302.
+
+So what #297 bought is a **declaration** — the quantity can be stated, and the
+0.44704 is now a conversion between two named units rather than a magic number.
+It is not yet a check on this particular line. The declaration is still worth
+making: it is the precondition for the check, it is documentation the next
+reader can trust, and #302's cheapest proposal (say which equations were not
+checked) would turn the gap into something visible.
 
 ### Why it was not a curiosity
 
