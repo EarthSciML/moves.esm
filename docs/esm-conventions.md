@@ -5175,3 +5175,126 @@ Until then, PLAN.md §7.1's "one thin `.esm` per fixture" should be read as "one
 rather than four, and it is the same block in every fixture, so
 `tools/check-conventions.py` can check the thirty against the shared document by
 name rather than by diff.
+
+## 57. A unit on a constant is declared once, on the template that names it, and only where the unit is certain **[EarthSciAST PR #347, esm 1.2.0; 17 constants, 51 declarations corrected]**
+
+A bare numeric literal has an undeterminable dimension, and a product containing
+one is not checked (finding F44's units subsection, EarthSciAST #302). From esm
+1.2.0 a `const` node may declare the unit its value is in (esm-spec §4.8.5), and
+since PR #339 two units agree only in dimension **and** exact scale. This section
+is how this repository uses the two.
+
+**1. The unit goes on the `const` inside the zero-parameter template that already
+names the constant.** §6 made every reused constant a template, so each value
+already existed once, in the library of the stage that uses it, and its unit is
+written once, beside it:
+
+```json
+"inches_hg_to_kilopascals": { "params": [], "body":
+  { "op": "const", "args": [], "value": 3.38639, "units": "kPa/inHg" } }
+```
+
+A template call has the unit of its expansion (§4.8.5 rule 5), so one annotation
+makes every call site checkable. There is deliberately **no separate conversions
+library**: moving `inches_hg_to_kilopascals` out of `lib/meteorology.esm` would
+put the number away from the MOVES source it is cited against and buy nothing an
+import does not already give. Two constants that share a unit and not a value
+stay two templates — NONROAD's `grams_per_pound` 453.6 in
+`lib/emission_factors.esm` and the air-toxics 453.592 in
+`lib/nonroad_speciation.esm`; the engine's 6.237 lb/gal and the calculator's
+6.17 — because a declared unit never checks a value, and merging them would be a
+fidelity change, not a units change.
+
+| template | value | `units` |
+|---|---|---|
+| `lib/drive_cycle.esm` `gravity_m_per_s2` | 9.81 | `m/s^2` |
+| `lib/emission_factors.esm` `grams_per_pound` | 453.6 | `g/lb` |
+| `lib/nonroad_speciation.esm` `grams_per_pound` | 453.592 | `g/lb` |
+| `lib/nonroad_speciation.esm` `nonroad_engine_gasoline_density`, `air_toxics_gasoline_density` | 6.237, 6.17 | `lb/gal` |
+| `lib/meteorology.esm` `inches_hg_to_kilopascals` | 3.38639 | `kPa/inHg` |
+| `lib/meteorology.esm` `water_ice_point_kelvin` | 273.15 | `K` |
+| `lib/meteorology.esm` `fahrenheit_freezing_point` | 32 | `degF` |
+| `lib/meteorology.esm` `percent_scale` | 100 | `percent` |
+| `lib/meteorology.esm` `default_pressure_high_altitude`, `default_pressure_low_altitude`, `altitude_pressure_threshold` | 24.59, 28.94, 25.8403 | `inHg` |
+| `lib/meteorology.esm` `fahrenheit_to_kelvin`, the slope | 5 over 9 | `K/degF` over `1` |
+| `lib/adjustments.esm` `exhaust_temperature_reference`, `nox_diesel_temperature_ceiling`, `pm_temperature_ceiling` | 75, 77, 72 | `degF` |
+
+**2. `"units": "1"` only where it is measured to make an equation checkable.** A
+product or quotient with one bare literal in it is undeterminable, so a unit on
+its sibling is wasted unless the literal gets one too. It mattered once:
+`fahrenheit_to_kelvin` is `(5/9)·(T − 32) + 273.15`, and with `5` declared
+`K/degF` over a bare `9`, a Kelvin result declared `kg` still validates; with the
+nine declared `1` it is refused (a three-line probe). The repository-wide sweep
+cannot show this, because the same wrong declaration is also caught one equation
+later, in `saturation_vapor_pressure`'s `log10`. No other `"units": "1"` is
+written: identifier packing (`100·pollutant + process`, `floor(county/1000)`),
+code values and fractions stay bare, because nothing they multiply is declared
+anything but `1`.
+
+**3. Inline data stays bare.** `lomd_linkAvgGrade = const[0.0, …]` gets no unit on
+the `const`: the variable's declaration is the one statement of what the numbers
+are in, and a copy on the node would catch only a disagreement between two copies
+of the same string. It costs five of the 61 declarations F44's sweep counts —
+`act_medianLifeFullLoad`, `lomd_linkAvgGrade`, `met_relHumidity`,
+`somd_bandMinSoakTime`, `somd_bandMaxSoakTime`, all data with no checked consumer.
+Two more data declarations, `met_rawBarometricPressure` and `met_temperature`,
+went from silent to caught with nothing written on them, through the annotated
+constants their consumers use — which is the check this rule keeps.
+
+**4. Empirical regression coefficients stay bare.** The Rothfusz heat-index
+coefficients, the Goff-Gratch exponent's, the evaporative RVP and TVV regressions
+(`0.026196`, `0.00076898`, `46.321`, …), the EV temperature slopes (`0.00225`,
+`0.00028`), the scrappage fit (`-1.4306`, `-0.24`): each has a unit only in the
+sense of whatever makes its regression balance, this port has no source that
+states one, and a unit derived from the equation is a check against itself.
+Coefficients that arrive as table columns — the VSP A/B/C, `tempAdjustTermA` —
+are declarations, not constants, and are rule 6's business.
+
+**5. A unit the registry cannot spell, or would misstate, stays bare.**
+`days_per_week` (there is no `week`), `quarter_hours_per_hour`,
+`kilojoules_per_million_btu` (there is no MMBTU, and `kJ/BTU` is a million out),
+and `days_per_year`: the registry's `yr` is the Julian 365.25 days (esm-spec
+§4.8.1), so `365 day/yr` would state NONROAD's calendar count as a conversion to
+a different year.
+
+**6. An annotation that makes a document refuse is a finding.** If what refuses is
+`1` declared on a quantity whose own description or MOVES source names the unit,
+correct the declaration — it is a unit error the old check could not see. The
+annotations above cost 51 such corrections, all in fixtures: temperatures
+(`degF`), the temperature-adjustment A and B terms (`1/degF`, `1/degF^2`, from
+`1 + d(A + dB)` with `d = temperature − 75` °F, criteria_running_calculator.rs:3369),
+vapour pressures (`kPa`) and the EV reference temperature. If the fix is not a
+declaration, or the unit is not certain, leave the constant bare and record why.
+Measured on the PR binary against the annotated tree:
+
+| constant | would be | refuses | why it is not a declaration fix here |
+|---|---|---|---|
+| `mph_to_meters_per_second` 0.44704 | `m*h/(mi*s)` | 10 onroad fixtures, `spikes/7c/tirewear_logic.esm`, and its 1.1.0 mount | every drive-schedule speed there is declared `1`, and `spikes/` is being edited on main; and the acceleration arithmetic, `speed[t] − speed[t−1]` used as mph/s, carries an implicit one-second step that no declaration states |
+| `heat_index_threshold`, `heat_index_ceiling` 78, 120 | `degF` | 10 fixtures and both 7c spike documents | heat indices, and in five fixtures temperatures, declared `1`; the spike again |
+| `specific_humidity_constant` 621.1 | `g/kg` | process-crankcase-running, process-nox-speciation | `humidityTermA` and the humidity bound columns serve CFR86 (specific humidity, g/kg) and CFR1065 (mole fraction) from one column, so no single declaration of them is right |
+| `short_tons_per_gram` 1.102311e-06, and `grams_per_short_ton` with it | `short_ton/g` | exhaust_rollup, movesoutput_aggregation, nr_logging_county_run | the NONROAD emission product upstream is declared `1` factor by factor, and several factors (`adjustmentTime`, `monthDayFactor`, `unitConversionFactor`) have no unit MOVES pins |
+| `sulfur_switch_ppm`, `sulfur_reference_ppm`, `sulfur_high_ppm`, `volume_percent_scale` | `ppm`, `percent` | components/fuel_effects.esm | `fe_propValue` is one column holding seven fuel properties in different units |
+
+**7. Version.** A unit-bearing `const` needs esm ≥ 1.2.0 on the document that
+carries it **and on every root that mounts a document expanding to it**.
+Measured: a 1.1.0 document that only *imports* a 1.2.0 library with a unit-bearing
+constant is accepted, but a 1.1.0 root that *mounts* such a document is refused
+(`const_units_version_too_old`), because the assembly is re-validated under the
+root's version — the rule the `faq` rename met at `fdd32f1`. So every model
+document declares 1.2.0. `spikes/` and `docs/findings/` stayed at 1.1.0, which is
+why nothing `spikes/7c/tirewear_logic.esm` expands may carry a unit until its
+mount moves (it imports `lib/drive_cycle.esm`, but not `gravity_m_per_s2`).
+
+**What it bought**, on the 61 declarations of F44's sweep (each wrong unit tried
+alone; "dimension" replaces the unit with `cd`, "scale" multiplies it by `km/m`):
+
+| | dimension-wrong, silent | scale-wrong, silent |
+|---|---|---|
+| before, main binary (`58d21a1a1`) | 17 | 59 |
+| before, PR #347 binary (`7704f9621`) | 17 | 16 |
+| after, PR #347 binary | 13 | 12 |
+| after, main binary | — refused at load: 32 documents carry a unit-bearing `const` | — |
+
+A declared unit never checks the VALUE — `const(0.4470, "m*h/(mi*s)")` is accepted —
+or an affine offset: the 273.15 and the 32 are checked as temperatures, not as the
+right temperatures.

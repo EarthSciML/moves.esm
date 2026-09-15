@@ -2381,6 +2381,55 @@ making: it is the precondition for the check, it is documentation the next
 reader can trust, and #302's cheapest proposal (say which equations were not
 checked) would turn the gap into something visible.
 
+**Re-measured 2026-09-15, and what EarthSciAST PRs #339 and #347 do to it.** On
+branch `units/const-units`, with the PR #347 head (`7704f9621`, which contains
+#339) beside today's main (`58d21a1a1`):
+
+* **The 61 reproduces; the 37 does not.** The denominator is every equation LHS in
+  `components/` and `runs/` whose declared unit is not dimensionless (60 + 1).
+  With today's main binary, replacing each by `kg` leaves 27 silent, and replacing
+  each by `cd` — a unit no quantity here has — leaves 17. Part of that gap is the
+  probe: `kg` is a mass, so every mass declared `g` looks silent
+  (`nr_air_toxics.esm` 4, `nr_hc_speciation.esm` 6). The other ten are the binary
+  and not the documents: the 2026-09-12 tree (`9557b86`) gives the same 27 under
+  today's binary. The 09-12 binary no longer exists, so which upstream change
+  closed them is not identified.
+* **#339 (exact scales) catches a scale error wherever a dimension error is
+  caught.** Multiply each of the 61 by `km/m` instead: 59 silent on main, 16 on
+  the PR binary, same documents.
+* **#347 (units on a `const`) is what reaches the multiplicative literal.**
+  Seventeen constants now declare units, on the templates that already named them
+  (conventions §57): dimension-wrong silent 17 → 13, scale-wrong 16 → 12. On the
+  main binary the same tree does not load — 32 documents carry a unit-bearing
+  `const`, which its schema refuses.
+* **It found 51 wrong declarations the old check could not see**, every one `1` on
+  a dimensional quantity whose own description names the unit, in five fixtures:
+  temperatures, temperature-adjustment coefficients, vapour pressures and the EV
+  reference temperature. Each was corrected; no arithmetic changed.
+
+**The line this section opens with is still unchecked.** `0.44704` carries no unit
+on the branch — annotating it refuses ten onroad fixtures and `spikes/7c`, whose
+drive-schedule speeds are declared `1` — and even annotated, `lomd_accelerationMs`
+validates declared `m/s`, `m/s^2` or `kg` alike: it is a speed difference over an
+implicit one-second step, inside an `ifelse` the checker cannot type. The thirteen
+still silent to a wrong dimension:
+
+| declaration | why it is still silent |
+|---|---|
+| `lomd_speedMs`, `lomd_accelerationMs` | `0.44704` bare (conventions §57 rule 6) |
+| `lomd_vsp` | the VSP polynomial's terms are bound as unit-less `const` arrays, and `speed_ms` comes from the bare conversion |
+| `met_saturationVaporPressure` | `10^x` with a symbolic exponent: undeterminable by esm-spec §4.8.3, not for want of a unit |
+| `met_heatIndex` | the Rothfusz coefficients are bare (§57 rule 4) |
+| `met_specificHumidity` | `621.1` bare: the NOx humidity columns it would force serve two equations in two units (§57 rule 6) |
+| `out_emissionQuant` | `grams_per_short_ton` bare: the NONROAD product upstream is declared `1` (§57 rule 6) |
+| `chainEmissionGrams` | `deterioration_factor`'s `min(age, cap)^B` has a symbolic exponent, and every other factor of the product is declared `1` |
+| `act_medianLifeFullLoad`, `lomd_linkAvgGrade`, `met_relHumidity`, `somd_bandMinSoakTime`, `somd_bandMaxSoakTime` | inline data with no checked consumer (§57 rule 3) |
+
+Scale-wrong, the list is the same less `lomd_speedMs`, and that one is caught by a
+different check — *"Unit conversion factor is incorrect for specified unit
+transformation"*, which compares the bare `0.44704` against the two declared units
+— not by propagating units through the equation.
+
 ### Why it was not a curiosity
 
 The mile is the unit of MOVES's onroad activity model:
