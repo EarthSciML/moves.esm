@@ -1,5 +1,5 @@
 {
-  "esm": "1.0.0",
+  "esm": "1.1.0",
   "metadata": {
     "name": "ExhaustRollup",
     "description": "Stage 6 of the nr-logging-county chain: unit conversion (unitcf.f) and the exhaust roll-up (clcems.f), for one equipment point. Ports docs/nonroad-logging-county.md §2.6 — the ten-factor product that turns a zero-hour emission factor into short tons of one pollutant from one model year of one technology.\n\nTHE WHOLE STAGE IS ONE CONTRACTION. §9 of the specification writes the fixture as a single scalar formula summed to (SCC, model year, pollutant), and that is what `emissionShortTons` is here: a `sum_product` aggregate over four relations — the emission factors, the deterioration coefficients, the adjustments and the tech mix — grouped by model year and pollutant process, with FOUR `join.on` clauses and no filter. Summing over the technology axis is the roll-up. This equipment point has a single technology, so the sum has one term; §6.2's would have three and nothing in these equations would change.\n\nTHE FACTORIZATION IS THE ENGINE'S, NOT AN ALGEBRAICALLY EQUIVALENT ONE. emstmp is EF x cvttmp x DF x adjems x adjtime (exhaust.rs:1079-1083) and the population, activity and temporal factors multiply it afterwards (:1201-1208). The two temporal halves therefore enter in different places, which is why components/activity_temporal.esm exposes both — and why lib/conversion.esm's `temporal_scale`, the one place they are combined, is what that component asserts them against.\n\nWHAT J14 IS DOING HERE. components/deteriorated_emission_rate.esm ports the same join at the grain of the rate relation; this file needs it at the grain of (model year, technology, pollutant process), because the deterioration age is a function of the model year. The ARITHMETIC is not duplicated — both files apply lib/emission_factors.esm's `deterioration_age` and `deterioration_factor` — only the join clause is, which is what happens when the same relation is read at two grains.\n\nBSFC IS NOT ROLLED UP. polProcessID 9901 carries fuel consumption, not emissions; it feeds the CO2 carbon balance and the SOx rewrite (§2.6(c)), neither of which this RunSpec selects, and it never reaches an output row. It is present in stage 4's output relation and absent from this one.\n\nEvery input is the §6.1 worked example's, and every expected value is one the specification prints.",
@@ -362,7 +362,7 @@
         {
           "lhs": "ry_deteriorationAge",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "output_idx": [
               "y"
@@ -513,7 +513,7 @@
         {
           "lhs": "emf_engTechID",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "output_idx": [
               "e"
@@ -535,7 +535,7 @@
         {
           "lhs": "emf_polProcessID",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "output_idx": [
               "e"
@@ -607,7 +607,7 @@
         {
           "lhs": "det_polProcessID",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "output_idx": [
               "d"
@@ -710,7 +710,7 @@
           "_comment": "The same template the contraction below applies, evaluated over the whole (model year, deterioration row) grid. §4.1's rule is visible here: min(age, cap) is inside the power, so at age 2.45 against a cap of 2 the factor is 1 + 0.797*sqrt(2) = 2.1271282 and not 1 + min(0.797*2.45^0.5, 2).",
           "lhs": "deteriorationFactor",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "output_idx": [
               "y",
@@ -764,7 +764,7 @@
         {
           "lhs": "adj_polProcessID",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "output_idx": [
               "a"
@@ -800,7 +800,7 @@
         {
           "lhs": "mix_modelYearID",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "output_idx": [
               "m"
@@ -822,7 +822,7 @@
         {
           "lhs": "mix_engTechID",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "output_idx": [
               "m"
@@ -885,7 +885,7 @@
           "_comment": "exhaust.rs:1079-1083. Three `join.on` clauses -- the factor to its deterioration coefficients on the composite (polProcessID, engTechID), and both to the adjustment on polProcessID -- and no filter, because every restriction here is an equality.",
           "lhs": "emstmp",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -1001,7 +1001,7 @@
           "_comment": "exhaust.rs:1201-1208 and :1227. The same contraction with the mix relation joined in and the six population, activity and temporal factors appended, summed over technologies -- which is the roll-up. CVTTON is the last factor because it is where the engine accumulates.",
           "lhs": "emissionShortTons",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [

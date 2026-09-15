@@ -1,5 +1,5 @@
 {
-  "esm": "1.0.0",
+  "esm": "1.1.0",
   "metadata": {
     "name": "GeographicAllocation",
     "description": "Stage 1 of the nr-logging-county chain (PLAN.md §3 Phase 2): geography and allocation. Ports joins J1, J2, J3, J6 and J7 of docs/nonroad-logging-county.md §3 — the SCC selection that decides WHICH equipment runs, and the state-to-county surrogate ratio that decides HOW MUCH of the state's population is this county's.\n\nTwo hops and a ratio (§2.1). J1 walks nrscc -> nrequipmenttype for the sector and the spatial surrogate; J2 and J3 are semi-joins against the RunSpec's sector and fuel selections. J6/J7 are the port of alocty.f + getind.f: allocFrac = quant(county 26161) / quant(state row 26000) for the SCC's surrogate, with the state row's FIPS derived arithmetically as floor(countyID/1000)*1000 (nonroad_loader.rs:1043) rather than written down.\n\nTHE YEAR RULE IS A SELECTION, NOT AN INTERPOLATION. getind.f takes each FIPS's quantity at the LATEST surrogateYearID <= the episode year, and only if there is none does it fall back to the EARLIEST year above it (nonroad_loader.rs:1052-1072). That is the same most-specific-match shape the tech mix uses for its model year, so it is one template — `latest_at_or_before_key` in lib/keys.esm — precomputed into an effective-key column and then joined on, exactly as docs/esm-conventions.md §3 prescribes for a non-equi-join.\n\nWHY DIESEL PRODUCES NO ROWS (§5.4). The RunSpec selects MOVES onroad fuelTypeID {1, 2}; nrscc.fuelTypeID lives in the NONROAD namespace where diesel is 23/24. `2` therefore matches NOTHING and the two diesel logging SCCs drop out. The intersection is non-empty (three gasoline SCCs), so the restriction applies — this file models the selection rather than hard-coding its result, because with an EMPTY intersection canonical NONROAD would run the entire inventory instead (nonroad_loader.rs:1145-1163).\n\nData: the nrscc / nrequipmenttype / nrstatesurrogate values are the snapshot's, from docs/nonroad-logging-county.md §5.3 and §6.0. Four rows are marked synthetic decoys and exist to make the joins load-bearing; each one's comment says what goes wrong without it.",
@@ -316,7 +316,7 @@
           "_comment": "getind.f, first half: is there a row at or before the episode year? The (surrogateID, countyID) equality is a composite `join.on`; the year comparison is a genuine range predicate and stays in `filter`.",
           "lhs": "tgt_yearAtOrBeforeCount",
           "rhs": {
-            "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["g"],
+            "op": "faq", "args": [], "semiring": "sum_product", "output_idx": ["g"],
             "ranges": { "g": { "from": "surrogate_target_rows" }, "z": { "from": "surrogate_rows" } },
             "join": [ { "on": [["tgt_surrogateID", "sur_surrogateID"], ["tgt_countyID", "sur_countyID"]] } ],
             "filter": { "op": "<=", "args": [{ "op": "index", "args": ["sur_surrogateYearID", "z"] }, "runYearID"] },
@@ -326,7 +326,7 @@
         {
           "lhs": "tgt_latestYearAtOrBefore",
           "rhs": {
-            "op": "aggregate", "args": [], "semiring": "max_product", "output_idx": ["g"],
+            "op": "faq", "args": [], "semiring": "max_product", "output_idx": ["g"],
             "ranges": { "g": { "from": "surrogate_target_rows" }, "z": { "from": "surrogate_rows" } },
             "join": [ { "on": [["tgt_surrogateID", "sur_surrogateID"], ["tgt_countyID", "sur_countyID"]] } ],
             "filter": { "op": "<=", "args": [{ "op": "index", "args": ["sur_surrogateYearID", "z"] }, "runYearID"] },
@@ -336,7 +336,7 @@
         {
           "lhs": "tgt_earliestYearAfter",
           "rhs": {
-            "op": "aggregate", "args": [], "semiring": "min_sum", "output_idx": ["g"],
+            "op": "faq", "args": [], "semiring": "min_sum", "output_idx": ["g"],
             "ranges": { "g": { "from": "surrogate_target_rows" }, "z": { "from": "surrogate_rows" } },
             "join": [ { "on": [["tgt_surrogateID", "sur_surrogateID"], ["tgt_countyID", "sur_countyID"]] } ],
             "filter": { "op": ">", "args": [{ "op": "index", "args": ["sur_surrogateYearID", "z"] }, "runYearID"] },
@@ -347,7 +347,7 @@
           "_comment": "`vallow` else `valhi`, from lib/keys.esm. The same template serves the tech mix's `latest mix year <= model year, else the earliest` rule in components/tech_mix.esm -- one shape, two call sites.",
           "lhs": "tgt_effectiveYearID",
           "rhs": {
-            "op": "aggregate", "args": [], "output_idx": ["g"],
+            "op": "faq", "args": [], "output_idx": ["g"],
             "ranges": { "g": { "from": "surrogate_target_rows" } },
             "expr": {
               "op": "apply_expression_template", "args": [], "name": "latest_at_or_before_key",
@@ -363,7 +363,7 @@
           "_comment": "J6, now a plain three-column equi-join because the year precedence has been reduced to a key.",
           "lhs": "tgt_quant",
           "rhs": {
-            "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["g"],
+            "op": "faq", "args": [], "semiring": "sum_product", "output_idx": ["g"],
             "ranges": { "g": { "from": "surrogate_target_rows" }, "z": { "from": "surrogate_rows" } },
             "join": [ { "on": [["tgt_surrogateID", "sur_surrogateID"],
                                ["tgt_countyID", "sur_countyID"],
@@ -375,7 +375,7 @@
         {
           "lhs": "alloc_countyQuant",
           "rhs": {
-            "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["a"],
+            "op": "faq", "args": [], "semiring": "sum_product", "output_idx": ["a"],
             "ranges": { "a": { "from": "allocation_rows" }, "g": { "from": "surrogate_target_rows" } },
             "join": [ { "on": [["alloc_surrogateID", "tgt_surrogateID"]] } ],
             "expr": { "op": "*", "args": [{ "op": "index", "args": ["tgt_quant", "g"] },
@@ -385,7 +385,7 @@
         {
           "lhs": "alloc_stateQuant",
           "rhs": {
-            "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["a"],
+            "op": "faq", "args": [], "semiring": "sum_product", "output_idx": ["a"],
             "ranges": { "a": { "from": "allocation_rows" }, "g": { "from": "surrogate_target_rows" } },
             "join": [ { "on": [["alloc_surrogateID", "tgt_surrogateID"]] } ],
             "expr": { "op": "*", "args": [{ "op": "index", "args": ["tgt_quant", "g"] },
@@ -396,7 +396,7 @@
           "_comment": "alocty.f. A non-positive state quantity gives fraction 0 rather than a division (nonroad_loader.rs:1076).",
           "lhs": "alloc_allocationFraction",
           "rhs": {
-            "op": "aggregate", "args": [], "output_idx": ["a"],
+            "op": "faq", "args": [], "output_idx": ["a"],
             "ranges": { "a": { "from": "allocation_rows" } },
             "expr": {
               "op": "ifelse",
@@ -414,7 +414,7 @@
           "_comment": "J1, twice: an SCC's sector and its surrogate both come from nrequipmenttype on NREquipTypeID.",
           "lhs": "scc_sectorID",
           "rhs": {
-            "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["s"],
+            "op": "faq", "args": [], "semiring": "sum_product", "output_idx": ["s"],
             "ranges": { "s": { "from": "scc_rows" }, "e": { "from": "equipment_type_rows" } },
             "join": [ { "on": [["scc_NREquipTypeID", "eqt_NREquipTypeID"]] } ],
             "expr": { "op": "index", "args": ["eqt_sectorID", "e"] }
@@ -423,7 +423,7 @@
         {
           "lhs": "scc_surrogateID",
           "rhs": {
-            "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["s"],
+            "op": "faq", "args": [], "semiring": "sum_product", "output_idx": ["s"],
             "ranges": { "s": { "from": "scc_rows" }, "e": { "from": "equipment_type_rows" } },
             "join": [ { "on": [["scc_NREquipTypeID", "eqt_NREquipTypeID"]] } ],
             "expr": { "op": "index", "args": ["eqt_surrogateID", "e"] }
@@ -433,7 +433,7 @@
           "_comment": "J2 and J3, the two RunSpec semi-joins. A semi-join is a counting contraction here: the RunSpec tables hold distinct keys, so the count is 0 or 1 and no min() guard is needed.",
           "lhs": "scc_sectorIsSelected",
           "rhs": {
-            "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["s"],
+            "op": "faq", "args": [], "semiring": "sum_product", "output_idx": ["s"],
             "ranges": { "s": { "from": "scc_rows" }, "k": { "from": "runspec_sector_rows" } },
             "join": [ { "on": [["scc_sectorID", "runspec_sectorID"]] } ],
             "expr": 1.0
@@ -442,7 +442,7 @@
         {
           "lhs": "scc_fuelIsSelected",
           "rhs": {
-            "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["s"],
+            "op": "faq", "args": [], "semiring": "sum_product", "output_idx": ["s"],
             "ranges": { "s": { "from": "scc_rows" }, "k": { "from": "runspec_fuel_rows" } },
             "join": [ { "on": [["scc_fuelTypeID", "runspec_fuelTypeID"]] } ],
             "expr": 1.0
@@ -452,7 +452,7 @@
           "_comment": "J7. The selection is a FACTOR rather than a row filter because this is an intermediate, not the output relation: an unselected SCC allocates zero and keeps its row here, and components/movesoutput_aggregation.esm is the one file that decides which keys reach MOVESOutput. Keeping the two apart is what lets that file spell the row-set rules -- the pollutant gate and prccty.f's cohort skip -- in one place, where they can be tested.",
           "lhs": "scc_allocationFraction",
           "rhs": {
-            "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["s"],
+            "op": "faq", "args": [], "semiring": "sum_product", "output_idx": ["s"],
             "ranges": { "s": { "from": "scc_rows" }, "a": { "from": "allocation_rows" } },
             "join": [ { "on": [["scc_surrogateID", "alloc_surrogateID"]] } ],
             "expr": {

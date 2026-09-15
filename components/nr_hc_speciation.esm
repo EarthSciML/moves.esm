@@ -1,5 +1,5 @@
 {
-  "esm": "1.0.0",
+  "esm": "1.1.0",
   "metadata": {
     "name": "NrHcSpeciation",
     "description": "One calculator, one file (PLAN.md §3 Phase 1). Ports `NRHCSpeciationCalculator` -- crates/moves-calculators/src/calculators/nrhcspeciation.rs `speciate_emission`, itself a port of calc/nrhcspeciation/nrhcspeciation.go -- which splits one NONROAD THC emission into methane (5), NMHC (79), NMOG (80), TOG (86) and VOC (87). Specified in docs/nr-airtoxics-lawn-garden-county.md §2.4; every coefficient below is read from that document's §6.1, which took it from the nr-airtoxics-lawn-garden-county snapshot parquet.\n\nTHE SPECIATION HAPPENS INSIDE THE ENGINE-TECHNOLOGY CONTRACTION, and that is the fact this component exists to make checkable. The MOVESWorkerOutput fuel block is keyed by engTechID and hpID, so `nrMethaneTHCRatio` and `nrHCSpeciation` are looked up per technology and the emitted cohort is a population-weighted BLEND. In this snapshot the two technology coefficient sets give CH4/THC of 0.02 and 0.149; the snapshot's own emitted CH4/THC takes 404 distinct values over 484 cohorts, between 0.023141 and 0.149001, which is only possible if the split is inside the blend. The two rows of `ratio_rows` below are those two sets.\n\nTHE TWO MISSING-ROW ARMS ARE WHY THIS IS A COMPONENT AND NOT A FIXTURE ASSERTION (docs/esm-conventions.md §23). Neither fires anywhere in the 2,063 worker cells of the snapshot -- measured, docs/nr-airtoxics-lawn-garden-county.md §8 -- and they are genuinely different failures: no `nrMethaneTHCRatio` row makes the Go `continue` past the emission so that NOTHING is produced, while no `nrHCSpeciation` row makes NMOG and VOC an explicit ZERO emission that is still emitted. Rows 3 and 4 are probes for exactly those two, and `blk_speciates` is the column that tells them apart: probe 3 reads 0 there and 0 NMHC, probe 4 reads 1 and 85.1 NMHC with 0 NMOG.\n\nTwo further things are read from the source rather than from the data. The lookups use TWO DIFFERENT fuel-subtype ids -- `nrMethaneTHCRatio` keys on the fuel FORMULATION's subtype and `nrHCSpeciation` on the EMISSION's -- which this snapshot cannot distinguish because its only supplied gasoline formulation carries subtype 12 in both places; the two columns are kept separate here so the distinction survives into a snapshot that could. And TOG is NMOG + methane rather than THC times anything: `NRAirToxicsCalculator.getIntegratedSpecies` says why in the canonical Java, and the snapshot agrees to 7.4e-06.",
@@ -310,7 +310,7 @@
           "_comment": "The semi-join of docs/esm-conventions.md §3: `does a matching nrMethaneTHCRatio row exist`, spelled bool_and_or with a numeric body of 1. It is a presence test and carries no value; the value is the separate lookup below, on the same four key pairs.",
           "lhs": "blk_speciates",
           "rhs": {
-            "op": "aggregate", "args": [], "semiring": "bool_and_or",
+            "op": "faq", "args": [], "semiring": "bool_and_or",
             "output_idx": ["b"],
             "ranges": { "b": { "from": "block_rows" }, "m": { "from": "ratio_rows" } },
             "join": [ { "on": [
@@ -326,7 +326,7 @@
           "_comment": "The value, on the FORMULATION's fuel subtype.",
           "lhs": "blk_ch4ThcRatio",
           "rhs": {
-            "op": "aggregate", "args": [], "semiring": "sum_product",
+            "op": "faq", "args": [], "semiring": "sum_product",
             "output_idx": ["b"],
             "ranges": { "b": { "from": "block_rows" }, "m": { "from": "ratio_rows" } },
             "join": [ { "on": [
@@ -341,7 +341,7 @@
         {
           "lhs": "blk_methane",
           "rhs": {
-            "op": "aggregate", "args": [], "output_idx": ["b"],
+            "op": "faq", "args": [], "output_idx": ["b"],
             "ranges": { "b": { "from": "block_rows" } },
             "expr": { "op": "*", "args": [
               { "op": "index", "args": ["blk_speciates", "b"] },
@@ -354,7 +354,7 @@
         {
           "lhs": "blk_nmhc",
           "rhs": {
-            "op": "aggregate", "args": [], "output_idx": ["b"],
+            "op": "faq", "args": [], "output_idx": ["b"],
             "ranges": { "b": { "from": "block_rows" } },
             "expr": { "op": "*", "args": [
               { "op": "index", "args": ["blk_speciates", "b"] },
@@ -369,7 +369,7 @@
           "_comment": "The speciation constant, on the EMISSION's fuel subtype and with the OUTPUT pollutant in the key -- so the join both finds the constant and says which species the row is (docs/esm-conventions.md §32.4). A constant equality against a pollutant enum is still a join.on pair and not an `==` in a filter (§20.4, §27.1), so the output pollutant is a COLUMN of the block relation and the fifth key pair of this clause.",
           "lhs": "blk_nmogConstant",
           "rhs": {
-            "op": "aggregate", "args": [], "semiring": "sum_product",
+            "op": "faq", "args": [], "semiring": "sum_product",
             "output_idx": ["b"],
             "ranges": { "b": { "from": "block_rows" }, "s": { "from": "speciation_rows" } },
             "join": [ { "on": [
@@ -385,7 +385,7 @@
         {
           "lhs": "blk_vocConstant",
           "rhs": {
-            "op": "aggregate", "args": [], "semiring": "sum_product",
+            "op": "faq", "args": [], "semiring": "sum_product",
             "output_idx": ["b"],
             "ranges": { "b": { "from": "block_rows" }, "s": { "from": "speciation_rows" } },
             "join": [ { "on": [
@@ -401,7 +401,7 @@
         {
           "lhs": "blk_nmog",
           "rhs": {
-            "op": "aggregate", "args": [], "output_idx": ["b"],
+            "op": "faq", "args": [], "output_idx": ["b"],
             "ranges": { "b": { "from": "block_rows" } },
             "expr": { "op": "apply_expression_template", "args": [], "name": "ratio_scaled",
               "bindings": { "input_quant": { "op": "index", "args": ["blk_nmhc", "b"] },
@@ -411,7 +411,7 @@
         {
           "lhs": "blk_voc",
           "rhs": {
-            "op": "aggregate", "args": [], "output_idx": ["b"],
+            "op": "faq", "args": [], "output_idx": ["b"],
             "ranges": { "b": { "from": "block_rows" } },
             "expr": { "op": "apply_expression_template", "args": [], "name": "ratio_scaled",
               "bindings": { "input_quant": { "op": "index", "args": ["blk_nmhc", "b"] },
@@ -421,7 +421,7 @@
         {
           "lhs": "blk_tog",
           "rhs": {
-            "op": "aggregate", "args": [], "output_idx": ["b"],
+            "op": "faq", "args": [], "output_idx": ["b"],
             "ranges": { "b": { "from": "block_rows" } },
             "expr": { "op": "apply_expression_template", "args": [], "name": "total_organic_gases",
               "bindings": { "nmog": { "op": "index", "args": ["blk_nmog", "b"] },

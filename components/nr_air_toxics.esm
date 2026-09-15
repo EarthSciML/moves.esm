@@ -1,5 +1,5 @@
 {
-  "esm": "1.0.0",
+  "esm": "1.1.0",
   "metadata": {
     "name": "NrAirToxics",
     "description": "One calculator, one file (PLAN.md §3 Phase 1). Ports `NRAirToxicsCalculator` -- crates/moves-calculators/src/calculators/nrairtoxics.rs `air_toxics_for_emission` and `non_hap_tog_block`, itself a port of calc/nrairtoxics/nrairtoxics.go -- which derives twenty air toxics from three upstream NONROAD tallies and then forms NonHAPTOG in a second pass. Specified in docs/nr-airtoxics-lawn-garden-county.md §2.6 and §2.7; every coefficient below is that document's §6.2, read from the nr-airtoxics-lawn-garden-county snapshot parquet for engine technology G4N1O at fuel subtype 12, category S, gasoline.\n\nFIVE TABLES, TWO FORMS, ONE RELATION. `nrATRatio`, `nrPAHGasRatio`, `nrPAHParticleRatio`, `nrDioxinEmissionRate` and `nrMetalEmissionRate` differ in their key shape and in which upstream pollutant they scale, and in nothing else: each maps a key to a LIST of (output pollutant, multiplier) details and each output is its input times that multiplier. So they ride one nineteen-row relation here whose columns are the source pollutant, the output pollutant and the multiplier, exactly as docs/esm-conventions.md §33.3 carries a seven-by-four composition as four share columns rather than as seven branches. `tox_quant` has NO branch on the output pollutant at all, and the twenty output pollutant ids are never named: they arrive as the tables' own `pollutantID` column (§32.4).\n\nWHAT SEPARATES THE TWO FORMS is a unit, not a shape. The dioxin and metal rates are per GALLON of fuel while the fuel-consumption input is in grams, so those two paths carry `grams_to_gallons_factor` and the others carry 1. The Go computes `atRatio*gallonsFactor` as ONE product and then scales, and lib/nonroad_speciation.esm's `rate_scaled` is that association; `ratio_scaled` is the other four. The factor itself is TWO SEQUENTIAL DIVISIONS -- `1.0/453.592` then `/= density` -- and this component asserts that against the algebraically equal single division, because the two differ by one unit in the last place and nothing downstream of here could see it.\n\nAND THE DENSITY IS 6.17, NOT THE 6.237 THE ENGINE USED. `NonroadOutputDataLoader.java:1052` turned the engine's gallons into grams with 6.237 lb/gal; this calculator turns them back into gallons with a hard-coded 6.17. The round trip is therefore NOT the identity, by a factor of 1.010859. It is a fact about MOVES, it is asserted below, and it is the kind of thing a reader would otherwise assume was a typo and quietly fix.\n\nNonHAPTOG is `NMOG - sum(nrIntegratedSpecies)`, formed in a second pass out of signed partial rows. The membership test is a semi-join against the nine-row `nrIntegratedSpecies` table, and `tox_isIntegrated` is asserted to be 0 on the ten produced pollutants that are NOT in it -- without which the subtraction would be a sum over everything and would still look plausible.",
@@ -126,7 +126,7 @@
         {
           "lhs": "run_gallonsFactor",
           "rhs": {
-            "op": "aggregate", "args": [], "output_idx": ["z"],
+            "op": "faq", "args": [], "output_idx": ["z"],
             "ranges": { "z": { "from": "run_scope_rows" } },
             "expr": { "op": "apply_expression_template", "args": [], "name": "grams_to_gallons_factor",
               "bindings": { "fuel_density": { "op": "apply_expression_template", "args": [],
@@ -137,7 +137,7 @@
           "_comment": "The association the Go does NOT use, computed only to be compared with the one it does.",
           "lhs": "run_gallonsFactorOneDivision",
           "rhs": {
-            "op": "aggregate", "args": [], "output_idx": ["z"],
+            "op": "faq", "args": [], "output_idx": ["z"],
             "ranges": { "z": { "from": "run_scope_rows" } },
             "expr": { "op": "/", "args": [1.0,
               { "op": "*", "args": [
@@ -149,7 +149,7 @@
         {
           "lhs": "run_gallonsFactorAssociationGap",
           "rhs": {
-            "op": "aggregate", "args": [], "output_idx": ["z"],
+            "op": "faq", "args": [], "output_idx": ["z"],
             "ranges": { "z": { "from": "run_scope_rows" } },
             "expr": { "op": "-", "args": [
               { "op": "index", "args": ["run_gallonsFactor", "z"] },
@@ -159,7 +159,7 @@
         {
           "lhs": "run_densityRoundTrip",
           "rhs": {
-            "op": "aggregate", "args": [], "output_idx": ["z"],
+            "op": "faq", "args": [], "output_idx": ["z"],
             "ranges": { "z": { "from": "run_scope_rows" } },
             "expr": { "op": "/", "args": [
               { "op": "apply_expression_template", "args": [], "name": "nonroad_engine_gasoline_density", "bindings": {} },
@@ -227,7 +227,7 @@
         {
           "lhs": "tox_unitFactor",
           "rhs": {
-            "op": "aggregate", "args": [], "output_idx": ["r"],
+            "op": "faq", "args": [], "output_idx": ["r"],
             "ranges": { "r": { "from": "ratio_rows" }, "z": { "from": "run_scope_rows" } },
             "expr": { "op": "ifelse", "args": [
               { "op": ">", "args": [{ "op": "index", "args": ["rat_isRate", "r"] }, 0.0] },
@@ -239,7 +239,7 @@
           "_comment": "The whole calculator. One aggregate over (ratio row x input block) joined on the source pollutant, whose body selects between the two forms lib/nonroad_speciation.esm carries. `ifelse` selects a RESULT and both arms are finite here, so this is safe -- unlike the NULL-bearing cases of §29.2, where the branch has to be written at the relation.",
           "lhs": "tox_quant",
           "rhs": {
-            "op": "aggregate", "args": [], "semiring": "sum_product",
+            "op": "faq", "args": [], "semiring": "sum_product",
             "output_idx": ["r"],
             "ranges": { "r": { "from": "ratio_rows" }, "i": { "from": "input_rows" } },
             "join": [ { "on": [["rat_sourcePollutantID", "in_pollutantID"]] } ],
@@ -258,7 +258,7 @@
         {
           "lhs": "tox_isIntegrated",
           "rhs": {
-            "op": "aggregate", "args": [], "semiring": "bool_and_or",
+            "op": "faq", "args": [], "semiring": "bool_and_or",
             "output_idx": ["r"],
             "ranges": { "r": { "from": "ratio_rows" }, "p": { "from": "integrated_species_rows" } },
             "join": [ { "on": [["rat_outputPollutantID", "isp_pollutantID"]] } ],
@@ -268,7 +268,7 @@
         {
           "lhs": "integratedSpeciesSum",
           "rhs": {
-            "op": "aggregate", "args": [], "semiring": "sum_product",
+            "op": "faq", "args": [], "semiring": "sum_product",
             "output_idx": [],
             "ranges": { "r": { "from": "ratio_rows" } },
             "expr": { "op": "*", "args": [

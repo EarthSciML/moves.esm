@@ -1,5 +1,5 @@
 {
-  "esm": "1.0.0",
+  "esm": "1.1.0",
   "metadata": {
     "name": "GrowthIndex",
     "description": "Stage 2(b) of the nr-logging-county chain: the growth indicator series and the annual growth factors that project a 1990 population to the episode year. Ports joins J8 and J9 of docs/nonroad-logging-county.md §3 and the arithmetic of §2.2(b) (grwfac.f, crates/moves-nonroad/src/population/growth.rs).\n\nTHREE THINGS THAT ARE EASY TO GET WRONG, and each has a test here.\n\n(1) The factor is ANNUALIZED, (g - b)/(b * span), not the cumulative ratio g/b. The cumulative ratio is a different quantity that this file also computes, because §2.2(e) needs it as the number the grown age distribution must sum to; confusing the two compounds a per-year rate as though it were a total.\n\n(2) The indicator is TRUNCATED TOWARD ZERO on load, because canonical writes the /GROWTH/ packet with %20d (nonroad_loader.rs:1516). The year-over-year changes sit near zero, so the truncation decides the SIGN of the factor and with it which model years survive agedist's clamp — the single mechanism behind SCC 2265007010's gappy model-year set (§6.3). Pattern 2176's stored indices are already integral, so on this data the truncation is a no-op and a test over it alone would prove nothing; synthetic pattern 9999 carries 1481.9 and 1481.2, which truncate to the same integer and so give a factor of exactly 0 where the raw values would give a negative one.\n\n(3) The SCC and state lookup is a most-specific-match, not an equality. The equipment chain [SCC, SCC[0..7]+000, SCC[0..4]+000000] and the rule that a stateID 26 row beats a stateID 0 row are both reduced to EFFECTIVE KEY COLUMNS with lib/keys.esm and then joined on, which is the docs/esm-conventions.md §3 treatment of a non-equi-join. All three chain branches are exercised: 2265007010 falls back one step, 2265003020 falls back two, and 2265002015 matches exactly and must beat the shorter keys that would also match it.\n\nData: nrgrowthpatternfinder's two real rows and all 43 of pattern 2176's nrgrowthindex rows are the snapshot's. Rows marked synthetic (patterns 9901-9904 and 9999) are ladder and truncation probes.",
@@ -240,7 +240,7 @@
         {
           "lhs": "gscc_sccEquipmentRoot",
           "rhs": {
-            "op": "aggregate", "args": [], "output_idx": ["g"],
+            "op": "faq", "args": [], "output_idx": ["g"],
             "ranges": { "g": { "from": "growth_scc_rows" } },
             "expr": {
               "op": "apply_expression_template", "args": [], "name": "scc_zero_tail",
@@ -289,7 +289,7 @@
           "_comment": "The two presence semi-joins the chain key needs. `bool_and_or` over `true` -- a presence test, so the body carries no value. (This read `1.0` while `true` panicked at evaluation; F10 is fixed.)",
           "lhs": "gscc_exactKeyIsPresent",
           "rhs": {
-            "op": "aggregate", "args": [], "semiring": "bool_and_or", "output_idx": ["g"],
+            "op": "faq", "args": [], "semiring": "bool_and_or", "output_idx": ["g"],
             "ranges": { "g": { "from": "growth_scc_rows" },
                         "f": { "from": "growth_finder_rows" },
                         "c": { "from": "growth_state_scope_rows" } },
@@ -303,7 +303,7 @@
         {
           "lhs": "gscc_equipmentRootIsPresent",
           "rhs": {
-            "op": "aggregate", "args": [], "semiring": "bool_and_or", "output_idx": ["g"],
+            "op": "faq", "args": [], "semiring": "bool_and_or", "output_idx": ["g"],
             "ranges": { "g": { "from": "growth_scc_rows" },
                         "f": { "from": "growth_finder_rows" },
                         "c": { "from": "growth_state_scope_rows" } },
@@ -317,7 +317,7 @@
         {
           "lhs": "gscc_effectiveSCC",
           "rhs": {
-            "op": "aggregate", "args": [], "output_idx": ["g"],
+            "op": "faq", "args": [], "output_idx": ["g"],
             "ranges": { "g": { "from": "growth_scc_rows" } },
             "expr": {
               "op": "apply_expression_template", "args": [], "name": "scc_equipment_chain_key",
@@ -332,7 +332,7 @@
         {
           "lhs": "gscc_runStateRowIsPresent",
           "rhs": {
-            "op": "aggregate", "args": [], "semiring": "bool_and_or", "output_idx": ["g"],
+            "op": "faq", "args": [], "semiring": "bool_and_or", "output_idx": ["g"],
             "ranges": { "g": { "from": "growth_scc_rows" },
                         "f": { "from": "growth_finder_rows" },
                         "r": { "from": "growth_runspec_state_rows" } },
@@ -346,7 +346,7 @@
         {
           "lhs": "gscc_effectiveStateID",
           "rhs": {
-            "op": "aggregate", "args": [], "output_idx": ["g"],
+            "op": "faq", "args": [], "output_idx": ["g"],
             "ranges": { "g": { "from": "growth_scc_rows" } },
             "expr": {
               "op": "apply_expression_template", "args": [], "name": "state_default_precedence",
@@ -362,7 +362,7 @@
           "_comment": "J8, now a plain two-column equi-join because both halves of the precedence have been reduced to keys.",
           "lhs": "gscc_growthPatternID",
           "rhs": {
-            "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["g"],
+            "op": "faq", "args": [], "semiring": "sum_product", "output_idx": ["g"],
             "ranges": { "g": { "from": "growth_scc_rows" }, "f": { "from": "growth_finder_rows" } },
             "join": [
               { "on": [["gscc_effectiveSCC", "gpf_SCC"], ["gscc_effectiveStateID", "gpf_stateID"]] }
@@ -403,7 +403,7 @@
         {
           "lhs": "gidx_growthIndex",
           "rhs": {
-            "op": "aggregate", "args": [], "output_idx": ["i"],
+            "op": "faq", "args": [], "output_idx": ["i"],
             "ranges": { "i": { "from": "growth_series_rows" } },
             "expr": {
               "op": "apply_expression_template", "args": [], "name": "truncate_toward_zero",
@@ -432,7 +432,7 @@
           "_comment": "The four bracket questions. Each is one contraction over the series relation with the pattern equality as a `join.on` and the year comparison as a `filter`, which is the distinction docs/esm-conventions.md §3 exists to keep visible: one is an ON clause, the other is a genuine range predicate.",
           "lhs": "q_hasYearAtOrBefore",
           "rhs": {
-            "op": "aggregate", "args": [], "semiring": "bool_and_or", "output_idx": ["k"],
+            "op": "faq", "args": [], "semiring": "bool_and_or", "output_idx": ["k"],
             "ranges": { "k": { "from": "growth_query_rows" }, "i": { "from": "growth_series_rows" } },
             "join": [ { "on": [["q_growthPatternID", "gidx_growthPatternID"]] } ],
             "filter": { "op": "<=", "args": [{ "op": "index", "args": ["gidx_yearID", "i"] },
@@ -443,7 +443,7 @@
         {
           "lhs": "q_latestYearAtOrBefore",
           "rhs": {
-            "op": "aggregate", "args": [], "semiring": "max_product", "output_idx": ["k"],
+            "op": "faq", "args": [], "semiring": "max_product", "output_idx": ["k"],
             "ranges": { "k": { "from": "growth_query_rows" }, "i": { "from": "growth_series_rows" } },
             "join": [ { "on": [["q_growthPatternID", "gidx_growthPatternID"]] } ],
             "filter": { "op": "<=", "args": [{ "op": "index", "args": ["gidx_yearID", "i"] },
@@ -454,7 +454,7 @@
         {
           "lhs": "q_hasYearAtOrAfter",
           "rhs": {
-            "op": "aggregate", "args": [], "semiring": "bool_and_or", "output_idx": ["k"],
+            "op": "faq", "args": [], "semiring": "bool_and_or", "output_idx": ["k"],
             "ranges": { "k": { "from": "growth_query_rows" }, "i": { "from": "growth_series_rows" } },
             "join": [ { "on": [["q_growthPatternID", "gidx_growthPatternID"]] } ],
             "filter": { "op": ">=", "args": [{ "op": "index", "args": ["gidx_yearID", "i"] },
@@ -465,7 +465,7 @@
         {
           "lhs": "q_earliestYearAtOrAfter",
           "rhs": {
-            "op": "aggregate", "args": [], "semiring": "min_sum", "output_idx": ["k"],
+            "op": "faq", "args": [], "semiring": "min_sum", "output_idx": ["k"],
             "ranges": { "k": { "from": "growth_query_rows" }, "i": { "from": "growth_series_rows" } },
             "join": [ { "on": [["q_growthPatternID", "gidx_growthPatternID"]] } ],
             "filter": { "op": ">=", "args": [{ "op": "index", "args": ["gidx_yearID", "i"] },
@@ -477,7 +477,7 @@
           "_comment": "The four boundary years, for the two extrapolation branches. growth.rs:36-47 extrapolates from the boundary year-to-year change rather than holding the boundary value flat; nr-logging-county's 1990-2020 window is inside pattern 2176's 1990-2040 range, so these fire only for a run outside it.",
           "lhs": "q_firstSeriesYear",
           "rhs": {
-            "op": "aggregate", "args": [], "semiring": "min_sum", "output_idx": ["k"],
+            "op": "faq", "args": [], "semiring": "min_sum", "output_idx": ["k"],
             "ranges": { "k": { "from": "growth_query_rows" }, "i": { "from": "growth_series_rows" } },
             "join": [ { "on": [["q_growthPatternID", "gidx_growthPatternID"]] } ],
             "expr": { "op": "index", "args": ["gidx_yearID", "i"] }
@@ -486,7 +486,7 @@
         {
           "lhs": "q_secondSeriesYear",
           "rhs": {
-            "op": "aggregate", "args": [], "semiring": "min_sum", "output_idx": ["k"],
+            "op": "faq", "args": [], "semiring": "min_sum", "output_idx": ["k"],
             "ranges": { "k": { "from": "growth_query_rows" }, "i": { "from": "growth_series_rows" } },
             "join": [ { "on": [["q_growthPatternID", "gidx_growthPatternID"]] } ],
             "filter": { "op": ">", "args": [{ "op": "index", "args": ["gidx_yearID", "i"] },
@@ -497,7 +497,7 @@
         {
           "lhs": "q_lastSeriesYear",
           "rhs": {
-            "op": "aggregate", "args": [], "semiring": "max_product", "output_idx": ["k"],
+            "op": "faq", "args": [], "semiring": "max_product", "output_idx": ["k"],
             "ranges": { "k": { "from": "growth_query_rows" }, "i": { "from": "growth_series_rows" } },
             "join": [ { "on": [["q_growthPatternID", "gidx_growthPatternID"]] } ],
             "expr": { "op": "index", "args": ["gidx_yearID", "i"] }
@@ -506,7 +506,7 @@
         {
           "lhs": "q_penultimateSeriesYear",
           "rhs": {
-            "op": "aggregate", "args": [], "semiring": "max_product", "output_idx": ["k"],
+            "op": "faq", "args": [], "semiring": "max_product", "output_idx": ["k"],
             "ranges": { "k": { "from": "growth_query_rows" }, "i": { "from": "growth_series_rows" } },
             "join": [ { "on": [["q_growthPatternID", "gidx_growthPatternID"]] } ],
             "filter": { "op": "<", "args": [{ "op": "index", "args": ["gidx_yearID", "i"] },
@@ -518,7 +518,7 @@
           "_comment": "One line each for the two endpoints of the line this query reads: the bracketing pair inside the range, the first two rows below it, the last two above it.",
           "lhs": "q_lowYearID",
           "rhs": {
-            "op": "aggregate", "args": [], "output_idx": ["k"],
+            "op": "faq", "args": [], "output_idx": ["k"],
             "ranges": { "k": { "from": "growth_query_rows" } },
             "expr": {
               "op": "ifelse",
@@ -536,7 +536,7 @@
         {
           "lhs": "q_highYearID",
           "rhs": {
-            "op": "aggregate", "args": [], "output_idx": ["k"],
+            "op": "faq", "args": [], "output_idx": ["k"],
             "ranges": { "k": { "from": "growth_query_rows" } },
             "expr": {
               "op": "ifelse",
@@ -554,7 +554,7 @@
         {
           "lhs": "q_lowIndicator",
           "rhs": {
-            "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["k"],
+            "op": "faq", "args": [], "semiring": "sum_product", "output_idx": ["k"],
             "ranges": { "k": { "from": "growth_query_rows" }, "i": { "from": "growth_series_rows" } },
             "join": [ { "on": [["q_growthPatternID", "gidx_growthPatternID"],
                                ["q_lowYearID", "gidx_yearID"]] } ],
@@ -564,7 +564,7 @@
         {
           "lhs": "q_highIndicator",
           "rhs": {
-            "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["k"],
+            "op": "faq", "args": [], "semiring": "sum_product", "output_idx": ["k"],
             "ranges": { "k": { "from": "growth_query_rows" }, "i": { "from": "growth_series_rows" } },
             "join": [ { "on": [["q_growthPatternID", "gidx_growthPatternID"],
                                ["q_highYearID", "gidx_yearID"]] } ],
@@ -575,7 +575,7 @@
           "_comment": "A tabulated year has low == high and reads its own value; the interpolation would divide by zero there, which is why the guard is on the ENDPOINTS being distinct rather than on a flag. The clamp at zero applies only outside the tabulated range, as growth.rs:36-43 has it.",
           "lhs": "q_indicator",
           "rhs": {
-            "op": "aggregate", "args": [], "output_idx": ["k"],
+            "op": "faq", "args": [], "output_idx": ["k"],
             "ranges": { "k": { "from": "growth_query_rows" } },
             "expr": {
               "op": "ifelse",
@@ -634,7 +634,7 @@
         {
           "lhs": "f_priorYearID",
           "rhs": {
-            "op": "aggregate", "args": [], "output_idx": ["j"],
+            "op": "faq", "args": [], "output_idx": ["j"],
             "ranges": { "j": { "from": "growth_factor_rows" } },
             "expr": { "op": "-", "args": [{ "op": "index", "args": ["f_yearID", "j"] }, 1] }
           }
@@ -642,7 +642,7 @@
         {
           "lhs": "f_indicator",
           "rhs": {
-            "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["j"],
+            "op": "faq", "args": [], "semiring": "sum_product", "output_idx": ["j"],
             "ranges": { "j": { "from": "growth_factor_rows" }, "k": { "from": "growth_query_rows" } },
             "join": [ { "on": [["f_growthPatternID", "q_growthPatternID"],
                                ["f_yearID", "q_yearID"]] } ],
@@ -652,7 +652,7 @@
         {
           "lhs": "f_priorIndicator",
           "rhs": {
-            "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["j"],
+            "op": "faq", "args": [], "semiring": "sum_product", "output_idx": ["j"],
             "ranges": { "j": { "from": "growth_factor_rows" }, "k": { "from": "growth_query_rows" } },
             "join": [ { "on": [["f_growthPatternID", "q_growthPatternID"],
                                ["f_priorYearID", "q_yearID"]] } ],
@@ -663,7 +663,7 @@
           "_comment": "grwfac.f. The guard covers growth.rs:44-47's `both indicators zero => factor 0` and, with it, the case where the prior year is outside this relation's scope; a zero base indicator with a non-zero grown one is a division by zero in the Fortran that no year of this fixture reaches.",
           "lhs": "f_growthFactor",
           "rhs": {
-            "op": "aggregate", "args": [], "output_idx": ["j"],
+            "op": "faq", "args": [], "output_idx": ["j"],
             "ranges": { "j": { "from": "growth_factor_rows" } },
             "expr": {
               "op": "ifelse",
@@ -698,7 +698,7 @@
         {
           "lhs": "span_baseIndicator",
           "rhs": {
-            "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["n"],
+            "op": "faq", "args": [], "semiring": "sum_product", "output_idx": ["n"],
             "ranges": { "n": { "from": "growth_span_rows" }, "k": { "from": "growth_query_rows" } },
             "join": [ { "on": [["span_growthPatternID", "q_growthPatternID"],
                                ["span_baseYearID", "q_yearID"]] } ],
@@ -708,7 +708,7 @@
         {
           "lhs": "span_grownIndicator",
           "rhs": {
-            "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["n"],
+            "op": "faq", "args": [], "semiring": "sum_product", "output_idx": ["n"],
             "ranges": { "n": { "from": "growth_span_rows" }, "k": { "from": "growth_query_rows" } },
             "join": [ { "on": [["span_growthPatternID", "q_growthPatternID"],
                                ["span_growthYearID", "q_yearID"]] } ],
@@ -718,7 +718,7 @@
         {
           "lhs": "span_cumulativeGrowthRatio",
           "rhs": {
-            "op": "aggregate", "args": [], "output_idx": ["n"],
+            "op": "faq", "args": [], "output_idx": ["n"],
             "ranges": { "n": { "from": "growth_span_rows" } },
             "expr": { "op": "/", "args": [{ "op": "index", "args": ["span_grownIndicator", "n"] },
                                           { "op": "index", "args": ["span_baseIndicator", "n"] }] }

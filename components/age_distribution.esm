@@ -1,5 +1,5 @@
 {
-  "esm": "1.0.0",
+  "esm": "1.1.0",
   "metadata": {
     "name": "AgeDistribution",
     "description": "Stage 2(c) of the nr-logging-county chain: scrappage, equipment life and the base-year age distribution. Ports join J10 and the arithmetic of docs/nonroad-logging-county.md §2.2(c) (scrptime.f, crates/moves-nonroad/src/driver/scrptime.rs:84-176) for one equipment point.\n\nWHAT THIS FILE COMPUTES: the median life in years, the cumulative scrappage percent at each age, the YEAR-OVER-YEAR scrapped fraction derived from it, the equipment life `nyrlif`, the sales curve the population growth factor implies, the 1990 model-year fractions, and -- since F12 was fixed upstream -- agedist.f's thirty-year fold of those fractions to the episode year. Every one of those is checked against docs/nonroad-logging-county.md §6.1 steps 2 and 3, and the fold is checked on two further equipment points against §6.2.\n\nHOW THE FOLD IS SPELLED, AND WHAT IT USED TO SAY HERE. This paragraph used to say the fold was not computed: growing the 1990 distribution to 2020 is a RECURRENCE -- each year's vector is the previous year's shifted, scrapped and topped up with an unclamped residual -- and the format had no spelling for one (finding F12). F12 is FIXED (EarthSciAST a83cde55e) and the fold is computed here now. It is spelled as esm-spec §4.3.1.1's causal self-reference: `fold_scrappedFraction` is an array-shaped unknown whose own `aggregate` body reads `index(fold_scrappedFraction, Y - a)`, itself, strictly earlier along its own output axis, and the recurrence, its axis and its maximum lag of 50 are read off that one read. No new op, no new schema field, nothing declared.\n\nThe 51-slot vector fold is first reduced to a scalar recurrence on 31 residuals, which is what makes it expressible at all: every cell of the grown vector is a clamped base times an ascending run of survival factors, so slot `a` of year `Y` traces back `a` years to the residual of year `Y - a`, or to the 1990 vector if the fold has not run that long. That reduction rests on `1 - yryrfrcscrp >= 0` -- a non-negative cohort times a non-negative survival stays non-negative, so along any chain the clamp bites at most once -- and it is verified, not assumed: tools/verify-agedist-reduction.py checks it cell by cell in float32 against the specification's own script, 0 of 1,581 cells differing, on all six of the fixture's equipment points.\n\nTWO ORDERS THAT ARE NOT FREE, both measured rather than argued. (i) The residual is `minuend - sum`, with the cohorts summed in ascending slot order FIRST; folding it as one aggregate that adds the negated terms to the minuend one at a time moves the answer by up to 1.1e-05 relative, because the residual is a catastrophic cancellation. (ii) Each cohort's factors multiply left to right STARTING FROM the base, `((base * S[lo]) * S[lo+1]) * ...`; precomputing the run product and multiplying the base in afterwards moves it by up to 6.4e-06. Written as specified, all 306 cells of all six points reproduce the reference fold BIT-EXACTLY.\n\nTHE PRECISION IS NOT DECLARED HERE, AND THAT COSTS THIS FILE ONE CELL. This document evaluates in binary64, as docs/esm-conventions.md §18.4 decided and as every component in this repository does. The fold is the first calculation in the port whose ANSWER depends on that: `age_survivalFraction` at age 3 is exactly 0 in binary64 and 5.96e-08 in the binary32 the reference uses, and thirty iterations of an unclamped residual amplify that into a 5.3e-07 disagreement on the grown fractions and an exact zero where the reference leaves 5.8885583e-08 -- which is four MOVESOutput rows for model year 2018 (§7.3). So the two precisions are pinned in the two places they are actually evaluated: this file asserts its binary64 answer exactly, names the real*4 value beside it, and asserts the invariant both precisions share (the fractions sum to G(2020)/G(1990)); fixtures/nr-logging-county.esm declares `Float32` and pins §6.1 step 3's three values bit-exactly. Declaring `Float32` HERE was tried and reverted: a leaf's `domain` does not survive a top-level `{ref}` mount, so runs/nr_logging_county_run.esm re-ran this file's tests in binary64 and got the zero anyway, and giving the assembly the element type instead broke 119 assertions across ten other leaves. That is finding F23.\n\nThe other two equipment points §6.2 tabulates need none of this: in binary64 their grown fractions land within 1.8e-07 of the specification's own decimals, because neither has a survival factor that is a cancellation residue. The contrast is the point -- precision sensitivity here is not a property of the fold, it is a property of one equipment point's scrappage curve landing exactly on 100%.\n\nTHE STEP FUNCTION IS A STEP FUNCTION. find_scrappage_percent (output/find.rs:233-244) returns the percent of the last breakpoint AT OR BELOW the life fraction — it does not interpolate between breakpoints, which is why the whole 197-point default curve is carried here rather than a handful of points around the answer: which breakpoint a life fraction lands on is the computation. The curve is the snapshot's `nrscrappagecurve` for NREquipTypeID 0, the only curve canonical writes.\n\nA NOTE ON `nyrlif`, RECONCILED WITH THE CODE. §6.3's prose says the 750-hour equipment point's `nyrlif` is 38; the code, and this file, give 39 — the first age whose cumulative scrappage reaches 100% is age 39, since (39-1) x (1/18.75) = 2.027 and (38-1) x (1/18.75) = 1.973. The difference costs nothing downstream because that age's grown fraction is not positive and the model year is absent from the snapshot either way, but the number here follows scrptime.rs:110-135 rather than the prose.",
@@ -729,7 +729,7 @@
         {
           "lhs": "age_ageID",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "output_idx": [
               "a"
@@ -745,7 +745,7 @@
         {
           "lhs": "age_modelYearID",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "output_idx": [
               "a"
@@ -802,7 +802,7 @@
         {
           "lhs": "age_fractionLifeUsed",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "output_idx": [
               "a"
@@ -836,7 +836,7 @@
         {
           "lhs": "age_priorFractionLifeUsed",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "output_idx": [
               "a"
@@ -877,7 +877,7 @@
           "_comment": "find_scrappage_percent, twice. `max_product` over the curve rows admitted by a `filter` that is a genuine range predicate: the largest percent among breakpoints at or below the life fraction. The curve is monotone, so `the largest percent below` and `the percent of the last breakpoint below` are the same row -- and the curve's first breakpoint is 0.0, so the reduction is never empty for a non-negative life fraction.",
           "lhs": "age_percentScrapped",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "max_product",
             "output_idx": [
@@ -922,7 +922,7 @@
         {
           "lhs": "age_priorPercentScrapped",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "max_product",
             "output_idx": [
@@ -967,7 +967,7 @@
         {
           "lhs": "age_yearScrapFraction",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "output_idx": [
               "a"
@@ -1003,7 +1003,7 @@
         {
           "lhs": "age_survivalFraction",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "output_idx": [
               "a"
@@ -1041,7 +1041,7 @@
                 "bindings": {}
               },
               {
-                "op": "aggregate",
+                "op": "faq",
                 "args": [],
                 "semiring": "min_sum",
                 "output_idx": [],
@@ -1096,7 +1096,7 @@
           "_comment": "scrptime.rs:147-165. The cohort at age `a` was sold nyrlif - a sales-years after the curve's start, so the sales index is a subtraction rather than an array read. Ages beyond nyrlif have no cohort at all.",
           "lhs": "age_survivingEquipment",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "output_idx": [
               "a"
@@ -1158,7 +1158,7 @@
         {
           "lhs": "survivingEquipmentTotal",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "output_idx": [],
             "ranges": {
@@ -1178,7 +1178,7 @@
         {
           "lhs": "age_baseModelYearFraction",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "output_idx": [
               "a"
@@ -1207,7 +1207,7 @@
           "_comment": "The two reshape columns the fold's template reads through. Plain re-indexings, not a second calculation: this component has one equipment point and the fixture has six, and the template is the same one.",
           "lhs": "fold_survival",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "output_idx": [
               "p",
@@ -1233,7 +1233,7 @@
         {
           "lhs": "fold_baseModelYearFraction",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "output_idx": [
               "p",
@@ -1259,7 +1259,7 @@
         {
           "lhs": "fold_yearID",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "output_idx": [
               "Y"
@@ -1329,7 +1329,7 @@
           "_comment": "agedist.rs:133-136. A recurrence in its own right, and the simplest one in the file: lag 1, one term. The MINGRWIND floor is applied to the RUNNING TOTAL before the year's factor, and only when that factor is non-zero; the clamp at zero is applied after. Doing either the other way round is a different projection for a state whose equipment population is near zero.",
           "lhs": "fold_totalPopulation",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "output_idx": [
               "p",
@@ -1437,7 +1437,7 @@
         {
           "lhs": "fold_residualMinuend",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "output_idx": [
               "p",
@@ -1491,7 +1491,7 @@
           "_comment": "agedist.f's thirty-year fold (§2.2(e)), as the causal self-reference of esm-spec §4.3.1.1. The LHS is an array-shaped unknown; the body reads `index(fold_scrappedFraction, Y - a)` -- itself, strictly earlier along its own output axis -- so the recurrence, its axis and its maximum lag are all derived from the read and nothing is declared. The contracted `a` is the age slot, 1..MXAGYR-1, and it is also the lag: slot `a` of year `Y` traces back `a` years, to the residual of year `Y - a` if the fold has run that long and to the 1990 vector otherwise. That reduction of the 51-slot vector fold to a scalar recurrence on 31 residuals is what tools/verify-agedist-reduction.py checks, cell by cell, in float32, on all six of the fixture's equipment points. The `a = 0` slot of the canonical spelling is not used here because the non-recurrent term is not additive: it is `fold_residualMinuend`, and it is subtracted FROM rather than added TO, which is why this fold sums the scrapped cohorts and takes the difference in a separate equation. Reversing that -- one aggregate accumulating `minuend + (-term_1) + (-term_2) + ...` -- is a different float32 number, measured at up to 1.1e-05 relative on a grown fraction, because the residual is a catastrophic cancellation: 4.6978183 - 0.9905498 leaves 5.9e-08 in slot 3 thirty years later.",
           "lhs": "fold_scrappedFraction",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "output_idx": [
               "p",
@@ -1542,7 +1542,7 @@
         {
           "lhs": "fold_newestCohortResidual",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "output_idx": [
               "p",
@@ -1583,7 +1583,7 @@
           "_comment": "The last year's vector, read back out of the fold and contracted over the equipment-point axis, which has one row here. Slot 1 is the newest model year -- the unclamped residual -- and slot `a+1` is the cohort that has been shifted and scrapped `a` times. `31` is the last row of fold_year_rows, the episode year: `fold_yearID` row 31 is asserted to be 2020 so that the literal cannot drift away from the axis.",
           "lhs": "age_grownModelYearFraction",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -1642,7 +1642,7 @@
         {
           "lhs": "grownModelYearFractionTotal",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "output_idx": [],
             "ranges": {

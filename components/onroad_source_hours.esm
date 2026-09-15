@@ -1,5 +1,5 @@
 {
-  "esm": "1.0.0",
+  "esm": "1.1.0",
   "metadata": {
     "name": "OnroadSourceHours",
     "description": "Stages S4-S9 of the mixed-onroad chain: national VMT allocated over road type and age, scaled to one hour of one day type, divided by average speed, and allocated to the zone. Ports docs/mixed-onroad.md §2.1 steps S4 through S9, joins J6-J17, and the arithmetic of crates/moves-calculators/src/generators/totalactivitygenerator/vmt.rs:88-194, activity.rs:147-205 and allocation.rs:201.\n\nThis is the stage with an INDEPENDENT REFERENCE, and that is why it is one component. Canonical MOVES captures `annualvmtbyageroadway`, `vmtbyageroadwayhour`, `shobyageroadwayhour` and `sho` as tables, so every one of the four multiplicative steps can be checked against a stored value rather than only at the end. The tests below check all four, which is what makes a wrong factor attributable to a step instead of showing up as a wrong emission.\n\nTHREE THINGS THAT ARE EASY TO GET WRONG, and each has a test.\n\n(1) `averageSpeed` is the ARITHMETIC mean of the speed-bin distribution, sum(avgSpeedFraction x avgBinSpeed), not the harmonic mean (activity.rs:147-150). The harmonic mean is the intuitive choice — SHO is VMT/speed, and the mean of a set of times is the harmonic mean of the speeds — and it is wrong. On this fixture's own distribution the two differ by 34% on the weekend day type and 95% on the weekday one, and since SHO divides by this number the error goes straight to the output. The test computes the mean from all sixteen bins and its description carries both values.\n\n(2) `weeksPerMonth` is a DIVISOR (vmt.rs:194), and it is the only place `monthofanyyear` is read in the entire generator. Omitting it multiplies every row by 4.43 for a 31-day month. Its job is to fix SHO's basis: `dayVMTFraction` is a share of the MONTH's VMT, so before the division the quantity covers every real day of that day type in the month; after it, one average week — that is, the day type's `noOfRealDays` days. The output stage divides `noOfRealDays` out again (S16), and applying it in both places is the ~4.3x over-emit crates/moves-calculators/src/calculators/baseratecalculator/mod.rs:1536-1542 records. A missing `monthofanyyear` row silently substitutes 1.0 upstream, which is exactly the shape of failure this repository's README warns about.\n\n(3) `SHOAllocFactor` is PURELY SPATIAL. It carries no time or speed factor; it is 0.001646 here because it allocates national road-4 activity to one zone. It multiplies at the very end (allocation.rs:201) and nothing else in the chain is county-specific.\n\nWHAT THE JOIN STRUCTURE LOOKS LIKE. J11-J14 are one contraction with two `join.on` clauses — the age relation on `ageID` and the day relation on `hourDayID` — because the four fractions relate four different relations to the same row and compose by conjunction (docs/esm-conventions.md §3). J15 is separate because its result is a DIVISOR and has to be guarded: activity.rs:186-205 is a LEFT JOIN whose miss gives SHO = 0 with VMT intact, and that pair (VMT positive, SHO zero) is the diagnostic signature of a missing speed row. Note what J15 does NOT join on: neither `monthID` nor `ageID`, so one speed serves every month and every age.\n\nData: `travelFraction` is docs/mixed-onroad.md §6.1-§6.4's five values, computed by components/onroad_travel_fraction.esm and carried here as a column so this file tests standalone; the assembly joins the two instead. Everything else — the analysis-year VMT, the four fractions, all thirty-two `avgSpeedFraction` cells and the allocation factor — is the snapshot's.",
@@ -243,7 +243,7 @@
         {
           "_comment": "S6, activity.rs:147-150. J10 selects the day type's distribution and J9 attaches each bin's speed; the ARITHMETIC mean is the sum of the products.",
           "lhs": "day_averageSpeed",
-          "rhs": { "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["k"],
+          "rhs": { "op": "faq", "args": [], "semiring": "sum_product", "output_idx": ["k"],
             "ranges": { "k": { "from": "activity_day_rows" },
                         "p": { "from": "speed_dist_rows" },
                         "b": { "from": "speed_bin_rows" } },
@@ -274,7 +274,7 @@
         {
           "_comment": "S7, vmt.rs:170-194. J11-J14 as ONE contraction with two join clauses over two different symbol pairs, which compose by conjunction: the age relation supplies annualVMT and the day relation supplies both day-level fractions. monthVMTFraction and weeksPerMonth are run-level.",
           "lhs": "sho_vmt",
-          "rhs": { "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["r"],
+          "rhs": { "op": "faq", "args": [], "semiring": "sum_product", "output_idx": ["r"],
             "ranges": { "r": { "from": "source_hour_rows" },
                         "a": { "from": "vmt_age_rows" },
                         "k": { "from": "activity_day_rows" } },
@@ -293,7 +293,7 @@
         {
           "_comment": "J15. Its own contraction because the result is a divisor that needs a guard, and because the join carries neither monthID nor ageID.",
           "lhs": "sho_averageSpeed",
-          "rhs": { "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["r"],
+          "rhs": { "op": "faq", "args": [], "semiring": "sum_product", "output_idx": ["r"],
             "ranges": { "r": { "from": "source_hour_rows" }, "k": { "from": "activity_day_rows" } },
             "join": [ { "on": [["sho_hourDayID", "day_hourDayID"]] } ],
             "expr": { "op": "index", "args": ["day_averageSpeed", "k"] } }

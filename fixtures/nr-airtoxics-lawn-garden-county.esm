@@ -1,5 +1,5 @@
 {
- "esm": "1.0.0",
+ "esm": "1.1.0",
  "metadata": {
   "name": "nr-airtoxics-lawn-garden-county",
   "description": "THE FIXTURE FOR THE LAST TWO NONROAD CALCULATORS. It computes all 14,036 MOVESOutput rows of the nr-airtoxics-lawn-garden-county snapshot -- 29 pollutant-processes over 484 (SCC, model year) cohorts -- from that snapshot's own input tables: the whole NONROAD exhaust chain over the Lawn/Garden sector's 108 equipment points, then NRHCSpeciationCalculator's five species, NRAirToxicsCalculator's twenty toxics and its separate NonHAPTOG pass. docs/nr-airtoxics-lawn-garden-county.md is the specification; run-nr-airtoxics-oracle.sh is an independent reproduction of the same 14,036 rows by a different route.\n\nIT BEGAN AS fixtures/nr-logging-county.esm WITH ITS PATHS CHANGED, which docs/esm-conventions.md 27.3 makes the first move on a new rung, and the retarget audit found three things that fixture could not have seen (specification 2.1). The largest: nremissionrate's three-level SCC fallback chain is walked once per (technology, pollutant-process), not once per equipment point -- a specific SCC's rate rows need not cover every technology its own tech mix names. Resolved per point instead, this document emits exactly the right 14,036-row key set and is wrong by up to a factor of 6.9 on five of the 31 SCCs. The other two: the .TECH hp bin is the FIRST containing bin and not every containing one, which a strict lower bound reproduces because the bins tile from 0; and a (pollutant-process, technology) pair with no nrdeterioration row takes a factor of 1 rather than 0, which 101 and 10001 never notice and 9901 -- which has no row anywhere in that table -- would be deleted by.\n\nWHAT THIS DOCUMENT DOES NOT CONTAIN, because the snapshot cannot show it (docs/esm-conventions.md 23, 36):\n\n* POLLUTANTS 131 AND 142 ARE NOW COMPARED, AND THEIR 968 CELLS ARE WHY THIS RUNG'S TOLERANCE EXCEPTION IS GONE. They are computed by the same expression as every other toxic, from nrDioxinEmissionRate.meanBaseRate. Under moves-snapshot/v1 that rate arrived as 0.000000001105 and 0.000000000019 -- FOUR significant figures and TWO, against the double MOVES read -- so no implementation reading the capture could be closer than a 4.5e-04 and 2.24e-02 uniform bias, and tolerance.toml held both pollutants out as a declared SCOPE. moves-snapshot/v2 records 1.1045e-09 and 1.94345e-11, the rate MOVES itself read, and all 14,036 cells now compare at the unmodified [cell] rel = 2e-5 with a worst of 9.417e-06: 6.836e-06 on 131 and 9.183e-06 on 142. The scope is deleted; docs/nr-airtoxics-lawn-garden-county.md 7.2 keeps the before-and-after.\n\n* NEITHER CALCULATOR'S MISSING-ROW ARM FIRES. Over all 2,063 (SCC, model year, technology, hp bin) worker cells this run produces there are 0 with no nrhpcategory row, 0 with no nrMethaneTHCRatio row and 0 with no nrHCSpeciation row -- so the Go's skip-the-emission and its explicit-zero fallback are written from the source and exercised only in components/nr_hc_speciation.esm, where a probe technology takes each.\n\n* THE TWO FUEL-SUBTYPE IDS CANNOT BE TOLD APART. nrMethaneTHCRatio and nrATRatio key on the fuel FORMULATION's subtype and nrHCSpeciation on the EMISSION's; the only supplied gasoline formulation carries 12 in both, so the distinction is preserved from the source and is unfalsifiable here.\n\n* THE MARKET-SHARE FAN-OUT IS 1.0 AND 0.0. Two formulations are supplied and one has share 0, so the per-formulation chain is collapsed at its two endpoints only. The general form -- the mean of the products rather than the product of the means (32.3) -- is written and untested.\n\n* MXTECH = 32 NEVER BITES. The largest .TECH technology list any of the 108 points draws is 9. The truncation is in the reference and is not in this document, and a sector that needed it would be wrong here.\n\n* ONE PROCESS, ONE FUEL TYPE. Everything is running exhaust and gasoline, so the fuel path's process-1-only guard is satisfied trivially and the diesel, CNG and LPG densities and the diesel PM2.5 fraction are never evaluated. The five ratio tables' output-pollutant sets are disjoint here, so the Go's last-write-wins overwrite is written and untested.\n\nTHE PRECISION IS THE REFERENCE'S: domain.element_type Float32 with a Float64 override on every SCC-valued variable, because 2260004015 is 135x binary32's exact-integer limit and would round into a different equipment category (finding F18). 17.2's rule -- one operator, one precision -- is why the speciation identifiers are Float32: they are all below 2^24.",
@@ -5482,7 +5482,7 @@
     {
      "lhs": "point_ordinal",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "r"
@@ -5617,7 +5617,7 @@
      "_comment": "The point's SCC, READ from nrsourceusetype rather than declared. It used to be the `runSCC` parameter, which could hold only one; with six points the SCC is a property of the equipment, and the document now says so. One source type has exactly one row, so the sum_product contraction is a lookup.",
      "lhs": "point_SCC",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "semiring": "sum_product",
       "output_idx": [
@@ -5654,7 +5654,7 @@
      "_comment": "prccty.f iterates the equipment points of the SCCs the RunSpec selects; this counts them, so that the declared point list is checked for completeness against the table rather than trusted.",
      "lhs": "scc_equipmentPointCount",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "semiring": "sum_product",
       "output_idx": [
@@ -5711,7 +5711,7 @@
     {
      "lhs": "point_stateID",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "r"
@@ -5727,7 +5727,7 @@
     {
      "lhs": "point_baseYearID",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "r"
@@ -5744,7 +5744,7 @@
      "_comment": "J1, both hops in one contraction: nrscc gives this SCC its equipment type and nrequipmenttype gives that type its surrogate.",
      "lhs": "point_surrogateID",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "semiring": "sum_product",
       "output_idx": [
@@ -5792,7 +5792,7 @@
      "_comment": "1 on the county target, 0 on the state one. `minor` is 1 then 2 within each point's pair, so `2 - minor` is the flag; the pair ORDER is the content here, and it is stated once.",
      "lhs": "tgt_isCounty",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "g"
@@ -5822,7 +5822,7 @@
     {
      "lhs": "tgt_pointOrdinal",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "g"
@@ -5846,7 +5846,7 @@
     {
      "lhs": "tgt_countyID",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "g"
@@ -5898,7 +5898,7 @@
     {
      "lhs": "tgt_surrogateID",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "semiring": "sum_product",
       "output_idx": [
@@ -5934,7 +5934,7 @@
     {
      "lhs": "tgt_yearAtOrBeforeCount",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "semiring": "sum_product",
       "output_idx": [
@@ -5981,7 +5981,7 @@
     {
      "lhs": "tgt_latestYearAtOrBefore",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "semiring": "max_product",
       "output_idx": [
@@ -6034,7 +6034,7 @@
     {
      "lhs": "tgt_earliestYearAfter",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "semiring": "min_sum",
       "output_idx": [
@@ -6087,7 +6087,7 @@
     {
      "lhs": "tgt_effectiveYearID",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "g"
@@ -6137,7 +6137,7 @@
      "_comment": "J6, a plain three-column equi-join now that the year precedence has been reduced to a key.",
      "lhs": "tgt_quant",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "semiring": "sum_product",
       "output_idx": [
@@ -6181,7 +6181,7 @@
     {
      "lhs": "point_allocationCountyQuant",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "semiring": "sum_product",
       "output_idx": [
@@ -6229,7 +6229,7 @@
     {
      "lhs": "point_allocationStateQuant",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "semiring": "sum_product",
       "output_idx": [
@@ -6283,7 +6283,7 @@
     {
      "lhs": "point_allocationFraction",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "r"
@@ -6337,7 +6337,7 @@
      "_comment": "J4 and J5 over the whole 62,699-row table, keyed on the SOURCE TYPE and not on the SCC: three of the six points share an SCC, so an SCC-keyed join would silently sum their populations into each of them. Without the rounding this is the number the .POP file would have carried had canonical written it at full precision.",
      "lhs": "point_rawStatePopulation",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "semiring": "sum_product",
       "output_idx": [
@@ -6389,7 +6389,7 @@
     {
      "lhs": "point_statePopulation",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "semiring": "sum_product",
       "output_idx": [
@@ -6448,7 +6448,7 @@
     {
      "lhs": "point_countyPopulation",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "r"
@@ -6482,7 +6482,7 @@
     {
      "lhs": "run_countyID",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "r"
@@ -6498,7 +6498,7 @@
     {
      "lhs": "run_yearID",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "r"
@@ -6514,7 +6514,7 @@
     {
      "lhs": "point_dayID",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "r"
@@ -6531,7 +6531,7 @@
      "_comment": "\u00a75.3: an SCC beginning 2260 is two-stroke gasoline, 2265 four-stroke. Derived per point from the key the ladder already truncates, so the coefficients follow the equipment rather than a declaration -- and this fixture exercises both, one point two-stroke and five four-stroke.",
      "lhs": "point_engineFuelKindID",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "r"
@@ -6663,7 +6663,7 @@
     {
      "lhs": "point_sccZero2",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "r"
@@ -6693,7 +6693,7 @@
     {
      "lhs": "point_sccZero4",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "r"
@@ -6724,7 +6724,7 @@
      "_comment": "The month ladder's three presence questions, each scoped by the run month and the two visible states, because the ladder searches WITHIN that scope -- a rung that exists only for another month is not a match.",
      "lhs": "point_monthExactIsPresent",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "semiring": "bool_and_or",
       "output_idx": [
@@ -6776,7 +6776,7 @@
     {
      "lhs": "point_monthZero2IsPresent",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "semiring": "bool_and_or",
       "output_idx": [
@@ -6828,7 +6828,7 @@
     {
      "lhs": "point_monthZero4IsPresent",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "semiring": "bool_and_or",
       "output_idx": [
@@ -6880,7 +6880,7 @@
     {
      "lhs": "point_monthEffectiveSCC",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "r"
@@ -6948,7 +6948,7 @@
     {
      "lhs": "point_monthRunStateRowIsPresent",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "semiring": "bool_and_or",
       "output_idx": [
@@ -7000,7 +7000,7 @@
     {
      "lhs": "point_monthEffectiveStateID",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "r"
@@ -7037,7 +7037,7 @@
     {
      "lhs": "point_monthRowIsPresent",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "semiring": "bool_and_or",
       "output_idx": [
@@ -7083,7 +7083,7 @@
      "_comment": "J15, a plain three-column equi-join now that both halves of the precedence have been reduced to keys.",
      "lhs": "point_matchedMonthFraction",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "semiring": "sum_product",
       "output_idx": [
@@ -7134,7 +7134,7 @@
     {
      "lhs": "point_monthFraction",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "r"
@@ -7181,7 +7181,7 @@
      "_comment": "The day ladder, walked INDEPENDENTLY of the month one and against a different table (\u00a72.3). nrdayallocation has no state column.",
      "lhs": "point_dayExactIsPresent",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "semiring": "bool_and_or",
       "output_idx": [
@@ -7219,7 +7219,7 @@
     {
      "lhs": "point_dayZero2IsPresent",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "semiring": "bool_and_or",
       "output_idx": [
@@ -7257,7 +7257,7 @@
     {
      "lhs": "point_dayZero4IsPresent",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "semiring": "bool_and_or",
       "output_idx": [
@@ -7295,7 +7295,7 @@
     {
      "lhs": "point_dayEffectiveSCC",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "r"
@@ -7363,7 +7363,7 @@
     {
      "lhs": "point_dayRowIsPresent",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "semiring": "bool_and_or",
       "output_idx": [
@@ -7401,7 +7401,7 @@
     {
      "lhs": "point_matchedDayFraction",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "semiring": "sum_product",
       "output_idx": [
@@ -7445,7 +7445,7 @@
     {
      "lhs": "point_dayFraction",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "r"
@@ -7491,7 +7491,7 @@
     {
      "lhs": "point_monthDayFactor",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "r"
@@ -7531,7 +7531,7 @@
     {
      "lhs": "run_daysInMonth",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "semiring": "sum_product",
       "output_idx": [
@@ -7570,7 +7570,7 @@
     {
      "lhs": "run_adjustmentTime",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "r"
@@ -7599,7 +7599,7 @@
      "_comment": "J17/J18 over the whole 930,816-row table. The composite equality is a `join.on`; the inclusive daytime window is a `filter`, because it is a genuine range predicate. The time-side loop symbol is `k`, never `t` (F4).",
      "lhs": "run_daytimeHourCount",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "semiring": "sum_product",
       "output_idx": [
@@ -7682,7 +7682,7 @@
     {
      "lhs": "run_daytimeTemperatureSum",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "semiring": "sum_product",
       "output_idx": [
@@ -7771,7 +7771,7 @@
     {
      "lhs": "run_meanTemperature",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "r"
@@ -7806,7 +7806,7 @@
      "_comment": "J19, J20, J21/J22/J23: the fuel scope, resolved one hop at a time and carried on a one-row relation so each hop is an equi-join.",
      "lhs": "run_fuelYearID",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "semiring": "sum_product",
       "output_idx": [
@@ -7842,7 +7842,7 @@
     {
      "lhs": "run_fuelRegionCodeID",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "r"
@@ -7864,7 +7864,7 @@
     {
      "lhs": "run_fuelScopeFuelTypeID",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "r"
@@ -7886,7 +7886,7 @@
     {
      "lhs": "run_monthID",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "semiring": "sum_product",
       "output_idx": [
@@ -7912,7 +7912,7 @@
     {
      "lhs": "run_fuelRegionID",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "semiring": "sum_product",
       "output_idx": [
@@ -7961,7 +7961,7 @@
      "_comment": "J21 x J22 x J23 in one contraction: the county's gasoline supply rows, their formulations, and the subtype that says which are gasoline. The oxygenate volumes are summed and converted to weight percent inside the sum, weighted by market share -- emsadj.f's `oxy`.",
      "lhs": "run_oxygenWeightPercent",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "semiring": "sum_product",
       "output_idx": [
@@ -8456,7 +8456,7 @@
      "_comment": "adjems, pointwise over the coefficient table: no join, no contraction over anything but the one-row run scope, both shapes imported from lib/adjustments.esm. Temperature and oxygen are run-level, so the eight rows here cover both stroke counts and `pp_adjustment` is what selects between them per equipment point.",
      "lhs": "adj_adjustment",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "p"
@@ -8529,7 +8529,7 @@
      "_comment": "The composite join that picks each point's stroke count out of the coefficient table, onto the pollutant axis the RunSpec selected. Both stroke counts are live here: the 2260 point takes rows 5-8 and the five 2265 points rows 1-4.",
      "lhs": "rated_adjustment",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "semiring": "sum_product",
       "output_idx": [
@@ -8577,7 +8577,7 @@
     {
      "lhs": "pp_ordinal",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "q"
@@ -8679,7 +8679,7 @@
      "_comment": "The equipment point's four activity columns, selected out of 1,183 rows by its source type. Keyed on sourceTypeID rather than SCC for the reason the population is: 2265007010 has three points with three different horsepowers, and an SCC-keyed join would hand each of them the sum.",
      "lhs": "point_hpAvg",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "semiring": "sum_product",
       "output_idx": [
@@ -8715,7 +8715,7 @@
     {
      "lhs": "point_hoursUsedPerYear",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "semiring": "sum_product",
       "output_idx": [
@@ -8751,7 +8751,7 @@
     {
      "lhs": "point_loadFactor",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "semiring": "sum_product",
       "output_idx": [
@@ -8787,7 +8787,7 @@
     {
      "lhs": "point_medianLifeFullLoad",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "semiring": "sum_product",
       "output_idx": [
@@ -8823,7 +8823,7 @@
     {
      "lhs": "point_unitConversion",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "r"
@@ -8880,7 +8880,7 @@
     {
      "lhs": "point_sccZero3",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "r"
@@ -8910,7 +8910,7 @@
     {
      "lhs": "point_sccZero6",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "r"
@@ -8941,7 +8941,7 @@
      "_comment": "J8's ladder, scoped to the states this run can see. The exact SCC HAS a row -- at stateID 99 -- and it must not win, which is what the scope join enforces.",
      "lhs": "point_growthExactIsPresent",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "semiring": "bool_and_or",
       "output_idx": [
@@ -8982,7 +8982,7 @@
     {
      "lhs": "point_growthZero3IsPresent",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "semiring": "bool_and_or",
       "output_idx": [
@@ -9023,7 +9023,7 @@
     {
      "lhs": "point_growthEffectiveSCC",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "r"
@@ -9078,7 +9078,7 @@
     {
      "lhs": "point_growthStateRowIsPresent",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "semiring": "bool_and_or",
       "output_idx": [
@@ -9119,7 +9119,7 @@
     {
      "lhs": "point_growthEffectiveStateID",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "r"
@@ -9156,7 +9156,7 @@
     {
      "lhs": "point_growthPatternID",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "semiring": "sum_product",
       "output_idx": [
@@ -9197,7 +9197,7 @@
      "_comment": "J9, at the two ends of the span. Both years are exact rows of nrgrowthindex for this pattern, so the ratio needs none of getgrw's interpolation.",
      "lhs": "point_baseGrowthIndex",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "semiring": "sum_product",
       "output_idx": [
@@ -9262,7 +9262,7 @@
     {
      "lhs": "point_endGrowthIndex",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "semiring": "sum_product",
       "output_idx": [
@@ -9321,7 +9321,7 @@
     {
      "lhs": "point_cumulativeGrowthRatio",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "r"
@@ -9373,7 +9373,7 @@
     {
      "lhs": "slot_ageID",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "s"
@@ -9389,7 +9389,7 @@
     {
      "lhs": "slot_modelYearID",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "s"
@@ -9423,7 +9423,7 @@
     {
      "lhs": "fold_yearID",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "w"
@@ -9452,7 +9452,7 @@
      "_comment": "getgrw.f's bracketing years, per equipment point and fold year. The pattern is a KEY and is joined on; the year test is a genuine range predicate and is a filter (\u00a73).",
      "lhs": "fold_lowYearID",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "semiring": "max_product",
       "output_idx": [
@@ -9511,7 +9511,7 @@
     {
      "lhs": "fold_highYearID",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "semiring": "min_sum",
       "output_idx": [
@@ -9571,7 +9571,7 @@
      "_comment": "The indicator at each bracketing year. Selected by a PAIR of range predicates -- at or below the fold year, at or above the low year -- which exactly one tabulated row satisfies, so no equality filter and no join on a two-axis column is needed. The truncation toward zero is canonical's %20d packet write, and is a no-op on this snapshot's integral indices; it is written because it is control flow, not a decode artefact.",
      "lhs": "fold_lowIndicator",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "semiring": "sum_product",
       "output_idx": [
@@ -9662,7 +9662,7 @@
     {
      "lhs": "fold_highIndicator",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "semiring": "sum_product",
       "output_idx": [
@@ -9754,7 +9754,7 @@
      "_comment": "The tabulated value where the fold year is tabulated, the two-point line where it is not. The guard is `high > low`, not `high != low`: equality is the common case here -- 22 of 31 fold years are exact rows -- and interpolating on it would divide by zero.",
      "lhs": "fold_indicator",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "r",
@@ -9853,7 +9853,7 @@
     {
      "lhs": "fold_priorIndicator",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "r",
@@ -9906,7 +9906,7 @@
     {
      "lhs": "fold_annualGrowthFactor",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "r",
@@ -9970,7 +9970,7 @@
      "_comment": "grwfac(1990, 1991) is fold row 2's factor: row 1 is the base year and takes no step. The literal 2 is guarded by the assertion that fold_yearID row 1 is runBaseYearID.",
      "lhs": "point_popGrowthFactor",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "r"
@@ -9993,7 +9993,7 @@
     {
      "lhs": "point_medianLifeYears",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "r"
@@ -10036,7 +10036,7 @@
     {
      "lhs": "point_medianLifePerYear",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "r"
@@ -10064,7 +10064,7 @@
     {
      "lhs": "slot_fractionLifeUsed",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "r",
@@ -10108,7 +10108,7 @@
     {
      "lhs": "slot_priorFractionLifeUsed",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "r",
@@ -10159,7 +10159,7 @@
      "_comment": "find_scrappage_percent, twice, over the real 197-row table. `max_product` over the curve rows admitted by a filter that is a genuine range predicate: the largest percent among breakpoints at or below the life fraction. The curve is monotone, so `the largest percent below` and `the percent of the last breakpoint below` are the same row -- and its first breakpoint is 0.0, so the reduction is never empty for a non-negative life fraction.",
      "lhs": "slot_percentScrapped",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "semiring": "max_product",
       "output_idx": [
@@ -10222,7 +10222,7 @@
     {
      "lhs": "slot_priorPercentScrapped",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "semiring": "max_product",
       "output_idx": [
@@ -10285,7 +10285,7 @@
     {
      "lhs": "slot_yearScrapFraction",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "r",
@@ -10327,7 +10327,7 @@
     {
      "lhs": "slot_survivalFraction",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "r",
@@ -10370,7 +10370,7 @@
         "bindings": {}
        },
        {
-        "op": "aggregate",
+        "op": "faq",
         "args": [],
         "semiring": "min_sum",
         "output_idx": [
@@ -10418,7 +10418,7 @@
     {
      "lhs": "point_salesGrowth",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "r"
@@ -10454,7 +10454,7 @@
     {
      "lhs": "slot_survivingEquipment",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "r",
@@ -10539,7 +10539,7 @@
     {
      "lhs": "point_survivingEquipmentTotal",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "semiring": "sum_product",
       "output_idx": [
@@ -10566,7 +10566,7 @@
     {
      "lhs": "slot_baseModelYearFraction",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "r",
@@ -10606,7 +10606,7 @@
      "_comment": "agedist.rs:133-136. A recurrence of lag 1: the MINGRWIND floor is applied to the RUNNING TOTAL before the year's factor and only when that factor is non-zero, and the clamp at zero is applied after. Either one the other way round is a different projection for a state with almost no equipment.",
      "lhs": "fold_totalPopulation",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "r",
@@ -10722,7 +10722,7 @@
     {
      "lhs": "fold_residualMinuend",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "r",
@@ -10802,7 +10802,7 @@
      "_comment": "THE FOLD (\u00a72.2(e)), as esm-spec \u00a74.3.1.1's causal self-reference. The body reads `index(fold_scrappedFraction, r, w - a)`: itself, strictly earlier along the fold-year axis, with the equipment-point axis an identity index. The 51-slot vector fold is reduced to this scalar recurrence on 31 residuals first -- every cell of the grown vector is a clamped base times an ASCENDING run of survival factors, so slot `a` of year `w` traces back `a` years to the residual of year `w - a`, or to the 1990 vector if the fold has not run that long. tools/verify-agedist-reduction.py checks that reduction cell by cell in float32 against the specification's own script, 0 of 1,581 cells differing, on all six of the snapshot's equipment points. Two orders are load-bearing and both were measured: the residual is `minuend - sum` with the cohorts summed ascending FIRST (folding the negated terms into the minuend one at a time moves the answer up to 1.1e-05 relative, because the residual is a catastrophic cancellation), and each cohort's factors multiply left to right starting FROM the base (precomputing the run product moves it up to 6.4e-06).",
      "lhs": "fold_scrappedFraction",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "r",
@@ -10853,7 +10853,7 @@
     {
      "lhs": "fold_newestCohortResidual",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "r",
@@ -10894,7 +10894,7 @@
      "_comment": "The last fold row's vector, read back. `31` is the last row of fold_year_rows, the episode year: fold_yearID row 31 is asserted to be 2020 so the literal cannot drift away from the axis.",
      "lhs": "slot_grownModelYearFraction",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "r",
@@ -10954,7 +10954,7 @@
      "_comment": "The skip as a membership test on a rectangular axis, which is what lets a ragged key set be produced without a ragged index set.",
      "lhs": "slot_isPopulated",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "r",
@@ -11018,7 +11018,7 @@
     {
      "lhs": "slot_detAge",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "r",
@@ -11078,7 +11078,7 @@
     {
      "lhs": "point_grownModelYearFractionTotal",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "semiring": "sum_product",
       "output_idx": [
@@ -11119,7 +11119,7 @@
      "_comment": "The equipment chain for the .TECH file, with the hp bin as a genuine range filter alongside it. THE LOWER HP BOUND IS STRICT, and that is docs/nr-airtoxics-lawn-garden-county.md 2.1(b): nonroad_loader.rs takes the FIRST (SCC, hpMin, hpMax) bin containing hpAvg, and `hpMin <= hpAvg` admits two of them wherever hpAvg sits on a bin boundary -- 2260004071's 3.0 hp is in both (1, 3) and (3, 6) of 2260000000. The bins tile from 0 and every hpAvg is positive, so the strict bound picks exactly the reference's bin; measured over all 108 points at all three chain levels, 0 differences. Without it tech_fractionTotal is 2 on that SCC and its emissions are 1.24 to 1.43 times the reference's.",
      "lhs": "point_mixExactIsPresent",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "semiring": "bool_and_or",
       "output_idx": [
@@ -11203,7 +11203,7 @@
     {
      "lhs": "point_mixZero3IsPresent",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "semiring": "bool_and_or",
       "output_idx": [
@@ -11288,7 +11288,7 @@
     {
      "lhs": "point_mixEffectiveSCC",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "r"
@@ -11344,7 +11344,7 @@
      "_comment": "The flat product decoded, with MXAGYR as the block size so the layout is derived from the model's own age bound rather than from a 51 typed in here (lib/keys.esm, lib/population.esm).",
      "lhs": "cohort_pointOrdinal",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "c"
@@ -11373,7 +11373,7 @@
     {
      "lhs": "cohort_ageSlot",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "c"
@@ -11402,7 +11402,7 @@
     {
      "lhs": "cohort_SCC",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "semiring": "sum_product",
       "output_idx": [
@@ -11438,7 +11438,7 @@
     {
      "lhs": "cohort_hpAvg",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "semiring": "sum_product",
       "output_idx": [
@@ -11474,7 +11474,7 @@
     {
      "lhs": "cohort_mixEffectiveSCC",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "semiring": "sum_product",
       "output_idx": [
@@ -11510,7 +11510,7 @@
     {
      "lhs": "cohort_modelYearID",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "semiring": "sum_product",
       "output_idx": [
@@ -11546,7 +11546,7 @@
     {
      "lhs": "cohort_grownModelYearFraction",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "semiring": "sum_product",
       "output_idx": [
@@ -11594,7 +11594,7 @@
     {
      "lhs": "cohort_isPopulated",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "semiring": "sum_product",
       "output_idx": [
@@ -11642,7 +11642,7 @@
     {
      "lhs": "cohort_isShadowed",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "semiring": "bool_and_or",
       "output_idx": [
@@ -11702,7 +11702,7 @@
     {
      "lhs": "cohort_isOwner",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "c"
@@ -11742,7 +11742,7 @@
     {
      "lhs": "cohort_ownerRank",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "semiring": "sum_product",
       "output_idx": [
@@ -11775,7 +11775,7 @@
     {
      "lhs": "cohort_ordinal",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "c"
@@ -11809,7 +11809,7 @@
     {
      "lhs": "cohort_mixYearAtOrBeforeCount",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "semiring": "sum_product",
       "output_idx": [
@@ -11913,7 +11913,7 @@
     {
      "lhs": "cohort_latestMixYearAtOrBefore",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "semiring": "max_product",
       "output_idx": [
@@ -12023,7 +12023,7 @@
     {
      "lhs": "cohort_earliestMixYear",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "semiring": "min_sum",
       "output_idx": [
@@ -12114,7 +12114,7 @@
     {
      "lhs": "cohort_mixYearID",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "c"
@@ -12163,7 +12163,7 @@
     {
      "lhs": "cohort_detAge",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "semiring": "sum_product",
       "output_idx": [
@@ -12212,7 +12212,7 @@
      "_comment": "The technology code space, enumerated. Nothing is read here; it is the axis at which the next three equations meet.",
      "lhs": "tech_engTechID",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "c"
@@ -12235,7 +12235,7 @@
      "_comment": "J11. The .TECH rows the equipment chain, the hp bin, the exhaust process group and the cohort's mix year select, laid out per technology. THE ORDER OF THE `join` CLAUSES BELOW IS A COST DECISION AND NOT A READING ORDER -- docs/esm-conventions.md \u00a725, docs/findings/README.md F17. Only the FIRST clause a binding can resolve DRIVES enumeration; the other three still restrict the admitted set, but as per-leaf equality tests (CONFORMANCE_SPEC \u00a75.5.8, `the others are membership tests on the driven leaves`). This node therefore costs exactly what the first clause's match set admits, and every order gives byte-identical rows. Measured on the whole document, one `esm simulate --time 0` each: engTechID first admits 2,320,704 leaves and runs in 11.5 s; SCC first 5,977,200 and 20.4 s; modelYearID first 24,107,900 and 57.2 s; processGroupID first -- a key with TWO distinct values -- 272,523,600 and 541 s. Do not reorder these for legibility. THE LOWER HP BOUND IS STRICT, and that is docs/nr-airtoxics-lawn-garden-county.md 2.1(b): nonroad_loader.rs takes the FIRST (SCC, hpMin, hpMax) bin containing hpAvg, and `hpMin <= hpAvg` admits two of them wherever hpAvg sits on a bin boundary -- 2260004071's 3.0 hp is in both (1, 3) and (3, 6) of 2260000000. The bins tile from 0 and every hpAvg is positive, so the strict bound picks exactly the reference's bin; measured over all 108 points at all three chain levels, 0 differences. Without it tech_fractionTotal is 2 on that SCC and its emissions are 1.24 to 1.43 times the reference's.",
      "lhs": "tech_fraction",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "semiring": "sum_product",
       "output_idx": [
@@ -12345,7 +12345,7 @@
     {
      "lhs": "tech_fractionTotal",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "semiring": "sum_product",
       "output_idx": [
@@ -12373,7 +12373,7 @@
      "_comment": "J14, on the composite key, hoisted off the cohort axis: the table is keyed by (polProcessID, engTechID) and nothing else, so the age is the only part of the deterioration factor a cohort contributes.",
      "lhs": "det_isPresent",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "semiring": "bool_and_or",
       "output_idx": [
@@ -12415,7 +12415,7 @@
     {
      "lhs": "det_coefficient",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "semiring": "sum_product",
       "output_idx": [
@@ -12463,7 +12463,7 @@
     {
      "lhs": "det_ageCapValue",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "semiring": "sum_product",
       "output_idx": [
@@ -12511,7 +12511,7 @@
     {
      "lhs": "det_ageExponent",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "semiring": "sum_product",
       "output_idx": [
@@ -12560,7 +12560,7 @@
      "_comment": "The cohort's own age put through 4.1's shape. A technology or pollutant-process with no nrdeterioration row keeps coefficient A = 0 and therefore a factor of exactly 1, which is the reference's `det.get(...)` returning None and leaving (a, b, cap) at their zero values (nonroad_loader.rs:456-460). It is NOT a factor of zero: fuel consumption has no 9901 row anywhere in nrdeterioration, and gating the factor on presence would delete the whole pollutant.",
      "lhs": "tech_deteriorationFactor",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "c",
@@ -12642,7 +12642,7 @@
      "_comment": "clcems.f's product for one cohort and one output pollutant-process, contracted over the technologies the mix carries. Two joins gate it: the cohort's equipment point (summing over points would add different SCCs into one number) and the output row's RATED ROOT, which is what lets 29 pollutant-processes ride three rate blocks.",
      "lhs": "cell_emissionQuant",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "semiring": "sum_product",
       "output_idx": [
@@ -12797,7 +12797,7 @@
      "_comment": "The output relation: 144 rows over ONE axis, laid out as 36 cohorts of 4 pollutant processes. `esm simulate --format csv` writes one row per index tuple, so every emitted field has to share this shape -- which is also the shape MOVESOutput itself has.",
      "lhs": "out_cohortOrdinal",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "o"
@@ -12821,7 +12821,7 @@
     {
      "lhs": "out_ppOrdinal",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "o"
@@ -12846,7 +12846,7 @@
      "_comment": "The owner cohort, found by joining the row's 1..36 ordinal against the compacted rank. A cohort that is unpopulated or shadowed has ordinal 0 and is unmatchable, so this join is what turns the mask into a row set.",
      "lhs": "out_pointOrdinal",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "semiring": "sum_product",
       "output_idx": [
@@ -12882,7 +12882,7 @@
     {
      "lhs": "out_ageSlot",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "semiring": "sum_product",
       "output_idx": [
@@ -12918,7 +12918,7 @@
     {
      "lhs": "out_SCC",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "semiring": "sum_product",
       "output_idx": [
@@ -12954,7 +12954,7 @@
     {
      "lhs": "out_modelYearID",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "semiring": "sum_product",
       "output_idx": [
@@ -12990,7 +12990,7 @@
     {
      "lhs": "out_polProcessID",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "semiring": "sum_product",
       "output_idx": [
@@ -13026,7 +13026,7 @@
     {
      "lhs": "out_pollutantID",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "o"
@@ -13055,7 +13055,7 @@
     {
      "lhs": "out_processID",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "o"
@@ -13084,7 +13084,7 @@
     {
      "lhs": "out_yearID",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "o"
@@ -13100,7 +13100,7 @@
     {
      "lhs": "out_monthID",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "semiring": "sum_product",
       "output_idx": [
@@ -13126,7 +13126,7 @@
     {
      "lhs": "out_dayID",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "o"
@@ -13142,7 +13142,7 @@
     {
      "lhs": "out_countyID",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "o"
@@ -13207,7 +13207,7 @@
     {
      "lhs": "point_nonroadFuelTypeID",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "semiring": "sum_product",
       "output_idx": [
@@ -13243,7 +13243,7 @@
     {
      "lhs": "point_outputFuelTypeID",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "semiring": "sum_product",
       "output_idx": [
@@ -13279,7 +13279,7 @@
     {
      "lhs": "out_hourID",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "o"
@@ -13295,7 +13295,7 @@
     {
      "lhs": "out_stateID",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "o"
@@ -13322,7 +13322,7 @@
     {
      "lhs": "out_fuelTypeID",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "semiring": "sum_product",
       "output_idx": [
@@ -13359,7 +13359,7 @@
      "_comment": "The eight columns MOVESOutput leaves NULL on a NONROAD row, emitted as NaN through one template so the claim is made in one place (lib/identifiers.esm).",
      "lhs": "out_zoneID",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "o"
@@ -13380,7 +13380,7 @@
     {
      "lhs": "out_linkID",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "o"
@@ -13401,7 +13401,7 @@
     {
      "lhs": "out_sourceTypeID",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "o"
@@ -13422,7 +13422,7 @@
     {
      "lhs": "out_regClassID",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "o"
@@ -13443,7 +13443,7 @@
     {
      "lhs": "out_fuelSubTypeID",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "o"
@@ -13464,7 +13464,7 @@
     {
      "lhs": "out_engTechID",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "o"
@@ -13485,7 +13485,7 @@
     {
      "lhs": "out_sectorID",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "o"
@@ -13506,7 +13506,7 @@
     {
      "lhs": "out_hpID",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "o"
@@ -13528,7 +13528,7 @@
      "_comment": "The quantity, contracted over EVERY equipment point that reaches this (SCC, model year) -- which is why the join is on the SCC and the age slot rather than on the owner cohort. 2265007015's model year 2017 comes from the hp-9.0 point alone and 2020 from both; 2265007010's 2020 from all three. A cohort a point does not reach contributes exactly zero, because `cohort_isPopulated` is a factor of the cell.",
      "lhs": "out_emissionQuant",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "semiring": "sum_product",
       "output_idx": [
@@ -13584,7 +13584,7 @@
     {
      "lhs": "rated_ordinal",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "q3"
@@ -13752,7 +13752,7 @@
     {
      "lhs": "techRate_exactIsPresent",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "semiring": "bool_and_or",
       "output_idx": [
@@ -13841,7 +13841,7 @@
     {
      "lhs": "techRate_zero3IsPresent",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "semiring": "bool_and_or",
       "output_idx": [
@@ -13930,7 +13930,7 @@
     {
      "lhs": "techRate_exactValue",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "semiring": "sum_product",
       "output_idx": [
@@ -14025,7 +14025,7 @@
     {
      "lhs": "techRate_zero3Value",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "semiring": "sum_product",
       "output_idx": [
@@ -14120,7 +14120,7 @@
     {
      "lhs": "techRate_zero6Value",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "semiring": "sum_product",
       "output_idx": [
@@ -14216,7 +14216,7 @@
      "_comment": "The chain's precedence, written as lib/adjustments.esm's exact_else_wildcard nested twice rather than as an effective-SCC join key -- a key column must be 1-D and this key is per (point, pollutant-process, technology).",
      "lhs": "techRate_meanBaseRate",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "r",
@@ -14310,7 +14310,7 @@
     {
      "lhs": "rpp_pollutantID",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "q"
@@ -14339,7 +14339,7 @@
     {
      "lhs": "rpp_isRated",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "semiring": "bool_and_or",
       "output_idx": [
@@ -14370,7 +14370,7 @@
      "_comment": "The chain's anchor: which of the three rated blocks each of the 29 output rows is a multiple of. Every row of this run reaches one, so a 0 here would empty a whole block and is asserted against.",
      "lhs": "rpp_rootOrdinal",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "q"
@@ -14406,7 +14406,7 @@
     {
      "lhs": "run_processID",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "n"
@@ -14428,7 +14428,7 @@
     {
      "lhs": "run_nmogPollutantID",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "n"
@@ -14450,7 +14450,7 @@
     {
      "lhs": "run_vocPollutantID",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "n"
@@ -14472,7 +14472,7 @@
     {
      "lhs": "run_gallonsFactor",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "n"
@@ -14500,7 +14500,7 @@
     {
      "lhs": "run_pm25Fraction",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "n"
@@ -14521,7 +14521,7 @@
     {
      "lhs": "fst_marketShare",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "b"
@@ -14595,7 +14595,7 @@
     {
      "lhs": "tp_pointOrdinal",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "tp"
@@ -14619,7 +14619,7 @@
     {
      "lhs": "tp_techOrdinal",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "tp"
@@ -14643,7 +14643,7 @@
     {
      "lhs": "tech_ordinal",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "cc"
@@ -14659,7 +14659,7 @@
     {
      "lhs": "tp_hpRangeBinID",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "tp"
@@ -14695,7 +14695,7 @@
     {
      "lhs": "tp_engTechID",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "tp"
@@ -14731,7 +14731,7 @@
     {
      "lhs": "tp_nonroadFuelTypeID",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "tp"
@@ -14767,7 +14767,7 @@
     {
      "lhs": "tp_nrHPCategory",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "tp"
@@ -14807,7 +14807,7 @@
     {
      "lhs": "point_NRHPRangeBinID",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "r"
@@ -14878,7 +14878,7 @@
     {
      "lhs": "hcat_ordinal",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "hk"
@@ -14894,7 +14894,7 @@
     {
      "lhs": "tc_techOrdinal",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "k"
@@ -14918,7 +14918,7 @@
     {
      "lhs": "tc_catOrdinal",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "k"
@@ -14942,7 +14942,7 @@
     {
      "lhs": "tc_ordinal",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "k"
@@ -14958,7 +14958,7 @@
     {
      "lhs": "tc_engTechID",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "k"
@@ -14994,7 +14994,7 @@
     {
      "lhs": "tc_nrHPCategory",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "k"
@@ -15030,7 +15030,7 @@
     {
      "lhs": "tcb_tcOrdinal",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "u"
@@ -15054,7 +15054,7 @@
     {
      "lhs": "tcb_subtypeOrdinal",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "u"
@@ -15078,7 +15078,7 @@
     {
      "lhs": "fst_ordinal",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "b"
@@ -15094,7 +15094,7 @@
     {
      "lhs": "tcb_engTechID",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "u"
@@ -15130,7 +15130,7 @@
     {
      "lhs": "tcb_nrHPCategory",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "u"
@@ -15166,7 +15166,7 @@
     {
      "lhs": "tcb_fuelSubtypeID",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "u"
@@ -15202,7 +15202,7 @@
     {
      "lhs": "tcb_marketShare",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "u"
@@ -15238,7 +15238,7 @@
     {
      "lhs": "tcb_methaneShare",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "u"
@@ -15301,7 +15301,7 @@
     {
      "lhs": "tcb_nmhcShare",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "u"
@@ -15371,7 +15371,7 @@
     {
      "lhs": "tcb_nmogShare",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "u"
@@ -15438,7 +15438,7 @@
     {
      "lhs": "tcb_vocShare",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "u"
@@ -15505,7 +15505,7 @@
     {
      "lhs": "rpp_pollutantIDKey",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "q"
@@ -15527,7 +15527,7 @@
     {
      "lhs": "tcq_atShare",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "k",
@@ -15609,7 +15609,7 @@
     {
      "lhs": "tc_integratedShare",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "k"
@@ -15694,7 +15694,7 @@
     {
      "lhs": "tp_tcOrdinal",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "tp"
@@ -15734,7 +15734,7 @@
     {
      "lhs": "tp_methaneShare",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "tp"
@@ -15770,7 +15770,7 @@
     {
      "lhs": "tp_nmhcShare",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "tp"
@@ -15806,7 +15806,7 @@
     {
      "lhs": "tp_nmogShare",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "tp"
@@ -15842,7 +15842,7 @@
     {
      "lhs": "tp_vocShare",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "tp"
@@ -15878,7 +15878,7 @@
     {
      "lhs": "tp_integratedShare",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "tp"
@@ -15914,7 +15914,7 @@
     {
      "lhs": "tpq_atShare",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "tp",
@@ -15955,7 +15955,7 @@
     {
      "lhs": "pahg_ratio",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "tp",
@@ -16014,7 +16014,7 @@
     {
      "lhs": "pahp_ratio",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "tp",
@@ -16073,7 +16073,7 @@
     {
      "lhs": "diox_rate",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "tp",
@@ -16132,7 +16132,7 @@
     {
      "lhs": "metal_rate",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "tp",
@@ -16191,7 +16191,7 @@
     {
      "lhs": "tp_integratedPahShare",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "tp"
@@ -16668,7 +16668,7 @@
     {
      "lhs": "rpp_directShare",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "q"
@@ -16704,7 +16704,7 @@
     {
      "lhs": "rpp_methaneShare",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "q"
@@ -16740,7 +16740,7 @@
     {
      "lhs": "rpp_nmhcShare",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "q"
@@ -16776,7 +16776,7 @@
     {
      "lhs": "rpp_nmogShare",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "q"
@@ -16812,7 +16812,7 @@
     {
      "lhs": "rpp_vocShare",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "q"
@@ -16848,7 +16848,7 @@
     {
      "lhs": "rpp_pm25Share",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "q"
@@ -16884,7 +16884,7 @@
     {
      "lhs": "rpp_isNonHapTog",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "q"
@@ -16920,7 +16920,7 @@
     {
      "lhs": "rpp_namedRootPollutantID",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "q"
@@ -16956,7 +16956,7 @@
     {
      "lhs": "rpp_isNamed",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "q"
@@ -16986,7 +16986,7 @@
     {
      "lhs": "rpp_hasParticleRatio",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "q"
@@ -17016,7 +17016,7 @@
     {
      "lhs": "rpp_hasDioxinRate",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "q"
@@ -17046,7 +17046,7 @@
     {
      "lhs": "rpp_hasMetalRate",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "q"
@@ -17076,7 +17076,7 @@
     {
      "lhs": "rpp_rootPollutantID",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "q"
@@ -17185,7 +17185,7 @@
     {
      "lhs": "rated_pollutantID",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "q3"
@@ -17214,7 +17214,7 @@
     {
      "lhs": "tpq_multiplier",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "tp",
@@ -17461,7 +17461,7 @@
     {
      "lhs": "rcq_multiplier",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "r",

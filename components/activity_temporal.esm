@@ -1,5 +1,5 @@
 {
-  "esm": "1.0.0",
+  "esm": "1.1.0",
   "metadata": {
     "name": "ActivityTemporal",
     "description": "Stage 3 of the nr-logging-county chain: activity and its temporal allocation. Ports joins J15 and J16 of docs/nonroad-logging-county.md §3 and the arithmetic of §2.3 (daymthf.f, geography/common.rs:987-1010).\n\nTHE LADDER HERE IS NOT THE ONE STAGE 2 USED. Rates, mixes and growth walk the EQUIPMENT chain [SCC, SCC[0..7]+000, SCC[0..4]+000000]; month and day allocation walk `scc_lookup`'s ladder, which zeroes trailing digit groups of width 2, 4 and 6 (nonroad_loader.rs:839-852). The two ladders are different searches over the same key space and each table must be walked with its own — that is why lib/keys.esm carries two templates rather than one parameterized shape. This file's data makes the difference visible with REAL rows rather than decoys: nrmonthallocation holds both 2265007000 (0.0833333) and 2265000000 (0.117764), so stopping at the wrong rung inflates every emission of this fixture by 41%.\n\nTHE 7x AND THE 1/ndays ARE ONE TEMPORAL SCALE. In the engine they enter the product at different places — adjustment_time = 1/ndays inside emstmp, tpltmp2 = mthf*dayf outside — and applying the monthly factor at both is a ~2.6x error for a 31-day month (executor.rs:1513-1519). lib/conversion.esm's `temporal_scale` carries both halves so they are applied once, together.\n\nTHE DEFAULTS ARE NOT 1.0. An SCC whose ladder finds no allocation row falls back to defmth = 1/12 and defday = 1/7, not to a neutral factor (nonroad_loader.rs:2273-2288). The synthetic point at the end of the activity relation has no allocation row at any rung and is here to check exactly that.\n\nTHE MONTH IS 8. §0's warning: the RunSpec XML's month key=\"7\" is a ZERO-BASED index and the monthID is 8, which is why nrmonthallocation's month-7 rows are carried here — the join must not take them. dayID is not offset: id=\"5\" is dayID 5, and the dayID 2 rows carry a different fraction (0.083333 against 0.166667), so the day join is checked by value.\n\nAll allocation rows and equipment points are the snapshot's; the two synthetic rows are marked.",
@@ -260,14 +260,14 @@
         },
         {
           "lhs": "act_sccZero2",
-          "rhs": { "op": "aggregate", "args": [], "output_idx": ["e"],
+          "rhs": { "op": "faq", "args": [], "output_idx": ["e"],
             "ranges": { "e": { "from": "activity_point_rows" } },
             "expr": { "op": "apply_expression_template", "args": [], "name": "scc_zero_tail",
               "bindings": { "scc": { "op": "index", "args": ["act_SCC", "e"] }, "tail_scale": 100 } } }
         },
         {
           "lhs": "act_sccZero4",
-          "rhs": { "op": "aggregate", "args": [], "output_idx": ["e"],
+          "rhs": { "op": "faq", "args": [], "output_idx": ["e"],
             "ranges": { "e": { "from": "activity_point_rows" } },
             "expr": { "op": "apply_expression_template", "args": [], "name": "scc_zero_tail",
               "bindings": { "scc": { "op": "index", "args": ["act_SCC", "e"] }, "tail_scale": 10000 } } }
@@ -369,7 +369,7 @@
           "_comment": "The month ladder's three presence questions. Each is scoped by the run month and the two visible states, because the ladder searches within that scope — a rung that exists only for another month is not a match.",
           "lhs": "act_monthExactIsPresent",
           "rhs": {
-            "op": "aggregate", "args": [], "semiring": "bool_and_or", "output_idx": ["e"],
+            "op": "faq", "args": [], "semiring": "bool_and_or", "output_idx": ["e"],
             "ranges": { "e": { "from": "activity_point_rows" }, "m": { "from": "month_allocation_rows" },
                         "u": { "from": "runspec_month_rows" }, "c": { "from": "allocation_state_scope_rows" } },
             "join": [
@@ -383,7 +383,7 @@
         {
           "lhs": "act_monthZero2IsPresent",
           "rhs": {
-            "op": "aggregate", "args": [], "semiring": "bool_and_or", "output_idx": ["e"],
+            "op": "faq", "args": [], "semiring": "bool_and_or", "output_idx": ["e"],
             "ranges": { "e": { "from": "activity_point_rows" }, "m": { "from": "month_allocation_rows" },
                         "u": { "from": "runspec_month_rows" }, "c": { "from": "allocation_state_scope_rows" } },
             "join": [
@@ -397,7 +397,7 @@
         {
           "lhs": "act_monthZero4IsPresent",
           "rhs": {
-            "op": "aggregate", "args": [], "semiring": "bool_and_or", "output_idx": ["e"],
+            "op": "faq", "args": [], "semiring": "bool_and_or", "output_idx": ["e"],
             "ranges": { "e": { "from": "activity_point_rows" }, "m": { "from": "month_allocation_rows" },
                         "u": { "from": "runspec_month_rows" }, "c": { "from": "allocation_state_scope_rows" } },
             "join": [
@@ -411,7 +411,7 @@
         {
           "lhs": "act_monthEffectiveSCC",
           "rhs": {
-            "op": "aggregate", "args": [], "output_idx": ["e"],
+            "op": "faq", "args": [], "output_idx": ["e"],
             "ranges": { "e": { "from": "activity_point_rows" } },
             "expr": {
               "op": "apply_expression_template", "args": [], "name": "scc_lookup_ladder_key",
@@ -427,7 +427,7 @@
         {
           "lhs": "act_monthRunStateRowIsPresent",
           "rhs": {
-            "op": "aggregate", "args": [], "semiring": "bool_and_or", "output_idx": ["e"],
+            "op": "faq", "args": [], "semiring": "bool_and_or", "output_idx": ["e"],
             "ranges": { "e": { "from": "activity_point_rows" }, "m": { "from": "month_allocation_rows" },
                         "u": { "from": "runspec_month_rows" }, "r": { "from": "allocation_runspec_state_rows" } },
             "join": [
@@ -441,7 +441,7 @@
         {
           "lhs": "act_monthEffectiveStateID",
           "rhs": {
-            "op": "aggregate", "args": [], "output_idx": ["e"],
+            "op": "faq", "args": [], "output_idx": ["e"],
             "ranges": { "e": { "from": "activity_point_rows" } },
             "expr": {
               "op": "apply_expression_template", "args": [], "name": "state_default_precedence",
@@ -456,7 +456,7 @@
         {
           "lhs": "act_monthRowIsPresent",
           "rhs": {
-            "op": "aggregate", "args": [], "semiring": "bool_and_or", "output_idx": ["e"],
+            "op": "faq", "args": [], "semiring": "bool_and_or", "output_idx": ["e"],
             "ranges": { "e": { "from": "activity_point_rows" }, "m": { "from": "month_allocation_rows" },
                         "u": { "from": "runspec_month_rows" } },
             "join": [
@@ -470,7 +470,7 @@
           "_comment": "J15, now a plain three-column equi-join.",
           "lhs": "act_matchedMonthFraction",
           "rhs": {
-            "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["e"],
+            "op": "faq", "args": [], "semiring": "sum_product", "output_idx": ["e"],
             "ranges": { "e": { "from": "activity_point_rows" }, "m": { "from": "month_allocation_rows" },
                         "u": { "from": "runspec_month_rows" } },
             "join": [
@@ -483,7 +483,7 @@
         {
           "lhs": "act_monthFraction",
           "rhs": {
-            "op": "aggregate", "args": [], "output_idx": ["e"],
+            "op": "faq", "args": [], "output_idx": ["e"],
             "ranges": { "e": { "from": "activity_point_rows" } },
             "expr": {
               "op": "ifelse",
@@ -500,7 +500,7 @@
           "_comment": "J16. The same ladder walked again over a DIFFERENT table, which is the point of §2.3's `two independent SCC fallback searches`: merging them would pin one dimension to the other's rung.",
           "lhs": "act_dayExactIsPresent",
           "rhs": {
-            "op": "aggregate", "args": [], "semiring": "bool_and_or", "output_idx": ["e"],
+            "op": "faq", "args": [], "semiring": "bool_and_or", "output_idx": ["e"],
             "ranges": { "e": { "from": "activity_point_rows" }, "d": { "from": "day_allocation_rows" },
                         "w": { "from": "runspec_day_rows" } },
             "join": [
@@ -513,7 +513,7 @@
         {
           "lhs": "act_dayZero2IsPresent",
           "rhs": {
-            "op": "aggregate", "args": [], "semiring": "bool_and_or", "output_idx": ["e"],
+            "op": "faq", "args": [], "semiring": "bool_and_or", "output_idx": ["e"],
             "ranges": { "e": { "from": "activity_point_rows" }, "d": { "from": "day_allocation_rows" },
                         "w": { "from": "runspec_day_rows" } },
             "join": [
@@ -526,7 +526,7 @@
         {
           "lhs": "act_dayZero4IsPresent",
           "rhs": {
-            "op": "aggregate", "args": [], "semiring": "bool_and_or", "output_idx": ["e"],
+            "op": "faq", "args": [], "semiring": "bool_and_or", "output_idx": ["e"],
             "ranges": { "e": { "from": "activity_point_rows" }, "d": { "from": "day_allocation_rows" },
                         "w": { "from": "runspec_day_rows" } },
             "join": [
@@ -539,7 +539,7 @@
         {
           "lhs": "act_dayEffectiveSCC",
           "rhs": {
-            "op": "aggregate", "args": [], "output_idx": ["e"],
+            "op": "faq", "args": [], "output_idx": ["e"],
             "ranges": { "e": { "from": "activity_point_rows" } },
             "expr": {
               "op": "apply_expression_template", "args": [], "name": "scc_lookup_ladder_key",
@@ -555,7 +555,7 @@
         {
           "lhs": "act_dayRowIsPresent",
           "rhs": {
-            "op": "aggregate", "args": [], "semiring": "bool_and_or", "output_idx": ["e"],
+            "op": "faq", "args": [], "semiring": "bool_and_or", "output_idx": ["e"],
             "ranges": { "e": { "from": "activity_point_rows" }, "d": { "from": "day_allocation_rows" },
                         "w": { "from": "runspec_day_rows" } },
             "join": [
@@ -568,7 +568,7 @@
         {
           "lhs": "act_matchedDayFraction",
           "rhs": {
-            "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["e"],
+            "op": "faq", "args": [], "semiring": "sum_product", "output_idx": ["e"],
             "ranges": { "e": { "from": "activity_point_rows" }, "d": { "from": "day_allocation_rows" },
                         "w": { "from": "runspec_day_rows" } },
             "join": [
@@ -581,7 +581,7 @@
         {
           "lhs": "act_dayFraction",
           "rhs": {
-            "op": "aggregate", "args": [], "output_idx": ["e"],
+            "op": "faq", "args": [], "output_idx": ["e"],
             "ranges": { "e": { "from": "activity_point_rows" } },
             "expr": {
               "op": "ifelse",
@@ -597,7 +597,7 @@
         {
           "lhs": "daysInRunMonth",
           "rhs": {
-            "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": [],
+            "op": "faq", "args": [], "semiring": "sum_product", "output_idx": [],
             "ranges": { "n": { "from": "days_per_month_rows" }, "u": { "from": "runspec_month_rows" } },
             "join": [ { "on": [["dpm_monthID", "runspec_monthID"]] } ],
             "expr": { "op": "index", "args": ["dpm_daysInMonth", "n"] }
@@ -606,7 +606,7 @@
         {
           "lhs": "act_annualHours",
           "rhs": {
-            "op": "aggregate", "args": [], "output_idx": ["e"],
+            "op": "faq", "args": [], "output_idx": ["e"],
             "ranges": { "e": { "from": "activity_point_rows" } },
             "expr": {
               "op": "apply_expression_template", "args": [], "name": "annual_activity_hours",
@@ -621,7 +621,7 @@
         {
           "lhs": "act_monthDayFactor",
           "rhs": {
-            "op": "aggregate", "args": [], "output_idx": ["e"],
+            "op": "faq", "args": [], "output_idx": ["e"],
             "ranges": { "e": { "from": "activity_point_rows" } },
             "expr": { "op": "*", "args": [
               { "op": "index", "args": ["act_monthFraction", "e"] },
@@ -636,7 +636,7 @@
         {
           "lhs": "act_temporalScale",
           "rhs": {
-            "op": "aggregate", "args": [], "output_idx": ["e"],
+            "op": "faq", "args": [], "output_idx": ["e"],
             "ranges": { "e": { "from": "activity_point_rows" } },
             "expr": {
               "op": "apply_expression_template", "args": [], "name": "temporal_scale",

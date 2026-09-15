@@ -1354,7 +1354,7 @@ the toolchain. What follows is what authoring one cost.
 ### 19.1 Reduce the fold before you spell it
 
 The construct is esm-spec §4.3.1.1's **causal self-reference**: an equation
-whose LHS is an array-shaped unknown `V` and whose `aggregate` body reads
+whose LHS is an array-shaped unknown `V` and whose `faq` body reads
 `index(V, k − c)` — `V` itself, strictly earlier along one of that node's own
 output axes. Nothing is declared. The recurrence, its axis and its maximum lag
 are all read off that one read.
@@ -1566,7 +1566,7 @@ terms that produces it.
 no declaration, and the file passed `esm validate` and `esm test` on its first
 run. The one thing that had to be got right was §19.2's rule read backwards:
 where the fold needed a *contracted* index as its lag, this one needs no
-contraction at all, and an `aggregate` with an `output_idx` and no `reduce` is
+contraction at all, and an `faq` with an `output_idx` and no `reduce` is
 the right node for it.
 
 ### 20.2 Prove the sweep is causal by perturbing an input, not by reading the code
@@ -1951,7 +1951,7 @@ things are new, and one long-standing claim turned out to be false.
 ### 26.2 Three things that are new
 
 * **A self-join is now an ordinary join, and it needs `join.syms`.** Finding
-  **F11** is fixed (EarthSciAST `107a15152`). Two `aggregate` ranges over one
+  **F11** is fixed (EarthSciAST `107a15152`). Two `faq` ranges over one
   index set can carry an `on` clause; candidates are ordered by the node's
   canonical range order (output symbols first, then contracted symbols in
   ascending code-point order), the left key is read at the earlier and the right
@@ -1982,7 +1982,7 @@ things are new, and one long-standing claim turned out to be false.
 
 * **A rank turns a mask into a row count, and now it needs no self-join
   either.** §22's mechanism, spelled with the cheaper of its two forms: the
-  inclusive prefix count is an ungated `aggregate` over two ranges of one index
+  inclusive prefix count is an ungated `faq` over two ranges of one index
   set under a `filter` of `x <= c`, 164 × 164 leaves. It is a `filter` and not a
   join because `<=` is a genuine predicate — the same rule as §3, arrived at
   from the opposite direction.

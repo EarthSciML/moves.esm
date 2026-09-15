@@ -1,5 +1,5 @@
 {
- "esm": "1.0.0",
+ "esm": "1.1.0",
  "metadata": {
   "name": "F18Float32KeyOverrideControl",
   "description": "FINDING F18, CONTROL \u2014 expected to PASS, and the tripwire treats it as a control rather than a repro (run-tests.sh, alongside join_leaf and the F13 leaves).\n\nF18 was that a document-wide domain.element_type: \"Float32\" narrows INGESTED values too, so a ten-digit MOVES SCC (~2.26e9, 135x above binary32's 2^24 integer limit) is silently corrupted and distinct keys collide: 214 distinct codes in this very column collapsed to 48, and 2265007010 and 2265007015 both became 2265007104, so a join.on over them merged two equipment categories.\n\nTHE RESOLUTION IS A PER-VARIABLE element_type, NOT AN AUTOMATIC EXEMPTION. Upstream chose to let a ModelVariable declare its own element_type, overriding the document's. So this file can no longer be a repro: the behaviour it used to assert -- that a Float32 document keeps an ingested ten-digit key exact by itself -- is deliberately NOT provided. Left as a failing repro, its 'still fails, as recorded' would be false reassurance about a defect that has in fact been resolved. So it is restated as the control for the guarantee the port now depends on.\n\nIT CHECKS BOTH HALVES, WHICH IS THE POINT. A control that only asserted the overridden key would still pass if element_type were ignored again altogether -- the original defect, and this toolchain's characteristic failure is exactly a silent regression to a plausible value. So:\n  scc  is overridden to Float64 and asserted exactly at rows 1 and 2 (2260001010 and 2260001020, which BOTH become 2260001024 under binary32, so the pair detects collapse and not merely rounding);\n  lf   is NOT overridden, so it carries the document's Float32, and is asserted at the exact binary32 value of 0.34 = 0.3400000035762787, which a binary64 evaluation cannot produce.\nOne assertion fails if the override breaks; the other fails if Float32 stops being honoured.\n\nALL THREE ARE ASSERTED AT ZERO TOLERANCE, deliberately. The default 1e-6 relative tolerance cannot see any of this: |2260001024 - 2260001010| / 2.26e9 is 6.2e-09 and the f32/f64 gap on 0.34 is 1.1e-08, both orders of magnitude inside it. The corruption is relatively tiny and semantically total, which is why a key set is compared exactly and never within a tolerance.\n\nWHAT REMAINS OPEN under F18 is the SILENCE, and it has no repro here because it cannot have one: the wanted behaviour is that a Float32 document ingesting a value it cannot represent should REFUSE rather than narrow, and 'should refuse' has no assertion form in this harness -- an error and a wrong answer are the same verdict to it. See docs/findings/README.md F18."
@@ -93,7 +93,7 @@
     {
      "lhs": "echoed",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "i"
@@ -115,7 +115,7 @@
     {
      "lhs": "lf_echoed",
      "rhs": {
-      "op": "aggregate",
+      "op": "faq",
       "args": [],
       "output_idx": [
        "i"

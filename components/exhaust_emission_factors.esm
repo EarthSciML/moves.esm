@@ -1,5 +1,5 @@
 {
-  "esm": "1.0.0",
+  "esm": "1.1.0",
   "metadata": {
     "name": "ExhaustEmissionFactors",
     "description": "Stage 4 of the nr-logging-county chain: the tech mix and the zero-hour emission factors it selects. Ports joins J11, J12 and J13 of docs/nonroad-logging-county.md §3 and the two-separate-files model of §2.4 (emfclc.f, build_entries_from_mix at nonroad_loader.rs:374-507). Its output feeds components/deteriorated_emission_rate.esm, which applies J14's (A, B, cap).\n\nTWO SEARCHES, NOT ONE. The tech mix defines WHICH techs exist for an equipment point, and each tech's rates are then looked up INDEPENDENTLY -- same SCC chain, own hp binning. Mixes and rates key at different SCC levels for the same equipment, so a port that resolved the chain once and reused it would silently read another SCC's rates. Both searches are here, with their own presence columns and their own effective key.\n\nTHE HP TEST IS A RANGE PREDICATE. hpMin <= hpAvg <= hpMax, both bounds inclusive (hp_pick, nonroad_loader.rs:357-362). It is a `filter` in every aggregate below and never a `join.on`, which is the docs/esm-conventions.md §3 distinction: the SCC and the tech are ON clauses, the horsepower is a predicate. The chain-stop rule is what the presence columns encode -- for this equipment point the family root 2260000000 ALSO has a covering bin (6-25 hp, techs 127-135), so `the first chain element with a covering bin wins` is doing real work, not defaulting.\n\nprocessGroupID = 1 IS EXHAUST. The snapshot's own evap row for this SCC (processGroupID 2, engTechID 1001, hp bin 6-11, fraction 1.0) is carried here unfiltered so the join has something to exclude: admit it and the equipment point acquires a tech with a full mix fraction and no exhaust rate at all.\n\nTHE MIX YEAR IS A SELECTION. ExhaustTechEntry::fractions_for_year (inputs.rs:196-207) takes the exact year, else the LATEST year at or below it, else the earliest -- the same shape as getind.f's surrogate year, so it is the same lib/keys.esm template. The requested year is min(modelYear, techYear) (executor.rs:1449).\n\nRMISS IS NOT ZERO. A tech with a non-zero mix fraction and no rate row gets -9.0, not 0 (exhaust.rs:807-823), so the missing factor propagates visibly; a tech whose fraction is zero is left at zero silently. The synthetic mix row at 1998 exists to make that distinction testable, since every real tech of this bin has rates.\n\nAll rate and mix rows are the snapshot's for SCC 2260007005 and hpAvg 6.81, except the marked synthetic one. The zero-fraction mix rows of the same bin are omitted: they contribute nothing to any product and there are 39 of them.",
@@ -231,14 +231,14 @@
         },
         {
           "lhs": "pt_sccEquipmentRoot",
-          "rhs": { "op": "aggregate", "args": [], "output_idx": ["q"],
+          "rhs": { "op": "faq", "args": [], "output_idx": ["q"],
             "ranges": { "q": { "from": "equipment_hp_point_rows" } },
             "expr": { "op": "apply_expression_template", "args": [], "name": "scc_zero_tail",
               "bindings": { "scc": { "op": "index", "args": ["pt_SCC", "q"] }, "tail_scale": 1000 } } }
         },
         {
           "lhs": "pt_sccFamilyRoot",
-          "rhs": { "op": "aggregate", "args": [], "output_idx": ["q"],
+          "rhs": { "op": "faq", "args": [], "output_idx": ["q"],
             "ranges": { "q": { "from": "equipment_hp_point_rows" } },
             "expr": { "op": "apply_expression_template", "args": [], "name": "scc_zero_tail",
               "bindings": { "scc": { "op": "index", "args": ["pt_SCC", "q"] }, "tail_scale": 1000000 } } }
@@ -366,7 +366,7 @@
         {
           "_comment": "The rate relation is laid out as five technology blocks of the same five pollutant processes, in the order pp_polProcessID declares them, so this column is that relation read cyclically: row r takes pollutant-process ((r-1) mod 5) + 1. Writing the packed pairs out twenty-five times would say the same thing five times over, and would let the two orders drift apart.",
           "lhs": "emr_polProcessID",
-          "rhs": { "op": "aggregate", "args": [], "output_idx": ["r"],
+          "rhs": { "op": "faq", "args": [], "output_idx": ["r"],
             "ranges": { "r": { "from": "emission_rate_rows" } },
             "expr": { "op": "index", "args": ["pp_polProcessID",
               { "op": "-", "args": ["r", { "op": "*", "args": [5, { "op": "floor", "args": [{ "op": "/", "args": [{ "op": "-", "args": ["r", 1] }, 5] }] }] }] }] } }
@@ -399,7 +399,7 @@
         },
         {
           "lhs": "my_requestedMixYear",
-          "rhs": { "op": "aggregate", "args": [], "output_idx": ["y"],
+          "rhs": { "op": "faq", "args": [], "output_idx": ["y"],
             "ranges": { "y": { "from": "mix_model_year_rows" } },
             "expr": { "op": "min", "args": [{ "op": "index", "args": ["my_modelYearID", "y"] }, "techYearID"] } }
         },
@@ -435,7 +435,7 @@
           "_comment": "The mix chain's presence questions. The SCC and the process group are `join.on` clauses; the two hp bounds are a `filter`, because hpMin <= hpAvg <= hpMax is a range predicate and both bounds are inclusive.",
           "lhs": "mix_exactBinIsPresent",
           "rhs": {
-            "op": "aggregate", "args": [], "semiring": "bool_and_or", "output_idx": ["q"],
+            "op": "faq", "args": [], "semiring": "bool_and_or", "output_idx": ["q"],
             "ranges": { "q": { "from": "equipment_hp_point_rows" }, "m": { "from": "tech_mix_rows" },
                         "g": { "from": "exhaust_process_group_rows" } },
             "join": [
@@ -453,7 +453,7 @@
         {
           "lhs": "mix_equipmentRootBinIsPresent",
           "rhs": {
-            "op": "aggregate", "args": [], "semiring": "bool_and_or", "output_idx": ["q"],
+            "op": "faq", "args": [], "semiring": "bool_and_or", "output_idx": ["q"],
             "ranges": { "q": { "from": "equipment_hp_point_rows" }, "m": { "from": "tech_mix_rows" },
                         "g": { "from": "exhaust_process_group_rows" } },
             "join": [
@@ -470,7 +470,7 @@
         },
         {
           "lhs": "pt_mixEffectiveSCC",
-          "rhs": { "op": "aggregate", "args": [], "output_idx": ["q"],
+          "rhs": { "op": "faq", "args": [], "output_idx": ["q"],
             "ranges": { "q": { "from": "equipment_hp_point_rows" } },
             "expr": { "op": "apply_expression_template", "args": [], "name": "scc_equipment_chain_key",
               "bindings": {
@@ -484,7 +484,7 @@
           "_comment": "The rate chain's presence questions: the same shape asked of a different table, which is §2.4's `each tech's rates are looked up independently, walking the same chain but with its OWN hp binning`.",
           "lhs": "emr_exactBinIsPresent",
           "rhs": {
-            "op": "aggregate", "args": [], "semiring": "bool_and_or", "output_idx": ["q"],
+            "op": "faq", "args": [], "semiring": "bool_and_or", "output_idx": ["q"],
             "ranges": { "q": { "from": "equipment_hp_point_rows" }, "r": { "from": "emission_rate_rows" } },
             "join": [ { "on": [["pt_SCC", "emr_SCC"]] } ],
             "filter": { "op": "and", "args": [
@@ -498,7 +498,7 @@
         {
           "lhs": "emr_equipmentRootBinIsPresent",
           "rhs": {
-            "op": "aggregate", "args": [], "semiring": "bool_and_or", "output_idx": ["q"],
+            "op": "faq", "args": [], "semiring": "bool_and_or", "output_idx": ["q"],
             "ranges": { "q": { "from": "equipment_hp_point_rows" }, "r": { "from": "emission_rate_rows" } },
             "join": [ { "on": [["pt_sccEquipmentRoot", "emr_SCC"]] } ],
             "filter": { "op": "and", "args": [
@@ -512,7 +512,7 @@
         {
           "lhs": "emr_familyRootBinIsPresent",
           "rhs": {
-            "op": "aggregate", "args": [], "semiring": "bool_and_or", "output_idx": ["q"],
+            "op": "faq", "args": [], "semiring": "bool_and_or", "output_idx": ["q"],
             "ranges": { "q": { "from": "equipment_hp_point_rows" }, "r": { "from": "emission_rate_rows" } },
             "join": [ { "on": [["pt_sccFamilyRoot", "emr_SCC"]] } ],
             "filter": { "op": "and", "args": [
@@ -525,7 +525,7 @@
         },
         {
           "lhs": "pt_rateEffectiveSCC",
-          "rhs": { "op": "aggregate", "args": [], "output_idx": ["q"],
+          "rhs": { "op": "faq", "args": [], "output_idx": ["q"],
             "ranges": { "q": { "from": "equipment_hp_point_rows" } },
             "expr": { "op": "apply_expression_template", "args": [], "name": "scc_equipment_chain_key",
               "bindings": {
@@ -539,7 +539,7 @@
           "_comment": "fractions_for_year: exact, else the latest tabulated mix year at or below the requested one, else the earliest. Same template as the surrogate year of stage 1, because it is the same rule.",
           "lhs": "my_mixYearAtOrBeforeIsPresent",
           "rhs": {
-            "op": "aggregate", "args": [], "semiring": "bool_and_or", "output_idx": ["y"],
+            "op": "faq", "args": [], "semiring": "bool_and_or", "output_idx": ["y"],
             "ranges": { "y": { "from": "mix_model_year_rows" }, "m": { "from": "tech_mix_rows" },
                         "q": { "from": "equipment_hp_point_rows" }, "g": { "from": "exhaust_process_group_rows" } },
             "join": [
@@ -559,7 +559,7 @@
         {
           "lhs": "my_latestMixYearAtOrBefore",
           "rhs": {
-            "op": "aggregate", "args": [], "semiring": "max_product", "output_idx": ["y"],
+            "op": "faq", "args": [], "semiring": "max_product", "output_idx": ["y"],
             "ranges": { "y": { "from": "mix_model_year_rows" }, "m": { "from": "tech_mix_rows" },
                         "q": { "from": "equipment_hp_point_rows" }, "g": { "from": "exhaust_process_group_rows" } },
             "join": [
@@ -579,7 +579,7 @@
         {
           "lhs": "my_earliestMixYear",
           "rhs": {
-            "op": "aggregate", "args": [], "semiring": "min_sum", "output_idx": ["y"],
+            "op": "faq", "args": [], "semiring": "min_sum", "output_idx": ["y"],
             "ranges": { "y": { "from": "mix_model_year_rows" }, "m": { "from": "tech_mix_rows" },
                         "q": { "from": "equipment_hp_point_rows" }, "g": { "from": "exhaust_process_group_rows" } },
             "join": [
@@ -596,7 +596,7 @@
         },
         {
           "lhs": "my_effectiveMixYear",
-          "rhs": { "op": "aggregate", "args": [], "output_idx": ["y"],
+          "rhs": { "op": "faq", "args": [], "output_idx": ["y"],
             "ranges": { "y": { "from": "mix_model_year_rows" } },
             "expr": { "op": "apply_expression_template", "args": [], "name": "latest_at_or_before_key",
               "bindings": {
@@ -609,7 +609,7 @@
           "_comment": "J11. Three ON clauses -- the SCC chain key, the effective mix year, the technology -- and one range predicate, the hp bin.",
           "lhs": "techFraction",
           "rhs": {
-            "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["y", "c"],
+            "op": "faq", "args": [], "semiring": "sum_product", "output_idx": ["y", "c"],
             "ranges": { "y": { "from": "mix_model_year_rows" }, "c": { "from": "engine_tech_rows" },
                         "m": { "from": "tech_mix_rows" }, "q": { "from": "equipment_hp_point_rows" },
                         "g": { "from": "exhaust_process_group_rows" } },
@@ -631,7 +631,7 @@
           "_comment": "J12 and J13 in one contraction: the BSFC carrier is just another polProcessID of the same relation.",
           "lhs": "zeroHourRate",
           "rhs": {
-            "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["c", "p"],
+            "op": "faq", "args": [], "semiring": "sum_product", "output_idx": ["c", "p"],
             "ranges": { "c": { "from": "engine_tech_rows" }, "p": { "from": "pollutant_process_rows" },
                         "r": { "from": "emission_rate_rows" }, "q": { "from": "equipment_hp_point_rows" } },
             "join": [
@@ -650,7 +650,7 @@
         {
           "lhs": "rateIsPresent",
           "rhs": {
-            "op": "aggregate", "args": [], "semiring": "bool_and_or", "output_idx": ["c", "p"],
+            "op": "faq", "args": [], "semiring": "bool_and_or", "output_idx": ["c", "p"],
             "ranges": { "c": { "from": "engine_tech_rows" }, "p": { "from": "pollutant_process_rows" },
                         "r": { "from": "emission_rate_rows" }, "q": { "from": "equipment_hp_point_rows" } },
             "join": [
@@ -670,7 +670,7 @@
           "_comment": "exhaust.rs:807-823. Three outcomes, not two: a rate, or RMISS where the technology is in use and has none, or a plain zero where the technology is not in use at all.",
           "lhs": "emissionFactor",
           "rhs": {
-            "op": "aggregate", "args": [], "output_idx": ["y", "c", "p"],
+            "op": "faq", "args": [], "output_idx": ["y", "c", "p"],
             "ranges": { "y": { "from": "mix_model_year_rows" }, "c": { "from": "engine_tech_rows" },
                         "p": { "from": "pollutant_process_rows" } },
             "expr": {

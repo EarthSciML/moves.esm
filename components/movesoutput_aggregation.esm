@@ -1,5 +1,5 @@
 {
-  "esm": "1.0.0",
+  "esm": "1.1.0",
   "metadata": {
     "name": "MOVESOutputAggregation",
     "description": "Stage 7 of the nr-logging-county chain: aggregation to the MOVESOutput schema. Ports join J25 and docs/nonroad-logging-county.md §2.7 (emissions_to_dataframe, nonroad_loader.rs:2313-2392) — the pollutant gate, the short-tons-to-grams conversion, the group-by key and the labelling columns an output row carries.\n\nTHE OUTPUT IS A FLAT ROW RELATION, AND THAT IS THE ANSWER TO A RAGGED KEY SET. MOVESOutput's 144 rows are 36 (SCC, modelYearID) pairs times four pollutants, and the 36 are NOT a rectangle: the three SCCs span 3, 4 and 29 model years, because each equipment point's span is its own scrptime nyrlif. A shared [SCC x modelYear x pollutant] grid would carry 3 x 29 x 4 = 348 keys, 204 of which the snapshot does not have, and tolerance.toml's require_exact_key_set is not a number that can be relaxed. So the output is one ROW AXIS with the key as COLUMNS -- (SCC, modelYearID, polProcessID) -- exactly as docs/esm-conventions.md §2 has every other relation in this port. Raggedness then needs no axis machinery: a relation's key set is data. Adding the fixture's other two SCCs is adding rows, and nothing in these equations changes. The alternative the schema advertises, a `ragged` per-parent inner axis of model years, ignores its own member factor and cannot address a parent's members (docs/findings F14).\\n\\nTHE GATE IS A MASK, NOT A DELETION. out_pollutantIsSelected is a column, and out_isEmitted is the row-set membership the emitter applies: twelve of these fifteen rows reach MOVESOutput and the three CO2 rows do not. That is a different thing from a selected pollutant of a populated cohort whose value is zero, which IS emitted (§2.7, nonroad_loader.rs:2354-2361) -- the mask says whether a row exists, the value says what is in it, and collapsing the two is how a port ends up with the wrong key set.\\n\\nTHE GATE IS BY POLLUTANT, NOT BY WHAT WAS COMPUTED. The engine computes six pollutant slots and MOVESOutput carries only those whose pollutantID is in runspecpollutantprocess (:2192-2200, :2344-2352). This fixture selects 1, 2, 3 and 100; CO2 (90) is computed by the carbon balance and dropped. The input relation here carries CO2 rows for exactly that reason: a gate with nothing to exclude proves nothing.\n\nTWO SUPPRESSIONS, AND BOTH ARE LOAD-BEARING. J25's pollutant gate drops what the RunSpec did not select -- CO2 is computed by the carbon balance and never emitted. prccty.f's `modfrc <= 0` skip drops an age cohort no equipment point of the SCC populates, and it is NOT a conservative tidy-up that a relational port may leave out: 44 of this fixture's candidate cohorts have a grown fraction of exactly zero, so dropping the skip -- or relaxing it to `< 0` -- emits 188 rows where the snapshot has 144. Measured, in both precisions. out_cohortIsPopulated is that skip, and out_isEmitted is the two together.\n\nWHAT IS NOT A REASON TO SUPPRESS: magnitude. A selected pollutant of a populated cohort is emitted whatever it computes, and canonical clamps a negative SOx balance at zero and KEEPS the row (:2354-2361). SCC 2260007005's model year 2018 is 4.3e-06 grams of THC and is one of the 144. That cohort is also the single place where the arithmetic decides membership: its fraction is 5.96e-08 in float32 and exactly 0.0 in binary64 (§7.3), so the skip fires in one precision and not the other. Nothing written in the document distinguishes them -- it is the evaluation precision that must, which is why `fixtures/nr-logging-county.esm` now declares `domain.element_type: \"Float32\"`, with `Float64` per variable on the SCC-valued columns binary32 cannot hold (finding F18, docs/esm-conventions.md 17). That is a prerequisite for the two SCCs whose folds have to be COMPUTED; the fixture's own twelve rows never needed it, because F12 makes it carry this cohort's fraction as data and 5.8885583e-08 reads as positive in either precision (17.5).\n\nTHE PACKED PAIR IS UNPACKED HERE. pollutantID = polProcessID / 100 and processID is the remainder, from lib/identifiers.esm, which is also where the packing lives — one definition, so the two ends cannot drift. processID is 1 for every row of this fixture, which is also what nonroad_loader.rs:2371 hard-codes.\n\nLABELS THE PORT MUST FILL IN THAT moves.rs LEAVES NULL (§8.3). stateID, countyID, fuelTypeID and roadTypeID are unambiguous — county from the RunSpec, state as countyID/1000, road type 100, fuel type from nrscc — and the canonical snapshot carries them, so this file carries them too. hourID is 0 in every canonical row despite the RunSpec selecting hour 7, because NONROAD is a typical-day model; that is read off the data rather than off the code, and it is recorded as such.\n\nTHE ONE MAPPING THIS FILE DOES NOT CLAIM TO KNOW: nonroad fuelTypeID 23 and 24 to MOVES fuelTypeID 2. §8.3 records that only the gasoline mapping 1 -> 1 is verified by this fixture, so the mapping relation carries the verified row and no invented ones, and a diesel SCC reaching it would produce fuelTypeID 0 rather than a guess.",
@@ -866,7 +866,7 @@
         {
           "lhs": "rpp_pollutantID",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "output_idx": [
               "k"
@@ -1387,7 +1387,7 @@
         {
           "lhs": "out_pollutantID",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "output_idx": [
               "o"
@@ -1416,7 +1416,7 @@
         {
           "lhs": "out_processID",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "output_idx": [
               "o"
@@ -1446,7 +1446,7 @@
           "_comment": "J25, a semi-join on the pollutant half of the key, evaluated per output ROW rather than per pollutant axis position -- which is what lets two rows of the same relation belong to different SCCs and different pollutants.",
           "lhs": "out_pollutantIsSelected",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "bool_and_or",
             "output_idx": [
@@ -1477,7 +1477,7 @@
           "_comment": "The skip, spelled as a semi-join with a genuine range predicate: a cohort row exists for this (SCC, model year) AND its fraction is strictly positive. `bool_and_or` makes it an OR over the SCC's equipment points, which is what the engine's per-point age loop amounts to once the points are summed.",
           "lhs": "out_cohortIsPopulated",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "bool_and_or",
             "output_idx": [
@@ -1525,7 +1525,7 @@
           "_comment": "Both suppressions, multiplied: J25's pollutant gate and prccty.f's cohort skip.",
           "lhs": "out_isEmitted",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "output_idx": [
               "o"
@@ -1560,7 +1560,7 @@
           "_comment": "The group-by: SUM(emissionQuant) over everything the output detail does not distinguish -- the technologies and equipment points. Three ON columns, which is the whole key. SCC 2265007015's two equipment points differ in horsepower, hours, median life, population and technology mix and land on the same output row; that summation is the only place in the chain where it happens, and it is one join clause.",
           "lhs": "out_emissionQuant",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -1622,7 +1622,7 @@
         {
           "lhs": "emittedRowCount",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [],
@@ -1643,7 +1643,7 @@
         {
           "lhs": "out_yearID",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "output_idx": [
               "o"
@@ -1659,7 +1659,7 @@
         {
           "lhs": "out_monthID",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "output_idx": [
               "o"
@@ -1681,7 +1681,7 @@
         {
           "lhs": "out_dayID",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "output_idx": [
               "o"
@@ -1703,7 +1703,7 @@
         {
           "lhs": "out_hourID",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "output_idx": [
               "o"
@@ -1719,7 +1719,7 @@
         {
           "lhs": "out_countyID",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "output_idx": [
               "o"
@@ -1735,7 +1735,7 @@
         {
           "lhs": "out_stateID",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "output_idx": [
               "o"
@@ -1768,7 +1768,7 @@
         {
           "lhs": "out_roadTypeID",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "output_idx": [
               "o"
@@ -1791,7 +1791,7 @@
           "_comment": "The nonroad-to-onroad fuel type mapping, as a join so an unmapped fuel type reads 0 instead of a guess (§8.3).",
           "lhs": "out_fuelTypeID",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [

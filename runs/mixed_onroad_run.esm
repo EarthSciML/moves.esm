@@ -1,5 +1,5 @@
 {
-  "esm": "1.0.0",
+  "esm": "1.1.0",
   "metadata": {
     "name": "MixedOnroadRun",
     "description": "The mixed-onroad assembly: the four Phase 3 components mounted together, with the joins that in the components are replaced by carried columns performed for real across the mounts. Its purpose is to prove that the four stages compose — that the travel fraction the VMT stage multiplies by is the one the population stage computes, that the source hours the output stage multiplies by are the ones the activity stage produces, and that the cohort the output row is keyed to is the one the source-bin stage selected.\n\nEach leaf tests standalone by carrying the previous stage's result as a `const` column: `OnroadSourceHours.vmt_travelFraction` restates §6's five travel fractions, and `OnroadEnergyOutput.out_SHO` restates ten source-hour values. Those columns are correct and they are not evidence of composition — a transcription error would leave both files green. This document recomputes each of them THROUGH a `join.on` across the mount and asserts the difference is exactly zero, which is the only form of that check worth having.\n\nThe fourth join is the one with no counterpart in any leaf: `run_usedFraction` reaches from an output row to the source-bin cohort it belongs to, on (modelYearID, fuelTypeID). It is here rather than in a component because it is the edge between the row set and the values — the join that would silently attribute one cohort's activity to another — and it has no meaning until both sides exist.\n\nMOUNT FORM. The four leaves are top-level `models` `{ref}` entries, the form finding F1 forced and which still works. Their `index_sets` MERGE across that edge — finding F2, which said they did not, is fixed upstream — so this document declares no axis of its own: every one its roll-up is shaped over, `output_rows` and `svp_rows` among them, belongs to a leaf and is inherited, and a redeclaration that disagreed would be refused as `subsystem_index_set_conflict`. `enums` are the exception and still need restating: they merge first-wins and SILENTLY apply a colliding value (finding F13), so all sixteen and their thirty symbols are copied here and `tools/check-conventions.py` compares every one against the leaf that owns it. The union has no conflicts: the four leaves agree on every shared axis and every shared identifier, which is itself worth knowing — `source_type.PassengerCar` is declared by three of them and `fuel_type` by two.\n\nWHAT THIS ASSEMBLY IS NOT. It is not a fixture. Nothing here reads the snapshot; every number is a `const` column and the base rate is the carried quantity docs/mixed-onroad.md §8.1 describes. §7.4 of that document says why no `fixtures/mixed-onroad.esm` exists yet, and the short form is that a document emitting 250 correctly-keyed rows with an uncomputed rate would fail the per-cell gate for a reason the `[shortfall]` record cannot express, while one reading `baserate_1_2020` would pass it by transcribing the reference. Neither is a fidelity test. What can be checked without the snapshot is checked here and in the four leaves; what needs it needs §8.1 first.",
@@ -86,7 +86,7 @@
         {
           "_comment": "Across the mount: the population stage's five travel fractions, joined to the VMT stage's age relation. A scoped name resolves as a join.on key column (docs/esm-conventions.md §5).",
           "lhs": "run_travelFraction",
-          "rhs": { "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["a"],
+          "rhs": { "op": "faq", "args": [], "semiring": "sum_product", "output_idx": ["a"],
             "ranges": { "a": { "from": "vmt_age_rows" }, "p": { "from": "travel_age_rows" } },
             "join": [ { "on": [["Activity.vmt_ageID", "Travel.tf_ageID"]] } ],
             "expr": { "op": "index", "args": ["Travel.tf_travelFraction", "p"] } }
@@ -98,7 +98,7 @@
         {
           "_comment": "J34: (hourDayID, ageID) as ONE clause with two key pairs, which §5.5.8 makes a single composite key whose canonical form is the skolem tuple of the two values.",
           "lhs": "run_SHO",
-          "rhs": { "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["r"],
+          "rhs": { "op": "faq", "args": [], "semiring": "sum_product", "output_idx": ["r"],
             "ranges": { "r": { "from": "output_rows" }, "s": { "from": "source_hour_rows" } },
             "join": [ { "on": [["Output.out_hourDayID", "Activity.sho_hourDayID"],
                                ["Output.out_ageID", "Activity.sho_ageID"]] } ],
@@ -111,7 +111,7 @@
         {
           "_comment": "The output row to its cohort, on (modelYearID, fuelTypeID). One clause, two pairs.",
           "lhs": "run_usedFraction",
-          "rhs": { "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["r"],
+          "rhs": { "op": "faq", "args": [], "semiring": "sum_product", "output_idx": ["r"],
             "ranges": { "r": { "from": "output_rows" }, "c": { "from": "svp_rows" } },
             "join": [ { "on": [["Output.out_modelYearID", "Cohorts.svp_modelYearID"],
                                ["Output.out_fuelTypeID", "Cohorts.svp_fuelTypeID"]] } ],
@@ -119,7 +119,7 @@
         },
         {
           "lhs": "run_cohortIsSelected",
-          "rhs": { "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["r"],
+          "rhs": { "op": "faq", "args": [], "semiring": "sum_product", "output_idx": ["r"],
             "ranges": { "r": { "from": "output_rows" }, "c": { "from": "svp_rows" } },
             "join": [ { "on": [["Output.out_modelYearID", "Cohorts.svp_modelYearID"],
                                ["Output.out_fuelTypeID", "Cohorts.svp_fuelTypeID"]] } ],
@@ -128,7 +128,7 @@
         {
           "_comment": "S16 through the mount, joining the output stage's day relation on dayID.",
           "lhs": "run_activity",
-          "rhs": { "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["r"],
+          "rhs": { "op": "faq", "args": [], "semiring": "sum_product", "output_idx": ["r"],
             "ranges": { "r": { "from": "output_rows" }, "d": { "from": "day_rows" } },
             "join": [ { "on": [["Output.out_dayID", "Output.day_dayID"]] } ],
             "expr": { "op": "/", "args": [
@@ -148,7 +148,7 @@
         },
         {
           "lhs": "run_totalEmissionQuant",
-          "rhs": { "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": [],
+          "rhs": { "op": "faq", "args": [], "semiring": "sum_product", "output_idx": [],
             "ranges": { "r": { "from": "output_rows" } },
             "expr": { "op": "index", "args": ["run_emissionQuant", "r"] } }
         }

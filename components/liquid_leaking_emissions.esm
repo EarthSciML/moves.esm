@@ -1,5 +1,5 @@
 {
-  "esm": "1.0.0",
+  "esm": "1.1.0",
   "metadata": {
     "name": "LiquidLeakingEmissions",
     "description": "Steps L1, L9 and O1-O3 of the process-evap-leaks chain: the emission itself, the inspection-and-maintenance blend, and the MOVESOutput row. Ports docs/evap-leaks.md §2.5, joins K15-K22, and crates/moves-calculators/src/calculators/liquid_leaking_calculator.rs:606 (L1) and :859-1020 (L9 and the output row).\n\nONE PRODUCT AND ONE DIVISION.\n\n    emissionQuant = weightedMeanBaseRate x sourceHours x opModeFraction / noOfRealDays\n\nThe grouping is `((rate x hours) x fraction) / days`, in that order, because that is the order the reference multiplies in and binary64 is not associative; the emitted values agree with MOVESOutput to 1.0e-08 at the newest cohort and 1.3e-06 at the oldest, which is the snapshot's six-significant-figure column storage and not accumulated error (docs/evap-leaks.md §7.1).\n\nWHY `/ noOfRealDays` IS THERE AT ALL. A7 divides the month's VMT by `noOfDays / 7` so that SHO covers one average WEEK -- that is, `noOfRealDays` days of the day type. L9 divides that back out to one day. Applying the factor in both places, or in neither, is a factor of 2 on the weekend rows and 5 on the weekday rows; baseratecalculator/mod.rs:1536-1542 records the rates-first analogue. The weekday/weekend ratio of a single cohort is 3.80618 rather than 2.5 for that reason (docs/evap-leaks.md §6.4), and no factor in that product is 1.\n\nTHE TWO SOAK MODES ARE PRESENT AND CARRY EXACTLY ZERO. Rows 2 and 3 are the hot- and cold-soak modes of the 1980 gasoline cohort, with real non-zero rates of 0.430904708 and 0.22403231499999998 g/h and an opModeFraction of 0 -- because components/evap_operating_mode_distribution.esm COMPUTES that zero from `fractionOfOperating = 1` rather than assuming it. O1 sums the three modes, so a document that dropped the fractions would emit 4.692285338 x hours instead of 4.037348315 x hours: a 16.2% over-emit with the right key set, the right pollutant and no NaN anywhere.\n\nTHE I/M BLEND IS INERT ON THIS FIXTURE AND IS EXERCISED ANYWAY. `imcoverage` and `imfactor` are both EMPTY in the snapshot, so L1 produces no cell and L9's `UPDATE` leaves every row untouched -- `pollutantprocessassoc` nevertheless marks polProcessID 113 `isAffectedByEvapIM = 'Y'`, so this is an absent PROGRAM and not a structural exclusion, and a county with an evap I/M program would exercise it. The `.esm` spells the absence as `IMAdjustFract = 0`, for which lib/adjustments.esm's `im_blend` is the identity. That template was authored in Phase 1 as \"the onroad inspection/maintenance blend PLAN.md §3 names; it is not exercised by the NONROAD slice\", and this is the first chain that reaches it -- so it is exercised here by a PROBE row, the technique docs/esm-conventions.md §16.4 established after finding F19 removed the parameter-override one.\n\nROWS 7 AND 14 ARE THAT PROBE AND THEIR NUMBERS ARE NOT MOVESOutput'S. They carry model year 1990, gasoline, with a round base rate of 1 g/h, an I/M rate of 0.5 g/h and an `imcoverage`-derived `IMAdjustFract` of 0.3 -- none of which is in the snapshot. Model year 1990 IS a real cohort of the fixture; what is invented is its rate and its I/M coverage, so the two output rows for it, 0.46902999999999995 g and 1.7852040000000002 g, are hand arithmetic from this file's own inputs and are NOT the reference's values for that cohort. Every other row in this file reaches a cell of MOVESOutput. The probe uses real `sourceHours` for age 30, 1.1036 h and 10.5012 h, so only the rate and the coverage are constructed.\n\nWHAT THIS COMPONENT EMITS AND WHAT IT DOES NOT. `out_*` here is the load-bearing subset of the 25-column MOVESOutput schema: the three varying keys, the quantity, the computed SCC, the pollutant and process the pollutant-process splits into, the link's road type, and one of the nine columns that must be ABSENT. The full schema belongs to the fixture, which is where a missing column is a comparison failure rather than a review point. `out_regClassID` is `lib/identifiers.esm`'s `null_output_column` -- 0/0, a NaN -- because emitting 0 would claim regulatory class zero, and because the comparator reads NaN, NULL and empty as the same thing. On this fixture the regClassID group-by is a no-op, since `sourcebin` carries only class 20; the column must still be absent.\n\nData: the six weighted mean base rates are components/evap_weighted_base_rate.esm's own output, verified equal to it; `sh_sourceHours` and `omd_opModeFraction` are the two upstream relations the assembly joins instead. Everything else is the snapshot's (docs/evap-leaks.md §6.0-§6.3).",
@@ -1310,7 +1310,7 @@
           "_comment": "K15. One clause, two pairs; the reference's six-pair key adds year, month, link and source type, which are run scope here.",
           "lhs": "emis_sourceHours",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -1351,7 +1351,7 @@
           "_comment": "K16.",
           "lhs": "emis_opModeFraction",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -1392,7 +1392,7 @@
           "_comment": "K18.",
           "lhs": "emis_dayID",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -1429,7 +1429,7 @@
           "_comment": "K18 and K19 as one contraction over two relations: hourDayID to dayID to noOfRealDays.",
           "lhs": "emis_noOfRealDays",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -1477,7 +1477,7 @@
           "_comment": "K21, five key pairs in one clause. An unmatched row reads 0, for which im_blend is the identity -- the SQL's UPDATE leaves such a row untouched.",
           "lhs": "emis_imAdjustFract",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -1705,7 +1705,7 @@
           "_comment": "K17: the pollutant-process splits into the output's two columns.",
           "lhs": "out_pollutantID",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -1741,7 +1741,7 @@
         {
           "lhs": "out_processID",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -1778,7 +1778,7 @@
           "_comment": "The SQL's `INNER JOIN Link ON the iteration link`: one row, no key, a cross join.",
           "lhs": "out_roadTypeID",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -1842,7 +1842,7 @@
           "_comment": "O1, K22: the GROUP BY that drops opModeID. Two rows sharing an output key add, and here that sum is over the three operating modes.",
           "lhs": "out_emissionQuant",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [

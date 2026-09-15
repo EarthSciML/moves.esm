@@ -89,7 +89,7 @@ def check_no_equality_filter(p: pathlib.Path, doc) -> None:
     if p.relative_to(ROOT).as_posix() == UNGATED_CONTROL:
         return
     for ptr, obj in walk(doc, ""):
-        if obj.get("op") != "aggregate" or "filter" not in obj:
+        if obj.get("op") != "faq" or "filter" not in obj:
             continue
         if contains_op(obj["filter"], "=="):
             fail(p, ptr + "/filter", "equality-filter",
@@ -100,7 +100,7 @@ def check_no_equality_filter(p: pathlib.Path, doc) -> None:
 def check_reserved_loop_symbols(p: pathlib.Path, doc) -> None:
     """RULE: `t` is never a loop symbol (docs/findings F4)."""
     for ptr, obj in walk(doc, ""):
-        if obj.get("op") != "aggregate":
+        if obj.get("op") != "faq":
             continue
         for key in (obj.get("ranges") or {}):
             if key in RESERVED_SYMBOLS:
@@ -120,7 +120,7 @@ def check_join_clauses_are_on(p: pathlib.Path, doc) -> None:
     MOVES; flag it so that its first appearance is a deliberate decision.
     """
     for ptr, obj in walk(doc, ""):
-        if obj.get("op") != "aggregate":
+        if obj.get("op") != "faq":
             continue
         for i, clause in enumerate(obj.get("join") or []):
             if "on" not in clause:
@@ -199,7 +199,21 @@ def check_assembly_enums(p: pathlib.Path, doc) -> None:
                          "relabelling under the mount")
 
 
+def check_no_deprecated_aggregate(p: pathlib.Path, doc) -> None:
+    """RULE: the query node is spelled `faq`, never the pre-1.1.0 `aggregate`.
+
+    EarthSciAST PR #299 renamed the node at esm 1.1.0 and kept `aggregate` as a
+    deprecated alias, normalized on load. Every rule above matches on `"faq"`,
+    so an `aggregate` node that crept back in would pass them all unexamined.
+    """
+    for ptr, obj in walk(doc, ""):
+        if obj.get("op") == "aggregate":
+            fail(p, ptr, "deprecated-aggregate",
+                 'spell the node "faq" (EarthSciAST PR #299, esm 1.1.0)')
+
+
 CHECKS = (
+    check_no_deprecated_aggregate,
     check_no_equality_filter,
     check_reserved_loop_symbols,
     check_join_clauses_are_on,

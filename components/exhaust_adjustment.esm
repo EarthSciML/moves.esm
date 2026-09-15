@@ -1,5 +1,5 @@
 {
-  "esm": "1.0.0",
+  "esm": "1.1.0",
   "metadata": {
     "name": "ExhaustAdjustment",
     "description": "One calculator, one file. Ports joins J17/J18 and the §2.5(b)/(c) adjustments of docs/nonroad-logging-county.md: the daytime mean ambient temperature for the run's county-month, and the per-pollutant multiplicative adjustment (temperature x oxygenate) that emsadj.f applies to a zero-hour gasoline exhaust factor. The adjustment relation is keyed by (polProcessID, engineFuelKind), because two-stroke and four-stroke gasoline share a fuel and share nothing else: a consumer joins on both columns.\n\nThis is the file that demonstrates DISCRETE TIME AS AN INDEX-SET AXIS. MOVES time is a discrete (yearID, monthID, dayID, hourID) key, not the domain's continuous t: the run's temporal scope is a row set with four key columns, and it joins to `zonemonthhour` on (monthID, hourID) like any other relation. Nothing here differentiates with respect to t, and the component carries no clock (PLAN.md §1.2).\n\nIt is also where the honest use of `filter` appears. The daytime window 6 <= hourID <= 18 (nonroad_loader.rs:1613-1615) is a genuine RANGE PREDICATE and belongs in `filter`; the (monthID, hourID) equality beside it is a `join.on`. The two are different things and this file keeps them apart, which is the rule a reviewer can grep for.\n\nThe hourly temperature column is synthetic -- 27 rows standing in for a 930,816-row table -- and it is chosen so that its daytime mean is the fixture's VERIFIED 73.576927 degF, so the adjustment factors this component computes are the ones docs/nonroad-logging-county.md §6.0 read out of the real run: four-stroke THC 0.8384738, CO 0.7717785, NOx 1.4382362, and two-stroke 0.978082, 0.7625550, 1.6794580. That is the unit level and it is portable: it needs no snapshot on disk and a reader can check the mean by hand. The same thirteen rows are now also selected out of the real zonemonthhour by fixtures/nr-logging-county.esm, which reads the whole table through `data_sources` and gets 73.57692425067616 -- the two levels agree, and neither replaces the other (docs/esm-conventions.md §11).",
@@ -137,25 +137,25 @@
         {
           "_comment": "The run's discrete temporal scope: one calendar day, 24 hourly keys. yearID/monthID/dayID are constant over the scope and hourID is the row position -- a run covering three months would carry three months of rows here and nothing else in the file would change.",
           "lhs": "time_yearID",
-          "rhs": { "op": "aggregate", "args": [], "output_idx": ["h"],
+          "rhs": { "op": "faq", "args": [], "output_idx": ["h"],
             "ranges": { "h": { "from": "time_rows" } },
             "expr": "runYearID" }
         },
         {
           "lhs": "time_monthID",
-          "rhs": { "op": "aggregate", "args": [], "output_idx": ["h"],
+          "rhs": { "op": "faq", "args": [], "output_idx": ["h"],
             "ranges": { "h": { "from": "time_rows" } },
             "expr": { "op": "enum", "args": ["month", "August"] } }
         },
         {
           "lhs": "time_dayID",
-          "rhs": { "op": "aggregate", "args": [], "output_idx": ["h"],
+          "rhs": { "op": "faq", "args": [], "output_idx": ["h"],
             "ranges": { "h": { "from": "time_rows" } },
             "expr": { "op": "enum", "args": ["day_type", "Weekday"] } }
         },
         {
           "lhs": "time_hourID",
-          "rhs": { "op": "aggregate", "args": [], "output_idx": ["h"],
+          "rhs": { "op": "faq", "args": [], "output_idx": ["h"],
             "ranges": { "h": { "from": "time_rows" } },
             "expr": "h" }
         },
@@ -191,7 +191,7 @@
           "_comment": "J17/J18. The composite equality is a `join.on`; the inclusive daytime window is a `filter`, because it is a genuine range predicate and not an ON clause in disguise. The time-side loop symbol is `k`, not `t`: a range symbol named `t` collides with the independent variable and makes the gate match NOTHING, silently (docs/findings/README.md, finding F4).",
           "lhs": "daytimeHourCount",
           "rhs": {
-            "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": [],
+            "op": "faq", "args": [], "semiring": "sum_product", "output_idx": [],
             "ranges": { "k": { "from": "time_rows" }, "z": { "from": "zone_month_hour_rows" } },
             "join": [ { "on": [["time_monthID", "zmh_monthID"], ["time_hourID", "zmh_hourID"]] } ],
             "filter": {
@@ -207,7 +207,7 @@
         {
           "lhs": "daytimeTemperatureSum",
           "rhs": {
-            "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": [],
+            "op": "faq", "args": [], "semiring": "sum_product", "output_idx": [],
             "ranges": { "k": { "from": "time_rows" }, "z": { "from": "zone_month_hour_rows" } },
             "join": [ { "on": [["time_monthID", "zmh_monthID"], ["time_hourID", "zmh_hourID"]] } ],
             "filter": {
@@ -284,7 +284,7 @@
           "_comment": "adjems. Pointwise over the adjustment relation -- no join, no contraction -- with both shapes coming from lib/adjustments.esm by reference.",
           "lhs": "adjustment",
           "rhs": {
-            "op": "aggregate", "args": [], "output_idx": ["p"],
+            "op": "faq", "args": [], "output_idx": ["p"],
             "ranges": { "p": { "from": "adjustment_rows" } },
             "expr": {
               "op": "*",

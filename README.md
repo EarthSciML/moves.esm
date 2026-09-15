@@ -178,7 +178,7 @@ clean, with no error and no warning:
 
 1. a `data_sources` entry read by no provider;
 2. the same when the published `earthsciio` shadows the local checkout;
-3. an `aggregate` range symbol named `t`, which makes `join.on` match nothing;
+3. an `faq` range symbol named `t`, which makes `join.on` match nothing;
 4. `skolem`/`distinct` materializing empty;
 5. an index set sized by `extent` discovery, which stayed at its placeholder;
 6. `element_type: "Float32"`, which returned the binary64 answer;
@@ -189,7 +189,7 @@ clean, with no error and no warning:
 9. an undeclared operand dropped rather than named, again only when the
    document ingests — `max(known, undeclared)` quietly becomes `max(known)`
    (F25);
-10. an index symbol used outside the `aggregate` that binds it, read as index
+10. an index symbol used outside the `faq` that binds it, read as index
     zero and contributing the additive identity, again only on the path an
     ingesting document takes (F26). It reached 109 of `nr-logging-county`'s 144
     output cells past 343 of 343 green assertions, and was caught by diffing
@@ -411,7 +411,7 @@ would be `mixed_element_type` errors.
 `components/age_distribution.esm`, guarded by 55 of that file's assertions and
 verified against the reference fold at *zero* tolerance — 306 of 306 cells
 bit-exact across all six equipment points. The format gained a spelling for it
-(F12): an `aggregate` body that reads its own array-shaped left-hand side at a
+(F12): an `faq` body that reads its own array-shaped left-hand side at a
 strictly earlier index is a causal self-reference, which needed no new operator
 and no new schema field.
 

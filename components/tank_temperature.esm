@@ -1,5 +1,5 @@
 {
-  "esm": "1.0.0",
+  "esm": "1.1.0",
   "metadata": {
     "name": "moves.tank_temperature",
     "description": "TankTemperatureGenerator step TTG-1: the parked vehicle's hourly fuel-tank temperature, from the zone's 24 hourly ambient temperatures. Ports crates/moves-calculators/src/generators/tank_temperature_generator.rs:1483-1537 (`calculate_cold_soak_tank_temperature`, the port of TankTemperatureGenerator.java's `calculateColdSoakTankTemperature`), specified in docs/evap-permeation.md §2.6.\n\nWHY THIS FILE EXISTS, AND WHY IT IS ITS OWN COMPONENT. `ColdSoakTankTemperature` is an input table of BOTH remaining evaporative slices -- process 12 (fuel vapour venting, MultidayTankVaporVentingCalculator TVV-2 and TVV-3) reads it directly, and process 11 (permeation) reads it through `AverageTankTemperature`'s cold-soaking operating mode. It is one generator step, so by docs/esm-conventions.md §1 it is one file, and it is mounted rather than copied into either calculator.\n\nWHAT IS ACTUALLY BEING EXERCISED HERE. TTG-1b is a RECURRENCE, and until EarthSciAST a83cde55e the format had no spelling for one (finding F12). It has one now, and until this file the ONLY thing in this repository that had ever used it was `agedist.f`'s thirty-year fold in components/age_distribution.esm. A construct verified against its own motivating case is verified narrowly, so this file was written to be a DIFFERENT recurrence, and it is different in four ways that are each visible in the equations below:\n\n  (a) the fold's lag is a CONTRACTED index running 1..50 and the self-read appears once per contracted value; here the lag is the literal 1 and the self-read appears exactly once, with nothing contracted at all;\n  (b) the fold's axis is a declared 31-row year axis; here the axis is a DERIVED 96-cell quarter-hour grid whose hour and time-step columns are computed from the row number, and the recurrence's neighbours are quarter-hours of the SAME hour for three cells in four and the previous hour for the fourth;\n  (c) the fold's base case is the constant 0.0 under a `Y <= 1` guard; here the base case is COMPUTED -- row 1's carried value is `quarterHourTemperature[1] - firstQHTankTemperature`, which is zero only because those two are the same number, and which moves the instant either input moves. That is deliberate: a recurrence whose first cell is a literal is a recurrence with one fewer input to perturb it through, and F24 is what perturbing a recurrence is for;\n  (d) the fold's terms are independent of the answer once the survival run is fixed; here every term is a function of the answer so far -- `sumTempDelta` accumulates `quarterHourTemperature - (1.4 * sumTempDelta + first)`, a linear feedback with ratio -0.4. This is the shape that CANNOT be written as esm-spec §4.3.1's prefix scan at all, which is the sharpest available test that §4.3.1.1 is doing real work.\n\nNothing about (a)-(d) needed a new operator, a new schema field or a declaration; §4.3.1.1's causal self-reference took all four. That is the finding, and it is a positive one.\n\nWHAT THE NUMBERS ARE. The 24 ambient temperatures are the `ZoneMonthHour` rows of zone 261610 (Washtenaw County, MI), month 8, which are identical in all three evaporative snapshots. They are carried at the twelve digits the snapshot stores, which are a `real*4` value widened: 63.7999992371 is `float(63.8)`. The assertions below check this file's answers against the reference's OWN `QuarterHourTemperature`, `QuarterHourTankTemperature` and `ColdSoakTankTemperature` tables -- three separate captured intermediates, 96 + 96 + 24 rows -- so they are checks against MOVES and not against this file's author. Where a reference decimal is asserted the tolerance is `rel 1e-6`, which is that column's six-significant-figure storage floor and not accumulated error: half a unit in the sixth significant figure of a number just above 10 is 7.9e-07 relative, and the worst of the 24 cold-soak rows is 7.550e-07.\n\nTHE ARITHMETIC ORDER IS LOAD-BEARING AND IS NOT THE OBVIOUS ONE. Substituting `tankTemp = 1.4*sum + first` into `sum += temp - tankTemp` gives the two-term closed form `T[k+1] = 1.4*Q[k] - 0.4*T[k]`, which is algebraically identical, is shorter, and is WRONG to write here: esm-spec §4.3.1.1 rounds the carried value to the variable's `element_type` at every cell, so the two forms are the same computation only in exact arithmetic. In binary64 they agree to 2.8e-14 (measured over all 96 cells); in the `real*4` MOVES actually runs they do not. This file carries `sumTempDelta` -- the quantity the Java carries -- for that reason, and lib/evaporative.esm's `quarter_hour_delta_sum` is where that choice is written down once.\n\nWHAT THIS FILE DOES NOT COMPUTE. TTG-1 is the first of seven steps. TTG-2 through TTG-4 walk `SampleVehicleTrip`'s 37,216 sample trips through a work queue chained on `priorTripID` and then a minute-by-minute hot-soak trajectory; TTG-5's operating-mode-300 average tank temperature and TTG-7's cold-soak initial hour fractions are downstream of that walk. Those are NOT this shape -- the successor of a trip is named by a data column, not by an index one earlier along an axis -- and docs/findings/README.md F28 records what that means for the two remaining evaporative fixtures.",
@@ -269,7 +269,7 @@
           "_comment": "The quarter-hour axis's hour column. `floor((k - 1) / 4) + 1`, with the 4 coming from lib/evaporative.esm so that the axis layout and the time-step column below cannot disagree about it.",
           "lhs": "tt_qhHourID",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "output_idx": [
               "k"
@@ -314,7 +314,7 @@
           "_comment": "The quarter-hour axis's time-step column, from the hour column so the two are consistent by construction.",
           "lhs": "tt_qhTimeStepID",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "output_idx": [
               "k"
@@ -360,7 +360,7 @@
           "_comment": "next(24) = 1. The Java writes the wrap as `if(hourID = 24, 1, hourID + 1)` in the self-join's ON clause; it is a computed column here so that the join below stays a plain equality (§3).",
           "lhs": "tt_qhNextHourID",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "output_idx": [
               "k"
@@ -419,7 +419,7 @@
           "_comment": "J-TTG-1: quarter_hour.hourID = ZoneMonthHour.hourID.",
           "lhs": "tt_qhTemperatureAtHour",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "output_idx": [
               "k"
@@ -456,7 +456,7 @@
           "_comment": "J-TTG-2: quarter_hour.nextHourID = ZoneMonthHour.hourID. The Java requires BOTH hours to have a temperature (its self-join is inner), which this reproduces: an hour whose successor is missing contracts to nothing.",
           "lhs": "tt_qhTemperatureAtNextHour",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "output_idx": [
               "k"
@@ -493,7 +493,7 @@
           "_comment": "TTG-1a.",
           "lhs": "tt_qhTemperature",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "output_idx": [
               "k"
@@ -537,7 +537,7 @@
           "_comment": "firstQHTankTemperature, selected by KEY through a one-row anchor relation rather than by row number or by an `==` predicate -- see the variable's description. The two pairs are ONE `on` clause because §3 makes a composite key one clause with several pairs.",
           "lhs": "tt_firstTankTemperature",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "output_idx": [],
             "ranges": {
@@ -576,7 +576,7 @@
           "_comment": "TTG-1b's recurrence, as esm-spec §4.3.1.1's causal self-reference. The body reads `index(tt_qhDeltaSum, k - 1)` -- itself, one cell earlier along its own output axis -- and that single read is the whole declaration: the axis is `k`, the direction is ascending, the lag is 1. The self-read is guarded by `prior_quarter_hour_delta_sum`, because §4.3.1.1 point 6 makes a read of an unpublished cell a FAULT and not a zero ghost, and because an `ifelse` in a recurrence body selects its branch before evaluating it. Row 1's value is `quarterHourTemperature[1] - firstQHTankTemperature` and is COMPUTED; it is zero here only because those two are the same number, and it moves if either input moves.",
           "lhs": "tt_qhDeltaSum",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "output_idx": [
               "k"
@@ -628,7 +628,7 @@
           "_comment": "TTG-1b's published tank temperature, read from the recurrence one cell BEHIND -- the same guarded prior the recurrence itself uses.",
           "lhs": "tt_qhTankTemperature",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "output_idx": [
               "k"
@@ -673,7 +673,7 @@
           "_comment": "The reference's own `tempDelta` column.",
           "lhs": "tt_qhTempDelta",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "output_idx": [
               "k"
@@ -708,7 +708,7 @@
           "_comment": "TTG-1c: the step-1 cell of each hour. Two `on` clauses over DIFFERENT symbol pairs, which §3 says compose by conjunction -- the hour equality relates the quarter-hour axis to the hour axis, the step equality relates it to the one-row anchor relation.",
           "lhs": "tt_coldSoakTankTemperature",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "output_idx": [
               "h"

@@ -1,5 +1,5 @@
 {
-  "esm": "1.0.0",
+  "esm": "1.1.0",
   "metadata": {
     "name": "AgeGroupCensus",
     "description": "PLAN.md step 7a, the child half. A DATA-OPEN component: it holds the logic, its own shape, and the data BINDINGS, and it holds none of the data.\n\nWHAT IS BEING PROVED. Phase 7 §7.1 puts the logic in one shared domain document and the configuration in a thin per-fixture document that mounts it by `{ref}`. §7.2 proved that assembly VALIDATES. What nothing in the tree exercised is whether it EVALUATES with data, because `runs/*.esm` ref components but supply no data and `fixtures/*.esm` supply data but inline everything. This file is the missing half: its three `parameter` variables carry `update: {kind: \"data\", source: \"spike_agecategory\"}` and `\"spike_agegroup\"`, and NEITHER key is declared here. `data_sources` lives in the mounting document (`spike_parent.esm`). Data binding is variable-level, and this file is the question of whether that binding resolves across a mount edge.\n\nWHY IT CANNOT RUN ALONE, and that is the point. It names two data sources it does not declare, so `esm validate` on this file fails with `Parameter update names data source 'spike_agecategory', which the document does not declare`. run-tests.sh asserts that failure rather than tolerating it, because a component that supplied its own data by accident would make the parent's success meaningless.\n\nIT USED TO BE OPEN THE OTHER WAY, and the change is worth knowing rather than absorbing. Until 2026-09-12 this file declared `index_sets` sized by `n_spike_agecategory` and `n_spike_agegroup` and declared neither metaparameter, so it failed alone with `invalid type: string \"n_spike_agecategory\", expected i64` and was closed by the parent. EarthSciAST PR #298 resolves a mounted leaf in its own scope and refuses that arrangement; the Python binding always had, as `subsystem_index_set_conflict`, and nothing in this repository was measuring it (finding F51). So the metaparameters moved here, into the document that owns the axes they size. The parent declares them too, because its `extent`s bind them at the root (finding F50) — that duplication is the one thing about this spike still waiting on upstream.\n\nTHE ARITHMETIC IS DELIBERATELY BORING. `AgeCategory` (41 rows) is grouped by `AgeGroup` (7 rows) on `ageGroupID` — one equi-join, two aggregates — and the numbers are the real default database's: 41 categories over 7 groups, ageIDs summing to 820, and group 2099 holding 21 of the 41. Nothing here is a MOVES calculation; the subject is the mount edge, and a recognisable number is what makes a false positive visible.\n\nTHE TESTS BELOW DO NOT RUN TODAY, and that is recorded rather than hidden. `esm test` reports of a mounted leaf: \"a mounted component's inline tests are not run here; they run when its own file is a test target\" — and this file cannot BE a test target, because it does not load alone. So a data-open component has no reachable inline-test path at all (finding F47), and the parent cannot supply one either: an asserting model beside the mount makes every assertion in the document error with `document holds several models` (finding F45). run-tests.sh therefore checks this assembly by emitting its relation and diffing it, the fixture stage's own pattern, AND asserts that `esm test` on the parent still finds zero assertions — so the day these four become reachable, the suite says so.\n\nThey are written as if they ran, and they are written one stage downstream of the ingest on purpose: a scoped name is not assertable (F21) and neither is a `kind: data` parameter (F43), so the columns this file INGESTS are pinned through `groupCategoryCount` and `totalAge`, exactly as F43 requires.",
@@ -79,27 +79,27 @@
         {
           "_comment": "The equi-join, driven from the match set (§1.3's gate): 7 x 41 candidate pairs, 41 matches.",
           "lhs": "groupCategoryCount",
-          "rhs": { "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["g"],
+          "rhs": { "op": "faq", "args": [], "semiring": "sum_product", "output_idx": ["g"],
             "ranges": { "g": { "from": "spike_agegroup_rows" }, "c": { "from": "spike_agecategory_rows" } },
             "join": [ { "on": [["ag_ageGroupID", "ac_ageGroupID"]] } ],
             "expr": { "op": "index", "args": ["ac_unit", "c"] } }
         },
         {
           "lhs": "groupAgeTotal",
-          "rhs": { "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": ["g"],
+          "rhs": { "op": "faq", "args": [], "semiring": "sum_product", "output_idx": ["g"],
             "ranges": { "g": { "from": "spike_agegroup_rows" }, "c": { "from": "spike_agecategory_rows" } },
             "join": [ { "on": [["ag_ageGroupID", "ac_ageGroupID"]] } ],
             "expr": { "op": "index", "args": ["ac_ageID", "c"] } }
         },
         {
           "lhs": "totalCategories",
-          "rhs": { "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": [],
+          "rhs": { "op": "faq", "args": [], "semiring": "sum_product", "output_idx": [],
             "ranges": { "g": { "from": "spike_agegroup_rows" } },
             "expr": { "op": "index", "args": ["groupCategoryCount", "g"] } }
         },
         {
           "lhs": "totalAge",
-          "rhs": { "op": "aggregate", "args": [], "semiring": "sum_product", "output_idx": [],
+          "rhs": { "op": "faq", "args": [], "semiring": "sum_product", "output_idx": [],
             "ranges": { "g": { "from": "spike_agegroup_rows" } },
             "expr": { "op": "index", "args": ["groupAgeTotal", "g"] } }
         }

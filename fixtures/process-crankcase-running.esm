@@ -1,5 +1,5 @@
 {
-  "esm": "1.0.0",
+  "esm": "1.1.0",
   "metadata": {
     "name": "moves.fixture.process_crankcase_running",
     "description": "The `process-crankcase-running` fixture: 1,368 rows of MOVESOutput -- Total Gaseous Hydrocarbons, Carbon Monoxide and Oxides of Nitrogen on BOTH Running Exhaust (process 1) and Crankcase Running Exhaust (process 15), for passenger cars on urban restricted-access roads in Washtenaw County, August, 7am, 2020 -- computed from the snapshot's own INPUT tables. It ports docs/process-crankcase-running.md end to end and reuses the whole of docs/mixed-onroad.md's spine: the activity chain S1-S9, the cohort structure and the fuel-usage rebase S10-S12, the base rate S13-S14, and the output row S16-S18.\n\nTHE THREE METEOROLOGY COLUMNS ARE COMPUTED HERE, NOT READ. Since docs/meteorology-generator.md 8.2 this fixture derives `heatIndex`, `specificHumidity` and `molWaterFraction` from `ZoneMonthHour.temperature`, `ZoneMonthHour.relHumidity` and `County.barometricPressure` through lib/meteorology.esm, instead of reading MeteorologyGenerator's answers back off the reference. It and `process-nox-speciation` are the only two of the nine ingesting fixtures whose OUTPUT BYTES MOVED, and the movement is the point -- docs/esm-conventions.md 23's other case, where the fixture CAN see the stage. Every moved cell is accounted for:\n  * `meanBaseRate`, `SHO` and `activity` are byte-identical on all 1,368 rows: the humidity enters after the rate.\n  * `adjustedMeanBaseRate` and `emissionQuantDirect` move on exactly 208 rows -- NOx (pollutant 3), process 1, on the three fuel types with a `noxhumidityadjust` row (82 gasoline, 80 diesel, 46 E85). The 40 electricity rows have no such row and take k = 1 exactly, and every THC and CO row misses the NOx branch entirely.\n  * The 208 process-15 NOx rows do NOT move in those two columns, because they carry no rate of their own: their `meanBaseRate`, `adjustedMeanBaseRate` and `emissionQuantDirect` are all exactly 0 and the crankcase quantity is the parent's, times `crankcaseEmissionRatio`.\n  * `emissionQuant` therefore moves on 378 of 1,368: those 208 plus 170 crankcase rows -- 82 gasoline, 46 E85 and 42 of the 80 diesel. The other 38 diesel crankcase rows are exactly 0 and a factor cannot move a zero.\n  * Worst relative movement 7.4418e-09, which is the CFR 86 factor's own shift.\nAgainst the reference nothing measurable changes: worst cell 8.702e-06 of a 2e-05 gate and worst per-pollutant sum 3.466e-07, both identical to five figures before and after.\n\nWHY IT MOVES AT ALL. `ZoneMonthHour.specificHumidity` stores MOVES's answer at less precision than MOVES computed it with, and MOVES's own calculators read the STORED value back. The 2.2985e-08 gap between 10.053684062398 computed here and 10.053684293477 stored is this port being closer to the formula and further from the reference, by an amount 870x below tolerance.toml's per-cell gate.\n\nTWO THINGS ARE NEW, AND THEY ARE INDEPENDENT.\n\n(1) THE POLLUTANTS ARE CRITERIA POLLUTANTS. Every earlier onroad fixture rated Total Energy Consumption or a particulate, and neither carries a fuel effect or a humidity correction. These do. The rate table is `emissionRateByAge` and not `emissionRate`, so J22 carries a seventh key pair -- the age group -- because a criteria rate deteriorates. Each base rate is then expanded over the FORMULATIONS the county's fuel supply carries for its fuel type, scaled by `criteriaratio` and `generalfuelratio`, and re-collapsed by market share (adjust.rs:206-262, aggregate.rs:28-45). And NOx alone takes a humidity correction whose equation is selected by a free-text column of a three-row table: k is 1.0216 on gasoline and E85 and 1.00955 on diesel, and dropping it moves every NOx row by more than 2 %.\n\n(2) THE TWO PROCESSES DO NOT SPAN THE SAME KEY SPACE, and that is the whole subject of this rung. `CrankcaseEmissionCalculatorNonPM` is a chained calculator with no rate of its own: a crankcase row is its own pollutant's exhaust row times a tabulated ratio, banded on model year and keyed by (pollutant-process, source type, regulatory class, fuel type). There is no fuelTypeID 9 row in that table and MOVES's join is an INNER one, so the twenty electricity cohorts emit a process-1 row and NO process-15 row: 248 rows per pollutant on process 1 and 208 on process 15. `process-tirewear` could lay its output out as rectangular blocks of a shared cohort rank because all three of its pollutant-processes spanned the same 125 cohorts; three of the six blocks here are twenty cohorts shorter than the other three, so the rank is GLOBAL over the rate relation instead -- `rt_emits` marks the 684 rate rows that reach MOVESOutput and `rt_outputRank` numbers them by an inclusive prefix count (docs/esm-conventions.md 31). No block has to be rectangular, and `pp_emittedCohortCount` states the 124/104 split as an assertion, which is the thing a row count of 1368 cannot make.\n\nTHE FUEL AND HUMIDITY TEMPLATES ARE NOT THIS DOCUMENT'S. `fixtures/process-nox-speciation.esm` reaches the same `BaseRateCalculator` arm and landed all eight of them in lib/adjustments.esm first; this document instantiates them. They were written independently on the two branches, under the same names and with the same bodies, and the reconciliation was to delete the second copy rather than to keep two spellings of `calculateNOxK`. The one template this rung adds is lib/keys.esm's `in_inclusive_range`, and docs/process-crankcase-running.md 4.0 says why it is not `model_year_in_range` renamed.",
@@ -7023,7 +7023,7 @@
           "_comment": "S0. The run scope, each value lifted from its own one-row source relation. An aggregate over (run_rows x source_rows) with no join clause is the cross product of two one-row relations.",
           "lhs": "run_yearID",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -7049,7 +7049,7 @@
         {
           "lhs": "run_monthID",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -7075,7 +7075,7 @@
         {
           "lhs": "run_hourID",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -7101,7 +7101,7 @@
         {
           "lhs": "run_sourceTypeID",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -7127,7 +7127,7 @@
         {
           "lhs": "run_roadTypeID",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -7153,7 +7153,7 @@
         {
           "lhs": "run_linkID",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -7179,7 +7179,7 @@
         {
           "lhs": "run_countyID",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -7205,7 +7205,7 @@
         {
           "lhs": "run_zoneID",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -7231,7 +7231,7 @@
         {
           "lhs": "run_linkRoadTypeID",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -7273,7 +7273,7 @@
           "_comment": "S1: is the analysis year flagged as a base year? The flag is Y/N text decoded by a `codes` map at ingest.",
           "lhs": "run_baseYearIsAnalysisYear",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -7309,7 +7309,7 @@
         {
           "lhs": "run_fuelYearID",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -7346,7 +7346,7 @@
           "_comment": "The geographic-phase-in share, 0 in Washtenaw County. Read rather than assumed: `gpa_blend` is applied at both fuel-effect lookups and this is the number that makes both of them return their normal value.",
           "lhs": "run_gpaFraction",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -7383,7 +7383,7 @@
           "_comment": "How many `regioncounty` rows this county has in this fuel year. TWO, both naming the same region under different region CODES, so the fuel supply is read as a SET membership and the duplicate cannot double a market share.",
           "lhs": "run_fuelRegionCount",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -7417,7 +7417,7 @@
         {
           "lhs": "run_hpmsVtypeID",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -7454,7 +7454,7 @@
           "_comment": "S4 (J6). One clause, two pairs: the HPMS type and the year.",
           "lhs": "run_analysisYearVMT",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -7495,7 +7495,7 @@
           "_comment": "S5 (J7), gated to `roadtype` membership: two clauses over two relations, composing by conjunction.",
           "lhs": "run_roadTypeVMTFraction",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -7558,7 +7558,7 @@
         {
           "lhs": "run_monthVMTFraction",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -7598,7 +7598,7 @@
         {
           "lhs": "run_daysInMonth",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -7634,7 +7634,7 @@
         {
           "lhs": "run_monthGroupID",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -7681,7 +7681,7 @@
         {
           "lhs": "run_shoAllocFactor",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -7721,7 +7721,7 @@
         {
           "lhs": "run_sourceTypePopulation",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -7788,7 +7788,7 @@
           "_comment": "J28: the heat index both of S15's clamps turn on, for the run's zone, month and hour.",
           "lhs": "run_heatIndex",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -7833,7 +7833,7 @@
           "_comment": "J29: the A/C activity quadratic's three coefficients, on (monthGroupID via monthofanyyear, hourID).",
           "lhs": "run_acActivityTermA",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -7873,7 +7873,7 @@
         {
           "lhs": "run_acActivityTermB",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -7913,7 +7913,7 @@
         {
           "lhs": "run_acActivityTermC",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -7998,7 +7998,7 @@
         {
           "lhs": "run_temperature",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -8043,7 +8043,7 @@
           "_comment": "J28b: `PV`, on the same (zone, month, hour) key the temperature and heat index already use. It is the vapour partial pressure that crosses this join, not the humidity: the humidity needs the county pressure, and the county is reached by a different key.",
           "lhs": "run_vaporPartialPressure",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -8088,7 +8088,7 @@
           "_comment": "J-MET-2's last leg: County.barometricPressure on run_countyID = cty_countyID, the key J30 uses for GPAFract.",
           "lhs": "run_barometricPressure",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -8168,7 +8168,7 @@
         {
           "lhs": "rspp_ordinal",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "output_idx": [
               "p"
@@ -8207,7 +8207,7 @@
           "_comment": "J35: MOVES's own chain declaration, read rather than written down.",
           "lhs": "rspp_chainInputPolProcessID",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -8244,7 +8244,7 @@
           "_comment": "S3's denominator is assembled on the 533-row (source type, age) relation, because that is the SMALL side of the join to the 33,579-row distribution (finding F17).",
           "lhs": "sta_ageFraction",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -8295,7 +8295,7 @@
         {
           "lhs": "sta_population",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -8350,7 +8350,7 @@
         {
           "lhs": "sta_isInHpmsGroup",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "bool_and_or",
             "output_idx": [
@@ -8392,7 +8392,7 @@
           "_comment": "S3's denominator (J5): over every (source type, age) in the run's HPMS group. This is the join finding F11 used to force into a second relation over a second index set; it does not need one, because the two sides are different relations.",
           "lhs": "run_travelGroupTotal",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -8443,7 +8443,7 @@
           "_comment": "Row ordinals, so that the derived relations join to their factors by POSITION rather than by assuming a file's key order. The aggregate's loop symbol is usable as a value, which is what makes this expressible.",
           "lhs": "ac_ordinal",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "output_idx": [
               "g"
@@ -8459,7 +8459,7 @@
         {
           "lhs": "day_ordinal",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "output_idx": [
               "k"
@@ -8475,7 +8475,7 @@
         {
           "lhs": "day_noOfRealDays",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -8511,7 +8511,7 @@
         {
           "lhs": "rsft_ordinal",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "output_idx": [
               "u"
@@ -8528,7 +8528,7 @@
           "_comment": "J10: the packed hour-day key is LOOKED UP from (dayID, hourID), so hourID x 10 + dayID appears nowhere in this document.",
           "lhs": "day_hourDayID",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -8576,7 +8576,7 @@
           "_comment": "S13(a) begins. readOperatingMode's window, inputs.rs:408-419.",
           "lhs": "om_isBinnedRunningMode",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -8691,7 +8691,7 @@
           "_comment": "The Braking mode id as a one-row column, so the two braking-rate lookups are ordinary equi-joins (docs/esm-conventions.md \u00a720.4). `operating_mode.Braking` is 0, which an `enums` member could not be until F32 was fixed upstream.",
           "lhs": "run_brakingOpModeID",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -8714,7 +8714,7 @@
         {
           "lhs": "run_brakeRate1Sec",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -8750,7 +8750,7 @@
         {
           "lhs": "run_brakeRate3Sec",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -8787,7 +8787,7 @@
           "_comment": "The physics row this source type uses, with drivecycle.rs:288's guard that both masses are positive.",
           "lhs": "phys_isSelected",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -8854,7 +8854,7 @@
         {
           "lhs": "run_physicsRowsSelected",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -8881,7 +8881,7 @@
           "_comment": "drivecycle.rs:203-206.",
           "lhs": "ds_firstSecond",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "min_sum",
             "output_idx": [
@@ -8917,7 +8917,7 @@
         {
           "lhs": "dss_firstSecond",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -8994,7 +8994,7 @@
           "_comment": "THE FOUR NEIGHBOURING-SECOND READS finding F11 used to refuse. Each is `driveschedulesecond` joined to ITSELF -- two ranges over one index set -- on (offset second, driveScheduleID), with `syms` naming which side each key column is read at. The offset pair is written FIRST because the driving clause is the first one the evaluator can resolve and its selectivity is the runtime (docs/esm-conventions.md \u00a725): the second key is 3.2 rows per value where the schedule key is 1,298. Measured on this document: 63,602 rows and 4.045e9 candidate pairs per join, eight joins, and the whole W stage evaluates in about two seconds.",
           "lhs": "dss_priorSpeed",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -9039,7 +9039,7 @@
           "_comment": "The companion presence column: an inner join fills an unmatched row with the semiring identity, and for sum_product that 0 is indistinguishable from a genuine speed of 0.",
           "lhs": "dss_priorPresent",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -9077,7 +9077,7 @@
         {
           "lhs": "dss_prior2Speed",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -9121,7 +9121,7 @@
         {
           "lhs": "dss_prior2Present",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -9159,7 +9159,7 @@
         {
           "lhs": "dss_prior3Speed",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -9203,7 +9203,7 @@
         {
           "lhs": "dss_prior3Present",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -9241,7 +9241,7 @@
         {
           "lhs": "dss_nextSpeed",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -9285,7 +9285,7 @@
         {
           "lhs": "dss_nextPresent",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -9598,7 +9598,7 @@
           "_comment": "drivecycle.rs:262-273.",
           "lhs": "dss_isBraking",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -9772,7 +9772,7 @@
           "_comment": "drivecycle.rs:275-302.",
           "lhs": "dss_vsp",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -9860,7 +9860,7 @@
           "_comment": "drivecycle.rs:305-322 as a SUM rather than a first match; om_isBinnedRunningMode's description says why that is the same thing here.",
           "lhs": "dss_binnedModeID",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -9964,7 +9964,7 @@
         {
           "lhs": "dss_binnedModeMatches",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -10056,7 +10056,7 @@
         {
           "lhs": "dss_opModeID",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -10203,7 +10203,7 @@
         {
           "lhs": "dsa_isSelected",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -10237,7 +10237,7 @@
         {
           "lhs": "dsa_averageSpeed",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -10273,7 +10273,7 @@
         {
           "lhs": "dsa_totalSeconds",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -10310,7 +10310,7 @@
           "_comment": "Two clauses: the schedule, and the operating MODE, which gives the 60-wide mode axis its own gate rather than leaving it a scanned output loop (finding F17).",
           "lhs": "dsa_modeSeconds",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -10358,7 +10358,7 @@
         {
           "lhs": "dsa_modeFraction",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -10401,7 +10401,7 @@
           "_comment": "drivecycle.rs:110-142: the two schedules that bracket a bin speed. A range predicate, so a filter plus a max/min reduction rather than a join.on.",
           "lhs": "asb_hasSlowerSchedule",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "bool_and_or",
             "output_idx": [
@@ -10458,7 +10458,7 @@
         {
           "lhs": "asb_hasFasterSchedule",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "bool_and_or",
             "output_idx": [
@@ -10515,7 +10515,7 @@
         {
           "lhs": "asb_slowerSpeed",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "max_product",
             "output_idx": [
@@ -10578,7 +10578,7 @@
         {
           "lhs": "asb_fasterSpeed",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "min_sum",
             "output_idx": [
@@ -10657,7 +10657,7 @@
           "_comment": "The bracketing weight attached to the schedule that carries it, identified by SPEED. asb_scheduleFractionTotal is what makes that safe.",
           "lhs": "asb_scheduleFraction",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -10800,7 +10800,7 @@
         {
           "lhs": "asb_scheduleFractionTotal",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -10828,7 +10828,7 @@
           "_comment": "drivecycle.rs:388-401.",
           "lhs": "asb_modeFraction",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -10873,7 +10873,7 @@
           "_comment": "W, aggregate.rs:365-417's inner sum over avgSpeedBinID. ONE relation again, keyed by the run's hour-day and the operating mode and by nothing else: every pollutant-process here is on process 1, so every one takes its RatesOpModeDistribution from the drive cycles BaseRateGenerator drives itself (mod.rs:156-161), and the pollutant-process axis `process-tirewear` needed is not needed here.",
           "lhs": "day_W",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -10948,7 +10948,7 @@
         {
           "lhs": "day_WTotal",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -10975,7 +10975,7 @@
         {
           "lhs": "day_WModeCount",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -11016,7 +11016,7 @@
           "_comment": "S2-S9 on the (day type x age) activity relation, day-major.",
           "lhs": "act_dayOrdinal",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "output_idx": [
               "r"
@@ -11040,7 +11040,7 @@
         {
           "lhs": "act_ageOrdinal",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "output_idx": [
               "r"
@@ -11064,7 +11064,7 @@
         {
           "lhs": "act_ageID",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -11100,7 +11100,7 @@
         {
           "lhs": "act_dayID",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -11136,7 +11136,7 @@
         {
           "lhs": "act_hourDayID",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -11173,7 +11173,7 @@
           "_comment": "S2 (J2). One clause, three pairs: source type, year and age.",
           "lhs": "act_ageFraction",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -11220,7 +11220,7 @@
         {
           "lhs": "act_population",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -11258,7 +11258,7 @@
         {
           "lhs": "act_relativeMAR",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -11311,7 +11311,7 @@
         {
           "lhs": "act_travelGroupTotal",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -11349,7 +11349,7 @@
         {
           "lhs": "act_annualVMT",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -11399,7 +11399,7 @@
         {
           "lhs": "act_dayVMTFraction",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -11450,7 +11450,7 @@
         {
           "lhs": "act_hourVMTFraction",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -11502,7 +11502,7 @@
           "_comment": "S6 (J9, J10): the ARITHMETIC mean. Two clauses -- the distribution selected by (source type, road type, hour-day) and each bin's speed attached on the bin id.",
           "lhs": "act_averageSpeed",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -11573,7 +11573,7 @@
           "_comment": "S7. weeksPerMonth is a DIVISOR.",
           "lhs": "act_vmt",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -11648,7 +11648,7 @@
           "_comment": "S8 and S9 (J15, J16). S8 is a LEFT JOIN whose miss gives SHO = 0 with the VMT intact.",
           "lhs": "act_sho",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -11718,7 +11718,7 @@
           "_comment": "S10's candidate grid: n_agecategory model years x n_runspecsourcefueltype fuel types, both DISCOVERED. Fuel-major.",
           "lhs": "coh_ordinal",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "output_idx": [
               "c"
@@ -11735,7 +11735,7 @@
           "_comment": "S10's candidate grid, fuel-major over 41 model years.",
           "lhs": "coh_fuelOrdinal",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "output_idx": [
               "c"
@@ -11759,7 +11759,7 @@
         {
           "lhs": "coh_ageOrdinal",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "output_idx": [
               "c"
@@ -11783,7 +11783,7 @@
         {
           "lhs": "coh_fuelTypeID",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -11819,7 +11819,7 @@
         {
           "lhs": "coh_ageID",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -11855,7 +11855,7 @@
         {
           "lhs": "coh_ageGroupID",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -11891,7 +11891,7 @@
         {
           "lhs": "coh_modelYearID",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -11929,7 +11929,7 @@
         {
           "lhs": "coh_stmyFraction",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -11976,7 +11976,7 @@
         {
           "lhs": "coh_engTechID",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -12023,7 +12023,7 @@
         {
           "lhs": "coh_regClassID",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -12070,7 +12070,7 @@
         {
           "lhs": "ppmy_shortModYrGroupID",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -12106,7 +12106,7 @@
         {
           "lhs": "rt_ordinal",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "output_idx": [
               "b"
@@ -12123,7 +12123,7 @@
           "_comment": "The rate relation is the run's six pollutant-processes crossed with the 164 cohort candidates, pollutant-process-major.",
           "lhs": "rt_polProcOrdinal",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "output_idx": [
               "b"
@@ -12153,7 +12153,7 @@
         {
           "lhs": "rt_cohortOrdinal",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "output_idx": [
               "b"
@@ -12184,7 +12184,7 @@
           "_comment": "The two ordinal joins below are the cross product made explicit: every column of the rate relation is read back from the pollutant-process relation or from the cohort relation, so nothing about either is restated here.",
           "lhs": "rt_polProcessID",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -12220,7 +12220,7 @@
         {
           "lhs": "rt_pollutantID",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -12256,7 +12256,7 @@
         {
           "lhs": "rt_processID",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -12292,7 +12292,7 @@
         {
           "lhs": "rt_chainInputPolProcessID",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -12328,7 +12328,7 @@
         {
           "lhs": "rt_modelYearID",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -12364,7 +12364,7 @@
         {
           "lhs": "rt_fuelTypeID",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -12400,7 +12400,7 @@
         {
           "lhs": "rt_engTechID",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -12436,7 +12436,7 @@
         {
           "lhs": "rt_regClassID",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -12472,7 +12472,7 @@
         {
           "lhs": "rt_ageID",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -12508,7 +12508,7 @@
         {
           "lhs": "rt_ageGroupID",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -12544,7 +12544,7 @@
         {
           "lhs": "rt_stmyFraction",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -12603,7 +12603,7 @@
         {
           "lhs": "rt_modelYearGroupIsPresent",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "bool_and_or",
             "output_idx": [
@@ -12677,7 +12677,7 @@
         {
           "lhs": "rt_shortModYrGroupID",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -12717,7 +12717,7 @@
         {
           "lhs": "coh_ratePolProcessCount",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -12781,7 +12781,7 @@
           "_comment": "S12, source_bin_distribution_generator.rs:1590-1637, and it IS a self-join: the used row and the equipped row are two rows of the same candidate relation. `syms` names which side each key column is read at. mixed-onroad also paired `coh_modelYearGroupID`; that column is now a property of the pollutant-process as well as of the cohort and lives on the rate relation, and the pair was redundant anyway because `coh_modelYearID` is joined beside it.",
           "lhs": "coh_usedFraction",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -12895,7 +12895,7 @@
         {
           "lhs": "rt_usedFraction",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -12931,7 +12931,7 @@
         {
           "lhs": "run_fuelUsageWildcardCount",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -12971,7 +12971,7 @@
           "_comment": "The fuel-supply relation's own row ordinal.",
           "lhs": "fsu_ordinal",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "output_idx": [
               "s"
@@ -12987,7 +12987,7 @@
         {
           "lhs": "fsu_fuelSubtypeID",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -13024,7 +13024,7 @@
           "_comment": "formulation -> subtype -> fuel type, in two joins. 0 for formulation 28001, whose subtype 30 `fuelsubtype` does not carry: an inner join drops it and this document reproduces that as a fuel type no cohort has.",
           "lhs": "fsu_fuelTypeID",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -13061,7 +13061,7 @@
           "_comment": "Is this supply row's region the run county's? A SEMI-join, which is why the county's two region rows do not double anything.",
           "lhs": "fsu_isInRegion",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "bool_and_or",
             "output_idx": [
@@ -13103,7 +13103,7 @@
           "_comment": "The other two scope keys of the fuel-supply lookup, as a join and not as an equality filter (docs/esm-conventions.md 3).",
           "lhs": "fsu_matchesRunFuelMonth",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "bool_and_or",
             "output_idx": [
@@ -13148,7 +13148,7 @@
           "_comment": "How many of the five `fuelsupply` rows are in scope. FIVE -- the whole table, because the snapshot's execution database is already filtered to this run; the scope join is written anyway, because the table's key says it can be filtered and a document that assumed otherwise would be reading a coincidence.",
           "lhs": "run_supplyRowCount",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -13271,7 +13271,7 @@
         {
           "lhs": "rtMode_fullACAdjustment",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -13322,7 +13322,7 @@
         {
           "lhs": "rtMode_hasACAdjustment",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "bool_and_or",
             "output_idx": [
@@ -13367,7 +13367,7 @@
         {
           "lhs": "rtMode_acIncrement",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -13421,7 +13421,7 @@
         {
           "lhs": "coh_fleetAvgGroupID",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -13457,7 +13457,7 @@
         {
           "lhs": "coh_evFraction",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -13497,7 +13497,7 @@
         {
           "lhs": "coh_hasEvFraction",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "bool_and_or",
             "output_idx": [
@@ -13531,7 +13531,7 @@
         {
           "lhs": "rt_fleetAvgGroupID",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -13567,7 +13567,7 @@
         {
           "lhs": "rt_evFraction",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -13603,7 +13603,7 @@
         {
           "lhs": "rt_hasEvFraction",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -13639,7 +13639,7 @@
         {
           "lhs": "rt_evMultiplier",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -13710,7 +13710,7 @@
         {
           "lhs": "rt_adjustmentCap",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -13781,7 +13781,7 @@
         {
           "lhs": "rt_hasFleetAvgAdjustment",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "bool_and_or",
             "output_idx": [
@@ -13991,7 +13991,7 @@
           "_comment": "S15(g) begins. adjust.rs:206-262 expands one base rate into one rate PER FORMULATION the county is supplied that fuel type in; this is that expansion, as a rate-row x supply-row relation. `mixed-onroad` never needed it: its pollutant was energy, which carries no fuel-effect ratio, so there was nothing for a formulation to change.",
           "lhs": "rtSup_isSupplied",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -14033,7 +14033,7 @@
           "_comment": "J39, adjust.rs:474-490. Five key pairs and no range predicate at all -- the only lookup in this chain that is a pure equi-join.",
           "lhs": "rtSup_criteriaRatioNormal",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -14092,7 +14092,7 @@
         {
           "lhs": "rtSup_criteriaRatioGPA",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -14152,7 +14152,7 @@
           "_comment": "The existence half. A miss is a factor of ONE and not a dropped row (adjust.rs:481 is an `if let Some`), and model years before 2001 carry no row at all -- 21 of this run's 41 -- so this is not a formality.",
           "lhs": "rtSup_hasCriteriaRatio",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "bool_and_or",
             "output_idx": [
@@ -14205,7 +14205,7 @@
         {
           "lhs": "rtSup_criteriaRatio",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -14279,7 +14279,7 @@
           "_comment": "J40, adjust.rs:450-471. Three key pairs and TWO inclusive bands -- one on model year and one on age -- which is why lib/keys.esm now carries `in_inclusive_range` under the shape's own name.",
           "lhs": "rtSup_generalFuelRatioNormal",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -14391,7 +14391,7 @@
         {
           "lhs": "rtSup_generalFuelRatioGPA",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -14503,7 +14503,7 @@
         {
           "lhs": "rtSup_hasGeneralFuelRatio",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "bool_and_or",
             "output_idx": [
@@ -14609,7 +14609,7 @@
         {
           "lhs": "rtSup_generalFuelRatio",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -14683,7 +14683,7 @@
           "_comment": "How many (rate row, SUPPLIED formulation) pairs the general-fuel-ratio lookup reaches. 81 -- three crankcase pollutant-processes times the twenty-seven diesel model years 1980-2006 the table's band admits. Every one of them is on a CRANKCASE rate row, and a crankcase rate row has no rate to scale, which is the next assertion.",
           "lhs": "run_generalFuelRatioReach",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -14727,7 +14727,7 @@
           "_comment": "The same count restricted to rate rows that actually carry a rate. ZERO, and that zero is this table's whole effect on the answer: all 39 rows name a crankcase pollutant-process, and `CrankcaseEmissionCalculatorNonPM` runs DOWNSTREAM of `BaseRateCalculator` and never re-enters it, so no fuel block is ever scaled by one. Without the count, a step that was never written and a step whose table is unreachable look identical from the answer.",
           "lhs": "run_generalFuelRatioOnRatedRows",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -14783,7 +14783,7 @@
           "_comment": "One formulation's contribution: its market share times the two fuel effects, in adjust.rs's order.",
           "lhs": "rtSup_fuelFactor",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -14850,7 +14850,7 @@
           "_comment": "aggregate.rs:28-45's re-collapse. The temperature factor is the same for every formulation of a fuel type, so it factors out of the sum and the whole formulation expansion reduces to this one multiplier on the base rate.",
           "lhs": "rt_fuelFactor",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -14877,7 +14877,7 @@
         {
           "lhs": "rt_hasRate",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "bool_and_or",
             "output_idx": [
@@ -14928,7 +14928,7 @@
           "_comment": "J22: ONE clause carrying SEVEN key pairs. The seventh is the age group, which is what makes this `emissionRateByAge` rather than `emissionRate` -- a criteria pollutant's rate deteriorates and one source bin carries seven of them. This is a cost decision as well as a reading order (docs/esm-conventions.md 3): 590,709 rate rows against 984 x 41 rate-mode cells is only affordable as one equi-join.",
           "lhs": "rtMode_rate",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -15003,7 +15003,7 @@
           "_comment": "The existence half of J38, and the ONLY thing that decides whether a crankcase row exists at all. MOVES's join is an INNER one, so a cohort with no ratio row emits nothing -- not a zero.",
           "lhs": "rt_hasChainRatio",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "bool_and_or",
             "output_idx": [
@@ -15095,7 +15095,7 @@
           "_comment": "Does the exhaust row this crankcase row is computed FROM exist? The same self-join `rtDay_quantChained` uses, so the value and the row cannot disagree about which cohorts the chain reaches.",
           "lhs": "rt_chainSourceEmits",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -15164,7 +15164,7 @@
           "_comment": "The inclusive prefix count that turns the emission mask into a dense row NUMBER (docs/esm-conventions.md 22). `x <= b` is a genuine range predicate over two ranges of one index set, so it is a filter and needs no join gate.",
           "lhs": "rt_prefixEmitted",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -15198,7 +15198,7 @@
           "_comment": "684, recomputed from the chain, so `n_outputRateRow` is a CHECKED declaration and not a transcribed answer.",
           "lhs": "run_outputRateRowCount",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -15225,7 +15225,7 @@
           "_comment": "The same count PER pollutant-process: 124, 104, 124, 104, 124, 104. THIS IS THE ASSERTION A ROW COUNT CANNOT MAKE. 1368 rows is equally consistent with six blocks of 114, and the whole subject of this rung is that the two processes do not span the same cohorts.",
           "lhs": "pp_emittedCohortCount",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -15261,7 +15261,7 @@
         {
           "lhs": "cohortSurvivorCount",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -15287,7 +15287,7 @@
         {
           "lhs": "pp_selectedCohortCount",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -15323,7 +15323,7 @@
         {
           "lhs": "rtMode_weightedRate",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -15376,7 +15376,7 @@
           "_comment": "S14's collapse of opModeID against the drive-cycle weights.",
           "lhs": "rtDay_meanBaseRate",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -15420,7 +15420,7 @@
         {
           "lhs": "rtDay_meanBaseRateACAdj",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -15477,7 +15477,7 @@
         {
           "lhs": "coh_acPenetrationFraction",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -15520,7 +15520,7 @@
         {
           "lhs": "coh_functioningACFraction",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -15563,7 +15563,7 @@
         {
           "lhs": "coh_acFactor",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -15613,7 +15613,7 @@
         {
           "lhs": "rt_acFactor",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -15649,7 +15649,7 @@
         {
           "lhs": "rt_tempAdjustTermAExact",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -15724,7 +15724,7 @@
         {
           "lhs": "rt_tempAdjustTermBExact",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -15799,7 +15799,7 @@
         {
           "lhs": "rt_hasTempAdjustExact",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "bool_and_or",
             "output_idx": [
@@ -15868,7 +15868,7 @@
         {
           "lhs": "rt_tempAdjustTermAWildcard",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -15943,7 +15943,7 @@
         {
           "lhs": "rt_tempAdjustTermBWildcard",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -16093,7 +16093,7 @@
           "_comment": "Electricity has no `noxhumidityadjust` row, so its k is 1 -- a LEFT join, and the arm is still entered.",
           "lhs": "rt_hasNoxHumidity",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "bool_and_or",
             "output_idx": [
@@ -16123,7 +16123,7 @@
         {
           "lhs": "rt_noxHumidityEquation",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -16159,7 +16159,7 @@
         {
           "lhs": "rt_noxHumidityTermA",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -16195,7 +16195,7 @@
         {
           "lhs": "rt_noxHumidityTermB",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -16231,7 +16231,7 @@
         {
           "lhs": "rt_noxHumidityLowBound",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -16267,7 +16267,7 @@
         {
           "lhs": "rt_noxHumidityUpBound",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -16304,7 +16304,7 @@
           "_comment": "k, adjust.rs:160-188. The BRANCH IS ON A TEXT COLUMN of a three-row table, decoded to the `humidity_equation` enum at the ingest boundary. The two arms read DIFFERENT humidity columns in different units, which is why lib/adjustments.esm's `bounded_low_then_high` takes the value and not the row. A third equation name falls through to 1, which is the Go's `_` arm and not a silent default of ours.",
           "lhs": "rt_noxHumidityFactor",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -16483,7 +16483,7 @@
           "_comment": "adjust.rs:87-141's two live arms. Both templates return the ADDITIVE term and the `1 +` is written here once, so nothing has to remember which arm returns a factor. Every term is 0 here -- `temperatureadjustment` carries four rows and all four are polProcessID 301 on regClassID 42/46/47/48 for model years 2027-2060, so neither the exact-class nor the regClassID-0 wildcard lookup finds anything -- so the whole temperature half is 1 and the humidity half is NOT: k is 1.0216 on gasoline and E85 and 1.00955 on diesel, and dropping it moves every NOx row by more than 2 %.",
           "lhs": "rt_temperatureFactor",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -16608,7 +16608,7 @@
           "_comment": "S15. adjust.rs applies the general fuel ratio, the criteria ratio and the temperature factor to the A/C-ADJUSTED rate as well as to the base rate (they all go through `scale_base_rate`, adjust.rs:296-305) and only then adds `acFactor x acAdj`, so the two factors are common to both terms and the product distributes. It is written factored, and `rt_acFactor` is exactly 0 at this hour, so the two forms are not even floating-point-distinguishable here. The I/M blend and the emission-rate adjustment are the two steps that follow in adjust.rs and both tables are EMPTY in this snapshot (1.3).",
           "lhs": "rtDay_adjustedMeanBaseRate",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -16685,7 +16685,7 @@
         {
           "lhs": "rtDay_sho",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -16729,7 +16729,7 @@
         {
           "lhs": "rtDay_activity",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -16770,7 +16770,7 @@
           "_comment": "J38, CrankcaseEmissionCalculator.sql's one lookup: four key pairs plus lib/keys.esm's `model_year_in_range`. Both halves are load-bearing -- the band separates diesel's 0.037 from its 0, and the fuel key is what has no electricity row at all.",
           "lhs": "rt_chainRatio",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -16850,7 +16850,7 @@
           "_comment": "S17 and S18: rate x activity, in grams. No unit divisor: not one of this run's pollutants is an energy pollutant. Exactly zero on the three CRANKCASE pollutant-processes, which carry no `emissionratebyage` row and no `pollutantprocessmodelyear` row and so are suppressed twice over.",
           "lhs": "rtDay_quantDirect",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -16891,7 +16891,7 @@
         {
           "lhs": "rtDay_quantChained",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -16952,7 +16952,7 @@
         {
           "lhs": "rtDay_quant",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -17004,7 +17004,7 @@
         {
           "lhs": "outDayOrdinal",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "output_idx": [
               "o"
@@ -17029,7 +17029,7 @@
           "_comment": "The output relation is the 684 emitting rate rows crossed with the day types, rate-major. There is no pollutant-process factor in the layout at all: it is carried by the rate row the rank reaches, which is what makes ragged blocks cost nothing here.",
           "lhs": "outRateOrdinal",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "output_idx": [
               "o"
@@ -17054,7 +17054,7 @@
           "_comment": "The rank join: every varying key column is read back from the rate relation, so no part of which cohorts survive, or which pollutant a block carries, is written in this document.",
           "lhs": "out_modelYearID",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -17090,7 +17090,7 @@
         {
           "lhs": "out_fuelTypeID",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -17126,7 +17126,7 @@
         {
           "lhs": "out_pollutantID",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -17162,7 +17162,7 @@
         {
           "lhs": "out_processID",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -17198,7 +17198,7 @@
         {
           "lhs": "out_dayID",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -17234,7 +17234,7 @@
         {
           "lhs": "outHourDayID",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -17270,7 +17270,7 @@
         {
           "lhs": "outAgeID",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -17309,7 +17309,7 @@
           "_comment": "J34: (hourDayID, ageID) as ONE clause with two key pairs. `sho` carries no dayID column, which is why the output relation derives an hourDayID.",
           "lhs": "out_SHO",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -17349,7 +17349,7 @@
         {
           "lhs": "outNoOfRealDays",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -17395,7 +17395,7 @@
         {
           "lhs": "out_meanBaseRate",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -17439,7 +17439,7 @@
         {
           "lhs": "out_adjustedMeanBaseRate",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -17483,7 +17483,7 @@
         {
           "lhs": "out_emissionQuantDirect",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -17527,7 +17527,7 @@
         {
           "lhs": "out_emissionQuant",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -17571,7 +17571,7 @@
         {
           "lhs": "out_yearID",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -17597,7 +17597,7 @@
         {
           "lhs": "out_monthID",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -17623,7 +17623,7 @@
         {
           "lhs": "out_hourID",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -17649,7 +17649,7 @@
         {
           "lhs": "out_stateID",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -17675,7 +17675,7 @@
         {
           "lhs": "out_countyID",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -17701,7 +17701,7 @@
         {
           "lhs": "out_sourceTypeID",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -17727,7 +17727,7 @@
         {
           "lhs": "out_roadTypeID",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
@@ -17769,7 +17769,7 @@
           "_comment": "The seven identity columns MOVESOutput leaves NULL on this run, emitted as NaN through one template so the claim is made in one place.",
           "lhs": "out_zoneID",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "output_idx": [
               "o"
@@ -17790,7 +17790,7 @@
         {
           "lhs": "out_linkID",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "output_idx": [
               "o"
@@ -17811,7 +17811,7 @@
         {
           "lhs": "out_regClassID",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "output_idx": [
               "o"
@@ -17832,7 +17832,7 @@
         {
           "lhs": "out_fuelSubTypeID",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "output_idx": [
               "o"
@@ -17853,7 +17853,7 @@
         {
           "lhs": "out_engTechID",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "output_idx": [
               "o"
@@ -17874,7 +17874,7 @@
         {
           "lhs": "out_sectorID",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "output_idx": [
               "o"
@@ -17895,7 +17895,7 @@
         {
           "lhs": "out_hpID",
           "rhs": {
-            "op": "aggregate",
+            "op": "faq",
             "args": [],
             "output_idx": [
               "o"

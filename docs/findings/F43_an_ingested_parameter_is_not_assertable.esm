@@ -1,5 +1,5 @@
 {
- "esm": "1.0.0",
+ "esm": "1.1.0",
  "metadata": {
   "name": "F43AnIngestedParameterIsNotAssertable",
   "description": "FINDING F43 — an inline assertion naming a variable whose `update` is `kind: data` cannot be evaluated. It is refused at run time, not at load time, with `assertion evaluation failed: array state '<name>' has no cells in var_map`.\n\nTHE DOCUMENT IS TWO ASSERTIONS OVER ONE COLUMN, and that is the whole design. `dayofanyweek.noOfRealDays` is ingested into `d_noOfRealDays`; `d_weekdayRealDays` is the SAME NUMBER lifted onto a scalar by a one-line aggregate. The lifted one passes, so the source is bound, the parquet is read and the value is right; the ingested one errors. Nothing separates them but which variable the assertion names.\n\nWHY IT MATTERS RATHER THAN BEING A CURIOSITY. docs/esm-conventions.md §12 asks a fixture to pin the values it depends on, and the values a fixture depends on MOST are the ones it does not compute — a run-scope id, a lookup coefficient, a divisor. Those are exactly the `kind: data` parameters. So the rule in practice is: a claim about an INPUT can only be stated one stage downstream of where the input arrives, and the document has to carry an equation whose only purpose is to make the claim sayable. fixtures/expand-day.esm hit this on six assertions — `rsd_dayID`, `dow_dayID` and `dow_noOfRealDays`, the three columns that carry the day axis into the chain — and pins `outNoOfRealDays` instead, which is the same number where it is USED. That is the better claim here and it is not always going to be.\n\nMEASURED, on the pinned toolchain, over seven columns from seven tables of the `expand-day` snapshot (`runspecday.dayID`, `dayofanyweek.dayID`, `dayofanyweek.noOfRealDays`, `monthofanyyear.noOfDays`, `hourvmtfraction.hourVMTFraction`, `dayvmtfraction.dayVMTFraction`, `avgspeedbin.avgBinSpeed`): seven of seven error, none passes and none fails as a wrong VALUE. It is not a property of these tables — no fixture in this repository asserts an ingested parameter, which is why it went unnoticed for fourteen of them.\n\nWHAT WOULD FIX IT. Materialize a data-backed parameter's cells into the assertion's variable map, the way a computed array's are. The workaround costs one equation per claim and is silent when omitted, because an unasserted input reads exactly like an input nobody needed to assert.",
@@ -46,7 +46,7 @@
     {
      "lhs": "d_weekdayRealDays",
      "rhs": {
-      "op": "aggregate", "args": [], "output_idx": [],
+      "op": "faq", "args": [], "output_idx": [],
       "ranges": { "j": { "from": "f43_day_rows" } },
       "expr": {
        "op": "ifelse",
@@ -61,7 +61,7 @@
     {
      "lhs": "d_totalRealDays",
      "rhs": {
-      "op": "aggregate", "args": [], "output_idx": [],
+      "op": "faq", "args": [], "output_idx": [],
       "ranges": { "j": { "from": "f43_day_rows" } },
       "expr": { "op": "index", "args": ["d_noOfRealDays", "j"] }
      }
