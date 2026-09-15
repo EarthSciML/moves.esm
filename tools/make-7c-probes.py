@@ -8,25 +8,22 @@ after running it. They are generated rather than checked in for the reason
 from the real document, and a checked-in copy would drift away from the thing
 it is supposed to differ from by one field.
 
-The split these probes edit is `leaf-owns-shape`, which EarthSciAST PR #298 made the
-conforming one: the LOGIC half declares the metaparameters and the index sets,
-the MOUNT declares the data_sources. Three probes here watched F46, F48 and
-F49, all of which #298 closed, and they are gone; what is left is F50 and the
-two capabilities Phase 7 now plans on.
-
-  no-root-metaparameters
-              the mount with its `metaparameters` deleted. Must PASS
-              `esm validate` and FAIL the build with
-              `template_import_unknown_name` -- finding F50, that the root
-              document must declare every metaparameter an `extent` binds even
-              though the document owning the axes declares them too.
+The split these probes edit is `leaf-owns-shape`: the LOGIC half declares the
+metaparameters and the index sets, the MOUNT declares the data_sources and no
+metaparameters at all. The mount used to carry a second copy of the 49, and a
+probe here deleted it and required the build to refuse the result -- finding
+F50. EarthSciAST PR #317 fixed that, the copy is gone from the real document,
+and so is the probe. What is left is one limit and the two capabilities Phase 7
+plans on.
 
   bindings-carries-the-names
-              F50's obvious workaround, and the measurement that it is not
-              available: the mount declares the 49, the LEAF does not, and the
-              edge binds each name to itself. Must be REFUSED at load, because
-              `bindings` is checked against what the REFERENCED document
-              declares, not against what the mount offers.
+              The limit. The mount declares the extent names and binds each to
+              itself at the edge; the LEAF declares none. Must be REFUSED at
+              load with `template_import_unknown_name`, because `bindings` is
+              checked against what the REFERENCED document declares: it closes
+              a name the leaf has and cannot supply one it lacks. #317 made the
+              duplication this used to be the workaround for unnecessary, so
+              nothing depends on it any more -- it pins conventions §49.1.
 
   rename      the mount with every axis renamed at the mount edge by
               `index_set_rename`. This was F49, refused with
@@ -35,10 +32,11 @@ two capabilities Phase 7 now plans on.
               what would let a shared domain document's axes be namespaced per
               fixture.
 
-  bindings    the 45 metaparameters the child does not read in an equation,
-              closed at the mount edge by `bindings` instead of by name. Must
-              still validate: it is the two-sided half of the measurement that
-              `bindings` works at scale and buys nothing (conventions 54).
+  bindings    the 45 extent metaparameters the child does not read in an
+              equation, declared by the mount under `p_` names and closed at
+              the mount edge by `bindings`. Must still emit the same bytes: it
+              is the two-sided half of the measurement that `bindings` works at
+              scale and buys nothing (conventions 54).
 """
 import json
 import os
@@ -49,20 +47,22 @@ LOGIC = os.path.join(ROOT, "spikes", "7c", "tirewear_logic.esm")
 MOUNT = os.path.join(ROOT, "spikes", "7c", "tirewear_mount.esm")
 
 
+def extent_names(mount):
+    return sorted({entry["extent"]["metaparameter"]
+                   for entry in mount["data_sources"].values() if "extent" in entry})
+
+
 def main(which, out_path):
     logic = json.load(open(LOGIC))
     mount = json.load(open(MOUNT))
     child_path = None
 
-    if which == "no-root-metaparameters":
-        del mount["metaparameters"]
-
-    elif which == "bindings-carries-the-names":
+    if which == "bindings-carries-the-names":
         # The leaf keeps its axes and loses the names that size them; the mount
-        # keeps the names and offers them at the edge. If `bindings` closed a
-        # size the way it closes a metaparameter the leaf declares, this would
-        # be F50's fix and would cost one line per name instead of a block.
-        names = list(mount["metaparameters"])
+        # declares the names and offers them at the edge. If `bindings` could
+        # supply a name the leaf lacks, this would load.
+        names = extent_names(mount)
+        mount["metaparameters"] = {n: logic["metaparameters"][n] for n in names}
         del logic["metaparameters"]
         child_path = out_path.replace(".esm", "_child.esm")
         json.dump(logic, open(child_path, "w"), indent=2)
@@ -72,7 +72,7 @@ def main(which, out_path):
         }
 
     elif which == "rename":
-        # Every axis lives in the LEAF now, so the rename is read from there.
+        # Every axis lives in the LEAF, so the rename is read from there.
         ren = {k: "tw_" + k for k in logic["index_sets"]}
         mount["models"]["ProcessTirewear"] = {
             "ref": "./tirewear_logic.esm", "index_set_rename": dict(ren),
@@ -82,9 +82,12 @@ def main(which, out_path):
         equations = json.dumps(logic["models"]["ProcessTirewear"]["equations"])
         # a metaparameter closed by `bindings` is not readable in an equation
         # (conventions 49.2), so the ones the child READS keep their own names
-        read = {n for n in mount["metaparameters"] if '"%s"' % n in equations}
-        ren = {k: ("p_" + k if k not in read else k) for k in mount["metaparameters"]}
-        mount["metaparameters"] = {ren[k]: v for k, v in mount["metaparameters"].items()}
+        # and stay declared by the leaf alone
+        names = extent_names(mount)
+        read = {n for n in names if '"%s"' % n in equations}
+        ren = {k: ("p_" + k if k not in read else k) for k in names}
+        mount["metaparameters"] = {ren[k]: logic["metaparameters"][k]
+                                   for k in names if ren[k] != k}
         for entry in mount["data_sources"].values():
             if "extent" in entry:
                 entry["extent"]["metaparameter"] = ren[entry["extent"]["metaparameter"]]
@@ -103,6 +106,5 @@ def main(which, out_path):
 if __name__ == "__main__":
     if len(sys.argv) != 3:
         sys.exit("usage: make-7c-probes.py "
-                 "<no-root-metaparameters|bindings-carries-the-names|rename|bindings> "
-                 "<out.esm>")
+                 "<bindings-carries-the-names|rename|bindings> <out.esm>")
     main(sys.argv[1], sys.argv[2])

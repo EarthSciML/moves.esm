@@ -2518,7 +2518,8 @@ child's `index_sets` reach the ingesting build, and neither `spikes/7a` nor
 `spikes/7c` restates them any more (−250 lines in the 7c mount alone). Part 2,
 that a child's `metaparameters` do not merge up, is unchanged and is why both
 mounts still carry a metaparameter block that the leaf also carries. It is
-refiled as **F50**, which states it in the form the fix left it in.
+refiled as **F50**, which states it in the form the fix left it in. F50 was
+fixed in turn by PR #317 (2026-09-14).
 
 **The shape of both documents changed with it**, and in the direction the
 finding did not anticipate: it is now the LEAF that declares the metaparameters
@@ -2824,9 +2825,44 @@ the error code.
 
 ---
 
-## F50 — the metaparameters a `data_source`'s `extent` binds must be declared twice
+## F50 — the metaparameters a `data_source`'s `extent` binds must be declared twice **[fixed upstream, retired]**
 
-**Not fixed. No repro file, for F46's reason; gated two-sided by
+**Fixed by EarthSciAST PR #317 (merged 2026-09-14) and retired at the
+`58d21a1a1` rebuild.** Filed as #301. #317 binds a discovered `extent` in
+whichever document of the assembly declares the name — at either mount form,
+transitively — rather than only at the root. Both of this finding's watches in
+`run-tests.sh` went red on the first run against the new binary, exactly as
+written, and their instructions were followed:
+
+* `spikes/7c/tirewear_mount.esm` lost its 247-line `metaparameters` block: 1255
+  → 1008 lines, and the emitted relation did not move.
+* `spikes/7a/spike_parent.esm` lost its two: 39 → 28 lines, still the recorded
+  relation.
+* The payoff this finding priced is real and checked in.
+  `spikes/7c/tirewear_fixture.esm` mounts the mount and is **43 lines** —
+  metadata, the 31-line enum union `tools/check-conventions.py` requires (F13),
+  and one `{ref}` — where the same document was 270 at `9dd36c7f6`. It emits the
+  same 375 rows byte for byte through two mount edges, and the 7c stage checks
+  both that and that it stays thin.
+
+The table below predicted 23 lines, not 43. The difference is the enum union,
+which the prediction did not count, and a description that says what the
+document is; conventions §53.2 has the breakdown.
+
+**The `bindings` half did not change, and no longer matters.** `bindings` still
+cannot supply a name the leaf lacks — refused at load, now worded `loader API
+binds metaparameter 'n_agecategory', which neither this document …` — and the 7c
+stage keeps that as a check on conventions §49.1 rather than on this finding.
+#317 fixed F50 by the first route proposed below, not the second.
+
+**The minimal repro's matrix, re-run at `58d21a1a1`:** the root-declares-none
+row now builds (`Leaf.doubled` = 20, 40, 60); the shape-open leaf that imports
+an unused template library, previously `metaparameter_unbound`, now builds too
+(F51); the `bindings` row is still refused.
+
+What follows is the finding as it stood.
+
+**Retired above. Until then: no repro file, for F46's reason; gated two-sided by
 `run-tests.sh`'s 7a and 7c stages.** Found at the `9dd36c7f6` rebuild, adopting
 EarthSciAST PR #298 — it is the half of F46 that the fix did not close, stated
 in the form the fix left it in.
@@ -2917,6 +2953,23 @@ either direction is reported.
 
 ## F51 — Rust and Python disagree about a shape-open leaf, unless it imports a template
 
+**Changed upstream; not retired, because the half that matters was not
+re-measured.** EarthSciAST PR #317 (merged 2026-09-14) makes a mounted leaf
+*defer* an axis it cannot close instead of folding it strictly, and its
+description names this finding's middle row as the reason: the strictness was a
+whole-document boolean (`has_import_machinery`), so one unused
+`expression_template_imports` entry turned a loading document into
+`metaparameter_unbound`. Re-run at `58d21a1a1` on the F50 minimal repro, the
+Rust binding now **accepts** the shape-open leaf with and without the import, so
+the Rust column below no longer depends on it. The Python column was not re-run
+— this project is not exercising the Python binding at present — though #317's
+per-binding table lists the same deferral for Python. #317 also records that
+letting the assembler declare the name is a **non-portable** workaround, which
+is this finding's advice restated upstream: `leaf-owns-shape` stays the shape to
+write.
+
+What follows is the finding as measured at `9dd36c7f6`.
+
 **Not fixed. No repro file, for F46's reason; not gated, because this
 repository no longer contains a document of the shape that triggers it.** Found
 at the `9dd36c7f6` rebuild while adopting EarthSciAST PR #298, from the
@@ -2965,7 +3018,7 @@ document, so at most one of them can be right.
 ### Why this repository is not blocked by it
 
 `leaf-owns-shape` — the leaf declares the metaparameters and owns the axes — is
-accepted by both bindings in every case measured, costs nothing beyond F50's
-duplication, and is what `spikes/7a` and `spikes/7c` both do now. The finding is
+accepted by both bindings in every case measured, costs nothing now that F50 is
+fixed, and is what `spikes/7a` and `spikes/7c` both do now. The finding is
 recorded so that the next author who writes a shape-open leaf, and sees it pass,
 knows why it is not portable.

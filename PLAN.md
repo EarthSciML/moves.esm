@@ -1391,14 +1391,14 @@ and computes `MOVESOutput`. Then one thin `.esm` per fixture that imports the
 domain document **by reference**, configures it, and checks it against
 canonical output.
 
-**"Thin" is 270 lines, measured, and 247 of them are one upstream finding.**
-7c split a real fixture this way and counted what the mounting document has to
-carry (conventions §53.2). Before EarthSciAST PR #298 it was 551 lines, 96%
-mechanical; after #298 it is **270**, of which 247 are the metaparameter block
-F50 requires at the root and 23 are the document. Delete that block and the
-per-fixture document is 23 lines and is refused. So this section's word "thin"
-is one finding away from being true, it is the same finding in all thirty
-fixtures, and F50 is what to ask for.
+**"Thin" is 43 lines, measured and checked in.** 7c split a real fixture this
+way and counted what the per-fixture document has to carry (conventions §53.2):
+551 lines before EarthSciAST PR #298, 270 after it, and **43** after PR #317
+fixed F50. That is `spikes/7c/tirewear_fixture.esm`, which mounts a catalogue
+document that mounts the logic, and emits the fixture's 375 rows byte for byte.
+31 of the 43 lines are the enum union `tools/check-conventions.py` requires
+(F13); the fixture's own content is 12. What it does not do yet is configure
+anything — it mounts the process snapshot — which is §7.5's step 7c′.
 
 **Two shape constraints, both measured in 7a and neither of them optional.**
 An ingesting document holds exactly **one** model (F45), and that model is the
@@ -1426,49 +1426,49 @@ Three probes, first run against the pinned `esm 0.2.0` / EarthSciAST
 four bullets below changed at that rebuild and say so:
 
 - **Shape is already data-driven.** Every fixture's `index_sets` are sized by
-  metaparameters, and those are bound at load time from a `data_sources`
-  entry's `extent`. Nothing about that needs to change.
+  metaparameters, and those are bound at load time from a `data_sources` entry's
+  `extent`. Nothing about that needs to change.
 - **Components carry no data.** `components/onroad_travel_fraction.esm` and
   `onroad_source_hours.esm` declare `enums`, `index_sets`, `coordinates`,
   `models` — logic and shape only, no `data_sources`. That is already the split
   Phase 7 wants.
 - **A child can leave its shape open and the parent closes it.** A child
-  declaring `index_sets: {rows: {size: "n_rows"}}` and no `n_rows` fails
-  alone — `invalid type: string "n_rows", expected i64` — and **validates
-  through a parent** that declares `n_rows` and refs it. So the shared document
-  is open at the top and the fixture closes it.
+  declaring `index_sets: {rows: {size: "n_rows"}}` and no `n_rows` fails alone —
+  `invalid type: string "n_rows", expected i64` — and **validates through a
+  parent** that declares `n_rows` and refs it. So the shared document is open at
+  the top and the fixture closes it.
 - **A child could leave its shape open — and should not.** The third bullet is
   how this worked against the pinned `0.2.0`, and EarthSciAST PR #298 ended it:
   a mounted leaf is now resolved in its own scope, so a leaf sized by names only
   the root declares is refused `metaparameter_unbound`. Python had been refusing
-  that arrangement all along, as `subsystem_index_set_conflict`, and nothing here
-  measured it (F51). **The portable shape is `leaf-owns-shape`**: the leaf
+  that arrangement all along, as `subsystem_index_set_conflict`, and nothing
+  here measured it (F51). **The portable shape is `leaf-owns-shape`**: the leaf
   declares its metaparameters and its `index_sets`, the mount declares the
   `data_sources`. Both bindings accept it; `spikes/7a` and `spikes/7c` are both
   written that way.
-- **What #298 fixed, and what it left (F46 → F50).** The mounting document used
-  to have to **restate the child's `index_sets` verbatim** — F46, worth 250
-  lines in the 7c mount — and no longer does. What remains is the
-  metaparameter half: a name a `data_source`'s `extent` binds must be declared
-  by the document owning the axis **and** by the root, because the loader API
-  closes discovered extents at the root. That is F50; `bindings` cannot carry
-  it, measured at 49 names. Measured both ways at the mount edge: a child's
-  **`metaparameters` do not merge up**, and its **`data_sources` do**. That
-  asymmetry is load-bearing — it is what lets the shared document carry the
-  whole default-DB catalogue.
+- **What #298 and #317 fixed (F46, F50).** The mounting document used to have to
+  **restate the child's `index_sets` verbatim** — F46, worth 250 lines in the 7c
+  mount — and #298 ended that. The metaparameter half it left was F50: a name a
+  `data_source`'s `extent` binds had to be declared by the document owning the
+  axis **and** by the root, because the loader API closed discovered extents
+  only at the root, and `bindings` could not carry it (measured at 49 names).
+  That was 247 more lines, and PR #317 ended it too: a discovered extent now
+  binds where the name is declared. Measured both ways at the mount edge, a
+  child's `data_sources` **merge up**, and that is load-bearing — it is what
+  lets the shared document carry the whole default-DB catalogue.
 
 **`ref` with overrides EXISTS, and this plan previously said it did not.** That
 conclusion came from `{"ref": …, "metaparameters": …}` being refused
 (`Additional properties are not allowed`) — but the key was wrong, not the
-feature. `SubsystemRef` takes **`bindings`**, **`model`**, **`index_set_rename`**
-and **`expression_template_imports`** (`esm-schema.json`,
+feature. `SubsystemRef` takes **`bindings`**, **`model`**,
+**`index_set_rename`** and **`expression_template_imports`** (`esm-schema.json`,
 `additionalProperties: false`). Measured: `{"ref": "./child.esm", "bindings":
 {"n_cat": "n_spike_agecategory"}}` closes a child's *own* open metaparameters
-from the parent, with a runtime-discovered `extent` flowing through. Two
-limits: a metaparameter closed by `bindings` is **not readable in an equation**
+from the parent, with a runtime-discovered `extent` flowing through. Two limits:
+a metaparameter closed by `bindings` is **not readable in an equation**
 (—`bindings` closes sizes only), and it can only *close* a name the referenced
-document already declares, never *supply* one — which is why it is not F50's
-way out.
+document already declares, never *supply* one — which is why it was not F50's
+way out (#317 was).
 
 So configuration has three working channels, not none: a per-fixture
 `data_sources` key the shared document binds by name; a metaparameter declared
@@ -1623,55 +1623,58 @@ Three findings retired with it (F46, F48, F49) and two opened (F50, F51). The
 line counts are in conventions §53.1 and §53.2; the short version is 1505 → 1255
 for the mount, and 551 → 270 for what a per-fixture document would carry.
 
-### 7.4 The one remaining upstream ask
+**Re-shaped again 2026-09-15, and now thin.** EarthSciAST PR #317 fixed F50, and
+the 7c stage's two-sided watch went red on it with an instruction saying what to
+delete. The mount's 247-line `metaparameters` copy is gone (1255 → 1008 lines),
+and `spikes/7c/tirewear_fixture.esm` — 43 lines: metadata, the enum union, one
+`{ref}` to the mount — is the per-fixture document §7.1 describes, emitting the
+same 375 rows byte for byte through two mount edges. The stage checks that, and
+that the document stays thin. F50 is retired; F51 changed upstream and is left
+open, unmeasured on the Python side.
 
-**F50: bind a discovered `extent` in the scope that declares the
-`data_sources` entry, not at the root.**
+**The same rebuild moved every document to `esm 1.1.0`.** PR #299 renamed the
+query node `aggregate` → `faq` and kept the old spelling as a deprecated alias.
+The alias loads standalone, but the build re-validates a `{ref}` assembly's
+resolved document under the ROOT's declared version, so a 1.0.0 root mounting
+anything that used `aggregate` was refused with `faq_version_too_old` — five
+suite checks at once. All 89 documents now declare 1.1.0 and spell the node
+`faq` (3382 nodes, a rename and nothing else), and `tools/check-conventions.py`
+refuses the alias.
 
-This section has said "still none" and "already exists, spelled `bindings`" in
-turn, and both were right when written. What changed is that the two asks it
-was waiting on **landed**, four days apart, and left one behind:
+### 7.4 Upstream asks
 
-* **PR #297** (`mi`, `lb`, `hp`, `gal` across all five bindings) merged
-  2026-09-12, retiring F44. The eight `units: "1"` in
-  `components/link_operating_mode_distribution.esm` are declared `mi/h` and
-  their apologies are deleted. Note what it did **not** buy: the conversion on
-  those lines is still unchecked, because a multiplicative literal gives the
-  whole equation an indeterminate dimension — 37 of 61 wrong unit declarations
-  in this repository validate clean. That is EarthSciAST #302, with #303 for
-  the `esm units` stub that hid it. F44's retirement note has the measurement;
-  an earlier draft of it said units were not propagated at all, which was
-  wrong — they are, and the multiplicative path is where it stops.
-* **PR #298** (run the §4.7 edge pipeline at a top-level `models.<k>` `{ref}`)
-  merged 2026-09-12, retiring F46, F48 and F49 together — the "single
-  highest-value upstream ask this project has", and it was: −250 lines in one
-  mount, −281 in a per-fixture document, `index_set_rename` available for
-  namespacing a shared document's axes, and a shape both bindings accept.
+**None is blocking.** This section has said "still none", "already exists,
+spelled `bindings`" and "F50" in turn, each right when written. F50 — bind a
+discovered `extent` in the scope that declares it — was filed as EarthSciAST
+#301 on 2026-09-12 and fixed by PR #317, merged 2026-09-14, and it bought what
+it was priced at: a per-fixture document of 43 lines instead of 270 (§7.1,
+conventions §53.2).
 
-**What is left is F50, and it is worth 247 lines in every one of about thirty
-fixtures.** A `data_source` with `extent: {metaparameter: "n_x"}` needs `n_x`
-declared in the document that owns the axis it sizes *and* in the root document
-that is loaded. `bindings` cannot bridge it — measured at 49 names, refused at
-load, because `bindings` closes a name the leaf declares and cannot supply one
-it lacks. The fix is to bind discovered extents in the scope that declares the
-entry; the root already reaches that scope, since it is the root that inlines
-it.
+**Landed since Phase 7 began:** PR #297 (`mi`, `lb`, `hp`, `gal`; retired F44),
+PR #298 (the §4.7 edge pipeline at a top-level `{ref}`; retired F46, F48, F49),
+PR #317 (retired F50), and PR #299 (`aggregate` → `faq` at `esm 1.1.0`), which
+was not an ask and cost one mechanical commit (§7.3.2). The #299 behaviour that
+forced it — the deprecated alias refused inside a 1.0.0-rooted assembly — is
+recorded there and was not filed.
 
-**Filed 2026-09-12, all against EarthSciML/EarthSciAST:**
+**In flight, and what each changes here when it lands:**
 
-* **#301** — F50, above, with a three-row two-document repro and the case
-  matrix. It also carries the sub-observation that whether the *leaf* must
-  declare the name is decided by whether it imports an expression-template
-  library, which looks wrong on its own.
-* **#302** — a multiplicative literal silently disables an equation's
-  dimensional check; 37 of 61 wrong unit declarations in this repository
-  validate clean.
-* **#303** — `esm units` never calls the analyser `validate` runs, and prints
-  `dimensional analysis needed` for every equation.
+* **#339 + #347** (exact unit scales; declared units on a `const`, `esm 1.2.0`).
+  The fix for **#302** — a multiplicative literal disables an equation's
+  dimensional check, so 37 of 61 wrong unit declarations validated clean. The
+  annotation work is being prepared on the branch `units/const-units`, measured
+  against a binary built from #347, to merge when upstream does. **#303** (`esm
+  units` is a stub) has no PR yet.
+* **#341 + #353** (an `enum` op resolves against its own file's `enums` block).
+  F3 and F13. When they land, re-measure F13 and re-read
+  `tools/check-conventions.py`'s `assembly-enums` rule, which is 31 of the
+  per-fixture document's 43 lines.
+* **#352, #342, #343, #345, #338, #346** — F14, F5, F20, F21, F28 and F22
+  respectively; their tripwires flip and the findings retire.
 
 **Recorded but not filed: F51**, a Rust/Python disagreement about a shape-open
-leaf. This repository is not blocked by it — `leaf-owns-shape` is accepted by
-both — and the cross-binding question is not what this project is chasing now.
+leaf. #317 changed the Rust side; the Python side is not being measured now.
+This repository writes `leaf-owns-shape`, which does not depend on the answer.
 
 ### 7.5 Sequence
 
@@ -1679,8 +1682,8 @@ both — and the cross-binding question is not what this project is chasing now.
 |---|---|---|
 | **7a** ✅ | The spike: one ref'd, data-fed model evaluating end to end against a real table — **GO, 2026-09-10**; re-shaped to `leaf-owns-shape` 2026-09-12 with §7.3.2 | met; three corrections folded into §7.1–§7.3 |
 | **7b** ✅ | Full-database monolithic conversion — **done 2026-09-10**: 237 monolithic + 3 schema-only, 0 partition directories, 517 MB, 15.6 s, validator extended and all 7 planted corruptions red (§7.3.1) | met; the load cost is measured and does not dictate the layout |
-| **7c** ✅ | The mount shape at fixture scale — **done 2026-09-10, re-shaped to conform 2026-09-12** (§7.3.2): `fixtures/process-tirewear.esm` split into a logic half and a mount, byte-identical over 375 rows × 26 fields, loading under both the Rust and the Python bindings. Three findings retired, two opened | met; what it cost is measured (conventions §53.2) and what remains is F50 |
-| **7c′** | `moves-onroad.esm`: default DB → `MOVESOutput` for `process-tirewear`, reading the monolithic database of §7.3 rather than the process snapshot, plus the per-fixture document that mounts it | first end-to-end number |
+| **7c** ✅ | The mount shape at fixture scale — **done 2026-09-10, re-shaped to conform 2026-09-12, thin 2026-09-15** (§7.3.2): `fixtures/process-tirewear.esm` split into a logic half, a catalogue document that mounts it, and a 43-line per-fixture document that mounts the catalogue, byte-identical over 375 rows × 26 fields. Four findings retired (F46, F48, F49, F50), one open (F51) | met; the per-fixture document is thin (conventions §53.2), and what it still carries beyond its `{ref}` is the enum union (F13) |
+| **7c′** | `moves-onroad.esm`: default DB → `MOVESOutput` for `process-tirewear`, reading the monolithic database of §7.3 rather than the process snapshot, behind a per-fixture document of the shape `spikes/7c/tirewear_fixture.esm` already has | first end-to-end number |
 | **7d** | Widen the runspec surface one selection dimension at a time — pollutant-process, source type, road type, timespan, geography | each dimension added only with a fixture that **discriminates** it (§23) |
 | **7e** | `moves-nonroad.esm`, same shape | 12 `nr-*` fixtures |
 | **7f** | The five fixtures needing a second input database (four `-single` on `washtenaw_cdb`, `scale-project` on the project DB) | last, because they are the only ones whose model input is not the default DB |

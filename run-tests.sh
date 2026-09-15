@@ -887,37 +887,12 @@ PYEOF
       sed 's/^/       /' <<<"$out" | head -8
     fi
 
-    # 4. F50, where F46's watch used to be. F46 -- that a mounted child's
-    #    index_sets do not reach the ingesting build, so the parent must restate
-    #    them -- was closed by PR #298, and this spike's parent no longer
-    #    declares an `index_sets` block at all. What did NOT close is the
-    #    metaparameter half: the parent's `data_sources` bind two names in
-    #    `extent`, and the loader API closes those at the ROOT, so the parent
-    #    must declare both even though the child declares them too and owns the
-    #    axes they size.
-    #
-    #    Two-sided, and it has to run BOTH tools: the deletion is SILENT at
-    #    validate and loud at the build, which is the shape F48 used to record
-    #    about the other block.
-    F50_PROBE=spikes/7a/.f50_root_metaparameter_probe.esm
-    if "$PYTHON" - "$SPIKE_PARENT" "$F50_PROBE" <<'PYEOF'
-import json, sys
-doc = json.load(open(sys.argv[1]))
-doc.pop("metaparameters", None)
-json.dump(doc, open(sys.argv[2], "w"), indent=2)
-PYEOF
-    then
-      if ! "$ESM" validate "$F50_PROBE" >/dev/null 2>&1; then
-        fail "F50 watch — the probe no longer VALIDATES. The finding is that validate passes where the build fails; if validate now names the missing declaration, the gap is closed at the better end and F50 should be re-read"
-      elif "$ESM" simulate "$F50_PROBE" --time 0 >/dev/null 2>&1; then
-        fail "F50 watch — a root document no longer has to restate the metaparameters its data_sources bind. The parent's block is dead weight here and 247 lines of it are dead weight in spikes/7c: remove both and retire F50"
-      else
-        pass "F50 watch: the root must still declare every metaparameter its extents bind"
-      fi
-    else
-      fail "F50 watch — could not write the probe"
-    fi
-    rm -f "$F50_PROBE"
+    # 4. There used to be an F50 watch here. It deleted this parent's
+    #    `metaparameters` block into a probe and required the build to refuse
+    #    it, because the loader API closed discovered extents only at the root.
+    #    EarthSciAST PR #317 fixed that (2026-09-14), the watch went red exactly
+    #    as written, and the block is gone from the real document -- so check 2's
+    #    evaluation IS that probe now, and a separate one would test nothing.
   fi
 fi
 
@@ -954,20 +929,26 @@ fi
 # `index_sets` block is gone, the emitted relation is byte-identical to the
 # inlined fixture, and 1505 lines of mount became 1255.
 #
-# THREE FINDINGS RETIRED HERE, AND ONE REMAINS. F46 (a mounted child's
-# index_sets do not reach the ingesting build), F48 (whether `validate` sees
-# that depends on the child declaring one literal-sized axis) and F49
-# (`index_set_rename` refused at this mount form) were all the single deferral
-# #298 removed, and all three are closed -- the rename was re-measured here and
-# now both validates and evaluates to the same bytes over all 53 axes. What is
-# NOT closed is F50: the metaparameters an `extent` binds must be declared by
-# the ROOT document as well as by the document that owns the `data_sources`
-# entry, and `bindings` cannot carry them. That is the 247 lines below, and it
-# is the whole of what stands between this shape and a per-fixture document of
-# 23 lines. Checks 5 and 6 watch both halves of that.
+# FOUR FINDINGS RETIRED HERE. F46 (a mounted child's index_sets do not reach
+# the ingesting build), F48 (whether `validate` sees that depends on the child
+# declaring one literal-sized axis) and F49 (`index_set_rename` refused at this
+# mount form) were all the single deferral #298 removed; the rename was
+# re-measured here and both validates and evaluates to the same bytes over all
+# 53 axes. F50 -- the metaparameters an `extent` binds had to be declared by the
+# ROOT as well as by the document owning the axes, 247 lines of the mount -- was
+# fixed by PR #317 (2026-09-14). This stage's two-sided watch went red on it
+# exactly as written, the block was deleted, and the payoff is a third document:
+#
+#   the FIXTURE (spikes/7c/tirewear_fixture.esm) mounts the mount, and holds
+#   nothing but metadata, the enum union check-conventions requires (F13), and
+#   one {ref}.
+#
+# That is PLAN.md §7.1's thin per-fixture document at fixture scale. Check 3
+# holds it to the same bytes as the mount, and to staying thin.
 head2 "phase 7 at fixture scale (7c)"
 C7_LOGIC=spikes/7c/tirewear_logic.esm
 C7_MOUNT=spikes/7c/tirewear_mount.esm
+C7_FIXTURE=spikes/7c/tirewear_fixture.esm
 C7_BASE="$RUNDIR/process-tirewear.emitted.csv"
 
 if [[ ! -f "$C7_MOUNT" ]]; then
@@ -1006,6 +987,13 @@ else
   else
     fail "7c — the assembly does not round-trip"
   fi
+  if "$ESM" validate "$C7_FIXTURE" >/dev/null 2>&1 \
+     && "$ESM" round-trip "$C7_FIXTURE" >/dev/null 2>&1; then
+    pass "7c — the thin per-fixture document validates and round-trips"
+  else
+    fail "7c — the thin per-fixture document does not validate, or does not round-trip"
+    "$ESM" validate "$C7_FIXTURE" 2>&1 | sed 's/^/       /' | head -6
+  fi
 
   # 3. The numbers. Same emitted fields as the fixture stage, read out of the
   #    logic document rather than listed here.
@@ -1035,6 +1023,36 @@ PYEOF
     sed 's/^/       /' <<<"$out" | tail -5
   fi
 
+  #    The same bytes one mount edge further out, from the per-fixture document
+  #    PR #317 made possible -- and a check that it stays thin, because a
+  #    per-fixture document that quietly regrew a `metaparameters` or
+  #    `data_sources` block would still emit exactly the right numbers.
+  C7_FIX_CSV="$RUNDIR/tirewear-7c.fixture.csv"
+  if out=$("$ESM" simulate "$C7_FIXTURE" --time 0 --format csv \
+             "${c7_obs[@]}" --output "$C7_FIX_CSV" 2>&1) \
+     && cmp -s "$C7_BASE" "$C7_FIX_CSV"; then
+    pass "7c — the thin per-fixture document reproduces the inlined fixture's relation byte for byte, through two mount edges"
+  else
+    fail "7c — the thin per-fixture document does not reproduce the inlined fixture's relation. PLAN.md §7.1's per-fixture shape rests on this, and F50 was retired on it"
+    sed 's/^/       /' <<<"$out" | tail -5
+  fi
+  if thick=$("$PYTHON" - "$C7_FIXTURE" <<'PYEOF'
+import json, sys
+doc = json.load(open(sys.argv[1]))
+grown = [k for k in ("data_sources", "metaparameters", "index_sets", "coupling") if doc.get(k)]
+models = doc.get("models") or {}
+grown += ["models." + k for k, v in models.items() if not (isinstance(v, dict) and set(v) == {"ref"})]
+if len(models) != 1:
+    grown.append("%d models" % len(models))
+print(", ".join(grown))
+sys.exit(1 if grown else 0)
+PYEOF
+); then
+    pass "7c — the per-fixture document is still thin: $(wc -l < "$C7_FIXTURE") lines, one {ref}, no data_sources, metaparameters or index_sets"
+  else
+    fail "7c — the per-fixture document has grown ($thick). It was 43 lines when F50 was retired; say why it needs more before accepting it"
+  fi
+
   # 4. F47, two-sided, as the 7a stage does it: a mounted component's inline
   #    tests are not run, so this document discovers no assertions. The logic
   #    half carries all eleven of the fixture's `tests` blocks; the day they
@@ -1048,56 +1066,29 @@ PYEOF
     sed 's/^/       /' <<<"$out" | head -8
   fi
 
-  # 5. F50, the half of the duplication #298 did NOT remove, watched two-sided
-  #    where F46 used to be. The mount owns the `data_sources`, so it declares
-  #    the 48 metaparameters their `extent` binds; the LOGIC half declares the
-  #    same 48 again, because #298 closes it in its own scope and its axes are
-  #    sized by those names. Delete the mount's block and `esm validate` still
-  #    passes -- the refusal comes at the build, when the loader API has the
-  #    discovered counts and nothing at the root to bind them to.
-  #
-  #    It is the validate/build split F48 used to record, with the blocks
-  #    swapped, so the check has to run BOTH tools and not just the first.
-  C7_P1=spikes/7c/.f50_probe.esm
-  if "$PYTHON" tools/make-7c-probes.py no-root-metaparameters "$C7_P1" >/dev/null 2>&1; then
-    if ! "$ESM" validate "$C7_P1" >/dev/null 2>&1; then
-      fail "F50 watch — the probe no longer VALIDATES. F50 is that the duplication's absence is SILENT at validate and loud at the build; if validate now names it, the gap is closed at the better end and F50 should be re-read"
-    elif out=$("$ESM" simulate "$C7_P1" --time 0 --format csv \
-                 --observed out_emissionQuant --output /dev/null 2>&1); then
-      fail "F50 watch — the mount now builds without restating the leaf's extent metaparameters. That is 247 of this mount's 1255 lines and the last thing between a fixture and a 23-line document: delete the block, retire F50, and re-read conventions §56"
-    elif grep -q 'template_import_unknown_name' <<<"$out"; then
-      pass "F50 watch: the root must still restate all 48 extent metaparameters"
-    else
-      fail "F50 watch — the build refused the probe, but not as template_import_unknown_name"
-      sed 's/^/       /' <<<"$out" | tail -3
-    fi
-  else
-    fail "F50 watch — could not write the no-root-metaparameters probe"
-  fi
-  rm -f "$C7_P1"
-
-  # 6. The other half of F50: `bindings` cannot carry those names either. This
-  #    is the obvious workaround -- the mount declares them, the leaf does not,
-  #    and the edge binds each to itself -- and it is refused at LOAD, because
-  #    `bindings` is checked against what the referenced document declares.
-  #    Without this check, "F50 needs a format change" would be an assertion
-  #    rather than a measurement.
+  # 5. `bindings` cannot introduce a name. The mount declares the extent names
+  #    and binds each to itself at the edge; the leaf declares none. It is
+  #    refused at LOAD, because `bindings` is checked against what the
+  #    referenced document declares. This used to be the measurement that F50
+  #    needed a format change rather than an authoring one; #317 fixed F50 by
+  #    the other route, so nothing depends on it now, and it pins the limit
+  #    conventions §49.1 states.
   C7_P2=spikes/7c/.f50_bindings_probe.esm
   if "$PYTHON" tools/make-7c-probes.py bindings-carries-the-names "$C7_P2" >/dev/null 2>&1; then
     if out=$("$ESM" validate "$C7_P2" 2>&1); then
-      fail "F50 watch — \`bindings\` now carries the extent metaparameters, so the leaf need not declare them. That is the cheaper half of F50 closing: re-read conventions §54 and §56"
+      fail "bindings — \`bindings\` now supplies metaparameters the leaf does not declare. conventions §49.1 says it cannot; re-read it and §54"
     elif grep -q 'template_import_unknown_name' <<<"$out"; then
-      pass "F50 watch: \`bindings\` still cannot carry an extent metaparameter for the leaf"
+      pass "bindings still cannot supply a metaparameter the leaf does not declare (conventions §49.1)"
     else
-      fail "F50 watch — the bindings-carries-the-names probe was refused, but not as template_import_unknown_name"
+      fail "bindings — the bindings-carries-the-names probe was refused, but not as template_import_unknown_name"
       sed 's/^/       /' <<<"$out" | head -4
     fi
   else
-    fail "F50 watch — could not write the bindings-carries-the-names probe"
+    fail "bindings — could not write the bindings-carries-the-names probe"
   fi
   rm -f "$C7_P2" "${C7_P2%.esm}_child.esm"
 
-  # 7. `index_set_rename` at 53 axes -- F49's probe, kept and inverted. It was
+  # 6. `index_set_rename` at 53 axes -- F49's probe, kept and inverted. It was
   #    refused at this mount form before #298; it is now accepted, and Phase 7
   #    plans on it (it is what lets a shared domain document's axes be
   #    namespaced per fixture, so two domain documents can be mounted without
@@ -1120,13 +1111,13 @@ PYEOF
   fi
   rm -f "$C7_P3"
 
-  # 8. `bindings` at 45 names. Conventions 54 says it works at scale and
+  # 7. `bindings` at 45 names. Conventions 54 says it works at scale and
   #    removes nothing; the first half of that has to keep being true or the
   #    second half is a claim about a feature that no longer functions.
   C7_P4=spikes/7c/.bindings_probe.esm
   if "$PYTHON" tools/make-7c-probes.py bindings "$C7_P4" >/dev/null 2>&1; then
     if "$ESM" validate "$C7_P4" >/dev/null 2>&1; then
-      pass "bindings still closes 45 of the mount's metaparameters at one mount edge"
+      pass "bindings still closes 45 extent metaparameters at one mount edge"
     else
       fail "bindings — 45 names at one mount edge no longer validate. conventions 54 measures this; re-read it"
       "$ESM" validate "$C7_P4" 2>&1 | sed 's/^/       /' | head -4

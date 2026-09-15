@@ -4792,14 +4792,15 @@ metaparameter and the index set. So a shared domain document can carry the
 whole default-database catalogue and a per-fixture document add only its own
 runspec sources.
 
-**One block does NOT cross, and `esm validate` does not say so.**
+**Two blocks used NOT to cross, and `esm validate` did not say so. Both do
+now.**
 
 | block | may live in the child | must be restated by the mounting document |
 |---|---|---|
 | `variables`, `equations`, `update` bindings | yes | no |
 | `data_sources` | yes | no |
 | `index_sets` | yes | no — **since EarthSciAST PR #298** |
-| `metaparameters` bound by an `extent` | yes, and must be | **yes, and must be** |
+| `metaparameters` bound by an `extent` | yes, and should be | no — **since EarthSciAST PR #317** |
 
 **The index-set row used to be the trap and is now settled.** Until #298 a
 mounted child's `index_sets` reached the registry `esm validate` reads but not
@@ -4808,22 +4809,25 @@ verbatim and a comment had to say the duplication was load-bearing. That was
 finding F46, and it is retired: neither `spikes/7a` nor `spikes/7c` declares an
 `index_sets` block in its mounting document any more.
 
-**The metaparameter row replaced it, and it is a genuine duplication rather
-than a restatement.** A name an `extent` binds must be declared by the document
-that owns the axis it sizes *and* by the root document that is loaded, because
-#298 resolves a mounted leaf in its own scope while the loader API still binds
-discovered extents at the root. Delete either and the document is refused —
-the leaf's copy at load with `metaparameter_unbound`, the root's copy at the
-**build** with `template_import_unknown_name`, after `esm validate` has passed.
-Finding F50, and `bindings` cannot carry it.
+**The metaparameter row replaced it, and is settled too.** For two days a name
+an `extent` binds had to be declared by the document that owns the axis it sizes
+*and* by the root document that is loaded, because #298 resolved a mounted leaf
+in its own scope while the loader API still bound discovered extents only at the
+root — and deleting the root's copy passed `esm validate` and failed the build
+with `template_import_unknown_name`. That was finding F50. EarthSciAST PR #317
+binds a discovered extent in whichever document of the assembly declares the
+name, at either mount form and transitively, so the name is declared once, by
+the document that owns the axis. Neither `spikes/7a` nor `spikes/7c` declares a
+metaparameter in a mounting document any more.
 
 **Which document should own the axes: the leaf.** `leaf-owns-shape` — the leaf
 declares the metaparameters and the `index_sets`, the mount declares the
 `data_sources` — is the only arrangement measured to load under **both** the
 Rust and the Python bindings. The obvious alternative, a shape-open leaf sized
 by the root's metaparameters, is accepted by Rust and refused by Python unless
-the leaf happens to import an expression-template library, which is finding
-F51.
+the leaf happens to import an expression-template library, which is finding F51
+— at `9dd36c7f6`. PR #317 made Rust accept it either way, and records the shape
+as non-portable itself.
 
 ### 49.1 A `{ref}` mount edge is NOT a closed shape, and one of its four extra fields is the override mechanism
 
@@ -4846,13 +4850,14 @@ is closed by `{"ref": "./bind_child.esm", "bindings": {"n_cat":
 source flows through the binding — the same 41 rows and the same
 6/9/13/17/60/85/630.
 
-**What `bindings` cannot do is introduce a name.** It closes a metaparameter
-the referenced document **declares**; it is checked against the leaf's own
-declarations, so a leaf that omits the block is refused at load —
-`loader API binds metaparameter 'n_agecategory', which the document does not
-declare` — no matter what the mount offers. Measured at 49 names. That is why
-F50 is a format ask and not an authoring mistake: the cheap workaround is
-tested and unavailable.
+**What `bindings` cannot do is introduce a name.** It closes a metaparameter the
+referenced document **declares**; it is checked against the leaf's own
+declarations, so a leaf that omits the block is refused at load — `loader API
+binds metaparameter 'n_agecategory', which the document does not declare` — no
+matter what the mount offers. Measured at 49 names. That is why F50 needed a
+format change rather than an authoring one. PR #317 made the change by the other
+route — binding the extent where the name is declared — so this limit no longer
+costs anything, and `run-tests.sh`'s 7c stage keeps it as a check.
 
 **`model` does not make a mounted document composable.** A referenced file with
 two models is refused (`resolves to 2 models; add a "model" selector`), and
@@ -4965,21 +4970,22 @@ edited in place is not re-read.)
 
 ## 53. The Phase 7 mount shape survives at fixture scale, and the numbers are bit-identical **[PLAN.md step 7c, 411 variables, 375 rows, same md5]**
 
-§49–§52 measured the mount edge on 2 tables and 8 variables. `spikes/7c/` is
-the same shape carrying a real fixture: `fixtures/process-tirewear.esm` split
-into `tirewear_logic.esm` (49 → 0 `data_sources`, 411 variables, 245
-equations, 49 metaparameters, 53 index sets, 6 enums, all eleven `tests`
-blocks) and `tirewear_mount.esm` (49 `data_sources`, the same 49
-metaparameters, the same 6 enums, one `{ref}`).
+§49–§52 measured the mount edge on 2 tables and 8 variables. `spikes/7c/` is the
+same shape carrying a real fixture: `fixtures/process-tirewear.esm` split into
+`tirewear_logic.esm` (49 → 0 `data_sources`, 411 variables, 245 equations, 49
+metaparameters, 53 index sets, 6 enums, all eleven `tests` blocks) and
+`tirewear_mount.esm` (49 `data_sources`, the same 6 enums, one `{ref}`, and —
+until PR #317 — the same 49 metaparameters), itself mounted since 2026-09-15 by
+the 43-line `tirewear_fixture.esm` (§53.2).
 
 **The division of the blocks moved once, at EarthSciAST PR #298.** As first
 written the mount owned the shape — 49 metaparameters, 53 index sets restated
 verbatim from the leaf, 6 enums restated — and the leaf was open. #298 resolves
 a mounted leaf in its own scope, which refuses that arrangement, so the leaf now
 owns the metaparameters and the axes, and the mount owns the data. The 250
-restated index sets are gone; the metaparameters are duplicated rather than
-moved (F50) and the enums are still restated, for collision safety rather than
-for resolution (§54). Everything measured below survived the move unchanged
+restated index sets are gone; so, since PR #317, is the second copy of the
+metaparameters (F50); the enums are still restated, for collision safety rather
+than for resolution (§54). Everything measured below survived the move unchanged
 except the line counts in §53.1, which are the point of it.
 
 **It works, first try, and the split is not an approximation.** The logic
@@ -5008,65 +5014,73 @@ disk: inlined 3.04 / 3.07 / 2.91 / 3.50 s, split 2.97 / 3.43 / 3.34 / 2.92 s.
 Cold, cache wiped before each: inlined 4.24 / 4.29 s, split 4.30 / 4.21 s. The
 difference is inside the run-to-run noise of either one.
 
-### 53.1 The duplication, counted — and what PR #298 removed from it
+### 53.1 The duplication, counted — and what PRs #298 and #317 removed from it
 
 | block | mount lines | entries | also declared by the logic half |
 |---|---|---|---|
 | `data_sources` | 954 | 49 | no |
-| `metaparameters` | 247 | 49 | **yes, all 49** — and must be (F50) |
 | `enums` | 31 | 6 (15 symbols) | **yes, all 15, byte-identical** |
 | `models` (the `{ref}`) | 6 | 1 | — |
-| **total** | **1255** | | **278 lines duplicated (22.2%)** |
+| **total** | **1008** | | **31 lines duplicated (3.1%)** |
 
-Before #298 the mount also restated the leaf's 53 `index_sets`, verbatim, and
-the total was 1505 with 281 duplicated. That block is gone — **−250 lines, the
-single largest thing this project has recovered from an upstream fix** — and
-what is left duplicated is the metaparameter block, which cannot be removed by
-authoring (F50), and the enums, which are restated for collision safety rather
-than for resolution (§54).
+The mount has lost two blocks to upstream fixes. Before #298 it restated the
+leaf's 53 `index_sets` verbatim — 250 lines, and a total of 1505 with 281
+duplicated. After #298 it still declared all 49 metaparameters the leaf also
+declares — 247 lines, a total of 1255 with 278 duplicated — until PR #317 fixed
+F50. What is left duplicated is the enums, which are restated for collision
+safety rather than for resolution (§54).
 
-The split now costs **+302 lines over the inlined fixture** (17,678 against
-17,376, +1.7%). The proportion is unchanged because what #298 removed from the
-mount it did not add to the leaf: the leaf already declared those axes.
+The split now costs **+54 lines over the inlined fixture** (17,431 against
+17,377, +0.3%), down from +302 after #298 and +552 before it: neither fix added
+anything to the leaf, which already declared the axes and the names. The per-
+fixture document of §53.2 adds 43 more.
 
-### 53.2 The per-fixture document, measured three ways
+### 53.2 The per-fixture document, measured four ways
 
-The number that matters is not the split's total but what **one fixture** has
-to carry, because Phase 7 plans about thirty of them on one shared document.
-Measured on `process-tirewear`, moving the `data_sources` catalogue into the
-shared document — the layout PLAN.md §7.1 wants, and the one §7.3's monolithic
-conversion makes identical for every fixture — and emitting the relation each
-time to confirm the bytes do not move:
+The number that matters is not the split's total but what **one fixture** has to
+carry, because Phase 7 plans about thirty of them on one shared document.
+Measured on `process-tirewear`, emitting the relation each time to confirm the
+bytes do not move:
 
 | the per-fixture document | lines | loads? |
 |---|---|---|
 | before #298, against the pinned `esm 0.2.0` | 551 | yes in Rust, **no** in Python |
-| after #298 | **270** | yes in Rust **and** Python |
+| after #298 (`9dd36c7f6`) | 270 | yes in Rust **and** Python |
 | after #298, with the metaparameter block deleted | 23 | **no** — F50 |
+| **after #317 (`58d21a1a1`): `spikes/7c/tirewear_fixture.esm`, checked in** | **43** | **yes in Rust**; Python not re-run |
 
-All three emit, or would emit, the same 375 rows over 26 fields; the middle row
-was emitted and compared. The 270-line document is `metadata`, the 247-line
-`metaparameters` block, and one `{ref}`; it configures nothing, and 247 of its
-270 lines exist only because the loader API closes discovered extents at the
-root. Add 31 lines for the enum union this repository restates by convention
-(§54) and it is 301 — the format does not require them, `tools/check-conventions.py`
-does, and F13 is why. So the distance between "one
-mechanical `.esm` per fixture" and PLAN.md §7.1's "one **thin** `.esm` per
-fixture" is now exactly one finding wide, and the finding is F50.
+The first three rows moved the `data_sources` catalogue into the shared document
+— the layout PLAN.md §7.1 wants, and the one §7.3's monolithic conversion makes
+identical for every fixture. The fourth puts the catalogue in a middle document
+instead, so the chain is fixture → `tirewear_mount.esm` (the data) →
+`tirewear_logic.esm` (the logic and its shape). Both layouts were measured at
+`58d21a1a1`, with and without the enum block, and all four variants emit the
+same 375 rows byte for byte. The three-document one is committed because it
+keeps the logic half data-open, which is the 7c stage's control.
+
+**Why 43 and not 23.** 31 of the 43 lines are the enum union
+`tools/check-conventions.py` requires (F13, §54). The build does not need them —
+the same document without them emits the same bytes — and the fixture's own
+content is the other 12 lines. The 23 was the 270-line document minus its
+metaparameter block, and did not count the enums, which this repository restated
+on top of it (301 lines then, as this section said). So the distance between
+"one mechanical `.esm` per fixture" and PLAN.md §7.1's "one **thin** `.esm` per
+fixture" is closed in the format. What is left is one convention wide, and it is
+§56's subject.
 
 ## 54. The four override channels at the mount edge, measured at 49 names each **[PLAN.md step 7c, one of the four is unusable]**
 
 §49.1 read `SubsystemRef`'s four extra fields off the schema and ran one of
 them once. 7c ran them against a document with 49 metaparameters and 53 axes.
 
-**`bindings` scales, and buys nothing.** 45 of the child's metaparameters
+**`bindings` scales, and buys nothing.** 45 of the child's extent metaparameters
 closed at one mount edge validate and emit the same 375 rows byte for byte, so
-the mechanism is not toy-sized. It removes nothing, in either direction: the
-mounting document still declares all 49 (renamed) and gains a 45-line
-`bindings` block. It is strictly more text than declaring the names the child
-already uses — and since #298 it is also the workaround F50 would need and
-cannot have, because `bindings` closes a name the leaf declares and cannot
-supply one it lacks (§49.1).
+the mechanism is not toy-sized. It removes nothing: the mounting document
+declares the 45 under its own names and gains a 45-line `bindings` block, which
+is strictly more text than declaring nothing at all — the arrangement PR #317
+allows (§49). For two days it was also the workaround F50 needed and could not
+have, because `bindings` closes a name the leaf declares and cannot supply one
+it lacks (§49.1).
 
 **The 45 is not 49, and the four that are missing are the rule.** A
 metaparameter closed by `bindings` is not readable in an equation (§49.2), and
@@ -5117,13 +5131,14 @@ silence depended on one thing nobody would look at: whether the child declared
 any **literal**-sized axis. Both are retired — EarthSciAST PR #298 removed the
 restatement entirely — and the habit they were teaching is not.
 
-**The same shape came straight back, one block over.** Delete the
-`metaparameters` block the mount declares for its `extent`s and `esm validate`
-passes; the refusal arrives at the build, as
-`template_import_unknown_name`. That is F50, and it is why
-`run-tests.sh`'s 7a and 7c stages each run `validate` **and** the build against
-their probe and require the exact code, rather than reading a green `validate`
-as a verdict.
+**The same shape came straight back, one block over, and has since gone too.**
+Delete the `metaparameters` block a mount declared for its `extent`s and `esm
+validate` passed; the refusal arrived at the build, as
+`template_import_unknown_name`. That was F50, and it is why `run-tests.sh`'s 7a
+and 7c stages ran `validate` **and** the build against their probes and required
+the exact code, rather than reading a green `validate` as a verdict. PR #317
+fixed it, and both watches went red on the first run against the new binary with
+an instruction saying what to delete — which is what a two-sided watch is for.
 
 Three consequences, and the last is the durable one.
 
@@ -5136,42 +5151,42 @@ Three consequences, and the last is the durable one.
   the cheapest way to convert a class of mistake from a build failure deep in an
   aggregate into a validate error that names the thing.
 * **Prefer the arrangement that fails loudly in every binding.** F51 is this
-  rule's third instance: a shape-open leaf passes in Rust, fails in Python, and
-  which you get depends on whether the leaf imports an expression-template
-  library. `leaf-owns-shape` fails loudly or passes in both, and that is the
-  reason to write it that way rather than any measurement of lines.
+  rule's third instance: at `9dd36c7f6` a shape-open leaf passed in Rust, failed
+  in Python, and which you got depended on whether the leaf imported an
+  expression-template library. PR #317 changed the Rust side and calls the shape
+  non-portable itself. `leaf-owns-shape` fails loudly or passes in both, and
+  that is the reason to write it that way rather than any measurement of lines.
 
-## 56. A per-fixture document's size is set by the SHARED document, not by the fixture **[PLAN.md step 7c, 92% of 270 lines is one finding]**
+## 56. A per-fixture document's size is set by the SHARED document, not by the fixture **[PLAN.md step 7c, 551 → 270 → 43 lines]**
 
 The blocks a mounting document must carry are keyed to what the **mounted**
 document declares, not to any choice the fixture makes. So as a shared domain
 document grows, every document that mounts it grows with it, by the same lines,
 and the per-fixture documents converge on being copies of each other.
 
-**PR #298 removed most of it, and the residue is sharper than the original.**
-This section used to read 551 lines per fixture, 528 of them (96%) mechanical,
-against three named ways out. Measured again at `9dd36c7f6` (§53.2): **270
-lines, of which 247 (92%) are the single duplication F50 records**, and the
-three ways out have become one.
+**Two upstream fixes removed almost all of it.** This section read 551 lines per
+fixture, 528 of them (96%) mechanical, against named ways out; then 270, of
+which 247 (92%) were the single duplication F50 recorded. Measured at
+`58d21a1a1` it is **43**, and it is checked in as
+`spikes/7c/tirewear_fixture.esm` (§53.2).
 
-1. ~~**Fix F46**~~ — **landed**, as EarthSciAST PR #298. This was called "the
-   single highest-value upstream ask this project has" and it was: it removed
-   281 of the 551 lines, and it moved the shape to one both bindings accept.
+1. ~~**Fix F46**~~ — **landed**, as EarthSciAST PR #298: 281 of the 551 lines,
+   and a shape both bindings accept.
 2. ~~**Fix F49**~~ — **landed in the same PR.** `index_set_rename` works at
-   this mount form now (§54), so the axis-name collision bound on mounting two
-   domain documents is gone.
-3. **Factor the duplication into a mounted leaf of its own.** Still untested and
-   still not obviously possible, for the reason given the first time: the block
-   that must be duplicated is exactly the block that does not merge upward, so
-   a "shape" leaf would meet the same rule one level down. Anyone reaching for
-   it should measure it before believing it.
-4. **Fix F50** — bind discovered extents in the scope that declares the
-   `data_sources` entry rather than at the root. This is now the single
-   highest-value upstream ask, and it is worth 247 of the remaining 270 lines,
-   thirty times over.
+   this mount form (§54).
+3. **Factor the duplication into a mounted leaf of its own.** Not needed. The
+   middle document of §53.2's chain is a mounted document of that kind for the
+   *data*, and the shape needed no leaf of its own once F50 was fixed.
+4. ~~**Fix F50**~~ — **landed**, as EarthSciAST PR #317: 247 of the remaining
+   270.
 
-Until then, PLAN.md §7.1's "one thin `.esm` per fixture" should be read as "one
-**mechanical** `.esm` per fixture" — but the mechanical part is now one block
-rather than four, and it is the same block in every fixture, so
-`tools/check-conventions.py` can check the thirty against the shared document by
-name rather than by diff.
+**What is left is a rule, not the format.** 31 of the 43 lines are the enum
+union, restated because `tools/check-conventions.py`'s `assembly-enums` rule
+requires every assembly to carry it (F13). They are the same 31 lines in every
+fixture that mounts the same shared document — exactly the growth pattern the
+first paragraph describes — so they are the next thing to remove, and the format
+change that would justify removing them is in flight: EarthSciAST PR #353
+resolves a mounted file's `enum` ops against that file's own `enums` block. When
+it lands, re-measure F13 before deciding whether the rule still earns its lines.
+Until then PLAN.md §7.1's "one thin `.esm` per fixture" means 43 lines, 12 of
+them the fixture's own.
