@@ -60,16 +60,16 @@
           "description": "Stage 1 x stage 2: the equipment population stage's rounded STATE population for this SCC's equipment point, times the geography stage's allocation fraction for the surrogate that SCC allocates through. Neither leaf can compute this; it is the join between them."
         },
         "chainAnnualHours": {
-          "type": "unknown", "units": "1",
-          "description": "Stage 3's acttmp for this SCC's equipment point."
+          "type": "unknown", "units": "h",
+          "description": "Stage 3's acttmp for this SCC's equipment point. A duration in hours (§58)."
         },
         "chainMonthDayFactor": {
           "type": "unknown", "units": "1",
           "description": "Stage 3's tpltmp for it."
         },
         "chainUnitConversion": {
-          "type": "unknown", "units": "1",
-          "description": "unitcf.f applied to stage 3's hpAvg and loadFactor: the same template the roll-up leaf uses, fed from the activity leaf rather than from a parameter."
+          "type": "unknown", "units": "hp",
+          "description": "unitcf.f applied to stage 3's hpAvg and loadFactor: the same template the roll-up leaf uses, fed from the activity leaf rather than from a parameter. `hp`, because this call binds the g/hp-hr unit code and that branch is hpavg x faclod (exhaust.rs:228-236)."
         },
         "chainDeteriorationAge": {
           "type": "unknown", "units": "1",
@@ -167,7 +167,7 @@
           }
         },
         {
-          "_comment": "The whole chain in one contraction, across six mounts. Six `join.on` clauses: the roll-up's pollutant axis to the factor leaf's, both model-year sides to the run's year, the deterioration coefficients to the factor on the composite (polProcessID, engTechID), the adjustment to the factor on polProcessID, and the adjustment's fuel kind to this SCC's. Everything else is a product of scalars this document computed above from the upstream leaves.",
+          "_comment": "The whole chain in one contraction, across six mounts. Six `join.on` clauses: the roll-up's pollutant axis to the factor leaf's, both model-year sides to the run's year, the deterioration coefficients to the factor on the composite (polProcessID, engTechID), the adjustment to the factor on polProcessID, and the adjustment's fuel kind to this SCC's. Everything else is a product of scalars this document computed above from the upstream leaves. THE `x 1 g/(hp*h)` ON THE FIRST FACTOR IS A UNIT BOUNDARY, docs/esm-conventions.md §57 rule 8 and §58: `Factors.zeroHourRate` is a column in TWO units -- g/(hp*h) on a pollutant row, lb/(hp*h) on the BSFC carrier 9901 -- so it can carry neither, and the first join here has selected the four pollutant processes, from which 9901 is absent. The multiplication is by 1.0 and moves no number; it is what makes the product a mass, so that `chainEmissionGrams` declared anything but `g` is refused.",
           "lhs": "chainEmissionGrams",
           "rhs": {
             "op": "faq", "args": [], "semiring": "sum_product", "output_idx": ["p"],
@@ -194,7 +194,9 @@
             "expr": {
               "op": "*",
               "args": [
-                { "op": "index", "args": ["Factors.zeroHourRate", "c", "f"] },
+                { "op": "*", "args": [
+                  { "op": "index", "args": ["Factors.zeroHourRate", "c", "f"] },
+                  { "op": "const", "args": [], "value": 1.0, "units": "g/(hp*h)" } ] },
                 "chainUnitConversion",
                 { "op": "apply_expression_template", "args": [], "name": "deterioration_factor",
                   "bindings": {
