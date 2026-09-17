@@ -1,5 +1,5 @@
 {
-  "esm": "1.1.0",
+  "esm": "1.2.0",
   "metadata": {
     "name": "moves.fixture.process_pm_exhaust",
     "description": "The `process-pm-exhaust` fixture: 1,456 rows of MOVESOutput -- seven exhaust particulate pollutants on Running Exhaust (PM10 total, PM2.5 total, organic carbon, elemental carbon, sulfate particulate, composite NonECPM and H2O aerosol) for passenger cars on urban restricted-access roads in Washtenaw County, August, 7am, 2020 -- computed from the snapshot's own INPUT tables. It ports docs/process-pm-exhaust.md end to end.\\n\\nTHIS IS THE FIRST FIXTURE WITH NO UNCHAINED PARENT BLOCK. Every rung since `process-nox-speciation` was a 248-row parent computed off a rate table plus N x 208 species blocks; this one is seven 208-row blocks and nothing unchained. Two of the seven ARE the parents -- `emissionratebyage` carries polProcessID 11201 (unadjusted elemental carbon) and 11801 (composite NonECPM) and nothing else -- and they are 208 rather than 248 because the twenty electricity cohorts reach `SulfatePMCalculator`'s working table and are dropped THERE, one stage after the rate, by an inner join. The rate relation carries 124 cohorts; no emitted block does.\\n\\nFOUR THINGS FOLLOW FROM THE PARENT BEING A PAIR.\\n\\n(1) THE TWO PARENTS ARE PULLED ONTO THE COHORT BY A SELF-JOIN, ONCE EACH, on (the named parent's polProcessID <-> this row's polProcessID, cohortOrdinal <-> cohortOrdinal). Five of the seven emitted pollutants are functions of BOTH -- PM2.5 total is elemental carbon plus NonECPM -- which a single-parent chain cannot express.\\n\\n(2) MOVES'S OWN CHAIN TABLE IS CYCLIC HERE, so no chain ROOT is computed. `runspecchainedto` says 11801 <- 11501 AND 11501 <- 11801, because `SulfatePMCalculator` splits NonECPM into species and then re-sums NonECPM from them; `pollutantprocessassoc.chainedto1/2` carries the same 2-cycle. The chain-root iteration docs/esm-conventions.md 32.1 introduced for `process-airtoxics` DOES NOT TERMINATE on this table, so the stages are written the way sulfate_pm_calculator.rs writes them -- they are a DAG even though MOVES's declaration of them is not -- and the table is read for one row-set fact only: which pollutant-processes are chained at all. `run_unchainedPolProcessCount` is 1 while TWO blocks are rated, which is the measurement that says the chain table cannot even identify the rated set here.\\n\\n(3) `criteriaratio` IS GONE AND `generalfuelratio` IS BACK -- the reverse of `process-airtoxics`, where `generalfuelratio` was the empty one. Both stages are still written and `run_criteriaRatioReach` asserts the zero, because an empty source and an unwritten step look the same from the answer (docs/esm-conventions.md 23). And `generalfuelratio`'s two pollutants enter at DIFFERENT stages: the elemental-carbon rows (polProcessID 11201) at `BaseRateCalculator`, per SUPPLIED formulation and GPA-blended (adjust.rs:452-472); the residue rows (12001) inside `SulfatePMCalculator`, raw and not per formulation (SulfatePMCalculator.sql 75's `gfr.pollutantID in (120)`). Applying both in one place squares a 1.090910749585 on every gasoline and E85 cohort of model year 2001 or later.\\n\\n(4) THE THREE-WAY SPLIT OF NonECPM DOES NOT CONSERVE MASS. Sulfate takes the sulfur-ADJUSTED fraction and the residue takes the UNADJUSTED one (sulfate_pm_calculator.rs:636-639), so the three species sum to 0.8385 to 0.9865 of the NonECPM they came from. It is the most load-bearing detail in this rung: using one fraction for both is wrong by 62 % on the 2007+ diesel sulfate block.\\n\\nTHE KEY SET IS 7 x 104 x 2 AND THE 104 IS SHARED, which is the one thing easier here than in `process-airtoxics`: `pp_emittedCohortCount` asserts 104 on all seven blocks against ONE cohort set rather than seven counts, and 1,456 = 4 x 364 = 8 x 182 as well as 7 x 208, so a row count cannot see a mis-shaped block set. The twenty electricity cohorts are lost TWICE and independently -- `sulfatefractions` has no fuel-type-9 row and `crankcaseemissionratio` has none either -- so both misses are written, because either alone would produce this row set.\\n\\nTHE TEMPERATURE ARM IS THE PM EXPONENTIAL, not the quadratic every earlier onroad rung took: pollutant 112 or 118 on process 1 takes `general_temp_adjust`'s first branch (adjust.rs:105-110), exp(A x (72 - least(T, 72))), and at 59.5 degF the T <= 72 arm is the LIVE one -- what makes the factor 1 is that `temperatureadjustment` has ZERO rows. lib/adjustments.esm's new `pm_temperature_adjustment` is that branch and its new `fuel_sulfur_sulfate_adjustment` is the sulfate fraction's sulfur sensitivity; those are the two templates this rung adds.",
@@ -4555,7 +4555,7 @@
         },
         "ta_tempAdjustTermA": {
           "type": "parameter",
-          "units": "1",
+          "units": "1/degF",
           "default": 0.0,
           "shape": [
             "temperatureadjustment_rows"
@@ -5950,7 +5950,7 @@
         },
         "zmh_temperature": {
           "type": "parameter",
-          "units": "1",
+          "units": "degF",
           "default": 0.0,
           "shape": [
             "zonemonthhour_rows"
@@ -6463,7 +6463,7 @@
         },
         "rt_tempAdjustTermAExact": {
           "type": "unknown",
-          "units": "1",
+          "units": "1/degF",
           "shape": [
             "rate_rows"
           ],
@@ -6479,7 +6479,7 @@
         },
         "rt_tempAdjustTermAWildcard": {
           "type": "unknown",
-          "units": "1",
+          "units": "1/degF",
           "shape": [
             "rate_rows"
           ],
@@ -6487,7 +6487,7 @@
         },
         "rt_tempAdjustTermA": {
           "type": "unknown",
-          "units": "1",
+          "units": "1/degF",
           "shape": [
             "rate_rows"
           ],
@@ -6503,7 +6503,7 @@
         },
         "run_temperature": {
           "type": "unknown",
-          "units": "1",
+          "units": "degF",
           "shape": [
             "run_rows"
           ],

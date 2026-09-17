@@ -1,5 +1,5 @@
 {
-  "esm": "1.1.0",
+  "esm": "1.2.0",
   "metadata": {
     "name": "moves.fixture.process_crankcase_running",
     "description": "The `process-crankcase-running` fixture: 1,368 rows of MOVESOutput -- Total Gaseous Hydrocarbons, Carbon Monoxide and Oxides of Nitrogen on BOTH Running Exhaust (process 1) and Crankcase Running Exhaust (process 15), for passenger cars on urban restricted-access roads in Washtenaw County, August, 7am, 2020 -- computed from the snapshot's own INPUT tables. It ports docs/process-crankcase-running.md end to end and reuses the whole of docs/mixed-onroad.md's spine: the activity chain S1-S9, the cohort structure and the fuel-usage rebase S10-S12, the base rate S13-S14, and the output row S16-S18.\n\nTHE THREE METEOROLOGY COLUMNS ARE COMPUTED HERE, NOT READ. Since docs/meteorology-generator.md 8.2 this fixture derives `heatIndex`, `specificHumidity` and `molWaterFraction` from `ZoneMonthHour.temperature`, `ZoneMonthHour.relHumidity` and `County.barometricPressure` through lib/meteorology.esm, instead of reading MeteorologyGenerator's answers back off the reference. It and `process-nox-speciation` are the only two of the nine ingesting fixtures whose OUTPUT BYTES MOVED, and the movement is the point -- docs/esm-conventions.md 23's other case, where the fixture CAN see the stage. Every moved cell is accounted for:\n  * `meanBaseRate`, `SHO` and `activity` are byte-identical on all 1,368 rows: the humidity enters after the rate.\n  * `adjustedMeanBaseRate` and `emissionQuantDirect` move on exactly 208 rows -- NOx (pollutant 3), process 1, on the three fuel types with a `noxhumidityadjust` row (82 gasoline, 80 diesel, 46 E85). The 40 electricity rows have no such row and take k = 1 exactly, and every THC and CO row misses the NOx branch entirely.\n  * The 208 process-15 NOx rows do NOT move in those two columns, because they carry no rate of their own: their `meanBaseRate`, `adjustedMeanBaseRate` and `emissionQuantDirect` are all exactly 0 and the crankcase quantity is the parent's, times `crankcaseEmissionRatio`.\n  * `emissionQuant` therefore moves on 378 of 1,368: those 208 plus 170 crankcase rows -- 82 gasoline, 46 E85 and 42 of the 80 diesel. The other 38 diesel crankcase rows are exactly 0 and a factor cannot move a zero.\n  * Worst relative movement 7.4418e-09, which is the CFR 86 factor's own shift.\nAgainst the reference nothing measurable changes: worst cell 8.702e-06 of a 2e-05 gate and worst per-pollutant sum 3.466e-07, both identical to five figures before and after.\n\nWHY IT MOVES AT ALL. `ZoneMonthHour.specificHumidity` stores MOVES's answer at less precision than MOVES computed it with, and MOVES's own calculators read the STORED value back. The 2.2985e-08 gap between 10.053684062398 computed here and 10.053684293477 stored is this port being closer to the formula and further from the reference, by an amount 870x below tolerance.toml's per-cell gate.\n\nTWO THINGS ARE NEW, AND THEY ARE INDEPENDENT.\n\n(1) THE POLLUTANTS ARE CRITERIA POLLUTANTS. Every earlier onroad fixture rated Total Energy Consumption or a particulate, and neither carries a fuel effect or a humidity correction. These do. The rate table is `emissionRateByAge` and not `emissionRate`, so J22 carries a seventh key pair -- the age group -- because a criteria rate deteriorates. Each base rate is then expanded over the FORMULATIONS the county's fuel supply carries for its fuel type, scaled by `criteriaratio` and `generalfuelratio`, and re-collapsed by market share (adjust.rs:206-262, aggregate.rs:28-45). And NOx alone takes a humidity correction whose equation is selected by a free-text column of a three-row table: k is 1.0216 on gasoline and E85 and 1.00955 on diesel, and dropping it moves every NOx row by more than 2 %.\n\n(2) THE TWO PROCESSES DO NOT SPAN THE SAME KEY SPACE, and that is the whole subject of this rung. `CrankcaseEmissionCalculatorNonPM` is a chained calculator with no rate of its own: a crankcase row is its own pollutant's exhaust row times a tabulated ratio, banded on model year and keyed by (pollutant-process, source type, regulatory class, fuel type). There is no fuelTypeID 9 row in that table and MOVES's join is an INNER one, so the twenty electricity cohorts emit a process-1 row and NO process-15 row: 248 rows per pollutant on process 1 and 208 on process 15. `process-tirewear` could lay its output out as rectangular blocks of a shared cohort rank because all three of its pollutant-processes spanned the same 125 cohorts; three of the six blocks here are twenty cohorts shorter than the other three, so the rank is GLOBAL over the rate relation instead -- `rt_emits` marks the 684 rate rows that reach MOVESOutput and `rt_outputRank` numbers them by an inclusive prefix count (docs/esm-conventions.md 31). No block has to be rectangular, and `pp_emittedCohortCount` states the 124/104 split as an assertion, which is the thing a row count of 1368 cannot make.\n\nTHE FUEL AND HUMIDITY TEMPLATES ARE NOT THIS DOCUMENT'S. `fixtures/process-nox-speciation.esm` reaches the same `BaseRateCalculator` arm and landed all eight of them in lib/adjustments.esm first; this document instantiates them. They were written independently on the two branches, under the same names and with the same bodies, and the reconciliation was to delete the second copy rather than to keep two spellings of `calculateNOxK`. The one template this rung adds is lib/keys.esm's `in_inclusive_range`, and docs/process-crankcase-running.md 4.0 says why it is not `model_year_in_range` renamed.",
@@ -4371,7 +4371,7 @@
         },
         "zmh_vaporPartialPressure": {
           "type": "unknown",
-          "units": "1",
+          "units": "kPa",
           "shape": [
             "zonemonthhour_rows"
           ],
@@ -4507,7 +4507,7 @@
         },
         "ta_tempAdjustTermA": {
           "type": "parameter",
-          "units": "1",
+          "units": "1/degF",
           "default": 0.0,
           "shape": [
             "temperatureadjustment_rows"
@@ -4523,7 +4523,7 @@
         },
         "ta_tempAdjustTermB": {
           "type": "parameter",
-          "units": "1",
+          "units": "1/degF^2",
           "default": 0.0,
           "shape": [
             "temperatureadjustment_rows"
@@ -6132,7 +6132,7 @@
         },
         "zmh_temperature": {
           "type": "parameter",
-          "units": "1",
+          "units": "degF",
           "default": 0.0,
           "shape": [
             "zonemonthhour_rows"
@@ -6685,7 +6685,7 @@
         },
         "rt_tempAdjustTermAExact": {
           "type": "unknown",
-          "units": "1",
+          "units": "1/degF",
           "shape": [
             "rate_rows"
           ],
@@ -6693,7 +6693,7 @@
         },
         "rt_tempAdjustTermBExact": {
           "type": "unknown",
-          "units": "1",
+          "units": "1/degF^2",
           "shape": [
             "rate_rows"
           ],
@@ -6709,7 +6709,7 @@
         },
         "rt_tempAdjustTermAWildcard": {
           "type": "unknown",
-          "units": "1",
+          "units": "1/degF",
           "shape": [
             "rate_rows"
           ],
@@ -6717,7 +6717,7 @@
         },
         "rt_tempAdjustTermBWildcard": {
           "type": "unknown",
-          "units": "1",
+          "units": "1/degF^2",
           "shape": [
             "rate_rows"
           ],
@@ -6725,7 +6725,7 @@
         },
         "rt_tempAdjustTermA": {
           "type": "unknown",
-          "units": "1",
+          "units": "1/degF",
           "shape": [
             "rate_rows"
           ],
@@ -6733,7 +6733,7 @@
         },
         "rt_tempAdjustTermB": {
           "type": "unknown",
-          "units": "1",
+          "units": "1/degF^2",
           "shape": [
             "rate_rows"
           ],
@@ -6821,7 +6821,7 @@
         },
         "run_temperature": {
           "type": "unknown",
-          "units": "1",
+          "units": "degF",
           "shape": [
             "run_rows"
           ],
@@ -6829,7 +6829,7 @@
         },
         "run_vaporPartialPressure": {
           "type": "unknown",
-          "units": "1",
+          "units": "kPa",
           "shape": [
             "run_rows"
           ],
