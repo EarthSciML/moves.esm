@@ -1,5 +1,5 @@
 {
-  "esm": "1.1.0",
+  "esm": "1.2.0",
   "metadata": {
     "name": "process-refueling fixture",
     "description": "The `process-refueling` fixture: 336 rows of MOVESOutput -- Total Gaseous Hydrocarbons from Refueling Displacement Vapor Loss (process 18) and Refueling Spillage Loss (process 19) for passenger cars on urban restricted-access roads in Washtenaw County, August, 7am, 2020 -- computed from the snapshot's own INPUT tables. It ports docs/process-refueling.md end to end.\n\nWHAT IS STRUCTURALLY NEW. `RefuelingLossCalculator` is the first calculator in this port that does not compute a rate on the running-exhaust spine at all. It is CHAINED: it subscribes to no MasterLoop stage, hangs off `BaseRateCalculator`, and reads that calculator's Total Energy Consumption output as its ACTIVITY (`calculator-dag.json`: subscribes_directly false, depends_on BaseRateCalculator). Its whole arithmetic is\n\n    emissionQuant = lossRate x energy / (energyContent x fuelDensity)\n\n-- energy divided by kJ-per-gallon is GALLONS delivered, and both loss rates are grams of THC per gallon. So the fixture reuses docs/mixed-onroad.md's spine unchanged -- the activity chain S1-S9, the cohort structure and fuel-usage rebase S10-S12, the drive-cycle operating-mode weights `dc_W`, the base rate S13-S14 and the calculator's adjustments S15 -- and everything downstream of it is new.\n\nTHE ENERGY IS IN KILOJOULES AND MUST NOT BE REBASED. S18's kilojoule-to-MillionBTU divisor is applied by the output processor AFTER every chained calculator has run (moves-framework engine.rs:1078-1086), so `rtDay_energyQuant` is deliberately undivided; the divisor is applied to the EMITTED row instead, where both refueling pollutant-processes compute it to be exactly 1 because Total Gaseous Hydrocarbons is a mass pollutant.\n\nTHE ENERGY SPINE IS A SELF-JOIN, not a second relation. The run carries seven pollutant-processes: two refueling (118, 119), two Total Organic Gases on the same processes (8618, 8619) which a downstream speciation calculator produces, and three Total Energy Consumption (9101 running, 9102 start, 9190 extended idle) which the refueling formulae consume. All seven ride one flat `rate_rows = 7 x 164` relation, and the refueling row reads its cohort's energy back through a `syms`-named self-join of that relation -- the same shape process-brakewear's PM10 chain uses. Two of the three energy pollutant-processes contribute EXACTLY ZERO, and the fixture measures that rather than assuming it: start rates live on operating modes 101-108 and extended-idle rates on mode 200, `dc_W` covers the 23 running modes of an on-network road type, and `run_offNetworkRoadTypeCount` is 0.\n\nTWO BLOCKS OF DIFFERENT SIZES, which is why there is one rank and not a per-block cohort ordinal. 336 = 64 displacement cohorts + 104 spillage cohorts, times 2 day types. `refuelingcontroltechnology` carries fuel types 1 and 5 only, so displacement loses the 40 diesel cohorts spillage keeps; and REFEC-7's inner join onto RefuelingFuelType drops all 21 electricity cohorts from both, because `fuelsubtype.energyContent` and `fueltype.fuelDensity` are NULL for electricity. `rt_refuelRank` numbers the survivors 1..168 by an inclusive prefix count over the whole rate relation (docs/esm-conventions.md 22).\n\nCOMPUTED, from the input tables and nothing else: every number. NO REFERENCE TABLE IS AN INPUT. `baserate_1_2020`, `baserate_2_2020`, `baserate_90_2020`, `baserateoutput`, `sourcebindistribution`, `sho` and `MOVESOutput` are all generator or expected output, and none of them is a `data_sources` entry here. Values out of the first and the last DO appear as `expected` in the inline tests below, which is the opposite direction.\n\nDECLARED: one number, `n_outputRefuelRow` = 168. WHICH 168 of the 1,148 candidate rate rows survive is a result of the chain and is never written down; `run_refuelRowCount` recomputes 168 and `pp_refuelRowCount` recomputes the 64 and the 104 separately.\n\nWHAT THIS FIXTURE CANNOT SEE, stated because docs/esm-conventions.md 23 requires it: both Stage II program reductions are exactly 0 in this county and year, so the two (1 - P) factors are 1 and perturbing either moves no output cell. components/refueling_loss_rate.esm carries them at 0.2 and 0.3, along with both arms of the refueling-temperature clamp, both arms of the tank-temperature-difference clamp and both readings of the minimum-vapour-loss sentinel -- none of which this fixture's own temperature reaches.",
@@ -3788,7 +3788,7 @@
         },
         "mgh_ACActivityTermB": {
           "type": "parameter",
-          "units": "1",
+          "units": "1/degF",
           "default": 0.0,
           "shape": [
             "monthgrouphour_rows"
@@ -3804,7 +3804,7 @@
         },
         "mgh_ACActivityTermC": {
           "type": "parameter",
-          "units": "1",
+          "units": "1/degF^2",
           "default": 0.0,
           "shape": [
             "monthgrouphour_rows"
@@ -3868,7 +3868,7 @@
         },
         "zmh_heatIndex": {
           "type": "unknown",
-          "units": "1",
+          "units": "degF",
           "shape": [
             "zonemonthhour_rows"
           ],
@@ -4004,7 +4004,7 @@
         },
         "ta_tempAdjustTermA": {
           "type": "parameter",
-          "units": "1",
+          "units": "1/degF",
           "default": 0.0,
           "shape": [
             "temperatureadjustment_rows"
@@ -4020,7 +4020,7 @@
         },
         "ta_tempAdjustTermB": {
           "type": "parameter",
-          "units": "1",
+          "units": "1/degF^2",
           "default": 0.0,
           "shape": [
             "temperatureadjustment_rows"
@@ -4212,7 +4212,7 @@
         },
         "evTemperatureReferenceDegF": {
           "type": "parameter",
-          "units": "1",
+          "units": "degF",
           "default": 72.0,
           "description": "adjust.rs:108. The EV branch's reference temperature is 72 degF where the standard quadratic's is 75; that is not a typo in either place."
         },
@@ -4224,7 +4224,7 @@
         },
         "evTemperatureSuppressionHeatIndex": {
           "type": "parameter",
-          "units": "1",
+          "units": "degF",
           "default": 67.0,
           "description": "adjust.rs:114. The fixture's heat index is 59.500000000000 degF -- this run selects hour 7, not the hour 9 an earlier copy of this sentence described -- so it is 7.500 degF below the threshold and the suppression does NOT fire. The EV factor is 1 by its own `adj < 0` clamp instead: two different reasons for the same 1, and they diverge once the heat index passes 67.0. The 0.0999985 degF margin this text used to claim is `mixed-onroad`'s, whose hour 9 is at 66.900001525879; docs/meteorology-generator.md 8.2 tabulates both."
         },
@@ -4412,7 +4412,7 @@
         },
         "run_heatIndex": {
           "type": "unknown",
-          "units": "1",
+          "units": "degF",
           "shape": [
             "run_rows"
           ],
@@ -4428,7 +4428,7 @@
         },
         "run_acActivityTermB": {
           "type": "unknown",
-          "units": "1",
+          "units": "1/degF",
           "shape": [
             "run_rows"
           ],
@@ -4436,7 +4436,7 @@
         },
         "run_acActivityTermC": {
           "type": "unknown",
-          "units": "1",
+          "units": "1/degF^2",
           "shape": [
             "run_rows"
           ],
@@ -5449,7 +5449,7 @@
         },
         "zmh_temperature": {
           "type": "parameter",
-          "units": "1",
+          "units": "degF",
           "default": 0.0,
           "shape": [
             "zonemonthhour_rows"
@@ -5465,7 +5465,7 @@
         },
         "zmh_relHumidity": {
           "type": "parameter",
-          "units": "1",
+          "units": "percent",
           "default": 0.0,
           "shape": [
             "zonemonthhour_rows"
@@ -5880,7 +5880,7 @@
         },
         "rt_tempAdjustTermAExact": {
           "type": "unknown",
-          "units": "1",
+          "units": "1/degF",
           "shape": [
             "rate_rows"
           ],
@@ -5888,7 +5888,7 @@
         },
         "rt_tempAdjustTermBExact": {
           "type": "unknown",
-          "units": "1",
+          "units": "1/degF^2",
           "shape": [
             "rate_rows"
           ],
@@ -5904,7 +5904,7 @@
         },
         "rt_tempAdjustTermAWildcard": {
           "type": "unknown",
-          "units": "1",
+          "units": "1/degF",
           "shape": [
             "rate_rows"
           ],
@@ -5912,7 +5912,7 @@
         },
         "rt_tempAdjustTermBWildcard": {
           "type": "unknown",
-          "units": "1",
+          "units": "1/degF^2",
           "shape": [
             "rate_rows"
           ],
@@ -5920,7 +5920,7 @@
         },
         "rt_tempAdjustTermA": {
           "type": "unknown",
-          "units": "1",
+          "units": "1/degF",
           "shape": [
             "rate_rows"
           ],
@@ -5928,7 +5928,7 @@
         },
         "rt_tempAdjustTermB": {
           "type": "unknown",
-          "units": "1",
+          "units": "1/degF^2",
           "shape": [
             "rate_rows"
           ],
@@ -5936,7 +5936,7 @@
         },
         "run_temperature": {
           "type": "unknown",
-          "units": "1",
+          "units": "degF",
           "shape": [
             "run_rows"
           ],
@@ -6975,7 +6975,7 @@
           "shape": [
             "refuelingfactors_rows"
           ],
-          "description": "The hour's ambient temperature at each fuel's coefficient row, 59.5 degF."
+          "description": "The hour's ambient temperature at each fuel's coefficient row, 59.5 degF, AS A PURE NUMBER. This is where the typed meteorology hands over to NONROAD's refueling vapour regressions, and the one place the degF is divided out (docs/esm-conventions.md 57.8). `run_temperature` carries `degF`; the three regressions downstream -- `refueling_temperature`'s `20.3 + 0.81T`, `tank_temperature_dif`'s `E*T + F`, and `displaced_vapor_rate`'s `exp(A + B*dT + C*T + D*RVP)` -- are fitted to the Fahrenheit NUMBER, and MOVES states no unit for any of their coefficients, so a unit on each would be derived from the equation rather than from a source. Dividing by one degF is exact, so the number here is the number that was here before."
         },
         "rff_refuelingTemperature": {
           "type": "unknown",
@@ -9218,10 +9218,21 @@
               }
             },
             "expr": {
-              "op": "index",
+              "op": "/",
               "args": [
-                "run_temperature",
-                "n"
+                {
+                  "op": "index",
+                  "args": [
+                    "run_temperature",
+                    "n"
+                  ]
+                },
+                {
+                  "op": "const",
+                  "args": [],
+                  "value": 1.0,
+                  "units": "degF"
+                }
               ]
             }
           }

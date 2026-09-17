@@ -1,5 +1,5 @@
 {
-  "esm": "1.1.0",
+  "esm": "1.2.0",
   "metadata": {
     "name": "moves.fixture.chain_so2_co2e_mechanism",
     "description": "The `chain-so2-co2e-mechanism` fixture: 5,534 rows of MOVESOutput over TWENTY-SIX pollutant-processes, all on Running Exhaust, for passenger cars on urban restricted-access roads in Washtenaw County, August, 7am, 2020, over BOTH day types -- computed from the snapshot's own INPUT tables. It ports docs/chain-so2-co2e-mechanism.md end to end, and it is the rung that takes the calculator track from 16 of 19 to 19 of 19: `SO2Calculator`, `CO2AERunningStartExtendedIdleCalculator` and `TOGSpeciationCalculator` are ported here and nowhere else.\n\nTHE PARENT IS `process-airtoxics` AND THE RETARGET IS MEASURED, NOT ASSUMED. This snapshot's geography, year, month, hour, day types, source type, fuel types and road type are that fixture's exactly, and eleven of its pollutants are shared. Retargeting the document at this snapshot reproduced 2,538 of the 5,534 rows before a single new equation was written, at a worst relative error of 8.207e-06, which is what says the whole activity spine S1-S9, the cohort structure, the fuel-usage rebase, the drive-cycle weights, `criteriaratio` and the E85 altTHC branch are unchanged. What is new is measured against what that retarget already produced.\n\nWHAT IS NEW IS NEW IN FIVE WAYS.\n\n(1) THREE ROOTS, OFF TWO RATE TABLES. `emissionratebyage` carries polProcessID 101 alone; Total Energy Consumption (9101) and N2O (601) come off the age-INDEPENDENT `emissionrate`, six key pairs where the deteriorating lookup has seven. The two tables are disjoint on polProcessID and `run_rateTableOverlap` asserts it. That one key pair is also the whole difference between the 125-cohort blocks and the 124-cohort ones: model year 2000 electricity has no ageGroup-2099 rate and is dropped from THC, and `emissionrate` has no age group to miss.\n\n(2) THE CHAIN IS NO LONGER MULTIPLICATIVE. Every earlier fixture in this port computes an output row by SCALING one other row. Three of these twenty-six SUM several: TOG is NMOG plus methane, CO2 Equivalent is a global-warming-potential-weighted sum of Atmospheric CO2, methane and N2O, and NonHAPTOG is NMOG minus fourteen mechanism species, clamped at zero. So the document has a SECOND pass over the same relation, and one pass is enough because none of the three feeds another (docs/esm-conventions.md 40).\n\n(3) `runspecchainedto` IS NOT A COMPLETE STATEMENT OF THE CHAIN. It declares 3101 <- 9101 for SO2 and says nothing about Atmospheric CO2, CO2 Equivalent or NonHAPTOG, because only `AirToxicsCalculator` reads it and the other three calculators carry their input pollutants as Java constants. The document unions MOVES's declaration with the one calculator constant it needs and asserts the two never overlap (docs/chain-so2-co2e-mechanism.md 2.5).\n\n(4) BOTH ARMS OF THE TEMPERATURE BRANCH ARE LIVE IN ONE DOCUMENT. Electricity Total Energy on running exhaust takes adjust.rs's EV quadratic about 72 degF -- +1.5625 % at this hour's 59.5 degF, above the max(., 0) clamp and 7.5 degF clear of the heat-index suppression -- and everything else takes the fall-through quadratic about 75 degF, whose coefficients are absent. The `evefficiency` divisor is 12 % to 22 % on the same 42 rows, and Atmospheric CO2 and CO2 Equivalent inherit both because MOVES chains them off the already-divided energy.\n\n(5) THE 44/12 MASS RATIO IS A MEASUREMENT. MOVES writes the SQL literal `(44/12)` and MariaDB rounds exact-operand division to DECIMAL. Both candidates were run against the 500 CO2 and CO2 Equivalent rows: the exact ratio lands at 5.743e-06 and 5.408e-06, the decimal 3.6667 at 1.483e-05 and 1.436e-05 -- a systematic 9.09e-06 offset that would still have PASSED the 2e-5 gate. lib/co2_equivalent.esm carries the constant and the measurement together.\n\nWHAT THIS FIXTURE DOES NOT CHECK, said here because a silent fixture reads like a passing one. `TOGSpeciationCalculator`'s `greatest(sum(...), 0)` clamp is a no-op on all 208 emitted cells -- the fourteen species take 16.1 % to 48.6 % of NMOG and the smallest residual is 4.57e-04 g. The run selects ONE mechanism, so the per-(mechanism, set) fan-out has one member. And electricity fails SO2 for TWO independent reasons -- no fuelTypeID 9 sulfate rate AND a NULL energyContent -- either of which alone would give the same 104-cohort block, so this snapshot cannot say which MOVES used. All three are asserted rather than left unstated.",
@@ -5167,7 +5167,7 @@
         },
         "mgh_ACActivityTermB": {
           "type": "parameter",
-          "units": "1",
+          "units": "1/degF",
           "default": 0.0,
           "shape": [
             "monthgrouphour_rows"
@@ -5183,7 +5183,7 @@
         },
         "mgh_ACActivityTermC": {
           "type": "parameter",
-          "units": "1",
+          "units": "1/degF^2",
           "default": 0.0,
           "shape": [
             "monthgrouphour_rows"
@@ -5247,7 +5247,7 @@
         },
         "zmh_relHumidity": {
           "type": "parameter",
-          "units": "1",
+          "units": "percent",
           "default": 0.0,
           "shape": [
             "zonemonthhour_rows"
@@ -5263,7 +5263,7 @@
         },
         "zmh_heatIndex": {
           "type": "unknown",
-          "units": "1",
+          "units": "degF",
           "shape": [
             "zonemonthhour_rows"
           ],
@@ -5399,7 +5399,7 @@
         },
         "ta_tempAdjustTermA": {
           "type": "parameter",
-          "units": "1",
+          "units": "1/degF",
           "default": 0.0,
           "shape": [
             "temperatureadjustment_rows"
@@ -5415,7 +5415,7 @@
         },
         "ta_tempAdjustTermB": {
           "type": "parameter",
-          "units": "1",
+          "units": "1/degF^2",
           "default": 0.0,
           "shape": [
             "temperatureadjustment_rows"
@@ -5709,7 +5709,7 @@
         },
         "run_heatIndex": {
           "type": "unknown",
-          "units": "1",
+          "units": "degF",
           "shape": [
             "run_rows"
           ],
@@ -5725,7 +5725,7 @@
         },
         "run_acActivityTermB": {
           "type": "unknown",
-          "units": "1",
+          "units": "1/degF",
           "shape": [
             "run_rows"
           ],
@@ -5733,7 +5733,7 @@
         },
         "run_acActivityTermC": {
           "type": "unknown",
-          "units": "1",
+          "units": "1/degF^2",
           "shape": [
             "run_rows"
           ],
@@ -6834,7 +6834,7 @@
         },
         "zmh_temperature": {
           "type": "parameter",
-          "units": "1",
+          "units": "degF",
           "default": 0.0,
           "shape": [
             "zonemonthhour_rows"
@@ -7772,7 +7772,7 @@
         },
         "rt_tempAdjustTermAExact": {
           "type": "unknown",
-          "units": "1",
+          "units": "1/degF",
           "shape": [
             "rate_rows"
           ],
@@ -7780,7 +7780,7 @@
         },
         "rt_tempAdjustTermBExact": {
           "type": "unknown",
-          "units": "1",
+          "units": "1/degF^2",
           "shape": [
             "rate_rows"
           ],
@@ -7796,7 +7796,7 @@
         },
         "rt_tempAdjustTermAWildcard": {
           "type": "unknown",
-          "units": "1",
+          "units": "1/degF",
           "shape": [
             "rate_rows"
           ],
@@ -7804,7 +7804,7 @@
         },
         "rt_tempAdjustTermBWildcard": {
           "type": "unknown",
-          "units": "1",
+          "units": "1/degF^2",
           "shape": [
             "rate_rows"
           ],
@@ -7812,7 +7812,7 @@
         },
         "rt_tempAdjustTermA": {
           "type": "unknown",
-          "units": "1",
+          "units": "1/degF",
           "shape": [
             "rate_rows"
           ],
@@ -7820,7 +7820,7 @@
         },
         "rt_tempAdjustTermB": {
           "type": "unknown",
-          "units": "1",
+          "units": "1/degF^2",
           "shape": [
             "rate_rows"
           ],
@@ -7836,7 +7836,7 @@
         },
         "run_temperature": {
           "type": "unknown",
-          "units": "1",
+          "units": "degF",
           "shape": [
             "run_rows"
           ],
@@ -8216,13 +8216,13 @@
         },
         "evTemperatureSuppressionHeatIndex": {
           "type": "parameter",
-          "units": "1",
+          "units": "degF",
           "default": 67.0,
           "description": "adjust.rs:114. This run's heat index is 59.5 degF, 7.5 degF below the threshold, so the suppression does NOT fire and the EV quadratic is live. `mixed-onroad`'s margin is 0.0999985 degF (docs/esm-conventions.md 37.2); this fixture is not the tight one."
         },
         "evTemperatureReferenceDegF": {
           "type": "parameter",
-          "units": "1",
+          "units": "degF",
           "default": 72.0,
           "description": "adjust.rs:108. The EV branch's reference temperature is 72 degF where the standard quadratic's is 75. Both are written because both are reached: THC takes the 75 arm and electricity energy takes the 72 one, in the same document and at the same hour."
         },

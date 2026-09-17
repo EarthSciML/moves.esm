@@ -1,11 +1,12 @@
 # Findings: conventions the format or the toolchain could not express
 
-Thirty-three things PLAN.md §3 Phase 1 through Phase 5 assumed, or that an author
-would reasonably assume, that did not hold. **Eighteen are fixed upstream and retired**
-from the tripwire, listed at the bottom with their sections kept above so the
-workarounds they forced can be traced. The rest still hold at the pinned
-toolchain (`esm-version.lock`: EarthSciAST `3aa046d65`, EarthSciIO
-`d109951d4`, `--features esio,parallel`).
+Forty-three things PLAN.md §3 Phase 1 through Phase 5 assumed, or that an author
+would reasonably assume, that did not hold. **Twenty-four are fixed upstream and
+retired** from the tripwire, with their sections kept so the workarounds they
+forced can be traced — and one of those, F14, was retired because the assumption
+was wrong rather than the format. The rest still hold at the pinned toolchain
+(`esm-version.lock`: EarthSciAST `8ac536bf0`, EarthSciIO `7d8b748`, `--features
+esio,parallel`).
 
 **F2 and F34 were retired at that rebuild**, which moved the pin 272 commits
 from `3a01c56fc` (2026-09-05) to `3aa046d65` (2026-09-08). Both went green in
@@ -18,12 +19,11 @@ F22, F28, F41, F43 and F45 each have a minimal `.esm` repro in this directory �
 F22 has two, one per construct. F3, F5, F13, F14, F20 and F21 had one until the
 `8ac536bf0` rebuild retired all six, and their files are deleted; F8 is a CLI
 behaviour rather than a document, and is checked by command against the ordinary
-files of the repo. **F17, F31, F33 and F42 deliberately have no repro file**: a
+files of the repo. **F17, F31, F33, F42 and F52 deliberately have no repro file**: a
 repro for any of them would assert the RIGHT answer and pass, and the tripwire
 stage below reads a passing file in this directory as "the defect is fixed". F17
 and F31 were cost findings, where the right answer arrives too slowly rather
-than wrong; F33 is about bindings this repository does not execute, so its repro
-would pass on `./esm` for a reason that has nothing to do with the defect. Each
+than wrong; F33 is about bindings this repository does not execute, so its repro would pass on `./esm` for a reason that has nothing to do with the defect; and F52's defect is that `validate` ACCEPTS something, so a document showing it validates clean. Each
 was reproduced inline in its own section instead, with the measurements that
 made it a finding. **F42 cannot have one for a fourth reason**: its trigger is
 state OUTSIDE the repository — a warm cache in `$TMPDIR` — so the same file
@@ -2484,6 +2484,55 @@ making: it is the precondition for the check, it is documentation the next
 reader can trust, and #302's cheapest proposal (say which equations were not
 checked) would turn the gap into something visible.
 
+**Re-measured 2026-09-15, and what EarthSciAST PRs #339 and #347 do to it.** On
+branch `units/const-units`, with the PR #347 head (`7704f9621`, which contains
+#339) beside today's main (`58d21a1a1`):
+
+* **The 61 reproduces; the 37 does not.** The denominator is every equation LHS in
+  `components/` and `runs/` whose declared unit is not dimensionless (60 + 1).
+  With today's main binary, replacing each by `kg` leaves 27 silent, and replacing
+  each by `cd` — a unit no quantity here has — leaves 17. Part of that gap is the
+  probe: `kg` is a mass, so every mass declared `g` looks silent
+  (`nr_air_toxics.esm` 4, `nr_hc_speciation.esm` 6). The other ten are the binary
+  and not the documents: the 2026-09-12 tree (`9557b86`) gives the same 27 under
+  today's binary. The 09-12 binary no longer exists, so which upstream change
+  closed them is not identified.
+* **#339 (exact scales) catches a scale error wherever a dimension error is
+  caught.** Multiply each of the 61 by `km/m` instead: 59 silent on main, 16 on
+  the PR binary, same documents.
+* **#347 (units on a `const`) is what reaches the multiplicative literal.**
+  Seventeen constants now declare units, on the templates that already named them
+  (conventions §57): dimension-wrong silent 17 → 13, scale-wrong 16 → 12. On the
+  main binary the same tree does not load — 32 documents carry a unit-bearing
+  `const`, which its schema refuses.
+* **It found 51 wrong declarations the old check could not see**, every one `1` on
+  a dimensional quantity whose own description names the unit, in five fixtures:
+  temperatures, temperature-adjustment coefficients, vapour pressures and the EV
+  reference temperature. Each was corrected; no arithmetic changed.
+
+**The line this section opens with is still unchecked.** `0.44704` carries no unit
+on the branch — annotating it refuses ten onroad fixtures and `spikes/7c`, whose
+drive-schedule speeds are declared `1` — and even annotated, `lomd_accelerationMs`
+validates declared `m/s`, `m/s^2` or `kg` alike: it is a speed difference over an
+implicit one-second step, inside an `ifelse` the checker cannot type. The thirteen
+still silent to a wrong dimension:
+
+| declaration | why it is still silent |
+|---|---|
+| `lomd_speedMs`, `lomd_accelerationMs` | `0.44704` bare (conventions §57 rule 6) |
+| `lomd_vsp` | the VSP polynomial's terms are bound as unit-less `const` arrays, and `speed_ms` comes from the bare conversion |
+| `met_saturationVaporPressure` | `10^x` with a symbolic exponent: undeterminable by esm-spec §4.8.3, not for want of a unit |
+| `met_heatIndex` | the Rothfusz coefficients are bare (§57 rule 4) |
+| `met_specificHumidity` | `621.1` bare: the NOx humidity columns it would force serve two equations in two units (§57 rule 6) |
+| `out_emissionQuant` | `grams_per_short_ton` bare: the NONROAD product upstream is declared `1` (§57 rule 6) |
+| `chainEmissionGrams` | `deterioration_factor`'s `min(age, cap)^B` has a symbolic exponent, and every other factor of the product is declared `1` |
+| `act_medianLifeFullLoad`, `lomd_linkAvgGrade`, `met_relHumidity`, `somd_bandMinSoakTime`, `somd_bandMaxSoakTime` | inline data with no checked consumer (§57 rule 3) |
+
+Scale-wrong, the list is the same less `lomd_speedMs`, and that one is caught by a
+different check — *"Unit conversion factor is incorrect for specified unit
+transformation"*, which compares the bare `0.44704` against the two declared units
+— not by propagating units through the equation.
+
 ### Why it was not a curiosity
 
 The mile is the unit of MOVES's onroad activity model:
@@ -3127,3 +3176,65 @@ accepted by both bindings in every case measured, costs nothing now that F50 is
 fixed, and is what `spikes/7a` and `spikes/7c` both do now. The finding is
 recorded so that the next author who writes a shape-open leaf, and sees it pass,
 knows why it is not portable.
+## F52 — `exp` and `log` check the dimension of their argument and not its scale, so `log(429.96 ppm)` is accepted
+
+**No repro file, for the reason F17, F31 and F33 have one: the defect is that
+`esm validate` ACCEPTS something.** A file showing it would validate clean today,
+and the tripwire stage reads a passing file in this directory as "the defect is
+fixed". It is reproduced inline below instead.
+
+Since EarthSciAST PR #339 two units agree only when they match in dimension **and
+exact scale**, and the checker applies that everywhere an arithmetic operator
+joins two quantities — `dimensionless (scale 1/100)` against `dimensionless` is
+refused in a `+`, a `-`, a `>` and an `ifelse`. The transcendental functions were
+not brought along. They check the DIMENSION of their argument and ignore its
+scale, so a quantity that is dimensionless at a scale other than 1 passes
+straight through.
+
+Measured on `8ac536bf0` with a four-line probe (`/scratch`-side, outside this
+repository), one variable per row, each declared and assigned as shown:
+
+| expression | argument's declared units | verdict |
+|---|---|---|
+| `exp(t)` | `degF` | **refused** — `Argument to 'exp' must be dimensionless, got temperature` |
+| `sin(t)` | `degF` | **refused** — `Argument to 'sin' must be dimensionless (or an angle), got temperature` |
+| `log(t)` | `degF` | **refused** — `Argument to 'log' must be dimensionless, got temperature` |
+| `sqrt(t)` | `degF` | typed `temperature^1/2 (scale 0.7453559924999299)`, so a wrong declaration on the result IS caught |
+| `log(s)` | `ppm` | **accepted** |
+| `exp(h)` | `percent` | **accepted** |
+
+The last two rows are the finding. `ppm` is dimensionless at scale 1e-6 and
+`percent` at 1/100, so both pass the dimension test; but `log(429.96 ppm)` is
+`log(429.96) + log(1e-6)`, which is 13.8 lower than `log(429.96)`, and
+`exp(30 percent)` is `exp(0.3)` rather than `exp(30)`. The checker cannot
+distinguish the reading the author meant from the one the declaration states,
+and neither can a reader who trusts a clean validate.
+
+**Where this repository met it.** `lib/fuel_effects.esm`'s high sulfur arm is
+`exp(power × log(sulfurLevel))` (`power_via_exp_log`, the spelling the SQL uses
+because MariaDB has no `pow`), and conventions §57.8 declares `fe_sulfurLevel`
+`ppm` so that the LOW arm's `1 − slope(pivot − sulfurLevel)` is checked. With
+the `ppm` on it, `log(sulfurLevel)` validates clean and would keep validating if
+it were wrong.
+
+### What would fix it
+
+Require the argument of `exp`, `log`, `log10`, `sin`, `cos`, `tan` and their
+inverses to be dimensionless **at scale 1**, the same test the arithmetic
+operators apply, and name the scale in the message the way they do
+(`Argument to 'log' must be dimensionless, got dimensionless (scale 1/1000000)`).
+`sqrt` needs nothing: it already propagates both the dimension and the scale.
+
+### Why this repository is not blocked by it
+
+`lib/fuel_effects.esm` carries the boundary rather than the reliance.
+`sulfur_power` divides the `ppm` out before the `log`, once, at the one place the
+two `*_relative_power_step` templates reach it — which is what conventions §57.8
+would ask for anyway, because the SQL raises the ppm NUMBER to the power. The
+arm's value does not move (the division is by 1.0) and the annotation no longer
+rests on a check that is not being made. Nothing else in the corpus applies a
+transcendental to a scaled dimensionless quantity: `exp` appears in
+`exhaust_temperature_adjustment` and `pm_temperature_adjustment` over
+`1/degF × degF`, in `displaced_vapor_rate` over bare coefficients, and in
+`power_via_exp_log`; `log10` appears in the Goff-Gratch exponent over a `K/K`
+ratio; `sin`/`atan` appear in `grade_sine` over a bare `grade/100`.

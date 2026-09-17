@@ -1,5 +1,5 @@
 {
-  "esm": "1.1.0",
+  "esm": "1.2.0",
   "metadata": {
     "name": "process-nox-speciation fixture",
     "description": "The `process-nox-speciation` fixture: 872 rows of MOVESOutput -- total Oxides of Nitrogen AND its three speciation products Nitrogen Oxide (NO), Nitrogen Dioxide (NO2) and Nitrous Acid (HONO), all on Running Exhaust, for passenger cars on urban restricted-access roads in Washtenaw County, August, 7am, 2020 -- computed from the snapshot's own INPUT tables. It ports docs/process-nox-speciation.md end to end and reuses docs/mixed-onroad.md's spine unchanged: the activity chain S1-S9, the cohort structure and the fuel-usage rebase S10-S12, the drive-cycle operating-mode weights `dc_W`, and the pollutant-process x cohort rate relation docs/process-brakewear.md introduced.\\n\\nTHE THREE METEOROLOGY COLUMNS ARE COMPUTED HERE, NOT READ. Since docs/meteorology-generator.md 8.2 this fixture derives `heatIndex`, `specificHumidity` and `molWaterFraction` from `ZoneMonthHour.temperature`, `ZoneMonthHour.relHumidity` and `County.barometricPressure` through lib/meteorology.esm, instead of reading MeteorologyGenerator's answers back off the reference. It and `process-crankcase-running` are the only two of the nine ingesting fixtures whose OUTPUT BYTES MOVED when that was done, and the movement is the point: `meanBaseRate`, `SHO` and `activity` are byte-identical on all 872 rows, because the humidity enters after the base rate; `adjustedMeanBaseRate` and `emissionQuantDirect` move on exactly the 208 NOx-total rows whose fuel type has a `noxhumidityadjust` row -- 82 gasoline, 80 diesel, 46 E85 -- and not on the 40 electricity rows, which have none and take a factor of exactly 1; and `emissionQuant` moves on 832 of 872, the same 208 plus the 624 speciated rows computed from them. The worst cell moves 7.4418e-09 relative, which is the CFR 86 factor's own shift. Against the reference the comparison's worst cell goes 9.482e-06 -> 9.485e-06 of a 2e-05 gate and the worst per-pollutant sum 4.957e-07 -> 4.883e-07. This is docs/esm-conventions.md 23's other case: the fixture CAN see the stage, so the retarget is checked here rather than only asserted elsewhere.\n\nWHY IT MOVES AT ALL, AND WHICH DIRECTION IS RIGHT. `ZoneMonthHour.specificHumidity` stores MOVES's answer at less precision than MOVES computed it with, and MOVES's own calculators then read the STORED value back. So the 2.2985e-08 gap between 10.053684062398 computed here and 10.053684293477 stored is the port being closer to the formula and further from the reference, by an amount 870x below tolerance.toml's per-cell gate. Worth knowing before reading the comparison as a regression.\n\nWHAT IS NEW, AND IT IS NOT THE SPECIATION. The chain itself is `process-brakewear`'s, with a different ratio table: `runspecchainedto` says 3201 <- 301, 3301 <- 301 and 3401 <- 301, `nono2ratio` carries the multiplier, and a self-join of the rate relation on (chained-from pollutant-process, cohort) does the multiplying. What is new is everything the PARENT needs, because no fixture before this one computed a criteria pollutant:\\n  * THE RATE IS AGE-DEPENDENT. `emissionrate` is EMPTY in this snapshot; running-exhaust NOx lives in `emissionratebyage`, 218,316 rows keyed by an `ageGroupID` the rate join did not previously carry. That key decides a ROW SET as well as a value: fuel type 9 has no ageGroup-2099 row, so the model year 2000 electricity cohort finds no rate and is not emitted while 2001-2020 are emitted at rate zero.\\n  * THE FUEL EFFECT IS LIVE. `criteriaratio` scales the rate per supplied fuel FORMULATION and is market-share weighted back to the fuel type -- 0.501 to 1.004 on the formulations this county supplies, so it is worth a factor of two on the newest gasoline cohorts. The formulation set comes from `fuelsupply` restricted to the county's `regioncounty` region and resolved to a fuel type through `fuelformulation` and `fuelsubtype`. The table is READ, not rebuilt: `FuelEffectsGenerator` computes it from `generalfuelratioexpression` on the default-DB path only, and moves.rs records that the snapshot path ships it captured.\\n  * THE TEMPERATURE ADJUSTMENT TAKES ITS NOx BRANCH, which is a temperature term TIMES a humidity correction `k`. `k` is selected by a TEXT column -- `CFR 86` for gasoline and E85, `CFR 1065` for diesel, absent for electricity -- and both arms fire here. Every emitted cohort's temperature term is 0 (the four `temperatureadjustment` rows are model years 2027-2060), so the factor IS the humidity correction: 1.0215928 on gasoline and E85, 1.0095484 on diesel, 1 on electricity.\\n\\nTHE OUTPUT RELATION IS RAGGED, AND THE RANK THAT HANDLES THAT IS NOT NEW -- docs/process-refueling.md 3.3 already ranks over the whole rate relation for blocks of 64 and 104. What is new is the MASK. Total NOx emits 124 cohorts and each species emits 104, and a species survives on a condition its own tables cannot state: `nono2ratio` must carry a ratio AND THE PARENT ROW MUST HAVE SURVIVED, which is a self-join of the rate relation on (chained-from pollutant-process, cohort) -- the same pair the quantity is chained on. `process-brakewear`'s chained block needed nothing of the kind, because its ratio covered every cohort its parent had. So `rt_survives` is a union of `selected AND rated` with `has a ratio AND its parent survives`, written as a sum because no row can satisfy both, and `rt_prefixSurvives` numbers all 436 survivors across ALL blocks in one inclusive prefix count. The output relation is then a flat (day type, survivor) product decoded by lib/keys.esm's `flat_relation_major`/`flat_relation_minor` rather than by two hand-written floor divisions -- the templates existed and three fixtures spell the arithmetic out anyway (docs/esm-conventions.md 30). 436 is the one declared number and `rateSurvivorCount` recomputes it.\\n\\nCOMPUTED, from the input tables and nothing else: every number. NO REFERENCE TABLE IS AN INPUT. `baseratebyage_1_2020`, `sbweightedemissionratebyage`, `sourcebindistribution`, `sho`, `baserateoutput` and `MOVESOutput` are all generator or expected output, and none of them is a `data_sources` entry here. Values out of the first four DO appear as `expected` in the inline tests below, which is the opposite direction and the whole point of a fixture.\\n\\nWHAT THIS FIXTURE CANNOT SEE. `run_acActivity` clamps to 0 at 59.5 degF, so the A/C factor is exactly 0 and the 23 live `fullacadjustment` rows contribute nothing -- the order in which S15's factors reach the A/C increment is written as adjust.rs writes it and is NOT tested here. `imcoverage`, `emissionrateadjustment` and `evefficiency` are all empty, so the I/M blend, the rate adjustment and the EV divisor are absent rather than exercised. `GPAFract` is 0, so every fuel-effect blend selects its normal arm.",
@@ -1705,6 +1705,7 @@
             "exact_else_wildcard",
             "gpa_blend",
             "bounded_low_then_high",
+            "bounded_specific_humidity",
             "nox_humidity_cfr86",
             "nox_humidity_cfr1065",
             "nox_temperature_adjustment",
@@ -3742,7 +3743,7 @@
         },
         "mgh_ACActivityTermB": {
           "type": "parameter",
-          "units": "1",
+          "units": "1/degF",
           "default": 0.0,
           "shape": [
             "monthgrouphour_rows"
@@ -3758,7 +3759,7 @@
         },
         "mgh_ACActivityTermC": {
           "type": "parameter",
-          "units": "1",
+          "units": "1/degF^2",
           "default": 0.0,
           "shape": [
             "monthgrouphour_rows"
@@ -3822,7 +3823,7 @@
         },
         "zmh_relHumidity": {
           "type": "parameter",
-          "units": "1",
+          "units": "percent",
           "default": 0.0,
           "shape": [
             "zonemonthhour_rows"
@@ -3838,7 +3839,7 @@
         },
         "zmh_heatIndex": {
           "type": "unknown",
-          "units": "1",
+          "units": "degF",
           "shape": [
             "zonemonthhour_rows"
           ],
@@ -3846,7 +3847,7 @@
         },
         "zmh_vaporPartialPressure": {
           "type": "unknown",
-          "units": "1",
+          "units": "kPa",
           "shape": [
             "zonemonthhour_rows"
           ],
@@ -3982,7 +3983,7 @@
         },
         "ta_tempAdjustTermA": {
           "type": "parameter",
-          "units": "1",
+          "units": "1/degF",
           "default": 0.0,
           "shape": [
             "temperatureadjustment_rows"
@@ -3998,7 +3999,7 @@
         },
         "ta_tempAdjustTermB": {
           "type": "parameter",
-          "units": "1",
+          "units": "1/degF^2",
           "default": 0.0,
           "shape": [
             "temperatureadjustment_rows"
@@ -4276,7 +4277,7 @@
         },
         "run_heatIndex": {
           "type": "unknown",
-          "units": "1",
+          "units": "degF",
           "shape": [
             "run_rows"
           ],
@@ -4292,7 +4293,7 @@
         },
         "run_acActivityTermB": {
           "type": "unknown",
-          "units": "1",
+          "units": "1/degF",
           "shape": [
             "run_rows"
           ],
@@ -4300,7 +4301,7 @@
         },
         "run_acActivityTermC": {
           "type": "unknown",
-          "units": "1",
+          "units": "1/degF^2",
           "shape": [
             "run_rows"
           ],
@@ -5840,7 +5841,7 @@
         },
         "zmh_temperature": {
           "type": "parameter",
-          "units": "1",
+          "units": "degF",
           "default": 0.0,
           "shape": [
             "zonemonthhour_rows"
@@ -6279,7 +6280,7 @@
         },
         "rt_tempAdjustTermAExact": {
           "type": "unknown",
-          "units": "1",
+          "units": "1/degF",
           "shape": [
             "rate_rows"
           ],
@@ -6287,7 +6288,7 @@
         },
         "rt_tempAdjustTermBExact": {
           "type": "unknown",
-          "units": "1",
+          "units": "1/degF^2",
           "shape": [
             "rate_rows"
           ],
@@ -6303,7 +6304,7 @@
         },
         "rt_tempAdjustTermAWildcard": {
           "type": "unknown",
-          "units": "1",
+          "units": "1/degF",
           "shape": [
             "rate_rows"
           ],
@@ -6311,7 +6312,7 @@
         },
         "rt_tempAdjustTermBWildcard": {
           "type": "unknown",
-          "units": "1",
+          "units": "1/degF^2",
           "shape": [
             "rate_rows"
           ],
@@ -6319,7 +6320,7 @@
         },
         "rt_tempAdjustTermA": {
           "type": "unknown",
-          "units": "1",
+          "units": "1/degF",
           "shape": [
             "rate_rows"
           ],
@@ -6327,7 +6328,7 @@
         },
         "rt_tempAdjustTermB": {
           "type": "unknown",
-          "units": "1",
+          "units": "1/degF^2",
           "shape": [
             "rate_rows"
           ],
@@ -6335,7 +6336,7 @@
         },
         "run_temperature": {
           "type": "unknown",
-          "units": "1",
+          "units": "degF",
           "shape": [
             "run_rows"
           ],
@@ -6509,7 +6510,7 @@
         },
         "run_vaporPartialPressure": {
           "type": "unknown",
-          "units": "1",
+          "units": "kPa",
           "shape": [
             "run_rows"
           ],
@@ -6525,7 +6526,7 @@
         },
         "run_specificHumidity": {
           "type": "unknown",
-          "units": "1",
+          "units": "g/kg",
           "shape": [
             "run_rows"
           ],
@@ -15581,9 +15582,9 @@
                 "bounded_specific_humidity": {
                   "op": "apply_expression_template",
                   "args": [],
-                  "name": "bounded_low_then_high",
+                  "name": "bounded_specific_humidity",
                   "bindings": {
-                    "value": {
+                    "specific_humidity": {
                       "op": "index",
                       "args": [
                         "run_specificHumidity",

@@ -1,5 +1,5 @@
 {
-  "esm": "1.1.0",
+  "esm": "1.2.0",
   "metadata": {
     "name": "OnroadEnergyOutput",
     "description": "Stages S15-S18 of the mixed-onroad chain: the calculator's adjustments to the base rate, the activity multiply, and the MOVESOutput row. Ports docs/mixed-onroad.md §2.3(d)-(f) and §2.4, joins J28-J35, and crates/moves-calculators/src/calculators/baseratecalculator/setup.rs:409-411, adjust.rs:107-124 and :689-708, mod.rs:1602-1608, and crates/moves-framework/src/execution/engine.rs:1286-1310 and :1450-1477.\n\nFOUR THINGS HAPPEN HERE AND EACH ONE IS A DIFFERENT KIND OF MISTAKE.\n\n(1) TWO CLAMPS THAT BOTH EVALUATE TO ZERO ON THIS FIXTURE, and are both reachable one hour away. The air-conditioning activity term is -3.63154 + h(0.072465 - 0.000276h), and at this run's heatIndex of 66.900002 degF that is -0.018900, which max(.., 0) turns into an A/C factor of exactly zero. So 56676.3 kJ/hr of A/C load on model year 1980 -- a 14.6% addition to its base rate -- is removed. The margin is 0.0189 on a difference of two terms that agree to three significant figures, so this is a genuine near-boundary decision and NOT an absent table: at heatIndex 75 the clamp releases and the term is 0.250835. The electric-vehicle temperature term is the same shape: (T-72)(0.00225 + 0.00028(T-72)) is -0.004192 at 66.9 degF and clamps to zero, and at 40 degF it is +0.214720. Both arms are asserted, because a document that hardcoded either zero would pass every test on THIS fixture and be wrong on every other hour of the day.\n\nNote what does NOT fire: adjust.rs:113-115 zeroes the EV temperature term when sourceTypeID < 40 and heatIndex > 67.0, on the grounds that light-duty A/C load is the heat-index path's business. This run's heatIndex is 66.900002, so the suppression misses by 0.1 degF and the EV branch is live -- and returns 1.0 only because of its own clamp. Both near-boundary facts are in one place in this file so that a reader meets them together.\n\n(2) THE EV ENERGY DIVISOR, which is the largest single correction in the fixture and the one moves.rs does not apply. meanBaseRate is DIVIDED by batteryEfficiency x chargingEfficiency, selected by the vehicle's AGE GROUP through agecategory: 0.893 for ages 0-3, then 0.848964, 0.821943, 0.796589 and 0.778577 for the older groups. Omitting it makes the 42 electricity rows 10.7% to 22.1% low. moves.rs loads the table, expands its model-year ranges, and then gates the only code that consumes it off (baseratecalculator/mod.rs:798-802 sets only apply_activity; ev_efficiency: true appears solely in its own tests), while model.rs:55-56 records that the Java always runs the section. The values asserted here are measured off the snapshot's own MOVESOutput, so this file follows canonical MOVES and not the Rust. docs/mixed-onroad.md §2.3(f).\n\n(3) THE ACTIVITY IS SHO DIVIDED BY noOfRealDays, mod.rs:1602-1608. `sho` is tabulated per day type over the noOfRealDays days that day type stands for in an average week (see components/onroad_source_hours.esm, point 2), so the divisor converts it to one typical day. Applying it in both places is a ~4.3x over-emit and mod.rs:1536-1542 says so in as many words; applying it in neither is a 2x on the weekend and a 5x on the weekday. In moves.rs a missing divisor is a hard error rather than a 1.0, which is the right polarity and is worth copying.\n\n(4) THE SCC IS ARITHMETIC AND THE ENERGY UNIT IS NOT GRAMS. An onroad SCC is 22e8 + fuel x 1e6 + sourceType x 1e4 + roadType x 1e2 + process (engine.rs:1450-1477) -- computed, not looked up, and the `scc` table's 14,976 rows are read by nothing. And emissionQuant leaves the calculator in KILOJOULES: pollutants 91, 92 and 93 alone are rebased to the run's energy unit, here Million BTU, by dividing by 1055.0559e6/1000 (moves-runspec/src/model.rs:546-565, engine.rs:1286-1310). Mass pollutants are untouched, and MassUnit is parsed, recorded and never applied anywhere in the tree.\n\nWHAT IS NOT COMPUTED. `out_meanBaseRate` is the one carried column, and it is the one relation docs/mixed-onroad.md §8.1 says this port does not compute: the base rate needs W[hourDayID, opModeID], the speed-bin-weighted drive-cycle operating-mode distribution, which canonical MOVES computes inside the worker and drops, so no captured table carries it. §7.3 isolates it by solving for it -- 125 equations, 23 unknowns, residual 7.1e-06 -- which establishes that the base rate factorises exactly and that everything on either side of it is right. It is carried here with the same status as components/age_distribution.esm's `age_grownModelYearFraction` carries agedist.f's result (finding F12), and for the same reason: a quantity the port cannot yet produce enters as data, at the point where a reader would otherwise assume it was computed.\n\nData: the ten rows are docs/mixed-onroad.md §6.1-§6.4's four worked examples plus six more chosen to cover all four SCCs, both day types and three of the seven EV age groups. Every meanBaseRate, A/C coefficient, efficiency and penetration fraction is the snapshot's; the `sho` values are computed by components/onroad_source_hours.esm and carried so this file tests standalone.",
@@ -55,11 +55,11 @@
 
       "variables": {
         "ambientHeatIndex": {
-          "type": "parameter", "units": "1", "default": 66.900001525879,
+          "type": "parameter", "units": "degF", "default": 66.900001525879,
           "description": "The same value as `run_heatIndex`, as an overridable scalar. It exists only so the two clamp tests can move it: a `parameter_overrides` entry is keyed by bare local name and reaches a `parameter`, not the left-hand side of a `const` equation, so a document whose only copy of a number is a `const` cannot test the other arm of a branch that turns on it."
         },
         "evTemperatureSuppressionHeatIndex": {
-          "type": "parameter", "units": "1", "default": 67.0,
+          "type": "parameter", "units": "degF", "default": 67.0,
           "description": "adjust.rs:114's threshold. Above this heat index a light-duty source type's EV cold-temperature term is zeroed, because light-duty air-conditioning load is the heat-index path's business instead. This run's 66.900002 is BELOW it by 0.1 degF, so the suppression misses and the EV branch is live."
         },
         "evTemperatureSourceTypeCeiling": {
@@ -67,7 +67,7 @@
           "description": "adjust.rs:114's other condition: the suppression applies only to source types below 40, i.e. light duty. Source type 21 qualifies."
         },
         "run_heatIndex": {
-          "type": "unknown", "shape": ["run_rows"], "units": "1",
+          "type": "unknown", "shape": ["run_rows"], "units": "degF",
           "description": "zonemonthhour[8, 261610, 9].heatIndex, in degF: 66.900001525879, which is 66.9f widened. It equals `temperature` in this table because the humidity is low enough that the heat index does not exceed the dry-bulb temperature. Both clamps of point (1) turn on this one number. A one-row relation rather than a scalar, per docs/esm-conventions.md §11 and finding F16."
         },
         "run_acActivityTermA": {
@@ -75,11 +75,11 @@
           "description": "monthgrouphour[8, 9].ACActivityTermA = -3.63154."
         },
         "run_acActivityTermB": {
-          "type": "unknown", "shape": ["run_rows"], "units": "1",
+          "type": "unknown", "shape": ["run_rows"], "units": "1/degF",
           "description": "monthgrouphour[8, 9].ACActivityTermB = 0.072465."
         },
         "run_acActivityTermC": {
-          "type": "unknown", "shape": ["run_rows"], "units": "1",
+          "type": "unknown", "shape": ["run_rows"], "units": "1/degF^2",
           "description": "monthgrouphour[8, 9].ACActivityTermC = -0.000276."
         },
         "run_acActivityRaw": {
