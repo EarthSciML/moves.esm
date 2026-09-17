@@ -5437,7 +5437,7 @@ A declared unit never checks the VALUE — `const(0.4470, "m*h/(mi*s)")` is acce
 or an affine offset: the 273.15 and the 32 are checked as temperatures, not as the
 right temperatures.
 
-## 58. The NONROAD emission chain is a MASS, and what stopped it from being one was a sentence that had been false for a week **[EarthSciAST `c31ea106d`; 27 declarations, one boundary, one upstream gap (F54)]**
+## 58. The NONROAD emission chain is a MASS, and what stopped it from being one was a sentence that had been false for a week **[EarthSciAST `c31ea106d`; 33 declarations, 5 annotated `const`s, one boundary, two upstream gaps]**
 
 §57.6 left two constants bare, `short_tons_per_gram` (CVTTON, 1.102311e-06) and
 its inverse, with a measurement: annotate them and `emissionShortTons` is refused
@@ -5553,8 +5553,11 @@ equation checkable", and both were measured:
 
 ### 58.5 What is still not checked, and it is not a missing unit
 
-`runs/nr_logging_county_run.esm` is declared throughout and **none of it is
-checked**, because declared units do not cross a `{ref}` mount edge: an expression
+Two holes, both upstream and both measured; §58.6 counts what they cost.
+
+**The mount edge.** `runs/nr_logging_county_run.esm` is declared throughout and
+**none of it is checked**, because declared units do not cross a `{ref}` mount
+edge: an expression
 that reads `Activity.act_annualHours` or `Factors.zeroHourRate` is undeterminable
 however the leaf declared it. Measured both ways in the same document — a product
 of two LOCAL variables is caught declared `cd`, and the same declaration on a
@@ -5564,3 +5567,60 @@ real reason `chainEmissionGrams` is dim-silent; F44's list gives a different one
 DIMENSIONLESS base is determinable, measured. The run's declarations are written
 anyway: they are correct, they document the chain, and they begin checking the day
 the mount edge carries units.
+
+**A `faq` `filter`'s operands.** The hp bin test is `hpMin <= hpAvg <= hpMax`
+written as a `filter` — §3's rule, the SCC and the tech are `join.on` clauses and
+the horsepower is a predicate — and a filter is not unit-checked. Measured with a
+nine-line probe: `filter: index(edge, i) <= val` with `edge` declared `cd` and
+`val` declared `hp` validates, while the identical `<=` as an equation's
+right-hand side is refused (`Incompatible dimensions in '<=': luminosity vs
+length^2*mass*time^-3`). So the four bin-edge columns are declared `hp` because
+they ARE horsepower, not because anything checks them, and their descriptions say
+so. This is wider than the mount edge — every `filter` in the corpus is unchecked
+— and it deserves a finding number, which this pass was not allocated one to
+give.
+
+### 58.6 The sweep, and why the silent count went UP
+
+F44's sweep (every non-dimensionless declaration an equation writes, each wrong
+unit tried alone; "dimension" replaces the unit with `cd`, "scale" multiplies it
+by `km/m`), on `8ac536bf0`:
+
+| tree | declarations swept | dimension-wrong, silent | scale-wrong, silent |
+|---|---|---|---|
+| §57 (before this section) | 189 | 11 | 10 |
+| after this section | **212** | **17** | **16** |
+
+**One declaration left the silent list and it is the one this section is about**:
+`out_emissionQuant` in `components/movesoutput_aggregation.esm`, which was
+declared `g` and checked against nothing, now refuses `short_ton`, `1`, `tonne`
+and `cd`. In the fixtures the coverage is unchanged at 129 of 129 caught, and the
+twelve that `fixtures/nr-logging-county.esm` contributes include the three this
+section added.
+
+**Seven arrived, and every one of them is a declaration that did not exist
+before** — the sweep can only count a non-`1` declaration, so writing one is the
+only way to be counted silent. They are two kinds and neither is a unit this
+repository is unsure of:
+
+* `chainAnnualHours`, `chainUnitConversion` and `chainEmissionGrams` in
+  `runs/nr_logging_county_run.esm` — finding **F54**, units do not cross a
+  `{ref}` mount edge. Three of the seventeen are one upstream gap.
+* `act_hpAvg` and the four hp bin edges `mix_hpMin`, `mix_hpMax`, `emr_hpMin`,
+  `emr_hpMax` — **a `faq` `filter`'s operands are not unit-checked.** Measured
+  with a nine-line probe: `filter: index(edge, i) <= val` with `edge` declared
+  `cd` and `val` declared `hp` validates, and the identical `<=` written as an
+  equation's right-hand side is refused (`Incompatible dimensions in '<=':
+  luminosity vs length^2*mass*time^-3`). The hp bin test is a `filter` in every
+  aggregate that reads it — deliberately, §3's rule that the SCC and the tech are
+  `join.on` clauses and the horsepower is a predicate — so the four edges are
+  declared because they ARE horsepower and not because anything checks them.
+  `act_hpAvg` is §57.3's case, inline data whose consumer is in another document.
+  **This deserves a finding number and was not allocated one here.** It is a
+  second silent hole of the same shape as F54 and it is wider: every `filter` in
+  the corpus is unchecked, not only these.
+
+So the honest reading of 11 → 17 is: one real gain, three upstream mount-edge
+silences, one inline-data silence, and two upstream filter silences — and the
+eleven that were silent before are still silent for the reasons §57.8 gives,
+less `out_emissionQuant`.
