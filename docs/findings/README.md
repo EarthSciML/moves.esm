@@ -3071,3 +3071,65 @@ accepted by both bindings in every case measured, costs nothing now that F50 is
 fixed, and is what `spikes/7a` and `spikes/7c` both do now. The finding is
 recorded so that the next author who writes a shape-open leaf, and sees it pass,
 knows why it is not portable.
+## F52 — `exp` and `log` check the dimension of their argument and not its scale, so `log(429.96 ppm)` is accepted
+
+**No repro file, for the reason F17, F31 and F33 have one: the defect is that
+`esm validate` ACCEPTS something.** A file showing it would validate clean today,
+and the tripwire stage reads a passing file in this directory as "the defect is
+fixed". It is reproduced inline below instead.
+
+Since EarthSciAST PR #339 two units agree only when they match in dimension **and
+exact scale**, and the checker applies that everywhere an arithmetic operator
+joins two quantities — `dimensionless (scale 1/100)` against `dimensionless` is
+refused in a `+`, a `-`, a `>` and an `ifelse`. The transcendental functions were
+not brought along. They check the DIMENSION of their argument and ignore its
+scale, so a quantity that is dimensionless at a scale other than 1 passes
+straight through.
+
+Measured on `8ac536bf0` with a four-line probe (`/scratch`-side, outside this
+repository), one variable per row, each declared and assigned as shown:
+
+| expression | argument's declared units | verdict |
+|---|---|---|
+| `exp(t)` | `degF` | **refused** — `Argument to 'exp' must be dimensionless, got temperature` |
+| `sin(t)` | `degF` | **refused** — `Argument to 'sin' must be dimensionless (or an angle), got temperature` |
+| `log(t)` | `degF` | **refused** — `Argument to 'log' must be dimensionless, got temperature` |
+| `sqrt(t)` | `degF` | typed `temperature^1/2 (scale 0.7453559924999299)`, so a wrong declaration on the result IS caught |
+| `log(s)` | `ppm` | **accepted** |
+| `exp(h)` | `percent` | **accepted** |
+
+The last two rows are the finding. `ppm` is dimensionless at scale 1e-6 and
+`percent` at 1/100, so both pass the dimension test; but `log(429.96 ppm)` is
+`log(429.96) + log(1e-6)`, which is 13.8 lower than `log(429.96)`, and
+`exp(30 percent)` is `exp(0.3)` rather than `exp(30)`. The checker cannot
+distinguish the reading the author meant from the one the declaration states,
+and neither can a reader who trusts a clean validate.
+
+**Where this repository met it.** `lib/fuel_effects.esm`'s high sulfur arm is
+`exp(power × log(sulfurLevel))` (`power_via_exp_log`, the spelling the SQL uses
+because MariaDB has no `pow`), and conventions §57.8 declares `fe_sulfurLevel`
+`ppm` so that the LOW arm's `1 − slope(pivot − sulfurLevel)` is checked. With
+the `ppm` on it, `log(sulfurLevel)` validates clean and would keep validating if
+it were wrong.
+
+### What would fix it
+
+Require the argument of `exp`, `log`, `log10`, `sin`, `cos`, `tan` and their
+inverses to be dimensionless **at scale 1**, the same test the arithmetic
+operators apply, and name the scale in the message the way they do
+(`Argument to 'log' must be dimensionless, got dimensionless (scale 1/1000000)`).
+`sqrt` needs nothing: it already propagates both the dimension and the scale.
+
+### Why this repository is not blocked by it
+
+`lib/fuel_effects.esm` carries the boundary rather than the reliance.
+`sulfur_power` divides the `ppm` out before the `log`, once, at the one place the
+two `*_relative_power_step` templates reach it — which is what conventions §57.8
+would ask for anyway, because the SQL raises the ppm NUMBER to the power. The
+arm's value does not move (the division is by 1.0) and the annotation no longer
+rests on a check that is not being made. Nothing else in the corpus applies a
+transcendental to a scaled dimensionless quantity: `exp` appears in
+`exhaust_temperature_adjustment` and `pm_temperature_adjustment` over
+`1/degF × degF`, in `displaced_vapor_rate` over bare coefficients, and in
+`power_via_exp_log`; `log10` appears in the Goff-Gratch exponent over a `K/K`
+ratio; `sin`/`atan` appear in `grade_sine` over a bare `grade/100`.
