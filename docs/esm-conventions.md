@@ -5503,6 +5503,14 @@ fixtures' `dss_vsp` from silent to caught, and it brings `operatingmode`'s four
 band bounds with it (`kW/tonne` on the VSP pair, `mi/h` on the speed pair), because
 a half-open range test compares them against the typed quantity.
 
+**Two more the typing found, both measured the same way — remove the fix, re-validate.**
+Rule 6 named one defect (`*_accelerationMs`); there were three.
+
+| what refuses | how it was measured | what it is |
+|---|---|---|
+| `lomd_at0`, `lomd_at1`, `lomd_at2`: `Incompatible dimensions in '+': length*time^-1 vs length*time^-2` at equations 26, 27 and 28 | the `per_schedule_second` wrap taken back off the three `At` differences, everything else left in place | the SAME missing one-second step, in the mi/h domain instead of the m/s one: the SQL adds `speed[t] − speed[t−1]` to `9.81/0.44704 · sin(atan(g/100))`, a speed to an acceleration, and this port copied it faithfully. It only becomes visible once `full_scale_percent` makes `grade_sine` dimensionless, so rule 6 could not have seen it |
+| `dss_vsp` in a fixture: three `Incompatible dimensions in '+'`, `length^3*time^-3` against `length^2*time^-3` against `length^2*time^-2` against `length*time^-1`, at its equation and its variable | the five `sourceusetypephysicsmapping` declarations put back to `1` in `fixtures/process-tirewear.esm` | five wrong declarations, not one: `rollingTermA`, `rotatingTermB`, `dragTermC`, `sourceMass` and `fixedMassFactor` are not dimensionless, and with a typed `speed_ms` the road-load polynomial adds four different dimensions. This is rule 6's ordinary case — correct the declaration — and the units are the ones the paragraph above derives |
+
 **Where this pass STOPS, and why the line is there.** The average-speed-bin chain —
 `avgspeedbin.avgBinSpeed`, `driveschedule.averageSpeed`, the bracketing speeds and
 `act_averageSpeed` — is still declared `1` although every one of their descriptions
