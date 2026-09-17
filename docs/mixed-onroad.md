@@ -120,9 +120,10 @@ So the 125 rows are polProcessID 9101 alone:
 
 and the 125 is **ragged** — 41 model years for fuel 1, 40 for fuel 2, 23 for
 fuel 5 and 21 for fuel 9, not a rectangle. §2.4 gives the rule that decides
-membership. This is the same shape as `nr-logging-county`'s 36 ragged
-`(SCC, modelYearID)` pairs, and it is handled the same way: a flat row
-relation with the key as columns (`docs/esm-conventions.md` §2, finding F14).
+membership. This is the same shape as `nr-logging-county`'s 36 ragged `(SCC, modelYearID)`
+pairs, and it is handled the same way: a flat row relation with the key as
+columns (`docs/esm-conventions.md` §2, with §22 for why the `ragged` axis kind
+is not used here; finding F14, retired).
 
 ---
 
@@ -2131,8 +2132,10 @@ Described from code only, and each would need its own verification:
 
 **Six rules carried over from Phase 2 that still apply.**
 
-* Tables stay tables; the output relation carries its key as **columns**, because
-  the 125 cohorts are ragged (§0.2, finding F14).
+* Tables stay tables; the output relation carries its key as **columns**,
+because the 125 cohorts are ragged (§0.2; `docs/esm-conventions.md` §22 for why
+the `ragged` axis kind is not used, now that finding F14 is retired and it
+evaluates).
 * Every equality is a `join.on`; the two model-year ranges (J25, J32) are a
   `join.on` plus a range `filter`, exactly as NONROAD's hp containment was.
 * J5 is not a self-join — second relation, second index set (finding F11).

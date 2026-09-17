@@ -1719,13 +1719,18 @@ The decomposition the measurement points at, for a future author:
 **(2) The output axis cannot be derived from the data, and must be declared.**
 The 128 rows are 64 surviving `(fuelTypeID, modelYearID)` cohorts × 2 day types,
 and which 64 survive is a *result* of the chain (§6.4: two independent
-mechanisms). Materialising "the distinct surviving pairs" as an index set is
-precisely `skolem` / `distinct` / `rank` value invention, which **validates and
-materialises empty** — finding F5 — and the `ragged` index-set kind advertised
-for a ragged key set ignores its own member factor (F14). So the axis is a
-declared size, as `fixtures/nr-logging-county.esm`'s `output_rows: 12` and
-`age_rows: 3` are, and that is the established practice of this repository
-rather than a shortcut.
+mechanisms). Materialising "the distinct surviving pairs" as an index set is precisely
+`skolem` / `distinct` / `rank` value invention, which **validated and
+materialised empty** when this was written — finding F5, fixed by EarthSciAST PR
+#342 and retired — and the `ragged` index-set kind advertised for a ragged key
+set was recorded as ignoring its own member factor (F14, retired: the port's
+spelling was wrong, and a ragged axis wants a padded member array this chain has
+no use for). So the axis is a declared size, as
+`fixtures/nr-logging-county.esm`'s `output_rows: 12` and `age_rows: 3` are, and
+that is the established practice of this repository rather than a shortcut. Both
+constructs work now; whether either is a better spelling here has not been
+re-measured, so the declaration stands on what §7.2 measured about it rather
+than on two findings that no longer hold.
 
 What makes the declaration honest rather than a transcription of the answer, and
 it is worth spelling out because the alternative reading is that the fixture

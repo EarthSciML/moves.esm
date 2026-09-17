@@ -976,9 +976,13 @@ recurrences.** Neither is F28-shaped and both are the same shape as each other
   ends the soak, and that minute and every later one are *not recorded*. So the
   output row count depends on the arithmetic, not only on the input.
 
-Materialising a data-determined row count is findings **F5** (`skolem` /
-`distinct` / `rank` value invention materialises empty) and **F14** (a `ragged`
-index set ignores its member factor) — not F28. It is expressible the way
+Materialising a data-determined row count is what findings **F5** and **F14**
+were about — not F28. Both are retired: F5's value invention materialised empty
+until EarthSciAST PR #342, and F14 read a ragged axis as ignoring its member
+factor when the port's own spelling was what ignored it (PR #352 settled the
+normative reading). So the constructs are available; the shape below is still
+what this port uses, and the bill below is what makes that a cost rather than a
+limitation. It is expressible the way
 `fixtures/nr-logging-county.esm` and `docs/esm-conventions.md` §22 and §31 do
 it: a rectangular grid with a mask and a global rank. The bill is a
 37,216 × 22 grid for TTG-2 and, for TTG-4b, a grid over the longest soak

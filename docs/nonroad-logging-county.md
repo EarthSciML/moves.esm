@@ -1882,9 +1882,15 @@ because its rows simply never appear.
 
 #### The shape the `.esm` had to take, which §6.3 does not describe
 
-The emitted key set is ragged — 3, 29 and 4 model years — and a `ragged` index
-set does not evaluate (docs/findings F14), while a rectangular
-`[SCC × modelYear]` output axis emits 348 keys where the snapshot has 144. The
+The emitted key set is ragged — 3, 29 and 4 model years — while a rectangular
+`[SCC × modelYear]` output axis emits 348 keys where the snapshot has 144. A
+`ragged` index set is the other way out and this document does not take it. The
+reason is no longer that it fails: EarthSciAST PR #352 settled the spelling
+normatively (a ragged range binds the POSITION, and `values` is a padded
+`[parent, max length]` array a body gathers from with `index(values, i, k)`), so
+the axis evaluates — but it wants that padded member array, which the flat
+relation below does without. docs/findings F14 recorded this as a defect; what
+was wrong was this port's own spelling, and the finding is retired. The
 document gets the ragged set out of rectangular machinery in three layers:
 
 1. **A rectangular grid.** Cohorts live on `equipment_point_rows × age_slot_rows`

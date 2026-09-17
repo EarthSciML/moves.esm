@@ -773,8 +773,10 @@ is the rule and not an artefact.
 **An output relation carries its key as COLUMNS** (§2). Ragged again, and for a
 physical reason this time: the 125 cohorts are 41, 40, 23 and 21 model years
 for gasoline, diesel, E85 and electricity — the years before E85 and electric
-drive existed, and the year diesel passenger cars stopped. Finding F14's flat-
-relation workaround applies unchanged.
+drive existed, and the year diesel passenger cars stopped. The flat-relation shape §22 built applies unchanged — and since PR #352 retired
+F14 it is a choice rather than a workaround: a ragged axis does evaluate, it
+simply wants a padded `[parent, max length]` member array that a flat relation
+with the key as columns has no use for.
 
 **A relation cannot be joined to itself** (§3, finding F11). Two more instances:
 the travel fraction's numerator against its HPMS-group denominator, and the
