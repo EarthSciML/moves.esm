@@ -536,7 +536,7 @@ Seven things about ingest that were paid for once and should not be re-derived.
   stated — an emission factor in g/hp-hr carries no `units` and names the unit in
   its `description`, so the whole roll-up product and `out_emissionQuant` with it
   are declared unitless — outlived its reason by a week and was still being cited
-  in six variable descriptions and in §57.6's table. **§58 is the correction:**
+  in ten variable descriptions, two data-catalog notes and §57.6's table. **§58 is the correction:**
   the rate is `g/(hp*h)`, the product is a `short_ton`, and `out_emissionQuant`
   is a `g` that is checked.
 
@@ -5449,9 +5449,9 @@ pins" — was wrong on all three, and the thing that actually blocked the chain 
 at EarthSciAST `c31ea106d` on 2026-09-10 (`mi`, `lb`, `hp`, `gal` — added, its
 commit message says, because they are "the units MOVES is written in"; `short_ton`
 had landed on 2026-08-20). Both are in `8ac536bf0`, the binary §57 was measured
-against. The stale bullet was still being cited by six variable descriptions, by
-the two NONROAD fixtures' catalog notes and by §57.6's own table, so nobody
-re-asked the question. **The rule this section is: when a declaration is blocked
+against. The stale bullet was still being cited by TEN variable descriptions, by
+the two NONROAD fixtures' catalog notes and by §57.6's own table — twelve copies
+of one fact about a registry — so nobody re-asked the question. **The rule this section is: when a declaration is blocked
 by a missing unit, the blocker is a fact about a registry that changes, and it
 belongs in ONE place with a date, not restated in every description that suffers
 from it.**
