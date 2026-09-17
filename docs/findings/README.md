@@ -272,10 +272,16 @@ rebuild.** Filed as #265. A template library's `enum` ops now resolve against
 the library's own `enums` block, which is what §9.3 always implied and what the
 error message could not say. The repro and its library half are deleted; the
 tripwire flipped on the first run against the new binary. What the defect forced
-is still in the tree and is no longer forced: `lib/conversion.esm` carries its
-activity-unit and emission-unit codes as zero-parameter constant-fragment
-templates rather than as enums. Converting them is a follow-up, not a
-correctness fix — the call sites pass the code either way.
+is now undone: `lib/conversion.esm` declares `emission_unit` and `activity_unit`
+in its own `enums` block, and its six unit-code templates are `enum` ops that
+resolve there. The template NAMES are unchanged, so no call site moved and no
+number moved. Measured rather than assumed: an importer that declares no `enums`
+block at all evaluates and reads the library's codes; an importer that declares
+`emission_unit` and `activity_unit` itself, at deliberately wrong values, gets
+the library's codes anyway, and the library's own `==` branches inside
+`annual_activity_hours` and `unit_conversion` still match the library's
+numbering; and changing a value in the LIBRARY moves that importer's answer,
+which is what says whose scope resolved it.
 
 **Filed upstream: [EarthSciML/EarthSciAST#265](https://github.com/EarthSciML/EarthSciAST/issues/265)**, verified still reproducing on `68574b653`.
 
@@ -292,8 +298,9 @@ merges only `index_sets` across it. So this is arguably conforming; what it
 costs is not obvious from either section read alone.
 
 **Impact.** A template library cannot name its own constants symbolically. Both
-routes around it are in use here: `lib/conversion.esm` carries its activity-unit
-codes as zero-parameter constant-fragment templates (§9.6.1), and
+routes around it were in use here when this was filed: `lib/conversion.esm`
+carried its activity-unit codes as zero-parameter constant-fragment
+templates (§9.6.1), and
 `lib/identifiers.esm`'s `pol_process_id` takes the identifier *values* as
 parameters that a component binds to `enum` ops in its own scope. The library
 half validates on its own, so the failure surfaces at the importer, naming an
