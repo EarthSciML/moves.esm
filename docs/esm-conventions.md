@@ -528,11 +528,17 @@ Seven things about ingest that were paid for once and should not be re-derived.
   unchanged: what varies per point moved to a six-row `equipment_point_rows`
   and the run scope stayed one row, so no run-level equation was touched. §22
   is the rule that came out of doing it.
-* **`hp` is not a unit the registry knows.** `W`, `kW`, `degF`, `g`, `h`, `yr`
-  and `1` are. So an emission factor in g/hp-hr carries no `units` and names the
-  unit in its `description` — and because no factor in the roll-up product
-  carries a unit, neither can the product: `out_emissionQuant` is grams,
-  declared unitless, and says so.
+* **~~`hp` is not a unit the registry knows.~~ It is, and §58 is what replaced
+  this bullet.** It was true when this section was written, and it stopped being
+  true at EarthSciAST `c31ea106d` (2026-09-10), which added `mi`, `lb`, `hp` and
+  `gal` *because* MOVES is written in them — `hp` is the mechanical horsepower,
+  550 ft·lbf/s, and `short_ton` had arrived three weeks earlier. The rule it
+  stated — an emission factor in g/hp-hr carries no `units` and names the unit in
+  its `description`, so the whole roll-up product and `out_emissionQuant` with it
+  are declared unitless — outlived its reason by a week and was still being cited
+  in six variable descriptions and in §57.6's table. **§58 is the correction:**
+  the rate is `g/(hp*h)`, the product is a `short_ton`, and `out_emissionQuant`
+  is a `g` that is checked.
 
 ### 11.1 Joining big tables to big tables
 
@@ -5329,7 +5335,7 @@ against the annotated tree, two constants are still bare:
 | constant | would be | refuses | why it is neither a declaration fix nor a boundary here |
 |---|---|---|---|
 | `mph_to_meters_per_second` 0.44704 | `m*h/(mi*s)` — which the registry resolves to DIMENSIONLESS at scale 3125/1397, since `m·h/(mi·s)` cancels | 11 onroad fixtures, `components/link_operating_mode_distribution.esm`, and all three 7c spike documents | it is a scale factor rather than a dimension, so it does not merely want `mi/h` on one variable: every drive-schedule speed, prior speed, next speed, bin speed and operating-mode speed bound in those documents — about twenty declarations each — has to move together, and one of them cannot move without an expression change. `*_accelerationMs` is `(speed[t] − speed[t−1]) × 0.44704`, which is a `m/s` and is declared and used as a `m/s^2`; the drive schedule's one-second step is real, it is what makes the difference an acceleration, and it is not written down anywhere. Measured: with the annotation, `components/link_operating_mode_distribution.esm` equation 30 is refused `length*time^-2` against `length*time^-1`, which is the defect and not an artefact of the annotation. Writing `÷ 1 s` would be exact and would fix it, and it belongs with the twenty-declaration sweep rather than ahead of it |
-| `short_tons_per_gram` 1.102311e-06, and `grams_per_short_ton` with it | `short_ton/g` | components/exhaust_rollup.esm and runs/nr_logging_county_run.esm, at `emissionShortTons` | measured: with the annotation, `emissionShortTons` is refused as `1` (dimensionless at scale 45359237/50) AND as `short_ton` (mass against dimensionless), because the ten-factor product upstream is dimensionless factor by factor. It would have to yield GRAMS, and three of its factors — `adjustmentTime`, `monthDayFactor`, `unitConversionFactor` — have no unit MOVES pins. A boundary would be dishonest here: there is no regression, just a product that has not been typed yet |
+| ~~`short_tons_per_gram` 1.102311e-06, and `grams_per_short_ton` with it~~ **— RESOLVED by §58, which see** | `short_ton/g`, now declared | — | the measurement in this row was right and its DIAGNOSIS was wrong twice. `unitConversionFactor` has a MOVES pin and it is in the function's own docstring (unitcf.f converts g/hp-hr to g/hr by multiplying by hpavg × faclod, exhaust.rs:228-236); `adjustmentTime` and `monthDayFactor` have one too, and it is that they are pure numbers — shares of an activity total over counts of days. What actually blocked the chain was §11's `hp` bullet, false since EarthSciAST `c31ea106d`. §58 declares the chain and `emissionShortTons` is a checked `short_ton` |
 
 **The three the previous pass could not annotate, it now can**, because rule 8
 gives their chains a boundary: `heat_index_threshold` and `heat_index_ceiling`
@@ -5383,8 +5389,15 @@ the bound, and `components/fuel_effects.esm`'s two property gathers re-apply
 property 7 knows which property it selected. The sixth is `lib/fuel_effects.esm`'s
 `sulfur_power`, which divides the `ppm` out before the `log` in the high sulfur
 arm — the SQL raises the ppm NUMBER to the power, and finding F52 is that the
-checker would not have said otherwise. Six boundaries exist in this repository
-and each is listed here; a seventh would need a sentence here too.
+checker would not have said otherwise. SEVEN boundaries exist in this repository
+and each is listed here; an eighth would need a sentence here too. The seventh is
+§58's: `nremissionrate.meanBaseRate` is one column holding `g/(hp*h)` on a
+pollutant row and `lb/(hp*h)` on the BSFC carrier 9901, so the column carries
+neither, and `fixtures/nr-logging-county.esm`'s J12 select and
+`runs/nr_logging_county_run.esm`'s chain product each multiply by `1 g/(hp*h)`
+where the join has already said which pollutant processes the rows are — the same
+shape as `fe_propValue`'s two property gathers, and counted as one boundary with
+two sites for the same reason.
 
 **What a boundary costs.** It converts rather than checks, so a wrong unit on the
 quantity entering one is not caught: `met_relHumidity` declared `cd` still
@@ -5423,3 +5436,131 @@ each is one of four things: `10^x` with a symbolic exponent, §4.8.3
 A declared unit never checks the VALUE — `const(0.4470, "m*h/(mi*s)")` is accepted —
 or an affine offset: the 273.15 and the 32 are checked as temperatures, not as the
 right temperatures.
+
+## 58. The NONROAD emission chain is a MASS, and what stopped it from being one was a sentence that had been false for a week **[EarthSciAST `c31ea106d`; 27 declarations, one boundary, one upstream gap (F54)]**
+
+§57.6 left two constants bare, `short_tons_per_gram` (CVTTON, 1.102311e-06) and
+its inverse, with a measurement: annotate them and `emissionShortTons` is refused
+BOTH as `1` and as `short_ton`, because the ten-factor NONROAD product upstream is
+dimensionless factor by factor. The measurement was right. Its diagnosis — that
+`adjustmentTime`, `monthDayFactor` and `unitConversionFactor` "have no unit MOVES
+pins" — was wrong on all three, and the thing that actually blocked the chain was
+**§11's bullet, `hp is not a unit the registry knows`**, which stopped being true
+at EarthSciAST `c31ea106d` on 2026-09-10 (`mi`, `lb`, `hp`, `gal` — added, its
+commit message says, because they are "the units MOVES is written in"; `short_ton`
+had landed on 2026-08-20). Both are in `8ac536bf0`, the binary §57 was measured
+against. The stale bullet was still being cited by six variable descriptions, by
+the two NONROAD fixtures' catalog notes and by §57.6's own table, so nobody
+re-asked the question. **The rule this section is: when a declaration is blocked
+by a missing unit, the blocker is a fact about a registry that changes, and it
+belongs in ONE place with a date, not restated in every description that suffers
+from it.**
+
+### 58.1 The chain, factor by factor, with the source for each
+
+`clcems.f`'s product for one (SCC, hp point, model year, technology, pollutant),
+in the engine's own factorisation (`exhaust.rs:1079-1083` then `:1201-1208`,
+`:1227`; docs/nonroad-logging-county.md §2.6):
+
+| # | factor | unit | where the unit comes from |
+|---|---|---|---|
+| 1 | `emissionFactor` (nremissionrate.meanBaseRate) | `g/(hp*h)` | the rate's own unit code, `G/HP-HR`, which `unitcf.f` dispatches on and `unit_code_for` PANICS rather than defaults on (`nonroad_loader.rs:217-234`). **Not declared on the column** — see §58.3 |
+| 2 | `unitConversionFactor` (cvttmp) | `hp` | `unitcf.f`'s own docstring: the `G/HP-HR` branch "converts g/hp-hr → g/hr by multiplying by `hpavg * faclod`" (`exhaust.rs:228-236`). `hpAvg` is `nrsourceusetype.hpAvg` in horsepower and `loadFactor` is a fraction |
+| 3 | `deteriorationFactor` | `1` | `1 + A·min(detage, cap)^B`, and `detage` is the FRACTION of median life consumed — `(idxyr+1)·hours·LF / medianLifeFullLoad`, hours over hours. `emissionCap` is a cap on that fraction |
+| 4 | `adjustment` (adjems) | `1` | `exp(a·(T−75))·(1 − c·oxy)`: a multiplicative correction |
+| 5 | `adjustmentTime` (adjtime) | `1` | `1/ndays`, and `ndays` is a COUNT of calendar days summed out of `MONTH_DAYS` (`daymthf.rs:72-125`, `common.rs:987-1010`) |
+| 6 | `hoursUsedPerYear` (acttmp) | `h` | `nrsourceusetype.hoursUsedPerYear`, a DURATION — see §58.2 |
+| 7 | `monthDayFactor` (tpltmp) | `1` | `mthf × 7 × dayFraction`: `monthFraction` is the share of the year's activity in the month and `dayFraction` the share of a week's on one day of that type, and the 7 is a count of days |
+| 8 | `countyPopulation` | `1` | a count of equipment units |
+| 9 | `modelYearFraction` (modfrc) | `1` | a share of the population |
+| 10 | `techFraction` (tchfrc) | `1` | a share of a model year's equipment |
+| 11 | `short_tons_per_gram` (CVTTON) | `short_ton/g` | `consts.rs:350-355`, "grams-to-short-tons"; `nonrdprm.inc` |
+
+`g/(hp*h) × hp × h × 1⁷ × short_ton/g = short_ton`, exactly, and the intermediate
+the engine names is one too: `emstmp` is `g/h`, grams per hour of operation.
+
+**What the registry makes of it.** `short_ton/g` is DIMENSIONLESS at scale
+45359237/50, which is what §57.6 measured and read as a refusal. It is not one:
+multiplied onto a mass in `g` it gives a mass at the short ton's scale, and since
+PR #339 compares scale as well as dimension, `emissionShortTons` declared `g`,
+`tonne`, `1` or `cd` is refused — all four measured.
+
+### 58.2 `hoursUsedPerYear` is a DURATION, and that is the one judgement call here
+
+The column's name says "per year" and the chain never divides by a year. Two
+readings close:
+
+* **`h`** — the hours this equipment ran in the accounting year. Then the product
+  is grams, the annual-to-typical-day step is a dimensionless FRACTION (both sides
+  are amounts of grams), and nothing is unwritten.
+* **`h/yr`** — a rate. Then the product is `g/yr` and the chain needs an unwritten
+  `× 1 yr` to become the daily mass it is, and that year would be the registry's
+  Julian 365.25 days against NONROAD's calendar 365 (§57.5).
+
+`h` is taken, and the source settles it rather than the convenience: `detage =
+(idxyr+1)·hours·LF / medianLifeFullLoad` is the fraction of median life consumed
+(`modyr.rs:308-317`, and `det_ageCap` is `emissionCap`, "a cap on the FRACTION OF
+MEDIAN LIFE"), `medianLifeFullLoad` is in hours, and a fraction of it requires
+hours over hours. `components/deteriorated_emission_rate.esm` had already declared
+it `h` on exactly that reasoning.
+
+**The same column is `h/yr` in `components/age_distribution.esm`, and that is not
+an inconsistency to fix.** `scrptime.f` divides the lifetime hours by it to get a
+number of YEARS, which is the one place in the chain where the year is real; the
+fixtures spell the same quantity the other way, as a dimensionless
+`point_medianLifeYears`, and both are right about their own equation. What is not
+allowed is to read the column as a rate in the emission product, because then the
+year never cancels.
+
+### 58.3 An `ifelse` takes the units of its FIRST branch, and never looks at the rest
+
+Measured on `8ac536bf0` with a three-line probe: `ifelse(c, hp_avg·lf, dens)` with
+`dens` declared `kg/m^3` validates with the left-hand side declared `hp` and is
+refused declared `kg/m^3` or `m`. So a branch that disagrees is not a conflict; it
+is invisible.
+
+That is convenient here and it is also a trap, so the rule is: **the unit of a
+code-dispatched conversion goes at the CALL SITE, where the code is fixed, and
+never on the template.** `unit_conversion` genuinely returns `hp` on the g/hp-hr
+branch, `gal/h` on the g/gallon branch and a dimensionless 1 on the pass-throughs;
+`annual_activity_hours` returns `h`, then hours times a bare day count, then
+`1/h`. Every call site in this repository binds `emission_unit_g_per_hp_hr` and
+`activity_unit_hours_per_year`, and declares `hp` and `h`. The other branches are
+stated in the library's `description` and are NOT checked — and would not be even
+if they were wrong.
+
+### 58.4 The seventh boundary: one rate column, two units
+
+`nremissionrate.meanBaseRate` holds `g/(hp*h)` on a pollutant row and
+`lb/(hp*h)` on the BSFC carrier, polProcessID 9901, which `clcems` reads for the
+CO2 carbon balance and the SOx rewrite. Both are spellable now; the COLUMN still
+is not, and this is §57.8's `fe_propValue` shape exactly. So the column stays `1`
+and the unit is applied where a join has already selected which pollutant
+processes the rows are: `fixtures/nr-logging-county.esm`'s J12 and
+`runs/nr_logging_county_run.esm`'s chain product each multiply by
+`const(1.0, "g/(hp*h)")`. One boundary, two sites, `× 1.0` in binary64, no number
+moved. `components/exhaust_rollup.esm` needs no boundary: 9901 is absent from its
+factor rows and its `emf_emissionFactor` is declared directly.
+
+Two `"units": "1"` are written under §57.2's "only where it is measured to make an
+equation checkable", and both were measured:
+
+* the numerator of `grams_per_short_ton`. `1.0 / const(short_ton/g)` with a BARE
+  one is undeterminable, and `out_emissionQuant` declared `short_ton` validates.
+  With the one declared it is refused.
+* the `+ 1` in `deterioration_age`. With it bare the whole quotient is
+  undeterminable and `chainDeteriorationAge` validates declared `cd`.
+
+### 58.5 What is still not checked, and it is not a missing unit
+
+`runs/nr_logging_county_run.esm` is declared throughout and **none of it is
+checked**, because declared units do not cross a `{ref}` mount edge: an expression
+that reads `Activity.act_annualHours` or `Factors.zeroHourRate` is undeterminable
+however the leaf declared it. Measured both ways in the same document — a product
+of two LOCAL variables is caught declared `cd`, and the same declaration on a
+product of mounted ones is silent. That is finding **F54**, and it is also the
+real reason `chainEmissionGrams` is dim-silent; F44's list gives a different one
+(`min(age, cap)^B`'s symbolic exponent), and that reason is wrong — a power with a
+DIMENSIONLESS base is determinable, measured. The run's declarations are written
+anyway: they are correct, they document the chain, and they begin checking the day
+the mount edge carries units.

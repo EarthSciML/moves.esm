@@ -3251,3 +3251,78 @@ transcendental to a scaled dimensionless quantity: `exp` appears in
 `1/degF × degF`, in `displaced_vapor_rate` over bare coefficients, and in
 `power_via_exp_log`; `log10` appears in the Goff-Gratch exponent over a `K/K`
 ratio; `sin`/`atan` appear in `grade_sine` over a bare `grade/100`.
+
+## F54 — declared units do not cross a `{ref}` mount edge, so an assembly document is unit-checked at nothing
+
+**`runs/nr_logging_county_run.esm`, `8ac536bf0`. No repro file, for F52's
+reason: the defect is that `validate` ACCEPTS something, so a document showing
+it validates clean and the tripwire stage would read it as green.**
+
+A top-level `models` entry that is a `{ref}` merges the referenced file's index
+sets into the mounting document (F2, fixed) and exposes its variables under a
+scoped name. It does **not** carry their declared `units`. Every expression in
+the mounting document that reads a mounted variable is therefore
+undeterminable, and every declaration on the left of such an equation is
+unchecked — in either direction, dimension or scale.
+
+### The measurement, both sides, in one document
+
+`runs/nr_logging_county_run.esm` at `b606e56`. Its local model `Chain` declares
+`chainAnnualHours` (`h`) and `chainMonthDayFactor` (`1`), each contracted out of
+a mounted leaf, and `chainCountyPopulation` (`1`) out of two more.
+
+* Replace `chainCountyPopulation`'s right-hand side with the purely LOCAL
+  product `chainAnnualHours × chainMonthDayFactor` and declare it `cd`:
+  **refused** — `Declared units of luminosity do not match the expression's units
+  of time (scale 3600)`. Local propagation works.
+* Leave the real right-hand side, which reads `Population.eqp_statePopulation`
+  and `Geography.scc_allocationFraction`, and declare it `cd`: **accepted**.
+* The same for every other declaration in the document. `chainEmissionGrams`
+  validates declared `g`, `short_ton`, `tonne`, `1` and `cd`;
+  `chainUnitConversion` declared `hp`, `kW` and `cd`; `chainAnnualHours`
+  declared `h`, `s` and `cd`; `chainDeteriorationAge` declared `1` and `cd`.
+  Nine wrong declarations, nine silences.
+
+The leaves themselves are checked: the same quantities in
+`components/exhaust_rollup.esm`, `components/movesoutput_aggregation.esm` and
+`fixtures/nr-logging-county.esm` refuse every one of those substitutions
+(conventions §58). It is the edge and nothing else.
+
+### What it costs this repository
+
+Two things, and the second is the one that cost time.
+
+* **The four assemblies under `runs/` cannot be unit-checked at all.** They are
+  where the stages meet, which is exactly where a unit error between two leaves
+  would show up, and it is the only place in the corpus with no coverage. The
+  declarations are written anyway — they are correct and they start checking the
+  day this is fixed — but they are documentation today and the sweep should not
+  be read as covering them.
+* **It was misdiagnosed as a units problem in the model.** F44's sweep table
+  gives `chainEmissionGrams` a different reason for being dim-silent —
+  "`deterioration_factor`'s `min(age, cap)^B` has a symbolic exponent, and every
+  other factor of the product is declared `1`". Neither half holds. A power with
+  a symbolic exponent over a DIMENSIONLESS base is determinable (measured: a
+  four-line probe of `1 + A·min(a, cap)^B` with every operand declared `1` is
+  refused declared `cd` and `g`), and the factors are no longer all `1`. The
+  table row should read "units do not cross the mount edge", and the same
+  correction applies to its `out_emissionQuant` row, which named
+  `grams_per_short_ton` — that constant is annotated now and
+  `out_emissionQuant` is caught.
+
+### What upstream would have to do
+
+Resolve a mounted variable's `units` when the mounting document's expressions
+are typed, the way its `index_sets` are already merged, and REFUSE a mismatch
+across the edge rather than treating the reference as undeterminable. The
+conservative half-step — propagate but do not check — would be worse than
+nothing here, because it would make the silences look like coverage.
+
+### Until then
+
+Do not read a declaration in a `runs/` document as a check. The rule that
+follows is the one §55 already teaches in another key: **a harness that watches
+a declaration by requiring `validate` to pass is measuring its own document.**
+The units sweep (`tools`-adjacent, F44) sweeps `runs/` and reports those
+declarations as silent, which is the correct reading and not a defect in the
+sweep.
