@@ -3267,7 +3267,7 @@ unchecked — in either direction, dimension or scale.
 
 ### The measurement, both sides, in one document
 
-`runs/nr_logging_county_run.esm` at `b606e56`. Its local model `Chain` declares
+`runs/nr_logging_county_run.esm` at `3a74f67`, the commit that declared it. Its local model `Chain` declares
 `chainAnnualHours` (`h`) and `chainMonthDayFactor` (`1`), each contracted out of
 a mounted leaf, and `chainCountyPopulation` (`1`) out of two more.
 
@@ -3283,10 +3283,13 @@ a mounted leaf, and `chainCountyPopulation` (`1`) out of two more.
   declared `h`, `s` and `cd`; `chainDeteriorationAge` declared `1` and `cd`.
   Nine wrong declarations, nine silences.
 
-The leaves themselves are checked: the same quantities in
-`components/exhaust_rollup.esm`, `components/movesoutput_aggregation.esm` and
-`fixtures/nr-logging-county.esm` refuse every one of those substitutions
-(conventions §58). It is the edge and nothing else.
+The leaves themselves are checked, which is what makes this the edge and not
+the declarations. The SAME quantities one document down refuse the same
+substitutions: `components/exhaust_rollup.esm`'s `emissionShortTons` refuses
+`g`, `1`, `tonne` and `cd`; `components/movesoutput_aggregation.esm`'s
+`out_emissionQuant` refuses `short_ton`, `1`, `tonne` and `cd`;
+`fixtures/nr-logging-county.esm`'s `point_unitConversion` refuses `cd` and `kW`
+and its `point_hoursUsedPerYear` refuses `cd` and `s` (conventions §58).
 
 ### What it costs this repository
 
