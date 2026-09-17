@@ -217,14 +217,22 @@ them and now checks only that a mounted `{ref}` resolves and parses.
 **An `enums` block is file-local, and until EarthSciAST PR #341 it did not cross
 a template import** (esm-spec §9.3; finding F3, retired). A library may now
 declare its own enums and resolve its own `enum` ops against them. Each
-component still declares the enums IT uses. The two routes the defect forced are
-still in the tree and are no longer forced:
+component still declares the enums IT uses. Of the two routes the defect forced,
+one is gone and one was never a workaround:
 
-* a **zero-parameter constant-fragment template** (§9.6.1) for a code the
-  library itself branches on — `lib/conversion.esm`'s
-  `activity_unit_g_per_hp_hr`;
+* a **library declares the codes it branches on** — `lib/conversion.esm`'s
+  `emission_unit` and `activity_unit`. They were zero-parameter
+  constant-fragment templates (§9.6.1) until PR #341; they are an `enums` block
+  now, still READ through templates of the same names, because the call sites
+  pass a code by name and never a literal. **A library's `enum` op resolves in
+  the library** (§9.7.5), so an importer needs no copy: one that declares no
+  enums at all still evaluates, and one that declares `activity_unit` at other
+  values changes nothing the library computes. Only an op still spelled by a
+  `param` when it reaches the importer resolves there;
 * a **parameter the call site binds to an `enum` op** in its own file — every
-  identifier `lib/identifiers.esm` touches.
+  identifier `lib/identifiers.esm` touches. That is the second route, and it
+  stays: those are the IMPORTER's identifiers, not the library's, so the
+  library has nothing to declare.
 
 Values come from `docs/nonroad-logging-county.md` §5, which is the inventory of
 every literal the chain depends on.
