@@ -5464,7 +5464,7 @@ in the engine's own factorisation (`exhaust.rs:1079-1083` then `:1201-1208`,
 
 | # | factor | unit | where the unit comes from |
 |---|---|---|---|
-| 1 | `emissionFactor` (nremissionrate.meanBaseRate) | `g/(hp*h)` | the rate's own unit code, `G/HP-HR`, which `unitcf.f` dispatches on and `unit_code_for` PANICS rather than defaults on (`nonroad_loader.rs:217-234`). **Not declared on the column** — see §58.3 |
+| 1 | `emissionFactor` (nremissionrate.meanBaseRate) | `g/(hp*h)` | the rate's own unit code, `G/HP-HR`, which `unitcf.f` dispatches on and `unit_code_for` PANICS rather than defaults on (`nonroad_loader.rs:217-234`). **Not declared on the column** — see §58.4 |
 | 2 | `unitConversionFactor` (cvttmp) | `hp` | `unitcf.f`'s own docstring: the `G/HP-HR` branch "converts g/hp-hr → g/hr by multiplying by `hpavg * faclod`" (`exhaust.rs:228-236`). `hpAvg` is `nrsourceusetype.hpAvg` in horsepower and `loadFactor` is a fraction |
 | 3 | `deteriorationFactor` | `1` | `1 + A·min(detage, cap)^B`, and `detage` is the FRACTION of median life consumed — `(idxyr+1)·hours·LF / medianLifeFullLoad`, hours over hours. `emissionCap` is a cap on that fraction |
 | 4 | `adjustment` (adjems) | `1` | `exp(a·(T−75))·(1 − c·oxy)`: a multiplicative correction |
