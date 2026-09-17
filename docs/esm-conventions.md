@@ -5191,7 +5191,7 @@ it lands, re-measure F13 before deciding whether the rule still earns its lines.
 Until then PLAN.md §7.1's "one thin `.esm` per fixture" means 43 lines, 12 of
 them the fixture's own.
 
-## 57. A unit on a constant is declared once, on the template that names it, and only where the unit is certain **[EarthSciAST PR #347, esm 1.2.0; 23 constants, 139 declarations corrected, 5 unit boundaries]**
+## 57. A unit on a constant is declared once, on the template that names it, and only where the unit is certain **[EarthSciAST PR #347, esm 1.2.0; 24 constants, 139 declarations corrected, 6 unit boundaries]**
 
 A bare numeric literal has an undeterminable dimension, and a product containing
 one is not checked (finding F44's units subsection, EarthSciAST #302). From esm
@@ -5357,8 +5357,11 @@ units. Neither column can carry a unit, but what MEETS them can: `lib/adjustment
 `bounded_specific_humidity` divides the `g/kg` out where the typed humidity reaches
 the bound, and `components/fuel_effects.esm`'s two property gathers re-apply
 `percent` and `ppm` at the select, because the join that selected property 4 or
-property 7 knows which property it selected. Five boundaries exist in this
-repository and each is listed here; a sixth would need a sentence here too.
+property 7 knows which property it selected. The sixth is `lib/fuel_effects.esm`'s
+`sulfur_power`, which divides the `ppm` out before the `log` in the high sulfur
+arm — the SQL raises the ppm NUMBER to the power, and finding F52 is that the
+checker would not have said otherwise. Six boundaries exist in this repository
+and each is listed here; a seventh would need a sentence here too.
 
 **What a boundary costs.** It converts rather than checks, so a wrong unit on the
 quantity entering one is not caught: `met_relHumidity` declared `cd` still
@@ -5378,16 +5381,21 @@ itself a result, because an annotation is what lets a declaration be non-`1` at 
 | before everything | PR #347 `7704f9621` | 71 | 17 | 16 |
 | the const-units pass (§57.1–7) | PR #347 `7704f9621` | 107 | 13 | 12 |
 | before this section | `8ac536bf0` | 71 | 14 | 13 |
-| after this section | `8ac536bf0` | 183 | **12** | **11** |
+| after this section | `8ac536bf0` | 189 | **11** | **10** |
 
 **The fixtures are the part to read.** They carried 10 swept declarations before
-this section and carry 119 after, and not one of the 119 is silent in either arm:
+this section and carry 121 after, and not one of the 121 is silent in either arm:
 every temperature, humidity, heat index, temperature-adjustment term and A/C
-activity term in every fixture is now caught if it is declared wrong. The 12 and
-11 that remain are all in `components/` and `runs/`, and every one of them is
-`10^x` with a symbolic exponent (§4.8.3), inline data with no checked consumer
-(rule 3), a quantity entering a boundary (rule 8's cost), or the NONROAD emission
-product that rule 6's table leaves untyped.
+activity term in every fixture is now caught if it is declared wrong. The 11 and
+10 that remain are all in `components/` and `runs/` (57 and 58 caught of 68), and
+each is one of four things: `10^x` with a symbolic exponent, §4.8.3
+(`met_saturationVaporPressure`); inline data with no checked consumer, rule 3
+(`act_medianLifeFullLoad`, `lomd_linkAvgGrade`, `somd_bandMinSoakTime`,
+`somd_bandMaxSoakTime`); a quantity ENTERING a boundary, rule 8's cost
+(`met_relHumidity`); or a product `mph_to_meters_per_second` and
+`short_tons_per_gram` have not been able to type, rule 6's table
+(`lomd_speedMs`, `lomd_accelerationMs`, `lomd_vsp`, `out_emissionQuant`,
+`chainEmissionGrams`).
 
 A declared unit never checks the VALUE — `const(0.4470, "m*h/(mi*s)")` is accepted —
 or an affine offset: the 273.15 and the 32 are checked as temperatures, not as the
