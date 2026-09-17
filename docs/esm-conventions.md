@@ -5548,8 +5548,17 @@ equation checkable", and both were measured:
 * the numerator of `grams_per_short_ton`. `1.0 / const(short_ton/g)` with a BARE
   one is undeterminable, and `out_emissionQuant` declared `short_ton` validates.
   With the one declared it is refused.
-* the `+ 1` in `deterioration_age`. With it bare the whole quotient is
-  undeterminable and `chainDeteriorationAge` validates declared `cd`.
+* the `+ 1` in `deterioration_age`. It matters only where the caller binds
+  `age_index` to a BARE literal, and the one such call site is
+  `runs/nr_logging_county_run.esm`'s `age_index: 0` — measured on a four-line
+  probe, `((0 + 1)·h·1)/h` declared `cd` is silent with the one bare and refused
+  with it declared. Where the caller passes a DECLARED index the quotient was
+  already determinable: `components/deteriorated_emission_rate.esm`'s `detAge`
+  refuses `cd` both before and after, because its `ageIndex` is declared `1` and
+  a bare literal added to a declared operand takes that operand's unit. So this
+  annotation is inert in this repository today — F54 makes the run unmeasurable —
+  and it is written because it is the LIBRARY-level fix, one place instead of
+  one per call site (§57.1).
 
 ### 58.5 What is still not checked, and it is not a missing unit
 
