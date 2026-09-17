@@ -2,7 +2,7 @@
   "esm": "1.2.0",
   "metadata": {
     "name": "expand-day fixture",
-    "description": "The `expand-day` fixture: 250 rows of MOVESOutput -- running-exhaust Total Energy Consumption for passenger cars on urban restricted-access roads in Washtenaw County, August, 7am, 2020, on BOTH day types -- computed from the snapshot's own INPUT tables. Ports docs/expand-day.md, which is docs/mixed-onroad.md's chain at a colder hour over a second day: the activity chain S1-S9, the cohort structure and the fuel-usage rebase S10-S12, the drive-cycle operating-mode weights and the base rate S13-S14, the calculator's adjustments S15 and the output row S16-S18.\n\nWHY THIS FIXTURE EXISTS, AND IT IS NOT THE 250 ROWS. `<day key=\"5\">` in the checked-in RunSpecs was a 0-based INDEX into the sorted DayOfAnyWeek list and selected nothing, so 28 of the 42 snapshots ran both day types against a one-day intent. The RunSpecs were corrected and recaptured, every day-keyed table halved, and the cost was coverage: after the correction NO fixture in this repository exercised a two-valued day factor at more than one value -- noOfRealDays always 5, hourDayID always 75, dayVMTFraction four rows and not eight -- so a port that hardcoded any of them passed the entire suite. `expand-day` is the one snapshot in the corpus that still carries both day types and was verified invariant across the recapture. docs/esm-conventions.md \u00a742.5 names porting it as the cure; this is that port, and `the_day_axis_is_exercised_at_both_of_its_values` is where the coverage is actually spent.\n\nHOW MUCH OF IT IS NEW. Structurally, almost none: this document is fixtures/mixed-onroad.esm retargeted -- 46 url_templates, the source prefix, the model name -- and NOT ONE EQUATION WAS EDITED to make it emit 250 rows instead of 125. Every day axis is sized by `n_runspecday`, whose value the source's own `extent` supplies, so `activity_rows` went 41 -> 82 and `output_rows` 125 -> 250 by themselves and the key set matched on the first run. That is docs/esm-conventions.md \u00a742.1's measurement run in the other direction, and it is the strongest available evidence that the day axis is factored rather than written down. What IS new is every assertion: 109 of them, re-addressed by key and re-valued from this snapshot's own `averagespeed`, `sho`, `baserate_1_2020` and `MOVESOutput`, never rescaled from `mixed-onroad`'s numbers and never rounded off this port's own answer (\u00a742.4).\n\nWHAT THE COLDER HOUR ADDS, AND WHAT IT DOES NOT. The heat index is 59.5 degF against `mixed-onroad`'s 66.9. That crosses the EV temperature quadratic's nearer zero at 63.964 degF, so its raw adjustment is +0.015625 instead of -0.0041922, the `adj < 0` clamp does NOT fire, and the regClassID-0 WILDCARD row of `temperatureadjustment` reaches emissionQuant directly on all 82 electricity rows -- the arm that was invisible at 66.9 degF and whose absence was a silent 1.56% error until docs/esm-conventions.md \u00a727.3. It does NOT help the A/C clamp: at 59.5 degF the activity term is -0.2969815 where it was -0.0189, which is FURTHER inside the clamp, so the non-zero A/C arm still has no fixture and \u00a723 says to write that down rather than let a colder hour imply more coverage than it bought.\n\nWHAT IS COMPUTED AND WHAT IS DECLARED.\n\nCOMPUTED, from the input tables and nothing else: every number. In particular `dc_W[dayType, opModeID]`, the speed-bin-weighted drive-cycle operating-mode distribution -- 46 numbers here, 23 per day type, where the one-day fixtures carry 23 and cannot tell an indexed relation from a shared vector. It is computed from `driveschedulesecond`'s 63,602 second-by-second speeds, and the four neighbouring-second reads it needs are `driveschedulesecond` joined to ITSELF, which finding F11 refused until EarthSciAST 107a15152. NO REFERENCE TABLE IS AN INPUT. `baserate_1_2020`, `sourcebindistributionfuelusage_1_26161_2020`, `sho`, `averagespeed` and `MOVESOutput` are all generator or expected output, and none of them is a `data_sources` entry here. Values out of them DO appear, as `expected` in the inline tests below, which is the opposite direction and the whole point of a fixture.\n\nCOMPUTED, and worth saying because a reader would assume otherwise: the SHAPES. The activity relation's 82 rows are `n_agecategory x n_runspecday` and the cohort candidate grid's 164 are `n_agecategory x n_runspecsourcefueltype`, both metaparameter expressions over extents the runtime discovers from the files. The cohort grid is DAY-FREE and stays 164; the day enters one level down, at `cohDay_*`, which is why 250 output rows are 125 cohorts x 2 days and not 250 cohorts.\n\nDECLARED: one number, `n_outputCohort` = 125, the length of the output relation's cohort block -- unchanged from the one-day fixture, because it is a cohort count and not a row count. WHICH 125 of the 164 candidates survive is a result of the chain -- \u00a72.2's `stmyFraction > 0` rule -- and materialising them as an index set is finding F5's value invention, which validates and materialises EMPTY. So the count is declared, and three things keep it honest: the surviving cohorts are reached by a RANK (docs/esm-conventions.md \u00a722) rather than by a transcribed block map; `cohortSurvivorCount` computes 125 from the chain and a test pins the two together; and the comparator's exact key set fails on any row whose rank found no cohort.\n\nTHE PACKED IDENTIFIER IS NEVER BUILT, ONLY UNPACKED. `emissionrate`'s 69,688 rows carry `sourceBinID` = 1e18 + fuel x 1e16 + engTech x 1e14 + regClass x 1e12 + shortModYrGroup x 1e10, about 1.01e18 and past 2^53. `lib/onroad_activity.esm`'s `source_bin_slot` reads the four components out; nothing here composes one, and no element type is declared for the same reason (\u00a72.2, finding F18).\n\nAN INGESTED COLUMN CANNOT BE ASSERTED, which is finding F43 and which shaped this document's tests rather than its equations. `esm test` refuses an assertion naming a `kind: data` parameter with `array state '...' has no cells in var_map` -- probed on seven columns from seven tables, all of them -- so `dayofanyweek.noOfRealDays` is pinned at `outNoOfRealDays`, where it is USED, and not at `dow_noOfRealDays`, where it is read. That is the stronger claim of the two and no coverage is lost, but it is a constraint and not a preference.",
+    "description": "The `expand-day` fixture: 250 rows of MOVESOutput -- running-exhaust Total Energy Consumption for passenger cars on urban restricted-access roads in Washtenaw County, August, 7am, 2020, on BOTH day types -- computed from the snapshot's own INPUT tables. Ports docs/expand-day.md, which is docs/mixed-onroad.md's chain at a colder hour over a second day: the activity chain S1-S9, the cohort structure and the fuel-usage rebase S10-S12, the drive-cycle operating-mode weights and the base rate S13-S14, the calculator's adjustments S15 and the output row S16-S18.\n\nWHY THIS FIXTURE EXISTS, AND IT IS NOT THE 250 ROWS. `<day key=\"5\">` in the checked-in RunSpecs was a 0-based INDEX into the sorted DayOfAnyWeek list and selected nothing, so 28 of the 42 snapshots ran both day types against a one-day intent. The RunSpecs were corrected and recaptured, every day-keyed table halved, and the cost was coverage: after the correction NO fixture in this repository exercised a two-valued day factor at more than one value -- noOfRealDays always 5, hourDayID always 75, dayVMTFraction four rows and not eight -- so a port that hardcoded any of them passed the entire suite. `expand-day` is the one snapshot in the corpus that still carries both day types and was verified invariant across the recapture. docs/esm-conventions.md §42.5 names porting it as the cure; this is that port, and `the_day_axis_is_exercised_at_both_of_its_values` is where the coverage is actually spent.\n\nHOW MUCH OF IT IS NEW. Structurally, almost none: this document is fixtures/mixed-onroad.esm retargeted -- 46 url_templates, the source prefix, the model name -- and NOT ONE EQUATION WAS EDITED to make it emit 250 rows instead of 125. Every day axis is sized by `n_runspecday`, whose value the source's own `extent` supplies, so `activity_rows` went 41 -> 82 and `output_rows` 125 -> 250 by themselves and the key set matched on the first run. That is docs/esm-conventions.md §42.1's measurement run in the other direction, and it is the strongest available evidence that the day axis is factored rather than written down. What IS new is every assertion: 109 of them, re-addressed by key and re-valued from this snapshot's own `averagespeed`, `sho`, `baserate_1_2020` and `MOVESOutput`, never rescaled from `mixed-onroad`'s numbers and never rounded off this port's own answer (§42.4).\n\nWHAT THE COLDER HOUR ADDS, AND WHAT IT DOES NOT. The heat index is 59.5 degF against `mixed-onroad`'s 66.9. That crosses the EV temperature quadratic's nearer zero at 63.964 degF, so its raw adjustment is +0.015625 instead of -0.0041922, the `adj < 0` clamp does NOT fire, and the regClassID-0 WILDCARD row of `temperatureadjustment` reaches emissionQuant directly on all 82 electricity rows -- the arm that was invisible at 66.9 degF and whose absence was a silent 1.56% error until docs/esm-conventions.md §27.3. It does NOT help the A/C clamp: at 59.5 degF the activity term is -0.2969815 where it was -0.0189, which is FURTHER inside the clamp, so the non-zero A/C arm still has no fixture and §23 says to write that down rather than let a colder hour imply more coverage than it bought.\n\nWHAT IS COMPUTED AND WHAT IS DECLARED.\n\nCOMPUTED, from the input tables and nothing else: every number. In particular `dc_W[dayType, opModeID]`, the speed-bin-weighted drive-cycle operating-mode distribution -- 46 numbers here, 23 per day type, where the one-day fixtures carry 23 and cannot tell an indexed relation from a shared vector. It is computed from `driveschedulesecond`'s 63,602 second-by-second speeds, and the four neighbouring-second reads it needs are `driveschedulesecond` joined to ITSELF, which finding F11 refused until EarthSciAST 107a15152. NO REFERENCE TABLE IS AN INPUT. `baserate_1_2020`, `sourcebindistributionfuelusage_1_26161_2020`, `sho`, `averagespeed` and `MOVESOutput` are all generator or expected output, and none of them is a `data_sources` entry here. Values out of them DO appear, as `expected` in the inline tests below, which is the opposite direction and the whole point of a fixture.\n\nCOMPUTED, and worth saying because a reader would assume otherwise: the SHAPES. The activity relation's 82 rows are `n_agecategory x n_runspecday` and the cohort candidate grid's 164 are `n_agecategory x n_runspecsourcefueltype`, both metaparameter expressions over extents the runtime discovers from the files. The cohort grid is DAY-FREE and stays 164; the day enters one level down, at `cohDay_*`, which is why 250 output rows are 125 cohorts x 2 days and not 250 cohorts.\n\nDECLARED: one number, `n_outputCohort` = 125, the length of the output relation's cohort block -- unchanged from the one-day fixture, because it is a cohort count and not a row count. WHICH 125 of the 164 candidates survive is a result of the chain -- §2.2's `stmyFraction > 0` rule -- and materialising them as an index set is finding F5's value invention, which validates and materialises EMPTY. So the count is declared, and three things keep it honest: the surviving cohorts are reached by a RANK (docs/esm-conventions.md §22) rather than by a transcribed block map; `cohortSurvivorCount` computes 125 from the chain and a test pins the two together; and the comparator's exact key set fails on any row whose rank found no cohort.\n\nTHE PACKED IDENTIFIER IS NEVER BUILT, ONLY UNPACKED. `emissionrate`'s 69,688 rows carry `sourceBinID` = 1e18 + fuel x 1e16 + engTech x 1e14 + regClass x 1e12 + shortModYrGroup x 1e10, about 1.01e18 and past 2^53. `lib/onroad_activity.esm`'s `source_bin_slot` reads the four components out; nothing here composes one, and no element type is declared for the same reason (§2.2, finding F18).\n\nAN INGESTED COLUMN CANNOT BE ASSERTED, which is finding F43 and which shaped this document's tests rather than its equations. `esm test` refuses an assertion naming a `kind: data` parameter with `array state '...' has no cells in var_map` -- probed on seven columns from seven tables, all of them -- so `dayofanyweek.noOfRealDays` is pinned at `outNoOfRealDays`, where it is USED, and not at `dow_noOfRealDays`, where it is read. That is the stronger claim of the two and no coverage is lost, but it is a constraint and not a preference.",
     "authors": [
       "EarthSciML Authors and Contributors"
     ],
@@ -28,7 +28,7 @@
         "tags": [
           "scope"
         ],
-        "note": "1 row, yearID 2020. The scope comes from these tables and never from the RunSpec XML, whose @key attributes are 0-based indices into sorted ID lists (docs/expand-day.md \u00a70.1) -- which is the very defect the `<day key=>` correction fixed, and this snapshot is the one the correction did not change.",
+        "note": "1 row, yearID 2020. The scope comes from these tables and never from the RunSpec XML, whose @key attributes are 0-based indices into sorted ID lists (docs/expand-day.md §0.1) -- which is the very defect the `<day key=>` correction fixed, and this snapshot is the one the correction did not change.",
         "esio_format": "parquet"
       }
     },
@@ -60,7 +60,7 @@
         "tags": [
           "scope"
         ],
-        "note": "1 row, hourID 7. Two hours earlier than `mixed-onroad`'s 9, which is 7.4 degF colder and moves both of \u00a72.3's clamps.",
+        "note": "1 row, hourID 7. Two hours earlier than `mixed-onroad`'s 9, which is 7.4 degF colder and moves both of §2.3's clamps.",
         "esio_format": "parquet"
       }
     },
@@ -76,7 +76,7 @@
         "tags": [
           "scope"
         ],
-        "note": "2 rows, dayID 2 (weekend) and 5 (weekday). The second factor of the activity axis and of the output axis, and the reason this fixture exists: `<day id=\"2\"/><day id=\"5\"/>` selects both, where 28 of the 42 snapshots selected both by ACCIDENT before the correction and now select one on purpose (moves.rs PR #55, docs/esm-conventions.md \u00a742.5). n_runspecday is 2 here and 1 in every other fixture in this tree.",
+        "note": "2 rows, dayID 2 (weekend) and 5 (weekday). The second factor of the activity axis and of the output axis, and the reason this fixture exists: `<day id=\"2\"/><day id=\"5\"/>` selects both, where 28 of the 42 snapshots selected both by ACCIDENT before the correction and now select one on purpose (moves.rs PR #55, docs/esm-conventions.md §42.5). n_runspecday is 2 here and 1 in every other fixture in this tree.",
         "esio_format": "parquet"
       }
     },
@@ -108,7 +108,7 @@
         "tags": [
           "scope"
         ],
-        "note": "1 row, roadTypeID 4. J27: this is the join that suppresses every process-2 AND every process-90 row, because start exhaust and extended idle both live on the off-network road type 1 and the RunSpec does not select it (\u00a70.2).",
+        "note": "1 row, roadTypeID 4. J27: this is the join that suppresses every process-2 AND every process-90 row, because start exhaust and extended idle both live on the off-network road type 1 and the RunSpec does not select it (§0.2).",
         "esio_format": "parquet"
       }
     },
@@ -159,7 +159,7 @@
           "scope",
           "fuel"
         ],
-        "note": "63 rows. S1's base-year flag -- Y/N text through a `codes` map -- and the calendar-year-to-fuel-year map S12 keys on. 2020 is flagged Y, which is why \u00a71.5's two year-by-year folds are the empty product here and finding F12 does not bite.",
+        "note": "63 rows. S1's base-year flag -- Y/N text through a `codes` map -- and the calendar-year-to-fuel-year map S12 keys on. 2020 is flagged Y, which is why §1.5's two year-by-year folds are the empty product here and finding F12 does not bite.",
         "esio_format": "parquet"
       }
     },
@@ -664,7 +664,7 @@
         "tags": [
           "rates"
         ],
-        "note": "69,688 rows, arriving with `sourceBinID` already packed and NO component columns -- which is why J22 keys on the four unpacked slots and not on the id (\u00a72.2). 488 more rows than `mixed-onroad`'s 69,200, all of them polProcessID 9190, and none of them reaches an output row.",
+        "note": "69,688 rows, arriving with `sourceBinID` already packed and NO component columns -- which is why J22 keys on the four unpacked slots and not on the id (§2.2). 488 more rows than `mixed-onroad`'s 69,200, all of them polProcessID 9190, and none of them reaches an output row.",
         "esio_format": "parquet"
       }
     },
@@ -685,7 +685,7 @@
         "tags": [
           "rates"
         ],
-        "note": "115 rows. The EV share of a model year's sales, and the reason S13's back-scaling is MODEL-YEAR dependent -- \u00a77.3 measures that omitting it leaves a 5.5e-2 residual where the full factorisation leaves 1.4e-5.",
+        "note": "115 rows. The EV share of a model year's sales, and the reason S13's back-scaling is MODEL-YEAR dependent -- §7.3 measures that omitting it leaves a 5.5e-2 residual where the full factorisation leaves 1.4e-5.",
         "esio_format": "parquet"
       }
     },
@@ -767,7 +767,7 @@
         "tags": [
           "adjustment"
         ],
-        "note": "1 row. The three coefficients of S15(d)'s A/C activity quadratic. At 59.5 degF they give -0.2969815 and the clamp makes the A/C factor exactly 0. This is FURTHER inside the clamp than `mixed-onroad`'s -0.0189 at 66.9 degF, so the colder hour checks the A/C arm no better and docs/esm-conventions.md \u00a723 says to say so: the non-zero arm still needs components/onroad_energy_output.esm.",
+        "note": "1 row. The three coefficients of S15(d)'s A/C activity quadratic. At 59.5 degF they give -0.2969815 and the clamp makes the A/C factor exactly 0. This is FURTHER inside the clamp than `mixed-onroad`'s -0.0189 at 66.9 degF, so the colder hour checks the A/C arm no better and docs/esm-conventions.md §23 says to say so: the non-zero arm still needs components/onroad_energy_output.esm.",
         "esio_format": "parquet"
       }
     },
@@ -832,7 +832,7 @@
         "tags": [
           "adjustment"
         ],
-        "note": "7 rows, of which exactly one carries polProcessID 9101 and it is fuelTypeID 9 at the regClassID 0 WILDCARD. For fuels 1, 2 and 5 there is no row, the terms default to zero and the standard quadratic is exactly 1; for fuel 9 the dedicated EV branch runs and at 59.5 degF its raw adjustment is +0.015625, so the `adj < 0` clamp does NOT fire and the factor is 1.015625. That is the arm `mixed-onroad` cannot reach -- at 66.9 degF the same lookup gives -0.0041922 and is clamped to 1 (docs/esm-conventions.md \u00a727.3). J32 carries the same model-year range predicate as J25.",
+        "note": "7 rows, of which exactly one carries polProcessID 9101 and it is fuelTypeID 9 at the regClassID 0 WILDCARD. For fuels 1, 2 and 5 there is no row, the terms default to zero and the standard quadratic is exactly 1; for fuel 9 the dedicated EV branch runs and at 59.5 degF its raw adjustment is +0.015625, so the `adj < 0` clamp does NOT fire and the factor is 1.015625. That is the arm `mixed-onroad` cannot reach -- at 66.9 degF the same lookup gives -0.0041922 and is clamped to 1 (docs/esm-conventions.md §27.3). J32 carries the same model-year range predicate as J25.",
         "esio_format": "parquet"
       }
     },
@@ -854,7 +854,7 @@
         "tags": [
           "adjustment"
         ],
-        "note": "7 rows, one per age group. The single largest correction in the fixture -- 10.7% to 22.1% on the 42 electricity rows -- and the one step moves.rs loads, expands and never applies, because ModuleFlags::ev_efficiency is false outside its tests. This document follows canonical, which the snapshot's own MOVESOutput confirms (\u00a72.3(f)).",
+        "note": "7 rows, one per age group. The single largest correction in the fixture -- 10.7% to 22.1% on the 42 electricity rows -- and the one step moves.rs loads, expands and never applies, because ModuleFlags::ev_efficiency is false outside its tests. This document follows canonical, which the snapshot's own MOVESOutput confirms (§2.3(f)).",
         "esio_format": "parquet"
       }
     },
@@ -891,7 +891,7 @@
         "tags": [
           "output"
         ],
-        "note": "2 rows: 2 real days in a week of weekend, 5 in a week of weekdays. S16's divisor, and the factor S7 multiplied in. THIS IS THE COLUMN docs/esm-conventions.md \u00a742.5 records as exercised at one value everywhere else in this repository; here it is exercised at both, and `outNoOfRealDays` pins it on each output block.",
+        "note": "2 rows: 2 real days in a week of weekend, 5 in a week of weekdays. S16's divisor, and the factor S7 multiplied in. THIS IS THE COLUMN docs/esm-conventions.md §42.5 records as exercised at one value everywhere else in this repository; here it is exercised at both, and `outNoOfRealDays` pins it on each output block.",
         "esio_format": "parquet"
       }
     },
@@ -919,7 +919,7 @@
     "n_runspecyear": {
       "type": "integer",
       "default": 0,
-      "description": "Rows in runspecyear. Runtime-discovered by the source's own `extent`, as every entry here is: a fixture that wrote the count would be asserting the snapshot's shape rather than measuring it, and a 0 that survives to evaluation is a build error rather than a small answer (docs/esm-conventions.md \u00a711)."
+      "description": "Rows in runspecyear. Runtime-discovered by the source's own `extent`, as every entry here is: a fixture that wrote the count would be asserting the snapshot's shape rather than measuring it, and a 0 that survives to evaluation is a build error rather than a small answer (docs/esm-conventions.md §11)."
     },
     "n_runspecmonth": {
       "type": "integer",
@@ -1144,7 +1144,7 @@
     "n_outputCohort": {
       "type": "integer",
       "default": 125,
-      "description": "THE ONE DECLARED NUMBER IN THIS DOCUMENT: how many (modelYearID, fuelTypeID) cohorts reach MOVESOutput. 125 of the 164 candidates, ragged by fuel -- 41 gasoline model years, 40 diesel, 23 E85 and 21 electricity, because those are the years before E85 and electric drive existed and the year diesel passenger cars stopped. WHICH ones survive is a result of \u00a72.2's `stmyFraction > 0` rule and is never written down: `coh_rank` numbers the survivors 1..125 by an inclusive prefix count over the candidate grid and the output row joins to that rank (docs/esm-conventions.md \u00a722), so both key columns come from the chain. `cohortSurvivorCount` recomputes 125 from the chain and a test pins the two together, so a rule that admitted 124 or 126 fails here before the comparator sees a row."
+      "description": "THE ONE DECLARED NUMBER IN THIS DOCUMENT: how many (modelYearID, fuelTypeID) cohorts reach MOVESOutput. 125 of the 164 candidates, ragged by fuel -- 41 gasoline model years, 40 diesel, 23 E85 and 21 electricity, because those are the years before E85 and electric drive existed and the year diesel passenger cars stopped. WHICH ones survive is a result of §2.2's `stmyFraction > 0` rule and is never written down: `coh_rank` numbers the survivors 1..125 by an inclusive prefix count over the candidate grid and the output row joins to that rank (docs/esm-conventions.md §22), so both key columns come from the chain. `cohortSurvivorCount` recomputes 125 from the chain and a test pins the two together, so a rule that admitted 124 or 126 fails here before the comparator sees a row."
     }
   },
   "index_sets": {
@@ -1414,6 +1414,7 @@
           "ref": "../lib/drive_cycle.esm",
           "only": [
             "mph_to_meters_per_second",
+            "per_schedule_second",
             "vehicle_specific_power",
             "in_half_open_range",
             "bracket_low_fraction"
@@ -1673,7 +1674,7 @@
           "shape": [
             "year_rows"
           ],
-          "description": "year.isBaseYear, Y/N text decoded by a `codes` map on the binding -- a text column is a hard error at the ingest boundary without one. S1 uses it, and it is Y for 2020, which is why \u00a71.5's two folds collapse.",
+          "description": "year.isBaseYear, Y/N text decoded by a `codes` map on the binding -- a text column is a hard error at the ingest boundary without one. S1 uses it, and it is Y for 2020, which is why §1.5's two folds collapse.",
           "update": {
             "kind": "data",
             "source": "xd_year",
@@ -2555,7 +2556,7 @@
         },
         "dss_speed": {
           "type": "parameter",
-          "units": "1",
+          "units": "mi/h",
           "default": 0.0,
           "shape": [
             "drive_second_rows"
@@ -2587,7 +2588,7 @@
         },
         "om_VSPLower": {
           "type": "parameter",
-          "units": "1",
+          "units": "kW/tonne",
           "default": 0.0,
           "shape": [
             "operating_mode_rows"
@@ -2603,7 +2604,7 @@
         },
         "om_VSPUpper": {
           "type": "parameter",
-          "units": "1",
+          "units": "kW/tonne",
           "default": 0.0,
           "shape": [
             "operating_mode_rows"
@@ -2619,7 +2620,7 @@
         },
         "om_speedLower": {
           "type": "parameter",
-          "units": "1",
+          "units": "mi/h",
           "default": 0.0,
           "shape": [
             "operating_mode_rows"
@@ -2635,7 +2636,7 @@
         },
         "om_speedUpper": {
           "type": "parameter",
-          "units": "1",
+          "units": "mi/h",
           "default": 0.0,
           "shape": [
             "operating_mode_rows"
@@ -2651,7 +2652,7 @@
         },
         "om_brakeRate1Sec": {
           "type": "parameter",
-          "units": "1",
+          "units": "mi/(h*s)",
           "default": 0.0,
           "shape": [
             "operating_mode_rows"
@@ -2667,7 +2668,7 @@
         },
         "om_brakeRate3Sec": {
           "type": "parameter",
-          "units": "1",
+          "units": "mi/(h*s)",
           "default": 0.0,
           "shape": [
             "operating_mode_rows"
@@ -2699,7 +2700,7 @@
         },
         "phys_rollingTermA": {
           "type": "parameter",
-          "units": "1",
+          "units": "kW*s/m",
           "default": 0.0,
           "shape": [
             "physics_rows"
@@ -2715,7 +2716,7 @@
         },
         "phys_rotatingTermB": {
           "type": "parameter",
-          "units": "1",
+          "units": "kW*s^2/m^2",
           "default": 0.0,
           "shape": [
             "physics_rows"
@@ -2731,7 +2732,7 @@
         },
         "phys_dragTermC": {
           "type": "parameter",
-          "units": "1",
+          "units": "kW*s^3/m^3",
           "default": 0.0,
           "shape": [
             "physics_rows"
@@ -2747,7 +2748,7 @@
         },
         "phys_sourceMass": {
           "type": "parameter",
-          "units": "1",
+          "units": "tonne",
           "default": 0.0,
           "shape": [
             "physics_rows"
@@ -2763,7 +2764,7 @@
         },
         "phys_fixedMassFactor": {
           "type": "parameter",
-          "units": "1",
+          "units": "tonne",
           "default": 0.0,
           "shape": [
             "physics_rows"
@@ -3905,11 +3906,11 @@
           "type": "parameter",
           "units": "degF",
           "default": 67.0,
-          "description": "adjust.rs:114. The fixture's 66.900001525879 is one tenth of a degree below this, so the suppression does NOT fire and the EV factor is 1 by its own `adj < 0` clamp instead -- two different reasons for the same 1, and \u00a77.2 shows they diverge 0.3 degF away."
+          "description": "adjust.rs:114. The fixture's 66.900001525879 is one tenth of a degree below this, so the suppression does NOT fire and the EV factor is 1 by its own `adj < 0` clamp instead -- two different reasons for the same 1, and §7.2 shows they diverge 0.3 degF away."
         },
         "idleCeilingMph": {
           "type": "parameter",
-          "units": "1",
+          "units": "mi/h",
           "default": 1.0,
           "description": "drivecycle.rs:230. A second below 1 mph is Idling; at national scale a second at exactly 0 mph is Idling too rather than the project-scale mode 501, so the two arms collapse to this one predicate."
         },
@@ -4023,7 +4024,7 @@
           "shape": [
             "run_rows"
           ],
-          "description": "S1: is 2020 flagged as a base year? It is, so \u00a71.5's population and VMT folds are the empty product and finding F12 does not arise. A run whose analysis year is not a base year needs both folds; this document takes the collapsed form and says so here (docs/esm-conventions.md \u00a715)."
+          "description": "S1: is 2020 flagged as a base year? It is, so §1.5's population and VMT folds are the empty product and finding F12 does not arise. A run whose analysis year is not a base year needs both folds; this document takes the collapsed form and says so here (docs/esm-conventions.md §15)."
         },
         "run_fuelYearID": {
           "type": "unknown",
@@ -4159,7 +4160,7 @@
           "shape": [
             "run_rows"
           ],
-          "description": "setup.rs:411's clamp(0, 1), which makes it exactly 0. Written out rather than factored into a `clamp01` template, because \u00a74.8 argues the VALUE each of this chain's two clamps takes is the load-bearing fact and a shared template would hide which is which."
+          "description": "setup.rs:411's clamp(0, 1), which makes it exactly 0. Written out rather than factored into a `clamp01` template, because §4.8 argues the VALUE each of this chain's two clamps takes is the load-bearing fact and a shared template would hide which is which."
         },
         "run_evTemperatureIsSuppressed": {
           "type": "unknown",
@@ -4175,11 +4176,11 @@
           "shape": [
             "run_rows"
           ],
-          "description": "The Braking operating mode, NAMED. It was a bare literal 0 until finding F32 was fixed upstream -- an `enums` value had to be a positive integer and MOVES's Braking mode is genuinely 0, so the one mode this document most needed to name was the one it could not. A constant equality is still a join.on (docs/esm-conventions.md \u00a720.4), so this one-row column is what the two braking-rate lookups key on."
+          "description": "The Braking operating mode, NAMED. It was a bare literal 0 until finding F32 was fixed upstream -- an `enums` value had to be a positive integer and MOVES's Braking mode is genuinely 0, so the one mode this document most needed to name was the one it could not. A constant equality is still a join.on (docs/esm-conventions.md §20.4), so this one-row column is what the two braking-rate lookups key on."
         },
         "run_brakeRate1Sec": {
           "type": "unknown",
-          "units": "1",
+          "units": "mi/(h*s)",
           "shape": [
             "run_rows"
           ],
@@ -4187,7 +4188,7 @@
         },
         "run_brakeRate3Sec": {
           "type": "unknown",
-          "units": "1",
+          "units": "mi/(h*s)",
           "shape": [
             "run_rows"
           ],
@@ -4307,7 +4308,7 @@
         },
         "dss_priorSpeed": {
           "type": "unknown",
-          "units": "1",
+          "units": "mi/h",
           "shape": [
             "drive_second_rows"
           ],
@@ -4323,7 +4324,7 @@
         },
         "dss_prior2Speed": {
           "type": "unknown",
-          "units": "1",
+          "units": "mi/h",
           "shape": [
             "drive_second_rows"
           ],
@@ -4339,7 +4340,7 @@
         },
         "dss_prior3Speed": {
           "type": "unknown",
-          "units": "1",
+          "units": "mi/h",
           "shape": [
             "drive_second_rows"
           ],
@@ -4355,7 +4356,7 @@
         },
         "dss_nextSpeed": {
           "type": "unknown",
-          "units": "1",
+          "units": "mi/h",
           "shape": [
             "drive_second_rows"
           ],
@@ -4379,7 +4380,7 @@
         },
         "dss_acceleration": {
           "type": "unknown",
-          "units": "1",
+          "units": "mi/(h*s)",
           "shape": [
             "drive_second_rows"
           ],
@@ -4387,7 +4388,7 @@
         },
         "dss_priorAcceleration": {
           "type": "unknown",
-          "units": "1",
+          "units": "mi/(h*s)",
           "shape": [
             "drive_second_rows"
           ],
@@ -4395,7 +4396,7 @@
         },
         "dss_prior2Acceleration": {
           "type": "unknown",
-          "units": "1",
+          "units": "mi/(h*s)",
           "shape": [
             "drive_second_rows"
           ],
@@ -4403,7 +4404,7 @@
         },
         "dss_speedMs": {
           "type": "unknown",
-          "units": "1",
+          "units": "m/s",
           "shape": [
             "drive_second_rows"
           ],
@@ -4411,7 +4412,7 @@
         },
         "dss_accelerationMs": {
           "type": "unknown",
-          "units": "1",
+          "units": "m/s^2",
           "shape": [
             "drive_second_rows"
           ],
@@ -4435,7 +4436,7 @@
         },
         "dss_vsp": {
           "type": "unknown",
-          "units": "1",
+          "units": "kW/tonne",
           "shape": [
             "drive_second_rows"
           ],
@@ -4512,7 +4513,7 @@
             "drive_schedule_assoc_rows",
             "operating_mode_rows"
           ],
-          "description": "Seconds per (schedule, operating mode). Two clauses: the schedule, and the operating MODE, which gives the 60-wide mode axis its own gate rather than leaving it a scanned output loop (docs/esm-conventions.md \u00a725, finding F17)."
+          "description": "Seconds per (schedule, operating mode). Two clauses: the schedule, and the operating MODE, which gives the 60-wide mode axis its own gate rather than leaving it a scanned output loop (docs/esm-conventions.md §25, finding F17)."
         },
         "dsa_modeFraction": {
           "type": "unknown",
@@ -4612,7 +4613,7 @@
             "runspecday_rows",
             "operating_mode_rows"
           ],
-          "description": "W. \u00a72.3(b): the speed-bin-weighted drive-cycle operating-mode distribution that the base rate collapses opModeID and avgSpeedBinID into -- 46 non-zero numbers over two day types and 23 modes. \u00a78.1 recorded this as the one relation this port did not compute; it is computed here."
+          "description": "W. §2.3(b): the speed-bin-weighted drive-cycle operating-mode distribution that the base rate collapses opModeID and avgSpeedBinID into -- 46 non-zero numbers over two day types and 23 modes. §8.1 recorded this as the one relation this port did not compute; it is computed here."
         },
         "dc_WTotal": {
           "type": "unknown",
@@ -4620,7 +4621,7 @@
           "shape": [
             "runspecday_rows"
           ],
-          "description": "W summed over operating modes. It is the avgSpeedFraction column's own total, so it is 1 to the reference's six-significant-figure storage and not exactly -- 0.9999999 on the weekday, the only day type this run selects, which is why its test carries an absolute tolerance rather than a relative one (docs/esm-conventions.md \u00a720.5)."
+          "description": "W summed over operating modes. It is the avgSpeedFraction column's own total, so it is 1 to the reference's six-significant-figure storage and not exactly -- 0.9999999 on the weekday, the only day type this run selects, which is why its test carries an absolute tolerance rather than a relative one (docs/esm-conventions.md §20.5)."
         },
         "dc_WModeCount": {
           "type": "unknown",
@@ -4628,7 +4629,7 @@
           "shape": [
             "runspecday_rows"
           ],
-          "description": "How many operating modes carry a non-zero weight. 23 for each day type, which is exactly the set \u00a75.5 says carries a 9101 rate -- 0, 1, 11-16, 21-25, 27-30, 33, 35 and 37-40. A classification that admitted mode 26 or 36, or that lost the braking arm, would change this count before it changed any number."
+          "description": "How many operating modes carry a non-zero weight. 23 for each day type, which is exactly the set §5.5 says carries a 9101 rate -- 0, 1, 11-16, 21-25, 27-30, 33, 35 and 37-40. A classification that admitted mode 26 or 36, or that lost the braking arm, would change this count before it changed any number."
         },
         "ac_ordinal": {
           "type": "unknown",
@@ -4908,7 +4909,7 @@
           "shape": [
             "cohort_rows"
           ],
-          "description": "The prefix count ZEROED on non-members, so every surviving candidate has a dense 1..125 and every suppressed one has a 0 that no output ordinal can match (docs/esm-conventions.md \u00a722). This is what keeps WHICH cohorts survive out of the document: the output row joins to this rank and reads its keys back through the join."
+          "description": "The prefix count ZEROED on non-members, so every surviving candidate has a dense 1..125 and every suppressed one has a 0 that no output ordinal can match (docs/esm-conventions.md §22). This is what keeps WHICH cohorts survive out of the document: the output row joins to this rank and reads its keys back through the join."
         },
         "coh_sourceBinActivityFraction": {
           "type": "unknown",
@@ -4948,7 +4949,7 @@
           "shape": [
             "emissionrate_rows"
           ],
-          "description": "The fuel type unpacked from the packed sourceBinID. `floor(bin/1e16) mod 100` has a small exact quotient even though the id itself is past 2^53, which is what makes the INVERSE safe where composing one is not (\u00a72.2, \u00a74.4)."
+          "description": "The fuel type unpacked from the packed sourceBinID. `floor(bin/1e16) mod 100` has a small exact quotient even though the id itself is past 2^53, which is what makes the INVERSE safe where composing one is not (§2.2, §4.4)."
         },
         "er_engTechID": {
           "type": "unknown",
@@ -5052,7 +5053,7 @@
           "shape": [
             "cohort_rows"
           ],
-          "description": "sbweighted.rs:369-405: the back-scaling that compensates for EV sales removing vehicles from the ICE fleet. Exactly 1 for electricity itself, and MODEL-YEAR dependent for everything else -- which is why \u00a77.3 found that no single operating-mode weight vector fits the base rates until this is divided out, and why omitting it leaves a 5.5e-2 residual and a 37% error in the fitted total."
+          "description": "sbweighted.rs:369-405: the back-scaling that compensates for EV sales removing vehicles from the ICE fleet. Exactly 1 for electricity itself, and MODEL-YEAR dependent for everything else -- which is why §7.3 found that no single operating-mode weight vector fits the base rates until this is divided out, and why omitting it leaves a 5.5e-2 residual and a 37% error in the fitted total."
         },
         "cohMode_rate": {
           "type": "unknown",
@@ -5061,7 +5062,7 @@
             "cohort_rows",
             "operating_mode_rows"
           ],
-          "description": "J22: emissionrate keyed on the four unpacked bin COMPONENTS plus the pollutant-process and the operating mode, as ONE clause -- a single composite key. THE ORIGINAL REASON IS GONE AND THE FUSION STAYS ANYWAY, which is worth stating so a reader does not retire it a second time. It was written this way because document order picked the driving clause and six separate clauses cost 158,030,400 leaves against this composite's 3,772 (finding F17). F17 is fixed: the conjunctive gate reaches the same 3,772 from the six-clause spelling, and the six-clause form emits a BYTE-IDENTICAL relation, so nothing here depends on the fusion for correctness or for avoiding a blow-up. But equal leaves are not equal cost -- six clauses build six equijoins where one composite builds one -- and measured on this fixture `esm simulate` is 2.8 s fused against 5.1 s unfused, three runs each, a consistent 1.85x. So this is now a MEASURED authoring choice rather than a workaround: docs/esm-conventions.md \u00a725 is retired as a rule and this is not an instance of it."
+          "description": "J22: emissionrate keyed on the four unpacked bin COMPONENTS plus the pollutant-process and the operating mode, as ONE clause -- a single composite key. THE ORIGINAL REASON IS GONE AND THE FUSION STAYS ANYWAY, which is worth stating so a reader does not retire it a second time. It was written this way because document order picked the driving clause and six separate clauses cost 158,030,400 leaves against this composite's 3,772 (finding F17). F17 is fixed: the conjunctive gate reaches the same 3,772 from the six-clause spelling, and the six-clause form emits a BYTE-IDENTICAL relation, so nothing here depends on the fusion for correctness or for avoiding a blow-up. But equal leaves are not equal cost -- six clauses build six equijoins where one composite builds one -- and measured on this fixture `esm simulate` is 2.8 s fused against 5.1 s unfused, three runs each, a consistent 1.85x. So this is now a MEASURED authoring choice rather than a workaround: docs/esm-conventions.md §25 is retired as a rule and this is not an instance of it."
         },
         "cohMode_weightedRate": {
           "type": "unknown",
@@ -5088,7 +5089,7 @@
             "cohort_rows",
             "runspecday_rows"
           ],
-          "description": "The same collapse over the INCREMENTAL A/C load. It is genuinely large -- 56,676 against a base rate of 387,171 for MY1980 gasoline, a 14.6% addition -- and it reaches the answer multiplied by an A/C factor this document computes to be exactly 0. docs/esm-conventions.md \u00a723: a stage in that position is modelled here and asserted in components/onroad_energy_output.esm, which can move the heat index and see both arms."
+          "description": "The same collapse over the INCREMENTAL A/C load. It is genuinely large -- 56,676 against a base rate of 387,171 for MY1980 gasoline, a 14.6% addition -- and it reaches the answer multiplied by an A/C factor this document computes to be exactly 0. docs/esm-conventions.md §23: a stage in that position is modelled here and asserted in components/onroad_energy_output.esm, which can move the heat index and see both arms."
         },
         "coh_acPenetrationFraction": {
           "type": "unknown",
@@ -5152,7 +5153,7 @@
           "shape": [
             "cohort_rows"
           ],
-          "description": "adjust.rs:110-124: the `adj < 0` clamp, then the heat-index suppression, then the gate on fuel type -- in that order, because the suppression overrides a positive adjustment rather than the reverse. 1 for every row here, but for two different reasons at two different temperatures (\u00a77.2)."
+          "description": "adjust.rs:110-124: the `adj < 0` clamp, then the heat-index suppression, then the gate on fuel type -- in that order, because the suppression overrides a positive adjustment rather than the reverse. 1 for every row here, but for two different reasons at two different temperatures (§7.2)."
         },
         "coh_batteryEfficiency": {
           "type": "unknown",
@@ -5185,7 +5186,7 @@
             "cohort_rows",
             "runspecday_rows"
           ],
-          "description": "S15 in adjust.rs's own order: the A/C addition (:536-568), then the temperature factor (:495-535), then the EV divisor (:611-616). The general-fuel-ratio, criteria-ratio, I/M and emissionRateAdjustment steps are passthroughs here -- two empty tables, an isAffectedByExhaustIM of N, and a production flag that is off -- and are named in \u00a72.3(c) rather than written as multiplications by one."
+          "description": "S15 in adjust.rs's own order: the A/C addition (:536-568), then the temperature factor (:495-535), then the EV divisor (:611-616). The general-fuel-ratio, criteria-ratio, I/M and emissionRateAdjustment steps are passthroughs here -- two empty tables, an isAffectedByExhaustIM of N, and a production flag that is off -- and are named in §2.3(c) rather than written as multiplications by one."
         },
         "outDayOrdinal": {
           "type": "unknown",
@@ -5265,7 +5266,7 @@
           "shape": [
             "output_rows"
           ],
-          "description": "S16, mod.rs:1602-1608: SHO over noOfRealDays. Leaving the divisor out gives 4.48 on the weekday rows this run emits where \u00a76.1 wants 0.8955."
+          "description": "S16, mod.rs:1602-1608: SHO over noOfRealDays. Leaving the divisor out gives 4.48 on the weekday rows this run emits where §6.1 wants 0.8955."
         },
         "out_meanBaseRate": {
           "type": "unknown",
@@ -6895,7 +6896,7 @@
           }
         },
         {
-          "_comment": "The Braking mode id as a one-row column, so the two braking-rate lookups are ordinary equi-joins (docs/esm-conventions.md \u00a720.4). `operating_mode.Braking` is 0, which an `enums` member could not be until F32 was fixed upstream.",
+          "_comment": "The Braking mode id as a one-row column, so the two braking-rate lookups are ordinary equi-joins (docs/esm-conventions.md §20.4). `operating_mode.Braking` is 0, which an `enums` member could not be until F32 was fixed upstream.",
           "lhs": "run_brakingOpModeID",
           "rhs": {
             "op": "faq",
@@ -7198,7 +7199,7 @@
           }
         },
         {
-          "_comment": "THE FOUR NEIGHBOURING-SECOND READS finding F11 used to refuse. Each is `driveschedulesecond` joined to ITSELF -- two ranges over one index set -- on (offset second, driveScheduleID), with `syms` naming which side each key column is read at. The offset pair is written FIRST because the driving clause is the first one the evaluator can resolve and its selectivity is the runtime (docs/esm-conventions.md \u00a725): the second key is 3.2 rows per value where the schedule key is 1,298. Measured on this document: 63,602 rows and 4.045e9 candidate pairs per join, eight joins, and the whole W stage evaluates in about two seconds.",
+          "_comment": "THE FOUR NEIGHBOURING-SECOND READS finding F11 used to refuse. Each is `driveschedulesecond` joined to ITSELF -- two ranges over one index set -- on (offset second, driveScheduleID), with `syms` naming which side each key column is read at. The offset pair is written FIRST because the driving clause is the first one the evaluator can resolve and its selectivity is the runtime (docs/esm-conventions.md §25): the second key is 3.2 rows per value where the schedule key is 1,298. Measured on this document: 63,602 rows and 4.045e9 candidate pairs per join, eight joins, and the whole W stage evaluates in about two seconds.",
           "lhs": "dss_priorSpeed",
           "rhs": {
             "op": "faq",
@@ -7531,102 +7532,54 @@
           "_comment": "drivecycle.rs:236-252.",
           "lhs": "dss_acceleration",
           "rhs": {
-            "op": "ifelse",
-            "args": [
-              {
-                "op": ">",
-                "args": [
-                  "dss_priorPresent",
-                  0.5
-                ]
-              },
-              {
-                "op": "-",
-                "args": [
-                  "dss_speed",
-                  "dss_priorSpeed"
-                ]
-              },
-              {
-                "op": "ifelse",
-                "args": [
-                  {
-                    "op": "and",
-                    "args": [
-                      {
-                        "op": "==",
-                        "args": [
-                          "dss_second",
-                          "dss_firstSecond"
-                        ]
-                      },
-                      {
-                        "op": ">",
-                        "args": [
-                          "dss_nextPresent",
-                          0.5
-                        ]
-                      }
-                    ]
-                  },
-                  {
-                    "op": "-",
-                    "args": [
-                      "dss_nextSpeed",
-                      "dss_speed"
-                    ]
-                  },
-                  0.0
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "lhs": "dss_priorAcceleration",
-          "rhs": {
-            "op": "ifelse",
-            "args": [
-              {
-                "op": "<",
-                "args": [
-                  "dss_priorPresent",
-                  0.5
-                ]
-              },
-              0.0,
-              {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "per_schedule_second",
+            "bindings": {
+              "speed_change": {
                 "op": "ifelse",
                 "args": [
                   {
                     "op": ">",
                     "args": [
-                      "dss_prior2Present",
+                      "dss_priorPresent",
                       0.5
                     ]
                   },
                   {
                     "op": "-",
                     "args": [
-                      "dss_priorSpeed",
-                      "dss_prior2Speed"
+                      "dss_speed",
+                      "dss_priorSpeed"
                     ]
                   },
                   {
                     "op": "ifelse",
                     "args": [
                       {
-                        "op": "==",
+                        "op": "and",
                         "args": [
-                          "dss_priorSecond",
-                          "dss_firstSecond"
+                          {
+                            "op": "==",
+                            "args": [
+                              "dss_second",
+                              "dss_firstSecond"
+                            ]
+                          },
+                          {
+                            "op": ">",
+                            "args": [
+                              "dss_nextPresent",
+                              0.5
+                            ]
+                          }
                         ]
                       },
                       {
                         "op": "-",
                         "args": [
-                          "dss_speed",
-                          "dss_priorSpeed"
+                          "dss_nextSpeed",
+                          "dss_speed"
                         ]
                       },
                       0.0
@@ -7634,47 +7587,35 @@
                   }
                 ]
               }
-            ]
+            }
           }
         },
         {
-          "lhs": "dss_prior2Acceleration",
+          "lhs": "dss_priorAcceleration",
           "rhs": {
-            "op": "ifelse",
-            "args": [
-              {
-                "op": "<",
-                "args": [
-                  "dss_prior2Present",
-                  0.5
-                ]
-              },
-              0.0,
-              {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "per_schedule_second",
+            "bindings": {
+              "speed_change": {
                 "op": "ifelse",
                 "args": [
                   {
-                    "op": ">",
+                    "op": "<",
                     "args": [
-                      "dss_prior3Present",
+                      "dss_priorPresent",
                       0.5
                     ]
                   },
-                  {
-                    "op": "-",
-                    "args": [
-                      "dss_prior2Speed",
-                      "dss_prior3Speed"
-                    ]
-                  },
+                  0.0,
                   {
                     "op": "ifelse",
                     "args": [
                       {
-                        "op": "==",
+                        "op": ">",
                         "args": [
-                          "dss_prior2Second",
-                          "dss_firstSecond"
+                          "dss_prior2Present",
+                          0.5
                         ]
                       },
                       {
@@ -7684,12 +7625,93 @@
                           "dss_prior2Speed"
                         ]
                       },
-                      0.0
+                      {
+                        "op": "ifelse",
+                        "args": [
+                          {
+                            "op": "==",
+                            "args": [
+                              "dss_priorSecond",
+                              "dss_firstSecond"
+                            ]
+                          },
+                          {
+                            "op": "-",
+                            "args": [
+                              "dss_speed",
+                              "dss_priorSpeed"
+                            ]
+                          },
+                          0.0
+                        ]
+                      }
                     ]
                   }
                 ]
               }
-            ]
+            }
+          }
+        },
+        {
+          "lhs": "dss_prior2Acceleration",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "per_schedule_second",
+            "bindings": {
+              "speed_change": {
+                "op": "ifelse",
+                "args": [
+                  {
+                    "op": "<",
+                    "args": [
+                      "dss_prior2Present",
+                      0.5
+                    ]
+                  },
+                  0.0,
+                  {
+                    "op": "ifelse",
+                    "args": [
+                      {
+                        "op": ">",
+                        "args": [
+                          "dss_prior3Present",
+                          0.5
+                        ]
+                      },
+                      {
+                        "op": "-",
+                        "args": [
+                          "dss_prior2Speed",
+                          "dss_prior3Speed"
+                        ]
+                      },
+                      {
+                        "op": "ifelse",
+                        "args": [
+                          {
+                            "op": "==",
+                            "args": [
+                              "dss_prior2Second",
+                              "dss_firstSecond"
+                            ]
+                          },
+                          {
+                            "op": "-",
+                            "args": [
+                              "dss_priorSpeed",
+                              "dss_prior2Speed"
+                            ]
+                          },
+                          0.0
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
           }
         },
         {
@@ -7711,62 +7733,28 @@
           "_comment": "drivecycle.rs:239: the difference of the two CONVERTED speeds, not the converted difference.",
           "lhs": "dss_accelerationMs",
           "rhs": {
-            "op": "ifelse",
-            "args": [
-              {
-                "op": ">",
-                "args": [
-                  "dss_priorPresent",
-                  0.5
-                ]
-              },
-              {
-                "op": "-",
-                "args": [
-                  "dss_speedMs",
-                  {
-                    "op": "*",
-                    "args": [
-                      "dss_priorSpeed",
-                      {
-                        "op": "apply_expression_template",
-                        "args": [],
-                        "name": "mph_to_meters_per_second",
-                        "bindings": {}
-                      }
-                    ]
-                  }
-                ]
-              },
-              {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "per_schedule_second",
+            "bindings": {
+              "speed_change": {
                 "op": "ifelse",
                 "args": [
                   {
-                    "op": "and",
+                    "op": ">",
                     "args": [
-                      {
-                        "op": "==",
-                        "args": [
-                          "dss_second",
-                          "dss_firstSecond"
-                        ]
-                      },
-                      {
-                        "op": ">",
-                        "args": [
-                          "dss_nextPresent",
-                          0.5
-                        ]
-                      }
+                      "dss_priorPresent",
+                      0.5
                     ]
                   },
                   {
                     "op": "-",
                     "args": [
+                      "dss_speedMs",
                       {
                         "op": "*",
                         "args": [
-                          "dss_nextSpeed",
+                          "dss_priorSpeed",
                           {
                             "op": "apply_expression_template",
                             "args": [],
@@ -7774,14 +7762,55 @@
                             "bindings": {}
                           }
                         ]
-                      },
-                      "dss_speedMs"
+                      }
                     ]
                   },
-                  0.0
+                  {
+                    "op": "ifelse",
+                    "args": [
+                      {
+                        "op": "and",
+                        "args": [
+                          {
+                            "op": "==",
+                            "args": [
+                              "dss_second",
+                              "dss_firstSecond"
+                            ]
+                          },
+                          {
+                            "op": ">",
+                            "args": [
+                              "dss_nextPresent",
+                              0.5
+                            ]
+                          }
+                        ]
+                      },
+                      {
+                        "op": "-",
+                        "args": [
+                          {
+                            "op": "*",
+                            "args": [
+                              "dss_nextSpeed",
+                              {
+                                "op": "apply_expression_template",
+                                "args": [],
+                                "name": "mph_to_meters_per_second",
+                                "bindings": {}
+                              }
+                            ]
+                          },
+                          "dss_speedMs"
+                        ]
+                      },
+                      0.0
+                    ]
+                  }
                 ]
               }
-            ]
+            }
           }
         },
         {
@@ -10538,7 +10567,7 @@
           }
         },
         {
-          "_comment": "The inclusive prefix count that turns the selection mask into a dense row NUMBER (docs/esm-conventions.md \u00a722). `x <= c` is a genuine range predicate over two ranges of one index set, so it is a filter and needs no join gate.",
+          "_comment": "The inclusive prefix count that turns the selection mask into a dense row NUMBER (docs/esm-conventions.md §22). `x <= c` is a genuine range predicate over two ranges of one index set, so it is a filter and needs no join gate.",
           "lhs": "coh_prefixSelected",
           "rhs": {
             "op": "faq",
@@ -10740,7 +10769,7 @@
           }
         },
         {
-          "_comment": "\u00a74.4: the packed sourceBinID unpacked into the four components J22 keys on. One parameterised template with the four slot exponents in `enums`, so the decimal layout lives in one place.",
+          "_comment": "§4.4: the packed sourceBinID unpacked into the four components J22 keys on. One parameterised template with the four slot exponents in `enums`, so the decimal layout lives in one place.",
           "lhs": "er_fuelTypeID",
           "rhs": {
             "op": "apply_expression_template",
@@ -11059,7 +11088,7 @@
           }
         },
         {
-          "_comment": "J25: two key pairs plus an inclusive model-year RANGE filter, which is the \u00a73 treatment for every inequality in this port.",
+          "_comment": "J25: two key pairs plus an inclusive model-year RANGE filter, which is the §3 treatment for every inequality in this port.",
           "lhs": "coh_evMultiplier",
           "rhs": {
             "op": "faq",
@@ -11412,7 +11441,7 @@
           }
         },
         {
-          "_comment": "J22: ONE clause carrying six key pairs, and THIS IS A COST DECISION, not a reading order (docs/esm-conventions.md \u00a725). Splitting it into six one-pair clauses gives a byte-identical answer and takes 43x as long -- measured on this document, 298.36 s and 287.08 s against 6.61 / 6.62 / 6.98 s. Six pairs in one clause is ONE composite gate admitting 3,772 leaves over the 164 x 60 output cells; six clauses is a gate whose selectivity is that of whichever single pair resolves first, which for the order these pairs are written in is `fuelTypeID` at 1.58e8 leaves. docs/mixed-onroad.md \u00a710.3 has the table for all six.",
+          "_comment": "J22: ONE clause carrying six key pairs, and THIS IS A COST DECISION, not a reading order (docs/esm-conventions.md §25). Splitting it into six one-pair clauses gives a byte-identical answer and takes 43x as long -- measured on this document, 298.36 s and 287.08 s against 6.61 / 6.62 / 6.98 s. Six pairs in one clause is ONE composite gate admitting 3,772 leaves over the 164 x 60 output cells; six clauses is a gate whose selectivity is that of whichever single pair resolves first, which for the order these pairs are written in is `fuelTypeID` at 1.58e8 leaves. docs/mixed-onroad.md §10.3 has the table for all six.",
           "lhs": "cohMode_rate",
           "rhs": {
             "op": "faq",
@@ -13529,7 +13558,7 @@
       "tests": [
         {
           "id": "the_run_scope_comes_from_the_execution_database",
-          "description": "Year 2020, August, 7am, source type 21, road type 4, county 26161, zone 261610, polProcessID 9101 built from the two enums, and 2020 flagged as a base year so \u00a71.5's two folds are the empty product.\n\nTHE HOUR IS 7 AND NOT `mixed-onroad`'s 9, and that is the whole of the scope difference between the two runs apart from the day set. It is not cosmetic: the heat index at hour 7 is 59.5 degF against hour 9's 66.9, which moves both of \u00a72.3's clamps -- the A/C activity term further below zero and the EV temperature term ABOVE it. `the_temperature_lookup_reaches_the_regClassID_zero_wildcard` asserts the arms that changes.\n\nThe day set is NOT asserted here. It has a test of its own, `the_day_axis_is_exercised_at_both_of_its_values`, because it is the reason this fixture exists (docs/esm-conventions.md \u00a742.5).",
+          "description": "Year 2020, August, 7am, source type 21, road type 4, county 26161, zone 261610, polProcessID 9101 built from the two enums, and 2020 flagged as a base year so §1.5's two folds are the empty product.\n\nTHE HOUR IS 7 AND NOT `mixed-onroad`'s 9, and that is the whole of the scope difference between the two runs apart from the day set. It is not cosmetic: the heat index at hour 7 is 59.5 degF against hour 9's 66.9, which moves both of §2.3's clamps -- the A/C activity term further below zero and the EV temperature term ABOVE it. `the_temperature_lookup_reaches_the_regClassID_zero_wildcard` asserts the arms that changes.\n\nThe day set is NOT asserted here. It has a test of its own, `the_day_axis_is_exercised_at_both_of_its_values`, because it is the reason this fixture exists (docs/esm-conventions.md §42.5).",
           "time_span": {
             "start": 0.0,
             "end": 0.0
@@ -13759,7 +13788,7 @@
         },
         {
           "id": "the_drive_cycle_weights_are_a_distribution_over_the_twenty_three_running_modes",
-          "description": "W itself, checked on the two properties that do not require the reference, AT BOTH DAY TYPES. It is a DISTRIBUTION: the weights sum to the avgSpeedFraction column's own total, which is 1 to that column's six stored significant figures and not exactly -- summed over this run's (sourceType 21, roadType 4) rows it is 1.0000003 at hourDayID 72 and 0.99999901 at hourDayID 75 -- so the gate is ABSOLUTE at 1e-5 and not relative (docs/esm-conventions.md \u00a720.5). And it covers exactly the 23 operating modes \u00a75.5 says carry a 9101 rate: a classification that admitted the coarse modes 26 or 36, or that lost the braking arm, changes this count before it changes any emission.\n\nBOTH ROWS ARE THE POINT. `dc_W` is shaped [runspecday_rows, operating_mode_rows] and is built ONCE PER DAY TYPE, because avgSpeedFraction is keyed by hourDayID; the twelve one-day fixtures build it once and can say nothing about whether the day index reaches it at all. Here the two vectors are genuinely different -- the day-2 average speed is 67.0417 mph and the day-5 one 56.3612 -- and a document that indexed W by anything other than the day would still satisfy both of these structural assertions while failing every cell of `the_collapsed_base_rate_reproduces_the_references_own_intermediate`, which is why that test carries both days too.",
+          "description": "W itself, checked on the two properties that do not require the reference, AT BOTH DAY TYPES. It is a DISTRIBUTION: the weights sum to the avgSpeedFraction column's own total, which is 1 to that column's six stored significant figures and not exactly -- summed over this run's (sourceType 21, roadType 4) rows it is 1.0000003 at hourDayID 72 and 0.99999901 at hourDayID 75 -- so the gate is ABSOLUTE at 1e-5 and not relative (docs/esm-conventions.md §20.5). And it covers exactly the 23 operating modes §5.5 says carry a 9101 rate: a classification that admitted the coarse modes 26 or 36, or that lost the braking arm, changes this count before it changes any emission.\n\nBOTH ROWS ARE THE POINT. `dc_W` is shaped [runspecday_rows, operating_mode_rows] and is built ONCE PER DAY TYPE, because avgSpeedFraction is keyed by hourDayID; the twelve one-day fixtures build it once and can say nothing about whether the day index reaches it at all. Here the two vectors are genuinely different -- the day-2 average speed is 67.0417 mph and the day-5 one 56.3612 -- and a document that indexed W by anything other than the day would still satisfy both of these structural assertions while failing every cell of `the_collapsed_base_rate_reproduces_the_references_own_intermediate`, which is why that test carries both days too.",
           "time_span": {
             "start": 0.0,
             "end": 0.0
@@ -13804,7 +13833,7 @@
         },
         {
           "id": "the_activity_chain_reproduces_the_worked_examples",
-          "description": "docs/expand-day.md \u00a76.1 and \u00a76.2, at the stages a wrong factor shows up at, and at BOTH day types wherever the stage has a day.\n\ntravelFraction is day-INDEPENDENT and is asserted once: [21, 40] normalised over the whole HPMS group is 1.609175e-03; over source type 21 alone it is 4.10e-03 and every row is 2.55x high. Its two ordinals are in the day-2 block and its values are `mixed-onroad`'s unchanged, which is the control on the re-addressing -- a stage with no day cannot move when the day set does.\n\naverageSpeed is the ARITHMETIC mean and it HAS a day: 67.0416879 at hourDayID 72 and 56.3611908 at hourDayID 75, against the reference `averagespeed` table's own 6.70417e+01 and 5.63612e+01. The harmonic means are 51.62 and 40.79, and S8 divides by the result. The weekend figure is one of the three docs/esm-conventions.md \u00a742.4 records as DELETED when the corpus was corrected; it is restored here against the same reference column it was read from.\n\n`act_sho` is asserted at three ages on each day -- the snapshot's own `sho` table, to its stored digits. The day-2 and day-5 values at the same age differ by a factor of 10.51 and that factor is the whole day axis of S6-S9 in one number: 27.33 / 260.057 = 0.105093 = (0.237635 / 0.762365) x (0.0184304 / 0.0459565) x (56.3611908 / 67.0416879), i.e. dayVMTFraction x hourVMTFraction x 1/averageSpeed and nothing else. Omitting weeksPerMonth multiplies all six by 4.428571.",
+          "description": "docs/expand-day.md §6.1 and §6.2, at the stages a wrong factor shows up at, and at BOTH day types wherever the stage has a day.\n\ntravelFraction is day-INDEPENDENT and is asserted once: [21, 40] normalised over the whole HPMS group is 1.609175e-03; over source type 21 alone it is 4.10e-03 and every row is 2.55x high. Its two ordinals are in the day-2 block and its values are `mixed-onroad`'s unchanged, which is the control on the re-addressing -- a stage with no day cannot move when the day set does.\n\naverageSpeed is the ARITHMETIC mean and it HAS a day: 67.0416879 at hourDayID 72 and 56.3611908 at hourDayID 75, against the reference `averagespeed` table's own 6.70417e+01 and 5.63612e+01. The harmonic means are 51.62 and 40.79, and S8 divides by the result. The weekend figure is one of the three docs/esm-conventions.md §42.4 records as DELETED when the corpus was corrected; it is restored here against the same reference column it was read from.\n\n`act_sho` is asserted at three ages on each day -- the snapshot's own `sho` table, to its stored digits. The day-2 and day-5 values at the same age differ by a factor of 10.51 and that factor is the whole day axis of S6-S9 in one number: 27.33 / 260.057 = 0.105093 = (0.237635 / 0.762365) x (0.0184304 / 0.0459565) x (56.3611908 / 67.0416879), i.e. dayVMTFraction x hourVMTFraction x 1/averageSpeed and nothing else. Omitting weeksPerMonth multiplies all six by 4.428571.",
           "time_span": {
             "start": 0.0,
             "end": 0.0
@@ -13897,7 +13926,7 @@
         },
         {
           "id": "the_four_worked_examples_reach_MOVESOutput",
-          "description": "docs/expand-day.md \u00a76.1-\u00a76.4, asserted against the numbers MOVESOutput stores rather than against this document's own. FOUR COHORTS x TWO DAY TYPES, which is the shape the day correction took away from every other fixture in this tree: A (MY 1980, gasoline) is the largest rate and shows every factor at once, B (MY 2020, gasoline) is the largest activity, C (MY 2000, electricity) exercises the EV efficiency divisor at its largest -- 22.1% -- and D (MY 2020, electricity) at the other end of the age-group ladder.\n\nEACH PAIR IS THE SAME COHORT ON THE TWO DAYS, so the pair pins a RATIO that no single-day fixture can state. For A it is 1.46683 / 0.452942 = 3.2384, and it factorises exactly: (333651 / 392141) x (23.1918 / 2.43728) x (2 / 5) -- base rate, source hours and the RECIPROCAL of noOfRealDays. A port that hardcoded noOfRealDays = 5 leaves the day-5 half of this test green and multiplies the day-2 half by 2.5; a port that dropped the divisor entirely leaves neither.\n\n`output_rows` is (day, cohort) with the day OUTERMOST -- measured, per docs/esm-conventions.md \u00a742.3, by emitting out_dayID down the ordinals rather than derived -- so ordinals 1-125 are dayID 2 and 126-250 are dayID 5, and each pair here is o and o+125. The tolerance is the fixture's own per-cell gate, because MOVESOutput stores six significant figures and \u00a77.1 attributes every residual here to that. The three SCCs are exact integers and are asserted exactly: an SCC off by one digit relabels a whole fuel type and still passes a per-pollutant sum.",
+          "description": "docs/expand-day.md §6.1-§6.4, asserted against the numbers MOVESOutput stores rather than against this document's own. FOUR COHORTS x TWO DAY TYPES, which is the shape the day correction took away from every other fixture in this tree: A (MY 1980, gasoline) is the largest rate and shows every factor at once, B (MY 2020, gasoline) is the largest activity, C (MY 2000, electricity) exercises the EV efficiency divisor at its largest -- 22.1% -- and D (MY 2020, electricity) at the other end of the age-group ladder.\n\nEACH PAIR IS THE SAME COHORT ON THE TWO DAYS, so the pair pins a RATIO that no single-day fixture can state. For A it is 1.46683 / 0.452942 = 3.2384, and it factorises exactly: (333651 / 392141) x (23.1918 / 2.43728) x (2 / 5) -- base rate, source hours and the RECIPROCAL of noOfRealDays. A port that hardcoded noOfRealDays = 5 leaves the day-5 half of this test green and multiplies the day-2 half by 2.5; a port that dropped the divisor entirely leaves neither.\n\n`output_rows` is (day, cohort) with the day OUTERMOST -- measured, per docs/esm-conventions.md §42.3, by emitting out_dayID down the ordinals rather than derived -- so ordinals 1-125 are dayID 2 and 126-250 are dayID 5, and each pair here is o and o+125. The tolerance is the fixture's own per-cell gate, because MOVESOutput stores six significant figures and §7.1 attributes every residual here to that. The three SCCs are exact integers and are asserted exactly: an SCC off by one digit relabels a whole fuel type and still passes a per-pollutant sum.",
           "time_span": {
             "start": 0.0,
             "end": 0.0
@@ -14095,7 +14124,7 @@
         },
         {
           "id": "the_collapsed_base_rate_reproduces_the_references_own_intermediate",
-          "description": "`cohDay_meanBaseRate` IS `baserate_1_2020.meanBaseRate` -- the reference's own S14 intermediate, and the relation docs/mixed-onroad.md \u00a78.1 recorded as the one this port could not compute. Asserted here against the values that table stores, which is the most direct check of W available: \u00a77.3 shows the base rate factorises exactly around W, so a wrong W is a wrong number in every one of these cells and nothing else in the chain can absorb it. Four cohorts x BOTH day types, chosen to span four orders of magnitude and all of the fuel types' behaviour: MY1980 gasoline (the largest rate), MY2020 gasoline, MY2020 electricity (the youngest EV age group) and MY2000 electricity (the oldest, and the smallest rate in the fixture).\n\nTHIS IS WHERE THE TWO W VECTORS ARE SPENT. `dc_WTotal` and `dc_WModeCount` say W is a distribution over 23 modes on each day; they do not say the two are DIFFERENT distributions, and they would pass unchanged on a document that built one vector and indexed it twice. These eight cells say it: at every cohort the day-2 rate is 1.15x to 1.28x the day-5 rate, because 67.0 mph and 56.4 mph weight the operating modes differently, and a single shared W gives one of the two columns to four significant figures and the other not at all.\n\n`cohDay_meanBaseRateACAdj` is the INCREMENTAL A/C load of sbweighted.rs:459, and it is asserted for a reason the fixture's own description hedges about: it reaches emissionQuant multiplied by an A/C factor this document computes to be exactly 0 -- MORE decisively so at 59.5 degF than at `mixed-onroad`'s 66.9 -- so the OUTPUT cannot see it, but `baserate_1_2020` carries it in its own column, so it can be checked here anyway. What remains uncheckable at this fixture is the non-zero arm of the A/C FACTOR, which needs a warmer hour than either of this pair; components/onroad_energy_output.esm moves the heat index and asserts both arms.\n\nThe tolerance is the reference's six-significant-figure column storage.",
+          "description": "`cohDay_meanBaseRate` IS `baserate_1_2020.meanBaseRate` -- the reference's own S14 intermediate, and the relation docs/mixed-onroad.md §8.1 recorded as the one this port could not compute. Asserted here against the values that table stores, which is the most direct check of W available: §7.3 shows the base rate factorises exactly around W, so a wrong W is a wrong number in every one of these cells and nothing else in the chain can absorb it. Four cohorts x BOTH day types, chosen to span four orders of magnitude and all of the fuel types' behaviour: MY1980 gasoline (the largest rate), MY2020 gasoline, MY2020 electricity (the youngest EV age group) and MY2000 electricity (the oldest, and the smallest rate in the fixture).\n\nTHIS IS WHERE THE TWO W VECTORS ARE SPENT. `dc_WTotal` and `dc_WModeCount` say W is a distribution over 23 modes on each day; they do not say the two are DIFFERENT distributions, and they would pass unchanged on a document that built one vector and indexed it twice. These eight cells say it: at every cohort the day-2 rate is 1.15x to 1.28x the day-5 rate, because 67.0 mph and 56.4 mph weight the operating modes differently, and a single shared W gives one of the two columns to four significant figures and the other not at all.\n\n`cohDay_meanBaseRateACAdj` is the INCREMENTAL A/C load of sbweighted.rs:459, and it is asserted for a reason the fixture's own description hedges about: it reaches emissionQuant multiplied by an A/C factor this document computes to be exactly 0 -- MORE decisively so at 59.5 degF than at `mixed-onroad`'s 66.9 -- so the OUTPUT cannot see it, but `baserate_1_2020` carries it in its own column, so it can be checked here anyway. What remains uncheckable at this fixture is the non-zero arm of the A/C FACTOR, which needs a warmer hour than either of this pair; components/onroad_energy_output.esm moves the heat index and asserts both arms.\n\nThe tolerance is the reference's six-significant-figure column storage.",
           "time_span": {
             "start": 0.0,
             "end": 0.0
@@ -14252,7 +14281,7 @@
         },
         {
           "id": "the_temperature_lookup_reaches_the_regClassID_zero_wildcard",
-          "description": "adjust.rs:495-520 looks a temperatureadjustment row up by the exact regClassID and THEN by the regClassID 0 wildcard. `fixtures/mixed-onroad.esm` used to implement only the first step, and the only row in the table is the wildcard -- so its EV temperature terms came out 0, its raw adjustment 0 instead of -0.00419, and the `adj < 0` clamp returned the right factor of 1 FOR THE WRONG REASON (docs/esm-conventions.md \u00a727.3).\n\nAT 59.5 degF THE CLAMP DOES NOT FIRE, and that is what this fixture adds. The raw EV adjustment is (59.5 - 72) x (0.00225 + 0.00028 x (59.5 - 72)) = -12.5 x -0.00125 = +0.015625, so the factor is 1.015625 and the wildcard row's two coefficients reach emissionQuant DIRECTLY, on all 82 electricity rows. At `mixed-onroad`'s 66.9 degF the same lookup produces -0.0041922 and is clamped away; delete the wildcard step there and every number is unchanged, delete it here and the fuel-9 rows move by 1.56%. This is \u00a723's rule read the other way round: the fixture that can SEE a stage is the one whose scope puts the stage off its clamp.\n\nThe A/C clamp, by contrast, is FURTHER inside its boundary here than at hour 9: -0.2969815 against -0.0189. So this fixture checks the temperature arm the other onroad fixtures cannot and checks the A/C arm no better than they do, and \u00a723 says to say so rather than to let the reader assume a colder hour exercises more of everything.\n\nNeither the lookup nor either clamp is day-keyed -- `coh_*` is shaped [cohort_rows] -- so every assertion here is stated once and holds for both day blocks.",
+          "description": "adjust.rs:495-520 looks a temperatureadjustment row up by the exact regClassID and THEN by the regClassID 0 wildcard. `fixtures/mixed-onroad.esm` used to implement only the first step, and the only row in the table is the wildcard -- so its EV temperature terms came out 0, its raw adjustment 0 instead of -0.00419, and the `adj < 0` clamp returned the right factor of 1 FOR THE WRONG REASON (docs/esm-conventions.md §27.3).\n\nAT 59.5 degF THE CLAMP DOES NOT FIRE, and that is what this fixture adds. The raw EV adjustment is (59.5 - 72) x (0.00225 + 0.00028 x (59.5 - 72)) = -12.5 x -0.00125 = +0.015625, so the factor is 1.015625 and the wildcard row's two coefficients reach emissionQuant DIRECTLY, on all 82 electricity rows. At `mixed-onroad`'s 66.9 degF the same lookup produces -0.0041922 and is clamped away; delete the wildcard step there and every number is unchanged, delete it here and the fuel-9 rows move by 1.56%. This is §23's rule read the other way round: the fixture that can SEE a stage is the one whose scope puts the stage off its clamp.\n\nThe A/C clamp, by contrast, is FURTHER inside its boundary here than at hour 9: -0.2969815 against -0.0189. So this fixture checks the temperature arm the other onroad fixtures cannot and checks the A/C arm no better than they do, and §23 says to say so rather than to let the reader assume a colder hour exercises more of everything.\n\nNeither the lookup nor either clamp is day-keyed -- `coh_*` is shaped [cohort_rows] -- so every assertion here is stated once and holds for both day blocks.",
           "time_span": {
             "start": 0.0,
             "end": 0.0
@@ -14365,7 +14394,7 @@
         },
         {
           "id": "the_day_axis_is_exercised_at_both_of_its_values",
-          "description": "THE REASON THIS FIXTURE EXISTS. docs/esm-conventions.md \u00a742.5: the `<day key=>` correction left every two-valued day factor in this repository exercised at exactly ONE value -- noOfRealDays always 5, hourDayID always 75, dayVMTFraction four rows and not eight -- so a port that hardcoded any of them passed all twelve remaining fixtures. `expand-day` is the one snapshot in the corpus that still carries both day types, and this test is where that is spent.\n\nFIVE DAY-KEYED QUANTITIES, EACH AT BOTH VALUES, in the order the chain reaches them:\n\n  1. the key      day_hourDayID {72, 75} -- LOOKED UP from (dayID, hourID) through `hourday`, never composed as hourID x 10 + dayID\n  2. S7's shares  act_dayVMTFraction {0.237635, 0.762365} and act_hourVMTFraction {0.0184304, 0.0459565}\n  3. the layout   act_dayID and act_hourDayID at the first and last row of each block of `activity_rows`\n  4. the output   out_dayID and outHourDayID at the first and last row of each block of `output_rows`\n  5. S16's divisor  outNoOfRealDays {2, 5} on both output blocks\n\nEVERY ONE IS A COMPUTED VARIABLE AND NONE IS AN INGESTED COLUMN, which is forced rather than chosen: an assertion naming a `kind: data` parameter -- `rsd_dayID`, `dow_dayID`, `dow_noOfRealDays`, and every other column this document ingests -- fails at evaluation with `array state '...' has no cells in var_map` (finding F43). So `dayofanyweek.noOfRealDays` cannot be pinned where it is READ; it is pinned at `outNoOfRealDays`, where it is USED, which is the stronger of the two claims anyway -- a divisor that arrives correctly and is then not applied fails the second and not the first.\n\nWHAT EACH WOULD CATCH, stated as the failure and not as the property, because a claim nobody can falsify is decoration:\n\n  * noOfRealDays hardcoded to 5, or the divisor dropped: the 125 `outNoOfRealDays` cells of the day-2 block go red here, and the four day-2 emissionQuant cells of `the_four_worked_examples_reach_MOVESOutput` go red at exactly 2.5x. Measured: the day-2 rows land 2.5x high with the divisor dropped and 2.5x high with it pinned at 5 -- the same wrong answer twice, which is why the OUTPUT assertions and these structural ones are both needed.\n  * the day index dropped from `hourday`, so both blocks read hourDayID 75: `day_hourDayID[1]`, `act_hourDayID[1]` and `outHourDayID[1]` go red, and behind them `act_sho`, `dc_W` and every `cohDay_*` day-2 cell, because 72 and 75 are what `sho` and `avgspeeddistribution` are keyed on.\n  * dayVMTFraction or hourVMTFraction taken from whichever row matches first rather than by day: the two shares are 0.237635/0.762365 and 0.0184304/0.0459565, so a first-match join reads the day-2 value into both blocks and `act_sho`'s day-5 rows fall by 3.2x and 2.5x.\n  * the two blocks transposed: every id assertion here is asserted at BOTH ends -- ordinals 1 and 125 of the day-2 block, 126 and 250 of the day-5 one -- so a layout that interleaved the days instead of blocking them fails on the interior ordinals even where it happens to agree at the edges. The layout was MEASURED and not assumed (\u00a742.3).\n\nThe values are exact stored decimals in the snapshot's own tables, so the gate is the document's own 1e-9 rather than the reference's six-figure storage: nothing here is computed, everything is read and carried, and a carried number that has drifted at 1e-9 has been through an arithmetic step it should not have been through.",
+          "description": "THE REASON THIS FIXTURE EXISTS. docs/esm-conventions.md §42.5: the `<day key=>` correction left every two-valued day factor in this repository exercised at exactly ONE value -- noOfRealDays always 5, hourDayID always 75, dayVMTFraction four rows and not eight -- so a port that hardcoded any of them passed all twelve remaining fixtures. `expand-day` is the one snapshot in the corpus that still carries both day types, and this test is where that is spent.\n\nFIVE DAY-KEYED QUANTITIES, EACH AT BOTH VALUES, in the order the chain reaches them:\n\n  1. the key      day_hourDayID {72, 75} -- LOOKED UP from (dayID, hourID) through `hourday`, never composed as hourID x 10 + dayID\n  2. S7's shares  act_dayVMTFraction {0.237635, 0.762365} and act_hourVMTFraction {0.0184304, 0.0459565}\n  3. the layout   act_dayID and act_hourDayID at the first and last row of each block of `activity_rows`\n  4. the output   out_dayID and outHourDayID at the first and last row of each block of `output_rows`\n  5. S16's divisor  outNoOfRealDays {2, 5} on both output blocks\n\nEVERY ONE IS A COMPUTED VARIABLE AND NONE IS AN INGESTED COLUMN, which is forced rather than chosen: an assertion naming a `kind: data` parameter -- `rsd_dayID`, `dow_dayID`, `dow_noOfRealDays`, and every other column this document ingests -- fails at evaluation with `array state '...' has no cells in var_map` (finding F43). So `dayofanyweek.noOfRealDays` cannot be pinned where it is READ; it is pinned at `outNoOfRealDays`, where it is USED, which is the stronger of the two claims anyway -- a divisor that arrives correctly and is then not applied fails the second and not the first.\n\nWHAT EACH WOULD CATCH, stated as the failure and not as the property, because a claim nobody can falsify is decoration:\n\n  * noOfRealDays hardcoded to 5, or the divisor dropped: the 125 `outNoOfRealDays` cells of the day-2 block go red here, and the four day-2 emissionQuant cells of `the_four_worked_examples_reach_MOVESOutput` go red at exactly 2.5x. Measured: the day-2 rows land 2.5x high with the divisor dropped and 2.5x high with it pinned at 5 -- the same wrong answer twice, which is why the OUTPUT assertions and these structural ones are both needed.\n  * the day index dropped from `hourday`, so both blocks read hourDayID 75: `day_hourDayID[1]`, `act_hourDayID[1]` and `outHourDayID[1]` go red, and behind them `act_sho`, `dc_W` and every `cohDay_*` day-2 cell, because 72 and 75 are what `sho` and `avgspeeddistribution` are keyed on.\n  * dayVMTFraction or hourVMTFraction taken from whichever row matches first rather than by day: the two shares are 0.237635/0.762365 and 0.0184304/0.0459565, so a first-match join reads the day-2 value into both blocks and `act_sho`'s day-5 rows fall by 3.2x and 2.5x.\n  * the two blocks transposed: every id assertion here is asserted at BOTH ends -- ordinals 1 and 125 of the day-2 block, 126 and 250 of the day-5 one -- so a layout that interleaved the days instead of blocking them fails on the interior ordinals even where it happens to agree at the edges. The layout was MEASURED and not assumed (§42.3).\n\nThe values are exact stored decimals in the snapshot's own tables, so the gate is the document's own 1e-9 rather than the reference's six-figure storage: nothing here is computed, everything is read and carried, and a carried number that has drifted at 1e-9 has been through an arithmetic step it should not have been through.",
           "time_span": {
             "start": 0.0,
             "end": 0.0

@@ -5224,7 +5224,7 @@ size is set by the shared document rather than by the fixture — is now a
 statement about a cost that has been paid down to nothing, and it is kept
 because the next shared document will start the same way.
 
-## 57. A unit on a constant is declared once, on the template that names it, and only where the unit is certain **[EarthSciAST PR #347, esm 1.2.0; 25 constants, 210 declarations corrected, 6 unit boundaries]**
+## 57. A unit on a constant is declared once, on the template that names it, and only where the unit is certain **[EarthSciAST PR #347, esm 1.2.0; 28 constants, 493 declarations corrected, 6 unit boundaries]**
 
 A bare numeric literal has an undeterminable dimension, and a product containing
 one is not checked (finding F44's units subsection, EarthSciAST #302). From esm
@@ -5256,6 +5256,9 @@ fidelity change, not a units change.
 | template | value | `units` |
 |---|---|---|
 | `lib/drive_cycle.esm` `gravity_m_per_s2` | 9.81 | `m/s^2` |
+| `lib/drive_cycle.esm` `mph_to_meters_per_second` | 0.44704 | `m*h/(mi*s)` (rule 9) |
+| `lib/drive_cycle.esm` `drive_schedule_time_step` | 1.0 | `s` (rule 9) |
+| `lib/drive_cycle.esm` `full_scale_percent` | 100 | `percent` (rule 9) |
 | `lib/emission_factors.esm` `grams_per_pound` | 453.6 | `g/lb` |
 | `lib/nonroad_speciation.esm` `grams_per_pound` | 453.592 | `g/lb` |
 | `lib/nonroad_speciation.esm` `nonroad_engine_gasoline_density`, `air_toxics_gasoline_density` | 6.237, 6.17 | `lb/gal` |
@@ -5334,11 +5337,15 @@ setup.rs:409-411), the EV suppression threshold and reference temperature
 (`ppm`) and an ester volume (`percent`). If the fix is not a declaration, or the
 unit is not certain, the constant stays bare — or the chain gets a boundary
 (rule 8) — and either way the reason is recorded. Measured on `8ac536bf0`
-against the annotated tree, two constants are still bare:
+against the annotated tree, two constants were still bare. **`mph_to_meters_per_second`
+is not any more**: rule 9 typed its chain, and the concession that stood here —
+that the one-second step "is not written down anywhere" and that `÷ 1 s` "belongs
+with the twenty-declaration sweep rather than ahead of it" — is retired rather
+than standing. What refused is what rule 9 found and fixed. One constant is still
+bare:
 
 | constant | would be | refuses | why it is neither a declaration fix nor a boundary here |
 |---|---|---|---|
-| `mph_to_meters_per_second` 0.44704 | `m*h/(mi*s)` — which the registry resolves to DIMENSIONLESS at scale 3125/1397, since `m·h/(mi·s)` cancels | 11 onroad fixtures, `components/link_operating_mode_distribution.esm`, and all three 7c spike documents | it is a scale factor rather than a dimension, so it does not merely want `mi/h` on one variable: every drive-schedule speed, prior speed, next speed, bin speed and operating-mode speed bound in those documents — about twenty declarations each — has to move together, and one of them cannot move without an expression change. `*_accelerationMs` is `(speed[t] − speed[t−1]) × 0.44704`, which is a `m/s` and is declared and used as a `m/s^2`; the drive schedule's one-second step is real, it is what makes the difference an acceleration, and it is not written down anywhere. Measured: with the annotation, `components/link_operating_mode_distribution.esm` equation 30 is refused `length*time^-2` against `length*time^-1`, which is the defect and not an artefact of the annotation. Writing `÷ 1 s` would be exact and would fix it, and it belongs with the twenty-declaration sweep rather than ahead of it |
 | `short_tons_per_gram` 1.102311e-06, and `grams_per_short_ton` with it | `short_ton/g` | components/exhaust_rollup.esm and runs/nr_logging_county_run.esm, at `emissionShortTons` | measured: with the annotation, `emissionShortTons` is refused as `1` (dimensionless at scale 45359237/50) AND as `short_ton` (mass against dimensionless), because the ten-factor product upstream is dimensionless factor by factor. It would have to yield GRAMS, and three of its factors — `adjustmentTime`, `monthDayFactor`, `unitConversionFactor` — have no unit MOVES pins. A boundary would be dishonest here: there is no regression, just a product that has not been typed yet |
 
 **The three the previous pass could not annotate, it now can**, because rule 8
@@ -5415,12 +5422,14 @@ itself a result, because an annotation is what lets a declaration be non-`1` at 
 | the const-units pass (§57.1–7) | PR #347 `7704f9621` | 107 | 13 | 12 |
 | before this section | `8ac536bf0` | 71 | 14 | 13 |
 | after this section | `8ac536bf0` | 189 | **11** | **10** |
+| after the drive-cycle pass (§57.9) | `8ac536bf0` | 317 | **8** | **8** |
 
 **The fixtures are the part to read.** They carried 10 swept declarations before
 this section and carry 121 after, and not one of the 121 is silent in either arm:
 every temperature, humidity, heat index, temperature-adjustment term and A/C
 activity term in every fixture is now caught if it is declared wrong. The 11 and
-10 that remain are all in `components/` and `runs/` (57 and 58 caught of 68), and
+10 that remained at THIS measurement — rule 9 re-measured them to 8 and 8 — are
+all in `components/` and `runs/` (57 and 58 caught of 68), and
 each is one of four things: `10^x` with a symbolic exponent, §4.8.3
 (`met_saturationVaporPressure`); inline data with no checked consumer, rule 3
 (`act_medianLifeFullLoad`, `lomd_linkAvgGrade`, `somd_bandMinSoakTime`,
@@ -5433,3 +5442,112 @@ each is one of four things: `10^x` with a symbolic exponent, §4.8.3
 A declared unit never checks the VALUE — `const(0.4470, "m*h/(mi*s)")` is accepted —
 or an affine offset: the 273.15 and the 32 are checked as temperatures, not as the
 right temperatures.
+
+**9. A factor that CANCELS is typed by typing its chain, and the step a schedule
+takes is a number somebody has to write down.** `mph_to_meters_per_second` was the
+harder of rule 6's two bare constants, and the reason was not that its unit was
+uncertain: `m*h/(mi*s)` is exactly what 0.44704 is. It is that the registry
+resolves it to DIMENSIONLESS at scale 3125/1397, so the annotation checks nothing
+on its own and refuses fourteen documents whose speeds are declared `1`. A scale
+factor is typed by typing what it multiplies — 283 declarations across twelve
+documents here — or it is not typed at all.
+
+**The error rule 6 predicted, and its cause.** With the constant annotated and
+nothing else moved, `components/link_operating_mode_distribution.esm` equation 30
+is refused `length*time^-2` against `length*time^-1`: `lomd_accelerationMs` is
+`(speed[t] − speed[t−1]) × 0.44704`, which is a `m/s`, and it is declared and used
+as a `m/s^2`. The missing thing is not a unit, it is a NUMBER. `driveschedulesecond`
+holds one row per second, so a backward difference of two consecutive rows is a
+speed change over ONE SECOND, and it is that second — never written down anywhere
+in this port, and not in the SQL either — that makes the difference an acceleration.
+
+**So it is written down, once, as a constant with a unit.** `lib/drive_cycle.esm`
+gains `drive_schedule_time_step`, a `const` 1.0 declared `s`, and
+`per_schedule_second`, the one-parameter template that divides by it. Every
+backward difference of two schedule seconds in the repository now goes through
+that template: the three `At` differences and the VSP acceleration in the
+component, and `*_acceleration`, `*_priorAcceleration`, `*_prior2Acceleration` and
+`*_accelerationMs` in each of the ten onroad fixtures and in
+`spikes/7c/tirewear_logic.esm`. Dividing by exactly 1 is exact in binary64 for
+every finite value, for an infinity, for a NaN and for a negative zero, so the
+suite's log is identical but for two timing lines — the same cost rule 8 measured.
+
+**A template and not a bare `÷ 1.0` at each site**, for the reason rule 1 gives:
+the step is one fact about `driveschedulesecond`, its `description` is where that
+fact is stated, and forty-odd call sites saying `per_schedule_second` cannot drift
+from it where forty-odd naked `1.0`s could. **It is NOT a rule 8 boundary.** A
+boundary divides a unit OUT so that bare coefficients can be reached, and pays for
+it by not checking what enters; this multiplies a real physical interval IN and
+makes MORE things checkable. The repository still has exactly six boundaries and
+rule 8's list is still complete.
+
+**A per-cent divisor is a conversion, not a hundred.** `grade_sine` was
+`sin(atan(grade/100.0))` with a bare 100, and a bare divisor makes the quotient
+undeterminable however the grade is declared. `full_scale_percent` is
+`const(100.0, "percent")`, which the registry resolves to 1, so `grade / 100 percent`
+is the dimensionless tangent `atan` wants and not a second hundredth —
+the trap a literal `100` "in per cent" would have walked into. With it,
+`grade_acceleration = gravity_m_per_s2 / mph_to_meters_per_second × grade_sine`
+comes out `mi/(h*s)`, which is the unit
+`docs/link-operating-mode-distribution.md` §2.3 states for `At0`; that is what
+makes `lomd_at0`, `lomd_at1` and `lomd_at2` declarable at all, and all three are
+caught in both arms.
+
+**The road-load polynomial's coefficients ARE declared, and rule 4 is the reason
+rather than an exception to it.** Once `speed_ms` is `m/s`, `vehicle_specific_power`'s
+`(A·v + B·v² + C·v³ + M·v·a) / F` no longer type-checks with A, B, C, M and F all
+declared `1`: four addends, four different dimensions, and no undeterminable
+literal to hide behind. Rule 4's test settles which way to fix it, and it says
+DECLARE. VSP's result unit is sourced — kW/tonne, in
+`docs/link-operating-mode-distribution.md` §2.3 and
+`link_op_mode_distribution.rs:320` — and the polynomial is in ONE variable, `v`,
+since the acceleration is `v`'s own backward difference. That fixes all five
+uniquely and from outside the equation: `sourceMass` and `fixedMassFactor` are the
+same vehicle's mass in `tonne`, which makes `M·v·a/F` come out `m^2/s^3` — and
+`m^2/s^3` IS `kW/tonne`, at scale 1, which is the check that the reading is right
+rather than merely self-consistent. The other three then follow as `kW*s/m`,
+`kW*s^2/m^2` and `kW*s^3/m^3`. This is the same shape as rule 4's `A + h(B + Ch)`:
+one variable and a unit a source states, so the coefficients are declared and
+CHECKED rather than divided out at a boundary. It is what moves `lomd_vsp` and the
+fixtures' `dss_vsp` from silent to caught, and it brings `operatingmode`'s four
+band bounds with it (`kW/tonne` on the VSP pair, `mi/h` on the speed pair), because
+a half-open range test compares them against the typed quantity.
+
+**Two more the typing found, both measured the same way — remove the fix, re-validate.**
+Rule 6 named one defect (`*_accelerationMs`); there were three.
+
+| what refuses | how it was measured | what it is |
+|---|---|---|
+| `lomd_at0`, `lomd_at1`, `lomd_at2`: `Incompatible dimensions in '+': length*time^-1 vs length*time^-2` at equations 26, 27 and 28 | the `per_schedule_second` wrap taken back off the three `At` differences, everything else left in place | the SAME missing one-second step, in the mi/h domain instead of the m/s one: the SQL adds `speed[t] − speed[t−1]` to `9.81/0.44704 · sin(atan(g/100))`, a speed to an acceleration, and this port copied it faithfully. It only becomes visible once `full_scale_percent` makes `grade_sine` dimensionless, so rule 6 could not have seen it |
+| `dss_vsp` in a fixture: three `Incompatible dimensions in '+'`, `length^3*time^-3` against `length^2*time^-3` against `length^2*time^-2` against `length*time^-1`, at its equation and its variable | the five `sourceusetypephysicsmapping` declarations put back to `1` in `fixtures/process-tirewear.esm` | five wrong declarations, not one: `rollingTermA`, `rotatingTermB`, `dragTermC`, `sourceMass` and `fixedMassFactor` are not dimensionless, and with a typed `speed_ms` the road-load polynomial adds four different dimensions. This is rule 6's ordinary case — correct the declaration — and the units are the ones the paragraph above derives |
+
+**Where this pass STOPS, and why the line is there.** The average-speed-bin chain —
+`avgspeedbin.avgBinSpeed`, `driveschedule.averageSpeed`, the bracketing speeds and
+`act_averageSpeed` — is still declared `1` although every one of their descriptions
+says mph. Nothing in the 0.44704 chain touches them: they are compared only against
+each other. Typing them would be a different pass, because `act_averageSpeed`'s one
+consumer is S8, `SHO = VMT / averageSpeed`, and that types `act_vmt` as miles and
+`act_sho` as hours and then walks into the emission chain behind them. A pass is
+bounded by what the annotation it is FOR actually refuses, and a chain left
+untyped is a smaller debt than a chain typed halfway.
+
+**Re-measured**, same harness, same binary `8ac536bf0`, in a worktree:
+
+| | swept | dimension-wrong, silent | scale-wrong, silent |
+|---|---|---|---|
+| before this rule | 189 | 11 | 10 |
+| after this rule | **317** | **8** | **8** |
+
+The fixtures go from 121 swept to 241 and stay at zero silent in both arms;
+`components/` and `runs/` go from 68 to 76 and from 57/58 caught to 68 caught of
+76 — every declaration those two directories write that is not one of the eight
+below. The eight are the same four kinds rule 8 named, minus the two entries
+`mph_to_meters_per_second` was responsible for: `met_saturationVaporPressure`
+(`10^x`, §4.8.3); `act_medianLifeFullLoad`, `lomd_linkAvgGrade`,
+`somd_bandMinSoakTime` and `somd_bandMaxSoakTime` (inline data with no checked
+consumer, rule 3); `met_relHumidity` (entering a boundary, rule 8's cost); and
+`out_emissionQuant` and `chainEmissionGrams`, which are `short_tons_per_gram`'s
+row in rule 6's table and are all that is left of it. The sweep reads
+`components`, `lib`, `runs` and `fixtures` and not `spikes`, so
+`spikes/7c/tirewear_logic.esm`'s 25 declarations are typed but not swept; they are
+the same 25 the fixtures carry.
