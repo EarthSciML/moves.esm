@@ -1,0 +1,206 @@
+{
+  "esm": "1.1.0",
+  "metadata": {
+    "name": "F14RaggedIndexSetIgnoresItsMemberFactor",
+    "description": "FINDING F14, CONTROL \u2014 expected to PASS, and a control rather than a repro because the defect it recorded was resolved by settling the SPELLING, not by changing an evaluator.\n\nWHAT F14 CLAIMED, AND WHY IT WAS WRONG. This document used to assert that a `ragged` index set ignores its member factor: it declared `parentMember` as a flat `[1,2,3,4,5,6]`, ranged over the ragged axis, and read `index(flatValue, j)` \u2014 then reported 30 where 50 was wanted. The probe that seemed decisive was that REVERSING `parentMember` changed nothing. It changed nothing because the body never mentioned `parentMember` at all.\n\nWHAT THE FORMAT ACTUALLY SAYS, since EarthSciAST PR #352 made it normative (esm-spec \u00a74.3.1). A ragged range binds the POSITION k in 1..offsets[i], never a member; `offsets` is a per-parent LENGTH; and `values` is a PADDED [parent, max length] array, not a flattened CSR one. A body that wants the member gathers it: `index(values, i, k)`. The one exception is value invention (`distinct`, a `skolem` key, rank/argmin/argmax), where the range does bind the member. Upstream pins this repository's old spelling as `tests/invalid/faq/ragged_values_not_gathered.esm` \u2014 a document that MUST be rejected \u2014 and the correct one as `tests/valid/faq/ragged_member_gather.esm`.\n\nSO THIS IS THE CORRECT SPELLING, and it is kept because the member factor being READ is worth a standing check: `parentMember` is the padded [[1,0,0],[2,3,0],[4,5,6]], the body gathers `index(flatValue, index(parentMember, i, j))`, and the three parents total 10, 50 and 150. Measured: reversing the member rows moves those to 60, 90, 60 \u2014 so the factor is read, which is the counter-probe the original finding never ran.\n\nWHAT IT COST THE PORT: nothing. `components/movesoutput_aggregation.esm` keeps the flat row relation with the parent as a key column, which needs no padding and no axis machinery. The ragged axis is available for the nr-logging-county shape (3/4/29 model years per SCC) if a later stage wants it.",
+    "authors": [
+      "EarthSciML Authors and Contributors"
+    ],
+    "tags": [
+      "finding",
+      "resolved",
+      "index-sets",
+      "ragged"
+    ]
+  },
+  "index_sets": {
+    "parent_rows": {
+      "kind": "interval",
+      "size": 3
+    },
+    "max_members": {
+      "kind": "interval",
+      "size": 3
+    },
+    "flat_member_rows": {
+      "kind": "interval",
+      "size": 6
+    },
+    "members_of_parent": {
+      "kind": "ragged",
+      "of": [
+        "parent_rows"
+      ],
+      "offsets": "parentMemberCount",
+      "values": "parentMember"
+    }
+  },
+  "models": {
+    "F14RaggedIndexSetIgnoresItsMemberFactor": {
+      "tolerance": {
+        "rel": 1e-12
+      },
+      "variables": {
+        "parentMemberCount": {
+          "type": "unknown",
+          "shape": [
+            "parent_rows"
+          ],
+          "units": "1",
+          "description": "offsets: the per-parent member COUNT -- one, two, three. Not a cumulative prefix sum."
+        },
+        "parentMember": {
+          "type": "unknown",
+          "shape": [
+            "parent_rows",
+            "max_members"
+          ],
+          "units": "1",
+          "description": "values: the PADDED [parent, max length] member array. Row i holds parent i's members in positions 1..offsets[i]; the trailing zeros are padding and are never read."
+        },
+        "flatValue": {
+          "type": "unknown",
+          "shape": [
+            "flat_member_rows"
+          ],
+          "units": "1",
+          "description": "A payload over the member axis, distinct per member so a mis-enumeration cannot coincide with the right answer."
+        },
+        "perParentTotal": {
+          "type": "unknown",
+          "shape": [
+            "parent_rows"
+          ],
+          "units": "1",
+          "description": "The sum of each parent's OWN members' payloads."
+        }
+      },
+      "equations": [
+        {
+          "lhs": "parentMemberCount",
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              1,
+              2,
+              3
+            ]
+          }
+        },
+        {
+          "lhs": "parentMember",
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              [
+                1,
+                0,
+                0
+              ],
+              [
+                2,
+                3,
+                0
+              ],
+              [
+                4,
+                5,
+                6
+              ]
+            ]
+          }
+        },
+        {
+          "lhs": "flatValue",
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              10,
+              20,
+              30,
+              40,
+              50,
+              60
+            ]
+          }
+        },
+        {
+          "_comment": "j binds the POSITION in 1..parentMemberCount[i]; index(parentMember, i, j) gathers the member.",
+          "lhs": "perParentTotal",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "i"
+            ],
+            "ranges": {
+              "i": {
+                "from": "parent_rows"
+              },
+              "j": {
+                "from": "members_of_parent",
+                "of": [
+                  "i"
+                ]
+              }
+            },
+            "expr": {
+              "op": "index",
+              "args": [
+                "flatValue",
+                {
+                  "op": "index",
+                  "args": [
+                    "parentMember",
+                    "i",
+                    "j"
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "tests": [
+        {
+          "id": "a_ragged_axis_enumerates_its_parents_members",
+          "description": "Per esm-spec \u00a74.3.1: the range binds the position and the body gathers the member, so parent 1 holds member 1 (10), parent 2 members 2 and 3 (50), parent 3 members 4, 5 and 6 (150). The original spelling, index(flatValue, j), gave 10, 30, 60 and is now rejected by validate() with `ragged_values_not_gathered`.",
+          "time_span": {
+            "start": 0.0,
+            "end": 0.0
+          },
+          "assertions": [
+            {
+              "variable": "perParentTotal",
+              "time": 0.0,
+              "expected": 10.0,
+              "coords": {
+                "parent_rows": 1
+              }
+            },
+            {
+              "variable": "perParentTotal",
+              "time": 0.0,
+              "expected": 50.0,
+              "coords": {
+                "parent_rows": 2
+              }
+            },
+            {
+              "variable": "perParentTotal",
+              "time": 0.0,
+              "expected": 150.0,
+              "coords": {
+                "parent_rows": 3
+              }
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

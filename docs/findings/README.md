@@ -14,48 +14,56 @@ bottom now. Nothing else changed state: the other nine repro-carrying findings
 — ten files, F22 having two — still fail exactly as recorded, no spec, fixture
 or oracle regressed, and no tolerance moved.
 
-F3, F5, F13, F14, F20, F21, F22, F28, F41, F43 and F45 each have a minimal `.esm` repro in
-this directory — F22 has two, one per construct; F8 is a CLI behaviour rather than a
-document, and is checked by command against the ordinary files of the repo.
-**F17, F31, F33 and F42 deliberately have no repro file**: a repro
-for any of them would assert the RIGHT answer and pass, and the tripwire stage
-below reads a passing file in this directory as "the defect is fixed". F17 and
-F31 were cost findings, where the right answer arrives too slowly rather than
-wrong; F33 is about bindings this repository does not execute, so its repro
+F22, F28, F41, F43 and F45 each have a minimal `.esm` repro in this directory —
+F22 has two, one per construct. F3, F5, F13, F14, F20 and F21 had one until the
+`8ac536bf0` rebuild retired all six, and their files are deleted; F8 is a CLI
+behaviour rather than a document, and is checked by command against the ordinary
+files of the repo. **F17, F31, F33 and F42 deliberately have no repro file**: a
+repro for any of them would assert the RIGHT answer and pass, and the tripwire
+stage below reads a passing file in this directory as "the defect is fixed". F17
+and F31 were cost findings, where the right answer arrives too slowly rather
+than wrong; F33 is about bindings this repository does not execute, so its repro
 would pass on `./esm` for a reason that has nothing to do with the defect. Each
 was reproduced inline in its own section instead, with the measurements that
 made it a finding. **F42 cannot have one for a fourth reason**: its trigger is
 state OUTSIDE the repository — a warm cache in `$TMPDIR` — so the same file
 would pass or fail depending on what was run before it, which is precisely what
-a tripwire cannot read. It is gated by `tools/check-source-cache.py` instead. **F46, F47, F48 and F49 are the fifth through eighth, and their reason is new**: each can only be
-shown in a document whose sole model is a mounted `{ref}`, and such a document
-discovers ZERO assertions (that is F47 itself), so `esm test` on it exits 0 and
-the tripwire would read it as green from the day it was written. A document
-that cannot make a claim cannot be a tripwire. F46 and F47 are gated by command in
-`run-tests.sh`'s 7a stage, two-sided; F48 and F49 in its 7c stage, the same way.
-F49 is the one that fails to LOAD today and would therefore fail the tripwire
-correctly — until it is fixed, at which point it becomes a mount with nothing
-to assert and reads as green for the wrong reason. F17 and F31 are now fixed upstream and retired — and F17 turned out not to be
-a cost finding at all, which is why the rule that a performance repro cannot be
-a tripwire is worth keeping even though both of its instances are gone: the
-thing that had no repro was hiding a WRONG ANSWER, and only a document that
-reordered its own join clauses would have found it. F23 has no repro at all, because the document that would carry it is `components/age_distribution.esm` itself and the finding is what that file does NOT declare. **Every repro is expected to fail**, and each one's inline test asserts the *intended* behaviour, so a repro
-that starts passing means the defect is fixed. `run-tests.sh` runs them as a
-**tripwire stage**: it fails if any repro goes green, with a message naming the
-convention that then becomes available. That is the opposite of the usual
-polarity and it is deliberate — a known limitation that quietly gets fixed is a
-workaround left in the tree for no reason.
+a tripwire cannot read. It is gated by `tools/check-source-cache.py` instead.
+**F46, F47, F48 and F49 are the fifth through eighth, and their reason is new**:
+each can only be shown in a document whose sole model is a mounted `{ref}`, and
+such a document discovers ZERO assertions (that is F47 itself), so `esm test` on
+it exits 0 and the tripwire would read it as green from the day it was written.
+A document that cannot make a claim cannot be a tripwire. F46 and F47 are gated
+by command in `run-tests.sh`'s 7a stage, two-sided; F48 and F49 in its 7c stage,
+the same way. F49 is the one that fails to LOAD today and would therefore fail
+the tripwire correctly — until it is fixed, at which point it becomes a mount
+with nothing to assert and reads as green for the wrong reason. F17 and F31 are
+now fixed upstream and retired — and F17 turned out not to be a cost finding at
+all, which is why the rule that a performance repro cannot be a tripwire is
+worth keeping even though both of its instances are gone: the thing that had no
+repro was hiding a WRONG ANSWER, and only a document that reordered its own join
+clauses would have found it. F23 has no repro at all, because the document that
+would carry it is `components/age_distribution.esm` itself and the finding is
+what that file does NOT declare. **Every repro is expected to fail**, and each
+one's inline test asserts the *intended* behaviour, so a repro that starts
+passing means the defect is fixed. `run-tests.sh` runs them as a **tripwire
+stage**: it fails if any repro goes green, with a message naming the convention
+that then becomes available. That is the opposite of the usual polarity and it
+is deliberate — a known limitation that quietly gets fixed is a workaround left
+in the tree for no reason.
 
 Three files are excluded from that loop by name. **`join_leaf.esm`** is a leaf
 that a repro mounts and that passes standalone, which is what makes the failure
-attributable to the mount. It was F1's and F2's control and is now F21's alone,
-both of those being retired; F21 reused it rather than adding a fourth leaf,
-which is why retiring them costs the leaf nothing and needed no change to
-`run-tests.sh` beyond the name in its message. **F18's control** is
-meant to pass, and checks the guarantee the port depends on from both sides: the
-key-collapse half of F18 is resolved by a per-variable `element_type` override
-that is explicit by design, so the behaviour its old repro asserted will never
-hold and "still fails, as recorded" would have been false reassurance.
+attributable to the mount. It was F1's, F2's and F21's control and all three are
+retired; it stays because `F18_control_float32_key_override.esm` mounts it, and
+because the next mount-edge repro should reuse it rather than add a fifth leaf.
+`F13_enum_leaf_one.esm` stays for the same kind of reason after F13's
+retirement: `F41_an_assertion_cannot_say_why.esm` mounts it. **F18's control**
+is meant to pass, and checks the guarantee the port depends on from both sides:
+the key-collapse half of F18 is resolved by a per-variable `element_type`
+override that is explicit by design, so the behaviour its old repro asserted
+will never hold and "still fails, as recorded" would have been false
+reassurance.
 
 **F24b's control** is the third, and it covers something nothing upstream could.
 F24 was fixed in a build with **no parquet reader**, so the *ingestion* axis was
@@ -97,23 +105,27 @@ passing was the defect. It is fixed, so that check is gone.
 The repros are excluded from the ordinary `validate` and `test` stages, because
 three of them do not load.
 
-**All nine repro-carrying findings open at the `3a01c56fc` pin were filed upstream** (2026-09-08): F2 #261, F3 #265, F5 #266, F13 #260, F14 #259, F20 #262, F21 #263, F22 #264, F28 #267. **F2 is closed and retired** (below); the other eight are open and still reproduce on `3aa046d65`, measured rather than assumed.
+**All nine repro-carrying findings open at the `3a01c56fc` pin were filed
+upstream** (2026-09-08), and every one of those issues is now CLOSED: F2 #261,
+F3 #265, F5 #266, F13 #260, F14 #259, F20 #262, F21 #263, F22 #264, F28 #267.
+**F2 is closed and retired** (below); the other eight are open and still
+reproduce on `3aa046d65`, measured rather than assumed.
 
 **F2 (#261) and F34 (#238) are FIXED upstream and RETIRED** at the `3aa046d65` rebuild. **The commit this file used to name for F2 was the wrong one**: it said `0ab4f5925`, which is the merge of PR #241 (conformance-harness reuse) and has nothing to do with it. The fix is `19f929981`, merged as `859ef5e93`, PR #208. Both are on `origin/main` and neither was in the `3a01c56fc` pin, checked with `git merge-base --is-ancestor` rather than read off a log. F34's is `fa7ffb01e` (PR #238), same check. Their entries are under "Fixed upstream" at the bottom and their repro files are gone. Each was A/B'd against EarthSciAST `68574b653` before filing and still reproduced there. Of the eight that remain open, none of the 272 commits between `3a01c56fc` and `3aa046d65` fixed any — checked by running each repro on the rebuilt binary, not by reading the log. F3, F5 and F28 were filed as DIAGNOSTIC/DOCUMENTATION requests rather than defects, because this file already records each as correct-or-conforming behaviour -- F28 says so in as many words.
 
 | | Finding | Fails at | Silent? |
 |---|---|---|---|
-| **F3** | An `enums` block does not cross an `expression_template_imports` edge | load | no |
-| **F5** | `skolem` / `distinct` / `rank` value invention does not evaluate | — | **yes** |
+| **F3** ~~open~~ **retired** | An `enums` block does not cross an `expression_template_imports` edge — fixed, PR #341 | load | no |
+| **F5** ~~open~~ **retired** | `skolem` / `distinct` / `rank` value invention does not evaluate — fixed, PR #342 | — | **yes** |
 | **F8** | A layered template library does not round-trip to a self-contained form | re-load | no |
-| **F13** | `enums` merge first-wins across a mount; a colliding value is applied | — | **yes** |
-| **F14** | A `ragged` index set ignores its member factor | evaluation | **yes** |
+| **F13** ~~open~~ **retired** | `enums` merge first-wins across a mount; a colliding value is applied — fixed, PR #353 | — | **yes** |
+| **F14** ~~open~~ **retired** | A `ragged` index set ignores its member factor — WRONG: the port's spelling was, PR #352 settled it | evaluation | **yes** |
 | **F16** | A SCALAR variable is not materialized in a document that ingests data — **fixed in Rust**; open because Julia and Python still resolve a pointwise assertion against state rows (`BEHAV-06-B-008`) | assertion | no |
 | **F18** | An ingested value the declared `element_type` cannot represent is narrowed silently (the key-collapse half is **resolved**, by a per-variable override) | ingest | **yes** |
 | **F23** | A leaf's `domain.element_type` does not survive a top-level `models` `{ref}` mount | — | **yes** |
 | **F22** | A discrete event, and an implicit equation, do not evaluate on the ARRAY path (both work on the scalar path) | evaluation | no |
-| **F20** | A constant-folded scalar right-hand side loses the left-hand side's array shape | assertion | no |
-| **F21** | A scoped reference to a mounted model's variable resolves as an operand and a join key but not as an assertion `variable` | assertion | no |
+| **F20** ~~open~~ **retired** | A constant-folded scalar right-hand side loses the left-hand side's array shape — fixed, PR #343 | assertion | no |
+| **F21** ~~open~~ **retired** | A scoped reference to a mounted model's variable resolves as an operand and a join key but not as an assertion `variable` — fixed, PR #345 | assertion | no |
 | **F28** | A recurrence whose predecessor is named by a DATA COLUMN has no direct spelling; the lag must be an offset of the frame symbol | validate + test | no |
 | **F33** | A `Float32` document's relational path is evaluated in binary64 by Julia and Python, with no diagnostic — §5.18 is normative and unimplemented | evaluation | no |
 
@@ -253,7 +265,17 @@ of the four assemblies**, before the removal and again after: every one raises
 it, naming both definitions and suggesting `index_set_rename`. See
 `docs/esm-conventions.md` §5.
 
-## F3 — `enums` do not cross a template import
+## F3 — `enums` do not cross a template import **[fixed upstream, retired]**
+
+**Fixed by EarthSciAST PR #341 (merged 2026-09-15), retired at the `8ac536bf0`
+rebuild.** Filed as #265. A template library's `enum` ops now resolve against
+the library's own `enums` block, which is what §9.3 always implied and what the
+error message could not say. The repro and its library half are deleted; the
+tripwire flipped on the first run against the new binary. What the defect forced
+is still in the tree and is no longer forced: `lib/conversion.esm` carries its
+activity-unit and emission-unit codes as zero-parameter constant-fragment
+templates rather than as enums. Converting them is a follow-up, not a
+correctness fix — the call sites pass the code either way.
 
 **Filed upstream: [EarthSciML/EarthSciAST#265](https://github.com/EarthSciML/EarthSciAST/issues/265)**, verified still reproducing on `68574b653`.
 
@@ -310,7 +332,15 @@ door.
 named `t` (or `_var`) at load with a named diagnostic. Convention meanwhile:
 docs/esm-conventions.md §7 — `t` is never a loop symbol.
 
-## F5 — `skolem` / `distinct` / `rank` do not evaluate
+## F5 — `skolem` / `distinct` / `rank` do not evaluate **[fixed upstream, retired]**
+
+**Fixed by EarthSciAST PR #342 (merged 2026-09-15), retired at the `8ac536bf0`
+rebuild.** Filed as #266. Value invention over a derived axis materializes, and
+an unmaterialized one is refused rather than read as 0. The repro is deleted.
+Nothing in this port was blocked by it: the canonical composite key is the
+multi-pair `join.on` (CONFORMANCE_SPEC §5.5.8), which is what the port writes
+and what it should keep writing. What the fix buys is the author-visible
+composite-key AXIS this entry said Phase 5's larger NONROAD sectors might want.
 
 **Filed upstream: [EarthSciML/EarthSciAST#266](https://github.com/EarthSciML/EarthSciAST/issues/266)**, verified still reproducing on `68574b653`.
 
@@ -603,7 +633,24 @@ settles:
 
 Until one of these lands, no NONROAD port can compute its own age distribution.
 
-## F13 — `enums` merge first-wins across a mount, silently
+## F13 — `enums` merge first-wins across a mount, silently **[fixed upstream, retired]**
+
+**Fixed by EarthSciAST PR #353 (merged 2026-09-15), retired at the `8ac536bf0`
+rebuild.** Filed as #260. A mounted file's `enum` ops resolve against that
+file's own block, so a leaf reads its own symbol whatever the assembly declares,
+and the silent relabelling this entry records cannot happen.
+
+**It was the most expensive finding here, and the removal is the measure of
+it.** Assemblies restated their leaves' enums only because a collision was
+silent: `runs/mixed_onroad_run.esm` 16 enums over 30 symbols,
+`runs/evap_leaks_run.esm` 11 over 26, and 6 over 17 in each of the two 7c
+documents — all deleted, all still validating and still running every assertion.
+`runs/nr_logging_county_run.esm` and `runs/micro_exhaust_run.esm` keep one enum
+each, `engine_fuel_kind`, because their OWN equations name it. The per-fixture
+document of conventions §53.2 goes from 43 lines to 12, which is PLAN.md §7.1's
+"thin" in full. `tools/check-conventions.py`'s `assembly-enums` rule is now
+`assembly-ref`: the union comparison was deleted rather than weakened, the same
+way `check_assembly_index_sets` went when F2 was fixed.
 
 **Filed upstream: [EarthSciML/EarthSciAST#260](https://github.com/EarthSciML/EarthSciAST/issues/260)**, verified still reproducing on `68574b653`.
 
@@ -642,7 +689,43 @@ symbol or a disagreeing value is a violation.
 or, if a merged registry is intended, make a conflicting redeclaration a load
 error the way §4.7 already treats a conflicting index set.
 
-## F14 — a `ragged` index set ignores its member factor
+## F14 — a `ragged` index set ignores its member factor **[fixed upstream, retired]**
+
+**Resolved by EarthSciAST PR #352 (merged 2026-09-16), retired at the
+`8ac536bf0` rebuild — and it was never the defect this entry describes.** Filed
+as #259. The format did not ignore the member factor; this document's SPELLING
+was wrong, and the probe that seemed decisive is what hid it.
+
+**What §4.3.1 now says normatively.** A ragged range binds the POSITION `k ∈
+1..offsets[i]`, never a member; `offsets` gives a per-parent LENGTH, not a
+cumulative offset; and `values` is a PADDED `[parent, max length]` array rather
+than a flattened CSR one. A body that wants the member gathers it:
+`index(values, i, k)`. The exception is value invention (`distinct`, a `skolem`
+key, rank/argmin/argmax), where the range does bind the member.
+
+**The probe that misled.** This entry reported that REVERSING the member array
+changed nothing, and read that as the factor being ignored. It changed nothing
+because the body never mentioned the member array at all — it read
+`index(flatValue, j)`, a position. Run in the conforming spelling, reversing the
+member rows moves the totals from 10/50/150 to 60/90/60. Upstream now pins this
+port's old document as `tests/invalid/faq/ragged_values_not_gathered.esm`, a
+document that MUST be rejected, and the correct one as
+`tests/valid/faq/ragged_member_gather.esm`.
+
+**The repro is replaced by a control**,
+`F14_control_a_ragged_axis_gathers_its_member.esm`, which asserts 10/50/150 in
+the conforming spelling. **No layout decision changes.** §22's flat row relation
+with the parent as a key column needs neither a padded member array nor the axis
+machinery, so `components/movesoutput_aggregation.esm` stays exactly as written;
+the ragged axis is now available for the nr-logging-county shape if a later
+stage wants it.
+
+**How it hid for two days.** `run-tests.sh`'s tripwire declared "still fails, as
+recorded" whenever a repro failed for ANY reason, and PR #352 made this document
+fail in a NEW way — `ragged_values_not_gathered` at `validate` — so the stage
+reported no change about a finding that had been resolved. The stage now
+requires each repro to fail with the signature it records, and reports a changed
+reason as loudly as a fixed one.
 
 **Filed upstream: [EarthSciML/EarthSciAST#259](https://github.com/EarthSciML/EarthSciAST/issues/259)**, verified still reproducing on `68574b653`.
 
@@ -1797,7 +1880,14 @@ regression in either direction but cannot catch the silence itself.
 
 ---
 
-## F20 — a constant-folded scalar right-hand side loses the array shape
+## F20 — a constant-folded scalar right-hand side loses the array shape **[fixed upstream, retired]**
+
+**Fixed by EarthSciAST PR #343 (merged 2026-09-16), retired at the `8ac536bf0`
+rebuild.** Filed as #262. A scalar-folded right-hand side now fills the
+left-hand side's declared shape. The repro is deleted. There is no workaround to
+remove: this finding cost the port two test rewrites, both of which were better
+tests than the ones they replaced — per-row probe data and a moved physical
+input, rather than an overridden run-level scalar — and both stay as they are.
 
 **Filed upstream: [EarthSciML/EarthSciAST#262](https://github.com/EarthSciML/EarthSciAST/issues/262)**, verified still reproducing on `68574b653`.
 
@@ -1853,7 +1943,20 @@ fold does not collapse the branch.
 
 ---
 
-## F21 — a scoped name is not an assertable variable
+## F21 — a scoped name is not an assertable variable **[fixed upstream, retired]**
+
+**Fixed by EarthSciAST PR #345 (merged 2026-09-16), retired at the `8ac536bf0`
+rebuild.** Filed as #263. An assertion's `variable` resolves a scoped reference
+through the same scope chain the equation binder uses, which is what
+`esm-schema.json` always documented.
+
+**The workaround is gone with it.** `runs/evap_leaks_run.esm` recovered the rate
+its emission stage carries as `run_weightedMeanBaseRate - run_rateResidual`,
+through a variable that existed only to be assertable. The two assertions now
+name `Emissions.emis_weightedMeanBaseRate` directly and the variable and its
+equation are deleted; the same 26 assertions pass on the same numbers.
+`join_leaf.esm` stays in this directory — `F18_control_float32_key_override.esm`
+mounts it.
 
 **Filed upstream: [EarthSciML/EarthSciAST#263](https://github.com/EarthSciML/EarthSciAST/issues/263)**, verified still reproducing on `68574b653`.
 
@@ -2839,15 +2942,17 @@ written, and their instructions were followed:
 * `spikes/7a/spike_parent.esm` lost its two: 39 → 28 lines, still the recorded
   relation.
 * The payoff this finding priced is real and checked in.
-  `spikes/7c/tirewear_fixture.esm` mounts the mount and is **43 lines** —
-  metadata, the 31-line enum union `tools/check-conventions.py` requires (F13),
-  and one `{ref}` — where the same document was 270 at `9dd36c7f6`. It emits the
-  same 375 rows byte for byte through two mount edges, and the 7c stage checks
-  both that and that it stays thin.
+  `spikes/7c/tirewear_fixture.esm` mounts the mount and was **43 lines** —
+  metadata, the 31-line enum union `tools/check-conventions.py` then required
+  (F13), and one `{ref}` — where the same document was 270 at `9dd36c7f6`. It is
+  **12** since F13 was retired in turn. It emits the same 375 rows byte for byte
+  through two mount edges, and the 7c stage checks both that and that it stays
+  thin.
 
-The table below predicted 23 lines, not 43. The difference is the enum union,
-which the prediction did not count, and a description that says what the
-document is; conventions §53.2 has the breakdown.
+The table below predicted 23 lines, and the document landed at 43: the
+difference was the enum union, which the prediction did not count, plus a
+description that says what the document is. With F13 retired the union is gone
+and the document is 12 lines; conventions §53.2 has the breakdown.
 
 **The `bindings` half did not change, and no longer matters.** `bindings` still
 cannot supply a name the leaf lacks — refused at load, now worded `loader API

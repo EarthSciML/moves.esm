@@ -374,9 +374,7 @@ mounting a component into an assembly **re-runs that component's own tests in
 the assembly's context**, so 531 of those 1,116 are re-executions. The
 nonroad assembly declares 9 assertions of its own and runs 296 — its ten
 mounted components' 287, plus its 9. That is not redundancy: a mount is
-precisely where this toolchain has been caught changing behaviour — dropped
-`join.on` key columns (F1), unmerged `index_sets` (F2), `enums` colliding
-first-wins and applying the wrong value (F13) — so re-running a component's
+precisely where this toolchain has been caught changing behaviour — dropped `join.on` key columns (F1), unmerged `index_sets` (F2), `enums` colliding first-wins and applying the wrong value (F13) — all three since fixed upstream — so re-running a component's
 assertions under the mount is the only check that would catch it, and it is
 free. But a run count overstates how much independent checking exists, so the
 headline number is what the documents declare.
@@ -432,9 +430,7 @@ rows, and it was ordinary authoring rather than a missing capability — but mor
 of it than "widen the axis". `prccty.f` loops over the `nrsourceusetype` rows
 the RunSpec's SCCs select, six here, three of them sharing one SCC, so an output
 row is a SUM over points and its model-year set is the UNION of their `nyrlif`s.
-That union is ragged (3, 29 and 4 model years) and gappy (`2265007010` is
-missing 1991, 2000–2002 and 2006–2010 out of a 1983–2020 span), and a `ragged`
-index set does not evaluate (**F14**). The shape that works is a rectangular
+That union is ragged (3, 29 and 4 model years) and gappy (`2265007010` is missing 1991, 2000–2002 and 2006–2010 out of a 1983–2020 span). A `ragged` index set would serve, at the cost of a padded member array (**F14**, retired — it evaluates, and this port's old repro had the spelling wrong). The shape that works is a rectangular
 6 × 51 grid of (equipment point, age slot), a membership mask that is
 `prccty.f`'s skip written as TWO gates, and a prefix-count rank that compacts the
 survivors onto a flat 144-row output relation — `docs/esm-conventions.md` §22.

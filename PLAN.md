@@ -361,9 +361,11 @@ rows. So the row count is produced by the declared element type, which is
 exactly what §1.6.2 said it would take.
 
 The rest of what had to be true is not about precision at all: the emitted key
-set is ragged, a `ragged` index set does not evaluate (F14), and the shape that
-works -- a rectangular grid, a membership mask, and a rank that compacts it onto
-a flat output relation -- is written up as `docs/esm-conventions.md` §22.
+set is ragged, and the shape that works -- a rectangular grid, a membership
+mask, and a rank that compacts it onto a flat output relation -- is written up
+as `docs/esm-conventions.md` §22. F14 said a `ragged` index set does not
+evaluate; that was a spelling error in this port's repro rather than a defect,
+and it is retired.
 
 ### 1.6.2 `element_type: "Float32"` was declared, documented, and ignored — **now honoured**
 
@@ -770,17 +772,18 @@ What F12's fix does **not** unblock is what the two fixtures actually stand on.
   `opModeFraction` for the cold-soaking mode is exactly 0, so
   `AverageTankTemperature` mode 151 — the quarter-hour recurrence's output — is
   multiplied by zero: perturbing it by +50 °F leaves all 128 cells *unchanged*,
-  while the same perturbation of mode 300 moves the total from 32.26 g to
-  221.12 g (`docs/evap-permeation.md` §0.3, measured on the oracle). Mode 300 is
+  while the same perturbation of mode 300 moves the total from 32.26 g to 221.12
+  g (`docs/evap-permeation.md` §0.3, measured on the oracle). Mode 300 is
   TTG-4a's walk over `SampleVehicleTrip`, whose predecessor is named by
   `priorTripID`, a data column — **and this bullet used to attribute that to
   finding F28, which is wrong.** On the relation TTG-4a walks, after
   `flagMarkerTrips` deletes the 5,458 marker trips, the predecessor is one row
   back on all 26,193 chained rows; the gaps of 2…7 are gaps in the *identifier*.
   What TTG-2/3/4 actually need is a relation whose row count is a function of
-  the data (F5, F14) — priced in `docs/evap-permeation.md` §8.1 and generalised
-  in `docs/esm-conventions.md` §34.3. **The fixture is landed** and reads
-  `AverageTankTemperature` as a scope decision, not as a blocked step.
+  the data (F5 and F14, both now retired) — priced in `docs/evap-permeation.md`
+  §8.1 and generalised in `docs/esm-conventions.md` §34.3. **The fixture is
+  landed** and reads `AverageTankTemperature` as a scope decision, not as a
+  blocked step.
 * **`process-evap-fvv` can**, and is therefore the better next slice rather than
   the equal one: `MultidayTankVaporVentingCalculator` TVV-3 reads
   `ColdSoakTankTemperature` directly. It needs, in addition, TTG-7's
@@ -819,8 +822,8 @@ L1/L9/O1–O3 with 81 inline assertions; `runs/evap_leaks_run.esm` mounts them a
 adds the joins that exist only between them, running 107 assertions in total.
 `docs/esm-conventions.md` §18 records what the evaporative graph changed: every
 rule in §1–§17 held, four gained a reason, five things are new, and one new
-finding (**F21**, a scoped name is not an assertable variable) came out of the
-assembly.
+finding (**F21**, a scoped name is not an assertable variable — fixed upstream
+2026-09-16 and retired) came out of the assembly.
 
 And `fixtures/process-evap-leaks.esm` **matches completely** — 128 of 128 rows,
 an exact key set, worst cell 7.294 × 10⁻⁶ against `tolerance.toml`'s 2 × 10⁻⁵,
@@ -1391,14 +1394,14 @@ and computes `MOVESOutput`. Then one thin `.esm` per fixture that imports the
 domain document **by reference**, configures it, and checks it against
 canonical output.
 
-**"Thin" is 43 lines, measured and checked in.** 7c split a real fixture this
+**"Thin" is 12 lines, measured and checked in.** 7c split a real fixture this
 way and counted what the per-fixture document has to carry (conventions §53.2):
-551 lines before EarthSciAST PR #298, 270 after it, and **43** after PR #317
-fixed F50. That is `spikes/7c/tirewear_fixture.esm`, which mounts a catalogue
-document that mounts the logic, and emits the fixture's 375 rows byte for byte.
-31 of the 43 lines are the enum union `tools/check-conventions.py` requires
-(F13); the fixture's own content is 12. What it does not do yet is configure
-anything — it mounts the process snapshot — which is §7.5's step 7c′.
+551 lines before EarthSciAST PR #298, 270 after it, 43 after PR #317 fixed F50,
+and **12** after PR #353 fixed F13 and the enum union went. That is
+`spikes/7c/tirewear_fixture.esm` — metadata and one `{ref}` — which mounts a
+catalogue document that mounts the logic, and emits the fixture's 375 rows byte
+for byte. What it does not do yet is configure anything; it mounts the process
+snapshot, which is §7.5's step 7c′.
 
 **Two shape constraints, both measured in 7a and neither of them optional.**
 An ingesting document holds exactly **one** model (F45), and that model is the
@@ -1626,11 +1629,12 @@ for the mount, and 551 → 270 for what a per-fixture document would carry.
 **Re-shaped again 2026-09-15, and now thin.** EarthSciAST PR #317 fixed F50, and
 the 7c stage's two-sided watch went red on it with an instruction saying what to
 delete. The mount's 247-line `metaparameters` copy is gone (1255 → 1008 lines),
-and `spikes/7c/tirewear_fixture.esm` — 43 lines: metadata, the enum union, one
-`{ref}` to the mount — is the per-fixture document §7.1 describes, emitting the
-same 375 rows byte for byte through two mount edges. The stage checks that, and
-that the document stays thin. F50 is retired; F51 changed upstream and is left
-open, unmeasured on the Python side.
+and `spikes/7c/tirewear_fixture.esm` — then 43 lines, now 12 — is the
+per-fixture document §7.1 describes, emitting the same 375 rows byte for byte
+through two mount edges. It carried the enum union until PR #353 retired F13 two
+days later; what is left is metadata and one `{ref}` to the mount. The stage
+checks that, and that the document stays thin. F50 is retired; F51 changed
+upstream and is left open, unmeasured on the Python side.
 
 **The same rebuild moved every document to `esm 1.1.0`.** PR #299 renamed the
 query node `aggregate` → `faq` and kept the old spelling as a deprecated alias.
@@ -1647,8 +1651,8 @@ refuses the alias.
 spelled `bindings`" and "F50" in turn, each right when written. F50 — bind a
 discovered `extent` in the scope that declares it — was filed as EarthSciAST
 #301 on 2026-09-12 and fixed by PR #317, merged 2026-09-14, and it bought what
-it was priced at: a per-fixture document of 43 lines instead of 270 (§7.1,
-conventions §53.2).
+it was priced at: a per-fixture document of 43 lines instead of 270 — and 12
+once PR #353 took the enum union with F13 (§7.1, conventions §53.2).
 
 **Landed since Phase 7 began:** PR #297 (`mi`, `lb`, `hp`, `gal`; retired F44),
 PR #298 (the §4.7 edge pipeline at a top-level `{ref}`; retired F46, F48, F49),
@@ -1665,12 +1669,15 @@ recorded there and was not filed.
   annotation work is being prepared on the branch `units/const-units`, measured
   against a binary built from #347, to merge when upstream does. **#303** (`esm
   units` is a stub) has no PR yet.
-* **#341 + #353** (an `enum` op resolves against its own file's `enums` block).
-  F3 and F13. When they land, re-measure F13 and re-read
-  `tools/check-conventions.py`'s `assembly-enums` rule, which is 31 of the
-  per-fixture document's 43 lines.
-* **#352, #342, #343, #345, #338, #346** — F14, F5, F20, F21, F28 and F22
-  respectively; their tripwires flip and the findings retire.
+* ~~#341 + #353~~ — **merged 2026-09-15**, retiring F3 and F13. The enum
+  restatements are deleted — 16 enums in `runs/mixed_onroad_run.esm`, 11 in
+  `runs/evap_leaks_run.esm`, 6 in each 7c document — and the per-fixture
+  document is 12 lines.
+* ~~#352, #342, #343, #345~~ — **all merged**, retiring F14, F5, F20 and F21.
+  #338 and #346 landed too, and F28 and F22 stay open: each was answered with a
+  better diagnostic or an explicit refusal rather than with the capability. F14
+  turned out not to be a defect at all — PR #352 settled the ragged SPELLING and
+  this port's repro had it wrong.
 
 **Recorded but not filed: F51**, a Rust/Python disagreement about a shape-open
 leaf. #317 changed the Rust side; the Python side is not being measured now.
@@ -1682,7 +1689,7 @@ This repository writes `leaf-owns-shape`, which does not depend on the answer.
 |---|---|---|
 | **7a** ✅ | The spike: one ref'd, data-fed model evaluating end to end against a real table — **GO, 2026-09-10**; re-shaped to `leaf-owns-shape` 2026-09-12 with §7.3.2 | met; three corrections folded into §7.1–§7.3 |
 | **7b** ✅ | Full-database monolithic conversion — **done 2026-09-10**: 237 monolithic + 3 schema-only, 0 partition directories, 517 MB, 15.6 s, validator extended and all 7 planted corruptions red (§7.3.1) | met; the load cost is measured and does not dictate the layout |
-| **7c** ✅ | The mount shape at fixture scale — **done 2026-09-10, re-shaped to conform 2026-09-12, thin 2026-09-15** (§7.3.2): `fixtures/process-tirewear.esm` split into a logic half, a catalogue document that mounts it, and a 43-line per-fixture document that mounts the catalogue, byte-identical over 375 rows × 26 fields. Four findings retired (F46, F48, F49, F50), one open (F51) | met; the per-fixture document is thin (conventions §53.2), and what it still carries beyond its `{ref}` is the enum union (F13) |
+| **7c** ✅ | The mount shape at fixture scale — **done 2026-09-10, re-shaped to conform 2026-09-12, thin 2026-09-15** (§7.3.2): `fixtures/process-tirewear.esm` split into a logic half, a catalogue document that mounts it, and a 43-line per-fixture document that mounts the catalogue, byte-identical over 375 rows × 26 fields. Four findings retired (F46, F48, F49, F50), one open (F51) | met; the per-fixture document is 12 lines — metadata and one `{ref}`, nothing mechanical (conventions §53.2) |
 | **7c′** | `moves-onroad.esm`: default DB → `MOVESOutput` for `process-tirewear`, reading the monolithic database of §7.3 rather than the process snapshot, behind a per-fixture document of the shape `spikes/7c/tirewear_fixture.esm` already has | first end-to-end number |
 | **7d** | Widen the runspec surface one selection dimension at a time — pollutant-process, source type, road type, timespan, geography | each dimension added only with a fixture that **discriminates** it (§23) |
 | **7e** | `moves-nonroad.esm`, same shape | 12 `nr-*` fixtures |

@@ -53,19 +53,21 @@ the other way:
 * **Prefix every column with its relation.** `rate_polProcessID`,
   `det_polProcessID`. Two relations in one component regularly carry the same
   field name, and a join names both sides.
-* **An output relation carries its key as COLUMNS, never as axes** **[Phase 2]**.
-  This is the same rule, and it is what makes a *ragged* key set expressible.
-  `nr-logging-county`'s 144 rows are 36 `(SCC, modelYearID)` pairs × 4
-  pollutants, and the 36 are not a rectangle: the three SCCs span 3, 4 and 29
-  model years, each set by that equipment point's `nyrlif`. A shared
-  `[SCC × modelYear × pollutant]` grid carries 348 keys against the snapshot's
-  144 — a `require_exact_key_set` failure, and the mirror of the binary64
-  `modfrc ≤ 0` case that emits four too few. `components/movesoutput_aggregation.esm`
-  is one `output_rows` axis with `out_SCC`, `out_modelYearID` and
-  `out_polProcessID` beside the value, so adding the other two SCCs is adding
-  rows. The `ragged` index-set kind the schema advertises for exactly this
-  ignores its own member factor and cannot address a parent's members
-  (finding F14).
+* **An output relation carries its key as COLUMNS, never as axes** **[Phase
+  2]**. This is the same rule, and it is what makes a *ragged* key set
+  expressible. `nr-logging-county`'s 144 rows are 36 `(SCC, modelYearID)` pairs
+  × 4 pollutants, and the 36 are not a rectangle: the three SCCs span 3, 4 and
+  29 model years, each set by that equipment point's `nyrlif`. A shared `[SCC ×
+  modelYear × pollutant]` grid carries 348 keys against the snapshot's 144 — a
+  `require_exact_key_set` failure, and the mirror of the binary64 `modfrc ≤ 0`
+  case that emits four too few. `components/movesoutput_aggregation.esm` is one
+  `output_rows` axis with `out_SCC`, `out_modelYearID` and `out_polProcessID`
+  beside the value, so adding the other two SCCs is adding rows. The `ragged`
+  index-set kind the schema advertises for exactly this WOULD serve, and this
+  port does not use it: a ragged range binds the position and a body gathers the
+  member explicitly (esm-spec §4.3.1, finding F14). A flat row relation with the
+  parent as a key column needs neither the padded member array nor the axis
+  machinery, so the rule above stands on its own merits rather than on a defect.
 * **A component always has at least one array.** This falls out of the rule, and
   it is load-bearing for a reason unrelated to legibility: a component with only
   scalar variables has no assertable state under `esm test` (finding F6).
@@ -197,21 +199,26 @@ curve's `NREquipTypeID`, and the `hourID` a NONROAD output row carries — and
 none can be an enum. Each is a named `parameter` with the reason in its
 description; `nationalDefaultStateID` is the one that appears most.
 
-**An assembly restates the UNION of its leaves' enums** **[Phase 2] [checked]**.
-`enums` merge across a top-level `models` `{ref}` mount into one registry, first
-declaration wins, and a colliding value is applied **silently** — two leaves
-declaring `probe.Symbol` as 1 and 2 both read 1 (finding F13). Where the winner
-merely lacks a symbol it is loud instead, which is how it surfaces in practice:
-`geographic_allocation.esm` and `fuel_properties.esm` both declare
-`nonroad_fuel_type` and only one has CNG. So an assembly declares every symbol
-every leaf it mounts declares, and `tools/check-conventions.py` compares them
-symbol by symbol — the same conflict check it performs for index sets, for the
-same reason and with more at stake, since a wrong pollutant identifier relabels
-data rather than failing.
+**An assembly restated the UNION of its leaves' enums, until EarthSciAST PR
+#353** **[Phase 2] [retired]**. `enums` merge across a top-level `models`
+`{ref}` mount into one registry, first declaration wins, and a colliding value
+is applied **silently** — two leaves declaring `probe.Symbol` as 1 and 2 both
+read 1 (finding F13). Where the winner merely lacks a symbol it is loud instead,
+which is how it surfaces in practice: `geographic_allocation.esm` and
+`fuel_properties.esm` both declare `nonroad_fuel_type` and only one has CNG.
+That was finding F13, and PR #353 ended it: a mounted file's `enum` ops resolve
+against that file's own block, so a leaf reads its own symbol whatever the
+assembly says. The restatements are deleted — 16 enums in
+`runs/mixed_onroad_run.esm`, 11 in `runs/evap_leaks_run.esm`, 6 in each 7c
+document — and the two assemblies that keep a block keep only what their OWN
+equations name. `tools/check-conventions.py`'s rule lost the comparison with
+them and now checks only that a mounted `{ref}` resolves and parses.
 
-**An `enums` block is file-local and does not cross a template import**
-(esm-spec §9.3; finding F3). So each component declares the enums it uses, and a
-*library* cannot name its own constants symbolically. Two routes, both in use:
+**An `enums` block is file-local, and until EarthSciAST PR #341 it did not cross
+a template import** (esm-spec §9.3; finding F3, retired). A library may now
+declare its own enums and resolve its own `enum` ops against them. Each
+component still declares the enums IT uses. The two routes the defect forced are
+still in the tree and are no longer forced:
 
 * a **zero-parameter constant-fragment template** (§9.6.1) for a code the
   library itself branches on — `lib/conversion.esm`'s
@@ -280,8 +287,10 @@ is still legal when it is deep-equal**; it is simply noise, so do not write one.
 `tools/check-conventions.py`'s `assembly-index-sets` rule is **deleted**, not
 weakened. Its second half required the restatement it would have removed, so the
 rule and the documents had to move in one change; and a rule whose subject no
-longer exists cannot fail, which reads like coverage. Five rules remain, and the
-enum one stays, because `enums` still do not conflict-check (F13, open).
+longer exists cannot fail, which reads like coverage. Five rules remain. The
+enum one is now an `assembly-ref` rule: PR #353 made a leaf resolve its own
+symbols, so the union comparison went the way the index-set comparison went
+before it — deleted rather than weakened.
 
 What replaced it is a **falsifiable** check rather than a comparison of two
 copies: `run-tests.sh` stage 6 writes `runs/.index_set_merge_probe.esm` — the
@@ -306,18 +315,20 @@ top-level `{ref}` edge — a *subsystem* mount never ran them, since a test
 targets a top-level component — and `esm test` names every mount edge it found,
 so the components a run did not assert on are visible rather than silently
 absent. F21's document measured the two forms disagreeing about this on the old
-binary; they agree now, and that paragraph of it is stale.
+binary; they agree now, and F21 itself is retired (PR #345).
 
 Measured here at the `3aa046d65` rebuild: `esm test ./components ./runs …` goes
 **1444 assertions to 913**, and all 531 of the difference are leaves that were
 being re-asserted under the four assemblies — `nr_logging_county_run` 296 → 9,
-`mixed_onroad_run` 163 → 30, `evap_leaks_run` 107 → 26, `micro_exhaust_run`
-39 → 9. **No assertion went unrun.** Each of the nineteen mounted leaves is its
-own test target under `components/`, and every one of those files' own counts is
+`mixed_onroad_run` 163 → 30, `evap_leaks_run` 107 → 26, `micro_exhaust_run` 39 →
+9. **No assertion went unrun.** Each of the nineteen mounted leaves is its own
+test target under `components/`, and every one of those files' own counts is
 unchanged. What is gone is the *second*, under-the-mount evaluation of them. An
-assertion an assembly wants to make about a mounted leaf is now the assembly's
-own to write, which §18 already describes how to do — and which is what F21
-makes awkward, since a scoped name still cannot be an assertion `variable`.
+assertion an assembly wants to make about a mounted leaf is the assembly's own
+to write, which §18 describes. Since PR #345 it may simply name the scoped
+variable — `runs/evap_leaks_run.esm` asserts
+`Emissions.emis_weightedMeanBaseRate` directly, and the variable that existed
+only to make it assertable is gone (F21, retired).
 
 ## 6. Reused shapes are `expression_templates` in `lib/`, imported by reference
 
@@ -421,9 +432,10 @@ PLAN.md §3 asks for `skolem` for canonical composite keys. The supported
 spelling is the multi-pair `join.on` of §3 above: §5.5.8 defines that clause's
 canonical key *as* the skolem tuple of the per-pair values. The explicit
 `skolem` / `distinct` / `rank` machinery — a derived index set whose members are
-the distinct tuples — validates but materializes empty (finding F5), and
-EarthSciAST's own fixture for it says it "validates against the schema with no
-evaluator". Do not reach for it until F5's repro goes green.
+the distinct tuples — validated and materialized empty until EarthSciAST PR #342
+(finding F5, retired). It evaluates now, so a composite-key axis is available
+where one is genuinely wanted; the multi-pair `join.on` remains the spelling for
+a canonical key, because it says the same thing with less machinery.
 
 ## 10. Precision, and what the document must not do about it
 
@@ -1216,13 +1228,14 @@ on a multi-month fixture (§8.2).
 
 ### 18.3 One new finding, and what it costs an assembly
 
-**F21: a scoped name is not an assertable variable.** `esm-schema.json`'s
-`Assertion.variable` documents a scoped reference (`"subsystem.X"`), and the
-assertion path cannot resolve one: `variable 'Emissions.emis_weightedMeanBaseRate'
-is not declared in model 'Rollup'`. The same name works in the same document as a
-`join.on` key column, as an operand of an ordinary equation, as an `expr`
-operand and as a `plots` `variable`. Measured on **both** mount forms with an
-identical message, so no spelling of the mount avoids it.
+**F21: a scoped name was not an assertable variable, until EarthSciAST PR #345
+[retired].** `esm-schema.json`'s `Assertion.variable` documents a scoped
+reference (`"subsystem.X"`), and the assertion path cannot resolve one:
+`variable 'Emissions.emis_weightedMeanBaseRate' is not declared in model
+'Rollup'`. The same name works in the same document as a `join.on` key column,
+as an operand of an ordinary equation, as an `expr` operand and as a `plots`
+`variable`. Measured on **both** mount forms with an identical message, so no
+spelling of the mount avoids it.
 
 What it costs: **an assembly can only assert its own columns**, so a leaf value
 it wants to pin has to be routed through one. Prefer an algebraic recovery over
@@ -1315,9 +1328,9 @@ snapshot's shape.
 **The one axis that cannot be derived is the OUTPUT axis, and a declared axis
 must be checked in-document.** Which cohorts reach `MOVESOutput` is a *result*
 of the chain, so materialising them as an index set is F5's value invention,
-which validates and materialises empty; `fixtures/nr-logging-county.esm`
-declares `output_rows: 12` for the same reason. What Phase 4 adds is the rest of
-the discipline, and it is three parts:
+which validated and materialised empty until PR #342 fixed it;
+`fixtures/nr-logging-county.esm` declares `output_rows: 12` for the same reason.
+What Phase 4 adds is the rest of the discipline, and it is three parts:
 
 1. **Declare the count, not the keys.** `n_outputCohort` = 64 is the only
    literal shape in the document. The output row's `(fuelTypeID, modelYearID)`
@@ -1672,12 +1685,15 @@ log that contains the answer reads as a log that checked it.
 
 The `nr-logging-county` output is 36 `(SCC, modelYearID)` cohorts over three
 SCCs whose model-year counts are 3, 29 and 4 — and the 29 are not contiguous.
-That is the shape a `ragged` index set advertises, and a `ragged` set does not
-evaluate (finding **F14**). A rectangular `[SCC × modelYear]` output axis emits
-348 keys where the snapshot has 144, and `tolerance.toml`'s
-`require_exact_key_set` is not negotiable. This section is the shape that works,
-because the next NONROAD sector will need it and the reasoning does not survive
-being rediscovered.
+That is the shape a `ragged` index set advertises. This port does not use it,
+and the reason is no longer that it fails: a ragged range binds the POSITION and
+the body gathers the member explicitly (esm-spec §4.3.1, made normative by PR
+#352; finding **F14**, retired), which needs a padded `[parent, max length]`
+member array that the flat relation below does without. A rectangular `[SCC ×
+modelYear]` output axis emits 348 keys where the snapshot has 144, and
+`tolerance.toml`'s `require_exact_key_set` is not negotiable. This section is
+the shape that works, because the next NONROAD sector will need it and the
+reasoning does not survive being rediscovered.
 
 **Three layers, and none of them ragged.**
 
@@ -2454,11 +2470,13 @@ it; this one cannot.
 
 ## 31. When the blocks are ragged, rank GLOBALLY **[Phase 5, 1,368 rows]**
 
-§22 built a rank because a `ragged` index set does not evaluate (finding
-**F14**) and a rectangular axis emits keys the snapshot does not have. Three
-onroad fixtures then reused that shape at a level up: the output relation is
-pollutant-process-major blocks of `n_outputCohort × n_runspecday`, and an output
-row is addressed as *(block, day, cohort rank)*.
+§22 built a rank because a rectangular axis emits keys the snapshot does not
+have, and because the ragged axis needs a padded member array the flat relation
+does without (finding **F14**, retired: the axis does evaluate, in the spelling
+esm-spec §4.3.1 now states). Three onroad fixtures then reused that shape at a
+level up: the output relation is pollutant-process-major blocks of
+`n_outputCohort × n_runspecday`, and an output row is addressed as *(block, day,
+cohort rank)*.
 
 **That layout carries a hidden precondition, and `process-crankcase-running` is
 the first fixture to violate it: every block must span the same cohorts.** Its
@@ -3029,11 +3047,12 @@ Two things follow, and the second is the more useful:
   segments per trip), and, in TTG-4b, an output count that depends on the
   arithmetic itself — the soak stops at the first minute the temperature falls
   below its threshold, and that minute and all later ones are not emitted. That
-  is F5 and F14, which §22 and §31 already solve with a rectangular grid, a mask
-  and a global rank. Priced: a 37,216 × 22 grid for TTG-2, and about 45 million
-  cells to recover TTG-4b's 182,532 rows. **A cost, not a limitation** — and a
-  document that had said so would have described a slice someone could schedule,
-  where "blocked by F28" described one nobody could.
+  is F5 and F14 — both since retired, and neither was the reason the shape works
+  — which §22 and §31 solve with a rectangular grid, a mask and a global rank.
+  Priced: a 37,216 × 22 grid for TTG-2, and about 45 million cells to recover
+  TTG-4b's 182,532 rows. **A cost, not a limitation** — and a document that had
+  said so would have described a slice someone could schedule, where "blocked by
+  F28" described one nobody could.
 
 ---
 
@@ -4910,7 +4929,7 @@ not load alone. Finding F47. So all three ways to assert are closed:
 |---|---|
 | an asserting model beside the mount | `document holds several models` (F45) |
 | `tests` beside the `{ref}` | the schema: `Additional properties are not allowed` |
-| an assertion naming `Child.value` | F21 |
+| an assertion naming `Child.value` | nothing, since PR #345 (F21, retired) |
 
 **So a ref'd, data-fed assembly is checked by emitting its relation and
 comparing it** — `simulate --format csv` against a recorded CSV, which is what
@@ -5019,21 +5038,23 @@ difference is inside the run-to-run noise of either one.
 | block | mount lines | entries | also declared by the logic half |
 |---|---|---|---|
 | `data_sources` | 954 | 49 | no |
-| `enums` | 31 | 6 (15 symbols) | **yes, all 15, byte-identical** |
+
 | `models` (the `{ref}`) | 6 | 1 | — |
-| **total** | **1008** | | **31 lines duplicated (3.1%)** |
+| **total** | **977** | | **nothing duplicated** |
 
 The mount has lost two blocks to upstream fixes. Before #298 it restated the
 leaf's 53 `index_sets` verbatim — 250 lines, and a total of 1505 with 281
 duplicated. After #298 it still declared all 49 metaparameters the leaf also
 declares — 247 lines, a total of 1255 with 278 duplicated — until PR #317 fixed
-F50. What is left duplicated is the enums, which are restated for collision
-safety rather than for resolution (§54).
+F50. The enums went the same way at `8ac536bf0`: PR #353 resolves a mounted
+file's `enum` ops against its own block, so restating them protected nothing
+(F13, retired) and the 31 lines are gone. Nothing in the mount is now a copy of
+anything in the leaf.
 
-The split now costs **+54 lines over the inlined fixture** (17,431 against
-17,377, +0.3%), down from +302 after #298 and +552 before it: neither fix added
-anything to the leaf, which already declared the axes and the names. The per-
-fixture document of §53.2 adds 43 more.
+The split now costs **+23 lines over the inlined fixture** (17,400 against
+17,377, +0.1%), down from +302 after #298 and +552 before it: no fix added
+anything to the leaf, which already declared the axes, the names and the
+symbols. The per-fixture document of §53.2 adds 12 more.
 
 ### 53.2 The per-fixture document, measured four ways
 
@@ -5047,7 +5068,8 @@ bytes do not move:
 | before #298, against the pinned `esm 0.2.0` | 551 | yes in Rust, **no** in Python |
 | after #298 (`9dd36c7f6`) | 270 | yes in Rust **and** Python |
 | after #298, with the metaparameter block deleted | 23 | **no** — F50 |
-| **after #317 (`58d21a1a1`): `spikes/7c/tirewear_fixture.esm`, checked in** | **43** | **yes in Rust**; Python not re-run |
+| after #317 (`58d21a1a1`): `spikes/7c/tirewear_fixture.esm`, checked in | 43 | yes in Rust; Python not re-run |
+| **after #353 (`8ac536bf0`): the enum union deleted with F13** | **12** | **yes in Rust**; Python not re-run |
 
 The first three rows moved the `data_sources` catalogue into the shared document
 — the layout PLAN.md §7.1 wants, and the one §7.3's monolithic conversion makes
@@ -5058,15 +5080,15 @@ instead, so the chain is fixture → `tirewear_mount.esm` (the data) →
 same 375 rows byte for byte. The three-document one is committed because it
 keeps the logic half data-open, which is the 7c stage's control.
 
-**Why 43 and not 23.** 31 of the 43 lines are the enum union
-`tools/check-conventions.py` requires (F13, §54). The build does not need them —
-the same document without them emits the same bytes — and the fixture's own
-content is the other 12 lines. The 23 was the 270-line document minus its
-metaparameter block, and did not count the enums, which this repository restated
-on top of it (301 lines then, as this section said). So the distance between
-"one mechanical `.esm` per fixture" and PLAN.md §7.1's "one **thin** `.esm` per
-fixture" is closed in the format. What is left is one convention wide, and it is
-§56's subject.
+**It is 12 lines, and the prediction of 23 was never the floor.** For two days
+the document was 43: 31 of those were the enum union
+`tools/check-conventions.py` required, because a colliding symbol was applied
+silently across a mount (F13). EarthSciAST PR #353 made a leaf resolve its own
+symbols, the rule lost its comparison, and the block went. What is left is
+metadata and one `{ref}` — the whole of what a per-fixture document has to
+carry, with nothing mechanical in it at all. PLAN.md §7.1's "one **thin** `.esm`
+per fixture" is now literally true, and the two findings that stood between it
+and the format, F50 and F13, are both retired.
 
 ## 54. The four override channels at the mount edge, measured at 49 names each **[PLAN.md step 7c, one of the four is unusable]**
 
@@ -5105,15 +5127,17 @@ axes instead of adopting its names, which is the precondition for mounting two
 domain documents that both spell an axis `rows` or `lev`. Nothing in this
 repository needs it yet; it is checked because Phase 7 plans on it.
 
-**`enums` cross the mount and reach the build** — the fourth block, which 7a
-had no occasion to test. Change a value in the mounted child and the emitted
-relation changes, so nothing about them needs restating for the build's sake.
-They are restated anyway, and `tools/check-conventions.py` requires it: enums
-merge **first-wins** and a same-name symbol at a different value is applied
-silently (F13), so an assembly that does not carry the union relabels data
-with no error the day a second leaf is mounted. Restated for collision safety,
-not for resolution — a distinction worth writing in the document, because the
-two look identical and only one of them would be caught by deleting it.
+**`enums` cross the mount and reach the build, and are no longer restated** —
+the fourth block, which 7a had no occasion to test. Change a value in the
+mounted child and the emitted relation changes, so nothing about them needs
+restating for the build's sake. They were restated anyway until `8ac536bf0`, and
+`tools/check-conventions.py` required it: enums merged **first-wins** and a
+same-name symbol at a different value was applied silently (F13). EarthSciAST PR
+#353 resolves a mounted file's `enum` ops against that file's own block, so the
+collision cannot happen, the restatements are deleted and the rule is now
+`assembly-ref`. The distinction the old text drew — restated for collision
+safety, not for resolution — is why deleting them was safe: nothing ever read
+them.
 
 **A metaparameter's `type` must be `"integer"`.** `"number"` is refused by the
 schema — `/metaparameters/cfg_scale/type: "integer" was expected` — whether it
@@ -5157,7 +5181,7 @@ Three consequences, and the last is the durable one.
   non-portable itself. `leaf-owns-shape` fails loudly or passes in both, and
   that is the reason to write it that way rather than any measurement of lines.
 
-## 56. A per-fixture document's size is set by the SHARED document, not by the fixture **[PLAN.md step 7c, 551 → 270 → 43 lines]**
+## 56. A per-fixture document's size is set by the SHARED document, not by the fixture **[PLAN.md step 7c, 551 → 270 → 43 → 12 lines]**
 
 The blocks a mounting document must carry are keyed to what the **mounted**
 document declares, not to any choice the fixture makes. So as a shared domain
@@ -5180,13 +5204,12 @@ which 247 (92%) were the single duplication F50 recorded. Measured at
 4. ~~**Fix F50**~~ — **landed**, as EarthSciAST PR #317: 247 of the remaining
    270.
 
-**What is left is a rule, not the format.** 31 of the 43 lines are the enum
-union, restated because `tools/check-conventions.py`'s `assembly-enums` rule
-requires every assembly to carry it (F13). They are the same 31 lines in every
-fixture that mounts the same shared document — exactly the growth pattern the
-first paragraph describes — so they are the next thing to remove, and the format
-change that would justify removing them is in flight: EarthSciAST PR #353
-resolves a mounted file's `enum` ops against that file's own `enums` block. When
-it lands, re-measure F13 before deciding whether the rule still earns its lines.
-Until then PLAN.md §7.1's "one thin `.esm` per fixture" means 43 lines, 12 of
-them the fixture's own.
+**Nothing is left.** 31 of the 43 lines were the enum union, restated because
+`tools/check-conventions.py`'s `assembly-enums` rule required every assembly to
+carry it (F13). EarthSciAST PR #353 made a mounted file's `enum` ops resolve
+against its own block, the rule became `assembly-ref`, and the block was deleted
+from every assembly that carried it. The per-fixture document is **12 lines**:
+metadata and one `{ref}`. This section's subject — that a per-fixture document's
+size is set by the shared document rather than by the fixture — is now a
+statement about a cost that has been paid down to nothing, and it is kept
+because the next shared document will start the same way.

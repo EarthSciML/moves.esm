@@ -390,27 +390,29 @@ fi
 
 head2 "known limitations (expected to fail)"
 
-# The positive control for F21. join_leaf.esm is the relational leaf that repro
-# mounts; on its own it must LOAD, VALIDATE and PASS. Without this, a typo in
-# the leaf would make the repro fail for the wrong reason and the tripwire would
-# report "still fails, as recorded" about nothing. It was F1's and F2's control
-# too and both are now retired, which is why the leaf stays: F21 reused it
-# rather than adding a fourth, so retiring them costs it nothing.
+# What each repro must still SAY when it fails. A repro that fails for a
+# different reason is reported as a change, not as "as recorded" -- see the loop
+# below for why that distinction is the whole value of this stage.
+declare -A REPRO_SIGNATURE=(
+  [F22a_a_discrete_event_on_the_array_path]='unsupported_construct: discrete event'
+  [F22b_an_implicit_equation_on_the_array_path]='unsupported_construct: implicit equation'
+  [F28_a_data_named_predecessor_is_not_a_recurrence]='recurrence_not_wellfounded'
+  [F41_an_assertion_cannot_say_why]='Additional properties are not allowed'
+  [F43_an_ingested_parameter_is_not_assertable]='has no cells in var_map'
+  [F45_an_ingesting_document_holds_one_model]='document holds several models'
+)
+
+# The positive control for the mount-edge repros that use it. join_leaf.esm is
+# the relational leaf they mount; on its own it must LOAD, VALIDATE and PASS,
+# or one of those repros could fail for the wrong reason. It was F1's, F2's and
+# F21's control and all three are now retired; it stays because
+# F18_control_float32_key_override.esm mounts it, and because the next mount-edge
+# repro should reuse it rather than add a fifth leaf.
 if "$ESM" validate docs/findings/join_leaf.esm >/dev/null 2>&1 \
    && "$ESM" test docs/findings/join_leaf.esm >/dev/null 2>&1; then
-  pass "join_leaf (control) passes standalone, so F21 is about the mount"
+  pass "join_leaf (control) passes standalone, so a mount-edge repro that fails is about the mount"
 else
   fail "join_leaf (control) — the shared leaf fixture is itself broken"
-fi
-
-# The same positive control for F13, whose two leaves declare the SAME enum
-# name with different values. Each must pass on its own, or the collision the
-# repro records would be indistinguishable from a broken fixture.
-if "$ESM" test docs/findings/F13_enum_leaf_one.esm docs/findings/F13_enum_leaf_two.esm \
-     >/dev/null 2>&1; then
-  pass "F13 enum leaves (control) pass standalone, so F13 is about the mount"
-else
-  fail "F13 enum leaves (control) — a leaf fixture is itself broken"
 fi
 
 # F18's control, and the reason it is a control and not a repro. F18 was that a
@@ -486,6 +488,25 @@ fi
 # TTG-4 rests on the workaround existing, and because it is the shape whose
 # `[1, 7]` range is read off a snapshot rather than off the model -- an
 # under-sized range would contribute nothing rather than raise.
+# F14's control, and the reason F14 is a control and not a repro. F14 claimed a
+# `ragged` index set ignores its member factor: this document used to declare a
+# FLAT member array, range over the ragged axis and read `index(flatValue, j)`,
+# and it reported 30 where it wanted 50. The spelling was the defect. EarthSciAST
+# PR #352 made §4.3.1 normative -- a ragged range binds the POSITION, `offsets`
+# is a per-parent LENGTH, `values` is a PADDED [parent, max length] array, and a
+# body that wants the member gathers it with `index(values, i, k)` -- and landed
+# this repository's old spelling upstream as tests/invalid/faq/ragged_values_not_gathered.esm,
+# a document that MUST be rejected. So the control is the CORRECT spelling, and it
+# checks the thing the original finding never did: that the member factor is read.
+# Measured, reversing the padded member rows moves the totals from 10/50/150 to
+# 60/90/60.
+F14_CONTROL=docs/findings/F14_control_a_ragged_axis_gathers_its_member.esm
+if "$ESM" validate "$F14_CONTROL" >/dev/null 2>&1 && "$ESM" test "$F14_CONTROL" >/dev/null 2>&1; then
+  pass "F14 ragged-gather control passes: a ragged range binds the position and the body gathers the member"
+else
+  fail "F14 ragged-gather control — the conforming ragged spelling no longer evaluates. esm-spec §4.3.1 is what this checks; re-read it and docs/findings/README.md F14"
+fi
+
 F28_CONTROL=docs/findings/F28_control_the_contracted_lag_workaround.esm
 if "$ESM" validate "$F28_CONTROL" >/dev/null 2>&1 && "$ESM" test "$F28_CONTROL" >/dev/null 2>&1; then
   pass "F28 contracted-lag control passes: a data-named predecessor is reachable, at O(max lag) per cell"
@@ -529,11 +550,11 @@ fi
 rm -f "$INDEX_SET_PROBE"
 
 mapfile -t REPROS < <(find docs/findings -name '*.esm' -not -name '.*' -not -name 'join_leaf.esm' \
-  -not -name 'F3_lib_with_enum.esm' \
-  -not -name 'F13_enum_leaf_*.esm' \
+  -not -name 'F13_enum_leaf_one.esm' \
   -not -name 'F18_control_float32_key_override.esm' \
   -not -name 'F24b_repro_one_ingested_column_breaks_the_recurrence.esm' \
   -not -name 'F28_control_the_contracted_lag_workaround.esm' \
+  -not -name 'F14_control_a_ragged_axis_gathers_its_member.esm' \
   -not -name 'F25_control_an_undeclared_operand_is_refused_when_ingesting.esm' \
   -not -name 'F26_control_a_free_index_symbol_is_refused_on_the_array_path.esm' \
   2>/dev/null | sort)
@@ -554,12 +575,26 @@ else
       continue
     fi
     repro_run="$repro"
+    # A repro is expected to fail; what matters is that it fails for the reason
+    # it RECORDS. Without that this stage gives a false negative whenever an
+    # upstream fix arrives as a NEW REFUSAL: the document still fails, the
+    # tripwire still says "as recorded", and the finding is never retired. That
+    # is exactly what happened to F14 -- PR #352 settled the ragged spelling and
+    # made the old document invalid, so it failed for a brand-new reason and this
+    # stage reported no change for a defect that was resolved.
+    sig="${REPRO_SIGNATURE[$name]:-}"
+    out=$("$ESM" validate "$repro_run" 2>&1; "$ESM" test "$repro_run" 2>&1)
     if "$ESM" validate "$repro_run" >/dev/null 2>&1 && "$ESM" test "$repro_run" >/dev/null 2>&1; then
       fail "$name NOW PASSES — the defect it records is fixed"
       say "       Read docs/findings/README.md: this unblocks a convention, and"
       say "       the workaround it forced is now dead weight. Remove both."
+    elif [[ -z "$sig" ]]; then
+      fail "$name fails, but no signature is recorded for it. Add one to REPRO_SIGNATURE so a CHANGE in why it fails cannot read as no change"
+    elif grep -qF "$sig" <<<"$out"; then
+      pass "$name still fails, as recorded ($sig)"
     else
-      pass "$name still fails, as recorded"
+      fail "$name fails, but NOT as recorded — it no longer says '$sig'. The defect may be resolved in a way that changed the diagnostic, which is how F14 hid for two days; read the output and re-read the finding"
+      grep -iE 'error|refus|unsupported|✗' <<<"$out" | head -4 | sed 's/^/       /'
     fi
     [[ "$repro_run" != "$repro" ]] && rm -f "$repro_run"
   done
@@ -940,8 +975,8 @@ fi
 # exactly as written, the block was deleted, and the payoff is a third document:
 #
 #   the FIXTURE (spikes/7c/tirewear_fixture.esm) mounts the mount, and holds
-#   nothing but metadata, the enum union check-conventions requires (F13), and
-#   one {ref}.
+#   nothing but metadata and one {ref}. It carried the enum union too until
+#   PR #353 fixed F13 and made restating it pointless.
 #
 # That is PLAN.md §7.1's thin per-fixture document at fixture scale. Check 3
 # holds it to the same bytes as the mount, and to staying thin.
@@ -1050,7 +1085,7 @@ PYEOF
 ); then
     pass "7c — the per-fixture document is still thin: $(wc -l < "$C7_FIXTURE") lines, one {ref}, no data_sources, metaparameters or index_sets"
   else
-    fail "7c — the per-fixture document has grown ($thick). It was 43 lines when F50 was retired; say why it needs more before accepting it"
+    fail "7c — the per-fixture document has grown ($thick). It was 12 lines once F13 was retired; say why it needs more before accepting it"
   fi
 
   # 4. F47, two-sided, as the 7a stage does it: a mounted component's inline

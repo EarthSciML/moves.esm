@@ -146,57 +146,35 @@ def check_library_purity(p: pathlib.Path, doc) -> None:
                  f"a template-library file must not declare {forbidden}")
 
 
-def check_assembly_enums(p: pathlib.Path, doc) -> None:
-    """RULE: an assembly's enums cover, and agree with, those of every file it mounts.
+def check_assembly_refs(p: pathlib.Path, doc) -> None:
+    """RULE: every `{ref}` a top-level `models` entry names resolves and parses.
 
-    `enums` declarations MERGE across a top-level `models` {ref} edge into one
-    document-scoped registry, first declaration wins, and a same-name symbol
-    with a DIFFERENT value is applied silently (docs/findings F13). So the
-    mounting document must restate the union, and a drift between an assembly's
-    copy and the leaf that owns the symbol would relabel data with no error.
-    That is what this rule catches -- the conflict detection esm-spec §4.7
-    performs for index sets, performed here for enums because the loader does
-    not perform it at all.
+    This rule used to do more: it compared an assembly's `enums` against those
+    of every file it mounted, symbol by symbol, because enums merged first-wins
+    across the mount edge and a same-name symbol at a different value was
+    applied SILENTLY (docs/findings F13). EarthSciAST PR #353 resolves a mounted
+    file's `enum` ops against that file's own block, so a leaf now reads its own
+    symbol whatever the assembly says, and the restatements are deleted. The
+    comparison went with them rather than being weakened: a rule whose subject
+    no longer exists reads like coverage and is worse than no rule, which is the
+    same reasoning that deleted `check_assembly_index_sets` when F2 was fixed.
 
-    It also reports a `ref` that does not resolve or does not parse, which is
-    every mount edge's precondition rather than anything to do with enums. That
-    reporting used to live in `check_assembly_index_sets`, which compared an
-    assembly's restated `index_sets` against each leaf's. F2 is fixed
-    (EarthSciAST 19f929981, PR #208): the loader merges a top-level {ref}'s
-    index sets and raises `subsystem_index_set_conflict` on a disagreement,
-    naming both definitions -- so the assemblies stopped restating and that rule
-    was DELETED rather than weakened, per its own instruction. A rule that
-    cannot fail reads like coverage and is worse than no rule. The loader is the
-    check now; run-tests.sh proves it by perturbation.
+    What is left is the mount edge's precondition, which nothing else checks
+    before the loader: a `ref` that does not exist, or does not parse.
     """
-    mine = doc.get("enums") or {}
     for name, entry in (doc.get("models") or {}).items():
         if not isinstance(entry, dict) or "ref" not in entry:
             continue
         target = (p.parent / entry["ref"]).resolve()
         if not target.is_file():
-            fail(p, f"/models/{name}/ref", "assembly-enums",
+            fail(p, f"/models/{name}/ref", "assembly-ref",
                  f"referenced file not found: {entry['ref']}")
             continue
         try:
-            ref_doc = json.loads(target.read_text(encoding="utf-8"))
+            json.loads(target.read_text(encoding="utf-8"))
         except json.JSONDecodeError as exc:
-            fail(p, f"/models/{name}/ref", "assembly-enums",
+            fail(p, f"/models/{name}/ref", "assembly-ref",
                  f"referenced file is not valid JSON: {exc}")
-            continue
-        for enum_name, symbols in (ref_doc.get("enums") or {}).items():
-            for symbol, value in symbols.items():
-                if enum_name not in mine or symbol not in mine[enum_name]:
-                    fail(p, "/enums/" + enum_name, "assembly-enums",
-                         f"{entry['ref']} declares {enum_name}.{symbol} = {value} "
-                         "and this document does not restate it; enums merge "
-                         "first-wins across the mount, so another leaf's "
-                         "declaration of the same enum would drop it")
-                elif mine[enum_name][symbol] != value:
-                    fail(p, f"/enums/{enum_name}/{symbol}", "assembly-enums",
-                         f"disagrees with {entry['ref']}: "
-                         f"{mine[enum_name][symbol]} vs {value} — a silent "
-                         "relabelling under the mount")
 
 
 def check_no_deprecated_aggregate(p: pathlib.Path, doc) -> None:
@@ -218,7 +196,7 @@ CHECKS = (
     check_reserved_loop_symbols,
     check_join_clauses_are_on,
     check_library_purity,
-    check_assembly_enums,
+    check_assembly_refs,
 )
 
 
