@@ -42,6 +42,7 @@
           "ref": "../lib/drive_cycle.esm",
           "only": [
             "mph_to_meters_per_second",
+            "per_schedule_second",
             "vehicle_specific_power",
             "in_half_open_range",
             "grade_acceleration",
@@ -250,28 +251,32 @@
           "shape": [
             "lomd_second_rows"
           ],
-          "description": "`9.81/0.44704 * sin(atan(grade/100))`, the gravity component every acceleration carries. Exactly 0 here because the link's grade is 0."
+          "description": "`9.81/0.44704 * sin(atan(grade/100))`, the gravity component every acceleration carries. Exactly 0 here because the link's grade is 0.",
+          "units": "mi/(h*s)"
         },
         "lomd_at0": {
           "type": "unknown",
           "shape": [
             "lomd_second_rows"
           ],
-          "description": "`coalesce((speed[t]-speed[t-1]) + gradeAcceleration, 0.0)`. The fallback is 0.0 and NOT a forward difference: the Java's `@algorithm` comment claims a `speed[t+1]-speed[t]` second argument and the SQL two lines below it has none. docs/link-operating-mode-distribution.md 2.3 and 8.4."
+          "description": "`coalesce((speed[t]-speed[t-1]) + gradeAcceleration, 0.0)`. The fallback is 0.0 and NOT a forward difference: the Java's `@algorithm` comment claims a `speed[t+1]-speed[t]` second argument and the SQL two lines below it has none. docs/link-operating-mode-distribution.md 2.3 and 8.4.",
+          "units": "mi/(h*s)"
         },
         "lomd_at1": {
           "type": "unknown",
           "shape": [
             "lomd_second_rows"
           ],
-          "description": "`coalesce((speed[t-1]-speed[t-2]) + gradeAcceleration, 0.0)`."
+          "description": "`coalesce((speed[t-1]-speed[t-2]) + gradeAcceleration, 0.0)`.",
+          "units": "mi/(h*s)"
         },
         "lomd_at2": {
           "type": "unknown",
           "shape": [
             "lomd_second_rows"
           ],
-          "description": "`coalesce((speed[t-2]-speed[t-3]) + gradeAcceleration, 0.0)`."
+          "description": "`coalesce((speed[t-2]-speed[t-3]) + gradeAcceleration, 0.0)`.",
+          "units": "mi/(h*s)"
         },
         "lomd_speedMs": {
           "type": "unknown",
@@ -344,28 +349,32 @@
           "shape": [
             "lomd_band_rows"
           ],
-          "description": "`operatingMode.VSPLower`, with -1e30 where the column is NULL. See the header on why a sentinel and not a NaN."
+          "description": "`operatingMode.VSPLower`, with -1e30 where the column is NULL. See the header on why a sentinel and not a NaN.",
+          "units": "kW/tonne"
         },
         "lomd_bandVSPUpper": {
           "type": "unknown",
           "shape": [
             "lomd_band_rows"
           ],
-          "description": "`operatingMode.VSPUpper`, 1e30 where NULL."
+          "description": "`operatingMode.VSPUpper`, 1e30 where NULL.",
+          "units": "kW/tonne"
         },
         "lomd_bandSpeedLower": {
           "type": "unknown",
           "shape": [
             "lomd_band_rows"
           ],
-          "description": "`operatingMode.speedLower`, -1e30 where NULL."
+          "description": "`operatingMode.speedLower`, -1e30 where NULL.",
+          "units": "mi/h"
         },
         "lomd_bandSpeedUpper": {
           "type": "unknown",
           "shape": [
             "lomd_band_rows"
           ],
-          "description": "`operatingMode.speedUpper`, 1e30 where NULL."
+          "description": "`operatingMode.speedUpper`, 1e30 where NULL.",
+          "units": "mi/h"
         },
         "lomd_bandMatches": {
           "type": "unknown",
@@ -988,7 +997,8 @@
                   0.0,
                   0.0,
                   0.0
-                ]
+                ],
+                "units": "percent"
               }
             }
           }
@@ -1010,11 +1020,18 @@
                 "op": "+",
                 "args": [
                   {
-                    "op": "-",
-                    "args": [
-                      "lomd_speed",
-                      "lomd_prevSpeed"
-                    ]
+                    "op": "apply_expression_template",
+                    "args": [],
+                    "name": "per_schedule_second",
+                    "bindings": {
+                      "speed_change": {
+                        "op": "-",
+                        "args": [
+                          "lomd_speed",
+                          "lomd_prevSpeed"
+                        ]
+                      }
+                    }
                   },
                   "lomd_gradeAcceleration"
                 ]
@@ -1039,11 +1056,18 @@
                 "op": "+",
                 "args": [
                   {
-                    "op": "-",
-                    "args": [
-                      "lomd_prevSpeed",
-                      "lomd_prevSpeed2"
-                    ]
+                    "op": "apply_expression_template",
+                    "args": [],
+                    "name": "per_schedule_second",
+                    "bindings": {
+                      "speed_change": {
+                        "op": "-",
+                        "args": [
+                          "lomd_prevSpeed",
+                          "lomd_prevSpeed2"
+                        ]
+                      }
+                    }
                   },
                   "lomd_gradeAcceleration"
                 ]
@@ -1068,11 +1092,18 @@
                 "op": "+",
                 "args": [
                   {
-                    "op": "-",
-                    "args": [
-                      "lomd_prevSpeed2",
-                      "lomd_prevSpeed3"
-                    ]
+                    "op": "apply_expression_template",
+                    "args": [],
+                    "name": "per_schedule_second",
+                    "bindings": {
+                      "speed_change": {
+                        "op": "-",
+                        "args": [
+                          "lomd_prevSpeed2",
+                          "lomd_prevSpeed3"
+                        ]
+                      }
+                    }
                   },
                   "lomd_gradeAcceleration"
                 ]
@@ -1097,30 +1128,37 @@
           }
         },
         {
-          "_comment": "The VSP acceleration term's coalesce has NO grade addend; the At0 coalesce does.",
+          "_comment": "The VSP acceleration term's coalesce has NO grade addend; the At0 coalesce does. The one-second step is `per_schedule_second`: without it this is a speed change and not an acceleration, which is docs/esm-conventions.md §57.9.",
           "lhs": "lomd_accelerationMs",
           "rhs": {
             "op": "*",
             "args": [
               {
-                "op": "ifelse",
-                "args": [
-                  {
-                    "op": ">",
+                "op": "apply_expression_template",
+                "args": [],
+                "name": "per_schedule_second",
+                "bindings": {
+                  "speed_change": {
+                    "op": "ifelse",
                     "args": [
-                      "lomd_hasPrevSpeed",
+                      {
+                        "op": ">",
+                        "args": [
+                          "lomd_hasPrevSpeed",
+                          0.0
+                        ]
+                      },
+                      {
+                        "op": "-",
+                        "args": [
+                          "lomd_speed",
+                          "lomd_prevSpeed"
+                        ]
+                      },
                       0.0
                     ]
-                  },
-                  {
-                    "op": "-",
-                    "args": [
-                      "lomd_speed",
-                      "lomd_prevSpeed"
-                    ]
-                  },
-                  0.0
-                ]
+                  }
+                }
               },
               {
                 "op": "apply_expression_template",
@@ -1154,7 +1192,8 @@
                       0.156461,
                       0.156461,
                       0.156461
-                    ]
+                    ],
+                    "units": "kW*s/m"
                   },
                   "rotating_term_b": {
                     "op": "const",
@@ -1168,7 +1207,8 @@
                       0.00200193,
                       0.00200193,
                       0.00200193
-                    ]
+                    ],
+                    "units": "kW*s^2/m^2"
                   },
                   "drag_term_c": {
                     "op": "const",
@@ -1182,7 +1222,8 @@
                       0.000492646,
                       0.000492646,
                       0.000492646
-                    ]
+                    ],
+                    "units": "kW*s^3/m^3"
                   },
                   "source_mass": {
                     "op": "const",
@@ -1196,7 +1237,8 @@
                       1.4788,
                       1.4788,
                       1.4788
-                    ]
+                    ],
+                    "units": "tonne"
                   },
                   "fixed_mass_factor": {
                     "op": "const",
@@ -1210,7 +1252,8 @@
                       1.4788,
                       1.4788,
                       1.4788
-                    ]
+                    ],
+                    "units": "tonne"
                   },
                   "speed_ms": "lomd_speedMs",
                   "acceleration_ms": "lomd_accelerationMs"
@@ -1233,7 +1276,8 @@
                       1.4788,
                       1.4788,
                       1.4788
-                    ]
+                    ],
+                    "units": "tonne"
                   },
                   "fixed_mass_factor": {
                     "op": "const",
@@ -1247,7 +1291,8 @@
                       1.4788,
                       1.4788,
                       1.4788
-                    ]
+                    ],
+                    "units": "tonne"
                   },
                   "grade_percent": {
                     "op": "const",
@@ -1261,7 +1306,8 @@
                       0.0,
                       0.0,
                       0.0
-                    ]
+                    ],
+                    "units": "percent"
                   },
                   "speed_ms": "lomd_speedMs"
                 }
