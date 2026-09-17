@@ -3178,6 +3178,19 @@ recorded so that the next author who writes a shape-open leaf, and sees it pass,
 knows why it is not portable.
 ## F52 — `exp` and `log` check the dimension of their argument and not its scale, so `log(429.96 ppm)` is accepted
 
+**Filed upstream as
+[EarthSciML/EarthSciAST#409](https://github.com/EarthSciML/EarthSciAST/issues/409)**,
+which carries a second half this entry did not have: the same scale-blindness in
+the TRIG path is not an ambiguity but a wrong number. `sin(x)` with `x = 90`
+declared `deg` returns 0.8939966636005579 — that is `sin(90 radians)` — where
+`deg` is a registry unit at scale π/180 and esm-spec §4.8.3 names angles as the
+one exception to the dimensionless-argument rule. A conforming document, a
+silent wrong answer, and this repository's characteristic failure in a place
+nothing here reaches: the port declares no angle units, and its single `sin` and
+single `atan` take dimensionless arguments. The issue proposes converting for
+angles, where the reading is unambiguous, and refusing for a scaled
+dimensionless argument, where two readings are defensible.
+
 **No repro file, for the reason F17, F31 and F33 have one: the defect is that
 `esm validate` ACCEPTS something.** A file showing it would validate clean today,
 and the tripwire stage reads a passing file in this directory as "the defect is
