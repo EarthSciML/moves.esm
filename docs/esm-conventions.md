@@ -5191,7 +5191,7 @@ it lands, re-measure F13 before deciding whether the rule still earns its lines.
 Until then PLAN.md §7.1's "one thin `.esm` per fixture" means 43 lines, 12 of
 them the fixture's own.
 
-## 57. A unit on a constant is declared once, on the template that names it, and only where the unit is certain **[EarthSciAST PR #347, esm 1.2.0; 24 constants, 139 declarations corrected, 6 unit boundaries]**
+## 57. A unit on a constant is declared once, on the template that names it, and only where the unit is certain **[EarthSciAST PR #347, esm 1.2.0; 24 constants, 210 declarations corrected, 6 unit boundaries]**
 
 A bare numeric literal has an undeterminable dimension, and a product containing
 one is not checked (finding F44's units subsection, EarthSciAST #302). From esm
@@ -5291,8 +5291,8 @@ a different year.
 **6. An annotation that makes a document refuse is a finding.** If what refuses is
 `1` declared on a quantity whose own description or MOVES source names the unit,
 correct the declaration — it is a unit error the old check could not see. The
-annotations cost 139 such corrections, all in fixtures, components and the 7c
-spike: temperatures (`degF`), relative humidities (`percent`), heat indices
+annotations cost 210 such corrections — 51 for §57.1–7 and 159 more for §57.8 —
+all in fixtures, components and the 7c spike: temperatures (`degF`), relative humidities (`percent`), heat indices
 (`degF`), the temperature-adjustment A and B terms and the A/C activity B and C
 terms (`1/degF`, `1/degF^2`, from `1 + d(A + dB)` with `d = temperature − 75` °F,
 criteria_running_calculator.rs:3369, and from `A + h(B + Ch)` in a heat index,
