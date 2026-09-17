@@ -5191,7 +5191,7 @@ it lands, re-measure F13 before deciding whether the rule still earns its lines.
 Until then PLAN.md §7.1's "one thin `.esm` per fixture" means 43 lines, 12 of
 them the fixture's own.
 
-## 57. A unit on a constant is declared once, on the template that names it, and only where the unit is certain **[EarthSciAST PR #347, esm 1.2.0; 24 constants, 210 declarations corrected, 6 unit boundaries]**
+## 57. A unit on a constant is declared once, on the template that names it, and only where the unit is certain **[EarthSciAST PR #347, esm 1.2.0; 25 constants, 210 declarations corrected, 6 unit boundaries]**
 
 A bare numeric literal has an undeterminable dimension, and a product containing
 one is not checked (finding F44's units subsection, EarthSciAST #302). From esm
