@@ -1663,12 +1663,20 @@ recorded there and was not filed.
 
 **In flight, and what each changes here when it lands:**
 
-* **#339 + #347** (exact unit scales; declared units on a `const`, `esm 1.2.0`).
-  The fix for **#302** — a multiplicative literal disables an equation's
-  dimensional check, so 37 of 61 wrong unit declarations validated clean. The
-  annotation work is being prepared on the branch `units/const-units`, measured
-  against a binary built from #347, to merge when upstream does. **#303** (`esm
-  units` is a stub) has no PR yet.
+* ~~#339 + #347~~ — **merged 2026-09-15** and adopted here: exact unit scales,
+  and a declared unit on a `const` at `esm 1.2.0`. Between them they fix **#302**
+  — a multiplicative literal disabled an equation's dimensional check, so 37 of
+  61 wrong declarations validated clean. Four annotation passes followed (§57,
+  §58): 340 declarations are swept now against 71 before, and every fixture
+  declaration is caught if it is wrong. **#303** (`esm units` is a stub) has no
+  PR yet, and it is the instrument the passes were read with. Over the 69
+  model documents it reports 367 equations consistent at a non-dimensionless
+  unit, and 2556 of 5691 still NOT CHECKED — 1006 because the left-hand side
+  declares no units (the typing pass that has not been done), 1272 because the
+  right-hand side node is undeterminable (903 `faq`, 311 `const`, 58
+  `makearray`), and 276 for an indeterminate operand. The `faq` share is where
+  #414 bites: an aggregate is undeterminable when its operands are, which is
+  what a mount edge and an unchecked `filter` produce.
 * ~~#341 + #353~~ — **merged 2026-09-15**, retiring F3 and F13. The enum
   restatements are deleted — 16 enums in `runs/mixed_onroad_run.esm`, 11 in
   `runs/evap_leaks_run.esm`, 6 in each 7c document — and the per-fixture
@@ -1678,6 +1686,18 @@ recorded there and was not filed.
   better diagnostic or an explicit refusal rather than with the capability. F14
   turned out not to be a defect at all — PR #352 settled the ragged SPELLING and
   this port's repro had it wrong.
+
+**Filed by the units passes, both open:**
+
+* **#409** — transcendentals and trig ignore a unit's SCALE (`sin(90 deg)`
+  evaluates `sin(90 rad)`; `log(x ppm)` is accepted unchecked). Finding F52.
+  **PR #413** proposes the fix: convert for angles, refuse for
+  dimensionless-but-scaled.
+* **#414** — unit checking is silently skipped across a `{ref}` mount edge
+  (F54), inside a `faq`'s `filter` (F55), and on a bare `var` operand (F53).
+  All three are "undeterminable", which is reported as nothing. **#414 is what
+  the `runs/` declarations are waiting on**: they are written and correct and
+  check nothing until it lands, which is why the sweep reports them silent.
 
 **Recorded but not filed: F51**, a Rust/Python disagreement about a shape-open
 leaf. #317 changed the Rust side; the Python side is not being measured now.

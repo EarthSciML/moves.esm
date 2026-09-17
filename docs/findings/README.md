@@ -1,6 +1,6 @@
 # Findings: conventions the format or the toolchain could not express
 
-Forty-three things PLAN.md §3 Phase 1 through Phase 5 assumed, or that an author
+Forty-four things PLAN.md §3 Phase 1 through Phase 5 assumed, or that an author
 would reasonably assume, that did not hold. **Twenty-four are fixed upstream and
 retired** from the tripwire, with their sections kept so the workarounds they
 forced can be traced — and one of those, F14, was retired because the assumption
@@ -19,11 +19,11 @@ F22, F28, F41, F43 and F45 each have a minimal `.esm` repro in this directory �
 F22 has two, one per construct. F3, F5, F13, F14, F20 and F21 had one until the
 `8ac536bf0` rebuild retired all six, and their files are deleted; F8 is a CLI
 behaviour rather than a document, and is checked by command against the ordinary
-files of the repo. **F17, F31, F33, F42, F52, F54 and F55 deliberately have no repro file**: a
+files of the repo. **F17, F31, F33, F42, F52, F53, F54 and F55 deliberately have no repro file**: a
 repro for any of them would assert the RIGHT answer and pass, and the tripwire
 stage below reads a passing file in this directory as "the defect is fixed". F17
 and F31 were cost findings, where the right answer arrives too slowly rather
-than wrong; F33 is about bindings this repository does not execute, so its repro would pass on `./esm` for a reason that has nothing to do with the defect; and F52, F54 and F55 share one reason: each defect is that `validate` ACCEPTS something, so a document showing it validates clean and the tripwire would read it as fixed. Each
+than wrong; F33 is about bindings this repository does not execute, so its repro would pass on `./esm` for a reason that has nothing to do with the defect; and F52, F53, F54 and F55 share one reason: each defect is that `validate` ACCEPTS something, so a document showing it validates clean and the tripwire would read it as fixed. Each
 was reproduced inline in its own section instead, with the measurements that
 made it a finding. **F42 cannot have one for a fourth reason**: its trigger is
 state OUTSIDE the repository — a warm cache in `$TMPDIR` — so the same file
@@ -3259,7 +3259,52 @@ transcendental to a scaled dimensionless quantity: `exp` appears in
 `power_via_exp_log`; `log10` appears in the Goff-Gratch exponent over a `K/K`
 ratio; `sin`/`atan` appear in `grade_sine` over a bare `grade/100`.
 
+## F53 — a bare `var` operand has no determinable dimension, so any expression containing one is skipped
+
+**Filed upstream as
+[EarthSciML/EarthSciAST#414](https://github.com/EarthSciML/EarthSciAST/issues/414)**,
+with F54 and F55. No repro file, for F52's reason: the defect is that `validate`
+ACCEPTS something.
+
+Found while cutting F54's measurement down to a two-document minimal repro for
+that issue. The first attempt read the mounted variable with
+`{"op": "var", "args": ["Leaf.leaf_hours"]}` rather than an `index` inside a
+`faq`, and the LOCAL control passed too — which would have made F54 look like
+something other than a mount-edge defect. It is a third instance of the same
+pattern:
+
+```
+Equation 2 (alias_wrong): NOT CHECKED — right-hand side: `var` node has no determinable dimension
+```
+
+with `own_hours` declared `h`, `alias_wrong` declared `cd`, and
+`alias_wrong = var(own_hours) × const(1.0, "1")` — accepted at `8ac536bf0`.
+`index(own_hours, i)` in the same document is typed and the same declaration is
+refused. A variable's `units` are a property of the variable, not of how it is
+spelled in an operand position.
+
+**It costs this repository nothing, and that is measured rather than assumed**:
+of 4686 equations across the corpus, ZERO contain a bare `var` operand. The
+array path is always entered through `index` inside a `faq`, because every
+array-valued equation in this port is a relational aggregate. It is recorded
+because it is the reason F54's minimal repro has the shape it has, and because
+a future document that writes `y = x` as an alias would be silently unchecked.
+
+The number to watch if that changes: the sweep (F44) counts a declaration as
+swept only if changing it can be refused, so an alias equation added tomorrow
+would enter the corpus already silent, with nothing in the sweep to say why.
+
+---
+
 ## F54 — declared units do not cross a `{ref}` mount edge, so an assembly document is unit-checked at nothing
+
+**Filed upstream as
+[EarthSciML/EarthSciAST#414](https://github.com/EarthSciML/EarthSciAST/issues/414)**,
+with F53 and F55: one issue, because all three are the same failure mode — unit
+typing is attached to some node kinds and some positions and not others, and
+where it is missing the result is "undeterminable", which is reported as
+nothing. The issue carries a two-document minimal repro of this entry, cut down
+from the measurement below and re-measured at `8ac536bf0`.
 
 **`runs/nr_logging_county_run.esm`, `8ac536bf0`. No repro file, for F52's
 reason: the defect is that `validate` ACCEPTS something, so a document showing
@@ -3375,5 +3420,9 @@ anywhere else. A `filter` is a boolean expression over the node's ranges; nothin
 about its position makes its operands exempt, and the checker already has the
 rule.
 
-**Not filed upstream yet** — it belongs with F54, which has the same shape and
-was found the same day.
+**Filed upstream as
+[EarthSciML/EarthSciAST#414](https://github.com/EarthSciML/EarthSciAST/issues/414)**,
+with F53 and F54. The issue calls this the wider of the two: F54 costs an
+assembly its unit coverage, this costs every predicate in every document. Its
+minimal repro is a single document, one `<=` over a `cd` and an `hp`, moved
+between `expr` and `filter`.
