@@ -20,9 +20,16 @@ where it was.
 So this asserts the identity three ways at once -- the declared row count, the
 chain's recomputation, and the KEYS actually present in the output:
 
-    rows == outputPolProcessCount x cohortSurvivorCount x day types
+    rows == outputPolProcessCount x counties x day types x cohortSurvivorCount
     distinct (pollutantID, processID) == outputPolProcessCount
     distinct (modelYearID, fuelTypeID) == cohortSurvivorCount
+
+The county and day-type factors are counted from the output's own key columns
+rather than recomputed, because both are runtime-discovered extents of a runspec
+source and no declaration stands behind them to check. What they DO catch is a
+county level that collapsed: `runspecs/expand-counties.esm` emits three counties,
+and a chain that summed them instead of selecting them emits one -- the 7c'
+defect one axis up.
 
 usage: check-runspec-shape.py <emitted.csv> <shape.csv>
 """
@@ -48,14 +55,16 @@ def main(emitted_path, shape_path):
         return {tuple(r[c] for c in cols) for r in rows}
 
     days = distinct("out_dayID")
+    counties = distinct("out_countyID")
     pairs = distinct("out_pollutantID", "out_processID")
     cohort_keys = distinct("out_modelYearID", "out_fuelTypeID")
 
     problems = []
-    if len(rows) != blocks * cohorts * len(days):
-        problems.append("%d rows, but the chain recomputes %d x %d x %d = %d"
-                        % (len(rows), blocks, cohorts, len(days),
-                           blocks * cohorts * len(days)))
+    expected = blocks * len(counties) * len(days) * cohorts
+    if len(rows) != expected:
+        problems.append("%d rows, but the chain recomputes %d x %d x %d x %d = %d"
+                        % (len(rows), blocks, len(counties), len(days), cohorts,
+                           expected))
     if len(pairs) != blocks:
         problems.append("%d (pollutantID, processID) pairs emitted, but "
                         "outputPolProcessCount is %d" % (len(pairs), blocks))
@@ -67,8 +76,10 @@ def main(emitted_path, shape_path):
             print(p)
         return 1
 
-    print("%d rows = %d pollutant-process block(s) x %d cohorts x %d day type(s)"
-          % (len(rows), blocks, cohorts, len(days)))
+    print("%d rows = %d pollutant-process block(s) x %d count%s x %d day type(s) "
+          "x %d cohorts"
+          % (len(rows), blocks, len(counties), "y" if len(counties) == 1 else "ies",
+             len(days), cohorts))
     return 0
 
 

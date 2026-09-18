@@ -1221,15 +1221,19 @@ fi
 # computed HERE now). The 35 others were measured one at a time against the
 # national file and are byte-identical drop-ins.
 #
-# THE SHAPE IS RECOMPUTED, not just compared. A per-fixture document declares
-# `n_outputPolProcess` -- how many of its selected pollutant-processes reach
-# MOVESOutput at all -- because no table states it; MOVES works it out from a
-# join to `runSpecRoadType`. So does the model, in `rspp_isEmitted`, and
-# `outputPolProcessCount` reports what it worked out. Check 3 requires the rows
-# emitted to be exactly that count x `cohortSurvivorCount` x the day types in
-# the output, which is the only check `expand-day` has that FAILS when the
-# road-type rule is deleted: its one surviving block is also its FIRST, so the
-# renumbering cannot show up in the numbers (see the probe below).
+# THE SHAPE IS RECOMPUTED, not just compared. The output relation is four
+# levels -- pollutant-process, then county, then day type, then cohort -- and
+# two of the four are DECLARED numbers, because no table in the database states
+# them: `n_outputCohort` (which cohorts survive is a result of the chain) and
+# `n_outputPolProcess` (which pollutant-processes reach MOVESOutput at all,
+# which MOVES works out from a join to `runSpecRoadType` and the model works out
+# in `rspp_isEmitted`). `cohortSurvivorCount` and `outputPolProcessCount` report
+# what the chain worked out, and check 3 requires the rows emitted to be exactly
+# their product with the counties and day types the output carries.
+#
+# That check is the only thing `expand-day` has that FAILS when the road-type
+# rule is deleted: its one surviving block is also its FIRST, so the renumbering
+# cannot show up in the numbers (see the probes below).
 #
 # Each document costs about 40 seconds twice over -- once for the output
 # relation, once for the two recomputed counts, which have a different shape and
@@ -1311,15 +1315,20 @@ else
   #    probe: the narrowing it removes is no longer what narrows.
   #
   #    `no-link-join` moves the NUMBERS -- the four run-level geography columns
-  #    sum a national table again. `no-road-type-filter` does not, and that is
-  #    worth knowing rather than papering over: `expand-day`'s one surviving
+  #    sum a national table again. `no-county-join` moves them the same way one
+  #    axis up: without the output relation's county key pair every row sums all
+  #    three counties, `out_countyID` comes back 49229 and SHO 10960.9 instead
+  #    of 8364.2, 2336.7 and 260.1.
+  #
+  #    `no-road-type-filter` does NOT move the numbers, and that is worth
+  #    knowing rather than papering over: `expand-day`'s one surviving
   #    pollutant-process block is also its first, so deleting the rule that
   #    discards the other two renumbers nothing the output can see. What it does
   #    move is check 3 -- `outputPolProcessCount` goes 1 to 3 while 250 rows are
   #    emitted. A run whose survivors are NOT a prefix of its selections would
   #    move the numbers too; `expand-criteria` is that run and is not ported.
-  PROBE_NAMES=(no-link-join no-road-type-filter)
-  PROBE_RUNS=(process-tirewear expand-day)
+  PROBE_NAMES=(no-link-join no-road-type-filter no-county-join)
+  PROBE_RUNS=(process-tirewear expand-day expand-counties)
   for i in "${!PROBE_NAMES[@]}"; do
     pname="${PROBE_NAMES[$i]}"
     prun="${PROBE_RUNS[$i]}"

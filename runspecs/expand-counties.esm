@@ -1,0 +1,207 @@
+{
+  "esm": "1.2.0",
+  "metadata": {
+    "name": "expand-counties-runspec",
+    "description": "PLAN.md §7.5 step 7d, the GEOGRAPHY dimension: the `expand-counties` run computed from the DEFAULT DATABASE through `moves-onroad.esm`. Three counties in three states -- Los Angeles, Cook and Washtenaw -- where every other RunSpec in this tree selects one.\n\nWHAT IT DISCRIMINATES, which §23 asks for before a dimension is called covered.\n\n* THE COUNTY AS AN AXIS RATHER THAN A SCALAR. `run_countyID`, `run_zoneID`, `run_linkID` and `run_stateID` were shaped over `run_rows`, the one-row carrier relation, because one county is all any run had ever selected. They are shaped over `runspeccounty_rows` now, and so is everything that genuinely varies with the county: the zone's heat index and temperature, the A/C activity quadratic those drive, `zoneRoadType`'s SHO allocation factor, the county-keyed `fuelUsageFraction` and therefore the cohorts' used fractions, and the whole rate-by-day stack above them. 30 of the model's 425 variables gained the axis and three more were added to carry it; the other 395 did not, which is the measurement -- national VMT, the drive cycle, the emission rates and which cohorts SURVIVE are county-independent, and MOVES treats them so.\n\n* THE COUNTY/ROAD-TYPE JOIN AT MORE THAN ONE VALUE. 7c' added it because the national `Link` has 22,610 rows and summing them read county 710047702. Until now it was only ever evaluated against a runspec of one county, so a join that returned the FIRST match rather than the matching one would have passed. Here it has to return three different links, three different zones and three different states.\n\nTHE OUTPUT RELATION IS NOW FOUR LEVELS: pollutant-process, then county, then day type, then cohort. 375 = 1 x 3 x 1 x 125, and `tools/check-runspec-shape.py` holds the emitted rows to exactly that product of recomputed counts.\n\nAgainst `runspecs/expand-day.esm` this document differs in eleven `url_template`s and nothing else -- the same binding, the same keys. That is the second time the per-fixture document has cost only its selections.",
+    "authors": [
+      "EarthSciML Authors and Contributors"
+    ],
+    "tags": [
+      "runspec",
+      "onroad",
+      "default-database",
+      "expand-counties"
+    ]
+  },
+  "data_sources": {
+    "db_runspecyear": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/expand-counties/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecyear.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecyear"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, yearID 2020.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecmonth": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/expand-counties/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecmonth.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecmonth"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, monthID 8.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspechour": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/expand-counties/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspechour.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspechour"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, hourID 7.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecday": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/expand-counties/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecday.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecday"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, dayID 5 (weekday). `runspecs/expand-day.esm` is where this axis is two wide.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecsourcetype": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/expand-counties/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecsourcetype.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecsourcetype"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, sourceTypeID 21.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecroadtype": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/expand-counties/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecroadtype.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecroadtype"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, roadTypeID 4. With `emissionprocess.occursOnRealRoads` this is what discards the 9102 and 9190 blocks (docs/esm-conventions.md §60).",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecsourcefueltype": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/expand-counties/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecsourcefueltype.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecsourcefueltype"
+      },
+      "metadata": {
+        "tags": [
+          "scope",
+          "cohorts"
+        ],
+        "note": "4 rows: gasoline, diesel, E85 and electricity.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecpollutantprocess": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/expand-counties/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecpollutantprocess.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecpollutantprocess"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "3 rows: 9101, 9102 and 9190. One emits, as in `expand-day`.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecchainedto": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/expand-counties/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecchainedto.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecchainedto"
+      },
+      "metadata": {
+        "tags": [
+          "scope",
+          "chain"
+        ],
+        "note": "0 rows: nothing in this run is chained.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspeccounty": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/expand-counties/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspeccounty.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspeccounty"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "3 ROWS -- countyID 6037 (Los Angeles, CA), 17031 (Cook, IL) and 26161 (Washtenaw, MI) -- AND THAT IS WHY THIS RUN IS HERE. Every other RunSpec in this tree selects one county, so the county was a SCALAR of the run: `run_countyID`, `run_zoneID`, `run_linkID` and `run_stateID` were all shaped over the one-row carrier relation, and the county/road-type join PLAN.md §7.3.3 added to narrow the national `Link` was only ever evaluated at width 1. `n_runspeccounty` is discovered from this extent, and it now sizes the output relation's second level.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_movesoutput": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/expand-counties/tables/db__out_expand_counties__movesoutput.parquet"
+      },
+      "reader_options": {
+        "float_columns": [
+          "emissionQuant"
+        ]
+      },
+      "metadata": {
+        "tags": [
+          "oracle",
+          "expected-output"
+        ],
+        "note": "The 375-row expected output: running-exhaust Total Energy Consumption for 125 (modelYearID, fuelTypeID) cohorts in each of three counties. DECLARED AND CONSUMED BY NOTHING. compare-output.py reads it directly under tolerance.toml.",
+        "esio_format": "parquet"
+      }
+    }
+  },
+  "models": {
+    "Onroad": {
+      "ref": "../moves-onroad.esm",
+      "bindings": {
+        "n_outputPolProcess": 1
+      }
+    }
+  }
+}

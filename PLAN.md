@@ -1735,7 +1735,7 @@ so there is nowhere in a per-fixture document to state them inline. A runspec
 expressed as metaparameters instead would remove the last snapshot dependency;
 that is a 7d question and it is not a blocker for 7d.
 
-### 7.3.4 7d, begun 2026-09-17: a second RunSpec, and what the first one was hiding
+### 7.3.4 7d, begun 2026-09-17: two more RunSpecs, and what the first one was hiding
 
 `runspecs/expand-day.esm` → `moves-onroad.esm` → `onroad/model.esm`. **250 rows
 against the snapshot's own `MOVESOutput`, 0 missing and 0 extra, worst cell
@@ -1770,23 +1770,51 @@ the output relation doubled with no edit to the model. That is §42.1's
 measurement run in the other direction, and it is the strongest evidence
 available that the day axis is factored rather than written down.
 
-**The four dimensions left, and what each actually costs.** Every remaining
+**GEOGRAPHY, done the same day.** `runspecs/expand-counties.esm` selects Los
+Angeles, Cook and Washtenaw and emits **375 rows, 0 missing and 0 extra, worst
+cell 1.140 × 10⁻⁵** against a 2 × 10⁻⁵ tolerance. The county stopped being a
+property of the run and became an axis of it: **30 of the model's 425 variables
+gained it, three more were added to carry it, and 395 did not** — the drive
+cycle, the emission rates and which cohorts survive are national, and the county
+enters only at `zoneRoadType`'s allocation, `ZoneMonthHour`'s meteorology and
+`fuelUsageFraction`'s county key. Conventions §61 has the whole list and the
+reason for each side of it.
+
+That is also the first evaluation of the join 7c′ added. It had narrowed a
+22,610-row national `Link` against a one-county runspec, where a join returning
+the FIRST match rather than the MATCHING one would have passed every check in
+the suite; here it has to return three different links, three zones and three
+states. The probe `no-county-join` deletes the output relation's county key pair
+and the numbers move into exactly the 7c′ shape one axis up — `out_countyID`
+comes back 49229, `out_stateID` 49, and SHO 10960.9 in place of 8364.2, 2336.7
+and 260.1.
+
+**`process-tirewear` and `expand-day` emit their 375 and 250 rows BYTE FOR BYTE
+unchanged** through the widened model, which is the check that an axis was added
+and nothing else was.
+
+**The three dimensions left, and what each actually costs.** Every remaining
 `expand-*` snapshot needs something the model does not have, and none of them
 is a re-pointing:
 
 | fixture | rows | what it needs |
 |---|---|---|
-| `expand-counties` | 375 = 125 × **3 counties** | county is a SCALAR in the model (`run_countyID`, `run_zoneID`, `run_linkID`, `run_stateID`). Making it an axis reaches the activity relation, `zonemonthhour`, `zoneroadtype`'s SHO allocation and `fuelusagefraction` — which is county-keyed, so the cohorts themselves become county-dependent. **This is the fixture that would exercise the county/road-type join 7c′ added**, which is still only ever evaluated at width 1. |
-| `expand-sourcetype` | **430**, not 5 × 125 | source type is a scalar too, and the cohort count is RAGGED across the five (11, 21, 31, 51, 62) rather than 125 apiece. |
+| `expand-sourcetype` | **430**, not 5 × 125 | source type is a scalar too, and the cohort count is RAGGED across the five: 41 / 125 / 125 / 89 / 50 for source types 11, 21, 31, 51 and 62, with different fuel sets (11 gasoline only; 62 diesel and CNG). `n_outputCohort` stops being one number. |
 | `expand-fueltype-diesel` | **248** = 125 + 123 | the same axis at width 2, with the ragged count visible in the smaller number. |
 | `expand-month` | 500 = 125 × 4 months | month is a scalar, AND `dayID` and `hourID` come back **0** in its output: it is a different time aggregation, not a wider selection. |
 | `expand-criteria` | 372 = 3 × 124 | pollutants 1, 2 and 3 on process 1, from 8 selected pollutant-processes at positions 1, 3 and 5. New physics (criteria pollutants), and the one run in the corpus whose survivors are not a prefix — so it is also what would discriminate §60's renumbering. |
 
-So 7d is not four more per-fixture documents; it is one axis promotion
-(geography), then a second (source type, which brings fuel type with it), then
-a time-aggregation mode, then a pollutant family. The order above is by cost,
-and `expand-counties` is first because the county join is the one thing 7c′
-introduced that nothing has yet evaluated at more than one value.
+So what is left of 7d is one more axis promotion — source type, which brings
+fuel type with it and is ragged where geography was rectangular — then a
+time-aggregation mode, then a pollutant family. Geography cost 30 variables of
+425 and one level in the output decomposition, and left every cohort count at
+125; source type will cost more, because the cohort count is a DIFFERENT number
+per source type — measured on the snapshot's own output, 41 rows for source type
+11, 125 for 21, 125 for 31, 89 for 51 and 50 for 62, and even the fuel sets
+differ (11 has gasoline alone, 62 has diesel and CNG). So `n_outputCohort` stops
+being one declared number and `coh_rank`'s prefix count has to be per source
+type, which is a change to the selection machinery and not only to the relations
+above it.
 
 ### 7.4 Upstream asks
 
@@ -1854,7 +1882,7 @@ This repository writes `leaf-owns-shape`, which does not depend on the answer.
 | **7b** ✅ | Full-database monolithic conversion — **done 2026-09-10**: 237 monolithic + 3 schema-only, 0 partition directories, 517 MB, 15.6 s, validator extended and all 7 planted corruptions red (§7.3.1) | met; the load cost is measured and does not dictate the layout |
 | **7c** ✅ | The mount shape at fixture scale — **done 2026-09-10, re-shaped to conform 2026-09-12, thin 2026-09-15** (§7.3.2): `fixtures/process-tirewear.esm` split into a logic half, a catalogue document that mounts it, and a 43-line per-fixture document that mounts the catalogue, byte-identical over 375 rows × 26 fields. Four findings retired (F46, F48, F49, F50), one open (F51) | met; the per-fixture document is 12 lines — metadata and one `{ref}`, nothing mechanical (conventions §53.2) |
 | **7c′** ✅ | `moves-onroad.esm`: default DB → `MOVESOutput` for `process-tirewear` — **done 2026-09-17** (§7.3.3): 38 national tables and the same logic, behind a per-fixture document carrying ten runspec selections, emitting the inlined fixture's 375 rows byte for byte in 40 s | met; the first end-to-end number comes off the default database |
-| **7d** | Widen the runspec surface one selection dimension at a time — pollutant-process, source type, road type, timespan, geography | each dimension added only with a fixture that **discriminates** it (§23). **Begun 2026-09-17** (§7.3.4): timespan done at the day axis and the output relation is no longer a rectangle over the selected pollutant-processes — `runspecs/expand-day.esm`, 250 rows, byte-identical to the inlined fixture over 25 shared fields. Geography, source type, fuel type, month and the criteria pollutants each need a scalar promoted to an axis or a new arithmetic; §7.3.4 costs them |
+| **7d** | Widen the runspec surface one selection dimension at a time — pollutant-process, source type, road type, timespan, geography | each dimension added only with a fixture that **discriminates** it (§23). **Begun 2026-09-17** (§7.3.4): **timespan** done at the day axis, the output relation is no longer a rectangle over the selected pollutant-processes (`runspecs/expand-day.esm`, 250 rows, byte-identical to the inlined fixture over 25 shared fields), and **geography** done at three counties in three states (`runspecs/expand-counties.esm`, 375 rows, worst cell 1.140e-05; conventions §61). Source type, fuel type, month and the criteria pollutants are left, and §7.3.4 costs each |
 | **7e** | `moves-nonroad.esm`, same shape | 12 `nr-*` fixtures |
 | **7f** | The five fixtures needing a second input database (four `-single` on `washtenaw_cdb`, `scale-project` on the project DB) | last, because they are the only ones whose model input is not the default DB |
 

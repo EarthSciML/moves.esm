@@ -17,6 +17,14 @@ so.
                           The national table has 22,610 and the sum reads county
                           710047702.
 
+  no-county-join          the output relation's county key pair, against
+                          `runspecs/expand-counties.esm`. The output relation is
+                          pollutant-process major, then COUNTY, then day type,
+                          then cohort; without the pair that selects the county
+                          every output row sums all three of them, which is
+                          7c''s `link` defect one axis up -- `out_countyID` comes
+                          back 49229, the sum of the three county ids.
+
   no-road-type-filter     `rspp_rateRoadTypeID`'s off-network arm, against
                           `runspecs/expand-day.esm`. Start exhaust and extended
                           idle write their rates on road type 1;
@@ -74,8 +82,31 @@ def no_road_type_filter(logic, fixture):
     sys.exit("rspp_rateRoadTypeID not found")
 
 
+def no_county_join(logic, fixture):
+    pair = ["outCountyOrdinal", "rsc_ordinal"]
+    dropped = 0
+    for eq in logic["models"]["Onroad"]["equations"]:
+        rhs = eq["rhs"]
+        if not isinstance(rhs, dict) or "join" not in rhs:
+            continue
+        for clause in list(rhs["join"]):
+            if pair in clause["on"]:
+                clause["on"].remove(pair)
+                dropped += 1
+                if not clause["on"]:
+                    # the three identity columns joined on nothing else, so the
+                    # whole clause goes -- which is the shape they had before
+                    # the county was an axis.
+                    rhs["join"].remove(clause)
+                    if not rhs["join"]:
+                        del rhs["join"]
+    if dropped != 8:
+        sys.exit("expected 8 county key pairs, dropped %d" % dropped)
+
+
 PROBES = {"no-link-join": no_link_join,
-          "no-road-type-filter": no_road_type_filter}
+          "no-road-type-filter": no_road_type_filter,
+          "no-county-join": no_county_join}
 
 
 def main(which, runspec, out_path):

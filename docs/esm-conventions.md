@@ -5982,3 +5982,92 @@ model written for a different process. 147 of those 196 equations were already
 byte-identical to `fixtures/process-tirewear.esm`'s, which is what the
 domain model is instead of.
 
+## 61. One selected county made the county a SCALAR, and the fix is 30 variables out of 425 **[PLAN.md step 7d; 3 counties, 3 states, 375 rows, worst cell 1.140e-05]**
+
+Every RunSpec in this repository selected one county, so the model wrote the
+county as a property of the run: `run_countyID`, `run_zoneID`, `run_linkID` and
+`run_stateID` were shaped over `run_rows`, the one-row carrier relation that
+§20.4's joins use. That is the same mistake §59 records one level down —
+a table that arrives with one row lets a document read where it meant to
+index — and it hid for the same reason: nothing ever had two.
+
+`expand-counties` selects Los Angeles, Cook and Washtenaw, and MOVES emits
+**375 rows = 1 pollutant-process block × 3 counties × 1 day type × 125
+cohorts**.
+
+### 61.1 What varies with the county is 30 variables, and the list is the model
+
+The measurement is the *denominator*. 30 of the model's 425 variables gained
+the axis; three more were added to carry it; **395 did not**, and that is not an
+accident of the port — it is where MOVES puts the county:
+
+| gained the axis | why |
+|---|---|
+| `run_countyID`, `run_zoneID`, `run_linkID`, `run_stateID`, `run_linkRoadTypeID` | read back from `Link` through the county/road-type join |
+| `run_heatIndex`, `run_temperature` | `ZoneMonthHour` is keyed by zone, and the zone is the county's |
+| `run_acActivityTermA/B/C`, `run_acActivityRaw`, `run_acActivity`, `run_evTemperatureIsSuppressed` | the quadratic's coefficients do not vary with the county; they are ADDED to a heat index that does, so they are broadcast rather than left a shape the sum cannot take |
+| `run_shoAllocFactor`, `act_sho` | VMT is NATIONAL; `zoneRoadType.SHOAllocFactor` is what makes it a county's |
+| `coh_usedFraction`, `coh_acFactor` and the `rt_`/`rtMode_`/`rtDay_` stack above them | `fuelUsageFraction` is keyed by county — E85 is not available everywhere — so the same cohort grid is re-attributed differently in each |
+
+| did NOT | why |
+|---|---|
+| the drive cycle and the operating-mode family, 60 variables between them | `driveSchedule` is national and speed-bin keyed, and not one of the 60 carries the county axis |
+| `emissionrate`, `pollutantProcessModelYear`, `sourceTypeModelYear` | rates are national |
+| `coh_isSelected`, `coh_rank`, `cohortSurvivorCount` | which cohorts SURVIVE is `stmyFraction > 0`, which is national — so all three counties emit the same 125 |
+| `act_vmt`, `act_averageSpeed`, `act_travelFraction` | `HPMSVtypeYear` and `avgSpeedDistribution` are national; the county enters only at the allocation |
+
+### 61.2 The output relation is four levels, and the county is the second
+
+```
+output_rows = n_outputPolProcess × n_runspeccounty × n_runspecday × n_outputCohort
+```
+
+decomposed from the aggregate's own loop symbol, county-major over day-major
+over cohort. With `n_runspeccounty` at 1 the decomposition is arithmetically the
+one it replaced, which is why `process-tirewear` and `expand-day` emit their
+375 and 250 rows **byte for byte unchanged** — the check that the axis was added
+and nothing else was.
+
+`rsc_ordinal` is the county relation's own row ordinal, exactly as `day_ordinal`
+is the day relation's, and the output row joins to it by POSITION. Every output
+column that varies with the county gains one key pair, `outCountyOrdinal ↔
+rsc_ordinal`, on the clause it already had.
+
+### 61.3 What it discriminates: the join 7c′ added, at more than one value
+
+7c′ put a county/road-type join on the four geography columns because the
+national `Link` has 22,610 rows and summing them read county 710047702. Until
+this run that join was only ever evaluated against a one-county runspec, where
+a join returning the FIRST match rather than the MATCHING one would have passed
+every check in the suite.
+
+Here it has to return three different links, three different zones and three
+different states, and the probe `no-county-join` deletes the output relation's
+county key pair and requires the numbers to move. They move into exactly the
+7c′ shape one axis up:
+
+| | correct | probe |
+|---|---|---|
+| `out_countyID` | 6037, 17031, 26161 | **49229** on every row — their sum |
+| `out_stateID` | 6, 17, 26 | **49** |
+| `out_SHO` (MY 2020, fuel 1) | 8364.19, 2336.69, 260.06 | **10960.94** on every row |
+
+`tools/check-runspec-shape.py` catches it a second way: with the counties summed
+the output carries one distinct `countyID`, so 375 rows no longer equal
+1 × 1 × 1 × 125.
+
+### 61.4 The worst cell moved, and it is the new county
+
+| run | rows | worst cell |
+|---|---|---|
+| `process-tirewear` | 375 | 8.128e-06 |
+| `expand-day` | 250 | 7.106e-06 |
+| `expand-counties` | 375 | **1.140e-05** |
+
+Against a 2e-05 tolerance that is 1.75× headroom where the one-county runs have
+2.5×, and the difference is not a new arithmetic — it is that Los Angeles and
+Cook carry SHO an order of magnitude larger than Washtenaw's, so the reference's
+six-significant-figure column storage lands further from the computed value.
+§42.4's rule applies: the number is recorded, not rounded off, and the
+tolerance has not been widened.
+
