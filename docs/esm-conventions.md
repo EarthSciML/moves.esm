@@ -6071,3 +6071,119 @@ six-significant-figure column storage lands further from the computed value.
 §42.4's rule applies: the number is recorded, not rounded off, and the
 tolerance has not been widened.
 
+
+## 62. The source type is inside the cohort, and the cohort is not the source bin **[PLAN.md step 7d; 44 variables promoted, 125 of 248 rows exact, one root cause for the rest]**
+
+Three of 7d's dimensions have now been widened, and all three found the same
+kind of thing: a selection of width one had been hiding a structure. §60 was the
+output relation not being a rectangle. §61 was the county being a scalar. This
+is the third, and it is two findings deep — one about where the source type
+lives, and one about where it does not go far enough.
+
+### 62.1 A discovered axis is cheaper than a declared one, and the cohort grid already spanned it
+
+`run_sourceTypeID` reached **125 of 262 equations** by forward closure, against
+geography's 37, and the number was right: 44 variables gained a
+`runspecsourcetype_rows` axis. But the expensive-looking half turned out to be
+free. `cohort_rows` is `n_agecategory × n_runspecsourcefueltype`, and
+`runspecsourcefueltype` carries **(sourceTypeID, fuelTypeID) PAIRS** — with one
+source type selected, the distinction between "the fuel relation" and "the
+source-fuel relation" is invisible, and `coh_fuelOrdinal` was named for the
+invisible half. Renaming it `coh_sourceFuelOrdinal` and reading
+`coh_sourceTypeID` off the same row moved no shape at all: the five cohort joins
+that reached for the run's single source type read it off the candidate instead.
+
+**So the output relation's shape contract survived.** PLAN.md §7.3.4 had written
+down a decision about `output_rows` being sized by a PRODUCT of declared numbers
+while a ragged cohort count makes the total a SUM. The sum over source types IS
+the cohort survivor count: `coh_rank` densifies whatever survives by an inclusive
+prefix count (§22), `cohortSurvivorCount` recomputes the total as one number, and
+`output_rows` stays
+
+    n_outputPolProcess × (n_outputCohort × n_runspecday) × n_runspeccounty
+
+with the source type **inside** `n_outputCohort` rather than beside it — 248 at
+two source types, 430 at five. The one thing that did change is that
+`n_outputCohort` became a number a per-fixture document sets, through the same
+`bindings` relay in `moves-onroad.esm` that `n_outputPolProcess` already used
+(§49.1). A decision written down before it was made turned out not to be one,
+which is an argument for writing them down.
+
+### 62.2 What a source type is keyed by, and what it is not
+
+Per source type: the drive cycle, from `sourceusetypephysics` down. Vehicle-specific
+power is computed from that source type's rolling, rotating and drag terms and
+its fixed mass factor, so the operating mode each drive-schedule second bins
+into, the speed-bin brackets and the operating-mode distribution the rates are
+weighted by are all per source type. Also per source type: the HPMS
+normalisation group, the analysis-year VMT, the road-type and month VMT shares,
+the population and the whole activity relation.
+
+NOT per source type, and this is worth stating because it looks like it should
+be: `run_travelGroupTotal`, S3's denominator, is over every (source type, age)
+in **this source type's HPMS group** and not over this source type alone.
+Normalising over source type 21 by itself is a 2.55× error on every row, and
+HPMS 25 is shared with source types 31 and 32 — so a two-source-type run has two
+denominators that are not two disjoint sums.
+
+### 62.3 The cohort is (source type, fuel type, model year); the source bin is five columns
+
+`runspecs/pending/expand-fueltype-diesel.esm` emits the right **shape** — 248
+rows, 125 under source type 21 and 123 under source type 32, from a declaration
+the chain recomputes — and **every one of source type 21's 125 rows reproduces
+`MOVESOutput` at worst cell 7.106 × 10⁻⁶**, the same worst cell `expand-day`
+reports. Source type 32's 123 are wrong, and there is one cause:
+
+| source type | regulatory classes | (model year, fuel) triples carrying more than one |
+|---|---|---|
+| 11 | 10 | 0 of 111 |
+| 21 | 20 | **0 of 444** |
+| 32 | 30, 41 | 333 of 444 |
+| 51 | 41, 42, 46, 47 | 333 of 444 |
+| 62 | 46, 47, 49 | 222 of 333 |
+
+A MOVES **source bin** is (sourceTypeID, fuelTypeID, modelYearID, regClassID,
+engTechID). This model's cohort candidate stops at the first three, and
+`coh_regClassID` is a `sum_product` over the matching `samplevehiclepopulation`
+rows — so on a two-class triple it returns **71** rather than 30 or 41,
+`emissionrate` matches nothing, and the rate is 0. The 23 rows of source type 32
+that DO carry a single regulatory class are wrong too, at 0.735, one step back
+for the same reason: their E85 activity is re-attributed from a gasoline cohort
+whose `coh_regClassID` is the 71, so `coh_usedFraction` finds no partner.
+
+**Source type 21 has one regulatory class for every triple it carries**, which is
+why every run in this repository before this one was right by accident. That is
+the same sentence §60 and §61 each earned, for the third time in one step, and
+the rule it is worth stating once is: **a selection of width one cannot
+distinguish a key from a constant, and the model will take the constant.**
+
+### 62.4 `coh_usedFraction`'s self-join needed the source type, and it changed nothing here
+
+The equipped-to-used fuel re-attribution pairs a cohort candidate with the
+candidates sharing its source bin, on (model year, engine technology, regulatory
+class). At two source types that pairing must also match the source type, or a
+passenger car is re-attributed a light commercial truck's activity. The clause
+was added and **the numbers did not move**, because source type 21's regulatory
+class is 20 and source type 32's are 30 and 41, so the join never crossed. It is
+kept because `expand-sourcetype` does cross it: source type 51 carries 41, 42,
+46 and 47, source type 62 carries 46, 47 and 49, and source type 32 carries 41.
+A guard whose effect is zero on the run that motivated it is worth the line when
+the run that needs it is already written.
+
+### 62.5 The join key that cannot be a key
+
+The whole step took two attempts because of F57. A `faq` join key must be a 1-D
+column over an axis the aggregate ranges; give it a 2-D one and the clause is
+**dropped rather than refused**. `dsa_modeSeconds` joins `om_opModeID` to
+`dss_opModeID`, and `dss_opModeID` gained the source-type axis here, so the
+operating-mode distribution came back as 1.0 on all 60 modes instead of summing
+to 1.0 over 23 — running-exhaust energy 22× to 24× high. The tire-wear
+pollutants in the same run stayed exact to 1e-5, because they take the other arm
+of an `ifelse` and never read that distribution.
+
+The equality is spelled as a `filter` until EarthSciAST#417 lands, which §20.4
+otherwise forbids. **`tools/check-conventions.py` exempts the unspellable CASE,
+not the file** — an `==` one of whose operands indexes a variable of arity
+greater than one — so the exemption disappears by itself when the key becomes
+expressible. That is the shape an exemption should have: it names the reason,
+and it expires when the reason does.

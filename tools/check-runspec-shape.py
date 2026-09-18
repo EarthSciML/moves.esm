@@ -5,8 +5,8 @@ RECOMPUTES, rather than against the shape it was declared with.
 Two numbers in `onroad/model.esm` are declared and not discovered, because no
 table in the database states them -- MOVES works both out:
 
-  n_outputCohort      how many (modelYearID, fuelTypeID) cohorts reach
-                      MOVESOutput, recomputed as `cohortSurvivorCount`
+  n_outputCohort      how many (sourceTypeID, fuelTypeID, modelYearID) cohorts
+                      reach MOVESOutput, recomputed as `cohortSurvivorCount`
   n_outputPolProcess  how many of the run's selected pollutant-processes reach
                       it at all, recomputed as `outputPolProcessCount` from
                       `rspp_isEmitted` -- MOVES's join to `runSpecRoadType`
@@ -22,7 +22,13 @@ chain's recomputation, and the KEYS actually present in the output:
 
     rows == outputPolProcessCount x counties x day types x cohortSurvivorCount
     distinct (pollutantID, processID) == outputPolProcessCount
-    distinct (modelYearID, fuelTypeID) == cohortSurvivorCount
+    distinct (sourceTypeID, fuelTypeID, modelYearID) == cohortSurvivorCount
+
+The cohort key gained its source type at 7d, and the third line is what says so:
+`runspecs/expand-fueltype-diesel.esm` emits 125 cohorts under source type 21 and
+123 under 32, and (modelYearID, fuelTypeID) alone counts 164 of them -- the union
+of two overlapping sets, which would match no declaration and hide the fact that
+a per-source-type count is a SUM.
 
 The county and day-type factors are counted from the output's own key columns
 rather than recomputed, because both are runtime-discovered extents of a runspec
@@ -57,7 +63,7 @@ def main(emitted_path, shape_path):
     days = distinct("out_dayID")
     counties = distinct("out_countyID")
     pairs = distinct("out_pollutantID", "out_processID")
-    cohort_keys = distinct("out_modelYearID", "out_fuelTypeID")
+    cohort_keys = distinct("out_sourceTypeID", "out_fuelTypeID", "out_modelYearID")
 
     problems = []
     expected = blocks * len(counties) * len(days) * cohorts
@@ -69,8 +75,9 @@ def main(emitted_path, shape_path):
         problems.append("%d (pollutantID, processID) pairs emitted, but "
                         "outputPolProcessCount is %d" % (len(pairs), blocks))
     if len(cohort_keys) != cohorts:
-        problems.append("%d (modelYearID, fuelTypeID) cohorts emitted, but "
-                        "cohortSurvivorCount is %d" % (len(cohort_keys), cohorts))
+        problems.append("%d (sourceTypeID, fuelTypeID, modelYearID) cohorts "
+                        "emitted, but cohortSurvivorCount is %d"
+                        % (len(cohort_keys), cohorts))
     if problems:
         for p in problems:
             print(p)

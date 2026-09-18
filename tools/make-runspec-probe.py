@@ -25,6 +25,21 @@ so.
                           7c''s `link` defect one axis up -- `out_countyID` comes
                           back 49229, the sum of the three county ids.
 
+  no-source-type-join     the source-type key pair, against
+                          `runspecs/pending/expand-fueltype-diesel.esm` -- so it
+                          is WRITTEN AND NOT WIRED IN: a probe needs a run that
+                          reproduces, and that one waits on the source bin
+                          (PLAN.md 7.3.5). It is here rather than in a commit
+                          message because it is the probe that step will use,
+                          and `main` below will run it by hand. The drive
+                          cycle, the activity relation and the run's VMT are
+                          computed once per source type; the rate row and the
+                          output row say WHICH one with a key pair against
+                          `rst_ordinal`. Without the pairs every row sums both
+                          source types, which is `no-county-join` one dimension
+                          over -- a passenger car is charged a light commercial
+                          truck's activity as well as its own.
+
   no-road-type-filter     `rspp_rateRoadTypeID`'s off-network arm, against
                           `runspecs/expand-day.esm`. Start exhaust and extended
                           idle write their rates on road type 1;
@@ -104,7 +119,29 @@ def no_county_join(logic, fixture):
         sys.exit("expected 8 county key pairs, dropped %d" % dropped)
 
 
+def no_source_type_join(logic, fixture):
+    pairs = (["rt_sourceTypeOrdinal", "rst_ordinal"],
+             ["outSourceTypeOrdinal", "rst_ordinal"])
+    dropped = 0
+    for eq in logic["models"]["Onroad"]["equations"]:
+        rhs = eq["rhs"]
+        if not isinstance(rhs, dict) or "join" not in rhs:
+            continue
+        for clause in list(rhs["join"]):
+            for pair in pairs:
+                if pair in clause["on"]:
+                    clause["on"].remove(pair)
+                    dropped += 1
+                    if not clause["on"]:
+                        rhs["join"].remove(clause)
+                        if not rhs["join"]:
+                            del rhs["join"]
+    if dropped != 5:
+        sys.exit("expected 5 source-type key pairs, dropped %d" % dropped)
+
+
 PROBES = {"no-link-join": no_link_join,
+          "no-source-type-join": no_source_type_join,
           "no-road-type-filter": no_road_type_filter,
           "no-county-join": no_county_join}
 
@@ -112,7 +149,16 @@ PROBES = {"no-link-join": no_link_join,
 def main(which, runspec, out_path):
     logic = json.load(open(LOGIC))
     domain = json.load(open(DOMAIN))
-    fixture = json.load(open(os.path.join(ROOT, "runspecs", runspec + ".esm")))
+    # A runspec lives in `runspecs/` or, if its model work is not finished, in
+    # `runspecs/pending/`. The probe is written beside whichever one it copies,
+    # so the snapshot URLs keep resolving.
+    for rel in ("runspecs", os.path.join("runspecs", "pending")):
+        candidate = os.path.join(ROOT, rel, runspec + ".esm")
+        if os.path.exists(candidate):
+            break
+    else:
+        sys.exit("no such runspec: %s" % runspec)
+    fixture = json.load(open(candidate))
 
     PROBES[which](logic, fixture)
 
@@ -126,7 +172,8 @@ def main(which, runspec, out_path):
     # wrong difference.
     domain["models"]["Onroad"]["ref"] = "./onroad/" + os.path.basename(logic_path)
     json.dump(domain, open(domain_path, "w"), indent=2)
-    fixture["models"]["Onroad"]["ref"] = "../" + os.path.basename(domain_path)
+    fixture["models"]["Onroad"]["ref"] = os.path.relpath(
+        domain_path, os.path.dirname(os.path.abspath(out_path)))
     json.dump(fixture, open(out_path, "w"), indent=2)
     print(logic_path)
     print(domain_path)

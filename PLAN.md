@@ -1830,6 +1830,77 @@ better document; it is also a change to the one thing §7.1 says a per-fixture
 document may declare, so it is written down here before it is made rather than
 after.
 
+### 7.3.5 7d, 2026-09-18: the source type is an axis, and the cohort is not the source bin
+
+**The decision above turned out not to be one.** The sum over source types IS
+the cohort survivor count: `runspecsourcefueltype` was already the cohort grid's
+second factor and it carries (sourceTypeID, fuelTypeID) PAIRS, `coh_rank`
+already densifies whatever survives, and `cohortSurvivorCount` already recomputes
+the total as one number. `output_rows` stays a product of four declared or
+discovered numbers with the source type INSIDE `n_outputCohort` rather than
+beside it: 1 × 1 × 1 × 248 for `expand-fueltype-diesel`, 1 × 1 × 1 × 430 for
+`expand-sourcetype`. What did change is that `n_outputCohort` is now a number a
+per-fixture document sets, through the same `bindings` relay in
+`moves-onroad.esm` that `n_outputPolProcess` uses (§49.1), rather than one value
+for the whole corpus.
+
+**The promotion itself was the county's, three and a half times over.** 44
+variables gained a `runspecsourcetype_rows` axis — the drive cycle (VSP is
+computed from the source type's own `sourceusetypephysics` row, so the operating
+modes it bins into, the speed-bin brackets and the operating-mode distribution
+all follow), the activity relation, and the run's VMT, population and HPMS
+normalisation group. `run_sourceTypeID` is gone: it summed the source-type
+relation into a scalar, right for one row and garbage for five. **The three
+existing runs are unchanged to the digit** — 375, 250 and 375 rows at worst
+cells 8.128e-06, 7.106e-06 and 1.140e-05 — which is what an axis at width one
+should cost.
+
+**F57 cost the step a second attempt** and is the sharpest toolchain finding
+since F45. A `faq` join key must be a 1-D column; give it a 2-D one and the
+clause is **dropped, not refused**. `dsa_modeSeconds` joins `om_opModeID` to
+`dss_opModeID`, which gained an axis here, and the operating-mode distribution
+came back as 1.0 on all 60 modes instead of summing to 1.0 over 23 —
+running-exhaust energy 22× to 24× high while the tire-wear pollutants in the same
+run stayed exact to 1e-5, because they take the other arm of an `ifelse`. Repro,
+control and EarthSciAST#417.
+
+**What stops `runspecs/pending/expand-fueltype-diesel.esm` is not the axis.** It
+emits the right shape — 248 rows, 125 under source type 21 and 123 under 32 —
+and **every one of source type 21's 125 rows reproduces `MOVESOutput` at worst
+cell 7.106 × 10⁻⁶**, the same worst cell `expand-day` reports. Source type 32's
+123 are wrong, for one reason:
+
+| source type | regulatory classes | triples carrying more than one |
+|---|---|---|
+| 11 | 10 | 0 of 111 |
+| 21 | 20 | **0 of 444** |
+| 32 | 30, 41 | 333 of 444 |
+| 51 | 41, 42, 46, 47 | 333 of 444 |
+| 62 | 46, 47, 49 | 222 of 333 |
+
+A MOVES **source bin** is (sourceTypeID, fuelTypeID, modelYearID, regClassID,
+engTechID); this model's cohort candidate stops at the first three.
+`coh_regClassID` is a `sum_product` over the matching `samplevehiclepopulation`
+rows, so on a two-class triple it returns **71** rather than 30 or 41,
+`emissionrate` matches nothing and the rate is 0. Source type 21 has one
+regulatory class for every triple it carries, which is why every run before this
+one was right by accident — the third time in 7d that a selection of width one
+hid a structure (§60's rectangle, §61's county, this).
+
+**The fix is bounded and is the next step.** `cohort_rows` gains
+`regulatoryclass_rows` as a third factor — 328 candidates become 4,264 and
+`rate_rows` 984 become 12,792 — `coh_rank` ranks distinct (source type, fuel
+type, model year) TRIPLES rather than candidates, and the output relation's
+ordinal join sums the bins of a triple, which the `faq` already does. 330
+selected bins carry the 248 output rows of `expand-fueltype-diesel`; the 82
+difference is exactly its two-class triples. Only `emissionQuant` is compared,
+so the per-bin `meanBaseRate` and `SHO` columns summing is not a constraint.
+
+**Both documents are checked in under `runspecs/pending/`** rather than deleted:
+they validate, they round-trip, they pass the conventions, and the suite holds
+them to saying what they wait on. A measurement that cost a session is worth
+more in the tree than in a commit message.
+
 ### 7.4 Upstream asks
 
 **None is blocking.** This section has said "still none", "already exists,
@@ -1896,7 +1967,7 @@ This repository writes `leaf-owns-shape`, which does not depend on the answer.
 | **7b** ✅ | Full-database monolithic conversion — **done 2026-09-10**: 237 monolithic + 3 schema-only, 0 partition directories, 517 MB, 15.6 s, validator extended and all 7 planted corruptions red (§7.3.1) | met; the load cost is measured and does not dictate the layout |
 | **7c** ✅ | The mount shape at fixture scale — **done 2026-09-10, re-shaped to conform 2026-09-12, thin 2026-09-15** (§7.3.2): `fixtures/process-tirewear.esm` split into a logic half, a catalogue document that mounts it, and a 43-line per-fixture document that mounts the catalogue, byte-identical over 375 rows × 26 fields. Four findings retired (F46, F48, F49, F50), one open (F51) | met; the per-fixture document is 12 lines — metadata and one `{ref}`, nothing mechanical (conventions §53.2) |
 | **7c′** ✅ | `moves-onroad.esm`: default DB → `MOVESOutput` for `process-tirewear` — **done 2026-09-17** (§7.3.3): 38 national tables and the same logic, behind a per-fixture document carrying ten runspec selections, emitting the inlined fixture's 375 rows byte for byte in 40 s | met; the first end-to-end number comes off the default database |
-| **7d** | Widen the runspec surface one selection dimension at a time — pollutant-process, source type, road type, timespan, geography | each dimension added only with a fixture that **discriminates** it (§23). **Begun 2026-09-17** (§7.3.4): **timespan** done at the day axis, the output relation is no longer a rectangle over the selected pollutant-processes (`runspecs/expand-day.esm`, 250 rows, byte-identical to the inlined fixture over 25 shared fields), and **geography** done at three counties in three states (`runspecs/expand-counties.esm`, 375 rows, worst cell 1.140e-05; conventions §61). Source type, fuel type, month and the criteria pollutants are left, and §7.3.4 costs each |
+| **7d** | Widen the runspec surface one selection dimension at a time — pollutant-process, source type, road type, timespan, geography | each dimension added only with a fixture that **discriminates** it (§23). **Begun 2026-09-17** (§7.3.4): **timespan** done at the day axis, the output relation is no longer a rectangle over the selected pollutant-processes (`runspecs/expand-day.esm`, 250 rows, byte-identical to the inlined fixture over 25 shared fields), and **geography** done at three counties in three states (`runspecs/expand-counties.esm`, 375 rows, worst cell 1.140e-05; conventions §61). **Source type is an axis as of 2026-09-18** (§7.3.5, conventions §62): 44 variables promoted, `run_sourceTypeID` gone, the three existing runs unchanged to the digit, and `runspecs/pending/expand-fueltype-diesel.esm` emitting the right 248-row shape with source type 21's 125 rows exact at 7.106e-06 — **the remaining 123 need the cohort to become the SOURCE BIN**, which is the next step and is measured in §7.3.5. Month and the criteria pollutants are left after it |
 | **7e** | `moves-nonroad.esm`, same shape | 12 `nr-*` fixtures |
 | **7f** | The five fixtures needing a second input database (four `-single` on `washtenaw_cdb`, `scale-project` on the project DB) | last, because they are the only ones whose model input is not the default DB |
 

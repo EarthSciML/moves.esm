@@ -134,7 +134,9 @@ COVERAGE_DAG=../moves.rs/characterization/calculator-chains/calculator-dag.json
 # the 7c and 7c' stages assert both of them two-sided.
 #
 # `runspecs/` is NOT excluded: a per-fixture document is the complete chain and
-# validates alone, which is the whole point of the split.
+# validates alone, which is the whole point of the split. `runspecs/pending/` is
+# not excluded either, and for the same reason: a RunSpec whose model work is
+# not finished still has to load, round-trip and pass the conventions.
 mapfile -t DOCS < <(find . -name '*.esm' -not -name '.*' \
   -not -path './.moves/*' -not -path './target/*' -not -path './docs/findings/*' \
   -not -path './.fixtures-run/*' -not -path './spikes/*' \
@@ -1255,7 +1257,14 @@ fi
 # uncompressed, of which a run keeps 5.
 head2 "the default database, one document per RunSpec (7c', 7d)"
 C7P_DOMAIN=moves-onroad.esm
-mapfile -t RUNSPECS < <(find runspecs -name '*.esm' -not -name '.*' 2>/dev/null | sort)
+# `runspecs/` holds the RunSpecs this chain REPRODUCES; `runspecs/pending/` holds
+# ones that are written, validate and round-trip, and whose model work is
+# measured and not done. A pending document is checked below -- it must still
+# load and it must still name what it waits on -- but it is not asked for
+# numbers it cannot yet give. The alternative was to delete it, which would
+# throw away the measurement that says what is left.
+mapfile -t RUNSPECS < <(find runspecs -maxdepth 1 -name '*.esm' -not -name '.*' 2>/dev/null | sort)
+mapfile -t RUNSPECS_PENDING < <(find runspecs/pending -maxdepth 1 -name '*.esm' -not -name '.*' 2>/dev/null | sort)
 
 if [[ ! -e movesdb ]]; then
   skip "7c' default database" "no ./movesdb (symlink the §7.3.1 conversion there)"
@@ -1321,6 +1330,21 @@ else
       fi
     else
       fail "7c'/7d $rsname — the recomputed shape does not evaluate"
+    fi
+  done
+
+  # 3b. The pending RunSpecs. They are not run for numbers -- the model does not
+  #     reproduce them yet -- but they must stay LOADABLE and must keep saying
+  #     what they wait on. A pending document that quietly stopped validating
+  #     would be a deleted measurement with a file still in the tree.
+  for rs in "${RUNSPECS_PENDING[@]}"; do
+    rsname=$(basename "$rs" .esm)
+    if ! "$ESM" validate "$rs" >/dev/null 2>&1; then
+      fail "7d pending $rsname — it no longer validates. A pending RunSpec is a written measurement; fix it or delete it, but do not leave it rotting"
+    elif ! grep -q 'WHAT IT WAITS ON' "$rs"; then
+      fail "7d pending $rsname — it validates but no longer says what it waits on. Either it is ready for runspecs/ or the note was lost"
+    else
+      pass "$rsname — pending: it validates and names what it waits on (the source bin, PLAN.md §7.3.5)"
     fi
   done
 

@@ -1,0 +1,208 @@
+{
+  "esm": "1.2.0",
+  "metadata": {
+    "name": "expand-sourcetype-runspec",
+    "description": "PLAN.md §7.5 step 7d, the SOURCE TYPE dimension at width five: the `expand-sourcetype` run computed from the DEFAULT DATABASE through `moves-onroad.esm`. Source types 11 (motorcycle), 21 (passenger car), 31 (passenger truck), 51 (refuse truck) and 62 (combination long-haul truck) -- two light-duty, one heavy-duty vocational, one long-haul and a motorcycle, which is as far apart as this database's physics gets.\n\nWHAT IT DISCRIMINATES over `expand-fueltype-diesel`, which is the same axis at width two.\n\n* FIVE DRIVE CYCLES RATHER THAN TWO, and five that disagree. `sourceusetypephysics` gives each source type its own rolling, rotating and drag terms and its own fixed mass factor, so the vehicle-specific power of a drive-schedule second, the operating mode it bins into and the speed-bin brackets differ across all five. A motorcycle and a combination long-haul truck do not share an operating-mode distribution.\n\n* A COHORT COUNT THAT IS A SUM OVER FIVE UNEQUAL TERMS. 430 rows: 41 + 125 + 125 + 89 + 50. Source type 11 carries one fuel and 41 model years; 21 and 31 carry four fuels each and reach the full 125; 51 and 62 carry fuels the database has fewer sample vehicles for. 656 candidates in the grid, 430 survivors, and no declaration anywhere says 430 -- `cohortSurvivorCount` recomputes it and `tools/check-runspec-shape.py` holds the emitted relation to it.\n\nTHE TEN SELECTIONS, ONE BINDING AND THE ORACLE are everything this document carries, and it differs from `runspecs/expand-fueltype-diesel.esm` in eleven `url_template`s alone.\n\nWHY THIS DOCUMENT IS IN `runspecs/pending/` AND NOT `runspecs/`, as of 2026-09-18. It is complete and it validates; the model does not yet reproduce it, for ONE reason that is not the source-type axis. A MOVES source bin is (sourceTypeID, fuelTypeID, modelYearID, regClassID, engTechID) and this model's cohort candidate stops at the first three. Source type 21 has a single regulatory class (20) for every (model year, fuel) it carries, so the distinction was invisible for every run before this one; source type 32 has TWO for 333 of its 444 triples (30 and 41), 51 has up to four and 62 up to three. `coh_regClassID` is a `sum_product` over the matching `samplevehiclepopulation` rows, so on such a triple it returns 71 rather than 30 or 41, `emissionrate` matches nothing and the rate is 0.\n\nWHAT IS ALREADY PROVEN BY RUNNING IT, which is why it is checked in rather than deleted: the emitted relation is the right SHAPE -- 248 rows, 125 under source type 21 and 123 under 32, from a declaration the chain recomputes -- and every one of source type 21's 125 rows reproduces `MOVESOutput` at worst cell 7.106e-06, the same worst cell `expand-day` reports. The axis works; the cohort is too coarse. Source type 32's 23 single-regulatory-class rows are wrong too, at 0.735, and they have the same cause one step back: their E85 activity is re-attributed from a gasoline cohort whose `coh_regClassID` is the 71, so `coh_usedFraction` finds no partner.\n\nWHAT IT WAITS ON: the cohort candidate grid gaining the regulatory class as a third factor, `coh_rank` ranking distinct (source type, fuel type, model year) TRIPLES rather than candidates, and the output relation's ordinal join summing the bins of a triple -- which the `faq` already does, so the output side is the small half. PLAN.md §7.3.5 has the measurement.",
+    "authors": [
+      "EarthSciML Authors and Contributors"
+    ],
+    "tags": [
+      "runspec",
+      "onroad",
+      "default-database",
+      "expand-day"
+    ]
+  },
+  "data_sources": {
+    "db_runspecyear": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../../moves.rs/characterization/snapshots/expand-sourcetype/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecyear.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecyear"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, yearID 2020.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecmonth": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../../moves.rs/characterization/snapshots/expand-sourcetype/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecmonth.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecmonth"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, monthID 8.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspechour": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../../moves.rs/characterization/snapshots/expand-sourcetype/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspechour.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspechour"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, hourID 7.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecday": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../../moves.rs/characterization/snapshots/expand-sourcetype/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecday.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecday"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, dayID 5 -- weekdays.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecsourcetype": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../../moves.rs/characterization/snapshots/expand-sourcetype/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecsourcetype.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecsourcetype"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "5 ROWS: 11, 21, 31, 51 and 62. The drive cycle, the activity relation and the run's VMT are computed once per row, so this run does five of each. Nothing in the model was edited between width two and width five: `n_runspecsourcetype` is discovered from this extent.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecroadtype": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../../moves.rs/characterization/snapshots/expand-sourcetype/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecroadtype.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecroadtype"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, roadTypeID 4. One pollutant-process block is emitted, as in `expand-day`.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecsourcefueltype": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../../moves.rs/characterization/snapshots/expand-sourcetype/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecsourcefueltype.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecsourcefueltype"
+      },
+      "metadata": {
+        "tags": [
+          "scope",
+          "cohorts"
+        ],
+        "note": "16 rows, not 20: source type 11 carries gasoline alone, 21 and 31 carry four fuels each, 51 and 62 carry four and three. It is the cohort grid's second factor, and this unevenness is where the ragged cohort count comes from.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecpollutantprocess": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../../moves.rs/characterization/snapshots/expand-sourcetype/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecpollutantprocess.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecpollutantprocess"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "3 rows: 9101, 9102 and 9190. One of them emits.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecchainedto": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../../moves.rs/characterization/snapshots/expand-sourcetype/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecchainedto.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecchainedto"
+      },
+      "metadata": {
+        "tags": [
+          "scope",
+          "chain"
+        ],
+        "note": "0 rows: nothing in this run is chained.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspeccounty": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../../moves.rs/characterization/snapshots/expand-sourcetype/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspeccounty.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspeccounty"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, countyID 26161.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_movesoutput": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../../moves.rs/characterization/snapshots/expand-sourcetype/tables/db__out_expand_sourcetype__movesoutput.parquet"
+      },
+      "reader_options": {
+        "float_columns": [
+          "emissionQuant"
+        ]
+      },
+      "metadata": {
+        "tags": [
+          "oracle",
+          "expected-output"
+        ],
+        "note": "The 430-row expected output: running-exhaust Total Energy Consumption for 41 + 125 + 125 + 89 + 50 cohorts. DECLARED AND CONSUMED BY NOTHING -- reading it would transcribe the answer and its extent would transcribe the answer's shape. compare-output.py reads it directly under tolerance.toml.",
+        "esio_format": "parquet"
+      }
+    }
+  },
+  "models": {
+    "Onroad": {
+      "ref": "../../moves-onroad.esm",
+      "bindings": {
+        "n_outputCohort": 430,
+        "n_outputPolProcess": 1
+      }
+    }
+  }
+}

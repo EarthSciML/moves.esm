@@ -244,12 +244,12 @@
     "n_outputCohort": {
       "type": "integer",
       "default": 125,
-      "description": "THE ONE DECLARED NUMBER IN THIS DOCUMENT: how many (modelYearID, fuelTypeID) cohorts reach MOVESOutput in each pollutant-process block. 125 of the 164 candidates, ragged by fuel -- 41 gasoline model years, 40 diesel, 23 E85 and 21 electricity. WHICH ones survive is a result of the chain (docs/mixed-onroad.md 2.2's `stmyFraction > 0` rule) and is never written down: `coh_rank` numbers the survivors 1..125 by an inclusive prefix count over the candidate grid and the output row joins to that rank (docs/esm-conventions.md 22). `cohortSurvivorCount` recomputes 125 from the chain, `pp_selectedCohortCount` recomputes it separately for each pollutant-process, and tests pin all three together."
+      "description": "THE FIRST OF THE TWO DECLARED NUMBERS IN THIS DOCUMENT: how many cohorts reach MOVESOutput in each pollutant-process block. A cohort is a (sourceTypeID, fuelTypeID, modelYearID) triple -- `runspecsourcefueltype` is the grid's second factor and carries PAIRS -- so this number is a SUM over the run's source types and not a product: 125 at one source type (of 164 candidates, ragged by fuel: 41 gasoline model years, 40 diesel, 23 E85, 21 electricity), 248 at two (125 + 123) and 430 at five (41 + 125 + 125 + 89 + 50). WHICH candidates survive is a result of the chain (docs/mixed-onroad.md 2.2's `stmyFraction > 0` rule) and is never written down: `coh_rank` numbers the survivors 1..n by an inclusive prefix count over the candidate grid and the output row joins to that rank (docs/esm-conventions.md 22). `cohortSurvivorCount` recomputes the number from the chain, `pp_selectedCohortCount` recomputes it separately for each pollutant-process, and tests pin all three together."
     },
     "n_outputPolProcess": {
       "type": "integer",
       "default": 3,
-      "description": "THE SECOND DECLARED NUMBER IN THIS DOCUMENT: how many of the run's selected pollutant-processes reach MOVESOutput at all. Three of three here, because every one of 9101, 10710 and 11710 has its rates on a road type this run selects. A run that selects start exhaust or extended idle on an on-road road type alone has fewer: those processes' rates live on the off-network road type 1, `BaseRateCalculator` joins its rate rows to `runSpecRoadType`, and the whole block is discarded (docs/mixed-onroad.md 0.2). WHICH pollutant-processes survive is never written down -- `rspp_isEmitted` decides it from `emissionprocess.occursOnRealRoads` and `runspecroadtype`, `rspp_outputOrdinal` numbers the survivors 1..n by an inclusive prefix count, and `outputPolProcessCount` recomputes this number from the chain."
+      "description": "THE SECOND OF THE TWO DECLARED NUMBERS IN THIS DOCUMENT: how many of the run's selected pollutant-processes reach MOVESOutput at all. Three of three here, because every one of 9101, 10710 and 11710 has its rates on a road type this run selects. A run that selects start exhaust or extended idle on an on-road road type alone has fewer: those processes' rates live on the off-network road type 1, `BaseRateCalculator` joins its rate rows to `runSpecRoadType`, and the whole block is discarded (docs/mixed-onroad.md 0.2). WHICH pollutant-processes survive is never written down -- `rspp_isEmitted` decides it from `emissionprocess.occursOnRealRoads` and `runspecroadtype`, `rspp_outputOrdinal` numbers the survivors 1..n by an inclusive prefix count, and `outputPolProcessCount` recomputes this number from the chain."
     },
     "n_runspecpollutantprocess": {
       "type": "integer",
@@ -3157,7 +3157,7 @@
           "shape": [
             "runspecsourcetype_rows"
           ],
-          "description": "S3's normalisation group for the run's source type: HPMS 25, shared with source types 31 and 32."
+          "description": "S3's normalisation group, per source type. HPMS 25 for source type 21, shared with 31 and 32 -- which is why the denominator below is not this source type's own population."
         },
         "run_analysisYearVMT": {
           "type": "unknown",
@@ -3221,7 +3221,7 @@
           "shape": [
             "runspecsourcetype_rows"
           ],
-          "description": "S3's denominator, over every (source type, age) in the run's HPMS group and not only the run's source type. Normalising over source type 21 alone is a 2.55x error on every row."
+          "description": "S3's denominator, over every (source type, age) in THIS source type's HPMS group and not only this source type. Normalising over source type 21 alone is a 2.55x error on every row."
         },
         "run_monthGroupID": {
           "type": "unknown",
@@ -3318,7 +3318,7 @@
           "shape": [
             "runspecsourcetype_rows"
           ],
-          "description": "How many physics-mapping rows this source type selects. ONE here, and a test pins it: the mapping is per (sourceTypeID, regClassID, model-year range), so a snapshot with two rows would make dss_vsp a SUM of two polynomials and return a plausible wrong number rather than failing."
+          "description": "How many physics-mapping rows each of the run's source types selects. ONE apiece, and a test pins it: the mapping is per (sourceTypeID, regClassID, model-year range), so a source type with two rows would make `dss_vsp` the sum of two vehicles' physics rather than one's."
         },
         "run_fuelUsageWildcardCount": {
           "type": "unknown",
@@ -3334,7 +3334,7 @@
           "shape": [
             "run_rows"
           ],
-          "description": "125, computed from the chain, so `n_outputCohort` is a CHECKED declaration rather than a transcription."
+          "description": "The cohort total, computed from the chain, so `n_outputCohort` is a CHECKED declaration rather than a transcription. 125 at one source type and the SUM over them at more."
         },
         "outputPolProcessCount": {
           "type": "unknown",
@@ -3384,7 +3384,7 @@
             "physics_rows",
             "runspecsourcetype_rows"
           ],
-          "description": "The physics rows this source type selects, with drivecycle.rs:288's guard that both masses are positive."
+          "description": "The physics rows each of the run's source types selects, with drivecycle.rs:288's guard that both masses are positive. It is what makes vehicle-specific power -- and so the whole drive cycle below it -- a per-source-type quantity."
         },
         "ds_firstSecond": {
           "type": "unknown",
@@ -3615,7 +3615,7 @@
             "drive_schedule_assoc_rows",
             "runspecsourcetype_rows"
           ],
-          "description": "Whether this association row is for the run's (source type, road type). All eleven are."
+          "description": "Whether this association row is for a given source type and the run's road type. Eleven schedules per source type here."
         },
         "dsa_averageSpeed": {
           "type": "unknown",
@@ -4094,7 +4094,7 @@
             "cohort_rows",
             "runspeccounty_rows"
           ],
-          "description": "S12, source_bin_distribution_generator.rs:1590-1637: the same activity re-attributed to the fuel each cohort actually BURNS. The equipped and used sides must agree on model year, engine technology, regulatory class and model-year group and differ only in the fuel. This is the column the base rate is weighted by (sbweighted.rs:148-165), and using the equipped one instead is a factor of 55 on the E85 rows. PER COUNTY, because `fuelUsageFraction` is keyed by county -- E85 is not available everywhere, so the same cohort grid is re-attributed differently in each."
+          "description": "S12, source_bin_distribution_generator.rs:1590-1637: the same activity re-attributed to the fuel each cohort actually BURNS. The equipped and used sides must agree on model year, engine technology, regulatory class and model-year group and differ only in the fuel. This is the column the base rate is weighted by (sbweighted.rs:148-165), and using the equipped one instead is a factor of 55 on the E85 rows. PER COUNTY, because `fuelUsageFraction` is keyed by county -- E85 is not available everywhere, so the same cohort grid is re-attributed differently in each. The self-join matches on the SOURCE TYPE as well as the model year, engine technology and regulatory class: with one source type selected that was implied, and with two a passenger car would be re-attributed a light commercial truck's activity."
         },
         "er_fuelTypeID": {
           "type": "unknown",
@@ -5352,7 +5352,7 @@
           "shape": [
             "output_rows"
           ],
-          "description": "S17's row structure, decomposed from the aggregate's own loop symbol: pollutant-process-major blocks of (n_runspeccounty x n_runspecday x n_outputCohort). 3 x 1 x 1 x 125 = 375 in `process-tirewear`, 1 x 1 x 2 x 125 = 250 in `expand-day` and 1 x 3 x 1 x 125 = 375 in `expand-counties`."
+          "description": "S17's row structure, decomposed from the aggregate's own loop symbol: pollutant-process-major blocks of (n_runspeccounty x n_runspecday x n_outputCohort). 3 x 1 x 1 x 125 = 375 in `process-tirewear`, 1 x 1 x 2 x 125 = 250 in `expand-day`, 1 x 3 x 1 x 125 = 375 in `expand-counties`, 1 x 1 x 1 x 248 in `expand-fueltype-diesel` and 1 x 1 x 1 x 430 in `expand-sourcetype`. The source type is INSIDE `n_outputCohort` rather than beside it, which is why five source types do not make this a five-way product."
         },
         "outBlockOffset": {
           "type": "unknown",
@@ -12228,6 +12228,10 @@
                   "e"
                 ],
                 "on": [
+                  [
+                    "coh_sourceTypeID",
+                    "coh_sourceTypeID"
+                  ],
                   [
                     "coh_modelYearID",
                     "coh_modelYearID"
