@@ -277,9 +277,18 @@ fi
 # resolves against its own document), but because that stage does three things
 # with it in order: assert, emit, compare. Running its assertions here too
 # would just run them twice.
+# `onroad/` is excluded for a reason that reads like tidiness and is not:
+# `onroad/model.esm` is DATA-OPEN, so evaluating it alone sizes all 51 of its
+# extent-discovered axes at their default of 0, and a materialized relation over
+# a zero-length axis PANICS rather than coming back empty (finding F56).
+# `esm validate` refuses the same document cleanly, naming the sources it does
+# not declare, and the 7c and 7c' stages check that refusal two-sided. The
+# model's own eleven `tests` blocks do not run in a mount either (F47), so
+# nothing is lost here that was ever gained.
 mapfile -t TEST_TARGETS < <(find . -maxdepth 1 -mindepth 1 -type d \
   -not -name '.*' -not -name 'target' -not -name 'gates' -not -name 'docs' \
-  -not -name 'tools' -not -name 'fixtures' -not -name 'spikes' | sort)
+  -not -name 'tools' -not -name 'fixtures' -not -name 'spikes' \
+  -not -name 'onroad' | sort)
 
 head2 "test (${TEST_TARGETS[*]})"
 if "$ESM" test "${TEST_TARGETS[@]}" 2>&1 | sed 's/^/  /'; then
@@ -413,6 +422,7 @@ declare -A REPRO_SIGNATURE=(
   [F41_an_assertion_cannot_say_why]='Additional properties are not allowed'
   [F43_an_ingested_parameter_is_not_assertable]='has no cells in var_map'
   [F45_an_ingesting_document_holds_one_model]='document holds several models'
+  [F56_a_zero_sized_axis_panics]='col_major_to_arrayd shape mismatch'
 )
 
 # The positive control for the mount-edge repros that use it. join_leaf.esm is
@@ -1130,7 +1140,12 @@ PYEOF
   #    the other route, so nothing depends on it now, and it pins the limit
   #    conventions §49.1 states.
   C7_P2=spikes/7c/.f50_bindings_probe.esm
-  if "$PYTHON" tools/make-7c-probes.py bindings-carries-the-names "$C7_P2" >/dev/null 2>&1; then
+  # The probe writes TWO files and prints the second: the child is a copy of the
+  # MODEL, so it goes beside `onroad/model.esm` where its
+  # `expression_template_imports` still resolve. Read the path rather than
+  # recomputing it -- a cleanup that guesses wrong leaves a stray .esm in the
+  # tree, and a stray .esm in this repository has cost a day before.
+  if C7_P2_CHILD=$("$PYTHON" tools/make-7c-probes.py bindings-carries-the-names "$C7_P2" 2>/dev/null); then
     if out=$("$ESM" validate "$C7_P2" 2>&1); then
       fail "bindings — \`bindings\` now supplies metaparameters the leaf does not declare. conventions §49.1 says it cannot; re-read it and §54"
     elif grep -q 'template_import_unknown_name' <<<"$out"; then
@@ -1142,7 +1157,8 @@ PYEOF
   else
     fail "bindings — could not write the bindings-carries-the-names probe"
   fi
-  rm -f "$C7_P2" "${C7_P2%.esm}_child.esm"
+  # shellcheck disable=SC2086 -- one path, no spaces
+  rm -f "$C7_P2" $C7_P2_CHILD
 
   # 6. `index_set_rename` at 53 axes -- F49's probe, kept and inverted. It was
   #    refused at this mount form before #298; it is now accepted, and Phase 7
@@ -1184,15 +1200,15 @@ PYEOF
   rm -f "$C7_P4"
 fi
 
-# --- the default database at fixture scale (7c') ----------------------------
+# --- the default database, one document per RunSpec (7c', 7d) ---------------
 #
-# PLAN.md step 7c'. The same 375 rows as the fixture stage emitted, computed
-# from the MONOLITHIC DEFAULT DATABASE (§7.3.1) rather than from the run's own
-# execution-database snapshot, through two mount edges:
+# PLAN.md steps 7c' and 7d. Every document in `runspecs/` is one MOVES run
+# computed from the MONOLITHIC DEFAULT DATABASE (§7.3.1) rather than from that
+# run's own execution-database snapshot, through two mount edges:
 #
-#   runspecs/process-tirewear.esm  ten runspec selections + oracle
-#     -> moves-onroad.esm          39 national tables + the mount
-#       -> onroad/model.esm        the onroad domain model, shared with 7c
+#   runspecs/<run>.esm            that run's selections + its oracle
+#     -> moves-onroad.esm         39 national tables + the mount
+#       -> onroad/model.esm       the onroad domain model, shared with 7c
 #
 # WHAT IT IS CHECKING is not the plumbing -- 7c already checks that a three
 # document chain emits the fixture's bytes. It is that the MODEL says its
@@ -1205,84 +1221,141 @@ fi
 # computed HERE now). The 35 others were measured one at a time against the
 # national file and are byte-identical drop-ins.
 #
-# It costs about 40 seconds, nearly all of it reading fuelUsageFraction:
-# 1,424,430 rows uncompressed, of which the run keeps 5.
-head2 "the default database at fixture scale (7c')"
-C7P_FIXTURE=runspecs/process-tirewear.esm
+# THE SHAPE IS RECOMPUTED, not just compared. A per-fixture document declares
+# `n_outputPolProcess` -- how many of its selected pollutant-processes reach
+# MOVESOutput at all -- because no table states it; MOVES works it out from a
+# join to `runSpecRoadType`. So does the model, in `rspp_isEmitted`, and
+# `outputPolProcessCount` reports what it worked out. Check 3 requires the rows
+# emitted to be exactly that count x `cohortSurvivorCount` x the day types in
+# the output, which is the only check `expand-day` has that FAILS when the
+# road-type rule is deleted: its one surviving block is also its FIRST, so the
+# renumbering cannot show up in the numbers (see the probe below).
+#
+# Each document costs about 40 seconds twice over -- once for the output
+# relation, once for the two recomputed counts, which have a different shape and
+# so cannot ride along. Nearly all of it is fuelUsageFraction: 1,424,430 rows
+# uncompressed, of which a run keeps 5.
+head2 "the default database, one document per RunSpec (7c', 7d)"
 C7P_DOMAIN=moves-onroad.esm
-if [[ ! -f "$C7P_FIXTURE" ]]; then
-  say "  none"
-elif [[ ! -d movesdb ]]; then
+mapfile -t RUNSPECS < <(find runspecs -name '*.esm' -not -name '.*' 2>/dev/null | sort)
+
+if [[ ! -e movesdb ]]; then
   skip "7c' default database" "no ./movesdb (symlink the §7.3.1 conversion there)"
 elif [[ ! -f "$C7_BASE" ]]; then
   skip "7c' default database" "the fixture stage produced no $C7_BASE to compare against"
 elif [[ ${#c7_obs[@]} -eq 0 ]]; then
-  # `c7_obs` is the emitted field list, built by the 7c stage from the logic
-  # half's own `out_*` variables. If that stage skipped, the list is empty and
-  # `simulate` would emit NOTHING and compare it against 375 rows -- a failure
-  # that would read as a wrong number rather than as a missing prerequisite.
+  # `c7_obs` is the emitted field list, built by the 7c stage from the model
+  # document. Without it this stage would compare an empty CSV to an empty CSV
+  # and report success.
   skip "7c' default database" "the 7c stage built no emitted-field list"
+elif [[ ${#RUNSPECS[@]} -eq 0 ]]; then
+  fail "7c' default database — runspecs/ holds no documents"
 else
   # 1. The data-open control, two-sided like 7c's. The domain document must NOT
-  #    load alone, and must fail for its missing runspec rather than for
-  #    anything else -- a domain document that had quietly acquired a runspec
-  #    would still emit the right numbers here and would have stopped being a
-  #    domain document.
-  if out=$("$ESM" validate "$C7P_DOMAIN" 2>&1); then
-    fail "7c' data-open control — $C7P_DOMAIN now validates ALONE. It has acquired a runspec, and the per-fixture document below stops being what configures it"
+  #    validate alone: the day it does, it has acquired a runspec of its own and
+  #    the per-fixture documents have stopped being what configure it.
+  out=$("$ESM" validate "$C7P_DOMAIN" 2>&1)
+  if [[ $? -eq 0 ]]; then
+    fail "7c' data-open control — $C7P_DOMAIN now validates ALONE. It has acquired a runspec, and the per-fixture documents below stop being what configure it"
   elif grep -q "names data source 'db_runspec" <<<"$out"; then
     pass "7c' — the domain document is data-open: it declares no runspec"
   else
     fail "7c' data-open control — $C7P_DOMAIN was refused, but not for its missing runspec sources"
-    sed 's/^/       /' <<<"$out" | tail -3
+    sed 's/^/       /' <<<"$out" | head -4
   fi
 
-  if "$ESM" validate "$C7P_FIXTURE" >/dev/null 2>&1 \
-     && "$ESM" round-trip "$C7P_FIXTURE" >/dev/null 2>&1; then
-    pass "7c' — the per-fixture document validates and round-trips"
-  else
-    fail "7c' — the per-fixture document does not validate, or does not round-trip"
-  fi
+  # Each document validates and round-trips under stages 1 and 4 already --
+  # `runspecs/` is in DOCS, unlike the `spikes/7c/` copy this stage used to
+  # name -- so those two checks are not repeated here.
+  for rs in "${RUNSPECS[@]}"; do
+    rsname=$(basename "$rs" .esm)
 
-  # 2. The number. Byte-for-byte against the inlined fixture's own output from
-  #    THIS run, which is the same comparison the 7c stage makes and the only
-  #    one that means anything: two documents, two databases, one relation.
-  C7P_CSV="$RUNDIR/tirewear-7cprime.emitted.csv"
-  if out=$("$ESM" simulate "$C7P_FIXTURE" --time 0 --format csv \
-             "${c7_obs[@]}" --output "$C7P_CSV" 2>&1); then
-    if cmp -s "$C7_BASE" "$C7P_CSV"; then
-      pass "7c' — the default database reproduces the inlined fixture's relation byte for byte"
-      say "       $(( $(wc -l < "$C7P_CSV") - 1 )) rows from 38 national tables, no execution database"
-    else
-      fail "7c' — it evaluates from the default database, but not to the fixture's numbers"
-      diff -u "$C7_BASE" "$C7P_CSV" | sed 's/^/       /' | head -12
+    # 2. The numbers, against that run's own recorded MOVESOutput, through the
+    #    same comparator and the same tolerance.toml the fixture stage uses.
+    RS_CSV="$RUNDIR/$rsname.runspec.csv"
+    RS_ACTUAL="$RUNDIR/$rsname.runspec.actual.csv"
+    if ! out=$("$ESM" simulate "$rs" --time 0 --format csv \
+                 "${c7_obs[@]}" --output "$RS_CSV" 2>&1); then
+      fail "7c'/7d $rsname — the default-database chain does not evaluate"
+      sed 's/^/       /' <<<"$out" | tail -5
+      continue
     fi
-  else
-    fail "7c' — the default-database chain does not evaluate"
-    sed 's/^/       /' <<<"$out" | tail -5
-  fi
-
-  # 3. The link selection, one-sided. Deleting the county join makes the four
-  #    run-level geography columns sum a national table again, which is the
-  #    defect 7c' existed to fix; if this probe ever passes, the joins have
-  #    stopped being what narrows them.
-  C7P_PROBE=runspecs/.p7prime_nolinkjoin.esm
-  # It writes three files -- the chain is three documents -- and prints the two
-  # it did not take as an argument, so they are removed with it.
-  if C7P_EXTRA=$("$PYTHON" tools/make-7cprime-probe.py "$C7P_PROBE" 2>/dev/null); then
-    if "$ESM" simulate "$C7P_PROBE" --time 0 --format csv "${c7_obs[@]}" \
-         --output "$RUNDIR/tirewear-7cprime.nolinkjoin.csv" >/dev/null 2>&1 \
-       && cmp -s "$C7_BASE" "$RUNDIR/tirewear-7cprime.nolinkjoin.csv"; then
-      fail "7c' link-join probe — dropping the county/road-type join changed NOTHING. The national Link is no longer what these columns read, or the probe no longer removes the join"
+    sed '1s/out_//g' "$RS_CSV" > "$RS_ACTUAL"
+    if out=$("$PYTHON" compare-output.py --fixture "$rsname" --actual "$RS_ACTUAL" \
+               --snapshots "$SNAPSHOTS" 2>&1); then
+      pass "$rsname — the default database reproduces the run's MOVESOutput, complete"
+      sed 's/^/       /' <<<"$out" | tail -4
     else
-      pass "7c' — the county/road-type join is what selects the link: removing it moves the numbers"
+      fail "7c'/7d $rsname — it evaluates from the default database, but not to the run's numbers"
+      sed 's/^/       /' <<<"$out" | tail -8
     fi
-    rm -f "$RUNDIR/tirewear-7cprime.nolinkjoin.csv"
+
+    # 3. The shape, recomputed by the chain rather than read off the answer.
+    RS_SHAPE="$RUNDIR/$rsname.runspec.shape.csv"
+    if "$ESM" simulate "$rs" --time 0 --format csv \
+         --observed outputPolProcessCount --observed cohortSurvivorCount \
+         --output "$RS_SHAPE" >/dev/null 2>&1; then
+      if out=$("$PYTHON" tools/check-runspec-shape.py "$RS_CSV" "$RS_SHAPE" 2>&1); then
+        pass "$rsname — the emitted shape is what the chain recomputes: $out"
+      else
+        fail "7c'/7d $rsname — the rows emitted are not the shape the chain recomputes. Either a declared block count is wrong or rspp_isEmitted is"
+        sed 's/^/       /' <<<"$out" | head -4
+      fi
+    else
+      fail "7c'/7d $rsname — the recomputed shape does not evaluate"
+    fi
+  done
+
+  # 4. The two selections the default database made necessary, each deleted and
+  #    each required to MOVE something. A probe that passes has stopped being a
+  #    probe: the narrowing it removes is no longer what narrows.
+  #
+  #    `no-link-join` moves the NUMBERS -- the four run-level geography columns
+  #    sum a national table again. `no-road-type-filter` does not, and that is
+  #    worth knowing rather than papering over: `expand-day`'s one surviving
+  #    pollutant-process block is also its first, so deleting the rule that
+  #    discards the other two renumbers nothing the output can see. What it does
+  #    move is check 3 -- `outputPolProcessCount` goes 1 to 3 while 250 rows are
+  #    emitted. A run whose survivors are NOT a prefix of its selections would
+  #    move the numbers too; `expand-criteria` is that run and is not ported.
+  PROBE_NAMES=(no-link-join no-road-type-filter)
+  PROBE_RUNS=(process-tirewear expand-day)
+  for i in "${!PROBE_NAMES[@]}"; do
+    pname="${PROBE_NAMES[$i]}"
+    prun="${PROBE_RUNS[$i]}"
+    RS_PROBE="runspecs/.p_$pname.esm"
+    if ! RS_EXTRA=$("$PYTHON" tools/make-runspec-probe.py "$pname" "$prun" "$RS_PROBE" 2>/dev/null); then
+      fail "$pname probe — could not write it"
+      continue
+    fi
+    if "$ESM" simulate "$RS_PROBE" --time 0 --format csv "${c7_obs[@]}" \
+         --output "$RUNDIR/$pname.probe.csv" >/dev/null 2>&1 \
+       && "$ESM" simulate "$RS_PROBE" --time 0 --format csv \
+            --observed outputPolProcessCount --observed cohortSurvivorCount \
+            --output "$RUNDIR/$pname.probe.shape.csv" >/dev/null 2>&1 \
+       && cmp -s "$RUNDIR/$prun.runspec.csv" "$RUNDIR/$pname.probe.csv" \
+       && "$PYTHON" tools/check-runspec-shape.py \
+            "$RUNDIR/$pname.probe.csv" "$RUNDIR/$pname.probe.shape.csv" >/dev/null 2>&1; then
+      fail "$pname probe — deleting that selection changed NOTHING about $prun, neither its numbers nor its recomputed shape. It has stopped being what narrows"
+    else
+      pass "$pname — deleting it moves $prun"
+    fi
+    rm -f "$RUNDIR/$pname.probe.csv" "$RUNDIR/$pname.probe.shape.csv"
+    # shellcheck disable=SC2086 -- two newline-separated paths, neither with spaces
+    rm -f "$RS_PROBE" $RS_EXTRA
+  done
+
+  # 5. `process-tirewear` alone: byte for byte against the INLINED fixture's own
+  #    output from this same run. Two documents, two databases, one relation --
+  #    the same comparison the 7c stage makes, and the only one that needs no
+  #    recorded CSV to drift against.
+  if cmp -s "$C7_BASE" "$RUNDIR/process-tirewear.runspec.csv"; then
+    pass "7c' — the default database reproduces the inlined fixture's relation byte for byte"
+    say "       $(( $(wc -l < "$RUNDIR/process-tirewear.runspec.csv") - 1 )) rows from 39 national tables, no execution database"
   else
-    fail "7c' link-join probe — could not write it"
+    fail "7c' — the default-database chain and the inlined fixture disagree"
+    diff -u "$C7_BASE" "$RUNDIR/process-tirewear.runspec.csv" | sed 's/^/       /' | head -12
   fi
-  # shellcheck disable=SC2086 -- two newline-separated paths, neither with spaces
-  rm -f "$C7P_PROBE" $C7P_EXTRA
 fi
 
 # --- the two chains agree ---------------------------------------------------

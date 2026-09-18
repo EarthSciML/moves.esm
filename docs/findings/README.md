@@ -1,6 +1,6 @@
 # Findings: conventions the format or the toolchain could not express
 
-Forty-four things PLAN.md §3 Phase 1 through Phase 5 assumed, or that an author
+Forty-five things PLAN.md §3 Phase 1 through Phase 5 assumed, or that an author
 would reasonably assume, that did not hold. **Twenty-four are fixed upstream and
 retired** from the tripwire, with their sections kept so the workarounds they
 forced can be traced — and one of those, F14, was retired because the assumption
@@ -15,7 +15,7 @@ bottom now. Nothing else changed state: the other nine repro-carrying findings
 — ten files, F22 having two — still fail exactly as recorded, no spec, fixture
 or oracle regressed, and no tolerance moved.
 
-F22, F28, F41, F43 and F45 each have a minimal `.esm` repro in this directory —
+F22, F28, F41, F43, F45 and F56 each have a minimal `.esm` repro in this directory —
 F22 has two, one per construct. F3, F5, F13, F14, F20 and F21 had one until the
 `8ac536bf0` rebuild retired all six, and their files are deleted; F8 is a CLI
 behaviour rather than a document, and is checked by command against the ordinary
@@ -3426,3 +3426,65 @@ with F53 and F54. The issue calls this the wider of the two: F54 costs an
 assembly its unit coverage, this costs every predicate in every document. Its
 minimal repro is a single document, one `<=` over a `cd` and an `hp`, moved
 between `expr` and `filter`.
+
+## F56 — an axis of length 0 panics instead of producing an empty relation
+
+`F56_a_zero_sized_axis_panics.esm`. Found at PLAN.md step 7d, by moving
+`onroad/model.esm` out of `spikes/` — where `esm test` never reached it — and
+into a directory the suite's test stage collects.
+
+An `interval` index set whose size is 0 validates. Evaluating a variable shaped
+over it aborts the process:
+
+```
+$ ./esm validate docs/findings/F56_a_zero_sized_axis_panics.esm
+✓ Validation passed
+
+$ ./esm test docs/findings/F56_a_zero_sized_axis_panics.esm
+thread 'main' panicked at src/simulate_array/layout.rs:42:9:
+col_major_to_arrayd shape mismatch: shape [0] (product 0) vs 1 elements:
+ShapeError/IncompatibleShape: incompatible shapes
+```
+
+The message is addressed to the implementor, not to the author: nothing in it
+names the axis, the metaparameter or the variable, and a panic is not a
+diagnostic a caller can catch. This is F10's shape — an evaluable construct that
+aborts instead of refusing or answering — and F10's fix was the right one: make
+the unevaluable path a refusal with a message, and make the evaluable path
+evaluate.
+
+**What the right answer is.** A `faq` over an empty range is the semiring's
+identity over no terms, and a relation over an axis of length 0 is a relation of
+length 0. Neither is an error. The repro's assertion reads cell 1 of that axis,
+which does not exist, precisely so that a fixed toolchain fails it with a
+different and distinguishable message rather than passing vacuously.
+
+**Where it bit, and it is not hypothetical.** `onroad/model.esm` declares 51
+metaparameters and discovers every one of them from a `data_source` `extent`
+that only a mounting catalogue supplies. Evaluated ALONE it therefore sizes
+every axis at the declared default of 0 — which is the documented design
+(§11: "a 0 that survives to evaluation is a build error rather than a small
+answer") — and the build error arrives as a panic. `esm validate` on the same
+document refuses it cleanly and by name:
+
+```
+Parameter update names data source 'db_agecategory', which the document does not declare
+```
+
+so the information exists; it is the evaluation path that loses it.
+`run-tests.sh` excludes `onroad/` from its test targets for this reason and
+checks the model through its two catalogues instead.
+
+**What is NOT the defect.** A zero-length axis used only as a `faq` RANGE is
+fine. `runspecs/expand-day.esm` ingests a `runspecchainedto` of 0 rows —
+nothing in that run is chained — and evaluates correctly through the same
+toolchain, because no emitted variable is shaped over that axis. The panic needs
+a relation MATERIALIZED at length 0, which is what makes the repro one variable
+long.
+
+**Fix shape.** Two parts, and the first is worth having even without the second:
+a data-open document evaluated alone should be REFUSED with the diagnostic
+`validate` already produces, rather than reaching the layout code at all; and a
+genuinely empty relation — one an author asked for — should be laid out as
+empty. Filing it upstream is the next step and has not been done.
+

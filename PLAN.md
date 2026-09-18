@@ -1735,6 +1735,59 @@ so there is nowhere in a per-fixture document to state them inline. A runspec
 expressed as metaparameters instead would remove the last snapshot dependency;
 that is a 7d question and it is not a blocker for 7d.
 
+### 7.3.4 7d, begun 2026-09-17: a second RunSpec, and what the first one was hiding
+
+`runspecs/expand-day.esm` → `moves-onroad.esm` → `onroad/model.esm`. **250 rows
+against the snapshot's own `MOVESOutput`, 0 missing and 0 extra, worst cell
+7.106 × 10⁻⁶** — the same worst cell the inlined `fixtures/expand-day.esm`
+reports, and the two agree **byte for byte over all 25 shared fields**. One
+comes from that run's execution-database snapshot through 196 equations written
+out in full; the other from the national default database through a model
+written for tire wear.
+
+**The document is 207 lines and differs from `runspecs/process-tirewear.esm` in
+eleven `url_template`s and one binding.** That is PLAN.md §7.1's per-fixture
+document measured a second time, and it is the answer to the question 7c left
+open: `fixtures/expand-day.esm` is 14,603 lines of which 147 equations are
+*byte-identical* to `fixtures/process-tirewear.esm`'s, so a corpus of inlined
+fixtures is a corpus of near-copies.
+
+**What was in the way was not a dimension.** The output relation was a
+RECTANGLE over the run's selected pollutant-processes, which is true of
+`process-tirewear` by accident: all three of 9101, 10710 and 11710 happen on a
+road. `expand-day` selects 9101, 9102 and 9190 and MOVES writes the
+running-exhaust block alone, because start exhaust and extended idle write
+their rates on the off-network road type 1 and `BaseRateCalculator` joins to
+`runSpecRoadType`. The model reads that rule out of
+`emissionProcess.occursOnRealRoads` now; conventions §60 has the five
+equations, the relay that lets a per-fixture document set the block count, and
+the honest limit — `expand-day` cannot discriminate the block *renumbering*,
+because its one survivor is also its first.
+
+**What the day axis cost: nothing.** `n_runspecday` is discovered from the
+source's own extent, so at 2 rows the activity relation, the hour-day key and
+the output relation doubled with no edit to the model. That is §42.1's
+measurement run in the other direction, and it is the strongest evidence
+available that the day axis is factored rather than written down.
+
+**The four dimensions left, and what each actually costs.** Every remaining
+`expand-*` snapshot needs something the model does not have, and none of them
+is a re-pointing:
+
+| fixture | rows | what it needs |
+|---|---|---|
+| `expand-counties` | 375 = 125 × **3 counties** | county is a SCALAR in the model (`run_countyID`, `run_zoneID`, `run_linkID`, `run_stateID`). Making it an axis reaches the activity relation, `zonemonthhour`, `zoneroadtype`'s SHO allocation and `fuelusagefraction` — which is county-keyed, so the cohorts themselves become county-dependent. **This is the fixture that would exercise the county/road-type join 7c′ added**, which is still only ever evaluated at width 1. |
+| `expand-sourcetype` | **430**, not 5 × 125 | source type is a scalar too, and the cohort count is RAGGED across the five (11, 21, 31, 51, 62) rather than 125 apiece. |
+| `expand-fueltype-diesel` | **248** = 125 + 123 | the same axis at width 2, with the ragged count visible in the smaller number. |
+| `expand-month` | 500 = 125 × 4 months | month is a scalar, AND `dayID` and `hourID` come back **0** in its output: it is a different time aggregation, not a wider selection. |
+| `expand-criteria` | 372 = 3 × 124 | pollutants 1, 2 and 3 on process 1, from 8 selected pollutant-processes at positions 1, 3 and 5. New physics (criteria pollutants), and the one run in the corpus whose survivors are not a prefix — so it is also what would discriminate §60's renumbering. |
+
+So 7d is not four more per-fixture documents; it is one axis promotion
+(geography), then a second (source type, which brings fuel type with it), then
+a time-aggregation mode, then a pollutant family. The order above is by cost,
+and `expand-counties` is first because the county join is the one thing 7c′
+introduced that nothing has yet evaluated at more than one value.
+
 ### 7.4 Upstream asks
 
 **None is blocking.** This section has said "still none", "already exists,
@@ -1801,7 +1854,7 @@ This repository writes `leaf-owns-shape`, which does not depend on the answer.
 | **7b** ✅ | Full-database monolithic conversion — **done 2026-09-10**: 237 monolithic + 3 schema-only, 0 partition directories, 517 MB, 15.6 s, validator extended and all 7 planted corruptions red (§7.3.1) | met; the load cost is measured and does not dictate the layout |
 | **7c** ✅ | The mount shape at fixture scale — **done 2026-09-10, re-shaped to conform 2026-09-12, thin 2026-09-15** (§7.3.2): `fixtures/process-tirewear.esm` split into a logic half, a catalogue document that mounts it, and a 43-line per-fixture document that mounts the catalogue, byte-identical over 375 rows × 26 fields. Four findings retired (F46, F48, F49, F50), one open (F51) | met; the per-fixture document is 12 lines — metadata and one `{ref}`, nothing mechanical (conventions §53.2) |
 | **7c′** ✅ | `moves-onroad.esm`: default DB → `MOVESOutput` for `process-tirewear` — **done 2026-09-17** (§7.3.3): 38 national tables and the same logic, behind a per-fixture document carrying ten runspec selections, emitting the inlined fixture's 375 rows byte for byte in 40 s | met; the first end-to-end number comes off the default database |
-| **7d** | Widen the runspec surface one selection dimension at a time — pollutant-process, source type, road type, timespan, geography | each dimension added only with a fixture that **discriminates** it (§23) |
+| **7d** | Widen the runspec surface one selection dimension at a time — pollutant-process, source type, road type, timespan, geography | each dimension added only with a fixture that **discriminates** it (§23). **Begun 2026-09-17** (§7.3.4): timespan done at the day axis and the output relation is no longer a rectangle over the selected pollutant-processes — `runspecs/expand-day.esm`, 250 rows, byte-identical to the inlined fixture over 25 shared fields. Geography, source type, fuel type, month and the criteria pollutants each need a scalar promoted to an axis or a new arithmetic; §7.3.4 costs them |
 | **7e** | `moves-nonroad.esm`, same shape | 12 `nr-*` fixtures |
 | **7f** | The five fixtures needing a second input database (four `-single` on `washtenaw_cdb`, `scale-project` on the project DB) | last, because they are the only ones whose model input is not the default DB |
 

@@ -5881,3 +5881,104 @@ Until then the honest description is: **the data comes from the default
 database, and the RUNSPEC comes from the snapshot.** The first is what 7c′
 claimed and measured; the second is what it did not.
 
+## 60. A pollutant-process the RunSpec selects is not one MOVES emits, and the output relation is not a rectangle **[PLAN.md step 7d; 3 of 3, then 1 of 3; 250 rows, 25 fields, byte-identical by two routes]**
+
+`process-tirewear` selects 9101, 10710 and 11710 and `MOVESOutput` has 375 rows:
+3 × 125 × 1. Every other onroad RunSpec in the corpus selects 9101, 9102 and
+9190 — Total Energy Consumption on running exhaust, start exhaust and extended
+idle — and `MOVESOutput` has **250 rows, not 750**. The two are the same
+document's output axis, and one of them is a rectangle by accident.
+
+The mechanism is a join, and `moves.rs` states it in a comment before it does
+it (`baseratecalculator/mod.rs:762-781`): `BaseRateGenerator` emits each
+process's rates on that process's natural road type — running exhaust on the
+selected on-road types, **start exhaust on off-network `roadTypeID` 1** — and
+`BaseRateCalculator` then joins its rate rows to `runSpecRoadType`. A RunSpec
+that selects road type 4 alone discards both off-network blocks entire, and
+`baseRateOutput` comes back empty for them.
+
+**The rule is a column, not a list of process ids.** `emissionProcess` has
+`occursOnRealRoads`, which is `Y` for running exhaust, brake wear and tire wear
+and `N` for start, extended idle, APU and every evaporative process. So the
+model reads it, and the four equations that follow are the calculator's own
+join written as one:
+
+```
+rspp_occursOnRealRoads   emissionprocess, joined on the process half of the id
+rspp_rateRoadTypeID      the run's road type, or the OffNetwork enum's 1
+rspp_isEmitted           join.on against runspecroadtype -- §20.4, not a filter
+rspp_emittedPrefix       an inclusive prefix count (§22)
+rspp_outputOrdinal       isEmitted × prefix: 1..n over the survivors, 0 otherwise
+```
+
+`rt_outputOrdinal` then reads the **emitted** block number rather than the
+selected one, and `output_rows` is sized by `n_outputPolProcess` rather than by
+`n_runspecpollutantprocess`.
+
+### 60.1 The declared number is the one no table states, and it is recomputed rather than trusted
+
+`n_outputCohort` was already this shape: 125 cohorts reach MOVESOutput, which
+ones is a result of the chain, and `cohortSurvivorCount` recomputes it.
+`n_outputPolProcess` is the second, and it needs a **relay**: `bindings` closes
+a metaparameter the *referenced* document declares and a mounting document can
+offer only an expression over its own (§49.1), so `moves-onroad.esm` declares
+the name as well and passes it down. Measured: binding 2 at the outer edge
+emits 250 rows from a chain that emits 375 at 3.
+
+**What that buys is a check, not a shortcut.** `outputPolProcessCount`
+recomputes the count from `rspp_isEmitted`, and `tools/check-runspec-shape.py`
+requires three things of every `runspecs/` document at once:
+
+```
+rows == outputPolProcessCount × cohortSurvivorCount × day types
+distinct (pollutantID, processID) == outputPolProcessCount
+distinct (modelYearID, fuelTypeID) == cohortSurvivorCount
+```
+
+### 60.2 What `expand-day` discriminates, and — §23 — what it does not
+
+**Discriminated.** The day axis at both of its values: `runspecday` is 2 rows
+where every other run in the tree has 1, and **nothing in the model changed to
+accept it** — `n_runspecday` is discovered from the source's own extent, so the
+activity relation, the hour-day key and the output relation all doubled by
+themselves. And the block count: without `n_outputPolProcess` the output
+relation would be 750 rows and every comparison would fail.
+
+**NOT discriminated, and this is the part worth writing down.** `expand-day`'s
+one surviving pollutant-process is also its **first**, so the renumbering
+`rspp_emittedPrefix` performs is the identity on it. Deleting the off-network
+arm of `rspp_rateRoadTypeID` — the probe `no-road-type-filter` does exactly
+that — leaves the emitted relation **byte for byte unchanged**: the two extra
+blocks claim output ordinals 126–375, the relation has 250, and nothing
+matches. Measured, not assumed; the probe was written expecting the numbers to
+move and they did not.
+
+So the probe is checked against the *recomputed shape* instead, where it does
+bite: `outputPolProcessCount` goes 1 → 3 while 250 rows are emitted. A run whose
+survivors are not a prefix of its selections would move the numbers as well —
+`expand-criteria` selects 101, 102, 201, 202, 301, 302, 3101 and 3102 and emits
+pollutants 1, 2 and 3 on process 1, which is positions 1, 3 and 5 of eight. It
+is not ported, and until it is, this section is the record that the prefix
+renumbering is exercised by construction and not by a fixture.
+
+### 60.3 A second RunSpec costs eleven `url_template`s and one binding
+
+That is the whole of `runspecs/expand-day.esm` against
+`runspecs/process-tirewear.esm`: the eleven data-source keys are the same
+strings, the notes differ because the runs differ, and the models block differs
+by `"bindings": {"n_outputPolProcess": 1}`. 207 lines.
+
+| | lines | data sources | equations |
+|---|---|---|---|
+| `fixtures/expand-day.esm` — the same run, inlined | 14,603 | 46 | 196 |
+| `runspecs/expand-day.esm` — the same run, over the domain model | **207** | 11 | 0 |
+
+The inlined document remains in the tree as a snapshot-fed module test
+(PLAN.md §7.6) and it is what makes this a cross-check rather than a claim:
+**the two emit the same 250 rows over all 25 shared fields, byte for byte** —
+one from the run's own execution-database snapshot through 196 equations
+written out in full, the other from the national default database through a
+model written for a different process. 147 of those 196 equations were already
+byte-identical to `fixtures/process-tirewear.esm`'s, which is what the
+domain model is instead of.
+

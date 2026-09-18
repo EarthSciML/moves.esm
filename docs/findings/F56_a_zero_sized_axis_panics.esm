@@ -1,0 +1,59 @@
+{
+  "esm": "1.1.0",
+  "metadata": {
+    "name": "F56AZeroSizedAxisPanics",
+    "description": "F56. An `interval` index set whose size is 0 makes evaluation PANIC instead of producing an empty relation. `esm validate` accepts this document; `esm test` aborts with `col_major_to_arrayd shape mismatch: shape [0] (product 0) vs 1 elements`, a message addressed to the implementor rather than to the author.\n\nThe document is the whole repro: one metaparameter at its default of 0, one axis sized by it, one variable over that axis, and a `faq` that would sum an empty range -- whose answer is the semiring's identity over no terms, which for sum_product is a relation of length 0. THE ASSERTION BELOW IS UNREACHABLE and deliberately so: the axis has no cell 1, so if this document ever stops panicking it will fail on the assertion instead, which is the second half of the fix and a distinguishable message.\n\nWHERE IT BIT. `onroad/model.esm` is data-open: it declares 51 metaparameters, every one of them discovered from a `data_source` `extent` that only a mounting catalogue supplies, so evaluating it ALONE sizes every axis at 0. `esm validate` refuses it cleanly, naming the sources it does not declare. `esm test` panics. That is why run-tests.sh excludes `onroad/` from its test targets and checks the model through its catalogues instead -- an exclusion that reads like tidiness and is not.\n\nWHAT IS NOT THE DEFECT: a zero-length axis used only as a `faq` RANGE is fine. `runspecs/expand-day.esm` ingests a `runspecchainedto` of 0 rows -- nothing in that run is chained -- and evaluates correctly, because no emitted variable is shaped over that axis. The panic needs a relation MATERIALIZED at length 0.",
+    "authors": ["EarthSciML Authors and Contributors"],
+    "tags": ["finding", "shape", "panic"]
+  },
+  "metaparameters": {
+    "n_empty": {
+      "type": "integer",
+      "default": 0,
+      "description": "0, which is what every `extent`-discovered metaparameter in a data-open document is worth when the document is evaluated alone."
+    }
+  },
+  "index_sets": {
+    "empty_rows": { "kind": "interval", "size": "n_empty" }
+  },
+  "models": {
+    "F56AZeroSizedAxisPanics": {
+      "tolerance": { "rel": 1e-12 },
+      "variables": {
+        "empty_value": {
+          "type": "unknown",
+          "shape": ["empty_rows"],
+          "units": "1",
+          "description": "A relation over an axis of length 0. It should be an empty relation."
+        }
+      },
+      "equations": [
+        {
+          "lhs": "empty_value",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": ["e"],
+            "ranges": { "e": { "from": "empty_rows" } },
+            "expr": 1.0
+          }
+        }
+      ],
+      "tests": [
+        {
+          "id": "an_axis_of_length_zero_is_an_empty_relation_and_not_a_panic",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            {
+              "variable": "empty_value",
+              "time": 0.0,
+              "expected": 1,
+              "coords": { "empty_rows": 1 }
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

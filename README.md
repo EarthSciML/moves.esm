@@ -40,7 +40,7 @@ The binary itself, `./esm`, is deliberately untracked.
 | `spikes/` | Phase 7's shape experiments, excluded from the document stages because several are deliberately data-open. `7c/` holds the snapshot catalogue over `onroad/model.esm` and the 12-line per-fixture document that mounts it. |
 | `gates/` | Performance gates, currently the `join.on` scaling assertion. |
 | `docs/` | The two port specifications, the conventions doc, and the findings. |
-| `tools/` | `check-conventions.py`, which enforces mechanically what a review would otherwise have to eyeball; `check-sources.py`, which opens every declared Parquet file and checks the columns; `shortfall.py`, which judges a fixture's failure against what `tolerance.toml` says to expect; `cross-check-chain.py`, which compares the mounted assembly's rows against the fixture's in ulps. |
+| `tools/` | `check-conventions.py`, which enforces mechanically what a review would otherwise have to eyeball; `check-sources.py`, which opens every declared Parquet file and checks the columns; `shortfall.py`, which judges a fixture's failure against what `tolerance.toml` says to expect; `cross-check-chain.py`, which compares the mounted assembly's rows against the fixture's in ulps; `check-runspec-shape.py`, which holds a `runspecs/` document's emitted row count to the shape the chain recomputes; and the probe generators, which write the transient documents that must FAIL. |
 
 ## Testing
 
