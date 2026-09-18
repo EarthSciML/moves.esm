@@ -32,11 +32,19 @@ plans on.
               what would let a shared domain document's axes be namespaced per
               fixture.
 
-  bindings    the 45 extent metaparameters the child does not read in an
+  bindings    every extent metaparameter the child does not read in an
               equation, declared by the mount under `p_` names and closed at
               the mount edge by `bindings`. Must still emit the same bytes: it
               is the two-sided half of the measurement that `bindings` works at
               scale and buys nothing (conventions 54).
+
+  counts      not a probe: the three sizes the stage's own pass lines quote,
+              printed as shell assignments. They were literals in run-tests.sh
+              and went stale the first time the model grew -- a green line
+              saying "411-variable" about a 425-variable document is the
+              harness reporting on its own memory rather than on the tree.
+              The rule that picks the bound names lives HERE, beside the probe
+              that uses it, so the two cannot disagree.
 """
 import json
 import os
@@ -50,6 +58,16 @@ MOUNT = os.path.join(ROOT, "spikes", "7c", "tirewear_mount.esm")
 def extent_names(mount):
     return sorted({entry["extent"]["metaparameter"]
                    for entry in mount["data_sources"].values() if "extent" in entry})
+
+
+def bound_names(logic, mount):
+    """The extent metaparameters `bindings` can close at the mount edge.
+
+    A metaparameter closed by `bindings` is not readable in an equation
+    (conventions 49.2), so the ones the child READS keep their own names and
+    stay declared by the leaf alone."""
+    equations = json.dumps(next(iter(logic["models"].values()))["equations"])
+    return sorted(n for n in extent_names(mount) if '"%s"' % n not in equations)
 
 
 def main(which, out_path):
@@ -78,14 +96,20 @@ def main(which, out_path):
             "ref": "./tirewear_logic.esm", "index_set_rename": dict(ren),
         }
 
+    elif which == "counts":
+        model = next(iter(logic["models"].values()))
+        print("C7_NVARS=%d" % len(model["variables"]))
+        print("C7_NAXES=%d" % len(logic["index_sets"]))
+        print("C7_NBOUND=%d" % len(bound_names(logic, mount)))
+        return
+
     elif which == "bindings":
-        equations = json.dumps(logic["models"]["ProcessTirewear"]["equations"])
         # a metaparameter closed by `bindings` is not readable in an equation
         # (conventions 49.2), so the ones the child READS keep their own names
         # and stay declared by the leaf alone
+        ren = {k: ("p_" + k) for k in bound_names(logic, mount)}
         names = extent_names(mount)
-        read = {n for n in names if '"%s"' % n in equations}
-        ren = {k: ("p_" + k if k not in read else k) for k in names}
+        ren = {k: ren.get(k, k) for k in names}
         mount["metaparameters"] = {ren[k]: logic["metaparameters"][k]
                                    for k in names if ren[k] != k}
         for entry in mount["data_sources"].values():
@@ -106,5 +130,5 @@ def main(which, out_path):
 if __name__ == "__main__":
     if len(sys.argv) != 3:
         sys.exit("usage: make-7c-probes.py "
-                 "<bindings-carries-the-names|rename|bindings> <out.esm>")
+                 "<bindings-carries-the-names|rename|bindings|counts> <out.esm>")
     main(sys.argv[1], sys.argv[2])

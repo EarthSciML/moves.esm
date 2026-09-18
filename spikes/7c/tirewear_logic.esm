@@ -236,10 +236,20 @@
       "default": 0,
       "description": "Rows in dayofanyweek."
     },
+    "n_emissionprocess": {
+      "type": "integer",
+      "default": 0,
+      "description": "Rows in emissionprocess."
+    },
     "n_outputCohort": {
       "type": "integer",
       "default": 125,
       "description": "THE ONE DECLARED NUMBER IN THIS DOCUMENT: how many (modelYearID, fuelTypeID) cohorts reach MOVESOutput in each pollutant-process block. 125 of the 164 candidates, ragged by fuel -- 41 gasoline model years, 40 diesel, 23 E85 and 21 electricity. WHICH ones survive is a result of the chain (docs/mixed-onroad.md 2.2's `stmyFraction > 0` rule) and is never written down: `coh_rank` numbers the survivors 1..125 by an inclusive prefix count over the candidate grid and the output row joins to that rank (docs/esm-conventions.md 22). `cohortSurvivorCount` recomputes 125 from the chain, `pp_selectedCohortCount` recomputes it separately for each pollutant-process, and tests pin all three together."
+    },
+    "n_outputPolProcess": {
+      "type": "integer",
+      "default": 3,
+      "description": "THE SECOND DECLARED NUMBER IN THIS DOCUMENT: how many of the run's selected pollutant-processes reach MOVESOutput at all. Three of three here, because every one of 9101, 10710 and 11710 has its rates on a road type this run selects. A run that selects start exhaust or extended idle on an on-road road type alone has fewer: those processes' rates live on the off-network road type 1, `BaseRateCalculator` joins its rate rows to `runSpecRoadType`, and the whole block is discarded (docs/mixed-onroad.md 0.2). WHICH pollutant-processes survive is never written down -- `rspp_isEmitted` decides it from `emissionprocess.occursOnRealRoads` and `runspecroadtype`, `rspp_outputOrdinal` numbers the survivors 1..n by an inclusive prefix count, and `outputPolProcessCount` recomputes this number from the chain."
     },
     "n_runspecpollutantprocess": {
       "type": "integer",
@@ -447,6 +457,10 @@
       "kind": "interval",
       "size": "n_dayofanyweek"
     },
+    "emissionprocess_rows": {
+      "kind": "interval",
+      "size": "n_emissionprocess"
+    },
     "activity_rows": {
       "kind": "interval",
       "size": {
@@ -472,7 +486,7 @@
       "size": {
         "op": "*",
         "args": [
-          "n_runspecpollutantprocess",
+          "n_outputPolProcess",
           {
             "op": "*",
             "args": [
@@ -541,6 +555,9 @@
     },
     "source_type": {
       "HeavyDutyThreshold": 40
+    },
+    "road_type": {
+      "OffNetwork": 1
     }
   },
   "models": {
@@ -3312,6 +3329,14 @@
           ],
           "description": "125, computed from the chain, so `n_outputCohort` is a CHECKED declaration rather than a transcription."
         },
+        "outputPolProcessCount": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "run_rows"
+          ],
+          "description": "3, computed from the chain, so `n_outputPolProcess` is a CHECKED declaration rather than a transcription -- the companion of `cohortSurvivorCount` on the other output axis."
+        },
         "sta_ageFraction": {
           "type": "unknown",
           "units": "1",
@@ -4322,6 +4347,45 @@
             }
           }
         },
+        "ep_processID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "emissionprocess_rows"
+          ],
+          "description": "emissionprocess.processID. The national table has 25 rows and the execution-database copy has the 2 this run touches, which is 59's rule again: read it whole and let the join say which row.",
+          "update": {
+            "kind": "data",
+            "source": "tw_emissionprocess",
+            "from": {
+              "file_variable": "processID"
+            }
+          }
+        },
+        "ep_occursOnRealRoads": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "emissionprocess_rows"
+          ],
+          "description": "emissionprocess.occursOnRealRoads, Y/N text decoded by a `codes` map on the binding. MOVES's own statement of where a process's rates live: Y for running exhaust, brake wear and tire wear, N for start exhaust, extended idle, APU and every evaporative process. It is the only input to `rspp_isEmitted`, so the rule that discards a whole pollutant-process block is READ rather than written down as a list of process ids.",
+          "update": {
+            "kind": "data",
+            "source": "tw_emissionprocess",
+            "from": {
+              "file_variable": "occursOnRealRoads",
+              "codes": {
+                "map": {
+                  "Y": 1,
+                  "N": 0
+                },
+                "case_insensitive": true
+              }
+            }
+          }
+        },
         "pmr_polProcessID": {
           "type": "parameter",
           "units": "1",
@@ -4474,6 +4538,46 @@
           ],
           "description": "The process half: 1 (Running Exhaust) and 10 (Tirewear)."
         },
+        "rspp_occursOnRealRoads": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecpollutantprocess_rows"
+          ],
+          "description": "Whether this pollutant-process's rates live on a real road, looked up from `emissionprocess` by its process half. 1 on all three here."
+        },
+        "rspp_rateRoadTypeID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecpollutantprocess_rows"
+          ],
+          "description": "The road type this pollutant-process's rates are written on. `BaseRateGenerator` emits a real-road process on every road type the RunSpec selected and an off-network one on road type 1 alone, so this is the run's road type or the OffNetwork enum's 1 -- 4, 4 and 4 here."
+        },
+        "rspp_isEmitted": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecpollutantprocess_rows"
+          ],
+          "description": "Whether this pollutant-process produces output rows at all: `BaseRateCalculator` joins its rate rows to `runSpecRoadType` (baseratecalculator/mod.rs:762-781), so a block whose rate road type the RunSpec did not select is discarded entire. 1, 1, 1 here and 1, 0, 0 for a run that selects 9101, 9102 and 9190 on road type 4, where the 250 rows MOVES writes are the running-exhaust block alone (docs/mixed-onroad.md 0.2)."
+        },
+        "rspp_emittedPrefix": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecpollutantprocess_rows"
+          ],
+          "description": "An inclusive prefix count of the emission mask over the pollutant-process relation: how many at or before this one are emitted. The same construction `coh_prefixSelected` uses one axis down (docs/esm-conventions.md 22)."
+        },
+        "rspp_outputOrdinal": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecpollutantprocess_rows"
+          ],
+          "description": "Which output block this pollutant-process owns, numbered 1..n_outputPolProcess over the emitted ones and 0 for a discarded one -- an ordinal no output row can match. 1, 2, 3 here."
+        },
         "rspp_usesAvgSpeedModes": {
           "type": "unknown",
           "units": "1",
@@ -4529,6 +4633,14 @@
             "rate_rows"
           ],
           "description": "Which pollutant-process this rate row is for. Pollutant-process major, so each one occupies a contiguous run of 164 rows."
+        },
+        "rt_outputBlockOrdinal": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "The output block this rate row's pollutant-process owns, read back from `rspp_outputOrdinal`. 0 on every row of a discarded pollutant-process, which is what keeps `rt_outputOrdinal` from matching anything."
         },
         "rt_cohortOrdinal": {
           "type": "unknown",
@@ -4881,6 +4993,14 @@
           ],
           "description": "400, from the operating_mode enum. A one-row relation for the same reason `run_regClassWildcardID` is one: `pp_tireIdleWeight` selects that mode with a `join.on` and not with an `==` in a filter (docs/esm-conventions.md 20.4)."
         },
+        "run_offNetworkRoadTypeID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "run_rows"
+          ],
+          "description": "1, NAMED from the road_type enum, as a one-row relation so that `rspp_rateRoadTypeID` reads the off-network road type rather than writing it."
+        },
         "run_salesAgeID": {
           "type": "unknown",
           "units": "1",
@@ -5117,7 +5237,7 @@
           "shape": [
             "rate_rows"
           ],
-          "description": "Where this rate row lands in the output relation's (pollutant-process, cohort) block: (polProcOrdinal - 1) x n_outputCohort + cohortRank, and 0 for a candidate that is not emitted, which no output ordinal can match. This is the ONE key the output row joins on, and both of its factors are computed."
+          "description": "Where this rate row lands in the output relation's (pollutant-process, cohort) block: (outputBlockOrdinal - 1) x n_outputCohort + cohortRank, and 0 both for a candidate that is not emitted and for a pollutant-process whose whole block is discarded -- an ordinal no output row can match. This is the ONE key the output row joins on, and all three of its factors are computed."
         },
         "outPolProcOrdinal": {
           "type": "unknown",
@@ -6312,6 +6432,30 @@
           }
         },
         {
+          "lhs": "run_offNetworkRoadTypeID",
+          "rhs": {
+            "op": "makearray",
+            "args": [],
+            "regions": [
+              [
+                [
+                  1,
+                  1
+                ]
+              ]
+            ],
+            "values": [
+              {
+                "op": "enum",
+                "args": [
+                  "road_type",
+                  "OffNetwork"
+                ]
+              }
+            ]
+          }
+        },
+        {
           "lhs": "rspp_ordinal",
           "rhs": {
             "op": "faq",
@@ -6347,6 +6491,170 @@
             "bindings": {
               "pol_process_id": "rspp_polProcessID"
             }
+          }
+        },
+        {
+          "_comment": "J38: the process half of the packed id against `emissionprocess`, which is where MOVES records whether a process happens on a road.",
+          "lhs": "rspp_occursOnRealRoads",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "p"
+            ],
+            "ranges": {
+              "p": {
+                "from": "runspecpollutantprocess_rows"
+              },
+              "e": {
+                "from": "emissionprocess_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rspp_processID",
+                    "ep_processID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "ep_occursOnRealRoads",
+                "e"
+              ]
+            }
+          }
+        },
+        {
+          "_comment": "The run relation is one row, so the cross product with it is a read.",
+          "lhs": "rspp_rateRoadTypeID",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "p"
+            ],
+            "ranges": {
+              "p": {
+                "from": "runspecpollutantprocess_rows"
+              },
+              "n": {
+                "from": "run_rows"
+              }
+            },
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                {
+                  "op": ">",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "rspp_occursOnRealRoads",
+                        "p"
+                      ]
+                    },
+                    0.5
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "run_roadTypeID",
+                    "n"
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "run_offNetworkRoadTypeID",
+                    "n"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "_comment": "J39, and it is `BaseRateCalculator`'s own join: keep the rate rows whose road type the RunSpec selected. Written as a join.on against the selection relation rather than as a test on a constant (docs/esm-conventions.md 20.4), which is also what makes it count road types rather than compare one.",
+          "lhs": "rspp_isEmitted",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "p"
+            ],
+            "ranges": {
+              "p": {
+                "from": "runspecpollutantprocess_rows"
+              },
+              "s": {
+                "from": "runspecroadtype_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rspp_rateRoadTypeID",
+                    "rsr_roadTypeID"
+                  ]
+                ]
+              }
+            ],
+            "expr": 1.0
+          }
+        },
+        {
+          "_comment": "`x <= p` is a range predicate over two ranges of one index set, so it is a filter and needs no join gate -- the same shape as `coh_prefixSelected`.",
+          "lhs": "rspp_emittedPrefix",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "p"
+            ],
+            "ranges": {
+              "p": {
+                "from": "runspecpollutantprocess_rows"
+              },
+              "x": {
+                "from": "runspecpollutantprocess_rows"
+              }
+            },
+            "filter": {
+              "op": "<=",
+              "args": [
+                "x",
+                "p"
+              ]
+            },
+            "expr": {
+              "op": "index",
+              "args": [
+                "rspp_isEmitted",
+                "x"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rspp_outputOrdinal",
+          "rhs": {
+            "op": "*",
+            "args": [
+              "rspp_isEmitted",
+              "rspp_emittedPrefix"
+            ]
           }
         },
         {
@@ -10626,6 +10934,42 @@
           }
         },
         {
+          "lhs": "rt_outputBlockOrdinal",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "p": {
+                "from": "runspecpollutantprocess_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rt_polProcOrdinal",
+                    "rspp_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "rspp_outputOrdinal",
+                "p"
+              ]
+            }
+          }
+        },
+        {
           "lhs": "rt_cohortOrdinal",
           "rhs": {
             "op": "faq",
@@ -12871,6 +13215,32 @@
           }
         },
         {
+          "lhs": "outputPolProcessCount",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "k"
+            ],
+            "ranges": {
+              "k": {
+                "from": "run_rows"
+              },
+              "p": {
+                "from": "runspecpollutantprocess_rows"
+              }
+            },
+            "expr": {
+              "op": "index",
+              "args": [
+                "rspp_isEmitted",
+                "p"
+              ]
+            }
+          }
+        },
+        {
           "lhs": "run_cohortSelectionTotal",
           "rhs": {
             "op": "faq",
@@ -14556,10 +14926,22 @@
             "op": "ifelse",
             "args": [
               {
-                "op": ">",
+                "op": "and",
                 "args": [
-                  "rt_cohortRank",
-                  0.5
+                  {
+                    "op": ">",
+                    "args": [
+                      "rt_cohortRank",
+                      0.5
+                    ]
+                  },
+                  {
+                    "op": ">",
+                    "args": [
+                      "rt_outputBlockOrdinal",
+                      0.5
+                    ]
+                  }
                 ]
               },
               {
@@ -14571,7 +14953,7 @@
                       {
                         "op": "-",
                         "args": [
-                          "rt_polProcOrdinal",
+                          "rt_outputBlockOrdinal",
                           1
                         ]
                       },

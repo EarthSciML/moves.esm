@@ -989,6 +989,12 @@ fi
 # That is PLAN.md §7.1's thin per-fixture document at fixture scale. Check 3
 # holds it to the same bytes as the mount, and to staying thin.
 head2 "phase 7 at fixture scale (7c)"
+# The three sizes this stage's pass lines quote come from the documents, not
+# from here. They were literals and they went stale the first time the model
+# grew: "the 411-variable assembly validates" stayed green over a 425-variable
+# one, which is the harness reporting on its own memory. tools/make-7c-probes.py
+# prints them, because the rule that picks the bound names is the probe's.
+eval "$("$PYTHON" tools/make-7c-probes.py counts /dev/null)"
 C7_LOGIC=spikes/7c/tirewear_logic.esm
 C7_MOUNT=spikes/7c/tirewear_mount.esm
 C7_FIXTURE=spikes/7c/tirewear_fixture.esm
@@ -1020,7 +1026,7 @@ else
 
   # 2. The assembly validates and round-trips.
   if "$ESM" validate "$C7_MOUNT" >/dev/null 2>&1; then
-    pass "7c — the 411-variable assembly validates"
+    pass "7c — the ${C7_NVARS}-variable assembly validates"
   else
     fail "7c — the assembly no longer validates"
     "$ESM" validate "$C7_MOUNT" 2>&1 | sed 's/^/       /' | head -6
@@ -1137,14 +1143,14 @@ PYEOF
   #    namespaced per fixture, so two domain documents can be mounted without
   #    an axis-name collision). A capability this repository intends to build
   #    on is worth a two-sided check, and validating is not enough: the probe
-  #    renames all 53 and must emit the same bytes.
+  #    renames every one of them and must emit the same bytes.
   C7_P3=spikes/7c/.rename_probe.esm
   if "$PYTHON" tools/make-7c-probes.py rename "$C7_P3" >/dev/null 2>&1; then
     C7_RENAMED="$RUNDIR/tirewear-7c.renamed.csv"
     if "$ESM" simulate "$C7_P3" --time 0 --format csv \
          "${c7_obs[@]}" --output "$C7_RENAMED" >/dev/null 2>&1 \
        && cmp -s "$C7_BASE" "$C7_RENAMED"; then
-      pass "index_set_rename renames all 53 axes at this mount form and emits the same bytes"
+      pass "index_set_rename renames all ${C7_NAXES} axes at this mount form and emits the same bytes"
     else
       fail "index_set_rename — renaming the mounted axes no longer reproduces the fixture's relation. PR #298 closed F49 and conventions §54 and §56 are written on that; re-read both"
       "$ESM" validate "$C7_P3" 2>&1 | sed 's/^/       /' | head -4
@@ -1154,15 +1160,15 @@ PYEOF
   fi
   rm -f "$C7_P3"
 
-  # 7. `bindings` at 45 names. Conventions 54 says it works at scale and
+  # 7. `bindings` at every name it can close. Conventions 54 says it works at scale and
   #    removes nothing; the first half of that has to keep being true or the
   #    second half is a claim about a feature that no longer functions.
   C7_P4=spikes/7c/.bindings_probe.esm
   if "$PYTHON" tools/make-7c-probes.py bindings "$C7_P4" >/dev/null 2>&1; then
     if "$ESM" validate "$C7_P4" >/dev/null 2>&1; then
-      pass "bindings still closes 45 extent metaparameters at one mount edge"
+      pass "bindings still closes ${C7_NBOUND} extent metaparameters at one mount edge"
     else
-      fail "bindings — 45 names at one mount edge no longer validate. conventions 54 measures this; re-read it"
+      fail "bindings — ${C7_NBOUND} names at one mount edge no longer validate. conventions 54 measures this; re-read it"
       "$ESM" validate "$C7_P4" 2>&1 | sed 's/^/       /' | head -4
     fi
   else
