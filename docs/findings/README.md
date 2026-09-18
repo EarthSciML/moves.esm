@@ -1,6 +1,6 @@
 # Findings: conventions the format or the toolchain could not express
 
-Forty-five things PLAN.md §3 Phase 1 through Phase 5 assumed, or that an author
+Forty-six things PLAN.md §3 Phase 1 through Phase 5 assumed, or that an author
 would reasonably assume, that did not hold. **Twenty-four are fixed upstream and
 retired** from the tripwire, with their sections kept so the workarounds they
 forced can be traced — and one of those, F14, was retired because the assumption
@@ -15,8 +15,8 @@ bottom now. Nothing else changed state: the other nine repro-carrying findings
 — ten files, F22 having two — still fail exactly as recorded, no spec, fixture
 or oracle regressed, and no tolerance moved.
 
-F22, F28, F41, F43, F45 and F56 each have a minimal `.esm` repro in this directory —
-F22 has two, one per construct. F3, F5, F13, F14, F20 and F21 had one until the
+F22, F28, F41, F43, F45, F56 and F57 each have a minimal `.esm` repro in this directory —
+F22 has two, one per construct, and F57 has a control beside its repro. F3, F5, F13, F14, F20 and F21 had one until the
 `8ac536bf0` rebuild retired all six, and their files are deleted; F8 is a CLI
 behaviour rather than a document, and is checked by command against the ordinary
 files of the repo. **F17, F31, F33, F42, F52, F53, F54 and F55 deliberately have no repro file**: a
@@ -3503,3 +3503,57 @@ a data-open document evaluated alone should be REFUSED with the diagnostic
 genuinely empty relation — one an author asked for — should be laid out as
 empty. **Filed upstream: [EarthSciML/EarthSciAST#416](https://github.com/EarthSciML/EarthSciAST/issues/416)**, on `8ac536bf0`.
 
+
+## F57 — a join key of more than one dimension is dropped, and the answer is wrong
+
+`F57_a_wide_join_key_is_dropped.esm`, with `F57_control_a_narrow_join_key_gates.esm`
+beside it. Found at PLAN.md step 7d, making the source type a selection axis.
+
+A `faq` join key must resolve to a **one-dimensional** column over an axis the
+aggregate ranges. Give it a two-dimensional one and the clause is not refused —
+it is silently dropped, and the aggregate sums the ungated cross product:
+
+```
+$ ./esm validate docs/findings/F57_a_wide_join_key_is_dropped.esm
+✓ Validation passed
+
+$ ./esm test docs/findings/F57_a_wide_join_key_is_dropped.esm
+actual=4 expected=2        # every row for every key: the answer with no join
+```
+
+The control holds the same four values in the same order and differs in one
+index set in one `shape` — a trailing axis of **length one**, which changes no
+number — and gates correctly, 2/2. That is the whole measurement: the defect is
+the key's arity and nothing else.
+
+**What makes it sharp.** A key that resolves to nothing at all IS refused, and
+the refusal states the rule: *"it names neither a range symbol, nor an index set
+one of those ranges draws from, nor a declared **1-D** data column over such an
+index set (RFC semiring-faq-unified-ir §5.3)"*. The constraint is known to the
+resolver and is in the message; a 2-D column does not trip it.
+
+**Where it bit.** `onroad/model.esm`'s `dsa_modeSeconds` counts each
+drive-schedule second into its operating mode, joining `om_opModeID` to
+`dss_opModeID`. Vehicle-specific power is computed from the source type's own
+physics row, so at 7d the operating mode of a second became per source type and
+`dss_opModeID` gained an axis. The clause stopped gating: `pp_WTotal` came back
+as 60.0 over 60 modes instead of 1.0 over 23, and running-exhaust energy was 22x
+to 24x too large. **The tire-wear pollutants in the same run stayed exact to
+1e-5**, because they take the other arm of an `ifelse` and never read that
+distribution — a whole suite can be green with this in the middle of it.
+
+**The workaround, and it costs a house rule.** The equality is spelled as a
+`filter`, which §20.4 otherwise forbids: every value equality is a `join.on`.
+`tools/check-conventions.py` now exempts exactly the unspellable case — an `==`
+one of whose operands indexes a variable of arity greater than one — rather than
+exempting the file, so the exemption disappears by itself when the key becomes
+expressible. The cost is a scan where a gate should be; it is cheap here only
+because the `driveScheduleID` join has already cut the second axis to one
+schedule's ~600 seconds.
+
+**Fix shape.** Two parts, and the first is worth having alone: refuse a join key
+the engine cannot use, with the message the unresolvable case already gets — a
+gate that quietly becomes a no-op is the worst available behaviour, and a
+length-1 axis makes it reachable by accident. Then either materialize the key
+over its bound ranges so arity > 1 works, or say in the RFC that it does not.
+**Filed upstream: [EarthSciML/EarthSciAST#417](https://github.com/EarthSciML/EarthSciAST/issues/417)**, on `8ac536bf0`.

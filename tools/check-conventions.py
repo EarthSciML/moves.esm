@@ -80,21 +80,58 @@ def contains_op(node, op: str) -> bool:
     return False
 
 
+def variable_shapes(doc) -> dict[str, list]:
+    """name -> declared shape, across every model in the document."""
+    out = {}
+    for model in (doc.get("models") or {}).values():
+        if not isinstance(model, dict):
+            continue
+        for name, decl in (model.get("variables") or {}).items():
+            if isinstance(decl, dict) and isinstance(decl.get("shape"), list):
+                out[name] = decl["shape"]
+    return out
+
+
+def is_wide_key_equality(node, shapes: dict[str, list]) -> bool:
+    """Is this `==` one the format cannot spell as a `join.on`?
+
+    A join key must be a ONE-dimensional column over an axis the aggregate
+    ranges (RFC semiring-faq-unified-ir §5.3). An equality against a data
+    column of higher arity therefore has no legal ON spelling -- and today the
+    engine does not refuse it, it DROPS the clause and answers as if the join
+    were not there (docs/findings F57, EarthSciAST#417). Such an equality stays
+    a predicate until that is fixed, and this is the only reason it may.
+    """
+    if node.get("op") != "==":
+        return False
+    for arg in node.get("args", []):
+        if isinstance(arg, dict) and arg.get("op") == "index":
+            name = arg.get("args", [None])[0]
+            if len(shapes.get(name, [])) > 1:
+                return True
+    return False
+
+
 def check_no_equality_filter(p: pathlib.Path, doc) -> None:
     """RULE: every join is a `join.on`; a `filter` carries a genuine predicate.
 
     An `==` inside an aggregate `filter` is an ON clause in disguise. Range
-    tests, null guards and set membership are what a filter is for.
+    tests, null guards and set membership are what a filter is for. The one
+    exception is an equality the format cannot express as a key at all -- see
+    `is_wide_key_equality`.
     """
     if p.relative_to(ROOT).as_posix() == UNGATED_CONTROL:
         return
+    shapes = variable_shapes(doc)
     for ptr, obj in walk(doc, ""):
         if obj.get("op") != "faq" or "filter" not in obj:
             continue
-        if contains_op(obj["filter"], "=="):
-            fail(p, ptr + "/filter", "equality-filter",
-                 "an `==` inside an aggregate `filter` is a join spelled as a "
-                 "predicate; use join.on with a key-pair list")
+        for _, sub in walk(obj["filter"], ""):
+            if sub.get("op") == "==" and not is_wide_key_equality(sub, shapes):
+                fail(p, ptr + "/filter", "equality-filter",
+                     "an `==` inside an aggregate `filter` is a join spelled as a "
+                     "predicate; use join.on with a key-pair list")
+                break
 
 
 def check_reserved_loop_symbols(p: pathlib.Path, doc) -> None:

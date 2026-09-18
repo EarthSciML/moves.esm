@@ -1,0 +1,85 @@
+{
+  "esm": "1.2.0",
+  "metadata": {
+    "name": "F57ControlANarrowJoinKeyGates",
+    "description": "F57's control, and it is MEANT TO PASS. The same four values, the same two keys, the same aggregate -- with `row_key` declared 1-D. Each output cell counts the two rows carrying its key, which is what F57's repro asks for and does not get. The only difference between the two documents is one index set in one `shape`, so a failure here would mean the defect is not about the key's arity and F57 is mis-stated.",
+    "authors": ["EarthSciML Authors and Contributors"],
+    "tags": ["finding", "control", "join"]
+  },
+  "index_sets": {
+    "rows": { "kind": "interval", "size": 4 },
+    "keys": { "kind": "interval", "size": 2 }
+  },
+  "models": {
+    "F57ControlANarrowJoinKeyGates": {
+      "tolerance": { "rel": 1e-12 },
+      "variables": {
+        "row_key": {
+          "type": "unknown",
+          "shape": ["rows"],
+          "units": "1",
+          "description": "1, 2, 1, 2."
+        },
+        "want": {
+          "type": "unknown",
+          "shape": ["keys"],
+          "units": "1",
+          "description": "The key each output cell asks for: 1 and 2."
+        },
+        "total": {
+          "type": "unknown",
+          "shape": ["keys"],
+          "units": "1",
+          "description": "How many rows carry that key. Two each."
+        }
+      },
+      "equations": [
+        {
+          "lhs": "row_key",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "output_idx": ["r"],
+            "ranges": { "r": { "from": "rows" } },
+            "expr": {
+              "op": "-",
+              "args": ["r", {"op": "*", "args": [2, {"op": "floor", "args": [{"op": "/", "args": [{"op": "-", "args": ["r", 1]}, 2]}]}]}]
+            }
+          }
+        },
+        {
+          "lhs": "want",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "output_idx": ["k"],
+            "ranges": { "k": { "from": "keys" } },
+            "expr": "k"
+          }
+        },
+        {
+          "lhs": "total",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": ["k"],
+            "ranges": { "k": { "from": "keys" }, "r": { "from": "rows" } },
+            "join": [{ "on": [["want", "row_key"]] }],
+            "expr": 1.0
+          }
+        }
+      ],
+      "tests": [
+        {
+          "id": "a_one_dimensional_join_key_gates",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "total", "time": 0.0, "expected": 2.0, "coords": { "keys": 1 } },
+            { "variable": "total", "time": 0.0, "expected": 2.0, "coords": { "keys": 2 } }
+          ]
+        }
+      ]
+    }
+  }
+}

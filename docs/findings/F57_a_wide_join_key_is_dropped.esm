@@ -1,0 +1,86 @@
+{
+  "esm": "1.2.0",
+  "metadata": {
+    "name": "F57AWideJoinKeyIsDropped",
+    "description": "F57. A `faq` join key that resolves to a variable of MORE THAN ONE dimension is silently ignored: the clause stops gating, the aggregate sums the ungated cross product, and nothing in `validate`, `simulate` or `test` says so. The answer is wrong, not refused.\n\nTHE DOCUMENT IS THE WHOLE REPRO. `row_key` carries 1, 2, 1, 2 over `rows` and a second axis `alt` of length ONE, so its values and its element count are exactly those of the 1-D control in `F57_control_a_narrow_join_key_gates.esm`. Joined to `want` (1, 2), each output cell should count the two rows that carry its key. It counts four -- every row, every key -- which is the answer with no join at all. THE ASSERTIONS BELOW ARE THE RIGHT ANSWER and they fail today.\n\nWHY A LENGTH-1 AXIS IS THE RIGHT PROBE: it removes every explanation but the arity. The two documents hold the same numbers in the same order; one says `shape: [rows]` and the other `shape: [rows, alt]`.\n\nWHAT THE ENGINE DOES SAY, and this is the sharp part. A key that names nothing at all IS refused, by name: `join key column 'x' does not resolve to a loop index of this aggregate ({...}): it names neither a range symbol, nor an index set one of those ranges draws from, nor a declared 1-D data column over such an index set`. The check knows the key must be 1-D -- it is in the message -- and a 2-D column reaches evaluation anyway.\n\nWHERE IT BIT. `onroad/model.esm`'s `dsa_modeSeconds` counts each drive-schedule second into its operating mode, joining `om_opModeID` to `dss_opModeID`. At PLAN.md step 7d the operating mode of a second became per SOURCE TYPE -- VSP is computed from the source type's physics row -- so `dss_opModeID` gained a second axis and the clause stopped gating. The operating-mode distribution came back as 1.0 on all 60 modes instead of summing to 1.0 over 23, and the running-exhaust energy was 22x to 24x too large. The tire-wear pollutants were EXACT throughout, because they take the other arm of an `ifelse` and never read the distribution -- which is how a whole-suite check can stay green while a wrong answer sits in the middle of it.",
+    "authors": ["EarthSciML Authors and Contributors"],
+    "tags": ["finding", "join", "silent-wrong-answer"]
+  },
+  "index_sets": {
+    "rows": { "kind": "interval", "size": 4 },
+    "keys": { "kind": "interval", "size": 2 },
+    "alt": { "kind": "interval", "size": 1 }
+  },
+  "models": {
+    "F57AWideJoinKeyIsDropped": {
+      "tolerance": { "rel": 1e-12 },
+      "variables": {
+        "row_key": {
+          "type": "unknown",
+          "shape": ["rows", "alt"],
+          "units": "1",
+          "description": "1, 2, 1, 2 -- the control's values exactly, over a second axis of length one."
+        },
+        "want": {
+          "type": "unknown",
+          "shape": ["keys"],
+          "units": "1",
+          "description": "The key each output cell asks for: 1 and 2."
+        },
+        "total": {
+          "type": "unknown",
+          "shape": ["keys", "alt"],
+          "units": "1",
+          "description": "How many rows carry that key. Two each, as in the control; four each today."
+        }
+      },
+      "equations": [
+        {
+          "lhs": "row_key",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "output_idx": ["r", "a"],
+            "ranges": { "r": { "from": "rows" }, "a": { "from": "alt" } },
+            "expr": {
+              "op": "-",
+              "args": ["r", {"op": "*", "args": [2, {"op": "floor", "args": [{"op": "/", "args": [{"op": "-", "args": ["r", 1]}, 2]}]}]}]
+            }
+          }
+        },
+        {
+          "lhs": "want",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "output_idx": ["k"],
+            "ranges": { "k": { "from": "keys" } },
+            "expr": "k"
+          }
+        },
+        {
+          "lhs": "total",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": ["k", "a"],
+            "ranges": { "k": { "from": "keys" }, "r": { "from": "rows" }, "a": { "from": "alt" } },
+            "join": [{ "on": [["want", "row_key"]] }],
+            "expr": 1.0
+          }
+        }
+      ],
+      "tests": [
+        {
+          "id": "a_two_dimensional_join_key_still_gates",
+          "time_span": { "start": 0.0, "end": 0.0 },
+          "assertions": [
+            { "variable": "total", "time": 0.0, "expected": 2.0, "coords": { "keys": 1, "alt": 1 } },
+            { "variable": "total", "time": 0.0, "expected": 2.0, "coords": { "keys": 2, "alt": 1 } }
+          ]
+        }
+      ]
+    }
+  }
+}

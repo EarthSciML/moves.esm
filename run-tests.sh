@@ -423,6 +423,7 @@ declare -A REPRO_SIGNATURE=(
   [F43_an_ingested_parameter_is_not_assertable]='has no cells in var_map'
   [F45_an_ingesting_document_holds_one_model]='document holds several models'
   [F56_a_zero_sized_axis_panics]='col_major_to_arrayd shape mismatch'
+  [F57_a_wide_join_key_is_dropped]='actual=4 expected=2'
 )
 
 # The positive control for the mount-edge repros that use it. join_leaf.esm is
@@ -530,6 +531,18 @@ else
   fail "F14 ragged-gather control — the conforming ragged spelling no longer evaluates. esm-spec §4.3.1 is what this checks; re-read it and docs/findings/README.md F14"
 fi
 
+# F57's control, and it is the half that must PASS. The repro and the control
+# hold the same four values in the same order and differ in one index set in one
+# `shape` -- a trailing axis of LENGTH ONE. The repro's clause stops gating and
+# it answers 4 where 2 is right; this one answers 2. If this ever fails, the
+# defect is not the key's arity and F57's section is mis-stated.
+F57_CONTROL=docs/findings/F57_control_a_narrow_join_key_gates.esm
+if "$ESM" validate "$F57_CONTROL" >/dev/null 2>&1 && "$ESM" test "$F57_CONTROL" >/dev/null 2>&1; then
+  pass "F57 narrow-key control passes: a 1-D join key still gates, so F57 is about the arity"
+else
+  fail "F57 narrow-key control — a ONE-dimensional join key no longer gates either. That is a much larger defect than F57 and every join in this repository rests on it"
+fi
+
 F28_CONTROL=docs/findings/F28_control_the_contracted_lag_workaround.esm
 if "$ESM" validate "$F28_CONTROL" >/dev/null 2>&1 && "$ESM" test "$F28_CONTROL" >/dev/null 2>&1; then
   pass "F28 contracted-lag control passes: a data-named predecessor is reachable, at O(max lag) per cell"
@@ -580,6 +593,7 @@ mapfile -t REPROS < <(find docs/findings -name '*.esm' -not -name '.*' -not -nam
   -not -name 'F14_control_a_ragged_axis_gathers_its_member.esm' \
   -not -name 'F25_control_an_undeclared_operand_is_refused_when_ingesting.esm' \
   -not -name 'F26_control_a_free_index_symbol_is_refused_on_the_array_path.esm' \
+  -not -name 'F57_control_a_narrow_join_key_gates.esm' \
   2>/dev/null | sort)
 
 if [[ ${#REPROS[@]} -eq 0 ]]; then
