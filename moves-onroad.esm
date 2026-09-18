@@ -1,0 +1,637 @@
+{
+  "esm": "1.2.0",
+  "metadata": {
+    "name": "moves-onroad",
+    "description": "PLAN.md §7.5 step 7c': the onroad domain document, reading the DEFAULT DATABASE. It declares the 38 default-database tables the tire-wear chain needs and mounts the logic; a per-fixture document mounts THIS and supplies the ten runspec selections and the expected output, which are the only things that vary between fixtures.\n\nWHAT CHANGED IN THE MODEL, and it is three things rather than a re-pointing. An execution database is the default database already cut to the run, so a document written against one can leave its selections unsaid, and this one did. (1) `link`: summing a one-row table is the same as reading it, and the national Link has 22,610 rows, so the four run-level geography columns now join on the runspec's county and road type. (2) `sourceUseTypePhysicsMapping`: MOVES synthesises it by renaming one column of `sourceUseTypePhysics` and adding two this document never reads, so the document reads the real table. (3) `evSalesFraction`: MOVES computes it at execution time from four default tables the document already ingests, so it is an equation here (`svp_salesWeight`, `coh_salesAllFuels`, `coh_salesElectric`) rather than an input.\n\nEVERY OTHER TABLE IS A DROP-IN, and that is measured rather than assumed: swapping the national file in one table at a time and re-emitting gives byte-identical output for 36 of the 37 that exist in both, and `link` is the one that does not. All 38 together give the same 375 rows as the snapshot-fed catalogue.\n\nIT DOES NOT LOAD ALONE, by design and like `spikes/7c/tirewear_logic.esm`: it names no runspec, so `esm validate` on it reports the ten sources it does not declare. The per-fixture document is the complete one. There is no channel for a mounting document to OVERRIDE a mounted one's `data_sources` (a `SubsystemRef` carries `bindings`, `model`, `index_set_rename` and `expression_template_imports`, and nothing else), so a domain document that shipped a default runspec could not have it replaced -- which is why the runspec is the fixture's and not this file's.\n\nNO `float_columns`, WHERE THE SNAPSHOT CATALOGUE NEEDS 43 OF THEM OVER 27 TABLES. The snapshot writes every numeric column as decimal TEXT and the reader has to be told which to parse; the default database's converter writes doubles. `tools/check-sources.py` refuses a `float_columns` that names a column already floating, which is how this was found rather than carried over. The two catalogues therefore reach the same numbers by different routes -- text parsed at ingest, and IEEE doubles read straight -- and the 375 rows are byte-identical, which is a cross-check nobody asked for.\n\n`./movesdb/` IS AN UNTRACKED SYMLINK to the monolithic conversion of §7.3.1 (237 tables, 517 MB), kept out of the tree the same way `./esm` is and gitignored beside it. run-tests.sh skips this document's stage when it is absent.",
+    "authors": [
+      "EarthSciML Authors and Contributors"
+    ],
+    "tags": [
+      "onroad",
+      "domain",
+      "default-database"
+    ]
+  },
+  "data_sources": {
+    "tw_link": {
+      "kind": "static",
+      "source": {
+        "url_template": "./movesdb/Link.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_link"
+      },
+      "metadata": {
+        "tags": [
+          "scope",
+          "output"
+        ],
+        "note": "Link, the national table: 22,610 rows against the 1 the execution-database copy held. What the run selects from it is in the joins.",
+        "esio_format": "parquet"
+      }
+    },
+    "tw_year": {
+      "kind": "static",
+      "source": {
+        "url_template": "./movesdb/Year.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_year"
+      },
+      "metadata": {
+        "tags": [
+          "scope",
+          "fuel"
+        ],
+        "note": "Year, the national table: 63 rows, which is every row the execution-database copy held too -- MOVES copies this one whole.",
+        "esio_format": "parquet"
+      }
+    },
+    "tw_sourcetypeyear": {
+      "kind": "static",
+      "source": {
+        "url_template": "./movesdb/SourceTypeYear.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_sourcetypeyear"
+      },
+      "metadata": {
+        "tags": [
+          "activity"
+        ],
+        "note": "SourceTypeYear, the national table: 819 rows, which is every row the execution-database copy held too -- MOVES copies this one whole.",
+        "esio_format": "parquet"
+      }
+    },
+    "tw_sourcetypeagedistribution": {
+      "kind": "static",
+      "source": {
+        "url_template": "./movesdb/SourceTypeAgeDistribution.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_sourcetypeagedistribution"
+      },
+      "metadata": {
+        "tags": [
+          "activity"
+        ],
+        "note": "SourceTypeAgeDistribution, the national table: 33,579 rows, which is every row the execution-database copy held too -- MOVES copies this one whole.",
+        "esio_format": "parquet"
+      }
+    },
+    "tw_sourcetypeage": {
+      "kind": "static",
+      "source": {
+        "url_template": "./movesdb/SourceTypeAge.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_sourcetypeage"
+      },
+      "metadata": {
+        "tags": [
+          "activity",
+          "adjustment"
+        ],
+        "note": "SourceTypeAge, the national table: 533 rows, which is every row the execution-database copy held too -- MOVES copies this one whole.",
+        "esio_format": "parquet"
+      }
+    },
+    "tw_sourceusetype": {
+      "kind": "static",
+      "source": {
+        "url_template": "./movesdb/SourceUseType.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_sourceusetype"
+      },
+      "metadata": {
+        "tags": [
+          "activity"
+        ],
+        "note": "SourceUseType, the national table: 13 rows, which is every row the execution-database copy held too -- MOVES copies this one whole.",
+        "esio_format": "parquet"
+      }
+    },
+    "tw_hpmsvtypeyear": {
+      "kind": "static",
+      "source": {
+        "url_template": "./movesdb/HPMSVtypeYear.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_hpmsvtypeyear"
+      },
+      "metadata": {
+        "tags": [
+          "activity"
+        ],
+        "note": "HPMSVtypeYear, the national table: 315 rows, which is every row the execution-database copy held too -- MOVES copies this one whole.",
+        "esio_format": "parquet"
+      }
+    },
+    "tw_roadtypedistribution": {
+      "kind": "static",
+      "source": {
+        "url_template": "./movesdb/RoadTypeDistribution.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_roadtypedistribution"
+      },
+      "metadata": {
+        "tags": [
+          "activity"
+        ],
+        "note": "RoadTypeDistribution, the national table: 65 rows against the 5 the execution-database copy held. What the run selects from it is in the joins.",
+        "esio_format": "parquet"
+      }
+    },
+    "tw_roadtype": {
+      "kind": "static",
+      "source": {
+        "url_template": "./movesdb/RoadType.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_roadtype"
+      },
+      "metadata": {
+        "tags": [
+          "activity"
+        ],
+        "note": "RoadType, the national table: 6 rows, which is every row the execution-database copy held too -- MOVES copies this one whole.",
+        "esio_format": "parquet"
+      }
+    },
+    "tw_monthvmtfraction": {
+      "kind": "static",
+      "source": {
+        "url_template": "./movesdb/MonthVMTFraction.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_monthvmtfraction"
+      },
+      "metadata": {
+        "tags": [
+          "activity"
+        ],
+        "note": "MonthVMTFraction, the national table: 156 rows against the 1 the execution-database copy held. What the run selects from it is in the joins.",
+        "esio_format": "parquet"
+      }
+    },
+    "tw_dayvmtfraction": {
+      "kind": "static",
+      "source": {
+        "url_template": "./movesdb/DayVMTFraction.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_dayvmtfraction"
+      },
+      "metadata": {
+        "tags": [
+          "activity"
+        ],
+        "note": "DayVMTFraction, the national table: 1,248 rows against the 4 the execution-database copy held. What the run selects from it is in the joins.",
+        "esio_format": "parquet"
+      }
+    },
+    "tw_hourvmtfraction": {
+      "kind": "static",
+      "source": {
+        "url_template": "./movesdb/HourVMTFraction.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_hourvmtfraction"
+      },
+      "metadata": {
+        "tags": [
+          "activity"
+        ],
+        "note": "HourVMTFraction, the national table: 2,496 rows against the 96 the execution-database copy held. What the run selects from it is in the joins.",
+        "esio_format": "parquet"
+      }
+    },
+    "tw_monthofanyyear": {
+      "kind": "static",
+      "source": {
+        "url_template": "./movesdb/MonthofAnyYear.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_monthofanyyear"
+      },
+      "metadata": {
+        "tags": [
+          "activity",
+          "adjustment"
+        ],
+        "note": "MonthofAnyYear, the national table: 12 rows, which is every row the execution-database copy held too -- MOVES copies this one whole.",
+        "esio_format": "parquet"
+      }
+    },
+    "tw_avgspeedbin": {
+      "kind": "static",
+      "source": {
+        "url_template": "./movesdb/AvgSpeedBin.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_avgspeedbin"
+      },
+      "metadata": {
+        "tags": [
+          "activity",
+          "drive-cycle"
+        ],
+        "note": "AvgSpeedBin, the national table: 16 rows, which is every row the execution-database copy held too -- MOVES copies this one whole.",
+        "esio_format": "parquet"
+      }
+    },
+    "tw_avgspeeddistribution": {
+      "kind": "static",
+      "source": {
+        "url_template": "./movesdb/AvgSpeedDistribution.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_avgspeeddistribution"
+      },
+      "metadata": {
+        "tags": [
+          "activity",
+          "drive-cycle"
+        ],
+        "note": "AvgSpeedDistribution, the national table: 39,936 rows against the 3,072 the execution-database copy held. What the run selects from it is in the joins.",
+        "esio_format": "parquet"
+      }
+    },
+    "tw_zoneroadtype": {
+      "kind": "static",
+      "source": {
+        "url_template": "./movesdb/ZoneRoadType.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_zoneroadtype"
+      },
+      "metadata": {
+        "tags": [
+          "activity"
+        ],
+        "note": "ZoneRoadType, the national table: 12,920 rows against the 4 the execution-database copy held. What the run selects from it is in the joins.",
+        "esio_format": "parquet"
+      }
+    },
+    "tw_drivescheduleassoc": {
+      "kind": "static",
+      "source": {
+        "url_template": "./movesdb/DriveScheduleAssoc.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_drivescheduleassoc"
+      },
+      "metadata": {
+        "tags": [
+          "drive-cycle"
+        ],
+        "note": "DriveScheduleAssoc, the national table: 614 rows against the 11 the execution-database copy held. What the run selects from it is in the joins.",
+        "esio_format": "parquet"
+      }
+    },
+    "tw_driveschedule": {
+      "kind": "static",
+      "source": {
+        "url_template": "./movesdb/DriveSchedule.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_driveschedule"
+      },
+      "metadata": {
+        "tags": [
+          "drive-cycle"
+        ],
+        "note": "DriveSchedule, the national table: 49 rows, which is every row the execution-database copy held too -- MOVES copies this one whole.",
+        "esio_format": "parquet"
+      }
+    },
+    "tw_driveschedulesecond": {
+      "kind": "static",
+      "source": {
+        "url_template": "./movesdb/DriveScheduleSecond.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_driveschedulesecond"
+      },
+      "metadata": {
+        "tags": [
+          "drive-cycle"
+        ],
+        "note": "DriveScheduleSecond, the national table: 63,602 rows, which is every row the execution-database copy held too -- MOVES copies this one whole.",
+        "esio_format": "parquet"
+      }
+    },
+    "tw_operatingmode": {
+      "kind": "static",
+      "source": {
+        "url_template": "./movesdb/OperatingMode.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_operatingmode"
+      },
+      "metadata": {
+        "tags": [
+          "drive-cycle"
+        ],
+        "note": "OperatingMode, the national table: 60 rows, which is every row the execution-database copy held too -- MOVES copies this one whole.",
+        "esio_format": "parquet"
+      }
+    },
+    "tw_samplevehiclepopulation": {
+      "kind": "static",
+      "source": {
+        "url_template": "./movesdb/sampleVehiclePopulation.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_samplevehiclepopulation"
+      },
+      "metadata": {
+        "tags": [
+          "cohorts"
+        ],
+        "note": "sampleVehiclePopulation, the national table: 16,428 rows against the 6,068 the execution-database copy held. What the run selects from it is in the joins.",
+        "esio_format": "parquet"
+      }
+    },
+    "tw_pollutantprocessmodelyear": {
+      "kind": "static",
+      "source": {
+        "url_template": "./movesdb/PollutantProcessModelYear.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_pollutantprocessmodelyear"
+      },
+      "metadata": {
+        "tags": [
+          "cohorts"
+        ],
+        "note": "PollutantProcessModelYear, the national table: 15,651 rows against the 222 the execution-database copy held. What the run selects from it is in the joins.",
+        "esio_format": "parquet"
+      }
+    },
+    "tw_modelyeargroup": {
+      "kind": "static",
+      "source": {
+        "url_template": "./movesdb/ModelYearGroup.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_modelyeargroup"
+      },
+      "metadata": {
+        "tags": [
+          "cohorts"
+        ],
+        "note": "ModelYearGroup, the national table: 192 rows, which is every row the execution-database copy held too -- MOVES copies this one whole.",
+        "esio_format": "parquet"
+      }
+    },
+    "tw_fuelusagefraction": {
+      "kind": "static",
+      "source": {
+        "url_template": "./movesdb/fuelUsageFraction.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_fuelusagefraction"
+      },
+      "metadata": {
+        "tags": [
+          "cohorts"
+        ],
+        "note": "fuelUsageFraction, the national table: 1,424,430 rows against the 5 the execution-database copy held. What the run selects from it is in the joins.",
+        "esio_format": "parquet"
+      }
+    },
+    "tw_agecategory": {
+      "kind": "static",
+      "source": {
+        "url_template": "./movesdb/AgeCategory.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_agecategory"
+      },
+      "metadata": {
+        "tags": [
+          "cohorts",
+          "shape"
+        ],
+        "note": "AgeCategory, the national table: 41 rows, which is every row the execution-database copy held too -- MOVES copies this one whole.",
+        "esio_format": "parquet"
+      }
+    },
+    "tw_emissionrate": {
+      "kind": "static",
+      "source": {
+        "url_template": "./movesdb/EmissionRate.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_emissionrate"
+      },
+      "metadata": {
+        "tags": [
+          "rates"
+        ],
+        "note": "EmissionRate, the national table: 105,449 rows against the 57,567 the execution-database copy held. What the run selects from it is in the joins.",
+        "esio_format": "parquet"
+      }
+    },
+    "tw_fleetavgadjustment": {
+      "kind": "static",
+      "source": {
+        "url_template": "./movesdb/FleetAvgAdjustment.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_fleetavgadjustment"
+      },
+      "metadata": {
+        "tags": [
+          "rates"
+        ],
+        "note": "FleetAvgAdjustment, the national table: 47 rows against the 11 the execution-database copy held. What the run selects from it is in the joins.",
+        "esio_format": "parquet"
+      }
+    },
+    "tw_regulatoryclass": {
+      "kind": "static",
+      "source": {
+        "url_template": "./movesdb/RegulatoryClass.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_regulatoryclass"
+      },
+      "metadata": {
+        "tags": [
+          "rates"
+        ],
+        "note": "RegulatoryClass, the national table: 10 rows, which is every row the execution-database copy held too -- MOVES copies this one whole.",
+        "esio_format": "parquet"
+      }
+    },
+    "tw_fullacadjustment": {
+      "kind": "static",
+      "source": {
+        "url_template": "./movesdb/FullACAdjustment.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_fullacadjustment"
+      },
+      "metadata": {
+        "tags": [
+          "adjustment"
+        ],
+        "note": "FullACAdjustment, the national table: 1,116 rows against the 23 the execution-database copy held. What the run selects from it is in the joins.",
+        "esio_format": "parquet"
+      }
+    },
+    "tw_monthgrouphour": {
+      "kind": "static",
+      "source": {
+        "url_template": "./movesdb/MonthGroupHour.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_monthgrouphour"
+      },
+      "metadata": {
+        "tags": [
+          "adjustment"
+        ],
+        "note": "MonthGroupHour, the national table: 288 rows against the 1 the execution-database copy held. What the run selects from it is in the joins.",
+        "esio_format": "parquet"
+      }
+    },
+    "tw_zonemonthhour": {
+      "kind": "static",
+      "source": {
+        "url_template": "./movesdb/ZoneMonthHour.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_zonemonthhour"
+      },
+      "metadata": {
+        "tags": [
+          "adjustment"
+        ],
+        "note": "ZoneMonthHour, the national table: 930,816 rows against the 24 the execution-database copy held. What the run selects from it is in the joins.",
+        "esio_format": "parquet"
+      }
+    },
+    "tw_sourcetypemodelyear": {
+      "kind": "static",
+      "source": {
+        "url_template": "./movesdb/SourceTypeModelYear.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_sourcetypemodelyear"
+      },
+      "metadata": {
+        "tags": [
+          "adjustment"
+        ],
+        "note": "SourceTypeModelYear, the national table: 1,443 rows against the 533 the execution-database copy held. What the run selects from it is in the joins.",
+        "esio_format": "parquet"
+      }
+    },
+    "tw_temperatureadjustment": {
+      "kind": "static",
+      "source": {
+        "url_template": "./movesdb/TemperatureAdjustment.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_temperatureadjustment"
+      },
+      "metadata": {
+        "tags": [
+          "adjustment"
+        ],
+        "note": "TemperatureAdjustment, the national table: 16 rows against the 1 the execution-database copy held. What the run selects from it is in the joins.",
+        "esio_format": "parquet"
+      }
+    },
+    "tw_evefficiency": {
+      "kind": "static",
+      "source": {
+        "url_template": "./movesdb/evefficiency.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_evefficiency"
+      },
+      "metadata": {
+        "tags": [
+          "adjustment"
+        ],
+        "note": "evefficiency, the national table: 245 rows against the 7 the execution-database copy held. What the run selects from it is in the joins.",
+        "esio_format": "parquet"
+      }
+    },
+    "tw_hourday": {
+      "kind": "static",
+      "source": {
+        "url_template": "./movesdb/HourDay.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_hourday"
+      },
+      "metadata": {
+        "tags": [
+          "output"
+        ],
+        "note": "HourDay, the national table: 48 rows against the 24 the execution-database copy held. What the run selects from it is in the joins.",
+        "esio_format": "parquet"
+      }
+    },
+    "tw_dayofanyweek": {
+      "kind": "static",
+      "source": {
+        "url_template": "./movesdb/DayOfAnyWeek.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_dayofanyweek"
+      },
+      "metadata": {
+        "tags": [
+          "output"
+        ],
+        "note": "DayOfAnyWeek, the national table: 2 rows against the 1 the execution-database copy held. What the run selects from it is in the joins.",
+        "esio_format": "parquet"
+      }
+    },
+    "tw_pm10emissionratio": {
+      "kind": "static",
+      "source": {
+        "url_template": "./movesdb/PM10EmissionRatio.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_pm10emissionratio"
+      },
+      "metadata": {
+        "tags": [
+          "chain"
+        ],
+        "note": "PM10EmissionRatio, the national table: 530 rows against the 4 the execution-database copy held. What the run selects from it is in the joins.",
+        "esio_format": "parquet"
+      }
+    },
+    "tw_sourceusetypephysics": {
+      "kind": "static",
+      "source": {
+        "url_template": "./movesdb/sourceUseTypePhysics.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_sourceusetypephysics"
+      },
+      "metadata": {
+        "tags": [
+          "drive-cycle"
+        ],
+        "note": "sourceUseTypePhysics, the national table: 178 rows against the 1 the execution-database copy held. What the run selects from it is in the joins.",
+        "esio_format": "parquet"
+      }
+    }
+  },
+  "models": {
+    "ProcessTirewear": {
+      "ref": "./spikes/7c/tirewear_logic.esm"
+    }
+  }
+}

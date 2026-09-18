@@ -5766,3 +5766,118 @@ So the honest reading of 11 → 17 is: one real gain, three upstream mount-edge
 silences, one inline-data silence, and two upstream filter silences — and the
 eleven that were silent before are still silent for the reasons §57.8 gives,
 less `out_emissionQuant`.
+
+## 59. An execution database is the default database already cut to the run, so a document written against one leaves its selections unsaid **[PLAN.md step 7c′; 38 tables, 36 drop-ins, 1 defect, 2 generators]**
+
+Every fixture in this repository reads a `moves.rs` snapshot of a MOVES
+EXECUTION database: the tables MOVES copied out of the default database for one
+run, already filtered to that run's county, year, month, hour, day, source
+types, road types and pollutant-processes. That is a convenience with a cost,
+and 7c′ is what it cost.
+
+**The cost is that a selection can be absent and nothing says so.** The document
+still gets the right number, because the file has one row. Point the same
+document at the national table and the sum it was writing becomes a sum.
+
+`spikes/7c/tirewear_logic.esm` had exactly one of these, and it took the shape
+you would expect — the cheapest thing to write:
+
+```json
+{ "op": "faq", "semiring": "sum_product", "output_idx": ["k"],
+  "ranges": { "k": { "from": "run_rows" }, "l": { "from": "link_rows" } },
+  "expr": { "op": "index", "args": ["lnk_countyID", "l"] } }
+```
+
+Σ over `link`, which is correct precisely while `link` has one row. The default
+database's `Link` has 22,610, and this reads county **710047702** and state
+**710047** — Σ countyID over all 22,610 link rows, over 3,230 distinct
+counties, divided by 1000 for the state. Nine digits where a county has five,
+and no row of any table has ever held it. The
+repair is a `join.on` against the runspec's county and road type, which is what
+§3 has asked for all along; what was missing was any reason to notice.
+
+### 59.1 The measurement that scopes the problem, and it is small
+
+Repoint ONE `url_template` at the national file, re-emit the fixture's 375 rows,
+compare bytes. Then all of them at once.
+
+| | tables | verdict |
+|---|---|---|
+| in both databases, swapped one at a time | 37 | **36 byte-identical**, `link` the exception |
+| in both, swapped together | 37 | byte-identical |
+| plus `sourceUseTypePhysics` (see below) | 38 | byte-identical, 40 s |
+| not in the default database at all | 11 | ten runspec selections and the expected output — the fixture's, not the domain's |
+
+So the joins were already doing the narrowing in 36 places out of 37. **This is
+the equi-join gate collecting its dividend** (PLAN.md §1.3 and §7.3): reading
+nationally and joining is not a tolerated cost, it is the design, and the one
+place it failed is the one place the document had not written a join.
+
+### 59.2 A table MOVES synthesises is not a table to acquire
+
+Two of the eleven absent tables were not runspec selections. Neither needed a
+workaround, and the rule they share is worth stating: **when the default
+database does not ship a table, find out what MOVES builds it FROM, because the
+answer is usually a table it does ship and an equation this port can write.**
+
+* `sourceUseTypePhysicsMapping` is `sourceUseTypePhysics` with `sourceTypeID`
+  renamed and two columns added that this document never reads
+  (`moves.rs default_db_setup.rs::populate_source_use_type_physics_mapping`).
+  Cost of reading the real table instead: one `file_variable`.
+* `evSalesFraction` is `evsales / sales` over the age-0 slice of four tables the
+  document already ingests. Cost: three equations, and it reproduces the
+  snapshot's 115 rows exactly from either database.
+
+The alternative — generating those two tables into Parquet beside the database —
+would have put model logic in a script, which is what CLAUDE.md forbids. It would also have been more work.
+
+### 59.3 Write the join the SQL has, then factor it
+
+`evSalesFraction`'s generator is one statement over four tables, and the first
+translation was one `faq` over six ranges. **It did not finish in three
+minutes.** Factoring the per-sample-vehicle weight into its own variable —
+
+```
+svp_salesWeight[v]   = Σ_{sty, stad}  population × age-0 fraction × stmyFraction
+coh_salesAllFuels[c] = Σ_{svp, rc}    svp_salesWeight[v]
+```
+
+— replaces one six-range join with two four-range ones and costs **0.3 s**. The
+factored form is also the better document: `svp_salesWeight` is a quantity with
+a name and one definition, where the six-range form repeated the same product
+three times (all fuels, electric, presence).
+
+The rule is not "faq is slow at six ranges". It is that a join whose driving
+relation is 6,068 rows and whose other four are 33,579, 819, 164 and 10 has a
+plan, and an intermediate that pins the plan is worth one variable.
+
+### 59.4 The runspec belongs to the fixture, and the format leaves no choice
+
+`moves-onroad.esm` declares 38 tables and mounts the logic. It **does not load
+alone**: it names ten runspec sources it does not declare, so `esm validate`
+refuses it the way it refuses the 7c logic half, and `run-tests.sh` asserts that
+refusal two-sided.
+
+A domain document COULD have shipped a default runspec — except that it could
+never then be replaced. `SubsystemRef` carries `bindings`, `model`,
+`index_set_rename` and `expression_template_imports` and nothing else (§54), and
+a child's `data_sources` merge UP (§49); **there is no channel for a mounting
+document to override a mounted one's `data_sources`**. A default runspec would
+be a permanent one. So the runspec is the per-fixture document's, which is where
+§7.1 wanted the configuration anyway — the format and the plan agree here, and
+it is worth recording that the agreement is not a coincidence of taste.
+
+### 59.5 What is still snapshot-shaped, and why it is not a workaround
+
+The ten runspec selections are read from the snapshot's own `runspec*` Parquet
+rather than written in the document as numbers. The logic INGESTS them
+(`update.kind: "data"`), which is what sizes the axes they are the extent of,
+and an ingesting document holds exactly one model (F45) — so a per-fixture
+document has nowhere to put an equation stating them inline. Stating a runspec
+in the document means expressing those selections as metaparameters instead,
+which changes how eleven variables are declared and is a separate pass.
+
+Until then the honest description is: **the data comes from the default
+database, and the RUNSPEC comes from the snapshot.** The first is what 7c′
+claimed and measured; the second is what it did not.
+

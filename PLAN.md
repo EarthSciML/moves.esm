@@ -1400,8 +1400,15 @@ way and counted what the per-fixture document has to carry (conventions §53.2):
 and **12** after PR #353 fixed F13 and the enum union went. That is
 `spikes/7c/tirewear_fixture.esm` — metadata and one `{ref}` — which mounts a
 catalogue document that mounts the logic, and emits the fixture's 375 rows byte
-for byte. What it does not do yet is configure anything; it mounts the process
-snapshot, which is §7.5's step 7c′.
+for byte. It configures nothing, because it mounts a snapshot of one run and there
+is nothing left to configure.
+
+**7c′ is what a per-fixture document looks like when there IS.**
+`spikes/7c/tirewear_default_db_fixture.esm` mounts `moves-onroad.esm` — 38
+default-database tables and the same logic — and carries the ten runspec
+selections and the expected output, which is every line of the difference.
+Thin is not a line count; it is the rule that a per-fixture document holds
+selections and nothing mechanical. §7.3.3 has what it measured.
 
 **Two shape constraints, both measured in 7a and neither of them optional.**
 An ingesting document holds exactly **one** model (F45), and that model is the
@@ -1645,6 +1652,74 @@ suite checks at once. All 89 documents now declare 1.1.0 and spell the node
 `faq` (3382 nodes, a rename and nothing else), and `tools/check-conventions.py`
 refuses the alias.
 
+### 7.3.3 7c′, done 2026-09-17: the same 375 rows out of the default database
+
+`spikes/7c/tirewear_default_db_fixture.esm` → `moves-onroad.esm` →
+`spikes/7c/tirewear_logic.esm`. **Byte-identical to the inlined fixture's 375
+rows over 26 fields**, from the monolithic conversion of §7.3.1 rather than from
+the run's execution-database snapshot. 40 s, against 3 s for the snapshot-fed
+chain, and the difference is almost entirely one table: `fuelUsageFraction` is
+1,424,430 uncompressed rows of which the run keeps 5.
+
+**The premise held, and it is the one §7.3 bet the layout on.** Every table is
+read NATIONALLY and narrowed by the joins. Measured one table at a time —
+repoint one `url_template` at the national file, re-emit, compare — **36 of the
+37 that exist in both databases are byte-identical drop-ins**, and all 38
+together (the 37 plus `sourceUseTypePhysics`) give the same bytes.
+
+**One table was not, and it is the interesting one.** An execution database is
+the default database already cut to the run, so a document written against one
+can leave its selections unsaid. `link` did: the execution copy has ONE row, so
+the four run-level geography columns *summed* it, and summing a one-row table is
+the same as reading it. The national `Link` has 22,610 rows and the sum reads
+county 710047702 — Σ countyID over every link row — with the state column at a
+thousandth of it. Nine digits where a county has five. The fix is to say the selection — county × road type, both
+already in the runspec — and it cost one data source (`runspeccounty`), one
+variable and four `join.on` clauses. `run-tests.sh`'s 7c′ stage deletes that
+join and requires the numbers to move.
+
+**Two tables the default database does not ship, because MOVES builds them at
+execution time. Both are gone rather than worked around.**
+
+* `sourceUseTypePhysicsMapping` is `sourceUseTypePhysics` with `sourceTypeID`
+  renamed to `realSourceTypeID` and two columns added that this document never
+  reads. It reads the real table now: one `file_variable`, and the snapshot
+  ships that table too, so both configurations read the same thing.
+* `evSalesFraction` is a real computation — `evFraction[modelYear,
+  fleetAvgGroup] = evsales / sales` over the age-0 slice of `SourceTypeYear ⋈
+  SourceTypeAgeDistribution ⋈ SampleVehiclePopulation ⋈ RegulatoryClass`, the
+  numerator restricted to fuelType 9. All four tables were already ingested, so
+  the table became three equations: `svp_salesWeight` (one row's age-0 sales),
+  `coh_salesAllFuels`, `coh_salesElectric`, plus a presence flag. It reproduces
+  the snapshot's 115 rows exactly from either database.
+
+  **Written first as the single six-range join the SQL is, and that did not
+  finish in three minutes.** Factoring the per-sample-vehicle weight out —
+  two four-range joins instead of one six-range one — costs 0.3 s. The
+  intermediate is also the better document: a named quantity computed once
+  rather than a subexpression repeated three times.
+
+**What the split says.** `moves-onroad.esm` holds the domain (tables + logic)
+and **does not load alone**: it names ten runspec sources it does not declare.
+That is not an oversight and cannot be fixed by shipping a default runspec,
+because a `SubsystemRef` carries `bindings`, `model`, `index_set_rename` and
+`expression_template_imports` and nothing else — **there is no channel for a
+mounting document to override a mounted one's `data_sources`**, so a default
+would be unreplaceable. The runspec is therefore the fixture's. The suite
+asserts the refusal two-sided, the way it does for the 7c logic half.
+
+**`./movesdb/` is an untracked symlink** to the §7.3.1 conversion, gitignored
+beside `./esm` for the same reason: 517 MB of derived data is not source. The
+stage skips when it is absent.
+
+**What it does not yet do.** It is one process and one runspec. The runspec is
+read from the snapshot's own `runspec*` tables rather than written in the
+document, because the logic INGESTS those selections — which is what sizes the
+axes they are the extent of — and an ingesting document holds one model (F45),
+so there is nowhere in a per-fixture document to state them inline. A runspec
+expressed as metaparameters instead would remove the last snapshot dependency;
+that is a 7d question and it is not a blocker for 7d.
+
 ### 7.4 Upstream asks
 
 **None is blocking.** This section has said "still none", "already exists,
@@ -1710,7 +1785,7 @@ This repository writes `leaf-owns-shape`, which does not depend on the answer.
 | **7a** ✅ | The spike: one ref'd, data-fed model evaluating end to end against a real table — **GO, 2026-09-10**; re-shaped to `leaf-owns-shape` 2026-09-12 with §7.3.2 | met; three corrections folded into §7.1–§7.3 |
 | **7b** ✅ | Full-database monolithic conversion — **done 2026-09-10**: 237 monolithic + 3 schema-only, 0 partition directories, 517 MB, 15.6 s, validator extended and all 7 planted corruptions red (§7.3.1) | met; the load cost is measured and does not dictate the layout |
 | **7c** ✅ | The mount shape at fixture scale — **done 2026-09-10, re-shaped to conform 2026-09-12, thin 2026-09-15** (§7.3.2): `fixtures/process-tirewear.esm` split into a logic half, a catalogue document that mounts it, and a 43-line per-fixture document that mounts the catalogue, byte-identical over 375 rows × 26 fields. Four findings retired (F46, F48, F49, F50), one open (F51) | met; the per-fixture document is 12 lines — metadata and one `{ref}`, nothing mechanical (conventions §53.2) |
-| **7c′** | `moves-onroad.esm`: default DB → `MOVESOutput` for `process-tirewear`, reading the monolithic database of §7.3 rather than the process snapshot, behind a per-fixture document of the shape `spikes/7c/tirewear_fixture.esm` already has | first end-to-end number |
+| **7c′** ✅ | `moves-onroad.esm`: default DB → `MOVESOutput` for `process-tirewear` — **done 2026-09-17** (§7.3.3): 38 national tables and the same logic, behind a per-fixture document carrying ten runspec selections, emitting the inlined fixture's 375 rows byte for byte in 40 s | met; the first end-to-end number comes off the default database |
 | **7d** | Widen the runspec surface one selection dimension at a time — pollutant-process, source type, road type, timespan, geography | each dimension added only with a fixture that **discriminates** it (§23) |
 | **7e** | `moves-nonroad.esm`, same shape | 12 `nr-*` fixtures |
 | **7f** | The five fixtures needing a second input database (four `-single` on `washtenaw_cdb`, `scale-project` on the project DB) | last, because they are the only ones whose model input is not the default DB |

@@ -34,6 +34,8 @@ The binary itself, `./esm`, is deliberately untracked.
 | `components/` | One `.esm` per calculator. Tables stay tables; joins are `join.on`; literals come from `enums`. |
 | `runs/` | Run-level assemblies that mount components. |
 | `fixtures/` | The documents that read the snapshot Parquet and are compared against its `MOVESOutput`. One per snapshot; each declares the tables it reads as `data_sources`. |
+| `moves-onroad.esm` | The onroad DOMAIN document (PLAN.md §7.3.3): the 38 default-database tables the tire-wear chain reads, mounting the logic. It declares no runspec and so does not validate alone — the per-fixture document that mounts it supplies one. Its `./movesdb/` is an untracked symlink to the monolithic conversion, gitignored beside `./esm`. |
+| `spikes/` | Phase 7's shape experiments, excluded from the document stages because several are deliberately data-open. `7c/` holds the tire-wear logic both catalogues mount, the snapshot catalogue, the 12-line per-fixture document, and the default-database fixture. |
 | `gates/` | Performance gates, currently the `join.on` scaling assertion. |
 | `docs/` | The two port specifications, the conventions doc, and the findings. |
 | `tools/` | `check-conventions.py`, which enforces mechanically what a review would otherwise have to eyeball; `check-sources.py`, which opens every declared Parquet file and checks the columns; `shortfall.py`, which judges a fixture's failure against what `tolerance.toml` says to expect; `cross-check-chain.py`, which compares the mounted assembly's rows against the fixture's in ulps. |

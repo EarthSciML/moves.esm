@@ -124,9 +124,17 @@ COVERAGE_DAG=../moves.rs/characterization/calculator-chains/calculator-dag.json
 # which is the harness reporting on its own bookkeeping rather than on the
 # repo. Observed: a concurrent `fixtures/.abs.esm` / `.rel.esm` pair did exactly
 # that. Hidden files are not part of the document set.
+# `moves-onroad.esm` is excluded for the reason `spikes/` is: it is DATA-OPEN.
+# It declares the default database's 38 tables and mounts the logic, and it
+# names ten runspec sources it does not declare, because the runspec is the
+# per-fixture document's and there is no channel for a mounting document to
+# override a mounted one's `data_sources`. `esm validate` on it therefore fails,
+# and that refusal is a CHECK rather than a problem -- the 7c' stage asserts it
+# two-sided, the way the 7c stage asserts the logic half's.
 mapfile -t DOCS < <(find . -name '*.esm' -not -name '.*' \
   -not -path './.moves/*' -not -path './target/*' -not -path './docs/findings/*' \
   -not -path './.fixtures-run/*' -not -path './spikes/*' \
+  -not -path './moves-onroad.esm' \
   | sort)
 
 if [[ ${#DOCS[@]} -eq 0 ]]; then
@@ -1161,6 +1169,107 @@ PYEOF
     fail "bindings probe — could not write it"
   fi
   rm -f "$C7_P4"
+fi
+
+# --- the default database at fixture scale (7c') ----------------------------
+#
+# PLAN.md step 7c'. The same 375 rows as the fixture stage emitted, computed
+# from the MONOLITHIC DEFAULT DATABASE (§7.3.1) rather than from the run's own
+# execution-database snapshot, through two mount edges:
+#
+#   spikes/7c/tirewear_default_db_fixture.esm   ten runspec selections + oracle
+#     -> moves-onroad.esm                       38 national tables + the mount
+#       -> spikes/7c/tirewear_logic.esm         the logic, shared with 7c
+#
+# WHAT IT IS CHECKING is not the plumbing -- 7c already checks that a three
+# document chain emits the fixture's bytes. It is that the MODEL says its
+# selections out loud. An execution database is the default database already
+# cut to the run, so every table arrives pre-narrowed and a document can read a
+# column where it meant to join. Three places did: `link` (summed, because the
+# execution copy has one row), `sourceUseTypePhysicsMapping` (a renamed column
+# of a table the default DB does ship), and `evSalesFraction` (computed by
+# MOVES at execution time from four tables this document already ingests, and
+# computed HERE now). The 35 others were measured one at a time against the
+# national file and are byte-identical drop-ins.
+#
+# It costs about 40 seconds, nearly all of it reading fuelUsageFraction:
+# 1,424,430 rows uncompressed, of which the run keeps 5.
+head2 "the default database at fixture scale (7c')"
+C7P_FIXTURE=spikes/7c/tirewear_default_db_fixture.esm
+C7P_DOMAIN=moves-onroad.esm
+if [[ ! -f "$C7P_FIXTURE" ]]; then
+  say "  none"
+elif [[ ! -d movesdb ]]; then
+  skip "7c' default database" "no ./movesdb (symlink the §7.3.1 conversion there)"
+elif [[ ! -f "$C7_BASE" ]]; then
+  skip "7c' default database" "the fixture stage produced no $C7_BASE to compare against"
+elif [[ ${#c7_obs[@]} -eq 0 ]]; then
+  # `c7_obs` is the emitted field list, built by the 7c stage from the logic
+  # half's own `out_*` variables. If that stage skipped, the list is empty and
+  # `simulate` would emit NOTHING and compare it against 375 rows -- a failure
+  # that would read as a wrong number rather than as a missing prerequisite.
+  skip "7c' default database" "the 7c stage built no emitted-field list"
+else
+  # 1. The data-open control, two-sided like 7c's. The domain document must NOT
+  #    load alone, and must fail for its missing runspec rather than for
+  #    anything else -- a domain document that had quietly acquired a runspec
+  #    would still emit the right numbers here and would have stopped being a
+  #    domain document.
+  if out=$("$ESM" validate "$C7P_DOMAIN" 2>&1); then
+    fail "7c' data-open control — $C7P_DOMAIN now validates ALONE. It has acquired a runspec, and the per-fixture document below stops being what configures it"
+  elif grep -q "names data source 'tw_runspec" <<<"$out"; then
+    pass "7c' — the domain document is data-open: it declares no runspec"
+  else
+    fail "7c' data-open control — $C7P_DOMAIN was refused, but not for its missing runspec sources"
+    sed 's/^/       /' <<<"$out" | tail -3
+  fi
+
+  if "$ESM" validate "$C7P_FIXTURE" >/dev/null 2>&1 \
+     && "$ESM" round-trip "$C7P_FIXTURE" >/dev/null 2>&1; then
+    pass "7c' — the per-fixture document validates and round-trips"
+  else
+    fail "7c' — the per-fixture document does not validate, or does not round-trip"
+  fi
+
+  # 2. The number. Byte-for-byte against the inlined fixture's own output from
+  #    THIS run, which is the same comparison the 7c stage makes and the only
+  #    one that means anything: two documents, two databases, one relation.
+  C7P_CSV="$RUNDIR/tirewear-7cprime.emitted.csv"
+  if out=$("$ESM" simulate "$C7P_FIXTURE" --time 0 --format csv \
+             "${c7_obs[@]}" --output "$C7P_CSV" 2>&1); then
+    if cmp -s "$C7_BASE" "$C7P_CSV"; then
+      pass "7c' — the default database reproduces the inlined fixture's relation byte for byte"
+      say "       $(( $(wc -l < "$C7P_CSV") - 1 )) rows from 38 national tables, no execution database"
+    else
+      fail "7c' — it evaluates from the default database, but not to the fixture's numbers"
+      diff -u "$C7_BASE" "$C7P_CSV" | sed 's/^/       /' | head -12
+    fi
+  else
+    fail "7c' — the default-database chain does not evaluate"
+    sed 's/^/       /' <<<"$out" | tail -5
+  fi
+
+  # 3. The link selection, one-sided. Deleting the county join makes the four
+  #    run-level geography columns sum a national table again, which is the
+  #    defect 7c' existed to fix; if this probe ever passes, the joins have
+  #    stopped being what narrows them.
+  C7P_PROBE=spikes/7c/.p7prime_nolinkjoin.esm
+  # It writes three files -- the chain is three documents -- and prints the two
+  # it did not take as an argument, so they are removed with it.
+  if C7P_EXTRA=$("$PYTHON" tools/make-7cprime-probe.py "$C7P_PROBE" 2>/dev/null); then
+    if "$ESM" simulate "$C7P_PROBE" --time 0 --format csv "${c7_obs[@]}" \
+         --output "$RUNDIR/tirewear-7cprime.nolinkjoin.csv" >/dev/null 2>&1 \
+       && cmp -s "$C7_BASE" "$RUNDIR/tirewear-7cprime.nolinkjoin.csv"; then
+      fail "7c' link-join probe — dropping the county/road-type join changed NOTHING. The national Link is no longer what these columns read, or the probe no longer removes the join"
+    else
+      pass "7c' — the county/road-type join is what selects the link: removing it moves the numbers"
+    fi
+    rm -f "$RUNDIR/tirewear-7cprime.nolinkjoin.csv"
+  else
+    fail "7c' link-join probe — could not write it"
+  fi
+  # shellcheck disable=SC2086 -- two newline-separated paths, neither with spaces
+  rm -f "$C7P_PROBE" $C7P_EXTRA
 fi
 
 # --- the two chains agree ---------------------------------------------------
