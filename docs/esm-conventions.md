@@ -5007,7 +5007,7 @@ edited in place is not re-read.)
 
 §49–§52 measured the mount edge on 2 tables and 8 variables. `spikes/7c/` is the
 same shape carrying a real fixture: `fixtures/process-tirewear.esm` split into
-`tirewear_logic.esm` (49 → 0 `data_sources`, 411 variables, 245 equations, 49
+`onroad/model.esm` (49 → 0 `data_sources`, 411 variables, 245 equations, 49
 metaparameters, 53 index sets, 6 enums, all eleven `tests` blocks) and
 `tirewear_mount.esm` (49 `data_sources`, the same 6 enums, one `{ref}`, and —
 until PR #317 — the same 49 metaparameters), itself mounted since 2026-09-15 by
@@ -5091,7 +5091,7 @@ The first three rows moved the `data_sources` catalogue into the shared document
 — the layout PLAN.md §7.1 wants, and the one §7.3's monolithic conversion makes
 identical for every fixture. The fourth puts the catalogue in a middle document
 instead, so the chain is fixture → `tirewear_mount.esm` (the data) →
-`tirewear_logic.esm` (the logic and its shape). Both layouts were measured at
+`onroad/model.esm` (the logic and its shape). Both layouts were measured at
 `58d21a1a1`, with and without the enum block, and all four variants emit the
 same 375 rows byte for byte. The three-document one is committed because it
 keeps the logic half data-open, which is the 7c stage's control.
@@ -5368,7 +5368,7 @@ constant is accepted, but a 1.1.0 root that *mounts* such a document is refused
 (`const_units_version_too_old`), because the assembly is re-validated under the
 root's version — the rule the `faq` rename met at `fdd32f1`. So every model
 document declares 1.2.0. `spikes/7c` moved with them — all three of
-`tirewear_logic.esm`, `tirewear_mount.esm` and `tirewear_fixture.esm` together,
+`onroad/model.esm`, `tirewear_mount.esm` and `tirewear_fixture.esm` together,
 because the logic half expands `heat_index`, which now carries three unit-bearing
 `const`s, and a 1.1.0 root over it is refused. `docs/findings/` stays at 1.1.0;
 nothing there expands a unit-bearing constant.
@@ -5483,7 +5483,7 @@ backward difference of two schedule seconds in the repository now goes through
 that template: the three `At` differences and the VSP acceleration in the
 component, and `*_acceleration`, `*_priorAcceleration`, `*_prior2Acceleration` and
 `*_accelerationMs` in each of the ten onroad fixtures and in
-`spikes/7c/tirewear_logic.esm`. Dividing by exactly 1 is exact in binary64 for
+`onroad/model.esm`. Dividing by exactly 1 is exact in binary64 for
 every finite value, for an infinity, for a NaN and for a negative zero, so the
 suite's log is identical but for two timing lines — the same cost rule 8 measured.
 
@@ -5564,7 +5564,7 @@ consumer, rule 3); `met_relHumidity` (entering a boundary, rule 8's cost); and
 `out_emissionQuant` and `chainEmissionGrams`, which are `short_tons_per_gram`'s
 row in rule 6's table and are all that is left of it. The sweep reads
 `components`, `lib`, `runs` and `fixtures` and not `spikes`, so
-`spikes/7c/tirewear_logic.esm`'s 25 declarations are typed but not swept; they are
+`onroad/model.esm`'s 25 declarations are typed but not swept; they are
 the same 25 the fixtures carry.
 
 ## 58. The NONROAD emission chain is a MASS, and what stopped it from being one was a sentence that had been false for a week **[EarthSciAST `c31ea106d`; 33 declarations, 5 annotated `const`s, one boundary, two upstream gaps]**
@@ -5779,7 +5779,7 @@ and 7c′ is what it cost.
 still gets the right number, because the file has one row. Point the same
 document at the national table and the sum it was writing becomes a sum.
 
-`spikes/7c/tirewear_logic.esm` had exactly one of these, and it took the shape
+`onroad/model.esm` had exactly one of these, and it took the shape
 you would expect — the cheapest thing to write:
 
 ```json

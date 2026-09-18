@@ -2,7 +2,7 @@
 """Write the transient probe documents run-tests.sh's 7c stage needs.
 
 Each probe is a mechanical edit of `spikes/7c/tirewear_mount.esm` or
-`spikes/7c/tirewear_logic.esm`, written to a hidden file that the stage deletes
+`onroad/model.esm`, written to a hidden file that the stage deletes
 after running it. They are generated rather than checked in for the reason
 `tools/make-index-set-probe.py` gives: a probe is defined by its DIFFERENCE
 from the real document, and a checked-in copy would drift away from the thing
@@ -51,7 +51,7 @@ import os
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-LOGIC = os.path.join(ROOT, "spikes", "7c", "tirewear_logic.esm")
+LOGIC = os.path.join(ROOT, "onroad", "model.esm")
 MOUNT = os.path.join(ROOT, "spikes", "7c", "tirewear_mount.esm")
 
 
@@ -82,18 +82,23 @@ def main(which, out_path):
         names = extent_names(mount)
         mount["metaparameters"] = {n: logic["metaparameters"][n] for n in names}
         del logic["metaparameters"]
-        child_path = out_path.replace(".esm", "_child.esm")
+        # The child is a copy of the LOGIC, so it goes where the logic lives:
+        # its `expression_template_imports` are relative to `onroad/`, and a
+        # copy one directory deeper would be refused for the wrong reason.
+        child_path = os.path.join(
+            ROOT, "onroad",
+            "." + os.path.basename(out_path).lstrip(".").replace(".esm", "_child.esm"))
         json.dump(logic, open(child_path, "w"), indent=2)
-        mount["models"]["ProcessTirewear"] = {
-            "ref": "./" + os.path.basename(child_path),
+        mount["models"]["Onroad"] = {
+            "ref": "../../onroad/" + os.path.basename(child_path),
             "bindings": {n: n for n in names},
         }
 
     elif which == "rename":
         # Every axis lives in the LEAF, so the rename is read from there.
-        ren = {k: "tw_" + k for k in logic["index_sets"]}
-        mount["models"]["ProcessTirewear"] = {
-            "ref": "./tirewear_logic.esm", "index_set_rename": dict(ren),
+        ren = {k: "x_" + k for k in logic["index_sets"]}
+        mount["models"]["Onroad"] = {
+            "ref": "../../onroad/model.esm", "index_set_rename": dict(ren),
         }
 
     elif which == "counts":
@@ -115,8 +120,8 @@ def main(which, out_path):
         for entry in mount["data_sources"].values():
             if "extent" in entry:
                 entry["extent"]["metaparameter"] = ren[entry["extent"]["metaparameter"]]
-        mount["models"]["ProcessTirewear"] = {
-            "ref": "./tirewear_logic.esm",
+        mount["models"]["Onroad"] = {
+            "ref": "../../onroad/model.esm",
             "bindings": {k: v for k, v in ren.items() if k != v},
         }
 

@@ -20,9 +20,9 @@ gives: a probe is defined by its DIFFERENCE from the real document.
 import json, os, sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-LOGIC = os.path.join(ROOT, "spikes", "7c", "tirewear_logic.esm")
+LOGIC = os.path.join(ROOT, "onroad", "model.esm")
 DOMAIN = os.path.join(ROOT, "moves-onroad.esm")
-FIXTURE = os.path.join(ROOT, "spikes", "7c", "tirewear_default_db_fixture.esm")
+FIXTURE = os.path.join(ROOT, "runspecs", "process-tirewear.esm")
 
 LINK_EQUATIONS = ("run_linkID", "run_countyID", "run_zoneID", "run_linkRoadTypeID")
 
@@ -33,7 +33,7 @@ def main(out_path):
     fixture = json.load(open(FIXTURE))
 
     dropped = 0
-    for eq in logic["models"]["ProcessTirewear"]["equations"]:
+    for eq in logic["models"]["Onroad"]["equations"]:
         if eq["lhs"] in LINK_EQUATIONS:
             rhs = eq["rhs"]
             assert rhs["join"][0]["on"][0] == ["lnk_countyID", "rsc_countyID"], eq["lhs"]
@@ -47,19 +47,22 @@ def main(out_path):
     # rsc_countyID is now read by nothing, and an ingesting document may not
     # declare a source no variable reads -- so the probe drops the variable too,
     # which is exactly the state this document was in before 7c'.
-    del logic["models"]["ProcessTirewear"]["variables"]["rsc_countyID"]
+    del logic["models"]["Onroad"]["variables"]["rsc_countyID"]
 
+    # Each of the three copies is written beside the document it copies, because
+    # every one of them carries relative paths: the model's template imports,
+    # the domain's `./movesdb/` and the per-fixture document's snapshot URLs.
     base = os.path.basename(out_path)
-    logic_path = os.path.join(ROOT, "spikes", "7c", "." + base.lstrip(".").replace(".esm", "_logic.esm"))
+    logic_path = os.path.join(ROOT, "onroad", "." + base.lstrip(".").replace(".esm", "_logic.esm"))
     domain_path = os.path.join(ROOT, "." + base.lstrip(".").replace(".esm", "_domain.esm"))
 
     json.dump(logic, open(logic_path, "w"), indent=2)
-    domain["models"]["ProcessTirewear"] = {
-        "ref": "./spikes/7c/" + os.path.basename(logic_path)}
+    domain["models"]["Onroad"] = {
+        "ref": "./onroad/" + os.path.basename(logic_path)}
     json.dump(domain, open(domain_path, "w"), indent=2)
-    del fixture["data_sources"]["tw_runspeccounty"]
-    fixture["models"]["ProcessTirewear"] = {
-        "ref": "../../" + os.path.basename(domain_path)}
+    del fixture["data_sources"]["db_runspeccounty"]
+    fixture["models"]["Onroad"] = {
+        "ref": "../" + os.path.basename(domain_path)}
     json.dump(fixture, open(out_path, "w"), indent=2)
     print(logic_path)
     print(domain_path)

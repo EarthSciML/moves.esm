@@ -124,16 +124,21 @@ COVERAGE_DAG=../moves.rs/characterization/calculator-chains/calculator-dag.json
 # which is the harness reporting on its own bookkeeping rather than on the
 # repo. Observed: a concurrent `fixtures/.abs.esm` / `.rel.esm` pair did exactly
 # that. Hidden files are not part of the document set.
-# `moves-onroad.esm` is excluded for the reason `spikes/` is: it is DATA-OPEN.
-# It declares the default database's 38 tables and mounts the logic, and it
-# names ten runspec sources it does not declare, because the runspec is the
-# per-fixture document's and there is no channel for a mounting document to
-# override a mounted one's `data_sources`. `esm validate` on it therefore fails,
-# and that refusal is a CHECK rather than a problem -- the 7c' stage asserts it
-# two-sided, the way the 7c stage asserts the logic half's.
+# `moves-onroad.esm` and `onroad/` are excluded for the reason `spikes/` is:
+# they are DATA-OPEN. `onroad/model.esm` is the onroad domain model and declares
+# no `data_sources` at all; `moves-onroad.esm` adds the default database's 39
+# tables and mounts it, and still names ten runspec sources it does not declare,
+# because the runspec is the per-fixture document's and there is no channel for
+# a mounting document to override a mounted one's `data_sources`. `esm validate`
+# on either therefore fails, and that refusal is a CHECK rather than a problem --
+# the 7c and 7c' stages assert both of them two-sided.
+#
+# `runspecs/` is NOT excluded: a per-fixture document is the complete chain and
+# validates alone, which is the whole point of the split.
 mapfile -t DOCS < <(find . -name '*.esm' -not -name '.*' \
   -not -path './.moves/*' -not -path './target/*' -not -path './docs/findings/*' \
   -not -path './.fixtures-run/*' -not -path './spikes/*' \
+  -not -path './onroad/*' \
   -not -path './moves-onroad.esm' \
   | sort)
 
@@ -943,12 +948,14 @@ fi
 # --- the Phase 7 mount shape at fixture scale (7c) --------------------------
 #
 # PLAN.md step 7c. 7a proved the mount shape on 2 tables and 8 variables; this
-# is the same shape carrying a REAL fixture -- 49 data_sources, 49
-# metaparameters, 53 index sets, 411 variables and 245 equations, split into
-# `spikes/7c/tirewear_logic.esm` (the logic, which owns the shape) and
+# is the same shape carrying a REAL fixture -- 50 data_sources, 51
+# metaparameters, 54 index sets, 425 variables and 259 equations, split into
+# `onroad/model.esm` (the onroad domain MODEL, which owns the shape) and
 # `spikes/7c/tirewear_mount.esm` (the configuration, which supplies the data).
+# The counts move as the model grows, which is why the pass lines below read
+# them off the documents instead of repeating them.
 #
-# WHAT MAKES IT A REGRESSION TEST AND NOT A DEMONSTRATION. The logic half is
+# WHAT MAKES IT A REGRESSION TEST AND NOT A DEMONSTRATION. The model began as
 # `fixtures/process-tirewear.esm`'s own text, so the assembly has an exact
 # expected result: the inlined fixture's relation, emitted by the stage above
 # in this same run. The two are compared byte for byte -- 375 rows over 26
@@ -965,8 +972,8 @@ fi
 # refuses that with `metaparameter_unbound`, and Python had been refusing it
 # with that diagnostic all along. So the split is now `leaf-owns-shape`:
 #
-#   the LOGIC half declares the 49 metaparameters and the 53 index sets;
-#   the MOUNT declares the 49 data_sources and nothing about shape.
+#   the MODEL declares the metaparameters and the index sets;
+#   the MOUNT declares the data_sources and nothing about shape.
 #
 # Measured at the transition, against `9dd36c7f6`: the mount's 250-line
 # `index_sets` block is gone, the emitted relation is byte-identical to the
@@ -995,7 +1002,7 @@ head2 "phase 7 at fixture scale (7c)"
 # one, which is the harness reporting on its own memory. tools/make-7c-probes.py
 # prints them, because the rule that picks the bound names is the probe's.
 eval "$("$PYTHON" tools/make-7c-probes.py counts /dev/null)"
-C7_LOGIC=spikes/7c/tirewear_logic.esm
+C7_LOGIC=onroad/model.esm
 C7_MOUNT=spikes/7c/tirewear_mount.esm
 C7_FIXTURE=spikes/7c/tirewear_fixture.esm
 C7_BASE="$RUNDIR/process-tirewear.emitted.csv"
@@ -1183,9 +1190,9 @@ fi
 # from the MONOLITHIC DEFAULT DATABASE (§7.3.1) rather than from the run's own
 # execution-database snapshot, through two mount edges:
 #
-#   spikes/7c/tirewear_default_db_fixture.esm   ten runspec selections + oracle
-#     -> moves-onroad.esm                       38 national tables + the mount
-#       -> spikes/7c/tirewear_logic.esm         the logic, shared with 7c
+#   runspecs/process-tirewear.esm  ten runspec selections + oracle
+#     -> moves-onroad.esm          39 national tables + the mount
+#       -> onroad/model.esm        the onroad domain model, shared with 7c
 #
 # WHAT IT IS CHECKING is not the plumbing -- 7c already checks that a three
 # document chain emits the fixture's bytes. It is that the MODEL says its
@@ -1201,7 +1208,7 @@ fi
 # It costs about 40 seconds, nearly all of it reading fuelUsageFraction:
 # 1,424,430 rows uncompressed, of which the run keeps 5.
 head2 "the default database at fixture scale (7c')"
-C7P_FIXTURE=spikes/7c/tirewear_default_db_fixture.esm
+C7P_FIXTURE=runspecs/process-tirewear.esm
 C7P_DOMAIN=moves-onroad.esm
 if [[ ! -f "$C7P_FIXTURE" ]]; then
   say "  none"
@@ -1223,7 +1230,7 @@ else
   #    domain document.
   if out=$("$ESM" validate "$C7P_DOMAIN" 2>&1); then
     fail "7c' data-open control — $C7P_DOMAIN now validates ALONE. It has acquired a runspec, and the per-fixture document below stops being what configures it"
-  elif grep -q "names data source 'tw_runspec" <<<"$out"; then
+  elif grep -q "names data source 'db_runspec" <<<"$out"; then
     pass "7c' — the domain document is data-open: it declares no runspec"
   else
     fail "7c' data-open control — $C7P_DOMAIN was refused, but not for its missing runspec sources"
@@ -1259,7 +1266,7 @@ else
   #    run-level geography columns sum a national table again, which is the
   #    defect 7c' existed to fix; if this probe ever passes, the joins have
   #    stopped being what narrows them.
-  C7P_PROBE=spikes/7c/.p7prime_nolinkjoin.esm
+  C7P_PROBE=runspecs/.p7prime_nolinkjoin.esm
   # It writes three files -- the chain is three documents -- and prints the two
   # it did not take as an argument, so they are removed with it.
   if C7P_EXTRA=$("$PYTHON" tools/make-7cprime-probe.py "$C7P_PROBE" 2>/dev/null); then

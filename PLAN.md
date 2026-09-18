@@ -1404,11 +1404,26 @@ for byte. It configures nothing, because it mounts a snapshot of one run and the
 is nothing left to configure.
 
 **7c′ is what a per-fixture document looks like when there IS.**
-`spikes/7c/tirewear_default_db_fixture.esm` mounts `moves-onroad.esm` — 38
+`runspecs/process-tirewear.esm` mounts `moves-onroad.esm` — 39
 default-database tables and the same logic — and carries the ten runspec
 selections and the expected output, which is every line of the difference.
 Thin is not a line count; it is the rule that a per-fixture document holds
 selections and nothing mechanical. §7.3.3 has what it measured.
+
+**Where the three live, since 2026-09-17.** The split was made in `spikes/7c/`
+and named for tire wear, which stopped being true the moment 7d asked the same
+model for a second RunSpec. It is now:
+
+| | |
+|---|---|
+| `onroad/model.esm` | the domain MODEL — one model, no `data_sources`, and the metaparameters and index sets that size it. Data-open; does not validate alone. |
+| `moves-onroad.esm` | the domain CATALOGUE — the default database's 39 tables, mounting the model. Still data-open: it declares no runspec. |
+| `runspecs/<run>.esm` | one thin document per RunSpec, mounting the catalogue. These validate alone, which is the point. |
+
+The input source keys moved with the file — `tw_link` is `db_link` — because
+the tables are the database's and not one process's. `spikes/7c/` keeps the
+snapshot catalogue and the 12-line fixture that mount the same model, which is
+what makes the two databases a cross-check rather than a migration.
 
 **Two shape constraints, both measured in 7a and neither of them optional.**
 An ingesting document holds exactly **one** model (F45), and that model is the
@@ -1614,7 +1629,7 @@ an exclusion three CI workflows each re-implement.
 ### 7.3.2 7c, done 2026-09-10 and re-shaped 2026-09-12: the mount at fixture scale
 
 `fixtures/process-tirewear.esm` — 49 `data_sources`, 411 variables, 245
-equations, 53 axes — split into `spikes/7c/tirewear_logic.esm` and
+equations, 53 axes — split into `onroad/model.esm` and
 `spikes/7c/tirewear_mount.esm` and compared against the inlined fixture's own
 output in the same run: **byte-identical, 375 rows over 26 fields**, and
 falsified by perturbing `emissionrate.meanBaseRate` and watching both halves
@@ -1654,8 +1669,8 @@ refuses the alias.
 
 ### 7.3.3 7c′, done 2026-09-17: the same 375 rows out of the default database
 
-`spikes/7c/tirewear_default_db_fixture.esm` → `moves-onroad.esm` →
-`spikes/7c/tirewear_logic.esm`. **Byte-identical to the inlined fixture's 375
+`runspecs/process-tirewear.esm` → `moves-onroad.esm` →
+`onroad/model.esm`. **Byte-identical to the inlined fixture's 375
 rows over 26 fields**, from the monolithic conversion of §7.3.1 rather than from
 the run's execution-database snapshot. 40 s, against 3 s for the snapshot-fed
 chain, and the difference is almost entirely one table: `fuelUsageFraction` is
