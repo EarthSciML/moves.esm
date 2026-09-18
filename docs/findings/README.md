@@ -1,6 +1,6 @@
 # Findings: conventions the format or the toolchain could not express
 
-Forty-six things PLAN.md §3 Phase 1 through Phase 5 assumed, or that an author
+Forty-seven things PLAN.md §3 Phase 1 through Phase 5 assumed, or that an author
 would reasonably assume, that did not hold. **Twenty-four are fixed upstream and
 retired** from the tripwire, with their sections kept so the workarounds they
 forced can be traced — and one of those, F14, was retired because the assumption
@@ -16,7 +16,14 @@ bottom now. Nothing else changed state: the other nine repro-carrying findings
 or oracle regressed, and no tolerance moved.
 
 F22, F28, F41, F43, F45, F56 and F57 each have a minimal `.esm` repro in this directory —
-F22 has two, one per construct, and F57 has a control beside its repro. F3, F5, F13, F14, F20 and F21 had one until the
+F22 has two, one per construct, and F57 has a control beside its repro. **F58 has
+a file here that is NOT a repro**, which is a ninth reason and a new one: its
+document is the minimal case and it PASSES, because F58 is a cost finding like
+F17 and F31 — the answer is right and only the memory is wrong. A passing file
+in this directory reads as "the defect is fixed", so the tripwire glob excludes
+it by name and `tools/check-join-gate-memory.py` gates it on a RATIO instead.
+The file is worth keeping anyway: it is the MWE the upstream issue cites, and
+its four metaparameters ARE the measurement. F3, F5, F13, F14, F20 and F21 had one until the
 `8ac536bf0` rebuild retired all six, and their files are deleted; F8 is a CLI
 behaviour rather than a document, and is checked by command against the ordinary
 files of the repo. **F17, F31, F33, F42, F52, F53, F54 and F55 deliberately have no repro file**: a
@@ -3557,3 +3564,52 @@ gate that quietly becomes a no-op is the worst available behaviour, and a
 length-1 axis makes it reachable by accident. Then either materialize the key
 over its bound ranges so arity > 1 works, or say in the RFC that it does not.
 **Filed upstream: [EarthSciML/EarthSciAST#417](https://github.com/EarthSciML/EarthSciAST/issues/417)**, on `8ac536bf0`.
+
+## F58 — a join gate retains ~80 bytes per candidate pair, in a cache that never evicts
+
+`F58_a_join_gate_retains_its_match_set.esm`, which **passes**: see above for why
+that makes it an MWE rather than a tripwire, and `tools/check-join-gate-memory.py`
+for what gates it instead. Found at PLAN.md step 7d, §7.3.7, by
+`runspecs/pending/expand-sourcetype.esm` refusing to run.
+
+Peak resident memory of a join-gated `faq` tracks the join's **match set** —
+not the arrays the document declares, and not the answer it produces. Measured
+on the MWE, whose answer is 0.03 MB throughout:
+
+| what moves | held fixed | effect on peak |
+|---|---|---|
+| fact-table rows (`n_big`) | pairs, at 1e6 | **+78 bytes per row**, against the 16 that row carries |
+| candidate pairs (`n_key`) | the table, at 1e6 rows | **+80 bytes per pair** |
+| `on` columns, 1 → 6 | the match set, identically | +48 bytes per pair per column |
+| the ungated axis (`n_free`), 1 → 32 | everything else | **nothing.** 0.51 GB throughout, wall clock 2.5 s → 30.8 s |
+
+**That last row is the control and it is good news**: the odometer streams an
+ungated range exactly as it should. It is what makes the other three a
+statement about the gate index specifically rather than about enumeration.
+
+**Where it comes from.** `build_equality_index` (`simulate_array/eval.rs:2995`)
+materialises the match set twice before the index exists — once as `equijoin`'s
+`Vec<(usize,usize)>`, once remapped — and `OverlapIndex::from_positions`
+(`broad_phase.rs:447`) then stores it four more times: a `HashSet` for
+`contains`, a sorted `Vec`, and an adjacency `HashMap<i64, Vec<i64>>` in *each*
+direction, the last two paying a `Vec` header per distinct key. All of it lands
+in `EQ_GATE_CACHE` (`eval.rs:2855`), which the whole tree touches exactly twice
+— one `get`, one `insert`. No `clear`, no capacity bound, no LRU.
+
+**Where it bit.** `onroad/model.esm` under `expand-sourcetype` declares
+**0.31 GiB** of arrays across 462 variables and peaks at **32 GB**, which a
+40 GB cgroup kills. An RSS timeline of the run that does fit
+(`expand-fueltype-diesel`, 23.56 GB) shows three steps of ~4.2 GB, each followed
+by ~21 s of allocation-free compute and none of it released: three gate indices,
+each live for 21 seconds and resident for the remaining two minutes. The
+memoization is right — F58 is not an argument against it — but for a static
+evaluation, where each equation is evaluated once, an entry's useful life is one
+node and its actual life is the process.
+
+**Fix shape.** CSR (`Vec<u32>` offsets + partners) for the adjacency lists,
+built lazily per direction, is the clear win and changes no plan. Dropping the
+`HashSet` for a binary search over `sorted` is another ~24 bytes a pair but
+trades `O(1)` for `O(log n)` on `drive_plan`'s both-bound arm, so it wants
+measuring. And `EQ_GATE_CACHE` wants a bound in PAIRS rather than in entries,
+since entries differ by orders of magnitude. Together ~80 bytes a pair → ~12–16.
+**Filed upstream: [EarthSciML/EarthSciAST#418](https://github.com/EarthSciML/EarthSciAST/issues/418)**, on `8ac536bf0`.

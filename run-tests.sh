@@ -545,6 +545,25 @@ else
   fail "F57 narrow-key control — a ONE-dimensional join key no longer gates either. That is a much larger defect than F57 and every join in this repository rests on it"
 fi
 
+# F58 is a COST finding -- the answer is right and only the memory is wrong --
+# so its document PASSES and cannot be a tripwire: the loop above reads a
+# passing file in docs/findings/ as "the defect is fixed", which is why that
+# glob excludes this one by name. It is gated on a RATIO instead, the way F42
+# is gated by tools/check-source-cache.py rather than by a document. Ten times
+# the candidate pairs against the same table, the same declared arrays and the
+# same answer; today that moves the peak 3.5x, and a fix takes it to about 1.1.
+# Two-sided: the gate FAILS when the ratio collapses, which is how the finding
+# gets retired instead of quietly outliving its defect.
+F58_FINDING=docs/findings/F58_a_join_gate_retains_its_match_set.esm
+if out=$(python3 tools/check-join-gate-memory.py "$ESM" "$F58_FINDING" \
+           "${TMPDIR:-/tmp}/moves-esm-f58" 2>&1); then
+  pass "F58 join-gate memory still tracks the match set (EarthSciML/EarthSciAST#418)"
+  sed 's/^/     /' <<<"$out" | head -3
+else
+  fail "F58 join-gate memory — the peak no longer grows with the candidate pairs. Either the defect is FIXED and the finding should be retired, or the document stopped evaluating"
+  sed 's/^/       /' <<<"$out" | head -5
+fi
+
 F28_CONTROL=docs/findings/F28_control_the_contracted_lag_workaround.esm
 if "$ESM" validate "$F28_CONTROL" >/dev/null 2>&1 && "$ESM" test "$F28_CONTROL" >/dev/null 2>&1; then
   pass "F28 contracted-lag control passes: a data-named predecessor is reachable, at O(max lag) per cell"
@@ -596,6 +615,7 @@ mapfile -t REPROS < <(find docs/findings -name '*.esm' -not -name '.*' -not -nam
   -not -name 'F25_control_an_undeclared_operand_is_refused_when_ingesting.esm' \
   -not -name 'F26_control_a_free_index_symbol_is_refused_on_the_array_path.esm' \
   -not -name 'F57_control_a_narrow_join_key_gates.esm' \
+  -not -name 'F58_a_join_gate_retains_its_match_set.esm' \
   2>/dev/null | sort)
 
 if [[ ${#REPROS[@]} -eq 0 ]]; then

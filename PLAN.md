@@ -2073,10 +2073,38 @@ measurements say where not to look:
 * **Not width per se.** `expand-fueltype-diesel` peaks at 24.6 GB and runs.
 
 So the ceiling sits between 24.6 and 32.0 GB and nothing in either document can
-move it. The next step there is a memory profile of the default-database chain —
-`esm performance-profile` reports parse time only, so it is the wrong tool and
-finding the right one is part of the step. That is a separate question from
-every other 7d dimension, and none of them is blocked on it.
+move it. **The cause is upstream and is now measured**, F58 /
+[EarthSciAST#418](https://github.com/EarthSciML/EarthSciAST/issues/418).
+
+Two observations found it without a profiler, `esm performance-profile` having
+turned out to report parse time only. First, summing every variable's declared
+shape over this run's resolved extents gives **0.31 GiB** of arrays across all
+462 variables — so ~32 GB is transient join machinery and not stored results.
+Second, an RSS timeline of the run that DOES fit (`expand-fueltype-diesel`,
+23.56 GB, sampling `/proc/<pid>/status` every second) is three steps of ~4.2 GB,
+each followed by a plateau of exactly 21 s at a bit-flat value, and nothing
+released between them:
+
+```
+t=19   +4.7 GB →  5.8     t=52  +4.3 GB → 13.43  ── 21 s flat
+t=75   +4.0 GB → 15.94    t=111 +4.2 GB → 23.56  ── 21 s flat
+```
+
+A peak that is the SUM of three retained intermediates, each live for 21
+seconds and resident for the remaining two minutes, is a cache with no
+eviction — and `EQ_GATE_CACHE` is exactly that. A join-gated `faq` retains
+~80 bytes per candidate pair and ~78 per fact-table row, because
+`OverlapIndex` stores the match set four times over. `n_sourceBin` moving the
+peak barely at all now makes sense: it changes `sourcebin_rows`, and what the
+gate charges for is the number of MATCHES, which the four-column self-join
+narrows either way.
+
+`docs/findings/F58_a_join_gate_retains_its_match_set.esm` is the minimal case,
+four metaparameters that separate the two terms, and
+`tools/check-join-gate-memory.py` gates it on the ratio of two runs so the
+finding retires itself when the fix lands. The fix is priced upstream at
+~12–16 bytes a pair, which would put this run under 10 GB. Until then
+`expand-sourcetype` waits, and no other 7d dimension is blocked on it.
 
 ### 7.4 Upstream asks
 
@@ -2131,6 +2159,15 @@ recorded there and was not filed.
   All three are "undeterminable", which is reported as nothing. **#414 is what
   the `runs/` declarations are waiting on**: they are written and correct and
   check nothing until it lands, which is why the sweep reports them silent.
+* **#418** — a join-gated `faq` retains ~80 bytes per candidate pair and ~78
+  per fact-table row, in a thread-local cache with no eviction, so peak memory
+  tracks the join's MATCH SET rather than the arrays a document declares or the
+  answer it produces. Finding F58, filed 2026-09-18 with a four-metaparameter
+  MWE (`docs/findings/F58_a_join_gate_retains_its_match_set.esm`). **This is
+  the one ask that currently blocks a RunSpec**: `expand-sourcetype` declares
+  0.31 GiB of arrays and peaks at 32 GB, and the fix shape — CSR adjacency
+  built lazily, a bounded cache — is priced at ~12-16 bytes a pair, which would
+  bring it under 10 GB. §7.3.7 has the measurement and the RSS timeline.
 
 **Recorded but not filed: F51**, a Rust/Python disagreement about a shape-open
 leaf. #317 changed the Rust side; the Python side is not being measured now.

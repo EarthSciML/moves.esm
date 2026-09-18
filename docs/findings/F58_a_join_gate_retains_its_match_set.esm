@@ -1,0 +1,330 @@
+{
+  "esm": "1.2.0",
+  "metadata": {
+    "name": "F58JoinGateRetainsItsMatchSet",
+    "description": "F58, EarthSciML/EarthSciAST#418: a join-gated `faq` retains about 80 bytes of resident memory per CANDIDATE JOIN PAIR and another 78 per fact-table row, in a thread-local cache that never evicts. Peak memory therefore tracks the join's match set rather than the arrays the document declares or the answer it produces.\n\nTHIS DOCUMENT PASSES, AND THAT IS WHY IT IS NOT A TRIPWIRE. The answer is right -- the two assertions below pin it -- and only its cost is wrong, which puts F58 with F17 and F31 rather than with F56 and F57. `run-tests.sh` excludes this file from the known-limitations glob by name, for the reason docs/findings/README.md gives: a passing file in this directory is read as `the defect is fixed`. `tools/check-join-gate-memory.py` gates it instead, on the RATIO of two runs rather than on an absolute, so it means the same thing on a machine with different memory.\n\nIT IS SELF-CONTAINED ON PURPOSE, which is why the `1 + (i-1) mod n` idiom is written out twice rather than factored into an expression template the way CLAUDE.md asks. A template is imported by reference, and this file has to be copy-and-runnable by someone who has only the upstream issue in front of them. It is quoted verbatim in EarthSciML/EarthSciAST#418.\n\nWHAT IT IS. `total` is a textbook star-join aggregate: for each output row, sum a measure over the fact rows sharing its key, once per value of a free axis. It is the shape of `rtMode_rate` in onroad/model.esm -- output [rate row, operating mode], summed over a 105,449-row `emissionrate` table, gated on six columns -- reduced to the one join that carries the cost.\n\nTHE FOUR METAPARAMETERS ARE THE MEASUREMENT. Candidate pairs are n_out x (n_big / n_key); declared arrays are (2 x n_big + n_out x n_free + n_free) doubles; the answer is n_out x n_free doubles. `n_big` moves both the arrays and the pairs, `n_key` moves the pairs alone (the fanout), `n_out` moves the answer, and `n_free` moves NEITHER the pairs nor the memory -- only the work. That last one is the control: at n_big 2e6 the peak sits at 0.51 GB while n_free goes 1 to 32 and the wall clock goes 2.5 s to 30.8 s, which is the odometer streaming an ungated range exactly as it should. It is what makes the other three a statement about the gate index and not about enumeration.\n\nAT THESE DEFAULTS: 16 MB of declared arrays, a 0.03 MB answer, and 0.26 GB of peak resident memory. At n_key 100, the same table and the same answer, ten times the candidate pairs and 0.93 GB. In onroad/model.esm the same effect is 0.31 GiB of declared arrays against a 32 GB peak, which is why runspecs/pending/expand-sourcetype.esm does not run: PLAN.md §7.3.7.",
+    "authors": [
+      "EarthSciML Authors and Contributors"
+    ],
+    "tags": [
+      "probe",
+      "performance"
+    ]
+  },
+  "metaparameters": {
+    "n_big": {
+      "type": "integer",
+      "default": 1000000,
+      "description": "Rows in the fact table."
+    },
+    "n_key": {
+      "type": "integer",
+      "default": 1000,
+      "description": "Distinct join keys. Each key carries n_big/n_key fact rows."
+    },
+    "n_out": {
+      "type": "integer",
+      "default": 1000,
+      "description": "Rows in the output relation, one per key when n_out == n_key."
+    },
+    "n_free": {
+      "type": "integer",
+      "default": 4,
+      "description": "Width of the axis the join does NOT gate. THIS IS THE ONE THAT MATTERS."
+    }
+  },
+  "index_sets": {
+    "big_rows": {
+      "kind": "interval",
+      "size": "n_big"
+    },
+    "out_rows": {
+      "kind": "interval",
+      "size": "n_out"
+    },
+    "free_rows": {
+      "kind": "interval",
+      "size": "n_free"
+    }
+  },
+  "models": {
+    "JoinAggregateScaling": {
+      "tolerance": {
+        "rel": 1e-12
+      },
+      "variables": {
+        "big_key": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "big_rows"
+          ],
+          "description": "The fact row's key: 1 + (a-1) mod n_key."
+        },
+        "big_value": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "big_rows"
+          ],
+          "description": "The measure being summed. 1.0, so the answer is a count."
+        },
+        "out_key": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "out_rows"
+          ],
+          "description": "The output row's key: 1 + (o-1) mod n_key."
+        },
+        "free_weight": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "free_rows"
+          ],
+          "description": "A per-free-axis factor. 1.0."
+        },
+        "total": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "out_rows",
+            "free_rows"
+          ],
+          "description": "n_big/n_key for every cell. The OUTPUT is n_out x n_free doubles; the enumeration space is n_big x n_free."
+        }
+      },
+      "equations": [
+        {
+          "lhs": "big_key",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "output_idx": [
+              "a"
+            ],
+            "ranges": {
+              "a": {
+                "from": "big_rows"
+              }
+            },
+            "expr": {
+              "op": "+",
+              "args": [
+                {
+                  "op": "-",
+                  "args": [
+                    {
+                      "op": "-",
+                      "args": [
+                        "a",
+                        1
+                      ]
+                    },
+                    {
+                      "op": "*",
+                      "args": [
+                        "n_key",
+                        {
+                          "op": "floor",
+                          "args": [
+                            {
+                              "op": "/",
+                              "args": [
+                                {
+                                  "op": "-",
+                                  "args": [
+                                    "a",
+                                    1
+                                  ]
+                                },
+                                "n_key"
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                1
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "big_value",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "output_idx": [
+              "a"
+            ],
+            "ranges": {
+              "a": {
+                "from": "big_rows"
+              }
+            },
+            "expr": 1.0
+          }
+        },
+        {
+          "lhs": "out_key",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "output_idx": [
+              "o"
+            ],
+            "ranges": {
+              "o": {
+                "from": "out_rows"
+              }
+            },
+            "expr": {
+              "op": "+",
+              "args": [
+                {
+                  "op": "-",
+                  "args": [
+                    {
+                      "op": "-",
+                      "args": [
+                        "o",
+                        1
+                      ]
+                    },
+                    {
+                      "op": "*",
+                      "args": [
+                        "n_key",
+                        {
+                          "op": "floor",
+                          "args": [
+                            {
+                              "op": "/",
+                              "args": [
+                                {
+                                  "op": "-",
+                                  "args": [
+                                    "o",
+                                    1
+                                  ]
+                                },
+                                "n_key"
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                1
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "free_weight",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "output_idx": [
+              "f"
+            ],
+            "ranges": {
+              "f": {
+                "from": "free_rows"
+              }
+            },
+            "expr": 1.0
+          }
+        },
+        {
+          "lhs": "total",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "o",
+              "f"
+            ],
+            "ranges": {
+              "o": {
+                "from": "out_rows"
+              },
+              "f": {
+                "from": "free_rows"
+              },
+              "a": {
+                "from": "big_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "out_key",
+                    "big_key"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "big_value",
+                    "a"
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "free_weight",
+                    "f"
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "tests": [
+        {
+          "id": "every_cell_is_the_fanout",
+          "description": "Each output key matches n_big/n_key fact rows and each contributes 1.0, so every cell is that fanout, on every free-axis slice.",
+          "time_span": {
+            "start": 0.0,
+            "end": 0.0
+          },
+          "assertions": [
+            {
+              "variable": "total",
+              "time": 0.0,
+              "expected": 1000.0,
+              "coords": {
+                "out_rows": 1,
+                "free_rows": 1
+              }
+            },
+            {
+              "variable": "total",
+              "time": 0.0,
+              "expected": 1000.0,
+              "coords": {
+                "out_rows": 1000,
+                "free_rows": 4
+              }
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
