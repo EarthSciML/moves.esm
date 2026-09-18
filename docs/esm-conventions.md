@@ -6187,3 +6187,110 @@ not the file** — an `==` one of whose operands indexes a variable of arity
 greater than one — so the exemption disappears by itself when the key becomes
 expressible. That is the shape an exemption should have: it names the reason,
 and it expires when the reason does.
+
+## 63. A cohort is what the answer has a row for; a source bin is what the rate table has a rate for **[PLAN.md step 7d; 330 bins exact, 3 of 4 factors right, one key left]**
+
+§62 ended by saying the cohort had to become the MOVES source bin. It did not,
+and the reason is worth more than the fix: they are **two relations**, and
+collapsing them was the defect rather than the cure.
+
+### 63.1 One is the output's identity, the other is the rate's
+
+A **cohort** is (source type, fuel type, model year). It is what `MOVESOutput`
+has a row for — the table has no regulatory-class or engine-technology column,
+and `out_regClassID` and `out_engTechID` are two of this document's null
+columns. A **source bin** is those three plus (regClassID, engTechID). It is
+what `emissionrate` has a rate for, and MOVES packs the pair into the bin id it
+keys by.
+
+The relationship is one-to-many and ragged: a passenger car has exactly one bin
+per cohort, a light commercial truck two, a refuse truck's diesel eight. So the
+model grew a relation rather than a factor —
+
+    cohort_rows      a candidate OUTPUT row
+    sourcebin_rows   a candidate RATE lookup, cohort_rows x n_sourceBin
+    rate_rows        a pollutant-process x a source bin
+
+— and the eleven columns that were never the cohort's moved to where they
+belong: `bin_regClassID`, `bin_engTechID`, `bin_stmyFraction`,
+`bin_usedFraction` and the five EV-share columns that hang off the regulatory
+class. A rate row now carries BOTH ordinals, `rt_binOrdinal` and
+`rt_cohortOrdinal`, and each downstream join takes the one whose relation owns
+the column it wants.
+
+### 63.2 A key column must come from the relation that owns it
+
+This is the part that does not survive the collapse. Several rate rows now share
+an output row, and every output column was a `sum_product` over the rate rows
+whose `rt_outputOrdinal` matched. For `out_emissionQuant` that sum is exactly
+the point — an emission IS the sum over a cohort's bins. For `out_modelYearID`
+it adds 2017 to 2017 and emits 4034.
+
+So the six key columns read from the relation that owns them instead: the model
+year, fuel type and source type from `cohort_rows` through `coh_rank`, the
+pollutant and process from `runspecpollutantprocess_rows` through
+`rspp_outputOrdinal`. The value columns keep the rate join. **The rule: when a
+join becomes many-to-one, audit every aggregate over it for whether its `⊕` was
+load-bearing or incidental** — a sum over one row looks the same either way, and
+`sum_product` is the default.
+
+### 63.3 A dense grid needs a dense slot, and MOVES has none
+
+A candidate grid enumerates a product. `samplevehiclepopulation` gives a cohort
+whatever rows it gives it. `svp_binOrdinal` bridges the two: §22's inclusive
+prefix count, gated to the cohort by a JOIN on (source type, model year, fuel
+type) rather than by an equality filter, which keeps it O(rows in a cohort)
+instead of O(rows squared) over a 16,428-row table. The bin then reads its own
+columns back through a four-column lookup on that slot.
+
+`n_sourceBin` is the third declared number in a document that made a point of
+having two, and it is checked differently from them. `cohortSurvivorCount` and
+`outputPolProcessCount` recompute an EXTENT: too small and the emitted row count
+disagrees, which the shape check catches. A slot count one short drops a whole
+source bin, and a dropped bin is not a missing row — it is a row whose
+emissionQuant is quietly low by that bin's share, which nothing about the shape
+would notice. `run_sourceBinsDropped` counts them and is asserted at zero.
+
+### 63.4 Three of four factors, and how you tell which one is left
+
+`expand-fueltype-diesel` went from 123 of its 248 rows returning zero to being
+wrong by a factor of between 1.48 and 3.06 on those rows. A ratio is not a
+diagnosis, so each factor of an emission was checked against something the run
+itself recorded:
+
+| factor | checked against | result |
+|---|---|---|
+| source-hour activity | the execution database's `sho` | exact, both source types |
+| source-bin distribution | `sourceBinDistributionFuelUsage_1_26161_2020` | exact, 330 bins |
+| the rank and the shape | `cohortSurvivorCount`, the emitted keys | exact |
+| the operating-mode distribution | — | **wrong** |
+
+The execution database a characterization snapshot carries is not only the
+run's INPUT — it holds MOVES's own intermediate tables, and an intermediate
+relation the model builds can be compared to the one MOVES built. That turned "a
+ratio between 1.48 and 3.06" into "everything but the drive cycle is right" in
+two measurements.
+
+### 63.5 The third key a width-one selection hid, and the model had already written the alarm
+
+`sourceusetypephysics` is keyed by (sourceTypeID, regClassID, model-year range).
+Source types 11 and 21 have one row; 31 and 32 have three; a heavy truck has 15
+to 21, out of 178. The drive cycle is per SOURCE TYPE, so `phys_rollingTermA`
+and the rest are a `sum_product` over the rows a source type selects, and a
+source type with three rows computes vehicle-specific power for a vehicle that
+does not exist.
+
+**The model reported this itself.** `run_physicsRowsSelected` exists, and its
+description says: *"ONE apiece, and a test pins it: the mapping is per
+(sourceTypeID, regClassID, model-year range), so a source type with two rows
+would make `dss_vsp` the sum of two vehicles' physics rather than one's."* It is
+1 for source type 21 and 3 for source type 32. A guard written for a case that
+had not happened yet, naming the consequence, is what turned the fourth factor
+from a search into a lookup — and it is the argument for writing the
+`run_*Count` recomputations even when they can only be right.
+
+That is the fourth time in one step that a selection of width one could not
+distinguish a key from a constant (§60's rectangle, §61's county, §62's source
+bin, this). The pattern has stopped being a coincidence: **budget one hidden key
+per dimension widened, and look for it in the columns of the MOVES table rather
+than in the rules of its code.**

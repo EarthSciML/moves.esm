@@ -251,6 +251,11 @@
       "default": 3,
       "description": "THE SECOND OF THE TWO DECLARED NUMBERS IN THIS DOCUMENT: how many of the run's selected pollutant-processes reach MOVESOutput at all. Three of three here, because every one of 9101, 10710 and 11710 has its rates on a road type this run selects. A run that selects start exhaust or extended idle on an on-road road type alone has fewer: those processes' rates live on the off-network road type 1, `BaseRateCalculator` joins its rate rows to `runSpecRoadType`, and the whole block is discarded (docs/mixed-onroad.md 0.2). WHICH pollutant-processes survive is never written down -- `rspp_isEmitted` decides it from `emissionprocess.occursOnRealRoads` and `runspecroadtype`, `rspp_outputOrdinal` numbers the survivors 1..n by an inclusive prefix count, and `outputPolProcessCount` recomputes this number from the chain."
     },
+    "n_sourceBin": {
+      "type": "integer",
+      "default": 1,
+      "description": "THE THIRD DECLARED NUMBER IN THIS DOCUMENT: how many source bins the widest cohort of this run holds. A MOVES source bin is (sourceTypeID, fuelTypeID, modelYearID, regClassID, engTechID) and a cohort is only the first three of those, so one cohort can carry several bins -- `samplevehiclepopulation` gives a passenger car exactly one, a light commercial truck two (regulatory classes 30 and 41) and a refuse truck's diesel eight. The candidate grid needs a DENSE slot count and no table states this one, so it is declared and then CHECKED: `run_sourceBinsDropped` counts the bins a slot short of this would silently lose, and is asserted at 0. 1 is the value of every run that selects a source type whose cohorts are single-binned, which is every run in `runspecs/` before 7e."
+    },
     "n_runspecpollutantprocess": {
       "type": "integer",
       "default": 0,
@@ -481,6 +486,22 @@
         ]
       }
     },
+    "sourcebin_rows": {
+      "kind": "interval",
+      "size": {
+        "op": "*",
+        "args": [
+          "n_sourceBin",
+          {
+            "op": "*",
+            "args": [
+              "n_agecategory",
+              "n_runspecsourcefueltype"
+            ]
+          }
+        ]
+      }
+    },
     "output_rows": {
       "kind": "interval",
       "size": {
@@ -524,8 +545,14 @@
           {
             "op": "*",
             "args": [
-              "n_agecategory",
-              "n_runspecsourcefueltype"
+              "n_sourceBin",
+              {
+                "op": "*",
+                "args": [
+                  "n_agecategory",
+                  "n_runspecsourcefueltype"
+                ]
+              }
             ]
           }
         ]
@@ -2103,6 +2130,14 @@
           ],
           "description": "This sample-vehicle row's contribution to its model year's age-0 sales: sourceTypePopulation x ageFraction x stmyFraction, at age 0 so the model year IS the calendar year. A row whose source type and model year have no sourcetypeyear or age-0 sourcetypeagedistribution row weighs nothing, which is the same as MOVES skipping it (BaseRateGenerator.java:315-341)."
         },
+        "svp_binOrdinal": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "samplevehiclepopulation_rows"
+          ],
+          "description": "Which of its cohort's source bins this row is, 1 for the first the table holds and dense from there. MOVES has no such column -- a source bin is named by its packed (fuel, engine technology, regulatory class, short model-year group) id, and the rows of one cohort are whatever they are -- and a candidate GRID cannot enumerate `whatever they are`, so this is the dense slot it enumerates instead. §22's inclusive prefix count, gated to the cohort by a join rather than by an equality filter (§20.4), which also makes it O(rows in a cohort) rather than O(rows squared)."
+        },
         "ppmy_polProcessID": {
           "type": "parameter",
           "units": "1",
@@ -3336,6 +3371,14 @@
           ],
           "description": "The cohort total, computed from the chain, so `n_outputCohort` is a CHECKED declaration rather than a transcription. 125 at one source type and the SUM over them at more."
         },
+        "run_sourceBinsDropped": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "run_rows"
+          ],
+          "description": "How many source bins of a SELECTED cohort fall past slot `n_sourceBin` and are therefore not in the candidate grid at all. It is the check on the third declared number, and it is a different kind of check from the other two: `cohortSurvivorCount` and `outputPolProcessCount` recompute a declaration that is only ever too big or too small by a row, while a slot count that is one short drops a whole rate and its emissions with it, silently and low. Zero is the only passing value."
+        },
         "outputPolProcessCount": {
           "type": "unknown",
           "units": "1",
@@ -4039,29 +4082,77 @@
           ],
           "description": "S10's model-year window is [runYear - maxAge, runYear], which agecategory's extent gives without a literal."
         },
-        "coh_stmyFraction": {
+        "bin_ordinal": {
           "type": "unknown",
           "units": "1",
           "shape": [
-            "cohort_rows"
+            "sourcebin_rows"
           ],
-          "description": "The sole numeric input to the source-bin distribution."
+          "description": "The source-bin candidate grid: the cohort grid crossed with `n_sourceBin` slots, COHORT-major, so slot 1 is the cohort grid itself and a run whose cohorts are single-binned has a bin relation that IS its cohort relation, row for row."
         },
-        "coh_engTechID": {
+        "bin_cohortOrdinal": {
           "type": "unknown",
           "units": "1",
           "shape": [
-            "cohort_rows"
+            "sourcebin_rows"
           ],
-          "description": "The candidate's engine technology: 1 for combustion, 30 for electric drive."
+          "description": "Which cohort this bin belongs to. The FAST factor, so the identity above holds."
         },
-        "coh_regClassID": {
+        "bin_slotOrdinal": {
           "type": "unknown",
           "units": "1",
           "shape": [
-            "cohort_rows"
+            "sourcebin_rows"
           ],
-          "description": "The candidate's regulatory class, 20 throughout."
+          "description": "Which of the cohort's bins, 1..`n_sourceBin`. It is matched against `svp_binOrdinal`, so a slot past the end of a cohort's rows simply finds nothing and `bin_exists` is 0 there."
+        },
+        "bin_sourceTypeID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "sourcebin_rows"
+          ],
+          "description": "The bin's source type, read from its cohort."
+        },
+        "bin_modelYearID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "sourcebin_rows"
+          ],
+          "description": "Its model year."
+        },
+        "bin_fuelTypeID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "sourcebin_rows"
+          ],
+          "description": "Its fuel type -- the fuel it is EQUIPPED for, which `bin_usedFraction` re-attributes."
+        },
+        "bin_stmyFraction": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "sourcebin_rows"
+          ],
+          "description": "The BIN's sample-vehicle fraction, and the sole numeric input to the source-bin distribution. It used to be the cohort's -- a `sum_product` over every sample-vehicle row of the cohort -- which is the same number whenever a cohort has one bin and the sum of several rates' weights when it has more."
+        },
+        "bin_engTechID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "sourcebin_rows"
+          ],
+          "description": "The bin's engine technology: 1 for combustion, 30 and 40 for the two electric drives. It is READ from the row now rather than summed over the cohort's rows, and the difference is the whole of 7e: source type 51's diesel carries 30 and 40 in the same cohort, and 70 is not an engine technology."
+        },
+        "bin_regClassID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "sourcebin_rows"
+          ],
+          "description": "The bin's regulatory class. Summing it over a cohort's rows returned 71 for a light commercial truck -- 30 and 41, which are two classes and not a class -- and `emissionrate` matched nothing (PLAN.md §7.3.5)."
         },
         "coh_prefixSelected": {
           "type": "unknown",
@@ -4079,19 +4170,19 @@
           ],
           "description": "The prefix count ZEROED on non-members, so every surviving candidate has a dense 1..125 and every suppressed one has a 0 that no output ordinal can match (docs/esm-conventions.md §22). This is what keeps WHICH cohorts survive out of the document: the output row joins to this rank and reads its keys back through the join."
         },
-        "coh_sourceBinActivityFraction": {
+        "bin_sourceBinActivityFraction": {
           "type": "unknown",
           "units": "1",
           "shape": [
-            "cohort_rows"
+            "sourcebin_rows"
           ],
-          "description": "The EQUIPPED source-bin activity fraction."
+          "description": "The EQUIPPED source-bin activity fraction, now per BIN, which is what MOVES's `SourceBinDistribution` is a table of."
         },
-        "coh_usedFraction": {
+        "bin_usedFraction": {
           "type": "unknown",
           "units": "1",
           "shape": [
-            "cohort_rows",
+            "sourcebin_rows",
             "runspeccounty_rows"
           ],
           "description": "S12, source_bin_distribution_generator.rs:1590-1637: the same activity re-attributed to the fuel each cohort actually BURNS. The equipped and used sides must agree on model year, engine technology, regulatory class and model-year group and differ only in the fuel. This is the column the base rate is weighted by (sbweighted.rs:148-165), and using the equipped one instead is a factor of 55 on the E85 rows. PER COUNTY, because `fuelUsageFraction` is keyed by county -- E85 is not available everywhere, so the same cohort grid is re-attributed differently in each. The self-join matches on the SOURCE TYPE as well as the model year, engine technology and regulatory class: with one source type selected that was implied, and with two a passenger car would be re-attributed a light commercial truck's activity."
@@ -4128,51 +4219,51 @@
           ],
           "description": "The short model-year group, slot 1e10."
         },
-        "coh_fleetAvgGroupID": {
+        "bin_fleetAvgGroupID": {
           "type": "unknown",
           "units": "1",
           "shape": [
-            "cohort_rows"
+            "sourcebin_rows"
           ],
-          "description": "regClass 20 is fleet-average group 1."
+          "description": "The bin's fleet-average group, from its regulatory class: 20 is group 1."
         },
-        "coh_salesAllFuels": {
+        "bin_salesAllFuels": {
           "type": "unknown",
           "units": "1",
           "shape": [
-            "cohort_rows"
+            "sourcebin_rows"
           ],
           "description": "The denominator of the EV share: this model year's age-0 sales across every fuel, in this fleet-average group and over every source type. Population times the age-0 fraction times the sample-vehicle share, which is what MOVES sums."
         },
-        "coh_salesElectric": {
+        "bin_salesElectric": {
           "type": "unknown",
           "units": "1",
           "shape": [
-            "cohort_rows"
+            "sourcebin_rows"
           ],
           "description": "The same sum restricted to fuelType 9. The ratio of the two is evSalesFraction.evFraction, which the default database does not ship because MOVES derives it at execution time."
         },
-        "coh_hasElectricRow": {
+        "bin_hasElectricRow": {
           "type": "unknown",
           "units": "1",
           "shape": [
-            "cohort_rows"
+            "sourcebin_rows"
           ],
           "description": "Whether any fuelType-9 sample-vehicle row survives the join at all. MOVES emits an evSalesFraction row for exactly the groups that have one -- its two subqueries are INNER joined -- and the share may still be 0, so presence and value are two facts and this is the first of them."
         },
-        "coh_evFraction": {
+        "bin_evFraction": {
           "type": "unknown",
           "units": "1",
           "shape": [
-            "cohort_rows"
+            "sourcebin_rows"
           ],
           "description": "The EV share of this model year's sales in this fleet-average group. COMPUTED here since 7c' rather than read from an execution database's evSalesFraction: MOVES builds that table from four default tables this document already ingests, and the ratio is the whole of it."
         },
-        "coh_hasEvFraction": {
+        "bin_hasEvFraction": {
           "type": "unknown",
           "units": "1",
           "shape": [
-            "cohort_rows"
+            "sourcebin_rows"
           ],
           "description": "Whether the EV share exists for this cohort: a miss leaves the factor at 1 rather than dividing by 1 - 0. It used to mean `evsalesfraction has a row`, and it means the same thing now stated as the condition under which MOVES would have written one -- a fuelType-9 sample-vehicle row, and sales above zero."
         },
@@ -4223,7 +4314,7 @@
           "shape": [
             "output_rows"
           ],
-          "description": "The output row's source type, as a rank into `runspecsourcetype_rows`, read BACK through the same ordinal join every other output column uses. `out_SHO` needs it because the activity relation is now per source type."
+          "description": "The output row's source type, as a rank into `runspecsourcetype_rows`, read BACK through the same ordinal join every other output column uses. `out_SHO` needs it because the activity relation is now per source type. A KEY column is read from the relation that OWNS it -- this one from the cohort relation through the rank, not from the rate relation through `rt_outputOrdinal` -- because since 7e several rate rows can share an output row and a `sum_product` over them would add their keys together. The VALUE columns below keep the rate join, where that sum is the point."
         },
         "outAgeID": {
           "type": "unknown",
@@ -4303,7 +4394,7 @@
           "shape": [
             "output_rows"
           ],
-          "description": "The output row's source type, read BACK through the rank join like every other key column."
+          "description": "The output row's source type, read BACK through the rank join like every other key column. A KEY column is read from the relation that OWNS it -- this one from the cohort relation through the rank, not from the rate relation through `rt_outputOrdinal` -- because since 7e several rate rows can share an output row and a `sum_product` over them would add their keys together. The VALUE columns below keep the rate join, where that sum is the point."
         },
         "out_roadTypeID": {
           "type": "unknown",
@@ -4720,13 +4811,21 @@
           ],
           "description": "The output block this rate row's pollutant-process owns, read back from `rspp_outputOrdinal`. 0 on every row of a discarded pollutant-process, which is what keeps `rt_outputOrdinal` from matching anything."
         },
+        "rt_binOrdinal": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "Which source-bin candidate this rate row is for. The rate relation is the pollutant-process crossed with the BIN and not with the cohort, because every rate lookup below it keys on a regulatory class, an engine technology or both: `emissionrate` on all five bin columns, `temperatureadjustment` and `evefficiency` on the regulatory class, `fleetavgadjustment` on the group it belongs to."
+        },
         "rt_cohortOrdinal": {
           "type": "unknown",
           "units": "1",
           "shape": [
             "rate_rows"
           ],
-          "description": "Which cohort candidate, 1..164, this rate row is for."
+          "description": "And which cohort that bin belongs to -- the key the output rank is built on, and the one the key columns and the activity join use."
         },
         "rt_polProcessID": {
           "type": "unknown",
@@ -4790,7 +4889,7 @@
           "shape": [
             "rate_rows"
           ],
-          "description": "The cohort's engine technology."
+          "description": "The bin's engine technology."
         },
         "rt_regClassID": {
           "type": "unknown",
@@ -4798,7 +4897,7 @@
           "shape": [
             "rate_rows"
           ],
-          "description": "The cohort's regulatory class."
+          "description": "The bin's regulatory class."
         },
         "rt_sourceTypeID": {
           "type": "unknown",
@@ -4838,7 +4937,7 @@
           "shape": [
             "rate_rows"
           ],
-          "description": "The cohort's sample-vehicle fraction."
+          "description": "The bin's sample-vehicle fraction."
         },
         "rt_fleetAvgGroupID": {
           "type": "unknown",
@@ -4905,13 +5004,21 @@
           ],
           "description": "J20 through the pollutant-process: the source bin's short model-year group. This is the ONE cohort key that differs between the two rate paths, and it is why the rate relation exists."
         },
-        "coh_ratePolProcessCount": {
+        "bin_ratePolProcessCount": {
           "type": "unknown",
           "units": "1",
           "shape": [
-            "cohort_rows"
+            "sourcebin_rows"
           ],
-          "description": "How many of the run's pollutant-processes select this cohort candidate. It is 0 or 2 on every one of the 164 -- 9101 and 11710 agree, and the chained 10710 selects none -- which is what lets ONE cohort rank serve all three output blocks. `run_cohortSelectionTotal` and `pp_selectedCohortCount` are the same fact at two granularities."
+          "description": "How many of the run's pollutant-processes select this source-bin candidate. It is 0 or 2 on every one of the 164 this run's grid holds -- 9101 and 11710 agree, and the chained 10710 selects none -- which is what lets ONE cohort rank serve all three output blocks. `run_binSelectionTotal` and `pp_selectedBinCount` are the same fact at two granularities."
+        },
+        "bin_isSelected": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "sourcebin_rows"
+          ],
+          "description": "Whether the source bin is a term of a MOVESOutput row in every emitted block."
         },
         "coh_isSelected": {
           "type": "unknown",
@@ -4919,25 +5026,25 @@
           "shape": [
             "cohort_rows"
           ],
-          "description": "Whether the cohort candidate is a MOVESOutput row in every emitted block."
+          "description": "Whether ANY of the cohort's bins is a MOVESOutput row. The output relation ranks COHORTS -- MOVESOutput has no regulatory-class or engine-technology column, `out_regClassID` is one of this document's null columns -- so a two-bin cohort is one output row whose quantity is the sum of its bins, which `out_emissionQuant`'s join already does."
         },
-        "run_cohortSelectionTotal": {
+        "run_binSelectionTotal": {
           "type": "unknown",
           "units": "1",
           "shape": [
             "run_rows"
           ],
-          "description": "The same count summed over the whole grid: 250, i.e. two pollutant-processes times 125 cohorts. A rate path that selected a DIFFERENT 125 would leave `cohortSurvivorCount` at 125 and move this to 250 anyway, which is why `pp_selectedCohortCount` is asserted as well."
+          "description": "The same count summed over the whole grid: 250, i.e. two pollutant-processes times 125 bins. A rate path that selected a DIFFERENT 125 would leave `cohortSurvivorCount` at 125 and move this to 250 anyway, which is why `pp_selectedBinCount` is asserted as well."
         },
-        "pp_selectedCohortCount": {
+        "pp_selectedBinCount": {
           "type": "unknown",
           "units": "1",
           "shape": [
             "runspecpollutantprocess_rows"
           ],
-          "description": "The surviving cohort count PER pollutant-process: 125, 0, 125. The middle zero is the chained pollutant, whose rows come from the chain and not from a source-bin distribution."
+          "description": "The surviving source-bin count PER pollutant-process: 125, 0, 125. The middle zero is the chained pollutant, whose rows come from the chain and not from a source-bin distribution."
         },
-        "pp_rateCohortCount": {
+        "pp_rateBinCount": {
           "type": "unknown",
           "units": "1",
           "shape": [
@@ -5330,13 +5437,13 @@
           ],
           "description": "How many emitted rate rows carry a chain ratio: 125, the one chained pollutant-process's cohorts. A rate row can never have both a ratio and a rate of its own here, which is what makes `rtDay_quant`'s sum a union."
         },
-        "coh_isSelectedAt": {
+        "bin_isSelectedAt": {
           "type": "unknown",
           "units": "1",
           "shape": [
             "rate_rows"
           ],
-          "description": "The cohort's membership read back at the rate row, so the chained block's row count can be counted without a second rank."
+          "description": "The bin's membership read back at the rate row, so the chained block's row count can be counted without a second rank."
         },
         "rt_outputOrdinal": {
           "type": "unknown",
@@ -5408,7 +5515,7 @@
           "shape": [
             "output_rows"
           ],
-          "description": "The output row's model year, read BACK through the rank join."
+          "description": "The output row's model year, read BACK through the rank join. A KEY column is read from the relation that OWNS it -- this one from the cohort relation through the rank, not from the rate relation through `rt_outputOrdinal` -- because since 7e several rate rows can share an output row and a `sum_product` over them would add their keys together. The VALUE columns below keep the rate join, where that sum is the point."
         },
         "out_fuelTypeID": {
           "type": "unknown",
@@ -5416,7 +5523,7 @@
           "shape": [
             "output_rows"
           ],
-          "description": "Its fuel type."
+          "description": "Its fuel type. A KEY column is read from the relation that OWNS it -- this one from the cohort relation through the rank, not from the rate relation through `rt_outputOrdinal` -- because since 7e several rate rows can share an output row and a `sum_product` over them would add their keys together. The VALUE columns below keep the rate join, where that sum is the point."
         },
         "out_pollutantID": {
           "type": "unknown",
@@ -5424,7 +5531,7 @@
           "shape": [
             "output_rows"
           ],
-          "description": "Its pollutant: 91, 107 or 117."
+          "description": "Its pollutant: 91, 107 or 117. A KEY column is read from the relation that OWNS it -- this one from the cohort relation through the rank, not from the rate relation through `rt_outputOrdinal` -- because since 7e several rate rows can share an output row and a `sum_product` over them would add their keys together. The VALUE columns below keep the rate join, where that sum is the point."
         },
         "out_processID": {
           "type": "unknown",
@@ -5432,7 +5539,7 @@
           "shape": [
             "output_rows"
           ],
-          "description": "Its process: 1 or 9."
+          "description": "Its process: 1 or 9. A KEY column is read from the relation that OWNS it -- this one from the cohort relation through the rank, not from the rate relation through `rt_outputOrdinal` -- because since 7e several rate rows can share an output row and a `sum_product` over them would add their keys together. The VALUE columns below keep the rate join, where that sum is the point."
         },
         "out_meanBaseRate": {
           "type": "unknown",
@@ -11111,17 +11218,255 @@
           }
         },
         {
-          "lhs": "coh_stmyFraction",
+          "lhs": "bin_ordinal",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "output_idx": [
+              "i"
+            ],
+            "ranges": {
+              "i": {
+                "from": "sourcebin_rows"
+              }
+            },
+            "expr": "i"
+          }
+        },
+        {
+          "lhs": "bin_cohortOrdinal",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "output_idx": [
+              "i"
+            ],
+            "ranges": {
+              "i": {
+                "from": "sourcebin_rows"
+              }
+            },
+            "expr": {
+              "op": "+",
+              "args": [
+                {
+                  "op": "-",
+                  "args": [
+                    {
+                      "op": "-",
+                      "args": [
+                        "i",
+                        1
+                      ]
+                    },
+                    {
+                      "op": "*",
+                      "args": [
+                        {
+                          "op": "*",
+                          "args": [
+                            "n_agecategory",
+                            "n_runspecsourcefueltype"
+                          ]
+                        },
+                        {
+                          "op": "floor",
+                          "args": [
+                            {
+                              "op": "/",
+                              "args": [
+                                {
+                                  "op": "-",
+                                  "args": [
+                                    "i",
+                                    1
+                                  ]
+                                },
+                                {
+                                  "op": "*",
+                                  "args": [
+                                    "n_agecategory",
+                                    "n_runspecsourcefueltype"
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                1
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "bin_slotOrdinal",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "output_idx": [
+              "i"
+            ],
+            "ranges": {
+              "i": {
+                "from": "sourcebin_rows"
+              }
+            },
+            "expr": {
+              "op": "+",
+              "args": [
+                {
+                  "op": "floor",
+                  "args": [
+                    {
+                      "op": "/",
+                      "args": [
+                        {
+                          "op": "-",
+                          "args": [
+                            "i",
+                            1
+                          ]
+                        },
+                        {
+                          "op": "*",
+                          "args": [
+                            "n_agecategory",
+                            "n_runspecsourcefueltype"
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                1
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "bin_sourceTypeID",
           "rhs": {
             "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
-              "c"
+              "i"
             ],
             "ranges": {
+              "i": {
+                "from": "sourcebin_rows"
+              },
               "c": {
                 "from": "cohort_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "bin_cohortOrdinal",
+                    "coh_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "coh_sourceTypeID",
+                "c"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "bin_modelYearID",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "i"
+            ],
+            "ranges": {
+              "i": {
+                "from": "sourcebin_rows"
+              },
+              "c": {
+                "from": "cohort_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "bin_cohortOrdinal",
+                    "coh_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "coh_modelYearID",
+                "c"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "bin_fuelTypeID",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "i"
+            ],
+            "ranges": {
+              "i": {
+                "from": "sourcebin_rows"
+              },
+              "c": {
+                "from": "cohort_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "bin_cohortOrdinal",
+                    "coh_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "coh_fuelTypeID",
+                "c"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "bin_stmyFraction",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "i"
+            ],
+            "ranges": {
+              "i": {
+                "from": "sourcebin_rows"
               },
               "v": {
                 "from": "samplevehiclepopulation_rows"
@@ -11131,16 +11476,20 @@
               {
                 "on": [
                   [
-                    "coh_sourceTypeID",
+                    "bin_sourceTypeID",
                     "svp_sourceTypeID"
                   ],
                   [
-                    "coh_modelYearID",
+                    "bin_modelYearID",
                     "svp_modelYearID"
                   ],
                   [
-                    "coh_fuelTypeID",
+                    "bin_fuelTypeID",
                     "svp_fuelTypeID"
+                  ],
+                  [
+                    "bin_slotOrdinal",
+                    "svp_binOrdinal"
                   ]
                 ]
               }
@@ -11155,17 +11504,17 @@
           }
         },
         {
-          "lhs": "coh_engTechID",
+          "lhs": "bin_engTechID",
           "rhs": {
             "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
-              "c"
+              "i"
             ],
             "ranges": {
-              "c": {
-                "from": "cohort_rows"
+              "i": {
+                "from": "sourcebin_rows"
               },
               "v": {
                 "from": "samplevehiclepopulation_rows"
@@ -11175,16 +11524,20 @@
               {
                 "on": [
                   [
-                    "coh_sourceTypeID",
+                    "bin_sourceTypeID",
                     "svp_sourceTypeID"
                   ],
                   [
-                    "coh_modelYearID",
+                    "bin_modelYearID",
                     "svp_modelYearID"
                   ],
                   [
-                    "coh_fuelTypeID",
+                    "bin_fuelTypeID",
                     "svp_fuelTypeID"
+                  ],
+                  [
+                    "bin_slotOrdinal",
+                    "svp_binOrdinal"
                   ]
                 ]
               }
@@ -11199,17 +11552,17 @@
           }
         },
         {
-          "lhs": "coh_regClassID",
+          "lhs": "bin_regClassID",
           "rhs": {
             "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
-              "c"
+              "i"
             ],
             "ranges": {
-              "c": {
-                "from": "cohort_rows"
+              "i": {
+                "from": "sourcebin_rows"
               },
               "v": {
                 "from": "samplevehiclepopulation_rows"
@@ -11219,16 +11572,20 @@
               {
                 "on": [
                   [
-                    "coh_sourceTypeID",
+                    "bin_sourceTypeID",
                     "svp_sourceTypeID"
                   ],
                   [
-                    "coh_modelYearID",
+                    "bin_modelYearID",
                     "svp_modelYearID"
                   ],
                   [
-                    "coh_fuelTypeID",
+                    "bin_fuelTypeID",
                     "svp_fuelTypeID"
+                  ],
+                  [
+                    "bin_slotOrdinal",
+                    "svp_binOrdinal"
                   ]
                 ]
               }
@@ -11326,8 +11683,14 @@
                         {
                           "op": "*",
                           "args": [
-                            "n_agecategory",
-                            "n_runspecsourcefueltype"
+                            "n_sourceBin",
+                            {
+                              "op": "*",
+                              "args": [
+                                "n_agecategory",
+                                "n_runspecsourcefueltype"
+                              ]
+                            }
                           ]
                         }
                       ]
@@ -11376,7 +11739,7 @@
           }
         },
         {
-          "lhs": "rt_cohortOrdinal",
+          "lhs": "rt_binOrdinal",
           "rhs": {
             "op": "faq",
             "args": [],
@@ -11407,8 +11770,14 @@
                         {
                           "op": "*",
                           "args": [
-                            "n_agecategory",
-                            "n_runspecsourcefueltype"
+                            "n_sourceBin",
+                            {
+                              "op": "*",
+                              "args": [
+                                "n_agecategory",
+                                "n_runspecsourcefueltype"
+                              ]
+                            }
                           ]
                         },
                         {
@@ -11427,8 +11796,14 @@
                                 {
                                   "op": "*",
                                   "args": [
-                                    "n_agecategory",
-                                    "n_runspecsourcefueltype"
+                                    "n_sourceBin",
+                                    {
+                                      "op": "*",
+                                      "args": [
+                                        "n_agecategory",
+                                        "n_runspecsourcefueltype"
+                                      ]
+                                    }
                                   ]
                                 }
                               ]
@@ -11440,6 +11815,42 @@
                   ]
                 },
                 1
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rt_cohortOrdinal",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "i": {
+                "from": "sourcebin_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rt_binOrdinal",
+                    "bin_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "bin_cohortOrdinal",
+                "i"
               ]
             }
           }
@@ -11710,16 +12121,16 @@
               "b": {
                 "from": "rate_rows"
               },
-              "c": {
-                "from": "cohort_rows"
+              "i": {
+                "from": "sourcebin_rows"
               }
             },
             "join": [
               {
                 "on": [
                   [
-                    "rt_cohortOrdinal",
-                    "coh_ordinal"
+                    "rt_binOrdinal",
+                    "bin_ordinal"
                   ]
                 ]
               }
@@ -11727,8 +12138,8 @@
             "expr": {
               "op": "index",
               "args": [
-                "coh_engTechID",
-                "c"
+                "bin_engTechID",
+                "i"
               ]
             }
           }
@@ -11746,16 +12157,16 @@
               "b": {
                 "from": "rate_rows"
               },
-              "c": {
-                "from": "cohort_rows"
+              "i": {
+                "from": "sourcebin_rows"
               }
             },
             "join": [
               {
                 "on": [
                   [
-                    "rt_cohortOrdinal",
-                    "coh_ordinal"
+                    "rt_binOrdinal",
+                    "bin_ordinal"
                   ]
                 ]
               }
@@ -11763,8 +12174,8 @@
             "expr": {
               "op": "index",
               "args": [
-                "coh_regClassID",
-                "c"
+                "bin_regClassID",
+                "i"
               ]
             }
           }
@@ -11926,16 +12337,16 @@
               "b": {
                 "from": "rate_rows"
               },
-              "c": {
-                "from": "cohort_rows"
+              "i": {
+                "from": "sourcebin_rows"
               }
             },
             "join": [
               {
                 "on": [
                   [
-                    "rt_cohortOrdinal",
-                    "coh_ordinal"
+                    "rt_binOrdinal",
+                    "bin_ordinal"
                   ]
                 ]
               }
@@ -11943,8 +12354,8 @@
             "expr": {
               "op": "index",
               "args": [
-                "coh_stmyFraction",
-                "c"
+                "bin_stmyFraction",
+                "i"
               ]
             }
           }
@@ -12087,17 +12498,17 @@
           }
         },
         {
-          "lhs": "coh_ratePolProcessCount",
+          "lhs": "bin_ratePolProcessCount",
           "rhs": {
             "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
-              "c"
+              "i"
             ],
             "ranges": {
-              "c": {
-                "from": "cohort_rows"
+              "i": {
+                "from": "sourcebin_rows"
               },
               "b": {
                 "from": "rate_rows"
@@ -12107,8 +12518,8 @@
               {
                 "on": [
                   [
-                    "rt_cohortOrdinal",
-                    "coh_ordinal"
+                    "rt_binOrdinal",
+                    "bin_ordinal"
                   ]
                 ]
               }
@@ -12123,14 +12534,14 @@
           }
         },
         {
-          "lhs": "coh_isSelected",
+          "lhs": "bin_isSelected",
           "rhs": {
             "op": "ifelse",
             "args": [
               {
                 "op": ">",
                 "args": [
-                  "coh_ratePolProcessCount",
+                  "bin_ratePolProcessCount",
                   0.5
                 ]
               },
@@ -12140,12 +12551,48 @@
           }
         },
         {
-          "lhs": "coh_sourceBinActivityFraction",
+          "lhs": "coh_isSelected",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "bool_and_or",
+            "output_idx": [
+              "c"
+            ],
+            "ranges": {
+              "c": {
+                "from": "cohort_rows"
+              },
+              "i": {
+                "from": "sourcebin_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "bin_cohortOrdinal",
+                    "coh_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "bin_isSelected",
+                "i"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "bin_sourceBinActivityFraction",
           "rhs": {
             "op": "*",
             "args": [
-              "coh_isSelected",
-              "coh_stmyFraction"
+              "bin_isSelected",
+              "bin_stmyFraction"
             ]
           }
         },
@@ -12194,22 +12641,22 @@
           }
         },
         {
-          "_comment": "S12, source_bin_distribution_generator.rs:1590-1637, and it IS a self-join: the used row and the equipped row are two rows of the same candidate relation. `syms` names which side each key column is read at. mixed-onroad also paired `coh_modelYearGroupID`; that column is now a property of the pollutant-process as well as of the cohort and lives on the rate relation, and the pair was redundant anyway because `coh_modelYearID` is joined beside it.",
-          "lhs": "coh_usedFraction",
+          "_comment": "S12, source_bin_distribution_generator.rs:1590-1637, and it IS a self-join: the used row and the equipped row are two rows of the same candidate relation. `syms` names which side each key column is read at. Since 7e the two sides agree on the SOURCE BIN -- source type, model year, engine technology and regulatory class -- and differ only in the fuel, which is what MOVES's `sourceBinFuelUsage` remap is; before 7e the engine technology and the regulatory class were sums over a cohort's rows and the pairing held only where each cohort had one row. mixed-onroad also paired `coh_modelYearGroupID`; that column is a property of the pollutant-process as well as of the cohort and lives on the rate relation, and the pair was redundant anyway because the model year is joined beside it.",
+          "lhs": "bin_usedFraction",
           "rhs": {
             "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
-              "c",
+              "i",
               "g"
             ],
             "ranges": {
-              "c": {
-                "from": "cohort_rows"
+              "i": {
+                "from": "sourcebin_rows"
               },
               "e": {
-                "from": "cohort_rows"
+                "from": "sourcebin_rows"
               },
               "f": {
                 "from": "fuelusagefraction_rows"
@@ -12224,25 +12671,25 @@
             "join": [
               {
                 "syms": [
-                  "c",
+                  "i",
                   "e"
                 ],
                 "on": [
                   [
-                    "coh_sourceTypeID",
-                    "coh_sourceTypeID"
+                    "bin_sourceTypeID",
+                    "bin_sourceTypeID"
                   ],
                   [
-                    "coh_modelYearID",
-                    "coh_modelYearID"
+                    "bin_modelYearID",
+                    "bin_modelYearID"
                   ],
                   [
-                    "coh_engTechID",
-                    "coh_engTechID"
+                    "bin_engTechID",
+                    "bin_engTechID"
                   ],
                   [
-                    "coh_regClassID",
-                    "coh_regClassID"
+                    "bin_regClassID",
+                    "bin_regClassID"
                   ]
                 ]
               },
@@ -12253,19 +12700,19 @@
                 ],
                 "on": [
                   [
-                    "coh_fuelTypeID",
+                    "bin_fuelTypeID",
                     "fuf_sourceBinFuelTypeID"
                   ]
                 ]
               },
               {
                 "syms": [
-                  "c",
+                  "i",
                   "f"
                 ],
                 "on": [
                   [
-                    "coh_fuelTypeID",
+                    "bin_fuelTypeID",
                     "fuf_fuelSupplyFuelTypeID"
                   ]
                 ]
@@ -12299,7 +12746,7 @@
                     {
                       "op": "index",
                       "args": [
-                        "coh_sourceBinActivityFraction",
+                        "bin_sourceBinActivityFraction",
                         "e"
                       ]
                     }
@@ -12308,8 +12755,8 @@
                 {
                   "op": "index",
                   "args": [
-                    "coh_isSelected",
-                    "c"
+                    "bin_isSelected",
+                    "i"
                   ]
                 }
               ]
@@ -12330,8 +12777,8 @@
               "b": {
                 "from": "rate_rows"
               },
-              "c": {
-                "from": "cohort_rows"
+              "i": {
+                "from": "sourcebin_rows"
               },
               "g": {
                 "from": "runspeccounty_rows"
@@ -12341,8 +12788,8 @@
               {
                 "on": [
                   [
-                    "rt_cohortOrdinal",
-                    "coh_ordinal"
+                    "rt_binOrdinal",
+                    "bin_ordinal"
                   ]
                 ]
               }
@@ -12350,8 +12797,8 @@
             "expr": {
               "op": "index",
               "args": [
-                "coh_usedFraction",
-                "c",
+                "bin_usedFraction",
+                "i",
                 "g"
               ]
             }
@@ -12394,7 +12841,7 @@
           }
         },
         {
-          "lhs": "coh_isSelectedAt",
+          "lhs": "bin_isSelectedAt",
           "rhs": {
             "op": "faq",
             "args": [],
@@ -12406,16 +12853,16 @@
               "b": {
                 "from": "rate_rows"
               },
-              "c": {
-                "from": "cohort_rows"
+              "i": {
+                "from": "sourcebin_rows"
               }
             },
             "join": [
               {
                 "on": [
                   [
-                    "rt_cohortOrdinal",
-                    "coh_ordinal"
+                    "rt_binOrdinal",
+                    "bin_ordinal"
                   ]
                 ]
               }
@@ -12423,8 +12870,8 @@
             "expr": {
               "op": "index",
               "args": [
-                "coh_isSelected",
-                "c"
+                "bin_isSelected",
+                "i"
               ]
             }
           }
@@ -12710,17 +13157,17 @@
           }
         },
         {
-          "lhs": "coh_fleetAvgGroupID",
+          "lhs": "bin_fleetAvgGroupID",
           "rhs": {
             "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
-              "c"
+              "i"
             ],
             "ranges": {
-              "c": {
-                "from": "cohort_rows"
+              "i": {
+                "from": "sourcebin_rows"
               },
               "g": {
                 "from": "regulatoryclass_rows"
@@ -12730,7 +13177,7 @@
               {
                 "on": [
                   [
-                    "coh_regClassID",
+                    "bin_regClassID",
                     "rc_regClassID"
                   ]
                 ]
@@ -12866,17 +13313,66 @@
           }
         },
         {
-          "lhs": "coh_salesAllFuels",
+          "lhs": "svp_binOrdinal",
           "rhs": {
             "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
-              "c"
+              "v"
             ],
             "ranges": {
-              "c": {
-                "from": "cohort_rows"
+              "v": {
+                "from": "samplevehiclepopulation_rows"
+              },
+              "w": {
+                "from": "samplevehiclepopulation_rows"
+              }
+            },
+            "join": [
+              {
+                "syms": [
+                  "v",
+                  "w"
+                ],
+                "on": [
+                  [
+                    "svp_sourceTypeID",
+                    "svp_sourceTypeID"
+                  ],
+                  [
+                    "svp_modelYearID",
+                    "svp_modelYearID"
+                  ],
+                  [
+                    "svp_fuelTypeID",
+                    "svp_fuelTypeID"
+                  ]
+                ]
+              }
+            ],
+            "filter": {
+              "op": "<=",
+              "args": [
+                "w",
+                "v"
+              ]
+            },
+            "expr": 1.0
+          }
+        },
+        {
+          "lhs": "bin_salesAllFuels",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "i"
+            ],
+            "ranges": {
+              "i": {
+                "from": "sourcebin_rows"
               },
               "v": {
                 "from": "samplevehiclepopulation_rows"
@@ -12890,7 +13386,7 @@
                 "on": [
                   [
                     "svp_modelYearID",
-                    "coh_modelYearID"
+                    "bin_modelYearID"
                   ]
                 ]
               },
@@ -12906,7 +13402,7 @@
                 "on": [
                   [
                     "rc_fleetAvgGroupID",
-                    "coh_fleetAvgGroupID"
+                    "bin_fleetAvgGroupID"
                   ]
                 ]
               }
@@ -12921,17 +13417,17 @@
           }
         },
         {
-          "lhs": "coh_salesElectric",
+          "lhs": "bin_salesElectric",
           "rhs": {
             "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
-              "c"
+              "i"
             ],
             "ranges": {
-              "c": {
-                "from": "cohort_rows"
+              "i": {
+                "from": "sourcebin_rows"
               },
               "v": {
                 "from": "samplevehiclepopulation_rows"
@@ -12948,7 +13444,7 @@
                 "on": [
                   [
                     "svp_modelYearID",
-                    "coh_modelYearID"
+                    "bin_modelYearID"
                   ]
                 ]
               },
@@ -12964,7 +13460,7 @@
                 "on": [
                   [
                     "rc_fleetAvgGroupID",
-                    "coh_fleetAvgGroupID"
+                    "bin_fleetAvgGroupID"
                   ]
                 ]
               },
@@ -12987,17 +13483,17 @@
           }
         },
         {
-          "lhs": "coh_hasElectricRow",
+          "lhs": "bin_hasElectricRow",
           "rhs": {
             "op": "faq",
             "args": [],
             "semiring": "bool_and_or",
             "output_idx": [
-              "c"
+              "i"
             ],
             "ranges": {
-              "c": {
-                "from": "cohort_rows"
+              "i": {
+                "from": "sourcebin_rows"
               },
               "v": {
                 "from": "samplevehiclepopulation_rows"
@@ -13014,7 +13510,7 @@
                 "on": [
                   [
                     "svp_modelYearID",
-                    "coh_modelYearID"
+                    "bin_modelYearID"
                   ]
                 ]
               },
@@ -13030,7 +13526,7 @@
                 "on": [
                   [
                     "rc_fleetAvgGroupID",
-                    "coh_fleetAvgGroupID"
+                    "bin_fleetAvgGroupID"
                   ]
                 ]
               },
@@ -13047,22 +13543,22 @@
           }
         },
         {
-          "lhs": "coh_evFraction",
+          "lhs": "bin_evFraction",
           "rhs": {
             "op": "ifelse",
             "args": [
               {
                 "op": ">",
                 "args": [
-                  "coh_salesAllFuels",
+                  "bin_salesAllFuels",
                   0.0
                 ]
               },
               {
                 "op": "/",
                 "args": [
-                  "coh_salesElectric",
-                  "coh_salesAllFuels"
+                  "bin_salesElectric",
+                  "bin_salesAllFuels"
                 ]
               },
               0.0
@@ -13070,7 +13566,7 @@
           }
         },
         {
-          "lhs": "coh_hasEvFraction",
+          "lhs": "bin_hasEvFraction",
           "rhs": {
             "op": "ifelse",
             "args": [
@@ -13080,14 +13576,14 @@
                   {
                     "op": ">",
                     "args": [
-                      "coh_hasElectricRow",
+                      "bin_hasElectricRow",
                       0.5
                     ]
                   },
                   {
                     "op": ">",
                     "args": [
-                      "coh_salesAllFuels",
+                      "bin_salesAllFuels",
                       0.0
                     ]
                   }
@@ -13111,16 +13607,16 @@
               "b": {
                 "from": "rate_rows"
               },
-              "c": {
-                "from": "cohort_rows"
+              "i": {
+                "from": "sourcebin_rows"
               }
             },
             "join": [
               {
                 "on": [
                   [
-                    "rt_cohortOrdinal",
-                    "coh_ordinal"
+                    "rt_binOrdinal",
+                    "bin_ordinal"
                   ]
                 ]
               }
@@ -13128,8 +13624,8 @@
             "expr": {
               "op": "index",
               "args": [
-                "coh_fleetAvgGroupID",
-                "c"
+                "bin_fleetAvgGroupID",
+                "i"
               ]
             }
           }
@@ -13147,16 +13643,16 @@
               "b": {
                 "from": "rate_rows"
               },
-              "c": {
-                "from": "cohort_rows"
+              "i": {
+                "from": "sourcebin_rows"
               }
             },
             "join": [
               {
                 "on": [
                   [
-                    "rt_cohortOrdinal",
-                    "coh_ordinal"
+                    "rt_binOrdinal",
+                    "bin_ordinal"
                   ]
                 ]
               }
@@ -13164,8 +13660,8 @@
             "expr": {
               "op": "index",
               "args": [
-                "coh_evFraction",
-                "c"
+                "bin_evFraction",
+                "i"
               ]
             }
           }
@@ -13183,16 +13679,16 @@
               "b": {
                 "from": "rate_rows"
               },
-              "c": {
-                "from": "cohort_rows"
+              "i": {
+                "from": "sourcebin_rows"
               }
             },
             "join": [
               {
                 "on": [
                   [
-                    "rt_cohortOrdinal",
-                    "coh_ordinal"
+                    "rt_binOrdinal",
+                    "bin_ordinal"
                   ]
                 ]
               }
@@ -13200,8 +13696,8 @@
             "expr": {
               "op": "index",
               "args": [
-                "coh_hasEvFraction",
-                "c"
+                "bin_hasEvFraction",
+                "i"
               ]
             }
           }
@@ -13700,6 +14196,66 @@
           }
         },
         {
+          "lhs": "run_sourceBinsDropped",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "n"
+            ],
+            "ranges": {
+              "n": {
+                "from": "run_rows"
+              },
+              "v": {
+                "from": "samplevehiclepopulation_rows"
+              },
+              "c": {
+                "from": "cohort_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "coh_sourceTypeID",
+                    "svp_sourceTypeID"
+                  ],
+                  [
+                    "coh_modelYearID",
+                    "svp_modelYearID"
+                  ],
+                  [
+                    "coh_fuelTypeID",
+                    "svp_fuelTypeID"
+                  ]
+                ]
+              }
+            ],
+            "filter": {
+              "op": ">",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "svp_binOrdinal",
+                    "v"
+                  ]
+                },
+                "n_sourceBin"
+              ]
+            },
+            "expr": {
+              "op": "index",
+              "args": [
+                "coh_isSelected",
+                "c"
+              ]
+            }
+          }
+        },
+        {
           "lhs": "outputPolProcessCount",
           "rhs": {
             "op": "faq",
@@ -13726,7 +14282,7 @@
           }
         },
         {
-          "lhs": "run_cohortSelectionTotal",
+          "lhs": "run_binSelectionTotal",
           "rhs": {
             "op": "faq",
             "args": [],
@@ -13752,7 +14308,7 @@
           }
         },
         {
-          "lhs": "pp_selectedCohortCount",
+          "lhs": "pp_selectedBinCount",
           "rhs": {
             "op": "faq",
             "args": [],
@@ -13788,7 +14344,7 @@
           }
         },
         {
-          "lhs": "pp_rateCohortCount",
+          "lhs": "pp_rateBinCount",
           "rhs": {
             "op": "faq",
             "args": [],
@@ -15369,8 +15925,8 @@
                     "rt_polProcessID"
                   ],
                   [
-                    "rt_cohortOrdinal",
-                    "rt_cohortOrdinal"
+                    "rt_binOrdinal",
+                    "rt_binOrdinal"
                   ]
                 ]
               }
@@ -15488,7 +16044,7 @@
                 {
                   "op": "index",
                   "args": [
-                    "coh_isSelectedAt",
+                    "bin_isSelectedAt",
                     "b"
                   ]
                 }
@@ -15825,16 +16381,16 @@
               "o": {
                 "from": "output_rows"
               },
-              "b": {
-                "from": "rate_rows"
+              "c": {
+                "from": "cohort_rows"
               }
             },
             "join": [
               {
                 "on": [
                   [
-                    "outPolProcCohortOrdinal",
-                    "rt_outputOrdinal"
+                    "outCohortOrdinal",
+                    "coh_rank"
                   ]
                 ]
               }
@@ -15842,8 +16398,8 @@
             "expr": {
               "op": "index",
               "args": [
-                "rt_modelYearID",
-                "b"
+                "coh_modelYearID",
+                "c"
               ]
             }
           }
@@ -15861,16 +16417,16 @@
               "o": {
                 "from": "output_rows"
               },
-              "b": {
-                "from": "rate_rows"
+              "c": {
+                "from": "cohort_rows"
               }
             },
             "join": [
               {
                 "on": [
                   [
-                    "outPolProcCohortOrdinal",
-                    "rt_outputOrdinal"
+                    "outCohortOrdinal",
+                    "coh_rank"
                   ]
                 ]
               }
@@ -15878,8 +16434,8 @@
             "expr": {
               "op": "index",
               "args": [
-                "rt_fuelTypeID",
-                "b"
+                "coh_fuelTypeID",
+                "c"
               ]
             }
           }
@@ -15897,16 +16453,16 @@
               "o": {
                 "from": "output_rows"
               },
-              "b": {
-                "from": "rate_rows"
+              "p": {
+                "from": "runspecpollutantprocess_rows"
               }
             },
             "join": [
               {
                 "on": [
                   [
-                    "outPolProcCohortOrdinal",
-                    "rt_outputOrdinal"
+                    "outPolProcOrdinal",
+                    "rspp_outputOrdinal"
                   ]
                 ]
               }
@@ -15914,8 +16470,8 @@
             "expr": {
               "op": "index",
               "args": [
-                "rt_pollutantID",
-                "b"
+                "rspp_pollutantID",
+                "p"
               ]
             }
           }
@@ -15933,16 +16489,16 @@
               "o": {
                 "from": "output_rows"
               },
-              "b": {
-                "from": "rate_rows"
+              "p": {
+                "from": "runspecpollutantprocess_rows"
               }
             },
             "join": [
               {
                 "on": [
                   [
-                    "outPolProcCohortOrdinal",
-                    "rt_outputOrdinal"
+                    "outPolProcOrdinal",
+                    "rspp_outputOrdinal"
                   ]
                 ]
               }
@@ -15950,8 +16506,8 @@
             "expr": {
               "op": "index",
               "args": [
-                "rt_processID",
-                "b"
+                "rspp_processID",
+                "p"
               ]
             }
           }
@@ -16041,16 +16597,16 @@
               "o": {
                 "from": "output_rows"
               },
-              "b": {
-                "from": "rate_rows"
+              "c": {
+                "from": "cohort_rows"
               }
             },
             "join": [
               {
                 "on": [
                   [
-                    "outPolProcCohortOrdinal",
-                    "rt_outputOrdinal"
+                    "outCohortOrdinal",
+                    "coh_rank"
                   ]
                 ]
               }
@@ -16058,8 +16614,8 @@
             "expr": {
               "op": "index",
               "args": [
-                "rt_sourceTypeOrdinal",
-                "b"
+                "coh_sourceTypeOrdinal",
+                "c"
               ]
             }
           }
@@ -16580,16 +17136,16 @@
               "o": {
                 "from": "output_rows"
               },
-              "b": {
-                "from": "rate_rows"
+              "c": {
+                "from": "cohort_rows"
               }
             },
             "join": [
               {
                 "on": [
                   [
-                    "outPolProcCohortOrdinal",
-                    "rt_outputOrdinal"
+                    "outCohortOrdinal",
+                    "coh_rank"
                   ]
                 ]
               }
@@ -16597,8 +17153,8 @@
             "expr": {
               "op": "index",
               "args": [
-                "rt_sourceTypeID",
-                "b"
+                "coh_sourceTypeID",
+                "c"
               ]
             }
           }
@@ -17132,7 +17688,7 @@
         },
         {
           "id": "the_cohort_row_set_is_the_same_125_for_both_rate_paths",
-          "description": "125 of the 164 candidates survive `stmyFraction > 0`, and all 125 reach an emissionrate row, for BOTH computed pollutant-processes -- which is the claim that lets one cohort rank serve all three output blocks and is asserted rather than assumed. `pp_selectedCohortCount` is 125, 0, 125: the middle zero is the chained pollutant, which has no pollutantprocessmodelyear rows and therefore no source-bin distribution of its own, and whose 125 output rows come from the chain instead -- `run_chainedRowCount` counts them. `run_cohortSelectionTotal` at 250 is the same fact summed, and would still be 250 if the two rate paths selected DIFFERENT 125s, which is why the per-pollutant-process counts are asserted beside it.\n\nTHAT THE TWO RATE PATHS AGREE ON THE 125 IS NOT THE SAME CLAIM HERE AS IN process-brakewear, AND IT IS LESS OBVIOUS. There the two paths met different source bins because their shortModYrGroupIDs differed; here 11710's is 0 on every model year, so its 31 emissionrate source bins are distinguished by regulatory class, engine technology and fuel alone. A cohort that reached a 9101 rate and no 11710 rate would show up as a count below 125 rather than as a missing output row, because the output relation's rank is built once.",
+          "description": "125 of the 164 candidates survive `stmyFraction > 0`, and all 125 reach an emissionrate row, for BOTH computed pollutant-processes -- which is the claim that lets one cohort rank serve all three output blocks and is asserted rather than assumed. `pp_selectedBinCount` is 125, 0, 125: the middle zero is the chained pollutant, which has no pollutantprocessmodelyear rows and therefore no source-bin distribution of its own, and whose 125 output rows come from the chain instead -- `run_chainedRowCount` counts them. `run_binSelectionTotal` at 250 is the same fact summed, and would still be 250 if the two rate paths selected DIFFERENT 125s, which is why the per-pollutant-process counts are asserted beside it.\n\nTHE THREE COUNTS ARE OVER BINS AND `cohortSurvivorCount` IS OVER COHORTS, AND THIS RUN IS WHERE THE TWO COINCIDE. A passenger car's `samplevehiclepopulation` rows are one per (model year, fuel type) -- regulatory class 20 throughout, engine technology 1 or 30 but never both in one cohort -- so `n_sourceBin` is 1 here and the bin relation IS the cohort relation, row for row. `run_sourceBinsDropped` is what says the 1 is enough rather than merely unrefuted: it counts the bins a selected cohort holds beyond the last slot, and a light commercial truck would put 123 of them there.\n\nTHAT THE TWO RATE PATHS AGREE ON THE 125 IS NOT THE SAME CLAIM HERE AS IN process-brakewear, AND IT IS LESS OBVIOUS. There the two paths met different source bins because their shortModYrGroupIDs differed; here 11710's is 0 on every model year, so its 31 emissionrate source bins are distinguished by regulatory class, engine technology and fuel alone. A cohort that reached a 9101 rate and no 11710 rate would show up as a count below 125 rather than as a missing output row, because the output relation's rank is built once.",
           "time_span": {
             "start": 0.0,
             "end": 0.0
@@ -17147,7 +17703,7 @@
               }
             },
             {
-              "variable": "run_cohortSelectionTotal",
+              "variable": "run_binSelectionTotal",
               "time": 0.0,
               "expected": 250.0,
               "coords": {
@@ -17163,7 +17719,15 @@
               }
             },
             {
-              "variable": "pp_selectedCohortCount",
+              "variable": "run_sourceBinsDropped",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "run_rows": 1
+              }
+            },
+            {
+              "variable": "pp_selectedBinCount",
               "time": 0.0,
               "expected": 125.0,
               "coords": {
@@ -17171,7 +17735,7 @@
               }
             },
             {
-              "variable": "pp_selectedCohortCount",
+              "variable": "pp_selectedBinCount",
               "time": 0.0,
               "expected": 0.0,
               "coords": {
@@ -17179,7 +17743,7 @@
               }
             },
             {
-              "variable": "pp_selectedCohortCount",
+              "variable": "pp_selectedBinCount",
               "time": 0.0,
               "expected": 125.0,
               "coords": {
@@ -17187,7 +17751,7 @@
               }
             },
             {
-              "variable": "pp_rateCohortCount",
+              "variable": "pp_rateBinCount",
               "time": 0.0,
               "expected": 125.0,
               "coords": {
@@ -17195,7 +17759,7 @@
               }
             },
             {
-              "variable": "pp_rateCohortCount",
+              "variable": "pp_rateBinCount",
               "time": 0.0,
               "expected": 0.0,
               "coords": {
@@ -17203,7 +17767,7 @@
               }
             },
             {
-              "variable": "pp_rateCohortCount",
+              "variable": "pp_rateBinCount",
               "time": 0.0,
               "expected": 125.0,
               "coords": {
