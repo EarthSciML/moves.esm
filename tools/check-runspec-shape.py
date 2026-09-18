@@ -2,8 +2,8 @@
 """Check a `runspecs/` document's emitted relation against the shape the chain
 RECOMPUTES, rather than against the shape it was declared with.
 
-Two numbers in `onroad/model.esm` are declared and not discovered, because no
-table in the database states them -- MOVES works both out:
+Four numbers in `onroad/model.esm` are declared and not discovered, because no
+table in the database states them -- MOVES works them all out at run time:
 
   n_outputCohort      how many (sourceTypeID, fuelTypeID, modelYearID) cohorts
                       reach MOVESOutput, recomputed as `cohortSurvivorCount`
@@ -12,6 +12,10 @@ table in the database states them -- MOVES works both out:
                       `rspp_isEmitted` -- MOVES's join to `runSpecRoadType`
   n_sourceBin         how many source bins the widest cohort holds, checked the
                       other way round by `run_sourceBinsDropped`
+  n_physicsRow        how many `sourceusetypephysics` rows the run's source
+                      types select -- the width of the drive-cycle axis --
+                      recomputed as `run_physicsRowsSelected` and checked the
+                      other way round by `run_physicsRowsDropped`
 
 A declaration that disagrees with its recomputation is how a run would silently
 emit the wrong number of rows, and for `runspecs/expand-day.esm` it is the ONLY
@@ -26,14 +30,26 @@ chain's recomputation, and the KEYS actually present in the output:
     distinct (pollutantID, processID) == outputPolProcessCount
     distinct (sourceTypeID, fuelTypeID, modelYearID) == cohortSurvivorCount
     run_sourceBinsDropped == 0
+    run_physicsRowsDropped == 0
+    run_rateRowsWithoutPhysics == 0
 
-The last line is a different KIND of check from the three above it, and it is
-the one 7e added. The other two declared numbers are extents: too small and the
-document emits fewer rows than it computes, which the row count catches. A
-`n_sourceBin` one short drops a whole source bin out of the candidate grid, and
-a dropped bin is not a missing row -- it is a row whose emissionQuant is quietly
-LOW by that bin's share. Nothing about the shape would notice, so the chain
-counts the bins it could not reach and this asserts the count is zero.
+The last three lines are a different KIND of check from the three above them.
+The first two declared numbers are extents: too small and the document emits
+fewer rows than it computes, which the row count catches. The other two are
+WIDTHS of a relation the output has no column for, and a width one short does
+not lose a row -- it loses a term of one. A short `n_sourceBin` drops a source
+bin out of the candidate grid and the cohort's emissionQuant is quietly LOW by
+that bin's share; a short `n_physicsRow` drops a vehicle off the drive-cycle
+axis and every rate row of its regulatory class collapses against no weights at
+all, which is quietly ZERO. Nothing about the shape would notice either, so the
+chain counts what it could not reach and this asserts the counts are zero.
+
+`run_rateRowsWithoutPhysics` is the same failure reached from the other side: a
+rate row whose (source type, regulatory class, model year) matches no
+`sourceusetypephysics` row at all, which is a gap in the table rather than a
+short declaration. It is zero for every (source type, regulatory class) pair the
+default database's `samplevehiclepopulation` carries, and a county database that
+added a regulatory class would find out here rather than in a low number.
 
 The cohort key gained its source type at 7d, and the third line is what says so:
 `runspecs/expand-fueltype-diesel.esm` emits 125 cohorts under source type 21 and
@@ -68,6 +84,8 @@ def main(emitted_path, shape_path):
     blocks = int(float(shape[0]["outputPolProcessCount"]))
     cohorts = int(float(shape[0]["cohortSurvivorCount"]))
     dropped = int(float(shape[0]["run_sourceBinsDropped"]))
+    vehicleless = int(float(shape[0]["run_physicsRowsDropped"]))
+    unphysical = int(float(shape[0]["run_rateRowsWithoutPhysics"]))
 
     def distinct(*cols):
         return {tuple(r[c] for c in cols) for r in rows}
@@ -95,13 +113,22 @@ def main(emitted_path, shape_path):
                         "n_sourceBin and are not in the candidate grid: this "
                         "run's emissionQuant is low by their share, and "
                         "nothing else here would say so" % dropped)
+    if vehicleless:
+        problems.append("%d selected physics row(s) fall past n_physicsRow and "
+                        "are not on the drive-cycle axis: every rate row of "
+                        "their regulatory class weights its operating modes "
+                        "against nothing and emits 0" % vehicleless)
+    if unphysical:
+        problems.append("%d selected rate row(s) match no sourceusetypephysics "
+                        "row at all, so they have no drive cycle and emit 0"
+                        % unphysical)
     if problems:
         for p in problems:
             print(p)
         return 1
 
     print("%d rows = %d pollutant-process block(s) x %d count%s x %d day type(s) "
-          "x %d cohorts, no source bin dropped"
+          "x %d cohorts, no source bin and no vehicle dropped"
           % (len(rows), blocks, len(counties), "y" if len(counties) == 1 else "ies",
              len(days), cohorts))
     return 0

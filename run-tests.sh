@@ -1322,11 +1322,13 @@ else
     if "$ESM" simulate "$rs" --time 0 --format csv \
          --observed outputPolProcessCount --observed cohortSurvivorCount \
          --observed run_sourceBinsDropped \
+         --observed run_physicsRowsDropped \
+         --observed run_rateRowsWithoutPhysics \
          --output "$RS_SHAPE" >/dev/null 2>&1; then
       if out=$("$PYTHON" tools/check-runspec-shape.py "$RS_CSV" "$RS_SHAPE" 2>&1); then
         pass "$rsname — the emitted shape is what the chain recomputes: $out"
       else
-        fail "7c'/7d $rsname — the rows emitted are not the shape the chain recomputes. Either a declared count is wrong, or rspp_isEmitted is, or n_sourceBin is a slot short"
+        fail "7c'/7d $rsname — the rows emitted are not the shape the chain recomputes. Either a declared count is wrong, or rspp_isEmitted is, or n_sourceBin is a slot short, or n_physicsRow is a vehicle short"
         sed 's/^/       /' <<<"$out" | head -4
       fi
     else
@@ -1345,7 +1347,7 @@ else
     elif ! grep -q 'WHAT IT WAITS ON' "$rs"; then
       fail "7d pending $rsname — it validates but no longer says what it waits on. Either it is ready for runspecs/ or the note was lost"
     else
-      pass "$rsname — pending: it validates and names what it waits on (the physics row, PLAN.md §7.3.6)"
+      pass "$rsname — pending: it validates and names what it waits on (a memory budget, PLAN.md §7.3.7)"
     fi
   done
 
@@ -1381,6 +1383,8 @@ else
        && "$ESM" simulate "$RS_PROBE" --time 0 --format csv \
             --observed outputPolProcessCount --observed cohortSurvivorCount \
             --observed run_sourceBinsDropped \
+            --observed run_physicsRowsDropped \
+            --observed run_rateRowsWithoutPhysics \
             --output "$RUNDIR/$pname.probe.shape.csv" >/dev/null 2>&1 \
        && cmp -s "$RUNDIR/$prun.runspec.csv" "$RUNDIR/$pname.probe.csv" \
        && "$PYTHON" tools/check-runspec-shape.py \

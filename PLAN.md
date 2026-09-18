@@ -1992,6 +1992,92 @@ chain is the model's largest relational step (63,602 drive-schedule seconds with
 four self-joins), so the axis has to be the selected rows and not a padded
 product of source types and a slot count.
 
+### 7.3.7 7d, 2026-09-18: the drive cycle is per VEHICLE, and `expand-fueltype-diesel` reproduces
+
+§7.3.6 named the fourth hidden key and the guard that found it. This is the step
+that closed it. `sourceusetypephysics` is keyed by **(sourceTypeID, regClassID,
+beginModelYearID, endModelYearID)**, and everything from `phys_isSelected` down
+to `pp_W` now carries that row rather than a source type.
+
+**The axis is the run's selected rows, densely ranked — not a padded product.**
+`n_sourceBin` could afford padding because a cohort grid is small; the drive
+cycle reads 63,602 drive-schedule seconds once per vehicle, and a product of 5
+source types and a 20-slot width would compute 100 drive cycles where
+`expand-sourcetype` has 40. So the promotion reuses §22 rather than §63.3's
+grid: `phys_isSelected` over the 178-row national table, `phys_prefixSelected`
+its inclusive prefix count, `phys_rank` the product that zeroes the rest, and a
+`phy_*` relation that reads its nine columns back through
+`phys_rank ↔ phy_ordinal`.
+
+`n_physicsRow` is the **fourth declared number**, relayed through
+`moves-onroad.esm`'s `bindings` like the other three (§49.1) and checked both
+ways: `run_physicsRowsSelected` recomputes it, and `run_physicsRowsDropped`
+counts the vehicles that fall past it. A third guard,
+`run_rateRowsWithoutPhysics`, catches the same failure from the other side — a
+rate row whose regulatory class the physics table never had. All three are
+asserted at their values by `tools/check-runspec-shape.py`.
+
+**The rate row finds its vehicle the way `aggregate.rs:351-358` does.**
+`rt_physicsOrdinal` joins on (source type, regulatory class) and FILTERS on the
+model year lying inside the row's range, because a containment is not a key.
+
+**Only half the drive cycle moved.** Which schedules apply, which two bracket an
+average-speed bin and what weight each carries are properties of the SCHEDULES
+and stay per (source type, road type); vehicle-specific power, the operating
+mode a second bins into and the schedule's mode distribution are properties of
+the PHYSICS and became per vehicle. `asb_modeFraction` is where the two
+multiply, and `phy_sourceTypeOrdinal` is the join that puts them on one row.
+
+#### What it cost, which was less than nothing
+
+The same edit added the gate the finer key makes available — MOVES's
+`ScheduleOpModeKey` is (physics row, drive schedule), so `dsa_totalSeconds` and
+`dsa_modeSeconds` now join the association to the vehicle's OWN source type and
+the run's road type, and 614 associations become the ~11 a source type drives on
+one road. Measured on the two pending runs, before and after, same machine:
+
+| run | axis | peak RSS | wall clock |
+|---|---|---|---|
+| `expand-fueltype-diesel` | 2 source types → 4 vehicles | 24.6 GB → 24.6 GB | 273 s → 151 s |
+| `expand-sourcetype` | 5 source types → 40 vehicles | 34.4 GB → 31.0 GB | 233 s → 115 s |
+
+A ten-fold finer axis that runs in half the time is the gate, not the axis.
+
+#### What it bought
+
+**`runspecs/pending/expand-fueltype-diesel.esm` reproduces and is no longer
+pending**: 248 of 248 cells, worst cell **7.372e-06** against a 2e-05 tolerance,
+worst per-pollutant sum 2.000e-08. It was 123 rows of zero before 7.3.6, then
+1.48–3.06× per cell and 1.157× per pollutant after it. Both source types, both
+regulatory classes, the split at model year 2010 and all four fuels.
+
+**`n_physicsRow` defaults to 1, and at 1 the drive-cycle relation is the one
+vehicle a single-regulatory-class source type has**, so the three runs already
+in `runspecs/` are unchanged to the digit: 375, 250 and 375 rows at 8.128e-06,
+7.106e-06 and 1.140e-05 — the same three numbers 7d has left alone through four
+promotions now.
+
+#### What it did NOT unblock, and where the ceiling is
+
+`runspecs/pending/expand-sourcetype.esm` — the same axis at width five, 40
+vehicles — still does not run, and for a reason that is no longer about a key.
+It peaks at **32.0 GB** of resident memory against this job's 40 GB cgroup
+limit, which counts page cache as well, and the kernel kills it. Three
+measurements say where not to look:
+
+* **Not the drive cycle.** This step LOWERED that run's peak from 34.4 GB and
+  halved its wall clock, 233 s to 115 s.
+* **Not the source-bin padding.** Peak is flat as `n_sourceBin` goes 8 → 4 → 2
+  (32.0, 32.0, 33.2 GB) and drops only at 1 (24.3 GB), which is a smaller
+  relation and not a smaller pad.
+* **Not width per se.** `expand-fueltype-diesel` peaks at 24.6 GB and runs.
+
+So the ceiling sits between 24.6 and 32.0 GB and nothing in either document can
+move it. The next step there is a memory profile of the default-database chain —
+`esm performance-profile` reports parse time only, so it is the wrong tool and
+finding the right one is part of the step. That is a separate question from
+every other 7d dimension, and none of them is blocked on it.
+
 ### 7.4 Upstream asks
 
 **None is blocking.** This section has said "still none", "already exists,
@@ -2058,7 +2144,7 @@ This repository writes `leaf-owns-shape`, which does not depend on the answer.
 | **7b** ✅ | Full-database monolithic conversion — **done 2026-09-10**: 237 monolithic + 3 schema-only, 0 partition directories, 517 MB, 15.6 s, validator extended and all 7 planted corruptions red (§7.3.1) | met; the load cost is measured and does not dictate the layout |
 | **7c** ✅ | The mount shape at fixture scale — **done 2026-09-10, re-shaped to conform 2026-09-12, thin 2026-09-15** (§7.3.2): `fixtures/process-tirewear.esm` split into a logic half, a catalogue document that mounts it, and a 43-line per-fixture document that mounts the catalogue, byte-identical over 375 rows × 26 fields. Four findings retired (F46, F48, F49, F50), one open (F51) | met; the per-fixture document is 12 lines — metadata and one `{ref}`, nothing mechanical (conventions §53.2) |
 | **7c′** ✅ | `moves-onroad.esm`: default DB → `MOVESOutput` for `process-tirewear` — **done 2026-09-17** (§7.3.3): 38 national tables and the same logic, behind a per-fixture document carrying ten runspec selections, emitting the inlined fixture's 375 rows byte for byte in 40 s | met; the first end-to-end number comes off the default database |
-| **7d** | Widen the runspec surface one selection dimension at a time — pollutant-process, source type, road type, timespan, geography | each dimension added only with a fixture that **discriminates** it (§23). **Begun 2026-09-17** (§7.3.4): **timespan** done at the day axis, the output relation is no longer a rectangle over the selected pollutant-processes (`runspecs/expand-day.esm`, 250 rows, byte-identical to the inlined fixture over 25 shared fields), and **geography** done at three counties in three states (`runspecs/expand-counties.esm`, 375 rows, worst cell 1.140e-05; conventions §61). **Source type is an axis as of 2026-09-18** (§7.3.5, conventions §62): 44 variables promoted, `run_sourceTypeID` gone, the three existing runs unchanged to the digit, and `runspecs/pending/expand-fueltype-diesel.esm` emitting the right 248-row shape with source type 21's 125 rows exact at 7.106e-06. **The source bin is its own relation as of 2026-09-18** (§7.3.6, conventions §63): `sourcebin_rows` beside `cohort_rows`, `n_sourceBin` a third declared and checked number relayed per fixture, the three existing runs still unchanged to the digit, and `expand-fueltype-diesel`'s activity AND source-bin distribution both exact for both source types — 330 bins against the run's own `sourceBinDistributionFuelUsage`. **What remains is the DRIVE CYCLE, which is per (source type, regulatory class, model-year range) and not per source type**: `run_physicsRowsSelected` is 3 for source type 32 where the model requires 1, and that is the next step, measured in §7.3.6. Month and the criteria pollutants are left after it |
+| **7d** | Widen the runspec surface one selection dimension at a time — pollutant-process, source type, road type, timespan, geography | each dimension added only with a fixture that **discriminates** it (§23). **Begun 2026-09-17** (§7.3.4): **timespan** done at the day axis, the output relation is no longer a rectangle over the selected pollutant-processes (`runspecs/expand-day.esm`, 250 rows, byte-identical to the inlined fixture over 25 shared fields), and **geography** done at three counties in three states (`runspecs/expand-counties.esm`, 375 rows, worst cell 1.140e-05; conventions §61). **Source type is an axis as of 2026-09-18** (§7.3.5, conventions §62): 44 variables promoted, `run_sourceTypeID` gone, the three existing runs unchanged to the digit, and `runspecs/pending/expand-fueltype-diesel.esm` emitting the right 248-row shape with source type 21's 125 rows exact at 7.106e-06. **The source bin is its own relation as of 2026-09-18** (§7.3.6, conventions §63): `sourcebin_rows` beside `cohort_rows`, `n_sourceBin` a third declared and checked number relayed per fixture, the three existing runs still unchanged to the digit, and `expand-fueltype-diesel`'s activity AND source-bin distribution both exact for both source types — 330 bins against the run's own `sourceBinDistributionFuelUsage`. **The drive cycle is per VEHICLE as of 2026-09-18** (§7.3.7, conventions §64): `physicsrow_rows` is the run's selected `sourceusetypephysics` rows densely ranked, `n_physicsRow` a fourth declared and checked number, the three existing runs STILL unchanged to the digit, and **`runspecs/expand-fueltype-diesel.esm` promoted out of `pending/`** — all 248 rows, worst cell 7.372e-06, both regulatory classes of source type 32 and the split at model year 2010. `expand-sourcetype` is the one dimension left pending and it is no longer waiting on a key: it peaks at 32.0 GB against a 40 GB limit, which is a profile and not a model step. Month and the criteria pollutants are left after it |
 | **7e** | `moves-nonroad.esm`, same shape | 12 `nr-*` fixtures |
 | **7f** | The five fixtures needing a second input database (four `-single` on `washtenaw_cdb`, `scale-project` on the project DB) | last, because they are the only ones whose model input is not the default DB |
 

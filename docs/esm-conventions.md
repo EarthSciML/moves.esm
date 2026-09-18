@@ -6294,3 +6294,126 @@ distinguish a key from a constant (§60's rectangle, §61's county, §62's sourc
 bin, this). The pattern has stopped being a coincidence: **budget one hidden key
 per dimension widened, and look for it in the columns of the MOVES table rather
 than in the rules of its code.**
+
+## 64. A drive cycle is per VEHICLE, and a vehicle is not a source type **[PLAN.md step 7d; 178 rows to 4, 248 of 248 rows exact]**
+
+§63 ended by naming the fourth hidden key and the guard that found it. This is
+the step that closed it, and it is the same promotion §62 did for the source
+type — one key finer, over the model's largest relational step.
+
+### 64.1 What MOVES keys the drive cycle by, and what the rate matches against
+
+`sourceusetypephysics` has 178 rows over 13 source types, keyed by
+(sourceTypeID, **regClassID**, **beginModelYearID**, **endModelYearID**). A
+motorcycle and a passenger car have one row; a light commercial truck has three
+— regulatory class 30, and regulatory class 41 split at model year 2010 because
+its fixed mass factor changes from 2.05979 to 5.0 while its mass does not; a
+refuse truck has 15 and a combination long-haul truck 20.
+
+The Rust says so in its key types rather than in a comment
+(`drivecycle.rs:34-59`):
+
+    struct BracketedBinKey { physics_index, road_type_id, avg_speed_bin_id }
+    struct ScheduleOpModeKey { physics_index, drive_schedule_id }
+
+and the rate row reaches the block it built through
+`aggregate.rs:351-358` — a regulatory-class **equality** and a model-year
+**containment**:
+
+    if romd.key.reg_class_id > 0 && romd.key.reg_class_id != rate.reg_class_id { continue }
+    if rate.model_year_id < romd.key.begin_model_year_id
+        || rate.model_year_id > romd.key.end_model_year_id { continue }
+
+That is exactly one `join.on` pair and one `filter`, which is what
+`rt_physicsOrdinal` is. **A containment is not a key**: the equality half goes
+in the join so the engine can drive the enumeration from it, and the range half
+stays a filter over what the join already narrowed.
+
+### 64.2 The axis is the selected rows, not a padded product
+
+§63.3 gave the source bin a candidate grid — the cohort grid crossed with
+`n_sourceBin` slots — and paid for the padding, because a cohort relation is
+small. The drive cycle cannot afford that. It reads 63,602 drive-schedule
+seconds, bins each into an operating mode, and does it once per vehicle; a
+padded product of 5 source types and a 20-slot width would compute 100 drive
+cycles where the run has 40.
+
+So `physicsrow_rows` is the **selected rows, densely ranked**: `phys_isSelected`
+over the national table, `phys_prefixSelected` its §22 inclusive prefix count,
+`phys_rank` the product that zeroes the rest, and a `phy_*` relation that reads
+its nine columns back through `phys_rank ↔ phy_ordinal`. `n_physicsRow` is the
+fourth declared number, checked the same way the third is —
+`run_physicsRowsSelected` recomputes it and `run_physicsRowsDropped` counts what
+falls past it.
+
+**Which shape to use is a question about the source relation, not about taste.**
+A padded grid is right when the candidate space is a genuine product and cheap
+to enumerate; a ranked subset is right when the parent table is large, the
+selection is sparse, and each row is expensive. The source bin is the first and
+the physics row is the second, in the same document, and they read the same
+because both end in §22's prefix count.
+
+### 64.3 The drive cycle has two halves, and one join holds them together
+
+Not everything below the physics row belongs on the new axis, and promoting what
+does not is how an axis becomes expensive for nothing:
+
+| per (source type, road type) | per vehicle |
+|---|---|
+| which drive schedules apply (`dsa_isSelected`) | vehicle-specific power (`dss_vsp`) |
+| which two bracket a speed bin (`asb_slowerSpeed`, `asb_fasterSpeed`) | the operating mode each second bins into (`dss_opModeID`) |
+| the weight each bracket carries (`asb_scheduleFraction`) | the schedule's mode distribution (`dsa_modeFraction`) |
+
+`asb_modeFraction` is where they multiply, and `phy_sourceTypeOrdinal` — the
+vehicle's source type, as a rank into `runspecsourcetype_rows` — is the join
+that puts the two factors on one row. **A promotion is a question asked
+separately of every variable below the key**: a schedule's average speed does
+not know what it is driven by, and the axis it carries should say so.
+
+### 64.4 The wider axis made the chain FASTER, because the gate came with it
+
+`dsa_modeSeconds` is the model's largest aggregate: (614 associations × 60
+operating modes × the schedule's ~1,300 seconds) per vehicle, with the mode
+match a filter rather than a join because `dss_opModeID` is two-dimensional and
+a 2-D join key is dropped (§57 / EarthSciAST#417).
+
+Multiplying its axis by eight should have been an eight-fold slowdown. It was
+not, because the same edit added the gate MOVES's own `ScheduleOpModeKey`
+implies: the association is joined to the vehicle's OWN source type and the
+run's road type, so 614 associations become the ~11 a source type drives on one
+road. Measured on the same machine, before and after, with everything else
+equal:
+
+| run | axis | peak RSS | wall clock |
+|---|---|---|---|
+| `expand-fueltype-diesel` | 2 source types → 4 vehicles | 24.6 → 24.6 GB | 273 → 151 s |
+| `expand-sourcetype` | 5 source types → 40 vehicles | 34.4 → 31.0 GB | 233 → 115 s |
+
+**When an axis gets finer, look for the gate the finer key makes available** —
+the old axis could not express it (an association belongs to a source type, and
+the old range WAS the source types, so there was nothing to gate against), and
+the restriction is usually written down in the reference's key type rather than
+in its loops.
+
+### 64.5 What it bought
+
+| run | before | after |
+|---|---|---|
+| the three in `runspecs/` | 1.140e-05 / 7.106e-06 / 8.128e-06 | unchanged to the digit |
+| `expand-fueltype-diesel` | 1.48–3.06× per cell, 1.157× per pollutant | **7.372e-06 over 248 cells** |
+
+`n_physicsRow` defaults to 1, and at 1 the drive-cycle relation IS the one
+vehicle a single-regulatory-class source type has — which is why the three
+existing runs did not move. That is the same property `n_sourceBin` was given at
+§63, and it is worth designing for deliberately: **a new axis whose default
+width is 1 is a refactor the existing corpus cannot see, and the corpus is then
+free to say so.**
+
+What it did not buy is `expand-sourcetype`, and the distinction matters for how
+a blocked run is described. That document waited on a KEY for two days and the
+key is now closed; what stops it is 32.0 GB of resident memory against a 40 GB
+limit, which is a different kind of obstacle and belongs in a different kind of
+note. **A pending document should name the thing that actually stops it**, and
+the three measurements above — it is not the drive cycle, not the source-bin
+padding, and `expand-fueltype-diesel` at 24.6 GB runs — are worth more in that
+note than the word "memory".

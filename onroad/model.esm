@@ -244,17 +244,22 @@
     "n_outputCohort": {
       "type": "integer",
       "default": 125,
-      "description": "THE FIRST OF THE TWO DECLARED NUMBERS IN THIS DOCUMENT: how many cohorts reach MOVESOutput in each pollutant-process block. A cohort is a (sourceTypeID, fuelTypeID, modelYearID) triple -- `runspecsourcefueltype` is the grid's second factor and carries PAIRS -- so this number is a SUM over the run's source types and not a product: 125 at one source type (of 164 candidates, ragged by fuel: 41 gasoline model years, 40 diesel, 23 E85, 21 electricity), 248 at two (125 + 123) and 430 at five (41 + 125 + 125 + 89 + 50). WHICH candidates survive is a result of the chain (docs/mixed-onroad.md 2.2's `stmyFraction > 0` rule) and is never written down: `coh_rank` numbers the survivors 1..n by an inclusive prefix count over the candidate grid and the output row joins to that rank (docs/esm-conventions.md 22). `cohortSurvivorCount` recomputes the number from the chain, `pp_selectedCohortCount` recomputes it separately for each pollutant-process, and tests pin all three together."
+      "description": "THE FIRST DECLARED NUMBER IN THIS DOCUMENT: how many cohorts reach MOVESOutput in each pollutant-process block. A cohort is a (sourceTypeID, fuelTypeID, modelYearID) triple -- `runspecsourcefueltype` is the grid's second factor and carries PAIRS -- so this number is a SUM over the run's source types and not a product: 125 at one source type (of 164 candidates, ragged by fuel: 41 gasoline model years, 40 diesel, 23 E85, 21 electricity), 248 at two (125 + 123) and 430 at five (41 + 125 + 125 + 89 + 50). WHICH candidates survive is a result of the chain (docs/mixed-onroad.md 2.2's `stmyFraction > 0` rule) and is never written down: `coh_rank` numbers the survivors 1..n by an inclusive prefix count over the candidate grid and the output row joins to that rank (docs/esm-conventions.md 22). `cohortSurvivorCount` recomputes the number from the chain, `pp_selectedCohortCount` recomputes it separately for each pollutant-process, and tests pin all three together."
     },
     "n_outputPolProcess": {
       "type": "integer",
       "default": 3,
-      "description": "THE SECOND OF THE TWO DECLARED NUMBERS IN THIS DOCUMENT: how many of the run's selected pollutant-processes reach MOVESOutput at all. Three of three here, because every one of 9101, 10710 and 11710 has its rates on a road type this run selects. A run that selects start exhaust or extended idle on an on-road road type alone has fewer: those processes' rates live on the off-network road type 1, `BaseRateCalculator` joins its rate rows to `runSpecRoadType`, and the whole block is discarded (docs/mixed-onroad.md 0.2). WHICH pollutant-processes survive is never written down -- `rspp_isEmitted` decides it from `emissionprocess.occursOnRealRoads` and `runspecroadtype`, `rspp_outputOrdinal` numbers the survivors 1..n by an inclusive prefix count, and `outputPolProcessCount` recomputes this number from the chain."
+      "description": "THE SECOND DECLARED NUMBER IN THIS DOCUMENT: how many of the run's selected pollutant-processes reach MOVESOutput at all. Three of three here, because every one of 9101, 10710 and 11710 has its rates on a road type this run selects. A run that selects start exhaust or extended idle on an on-road road type alone has fewer: those processes' rates live on the off-network road type 1, `BaseRateCalculator` joins its rate rows to `runSpecRoadType`, and the whole block is discarded (docs/mixed-onroad.md 0.2). WHICH pollutant-processes survive is never written down -- `rspp_isEmitted` decides it from `emissionprocess.occursOnRealRoads` and `runspecroadtype`, `rspp_outputOrdinal` numbers the survivors 1..n by an inclusive prefix count, and `outputPolProcessCount` recomputes this number from the chain."
     },
     "n_sourceBin": {
       "type": "integer",
       "default": 1,
       "description": "THE THIRD DECLARED NUMBER IN THIS DOCUMENT: how many source bins the widest cohort of this run holds. A MOVES source bin is (sourceTypeID, fuelTypeID, modelYearID, regClassID, engTechID) and a cohort is only the first three of those, so one cohort can carry several bins -- `samplevehiclepopulation` gives a passenger car exactly one, a light commercial truck two (regulatory classes 30 and 41) and a refuse truck's diesel eight. The candidate grid needs a DENSE slot count and no table states this one, so it is declared and then CHECKED: `run_sourceBinsDropped` counts the bins a slot short of this would silently lose, and is asserted at 0. 1 is the value of every run that selects a source type whose cohorts are single-binned, which is every run in `runspecs/` before 7e."
+    },
+    "n_physicsRow": {
+      "type": "integer",
+      "default": 1,
+      "description": "THE FOURTH DECLARED NUMBER IN THIS DOCUMENT: how many rows of `sourceusetypephysics` the run's source types select between them. The vehicle a drive cycle is computed for is keyed by (sourceTypeID, regClassID, model-year range) and NOT by source type -- the national table holds 178 rows over 13 source types, one apiece for a motorcycle and a passenger car, three for a light commercial truck (regulatory class 30, and 41 split at model year 2010 because its fixed mass factor changes from 2.05979 to 5.0), fifteen for a refuse truck and twenty for a combination long-haul truck. The drive cycle is this document's largest relational step -- 63,602 drive-schedule seconds binned into operating modes, once per vehicle -- so its axis is the run's SELECTED physics rows densely ranked, and not the padded product of source types and a slot count that `n_sourceBin` can afford at cohort scale. No table states the number, so it is declared and then CHECKED both ways: `run_physicsRowsSelected` recomputes it from the chain and `run_physicsRowsDropped` counts the selected rows that fall past it, which is asserted at 0. 1 is the value of every run in `runspecs/`, 4 for source types 21 and 32 together, 40 for the five of `expand-sourcetype`."
     },
     "n_runspecpollutantprocess": {
       "type": "integer",
@@ -397,6 +402,10 @@
     "physics_rows": {
       "kind": "interval",
       "size": "n_sourceusetypephysics"
+    },
+    "physicsrow_rows": {
+      "kind": "interval",
+      "size": "n_physicsRow"
     },
     "samplevehiclepopulation_rows": {
       "kind": "interval",
@@ -1946,6 +1955,54 @@
             }
           }
         },
+        "phys_regClassID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "physics_rows"
+          ],
+          "description": "sourceUseTypePhysics.regClassID. The key column that makes this table finer than the source type, and the one `aggregate.rs:352` matches a rate row's own regulatory class against before a drive cycle may weight it.",
+          "update": {
+            "kind": "data",
+            "source": "db_sourceusetypephysics",
+            "from": {
+              "file_variable": "regClassID"
+            }
+          }
+        },
+        "phys_beginModelYearID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "physics_rows"
+          ],
+          "description": "sourceUseTypePhysics.beginModelYearID. The row applies to a RANGE of model years, so the rate row reaches it through a containment test and not an equality (aggregate.rs:354-358).",
+          "update": {
+            "kind": "data",
+            "source": "db_sourceusetypephysics",
+            "from": {
+              "file_variable": "beginModelYearID"
+            }
+          }
+        },
+        "phys_endModelYearID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "physics_rows"
+          ],
+          "description": "sourceUseTypePhysics.endModelYearID, the inclusive upper bound.",
+          "update": {
+            "kind": "data",
+            "source": "db_sourceusetypephysics",
+            "from": {
+              "file_variable": "endModelYearID"
+            }
+          }
+        },
         "phys_rollingTermA": {
           "type": "parameter",
           "units": "kW*s/m",
@@ -3351,9 +3408,25 @@
           "type": "unknown",
           "units": "1",
           "shape": [
-            "runspecsourcetype_rows"
+            "run_rows"
           ],
-          "description": "How many physics-mapping rows each of the run's source types selects. ONE apiece, and a test pins it: the mapping is per (sourceTypeID, regClassID, model-year range), so a source type with two rows would make `dss_vsp` the sum of two vehicles' physics rather than one's."
+          "description": "How many physics rows the run's source types select between them, recomputed from the chain so `n_physicsRow` is a CHECKED declaration and not a transcription. 1 for a run that selects a motorcycle or a passenger car alone, 4 for source types 21 and 32 together, 40 for the five of `expand-sourcetype`. It was a per-source-type count until 7d-next, and a test pinned it at 1 because until then the only alternative to one row was a wrong answer."
+        },
+        "run_physicsRowsDropped": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "run_rows"
+          ],
+          "description": "How many selected physics rows fall past `n_physicsRow` and are therefore not on the drive-cycle axis at all. It is the check on the fourth declared number and it is the same KIND of check as `run_sourceBinsDropped`: a short axis is not a missing output row but a rate row that finds no vehicle, so its meanBaseRate is 0 and the cohort's quantity is quietly low by that regulatory class's share. Zero is the only passing value."
+        },
+        "run_rateRowsWithoutPhysics": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "run_rows"
+          ],
+          "description": "How many SELECTED rate rows find no vehicle -- no `sourceusetypephysics` row with the bin's source type and regulatory class covering the bin's model year. It is the other half of `run_physicsRowsDropped`: that one catches an axis too short for the rows that exist, this one catches a rate row whose regulatory class the physics table never had. In the default database every (source type, regulatory class) pair `samplevehiclepopulation` carries has a physics row covering every model year of it, so zero is the value AND the assertion."
         },
         "run_fuelUsageWildcardCount": {
           "type": "unknown",
@@ -3424,10 +3497,113 @@
           "type": "unknown",
           "units": "1",
           "shape": [
-            "physics_rows",
-            "runspecsourcetype_rows"
+            "physics_rows"
           ],
-          "description": "The physics rows each of the run's source types selects, with drivecycle.rs:288's guard that both masses are positive. It is what makes vehicle-specific power -- and so the whole drive cycle below it -- a per-source-type quantity."
+          "description": "Whether the row is one of the vehicles the run drives, with drivecycle.rs:288's guard that both masses are positive. The source type is a JOIN and no longer an axis: a physics row belongs to exactly one source type, so a per-source-type indicator was a matrix with one non-zero per column and the thing the drive cycle is actually per is THIS row."
+        },
+        "phys_prefixSelected": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "physics_rows"
+          ],
+          "description": "An inclusive prefix count of the selection over the physics table: how many rows at or before this one the run drives."
+        },
+        "phys_rank": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "physics_rows"
+          ],
+          "description": "The prefix count ZEROED on the rows the run does not drive, so every selected row has a dense 1..n_physicsRow and every other one has a 0 that no `phy_ordinal` can match (docs/esm-conventions.md §22). This is the whole of the mapping from the 178-row national table to the run's own drive-cycle axis: WHICH rows survive stays out of the document, and the axis reads its keys back through the join."
+        },
+        "phy_ordinal": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "physicsrow_rows"
+          ],
+          "description": "The run's drive-cycle relation: one row per (sourceTypeID, regClassID, model-year range) the run's source types select, in `sourceusetypephysics` order. At `n_physicsRow` 1 it is the one vehicle a single-regulatory-class source type has, and the chain below it is what it was before the axis existed."
+        },
+        "phy_sourceTypeID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "physicsrow_rows"
+          ],
+          "description": "The vehicle's source type. A drive schedule is associated with a source type and an average-speed distribution is keyed by one, so this is how the per-source-type half of the drive cycle reaches the per-vehicle half."
+        },
+        "phy_regClassID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "physicsrow_rows"
+          ],
+          "description": "The vehicle's regulatory class, which `rt_physicsOrdinal` matches a rate row's own against."
+        },
+        "phy_beginModelYearID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "physicsrow_rows"
+          ],
+          "description": "The first model year the vehicle stands for."
+        },
+        "phy_endModelYearID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "physicsrow_rows"
+          ],
+          "description": "The last, inclusive."
+        },
+        "phy_rollingTermA": {
+          "type": "unknown",
+          "units": "kW*s/m",
+          "shape": [
+            "physicsrow_rows"
+          ],
+          "description": "The vehicle's rolling-resistance term."
+        },
+        "phy_rotatingTermB": {
+          "type": "unknown",
+          "units": "kW*s^2/m^2",
+          "shape": [
+            "physicsrow_rows"
+          ],
+          "description": "Its rotating term."
+        },
+        "phy_dragTermC": {
+          "type": "unknown",
+          "units": "kW*s^3/m^3",
+          "shape": [
+            "physicsrow_rows"
+          ],
+          "description": "Its drag term."
+        },
+        "phy_sourceMass": {
+          "type": "unknown",
+          "units": "tonne",
+          "shape": [
+            "physicsrow_rows"
+          ],
+          "description": "Its mass. The two light commercial truck rows that share a regulatory class share this and differ only in the divisor below, which is why a sum over a source type's rows was not a heavier vehicle but a meaningless one."
+        },
+        "phy_fixedMassFactor": {
+          "type": "unknown",
+          "units": "tonne",
+          "shape": [
+            "physicsrow_rows"
+          ],
+          "description": "Its VSP divisor."
+        },
+        "phy_sourceTypeOrdinal": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "physicsrow_rows"
+          ],
+          "description": "Which of the run's source types the vehicle belongs to, as the ordinal the per-source-type relations are laid out by. The drive cycle has two halves -- the schedules and speed brackets, which are per (source type, road type), and the operating-mode binning, which is per vehicle -- and this is the join between them."
         },
         "ds_firstSecond": {
           "type": "unknown",
@@ -3602,16 +3778,16 @@
           "units": "kW/tonne",
           "shape": [
             "drive_second_rows",
-            "runspecsourcetype_rows"
+            "physicsrow_rows"
           ],
-          "description": "drivecycle.rs:275-302, vehicle-specific power. One physics row is selected, which run_physicsRowsSelected asserts."
+          "description": "drivecycle.rs:275-302, vehicle-specific power -- per VEHICLE, which is a (source type, regulatory class, model-year range) row of `sourceusetypephysics` and not a source type. Nothing selects here any more: `phy_ordinal` is already the selected rows, so the old `phys_isSelected` factor -- which made this a SUM over the rows a source type carries, right only while that was one row -- is gone with the axis that needed it."
         },
         "dss_binnedModeID": {
           "type": "unknown",
           "units": "1",
           "shape": [
             "drive_second_rows",
-            "runspecsourcetype_rows"
+            "physicsrow_rows"
           ],
           "description": "drivecycle.rs:305-322 as a SUM rather than a first match: exactly one of the 21 binned modes admits a second with speed >= 1, so summing id x indicator is that mode's id."
         },
@@ -3620,7 +3796,7 @@
           "units": "1",
           "shape": [
             "drive_second_rows",
-            "runspecsourcetype_rows"
+            "physicsrow_rows"
           ],
           "description": "The same sum without the id. It is 1 on every non-idling second, and a table change that broke the disjointness om_isBinnedRunningMode relies on would show up here as a 2 rather than as a plausible wrong mode."
         },
@@ -3629,7 +3805,7 @@
           "units": "1",
           "shape": [
             "drive_second_rows",
-            "runspecsourcetype_rows"
+            "physicsrow_rows"
           ],
           "description": "The second's operating mode: Idling, Braking, or the binned mode -- in that precedence, which is the Rust's."
         },
@@ -3638,7 +3814,7 @@
           "units": "1",
           "shape": [
             "drive_second_rows",
-            "runspecsourcetype_rows"
+            "physicsrow_rows"
           ],
           "description": "Whether the second was classified at all. drivecycle.rs:327 counts only classified seconds."
         },
@@ -3647,7 +3823,7 @@
           "units": "1",
           "shape": [
             "drive_second_rows",
-            "runspecsourcetype_rows"
+            "physicsrow_rows"
           ],
           "description": "drivecycle.rs:326-329, including the `second > 0` guard the Rust records as a quirk of the Java reference. Every schedule here starts at second 0, so it drops exactly 49 rows."
         },
@@ -3673,9 +3849,9 @@
           "units": "1",
           "shape": [
             "drive_schedule_assoc_rows",
-            "runspecsourcetype_rows"
+            "physicsrow_rows"
           ],
-          "description": "How many of the schedule's seconds were counted -- the denominator of its operating-mode distribution."
+          "description": "How many of the schedule's seconds were counted -- the denominator of its operating-mode distribution, per vehicle. The association is gated to the vehicle's own source type and the run's road type, which is what `ScheduleOpModeKey` is (drivecycle.rs:54-59): a schedule another source type drives has no distribution for THIS vehicle, and computing one would be 614 associations where 11 are reachable."
         },
         "dsa_modeSeconds": {
           "type": "unknown",
@@ -3683,9 +3859,9 @@
           "shape": [
             "drive_schedule_assoc_rows",
             "operating_mode_rows",
-            "runspecsourcetype_rows"
+            "physicsrow_rows"
           ],
-          "description": "Seconds per (schedule, operating mode). Two clauses: the schedule, and the operating MODE, which gives the 60-wide mode axis its own gate rather than leaving it a scanned output loop (docs/esm-conventions.md §25, finding F17)."
+          "description": "Seconds per (schedule, operating mode), per vehicle. Three clauses: the schedule, the vehicle's own source type and road type, and the operating MODE, which gives the 60-wide mode axis its own gate rather than a filter over the cross product."
         },
         "dsa_modeFraction": {
           "type": "unknown",
@@ -3693,9 +3869,9 @@
           "shape": [
             "drive_schedule_assoc_rows",
             "operating_mode_rows",
-            "runspecsourcetype_rows"
+            "physicsrow_rows"
           ],
-          "description": "The schedule's operating-mode distribution, drivecycle.rs:330-337."
+          "description": "The schedule's operating-mode distribution for this vehicle, drivecycle.rs:330-337."
         },
         "asb_hasSlowerSchedule": {
           "type": "unknown",
@@ -3767,9 +3943,9 @@
           "shape": [
             "avgspeedbin_rows",
             "operating_mode_rows",
-            "runspecsourcetype_rows"
+            "physicsrow_rows"
           ],
-          "description": "drivecycle.rs:388-401: the schedule-fraction-weighted combination, i.e. the operating-mode distribution of one average-speed bin. This is the VSP/braking classification, and it is what `BaseRateGenerator` uses for the processes it drives itself -- Running Exhaust and Brakewear (mod.rs:158-161). Tire wear is NOT one of them; see `asb_tireModeFraction`."
+          "description": "drivecycle.rs:388-401: the schedule-fraction-weighted combination, i.e. the operating-mode distribution of one average-speed bin FOR ONE VEHICLE. The two factors sit on different axes -- the bracketing weight is per (source type, road type) because it is a property of the schedules, the mode distribution is per vehicle because it is a property of the physics -- and `phy_sourceTypeOrdinal` is the join that puts them on one row. This is the VSP/braking family; `asb_tireModeFraction` is the other, and it is per speed bin alone."
         },
         "asb_tireModeFraction": {
           "type": "unknown",
@@ -3811,7 +3987,7 @@
             "runspecpollutantprocess_rows",
             "runspecday_rows",
             "operating_mode_rows",
-            "runspecsourcetype_rows"
+            "physicsrow_rows"
           ],
           "description": "W, and IT IS KEYED BY THE POLLUTANT-PROCESS HERE -- the one structural difference between this fixture and `process-brakewear`. `BaseRateGenerator` is invoked per process and `RatesOpModeDistribution` is written by two different generators: for Running Exhaust and Brakewear it drives the drive cycles itself (mod.rs:156-161, `should_process_drive_cycles = process_id == 1 || process_id == 9`), and for Tirewear it reads what `AverageSpeedOperatingModeDistributionGenerator` wrote (avg_speed_op_mode_distribution.rs:110-116, `TIREWEAR_PROCESS = ProcessId(10)`). Both give the same shape -- Sum over the speed bins of avgSpeedFraction x opModeFraction, aggregate.rs:365-417 -- and differ only in which mode fraction they carry, so this is ONE aggregate with the mode fraction selected per pollutant-process rather than two relations and a branch downstream."
         },
@@ -3821,7 +3997,7 @@
           "shape": [
             "runspecpollutantprocess_rows",
             "runspecday_rows",
-            "runspecsourcetype_rows"
+            "physicsrow_rows"
           ],
           "description": "W summed over operating modes, per pollutant-process. It is the avgSpeedFraction column's own total on EITHER mode family -- both distributions partition the same 16 speed bins -- so it is 1 to the reference's six-significant-figure storage and not exactly, which is why its test carries an absolute tolerance rather than a relative one (docs/esm-conventions.md 20.5). That the two families give the same total is the check that the tire-wear arm is a re-binning of the same activity and not a second one."
         },
@@ -3831,7 +4007,7 @@
           "shape": [
             "runspecpollutantprocess_rows",
             "runspecday_rows",
-            "runspecsourcetype_rows"
+            "physicsrow_rows"
           ],
           "description": "How many operating modes carry a non-zero weight, per pollutant-process. 23 on the 9101 rows -- 0, 1, 11-16, 21-25, 27-30, 33, 35 and 37-40, the drive-cycle set -- and 16 on both tire-wear rows: modes 401 to 416, one per speed bin. SIXTEEN AND NOT SEVENTEEN IS THE TIRE-WEAR ANALOGUE OF BRAKEWEAR'S 23-AND-NOT-24. Operating mode 400, `tirewear;idle`, exists in `operatingmode`, is associated with 11710 by `opmodepolprocassoc` and carries an `emissionrate` row -- but no speed bin names it, because `buildOpModeClause` assigns 400 only to a PROJECT link whose linkAvgSpeed is below 0.1 mph (avg_speed_op_mode_distribution.rs:118-125). A 17 here would mean the classification had taken the project-scale branch."
         },
@@ -3841,7 +4017,7 @@
           "shape": [
             "runspecpollutantprocess_rows",
             "runspecday_rows",
-            "runspecsourcetype_rows"
+            "physicsrow_rows"
           ],
           "description": "The weight operating mode 400 carries, stated directly rather than inferred from `pp_WModeCount`. Exactly 0, for the reason that variable's description gives. Brakewear's mode 501 needed the same statement and got it as a mode count; this fixture makes it a number as well, because tire wear's whole rate table lives in the 400 family and an idle mode inside it is easier to acquire by accident than one outside."
         },
@@ -4913,7 +5089,15 @@
           "shape": [
             "rate_rows"
           ],
-          "description": "The same source type as a rank into `runspecsourcetype_rows`: the key that reads the drive cycle's operating-mode distribution and the activity relation back onto this rate row."
+          "description": "The same source type as a rank into `runspecsourcetype_rows`: the key that reads the activity relation and the electric-vehicle temperature clamp back onto this rate row. It read the drive cycle's operating-mode distribution too until 7d-next, when that became per vehicle and `rt_physicsOrdinal` took it over."
+        },
+        "rt_physicsOrdinal": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "Which VEHICLE this rate row's emissions are driven by: the `sourceusetypephysics` row whose source type and regulatory class are the bin's and whose model-year range contains the bin's model year, as its rank on the drive-cycle axis. This is aggregate.rs:351-360 exactly -- a regulatory-class equality and a model-year CONTAINMENT, which is why the second is a filter and the first a join. A rate row that matched no vehicle would weight its operating modes by nothing and emit 0, so `run_rateRowsWithoutPhysics` counts them."
         },
         "rt_ageID": {
           "type": "unknown",
@@ -5171,7 +5355,7 @@
             "runspecday_rows",
             "runspeccounty_rows"
           ],
-          "description": "S14 (J26): the operating mode is contracted away against the weights of THIS RATE ROW'S OWN pollutant-process, reached through J41. This is `baserate_1_2020.meanBaseRate` on the energy rows and `baserate_10_2020.meanBaseRate` on the tire-wear ones, computed rather than read -- and the two are collapsed against DIFFERENT weight vectors: 23 drive-cycle modes for 9101 and 16 speed-bin modes for 11710. The two rate tables are seven orders of magnitude apart, 392,141 kJ per source-hour against 0.0000197 g, so a wrong weight is a wrong number in every cell. Per county, through the same rebase."
+          "description": "S14 (J26): the operating mode is contracted away against the weights of THIS RATE ROW'S OWN pollutant-process, reached through J41. This is `baserate_1_2020.meanBaseRate` on the energy rows and `baserate_10_2020.meanBaseRate` on the tire-wear ones, computed rather than read -- and the two are collapsed against DIFFERENT weight vectors: 23 drive-cycle modes for 9101 and 16 speed-bin modes for 11710. The two rate tables are seven orders of magnitude apart, 392,141 kJ per source-hour against 0.0000197 g, so a wrong weight is a wrong number in every cell. Per county, through the same rebase. THE WEIGHTS ARE THIS RATE ROW'S OWN VEHICLE'S as of 7d-next, reached through `rt_physicsOrdinal` rather than through the source type: a light commercial truck's regulatory class 30 and its regulatory class 41 have different fixed mass factors, so their drive-schedule seconds bin into different operating modes and the same rate table collapses to two different numbers."
         },
         "rtDay_meanBaseRateACAdj": {
           "type": "unknown",
@@ -7607,8 +7791,7 @@
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
-              "p",
-              "s"
+              "p"
             ],
             "ranges": {
               "p": {
@@ -7669,28 +7852,524 @@
           }
         },
         {
+          "lhs": "phys_prefixSelected",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "p"
+            ],
+            "ranges": {
+              "p": {
+                "from": "physics_rows"
+              },
+              "x": {
+                "from": "physics_rows"
+              }
+            },
+            "filter": {
+              "op": "<=",
+              "args": [
+                "x",
+                "p"
+              ]
+            },
+            "expr": {
+              "op": "index",
+              "args": [
+                "phys_isSelected",
+                "x"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "phys_rank",
+          "rhs": {
+            "op": "*",
+            "args": [
+              "phys_isSelected",
+              "phys_prefixSelected"
+            ]
+          }
+        },
+        {
+          "lhs": "phy_ordinal",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "output_idx": [
+              "r"
+            ],
+            "ranges": {
+              "r": {
+                "from": "physicsrow_rows"
+              }
+            },
+            "expr": "r"
+          }
+        },
+        {
+          "lhs": "phy_sourceTypeID",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "r"
+            ],
+            "ranges": {
+              "r": {
+                "from": "physicsrow_rows"
+              },
+              "p": {
+                "from": "physics_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "phys_rank",
+                    "phy_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "phys_realSourceTypeID",
+                "p"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "phy_regClassID",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "r"
+            ],
+            "ranges": {
+              "r": {
+                "from": "physicsrow_rows"
+              },
+              "p": {
+                "from": "physics_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "phys_rank",
+                    "phy_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "phys_regClassID",
+                "p"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "phy_beginModelYearID",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "r"
+            ],
+            "ranges": {
+              "r": {
+                "from": "physicsrow_rows"
+              },
+              "p": {
+                "from": "physics_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "phys_rank",
+                    "phy_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "phys_beginModelYearID",
+                "p"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "phy_endModelYearID",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "r"
+            ],
+            "ranges": {
+              "r": {
+                "from": "physicsrow_rows"
+              },
+              "p": {
+                "from": "physics_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "phys_rank",
+                    "phy_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "phys_endModelYearID",
+                "p"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "phy_rollingTermA",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "r"
+            ],
+            "ranges": {
+              "r": {
+                "from": "physicsrow_rows"
+              },
+              "p": {
+                "from": "physics_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "phys_rank",
+                    "phy_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "phys_rollingTermA",
+                "p"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "phy_rotatingTermB",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "r"
+            ],
+            "ranges": {
+              "r": {
+                "from": "physicsrow_rows"
+              },
+              "p": {
+                "from": "physics_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "phys_rank",
+                    "phy_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "phys_rotatingTermB",
+                "p"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "phy_dragTermC",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "r"
+            ],
+            "ranges": {
+              "r": {
+                "from": "physicsrow_rows"
+              },
+              "p": {
+                "from": "physics_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "phys_rank",
+                    "phy_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "phys_dragTermC",
+                "p"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "phy_sourceMass",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "r"
+            ],
+            "ranges": {
+              "r": {
+                "from": "physicsrow_rows"
+              },
+              "p": {
+                "from": "physics_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "phys_rank",
+                    "phy_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "phys_sourceMass",
+                "p"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "phy_fixedMassFactor",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "r"
+            ],
+            "ranges": {
+              "r": {
+                "from": "physicsrow_rows"
+              },
+              "p": {
+                "from": "physics_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "phys_rank",
+                    "phy_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "phys_fixedMassFactor",
+                "p"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "phy_sourceTypeOrdinal",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "r"
+            ],
+            "ranges": {
+              "r": {
+                "from": "physicsrow_rows"
+              },
+              "s": {
+                "from": "runspecsourcetype_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "phy_sourceTypeID",
+                    "rst_sourceTypeID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "rst_ordinal",
+                "s"
+              ]
+            }
+          }
+        },
+        {
           "lhs": "run_physicsRowsSelected",
           "rhs": {
             "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
-              "s"
+              "n"
             ],
             "ranges": {
+              "n": {
+                "from": "run_rows"
+              },
               "p": {
                 "from": "physics_rows"
-              },
-              "s": {
-                "from": "runspecsourcetype_rows"
               }
             },
             "expr": {
               "op": "index",
               "args": [
                 "phys_isSelected",
-                "p",
-                "s"
+                "p"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "run_physicsRowsDropped",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "n"
+            ],
+            "ranges": {
+              "n": {
+                "from": "run_rows"
+              },
+              "p": {
+                "from": "physics_rows"
+              }
+            },
+            "filter": {
+              "op": ">",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "phys_rank",
+                    "p"
+                  ]
+                },
+                "n_physicsRow"
+              ]
+            },
+            "expr": {
+              "op": "index",
+              "args": [
+                "phys_isSelected",
+                "p"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "run_rateRowsWithoutPhysics",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "n"
+            ],
+            "ranges": {
+              "n": {
+                "from": "run_rows"
+              },
+              "b": {
+                "from": "rate_rows"
+              }
+            },
+            "filter": {
+              "op": "<",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "rt_physicsOrdinal",
+                    "b"
+                  ]
+                },
+                0.5
+              ]
+            },
+            "expr": {
+              "op": "index",
+              "args": [
+                "rt_isSelected",
+                "b"
               ]
             }
           }
@@ -8623,87 +9302,71 @@
             "semiring": "sum_product",
             "output_idx": [
               "i",
-              "s"
+              "r"
             ],
             "ranges": {
               "i": {
                 "from": "drive_second_rows"
               },
-              "p": {
-                "from": "physics_rows"
-              },
-              "s": {
-                "from": "runspecsourcetype_rows"
+              "r": {
+                "from": "physicsrow_rows"
               }
             },
             "expr": {
-              "op": "*",
-              "args": [
-                {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "vehicle_specific_power",
+              "bindings": {
+                "rolling_term_a": {
                   "op": "index",
                   "args": [
-                    "phys_isSelected",
-                    "p",
-                    "s"
+                    "phy_rollingTermA",
+                    "r"
                   ]
                 },
-                {
-                  "op": "apply_expression_template",
-                  "args": [],
-                  "name": "vehicle_specific_power",
-                  "bindings": {
-                    "rolling_term_a": {
-                      "op": "index",
-                      "args": [
-                        "phys_rollingTermA",
-                        "p"
-                      ]
-                    },
-                    "rotating_term_b": {
-                      "op": "index",
-                      "args": [
-                        "phys_rotatingTermB",
-                        "p"
-                      ]
-                    },
-                    "drag_term_c": {
-                      "op": "index",
-                      "args": [
-                        "phys_dragTermC",
-                        "p"
-                      ]
-                    },
-                    "source_mass": {
-                      "op": "index",
-                      "args": [
-                        "phys_sourceMass",
-                        "p"
-                      ]
-                    },
-                    "fixed_mass_factor": {
-                      "op": "index",
-                      "args": [
-                        "phys_fixedMassFactor",
-                        "p"
-                      ]
-                    },
-                    "speed_ms": {
-                      "op": "index",
-                      "args": [
-                        "dss_speedMs",
-                        "i"
-                      ]
-                    },
-                    "acceleration_ms": {
-                      "op": "index",
-                      "args": [
-                        "dss_accelerationMs",
-                        "i"
-                      ]
-                    }
-                  }
+                "rotating_term_b": {
+                  "op": "index",
+                  "args": [
+                    "phy_rotatingTermB",
+                    "r"
+                  ]
+                },
+                "drag_term_c": {
+                  "op": "index",
+                  "args": [
+                    "phy_dragTermC",
+                    "r"
+                  ]
+                },
+                "source_mass": {
+                  "op": "index",
+                  "args": [
+                    "phy_sourceMass",
+                    "r"
+                  ]
+                },
+                "fixed_mass_factor": {
+                  "op": "index",
+                  "args": [
+                    "phy_fixedMassFactor",
+                    "r"
+                  ]
+                },
+                "speed_ms": {
+                  "op": "index",
+                  "args": [
+                    "dss_speedMs",
+                    "i"
+                  ]
+                },
+                "acceleration_ms": {
+                  "op": "index",
+                  "args": [
+                    "dss_accelerationMs",
+                    "i"
+                  ]
                 }
-              ]
+              }
             }
           }
         },
@@ -8716,7 +9379,7 @@
             "semiring": "sum_product",
             "output_idx": [
               "i",
-              "s"
+              "r"
             ],
             "ranges": {
               "i": {
@@ -8725,8 +9388,8 @@
               "m": {
                 "from": "operating_mode_rows"
               },
-              "s": {
-                "from": "runspecsourcetype_rows"
+              "r": {
+                "from": "physicsrow_rows"
               }
             },
             "expr": {
@@ -8762,7 +9425,7 @@
                               "args": [
                                 "dss_vsp",
                                 "i",
-                                "s"
+                                "r"
                               ]
                             },
                             "lower": {
@@ -8825,7 +9488,7 @@
             "semiring": "sum_product",
             "output_idx": [
               "i",
-              "s"
+              "r"
             ],
             "ranges": {
               "i": {
@@ -8834,8 +9497,8 @@
               "m": {
                 "from": "operating_mode_rows"
               },
-              "s": {
-                "from": "runspecsourcetype_rows"
+              "r": {
+                "from": "physicsrow_rows"
               }
             },
             "expr": {
@@ -8861,7 +9524,7 @@
                           "args": [
                             "dss_vsp",
                             "i",
-                            "s"
+                            "r"
                           ]
                         },
                         "lower": {
@@ -8922,7 +9585,7 @@
             "semiring": "sum_product",
             "output_idx": [
               "i",
-              "s"
+              "r"
             ],
             "ranges": {
               "i": {
@@ -8931,8 +9594,8 @@
               "k": {
                 "from": "run_rows"
               },
-              "s": {
-                "from": "runspecsourcetype_rows"
+              "r": {
+                "from": "physicsrow_rows"
               }
             },
             "expr": {
@@ -8986,7 +9649,7 @@
                       "args": [
                         "dss_binnedModeID",
                         "i",
-                        "s"
+                        "r"
                       ]
                     }
                   ]
@@ -9148,7 +9811,7 @@
             "semiring": "sum_product",
             "output_idx": [
               "a",
-              "s"
+              "r"
             ],
             "ranges": {
               "a": {
@@ -9157,8 +9820,11 @@
               "i": {
                 "from": "drive_second_rows"
               },
-              "s": {
-                "from": "runspecsourcetype_rows"
+              "r": {
+                "from": "physicsrow_rows"
+              },
+              "n": {
+                "from": "run_rows"
               }
             },
             "join": [
@@ -9169,6 +9835,18 @@
                     "dss_driveScheduleID"
                   ]
                 ]
+              },
+              {
+                "on": [
+                  [
+                    "dsa_sourceTypeID",
+                    "phy_sourceTypeID"
+                  ],
+                  [
+                    "dsa_roadTypeID",
+                    "run_roadTypeID"
+                  ]
+                ]
               }
             ],
             "expr": {
@@ -9176,7 +9854,7 @@
               "args": [
                 "dss_countedSecond",
                 "i",
-                "s"
+                "r"
               ]
             }
           }
@@ -9191,7 +9869,7 @@
             "output_idx": [
               "a",
               "m",
-              "s"
+              "r"
             ],
             "ranges": {
               "a": {
@@ -9203,8 +9881,11 @@
               "i": {
                 "from": "drive_second_rows"
               },
-              "s": {
-                "from": "runspecsourcetype_rows"
+              "r": {
+                "from": "physicsrow_rows"
+              },
+              "n": {
+                "from": "run_rows"
               }
             },
             "join": [
@@ -9213,6 +9894,18 @@
                   [
                     "dsa_driveScheduleID",
                     "dss_driveScheduleID"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "dsa_sourceTypeID",
+                    "phy_sourceTypeID"
+                  ],
+                  [
+                    "dsa_roadTypeID",
+                    "run_roadTypeID"
                   ]
                 ]
               }
@@ -9232,7 +9925,7 @@
                   "args": [
                     "dss_opModeID",
                     "i",
-                    "s"
+                    "r"
                   ]
                 }
               ]
@@ -9242,7 +9935,7 @@
               "args": [
                 "dss_countedSecond",
                 "i",
-                "s"
+                "r"
               ]
             }
           }
@@ -9256,7 +9949,7 @@
             "output_idx": [
               "a",
               "m",
-              "s"
+              "r"
             ],
             "ranges": {
               "a": {
@@ -9265,8 +9958,8 @@
               "m": {
                 "from": "operating_mode_rows"
               },
-              "s": {
-                "from": "runspecsourcetype_rows"
+              "r": {
+                "from": "physicsrow_rows"
               }
             },
             "expr": {
@@ -9280,7 +9973,7 @@
                     "dsa_modeSeconds",
                     "a",
                     "m",
-                    "s"
+                    "r"
                   ]
                 },
                 "group_total": {
@@ -9288,7 +9981,7 @@
                   "args": [
                     "dsa_totalSeconds",
                     "a",
-                    "s"
+                    "r"
                   ]
                 }
               }
@@ -9768,7 +10461,7 @@
             "output_idx": [
               "b",
               "m",
-              "s"
+              "r"
             ],
             "ranges": {
               "b": {
@@ -9780,10 +10473,23 @@
               "a": {
                 "from": "drive_schedule_assoc_rows"
               },
+              "r": {
+                "from": "physicsrow_rows"
+              },
               "s": {
                 "from": "runspecsourcetype_rows"
               }
             },
+            "join": [
+              {
+                "on": [
+                  [
+                    "phy_sourceTypeOrdinal",
+                    "rst_ordinal"
+                  ]
+                ]
+              }
+            ],
             "expr": {
               "op": "*",
               "args": [
@@ -9802,7 +10508,7 @@
                     "dsa_modeFraction",
                     "a",
                     "m",
-                    "s"
+                    "r"
                   ]
                 }
               ]
@@ -9852,7 +10558,7 @@
               "p",
               "k",
               "m",
-              "s"
+              "r"
             ],
             "ranges": {
               "p": {
@@ -9870,8 +10576,8 @@
               "b": {
                 "from": "avgspeedbin_rows"
               },
-              "s": {
-                "from": "runspecsourcetype_rows"
+              "r": {
+                "from": "physicsrow_rows"
               },
               "n": {
                 "from": "run_rows"
@@ -9885,7 +10591,7 @@
                     "asd_hourDayID"
                   ],
                   [
-                    "rst_sourceTypeID",
+                    "phy_sourceTypeID",
                     "asd_sourceTypeID"
                   ],
                   [
@@ -9943,7 +10649,7 @@
                         "asb_modeFraction",
                         "b",
                         "m",
-                        "s"
+                        "r"
                       ]
                     }
                   ]
@@ -9961,7 +10667,7 @@
             "output_idx": [
               "p",
               "k",
-              "s"
+              "r"
             ],
             "ranges": {
               "p": {
@@ -9973,8 +10679,8 @@
               "m": {
                 "from": "operating_mode_rows"
               },
-              "s": {
-                "from": "runspecsourcetype_rows"
+              "r": {
+                "from": "physicsrow_rows"
               }
             },
             "expr": {
@@ -9984,7 +10690,7 @@
                 "p",
                 "k",
                 "m",
-                "s"
+                "r"
               ]
             }
           }
@@ -9998,7 +10704,7 @@
             "output_idx": [
               "p",
               "k",
-              "s"
+              "r"
             ],
             "ranges": {
               "p": {
@@ -10010,8 +10716,8 @@
               "m": {
                 "from": "operating_mode_rows"
               },
-              "s": {
-                "from": "runspecsourcetype_rows"
+              "r": {
+                "from": "physicsrow_rows"
               }
             },
             "expr": {
@@ -10027,7 +10733,7 @@
                         "p",
                         "k",
                         "m",
-                        "s"
+                        "r"
                       ]
                     },
                     0.0
@@ -10049,7 +10755,7 @@
             "output_idx": [
               "p",
               "k",
-              "s"
+              "r"
             ],
             "ranges": {
               "p": {
@@ -10061,8 +10767,8 @@
               "m": {
                 "from": "operating_mode_rows"
               },
-              "s": {
-                "from": "runspecsourcetype_rows"
+              "r": {
+                "from": "physicsrow_rows"
               },
               "n": {
                 "from": "run_rows"
@@ -10085,7 +10791,7 @@
                 "p",
                 "k",
                 "m",
-                "s"
+                "r"
               ]
             }
           }
@@ -12248,6 +12954,89 @@
               "args": [
                 "coh_sourceTypeOrdinal",
                 "c"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rt_physicsOrdinal",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "r": {
+                "from": "physicsrow_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rt_sourceTypeID",
+                    "phy_sourceTypeID"
+                  ],
+                  [
+                    "rt_regClassID",
+                    "phy_regClassID"
+                  ]
+                ]
+              }
+            ],
+            "filter": {
+              "op": "and",
+              "args": [
+                {
+                  "op": ">=",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "rt_modelYearID",
+                        "b"
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "phy_beginModelYearID",
+                        "r"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "op": "<=",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "rt_modelYearID",
+                        "b"
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "phy_endModelYearID",
+                        "r"
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            "expr": {
+              "op": "index",
+              "args": [
+                "phy_ordinal",
+                "r"
               ]
             }
           }
@@ -14464,8 +15253,8 @@
               "g": {
                 "from": "runspeccounty_rows"
               },
-              "s": {
-                "from": "runspecsourcetype_rows"
+              "r": {
+                "from": "physicsrow_rows"
               }
             },
             "join": [
@@ -14480,8 +15269,8 @@
               {
                 "on": [
                   [
-                    "rt_sourceTypeOrdinal",
-                    "rst_ordinal"
+                    "rt_physicsOrdinal",
+                    "phy_ordinal"
                   ]
                 ]
               }
@@ -14496,7 +15285,7 @@
                     "p",
                     "k",
                     "m",
-                    "s"
+                    "r"
                   ]
                 },
                 {
@@ -14539,8 +15328,8 @@
               "g": {
                 "from": "runspeccounty_rows"
               },
-              "s": {
-                "from": "runspecsourcetype_rows"
+              "r": {
+                "from": "physicsrow_rows"
               }
             },
             "join": [
@@ -14555,8 +15344,8 @@
               {
                 "on": [
                   [
-                    "rt_sourceTypeOrdinal",
-                    "rst_ordinal"
+                    "rt_physicsOrdinal",
+                    "phy_ordinal"
                   ]
                 ]
               }
@@ -14574,7 +15363,7 @@
                         "p",
                         "k",
                         "m",
-                        "s"
+                        "r"
                       ]
                     },
                     {
@@ -17622,7 +18411,7 @@
         },
         {
           "id": "the_drive_cycle_scaffolding_is_a_single_physics_row_and_two_data_thresholds",
-          "description": "The three facts W's correctness rests on that are not W itself: the braking thresholds are READ from operatingmode's Braking row rather than written as drivecycle.rs's -2.0 and -1.0 literals; exactly one physics-mapping row is selected, so dss_vsp is one polynomial and not a sum of several; and every average-speed bin's bracketing weights sum to 1, which is what catches a duplicated bracket speed or a bin with no bracket.",
+          "description": "The three facts W's correctness rests on that are not W itself: the braking thresholds are READ from operatingmode's Braking row rather than written as drivecycle.rs's -2.0 and -1.0 literals; the drive-cycle axis is exactly the vehicles this run drives, which here is one; and every average-speed bin's bracketing weights sum to 1, which is what catches a duplicated bracket speed or a bin with no bracket.\n\nTHE MIDDLE ONE IS THREE ASSERTIONS AND NOT ONE AS OF 7d-next. It used to be `run_physicsRowsSelected == 1` per source type, and it was the document's statement that a source type has one vehicle -- which is true of a passenger car and false of everything heavier, so it read as a fact about the model and was really a fact about the fixture. Now it is the recomputation of `n_physicsRow` (1 here, 4 at source types 21 and 32, 40 at five), plus the two ways the axis can be wrong without changing the shape of anything: a selected vehicle past the end of the axis, and a rate row whose regulatory class has no vehicle at all. Both are silent and both are LOW, which is the failure mode `run_sourceBinsDropped` was added for one relation up.",
           "time_span": {
             "start": 0.0,
             "end": 0.0
@@ -17649,7 +18438,23 @@
               "time": 0.0,
               "expected": 1.0,
               "coords": {
-                "runspecsourcetype_rows": 1
+                "run_rows": 1
+              }
+            },
+            {
+              "variable": "run_physicsRowsDropped",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "run_rows": 1
+              }
+            },
+            {
+              "variable": "run_rateRowsWithoutPhysics",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "run_rows": 1
               }
             },
             {
