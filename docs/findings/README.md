@@ -3482,9 +3482,24 @@ toolchain, because no emitted variable is shaped over that axis. The panic needs
 a relation MATERIALIZED at length 0, which is what makes the repro one variable
 long.
 
+**What the buffer size says, and Python already does it right.** The panic is in
+`col_major_to_arrayd` under `eval_faq`, and the buffer it is handed is **1
+element** for a declared output shape whose product is 0. Widening the output to
+two dims does not change that count — `["empty_rows","three_rows"]` reports
+`shape [0, 3] (product 0) vs 1 elements`, one and not three — so the empty
+iteration space falls through to the SCALAR accumulator, the semiring's identity
+over no terms, instead of producing an array of the output shape. The reshape is
+merely the first thing to notice. The Python binding returns
+`array([], dtype=float64)` of shape `(0,)` for the same document and
+`array([], shape=(0, 3))` for the two-dim one, so the intended answer is not in
+question; this is one binding, on one path. A `parameter` shaped over the same
+zero-length axis is also fine on Rust, 1/1, which places the defect on
+materializing an empty relation from a `faq` rather than on the axis or on
+indexing into one.
+
 **Fix shape.** Two parts, and the first is worth having even without the second:
 a data-open document evaluated alone should be REFUSED with the diagnostic
 `validate` already produces, rather than reaching the layout code at all; and a
 genuinely empty relation — one an author asked for — should be laid out as
-empty. Filing it upstream is the next step and has not been done.
+empty. **Filed upstream: [EarthSciML/EarthSciAST#416](https://github.com/EarthSciML/EarthSciAST/issues/416)**, on `8ac536bf0`.
 
