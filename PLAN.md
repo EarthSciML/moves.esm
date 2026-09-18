@@ -1795,26 +1795,40 @@ and nothing else was.
 
 **The three dimensions left, and what each actually costs.** Every remaining
 `expand-*` snapshot needs something the model does not have, and none of them
-is a re-pointing:
+is a re-pointing.
+
+**How the cost was priced.** The same forward closure that found geography's 37
+equations, run from each remaining scalar: **`run_sourceTypeID` reaches 125 of
+the model's 262 equations, `run_hourID` 39 and `run_monthID` 32**, against
+geography's 37. Source type is the expensive one because it reaches the DRIVE
+CYCLE — `sourceUseTypePhysics` is keyed by source type, so the VSP, the
+operating modes and `pp_W` all become per source type, and that is where the
+`join.on` scaling gate lives.
 
 | fixture | rows | what it needs |
 |---|---|---|
-| `expand-sourcetype` | **430**, not 5 × 125 | source type is a scalar too, and the cohort count is RAGGED across the five: 41 / 125 / 125 / 89 / 50 for source types 11, 21, 31, 51 and 62, with different fuel sets (11 gasoline only; 62 diesel and CNG). `n_outputCohort` stops being one number. |
-| `expand-fueltype-diesel` | **248** = 125 + 123 | the same axis at width 2, with the ragged count visible in the smaller number. |
-| `expand-month` | 500 = 125 × 4 months | month is a scalar, AND `dayID` and `hourID` come back **0** in its output: it is a different time aggregation, not a wider selection. |
+| `expand-month` | 500 = 125 × 4 months | 32 equations, the cheapest of the three — but `dayID`, `hourID` and `hourDayID` all come back **0** in its output, and the snapshot's `DayOfAnyWeek` has been rewritten to one row, `dayID` 0, "Whole Week", `noOfRealDays` 7. MOVES SYNTHESISES those aggregate rows at execution time, so this is §59.2 again: a table the default database does not ship because it is a result. Not a wider selection — a second time-aggregation mode. |
+| `expand-sourcetype` | **430**, not 5 × 125 | 125 equations, and the cohort count is RAGGED across the five: 41 / 125 / 125 / 89 / 50 for source types 11, 21, 31, 51 and 62, with different fuel sets (11 gasoline only; 62 diesel and CNG). The cohort GRID already spans source type — `runspecsourcefueltype` carries the pair and `coh_rank`'s prefix count already handles raggedness — but `n_outputCohort` stops being one declared number and `output_rows` stops being a PRODUCT of declared numbers, because 430 is a sum. |
+| `expand-fueltype-diesel` | **248** = 125 + 123 | the same axis at width 2, with the ragged count visible in the smaller number. It comes free with the one above. |
 | `expand-criteria` | 372 = 3 × 124 | pollutants 1, 2 and 3 on process 1, from 8 selected pollutant-processes at positions 1, 3 and 5. New physics (criteria pollutants), and the one run in the corpus whose survivors are not a prefix — so it is also what would discriminate §60's renumbering. |
 
-So what is left of 7d is one more axis promotion — source type, which brings
-fuel type with it and is ragged where geography was rectangular — then a
-time-aggregation mode, then a pollutant family. Geography cost 30 variables of
-425 and one level in the output decomposition, and left every cohort count at
-125; source type will cost more, because the cohort count is a DIFFERENT number
-per source type — measured on the snapshot's own output, 41 rows for source type
-11, 125 for 21, 125 for 31, 89 for 51 and 50 for 62, and even the fuel sets
-differ (11 has gasoline alone, 62 has diesel and CNG). So `n_outputCohort` stops
-being one declared number and `coh_rank`'s prefix count has to be per source
-type, which is a change to the selection machinery and not only to the relations
-above it.
+**So the order is month, then source type, then the criteria pollutants**, and
+it is by cost rather than by the §7.5 list's order. Geography cost 30 variables
+of 425 and one level in the output decomposition and left every cohort count at
+125; source type is four times the equation count and takes the output
+relation's shape contract with it.
+
+**That contract is the decision the next step opens.** `output_rows` is an
+interval sized by a PRODUCT of declared numbers, and every output column finds
+its place by dividing that product back down. A ragged cohort count makes the
+total a SUM, so either `output_rows` is sized by one declared total that the
+chain recomputes — the `n_outputCohort` discipline applied once instead of
+twice, and the floor/mod decomposition replaced by the dense rank
+`rt_outputOrdinal` already computes — or the axis becomes `ragged` (§22 argues
+against, F14 measured the spelling). The first is the smaller change and the
+better document; it is also a change to the one thing §7.1 says a per-fixture
+document may declare, so it is written down here before it is made rather than
+after.
 
 ### 7.4 Upstream asks
 
