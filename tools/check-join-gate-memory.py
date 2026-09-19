@@ -1,50 +1,40 @@
 #!/usr/bin/env python3
-"""Gate F58 (EarthSciML/EarthSciAST#418) on a RATIO rather than on an absolute.
+"""Hold the F58 FIX (EarthSciML/EarthSciAST#418) in place, in bytes per pair.
 
-A join-gated `faq` retains ~80 bytes of resident memory per candidate join pair,
-in a thread-local cache that never evicts, so peak memory tracks the join's
-match set rather than the arrays the document declares or the answer it
-produces. `docs/findings/F58_a_join_gate_retains_its_match_set.esm` is the
-minimal case, and it PASSES -- the answer is right and only its cost is wrong --
-so it cannot be a tripwire in the ordinary way: `run-tests.sh` reads a passing
-file in `docs/findings/` as "the defect is fixed" and excludes this one by name.
+A join-gated `faq` used to retain ~80 bytes of resident memory per candidate
+join pair, in a thread-local cache that never evicted, so peak memory tracked
+the join's match set rather than the arrays a document declares. PR #420 held
+the index's pairs once instead of four times and gave both gate caches a
+resident-pair budget; PR #423 made a gate PRICED before it is built, so one
+that would materialise more pairs than the tuples it could prune is declined.
+Both merged 2026-09-19.
 
-So this measures it instead. Two runs of the same document differing in ONE
-metaparameter:
+THIS NOW GUARDS THE FIX RATHER THAN THE DEFECT, which is why the document
+beside it is named `F58_control_*` and not `F58_*`. It measures the marginal
+cost of a candidate pair -- two runs of the same document differing in ONE
+metaparameter, the same 1,000,000-row fact table and the same 0.03 MB answer,
+ten times the match set:
 
     n_key = 1000   ->  1,000,000 candidate pairs
     n_key =  100   -> 10,000,000 candidate pairs
 
-Everything else is identical -- the same 1,000,000-row fact table, the same
-16 MB of declared arrays, the same 0.03 MB answer, the same work per pair. Only
-the match set is ten times bigger. Today the peak grows with it, about 3.5x.
+79 bytes a pair before the fix, 34 after, and the gate fails above 50.
 
-A RATIO and not a threshold, because an absolute number would mean different
-things on different machines and would have to be re-tuned every time the
-corpus or the allocator moved; the ratio is a property of the evaluator. It is
-also two-sided, which is what makes it a finding gate and not a benchmark:
+IT IS THE MARGINAL CONSTANT AND NOT A RATIO, and that was a correction the fix
+itself forced. This first tested whether the peak still SCALED with the match
+set, on the reasoning that a fix would decouple them. It does not: #420 and
+#423 together cut the marginal cost by more than half while the ratio barely
+moved, 3.55x to 3.30x, because an index over N pairs costs O(N) however
+cheaply it is stored. The scaling was never the defect; the constant was, and a
+ratio gate would have gone on reporting "still holds" across the very fix it
+was written to notice. Both directions have now been demonstrated in anger
+rather than argued.
 
-  * marginal >= MAX_BYTES_PER_PAIR -- F58 still holds, report it and pass.
-  * marginal <  MAX_BYTES_PER_PAIR -- the index got cheaper per pair. That is
-    the fix landing, and the finding should be retired: #418 closed, the F58
-    section moved to the retired end of docs/findings/README.md, this gate and
-    the `-not -name` exclusion in run-tests.sh deleted.
+A regression here is the one that matters to this repository: at 80 bytes a
+pair `runspecs/pending/expand-sourcetype.esm` could not be evaluated at all on
+a 40 GB allocation, and at 34 every RunSpec in the tree runs in under 1 GB.
 
-IT IS THE MARGINAL CONSTANT AND NOT THE RATIO, and that correction was forced
-by the fix itself. This gate first tested whether the peak still SCALED with
-the match set, on the reasoning that a fix would decouple them. PR #420
-measured on 2026-09-19 says otherwise: it cuts the marginal cost from 80 to
-32 bytes a pair and the ratio barely moves, 3.52x to 3.19x, because an index
-over N pairs costs O(N) however cheaply it is stored. The scaling is not the
-defect and was never going to go away; the CONSTANT is. A ratio gate would
-have gone on reporting "still holds" across the very fix it was written to
-notice.
-
-MAX_BYTES_PER_PAIR is 50, between the 80 this was filed at and the 32 the fix
-delivers, so both arms are unambiguous -- and unlike the ratio version, both
-have been DEMONSTRATED rather than argued, against two real binaries.
-
-usage: check-join-gate-memory.py <esm-binary> <finding.esm> <scratch-dir>
+usage: check-join-gate-memory.py <esm-binary> <control.esm> <scratch-dir>
 """
 import json
 import os
@@ -106,14 +96,17 @@ def main(esm, finding, scratch):
     print("  %.1fx the pairs, %.2fx the peak, %.0f bytes per MARGINAL pair"
           % (p_hi / p_lo, ratio, marginal))
 
-    if marginal >= MAX_BYTES_PER_PAIR:
-        print("F58 still holds: a join gate costs %.0f bytes per candidate "
-              "pair (EarthSciML/EarthSciAST#418)" % marginal)
+    if marginal < MAX_BYTES_PER_PAIR:
+        print("F58 stays fixed: a candidate pair costs %.0f bytes, under %.0f "
+              "(EarthSciML/EarthSciAST#418, PRs #420 and #423)" % (marginal,
+                                                                   MAX_BYTES_PER_PAIR))
         return 0
-    print("F58 LOOKS FIXED: a candidate pair now costs %.0f bytes, under the "
-          "%.0f this gate calls the defect. Retire the finding -- close #418, "
-          "move its section to the retired end of docs/findings/README.md, and "
-          "delete this gate and the `-not -name` exclusion in run-tests.sh."
+    print("F58 HAS REGRESSED: a candidate pair now costs %.0f bytes, at or over "
+          "the %.0f this gate allows -- it was 34 when #420 and #423 merged and "
+          "79 before them. Every RunSpec in this tree is evaluated through that "
+          "number: at 80 bytes a pair expand-sourcetype needed more than a 40 GB "
+          "allocation. Check what moved in the pinned toolchain "
+          "(esm-version.lock) before trusting a memory measurement from it."
           % (marginal, MAX_BYTES_PER_PAIR))
     return 1
 

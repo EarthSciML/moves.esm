@@ -1,6 +1,6 @@
 # Findings: conventions the format or the toolchain could not express
 
-Forty-seven things PLAN.md §3 Phase 1 through Phase 5 assumed, or that an author
+Forty-eight things PLAN.md §3 Phase 1 through Phase 5 assumed, or that an author
 would reasonably assume, that did not hold. **Twenty-four are fixed upstream and
 retired** from the tripwire, with their sections kept so the workarounds they
 forced can be traced — and one of those, F14, was retired because the assumption
@@ -15,15 +15,15 @@ bottom now. Nothing else changed state: the other nine repro-carrying findings
 — ten files, F22 having two — still fail exactly as recorded, no spec, fixture
 or oracle regressed, and no tolerance moved.
 
-F22, F28, F41, F43, F45, F56 and F57 each have a minimal `.esm` repro in this directory —
-F22 has two, one per construct, and F57 has a control beside its repro. **F58 has
-a file here that is NOT a repro**, which is a ninth reason and a new one: its
-document is the minimal case and it PASSES, because F58 is a cost finding like
-F17 and F31 — the answer is right and only the memory is wrong. A passing file
-in this directory reads as "the defect is fixed", so the tripwire glob excludes
-it by name and `tools/check-join-gate-memory.py` gates it on a RATIO instead.
-The file is worth keeping anyway: it is the MWE the upstream issue cites, and
-its four metaparameters ARE the measurement. F3, F5, F13, F14, F20 and F21 had one until the
+F22, F28, F41, F43, F45, F56, F57 and F59 each have a minimal `.esm` repro in this directory —
+F22 has two, one per construct, and F57 has a control beside its repro. **F58's
+file was never a repro and is now a control**, which is a ninth reason and a new
+one: its document is the minimal case and it PASSES, because F58 was a cost
+finding like F17 and F31 — the answer was right and only the memory was wrong.
+A passing file in this directory reads as "the defect is fixed", so the tripwire
+glob excludes it by name and `tools/check-join-gate-memory.py` measures it
+instead, in bytes per candidate pair. Since the fix landed that script guards
+the fix rather than the defect, and the file is named `F58_control_*` to say so. F3, F5, F13, F14, F20 and F21 had one until the
 `8ac536bf0` rebuild retired all six, and their files are deleted; F8 is a CLI
 behaviour rather than a document, and is checked by command against the ordinary
 files of the repo. **F17, F31, F33, F42, F52, F53, F54 and F55 deliberately have no repro file**: a
@@ -3614,7 +3614,20 @@ measuring. And `EQ_GATE_CACHE` wants a bound in PAIRS rather than in entries,
 since entries differ by orders of magnitude. Together ~80 bytes a pair → ~12–16.
 **Filed upstream: [EarthSciML/EarthSciAST#418](https://github.com/EarthSciML/EarthSciAST/issues/418)**, on `8ac536bf0`.
 
-**PR #420 fixes it, measured downstream 2026-09-19** at its head `e70af2590`:
+**RETIRED 2026-09-19: #418 is closed, by PRs #420 and #423, and the pin has
+moved to them (`esm-version.lock`: `f22139eb1`).** The section stays so the
+measurements can be traced, and so does the document beside it — renamed
+`F58_control_a_join_gate_is_priced_before_it_is_built.esm`, because
+`tools/check-join-gate-memory.py` now asserts the marginal cost stays BELOW 50
+bytes a candidate pair where it once asserted it stayed above. 79 before, 34
+after. That is a control in F57's and F28's sense rather than a deleted repro:
+the thing it measures can come back, it is measured in a number, and nothing
+else in this tree would notice if it did. **Every RunSpec in this repository
+now evaluates in under 1 GB**, against 6.6 to 38.7 GB, and
+`runspecs/pending/expand-sourcetype.esm` — which could not be evaluated at all
+— runs in 0.89 GB. PLAN.md §7.3.8.
+
+**#420 alone, measured downstream 2026-09-19** at its head `e70af2590`:
 two columns instead of four copies, plus a resident-pair budget on both gate
 caches. On this model, not on the MWE — `process-tirewear` 6.56 → 2.26 GB and
 33.1 → 11.5 s, `expand-fueltype-diesel` 23.58 → 7.91 GB and 129.2 → 31.8 s,
@@ -3630,3 +3643,52 @@ defect; the constant was. The gate now asserts the marginal constant, and both
 its arms are DEMONSTRATED rather than argued — exit 0 on the pinned binary,
 exit 1 with the retirement instructions on the #420 build. A tripwire whose
 passing arm is the only one ever exercised is a tripwire nobody has tested.
+
+## F59 — a scalar (unshaped) variable reads as NaN inside a `faq`
+
+`F59_a_scalar_is_nan_inside_a_faq.esm`. Found at PLAN.md §7.3.8, moving the pin
+to the toolchain that fixed F58 — and it is a REGRESSION rather than a
+limitation: `8ac536bf0` is correct and `f22139eb1` is not.
+
+A variable with no `shape` reads as NaN inside a `faq` expression. The scalar
+itself is right when observed directly; every aggregate that reads it is NaN,
+with no refusal and no warning.
+
+```
+$ ./esm simulate docs/findings/F59_a_scalar_is_nan_inside_a_faq.esm --time 0 \
+      --observed base --observed s
+  base[1] = 10        # correct: the sum of v
+  s[1] = NaN          # expected 11, i.e. base + k
+```
+
+Four spellings of the same document, which is what locates it:
+
+| the scalar, and how it is read | result |
+|---|---|
+| `faq` with an empty `output_idx`, read by bare name | **NaN** |
+| the same, read as `index(base)` with no subscript | **NaN** |
+| a `const` scalar, read by bare name | **NaN** |
+| a **1-long axis**, read as `index(base, 1)` | correct |
+
+So it is the unshaped variable that is unreadable, not the reduction that made
+it, and a length-1 axis is the workaround.
+
+**Where it bit, and why that understates it.** `components/tank_temperature.esm`
+takes `first_tank_temperature` — a scalar reduced with an empty `output_idx` —
+as a bare template operand, so its quarter-hourly recurrence is NaN throughout
+and 41 of its assertions fail. That is the ONLY red test, and this repository
+has **65 unshaped `unknown`s across 12 components**. The difference is F47: a
+mounted component's inline tests are not run, so a component that is only ever
+mounted cannot fail this way however many of its aggregates are NaN. Every
+fixture and oracle is still green, which says the mounted paths are fine; it is
+not evidence, because the tests that would say so do not run.
+
+A self-referential recurrence alone is NOT affected — `s[k] = ifelse(k<=1, 0,
+s[k-1]) + 1` still gives 1,2,3,4,5 — which is what narrowed this to the scalar
+rather than to the lag.
+
+**Fix shape.** Read an unshaped variable as the 0-d array it is, wherever a
+`faq` resolves an operand. Failing that, REFUSE it: a silent NaN is the worst
+available outcome, because declaring a scalar and reading it in an aggregate is
+ordinary and nothing in `validate` or the run says a word.
+**Filed upstream: [EarthSciML/EarthSciAST#431](https://github.com/EarthSciML/EarthSciAST/issues/431)**, on `f22139eb1`.

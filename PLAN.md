@@ -2142,6 +2142,95 @@ densely ranked subset rather than a padded `cohort × n_sourceBin` grid
 hypothesis was dropped when the `n_sourceBin` sweep did not move the peak; at
 32 bytes a pair it is worth re-measuring.
 
+### 7.3.8 7d, 2026-09-19: the toolchain fix lands, and the corpus runs in under a gigabyte
+
+§7.3.7 left `expand-sourcetype` unrunnable and named the cause as upstream.
+Both halves are now merged and the pin has moved to them
+(`esm-version.lock`: `f22139eb1`).
+
+* **[#420](https://github.com/EarthSciML/EarthSciAST/pull/420)** — the gate
+  index holds its pairs once instead of four times, and both gate caches get a
+  resident-pair budget. 80 bytes a candidate pair to 32.
+* **[#423](https://github.com/EarthSciML/EarthSciAST/pull/423)** — a gate is
+  PRICED before it is built, and one that would materialise more pairs than the
+  tuples it could prune is declined. `resolve_join_gates` used to build an index
+  for every clause and consult §5.24's selectivity estimate only afterwards, so
+  `bin_usedFraction`'s two fuel-type clauses — **166,861,800 pairs each**, a
+  six-valued key against the 1,424,430-row national `fuelusagefraction` table —
+  were materialised even though a sibling clause cuts that table to single
+  digits. They are now declined, and the model's own `filter` applies the
+  equality over a space the county clause has already made small.
+
+**Every RunSpec in this tree now evaluates in under 1 GB**, against 6.6 to 38.7
+before, and the four that reproduced still reproduce to the digit:
+
+| run | peak, `8ac536bf0` | peak, `f22139eb1` | worst cell |
+|---|---|---|---|
+| `process-tirewear` | 6.56 GB / 36.9 s | **0.48 GB / 7.3 s** | 8.128e-06 |
+| `expand-day` | — | **0.48 GB / 7.3 s** | 7.106e-06 |
+| `expand-counties` | — | **0.48 GB / 7.8 s** | 1.140e-05 |
+| `expand-fueltype-diesel` | 23.62 GB / 124 s | **0.53 GB / 11.2 s** | 7.372e-06 |
+| `expand-sourcetype` | killed at 32 GB | **0.89 GB / 91 s** | see below |
+
+That is the order `../moves.rs` runs the same simulations in, which is the
+standard this port should have been held to: a 40 GB allocation was never the
+answer, and asking for one would have hidden a 39x defect.
+
+#### `expand-sourcetype` runs, and is 427 of 430
+
+Its per-pollutant total is exact at **3.890e-07** and 427 cells are inside the
+2e-05 tolerance. Three are not, and they are one thing: **source type 51
+(refuse truck), fuel type 9 (electricity), model years 2017-2019, all high by
+exactly 2.623x.**
+
+What that is NOT, each checked rather than assumed:
+
+* **Not the physics-row match.** No (sourceTypeID, regClassID, modelYearID)
+  triple in `sourceusetypephysics` is covered by more than one row, anywhere in
+  the table, so `rt_physicsOrdinal` is picking a unique vehicle and its
+  `sum_product` is not summing two ordinals the way §63.2's key columns did.
+  `run_rateRowsWithoutPhysics` is 0.
+* **Not the EV efficiency.** `evefficiency`'s battery and charging factors are
+  identical across all four of source type 51's regulatory classes, so they
+  cannot produce a per-regClass ratio.
+* **Not a bin-selection error.** The cohort has exactly ONE bin with a non-zero
+  `stmyFraction` — regClass 47, engTech 30 — of the 17 the model year carries,
+  and `run_sourceBinsDropped` is 0.
+
+A constant ratio on one (source type, fuel type) pair, identical across three
+model years, is the signature this step has met four times already
+(§60, §61, §62, §63): a key that is plural in the data and singular in the
+model. **It is the fifth, and it is the next step.** The document stays in
+`runspecs/pending/` and now says so.
+
+#### What the pin move cost: F59, and one red test
+
+Moving to `f22139eb1` brought a REGRESSION with it, found by the suite and filed
+as [#431](https://github.com/EarthSciML/EarthSciAST/issues/431) / finding F59:
+**a variable with no `shape` reads as NaN inside a `faq`.** The scalar itself is
+right when observed directly; every aggregate that reads it is NaN, with no
+refusal and no warning. `8ac536bf0` is correct, so the bad range is
+`8ac536bf0..eec6a7d64` — #410, #411, #412, #413 — and the two PRs this step was
+about are innocent: they reproduce it identically and `ESS_JOIN_GATE_DISABLE=1`
+changes nothing.
+
+`components/tank_temperature.esm` takes a scalar as a bare template operand, so
+its quarter-hourly recurrence is NaN throughout and **41 assertions fail**. That
+is the suite's only red, and the honest reading is that it understates the
+problem: this repository has **65 unshaped `unknown`s across 12 components**, and
+the reason only one went red is F47 — a mounted component's inline tests are not
+run, so a component that is only ever mounted cannot fail this way however many
+of its aggregates are NaN. Every fixture and oracle is still green, which says
+the mounted paths are fine; it is not evidence, because the tests that would say
+so do not run.
+
+**A length-1 axis is a working workaround** — `index(base, 1)` over a 1-long
+index set reads correctly where the bare scalar does not — and
+`tank_temperature.esm` already has a `tt_first_cell_rows` of size 1 to hang it
+on. Whether to spend that on a document this repository would rather fix
+upstream is a judgement call and is recorded here rather than taken: the suite
+is 255 ok and 1 FAIL until it is made.
+
 ### 7.4 Upstream asks
 
 **None is blocking.** This section has said "still none", "already exists,

@@ -113,8 +113,38 @@ echo "building esm from $AST ..."
   fi
 ) || exit $?
 
-cp "$AST/pkg/earthsci-ast-rs/target/release/esm" "$OUT"
-echo "installed $OUT ($("$OUT" --version))"
+# WHERE CARGO PUT IT, not where it usually puts it. `CARGO_TARGET_DIR` in the
+# environment redirects the build and this copy does not follow, so the `cp`
+# below reads whatever the crate's default target/ happens to hold -- which on
+# a checkout that has ever been built is a stale binary, copied without
+# complaint, and then described by a freshly written esm-version.lock as the
+# commit that is checked out. That is this script's own headline failure mode
+# reached by a route it did not guard: a working binary that is not the one
+# the lock claims. Observed 2026-09-19, installing a ten-hour-old esm over a
+# just-merged toolchain.
+TARGET_DIR="${CARGO_TARGET_DIR:-$AST/pkg/earthsci-ast-rs/target}"
+BIN="$TARGET_DIR/release/esm"
+if [[ ! -x "$BIN" ]]; then
+  echo "error: cargo reported success but there is no binary at '$BIN'" >&2
+  echo "       (CARGO_TARGET_DIR=${CARGO_TARGET_DIR:-unset})" >&2
+  exit 3
+fi
+# And it must not PREDATE the sources it claims to be built from. A binary
+# newer than every source is the correct outcome of a no-op rebuild, so the
+# test is staleness and not "did this run write it": cargo rightly leaves an
+# up-to-date artifact alone.
+STALE="$(find "$AST/pkg/earthsci-ast-rs/src" "$AST/pkg/earthsci-ast-rs/Cargo.toml" \
+           -newer "$BIN" -print -quit 2>/dev/null)"
+if [[ -n "$STALE" ]]; then
+  echo "error: '$BIN' is OLDER than the source it would be recorded against" >&2
+  echo "       (e.g. $STALE)." >&2
+  echo "       cargo wrote somewhere else, and this would install a stale" >&2
+  echo "       binary under a freshly written esm-version.lock." >&2
+  echo "       (CARGO_TARGET_DIR=${CARGO_TARGET_DIR:-unset})" >&2
+  exit 3
+fi
+cp "$BIN" "$OUT"
+echo "installed $OUT ($("$OUT" --version)) from $BIN"
 
 # The lock documents THE canonical binary, so a build to any other path leaves
 # it alone. Without this, three concurrent upstream branches building for
