@@ -24,15 +24,25 @@ things on different machines and would have to be re-tuned every time the
 corpus or the allocator moved; the ratio is a property of the evaluator. It is
 also two-sided, which is what makes it a finding gate and not a benchmark:
 
-  * ratio >= MIN_RATIO -- F58 still holds, report it and pass.
-  * ratio <  MIN_RATIO -- the peak has stopped tracking the match set. That is
+  * marginal >= MAX_BYTES_PER_PAIR -- F58 still holds, report it and pass.
+  * marginal <  MAX_BYTES_PER_PAIR -- the index got cheaper per pair. That is
     the fix landing, and the finding should be retired: #418 closed, the F58
     section moved to the retired end of docs/findings/README.md, this gate and
     the `-not -name` exclusion in run-tests.sh deleted.
 
-MIN_RATIO is 2.0 against a measured 3.5 because the failing side must be
-unambiguous: a fix takes the ratio to roughly 1.1, so anything at or above 2
-is the defect and nothing in between is reported as either.
+IT IS THE MARGINAL CONSTANT AND NOT THE RATIO, and that correction was forced
+by the fix itself. This gate first tested whether the peak still SCALED with
+the match set, on the reasoning that a fix would decouple them. PR #420
+measured on 2026-09-19 says otherwise: it cuts the marginal cost from 80 to
+32 bytes a pair and the ratio barely moves, 3.52x to 3.19x, because an index
+over N pairs costs O(N) however cheaply it is stored. The scaling is not the
+defect and was never going to go away; the CONSTANT is. A ratio gate would
+have gone on reporting "still holds" across the very fix it was written to
+notice.
+
+MAX_BYTES_PER_PAIR is 50, between the 80 this was filed at and the 32 the fix
+delivers, so both arms are unambiguous -- and unlike the ratio version, both
+have been DEMONSTRATED rather than argued, against two real binaries.
 
 usage: check-join-gate-memory.py <esm-binary> <finding.esm> <scratch-dir>
 """
@@ -43,7 +53,7 @@ import resource
 import subprocess
 import sys
 
-MIN_RATIO = 2.0
+MAX_BYTES_PER_PAIR = 50.0
 FANOUTS = (1000, 100)
 
 
@@ -92,17 +102,19 @@ def main(esm, finding, scratch):
     for n_key, pairs, rss in seen:
         print("  n_key=%-5d %12s candidate pairs   peak %.2f GB   %.0f bytes/pair"
               % (n_key, "{:,}".format(pairs), rss / 2**30, rss / pairs))
-    print("  %.1fx the pairs, %.2fx the peak" % (p_hi / p_lo, ratio))
+    marginal = (r_hi - r_lo) / (p_hi - p_lo)
+    print("  %.1fx the pairs, %.2fx the peak, %.0f bytes per MARGINAL pair"
+          % (p_hi / p_lo, ratio, marginal))
 
-    if ratio >= MIN_RATIO:
-        print("F58 still holds: peak memory tracks the join's match set "
-              "(EarthSciML/EarthSciAST#418)")
+    if marginal >= MAX_BYTES_PER_PAIR:
+        print("F58 still holds: a join gate costs %.0f bytes per candidate "
+              "pair (EarthSciML/EarthSciAST#418)" % marginal)
         return 0
-    print("F58 LOOKS FIXED: ten times the candidate pairs moved the peak only "
-          "%.2fx, under the %.1fx this gate calls the defect. Retire the "
-          "finding -- close #418, move its section to the retired end of "
-          "docs/findings/README.md, and delete this gate and the `-not -name` "
-          "exclusion in run-tests.sh." % (ratio, MIN_RATIO))
+    print("F58 LOOKS FIXED: a candidate pair now costs %.0f bytes, under the "
+          "%.0f this gate calls the defect. Retire the finding -- close #418, "
+          "move its section to the retired end of docs/findings/README.md, and "
+          "delete this gate and the `-not -name` exclusion in run-tests.sh."
+          % (marginal, MAX_BYTES_PER_PAIR))
     return 1
 
 

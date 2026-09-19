@@ -2061,8 +2061,11 @@ promotions now.
 
 `runspecs/pending/expand-sourcetype.esm` — the same axis at width five, 40
 vehicles — still does not run, and for a reason that is no longer about a key.
-It peaks at **32.0 GB** of resident memory against this job's 40 GB cgroup
-limit, which counts page cache as well, and the kernel kills it. Three
+It is KILLED at **32.0 GB** of resident memory against this job's 40 GB cgroup
+limit, which counts page cache as well. *Killed at* and not *peaks at*: the run
+never completes, so 32.0 GB is where it died and not what it needs — a
+distinction that only became measurable once the cost came down (see the
+2026-09-19 note below, where the same run reaches 38.67 GB before dying). Three
 measurements say where not to look:
 
 * **Not the drive cycle.** This step LOWERED that run's peak from 34.4 GB and
@@ -2072,8 +2075,8 @@ measurements say where not to look:
   relation and not a smaller pad.
 * **Not width per se.** `expand-fueltype-diesel` peaks at 24.6 GB and runs.
 
-So the ceiling sits between 24.6 and 32.0 GB and nothing in either document can
-move it. **The cause is upstream and is now measured**, F58 /
+So the ceiling sits above 24.6 GB, which `expand-fueltype-diesel` reaches and
+survives, and nothing in either document can move it. **The cause is upstream and is now measured**, F58 /
 [EarthSciAST#418](https://github.com/EarthSciML/EarthSciAST/issues/418).
 
 Two observations found it without a profiler, `esm performance-profile` having
@@ -2101,10 +2104,43 @@ narrows either way.
 
 `docs/findings/F58_a_join_gate_retains_its_match_set.esm` is the minimal case,
 four metaparameters that separate the two terms, and
-`tools/check-join-gate-memory.py` gates it on the ratio of two runs so the
-finding retires itself when the fix lands. The fix is priced upstream at
-~12–16 bytes a pair, which would put this run under 10 GB. Until then
-`expand-sourcetype` waits, and no other 7d dimension is blocked on it.
+`tools/check-join-gate-memory.py` gates it so the finding retires itself when
+the fix lands.
+
+#### 2026-09-19: PR #420 is a 3x win and still does not unblock this run
+
+[EarthSciAST#420](https://github.com/EarthSciML/EarthSciAST/pull/420) fixes
+#418 — the index holds its pairs in two columns instead of four copies, and
+both gate caches get a resident-pair budget. Built at its head `e70af2590` and
+measured against the pinned `8ac536bf0`, on this model and not on the MWE:
+
+| run | peak, pinned | peak, #420 | wall, pinned | wall, #420 |
+|---|---|---|---|---|
+| `process-tirewear` | 6.56 GB | **2.26 GB** | 33.1 s | **11.5 s** |
+| `expand-fueltype-diesel` | 23.58 GB | **7.91 GB** | 129.2 s | **31.8 s** |
+
+**Three times the memory and three to four times the wall clock, with the
+emitted relation BYTE-IDENTICAL on both runs.** That is much better than the
+MWE predicted (80 → 32 bytes a pair, a 2.4x cut), because the model's gates
+are large enough that the eviction budget matters as well as the layout.
+
+**`expand-sourcetype` still does not run.** An RSS timeline shows the budget
+working — two build-and-evict cycles, the second releasing 13 GB at t=171 s —
+and then a plateau at **38.67 GB held flat for 70 seconds** before the kernel
+kills it. Flat, not climbing: the run needs about 38.7 GB of anonymous memory
+plus page cache, against a 40 GB cap. It is now *just* over rather than three
+times over, and the honest reading is that **the 32.0 GB recorded above was
+never its peak** — it was where the old binary happened to die, and a cheaper
+gate simply got further before hitting the same wall.
+
+So: #420 is worth taking on its own merits and is not what unblocks this run.
+What would is a larger allocation, which now needs only ~48 GB, or the term
+#420 deliberately leaves standing plus one model change — `sourcebin_rows` as a
+densely ranked subset rather than a padded `cohort × n_sourceBin` grid
+(conventions §64.2), since the padded bins all agree with each other on
+`bin_usedFraction`'s four-column self-join and so pair up quadratically. That
+hypothesis was dropped when the `n_sourceBin` sweep did not move the peak; at
+32 bytes a pair it is worth re-measuring.
 
 ### 7.4 Upstream asks
 
@@ -2165,9 +2201,11 @@ recorded there and was not filed.
   answer it produces. Finding F58, filed 2026-09-18 with a four-metaparameter
   MWE (`docs/findings/F58_a_join_gate_retains_its_match_set.esm`). **This is
   the one ask that currently blocks a RunSpec**: `expand-sourcetype` declares
-  0.31 GiB of arrays and peaks at 32 GB, and the fix shape — CSR adjacency
-  built lazily, a bounded cache — is priced at ~12-16 bytes a pair, which would
-  bring it under 10 GB. §7.3.7 has the measurement and the RSS timeline.
+  0.31 GiB of arrays and is killed at 32 GB. **PR #420 fixes it** and was
+  measured downstream on 2026-09-19: 3x the memory and 3-4x the wall clock on
+  this model, answers byte-identical — and `expand-sourcetype` still does not
+  fit, reaching 38.67 GB and holding flat there before the kill. §7.3.7 has
+  both measurements and the RSS timelines.
 
 **Recorded but not filed: F51**, a Rust/Python disagreement about a shape-open
 leaf. #317 changed the Rust side; the Python side is not being measured now.
@@ -2181,7 +2219,7 @@ This repository writes `leaf-owns-shape`, which does not depend on the answer.
 | **7b** ✅ | Full-database monolithic conversion — **done 2026-09-10**: 237 monolithic + 3 schema-only, 0 partition directories, 517 MB, 15.6 s, validator extended and all 7 planted corruptions red (§7.3.1) | met; the load cost is measured and does not dictate the layout |
 | **7c** ✅ | The mount shape at fixture scale — **done 2026-09-10, re-shaped to conform 2026-09-12, thin 2026-09-15** (§7.3.2): `fixtures/process-tirewear.esm` split into a logic half, a catalogue document that mounts it, and a 43-line per-fixture document that mounts the catalogue, byte-identical over 375 rows × 26 fields. Four findings retired (F46, F48, F49, F50), one open (F51) | met; the per-fixture document is 12 lines — metadata and one `{ref}`, nothing mechanical (conventions §53.2) |
 | **7c′** ✅ | `moves-onroad.esm`: default DB → `MOVESOutput` for `process-tirewear` — **done 2026-09-17** (§7.3.3): 38 national tables and the same logic, behind a per-fixture document carrying ten runspec selections, emitting the inlined fixture's 375 rows byte for byte in 40 s | met; the first end-to-end number comes off the default database |
-| **7d** | Widen the runspec surface one selection dimension at a time — pollutant-process, source type, road type, timespan, geography | each dimension added only with a fixture that **discriminates** it (§23). **Begun 2026-09-17** (§7.3.4): **timespan** done at the day axis, the output relation is no longer a rectangle over the selected pollutant-processes (`runspecs/expand-day.esm`, 250 rows, byte-identical to the inlined fixture over 25 shared fields), and **geography** done at three counties in three states (`runspecs/expand-counties.esm`, 375 rows, worst cell 1.140e-05; conventions §61). **Source type is an axis as of 2026-09-18** (§7.3.5, conventions §62): 44 variables promoted, `run_sourceTypeID` gone, the three existing runs unchanged to the digit, and `runspecs/pending/expand-fueltype-diesel.esm` emitting the right 248-row shape with source type 21's 125 rows exact at 7.106e-06. **The source bin is its own relation as of 2026-09-18** (§7.3.6, conventions §63): `sourcebin_rows` beside `cohort_rows`, `n_sourceBin` a third declared and checked number relayed per fixture, the three existing runs still unchanged to the digit, and `expand-fueltype-diesel`'s activity AND source-bin distribution both exact for both source types — 330 bins against the run's own `sourceBinDistributionFuelUsage`. **The drive cycle is per VEHICLE as of 2026-09-18** (§7.3.7, conventions §64): `physicsrow_rows` is the run's selected `sourceusetypephysics` rows densely ranked, `n_physicsRow` a fourth declared and checked number, the three existing runs STILL unchanged to the digit, and **`runspecs/expand-fueltype-diesel.esm` promoted out of `pending/`** — all 248 rows, worst cell 7.372e-06, both regulatory classes of source type 32 and the split at model year 2010. `expand-sourcetype` is the one dimension left pending and it is no longer waiting on a key: it peaks at 32.0 GB against a 40 GB limit, which is a profile and not a model step. Month and the criteria pollutants are left after it |
+| **7d** | Widen the runspec surface one selection dimension at a time — pollutant-process, source type, road type, timespan, geography | each dimension added only with a fixture that **discriminates** it (§23). **Begun 2026-09-17** (§7.3.4): **timespan** done at the day axis, the output relation is no longer a rectangle over the selected pollutant-processes (`runspecs/expand-day.esm`, 250 rows, byte-identical to the inlined fixture over 25 shared fields), and **geography** done at three counties in three states (`runspecs/expand-counties.esm`, 375 rows, worst cell 1.140e-05; conventions §61). **Source type is an axis as of 2026-09-18** (§7.3.5, conventions §62): 44 variables promoted, `run_sourceTypeID` gone, the three existing runs unchanged to the digit, and `runspecs/pending/expand-fueltype-diesel.esm` emitting the right 248-row shape with source type 21's 125 rows exact at 7.106e-06. **The source bin is its own relation as of 2026-09-18** (§7.3.6, conventions §63): `sourcebin_rows` beside `cohort_rows`, `n_sourceBin` a third declared and checked number relayed per fixture, the three existing runs still unchanged to the digit, and `expand-fueltype-diesel`'s activity AND source-bin distribution both exact for both source types — 330 bins against the run's own `sourceBinDistributionFuelUsage`. **The drive cycle is per VEHICLE as of 2026-09-18** (§7.3.7, conventions §64): `physicsrow_rows` is the run's selected `sourceusetypephysics` rows densely ranked, `n_physicsRow` a fourth declared and checked number, the three existing runs STILL unchanged to the digit, and **`runspecs/expand-fueltype-diesel.esm` promoted out of `pending/`** — all 248 rows, worst cell 7.372e-06, both regulatory classes of source type 32 and the split at model year 2010. `expand-sourcetype` is the one dimension left pending and it is no longer waiting on a key: it is killed at a 40 GB limit, which is EarthSciAST#418 and not a model step. PR #420 cuts this model's memory 3x and its wall clock 3-4x with byte-identical answers, and still leaves that one run 38.67 GB against the cap. Month and the criteria pollutants are left after it |
 | **7e** | `moves-nonroad.esm`, same shape | 12 `nr-*` fixtures |
 | **7f** | The five fixtures needing a second input database (four `-single` on `washtenaw_cdb`, `scale-project` on the project DB) | last, because they are the only ones whose model input is not the default DB |
 

@@ -3597,8 +3597,8 @@ in `EQ_GATE_CACHE` (`eval.rs:2855`), which the whole tree touches exactly twice
 — one `get`, one `insert`. No `clear`, no capacity bound, no LRU.
 
 **Where it bit.** `onroad/model.esm` under `expand-sourcetype` declares
-**0.31 GiB** of arrays across 462 variables and peaks at **32 GB**, which a
-40 GB cgroup kills. An RSS timeline of the run that does fit
+**0.31 GiB** of arrays across 462 variables and is killed at **32 GB** by a
+40 GB cgroup. An RSS timeline of the run that does fit
 (`expand-fueltype-diesel`, 23.56 GB) shows three steps of ~4.2 GB, each followed
 by ~21 s of allocation-free compute and none of it released: three gate indices,
 each live for 21 seconds and resident for the remaining two minutes. The
@@ -3613,3 +3613,20 @@ trades `O(1)` for `O(log n)` on `drive_plan`'s both-bound arm, so it wants
 measuring. And `EQ_GATE_CACHE` wants a bound in PAIRS rather than in entries,
 since entries differ by orders of magnitude. Together ~80 bytes a pair → ~12–16.
 **Filed upstream: [EarthSciML/EarthSciAST#418](https://github.com/EarthSciML/EarthSciAST/issues/418)**, on `8ac536bf0`.
+
+**PR #420 fixes it, measured downstream 2026-09-19** at its head `e70af2590`:
+two columns instead of four copies, plus a resident-pair budget on both gate
+caches. On this model, not on the MWE — `process-tirewear` 6.56 → 2.26 GB and
+33.1 → 11.5 s, `expand-fueltype-diesel` 23.58 → 7.91 GB and 129.2 → 31.8 s,
+**emitted relation byte-identical on both**. PLAN.md §7.3.7 has the rest,
+including why it still does not unblock `expand-sourcetype`.
+
+**AND IT CORRECTED THIS GATE.** `tools/check-join-gate-memory.py` first tested
+whether the peak still SCALED with the match set, on the reasoning that a fix
+would decouple them. It does not: #420 cuts the marginal cost from 79 to 32
+bytes a pair while the ratio moves only 3.52x to 3.18x, because an index over
+N pairs costs O(N) however cheaply it is stored. The scaling was never the
+defect; the constant was. The gate now asserts the marginal constant, and both
+its arms are DEMONSTRATED rather than argued — exit 0 on the pinned binary,
+exit 1 with the retirement instructions on the #420 build. A tripwire whose
+passing arm is the only one ever exercised is a tripwire nobody has tested.
