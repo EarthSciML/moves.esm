@@ -3647,8 +3647,17 @@ passing arm is the only one ever exercised is a tripwire nobody has tested.
 ## F59 — a scalar (unshaped) variable reads as NaN inside a `faq`
 
 `F59_a_scalar_is_nan_inside_a_faq.esm`. Found at PLAN.md §7.3.8, moving the pin
-to the toolchain that fixed F58 — and it is a REGRESSION rather than a
-limitation: `8ac536bf0` is correct and `f22139eb1` is not.
+to the toolchain that fixed F58.
+
+**It is NOT a regression, and this section said it was.** The claim came from
+this suite going green on `8ac536bf0`, which exercises `esm test`; nobody had
+run `esm simulate` there. Measured since, on the MWE below: `8ac536bf0` answers
+NaN too, and so does every commit tested. What changed in
+`8ac536bf0..eec6a7d64` is that #412 gave the inline-test runner a retry that
+builds a state-free document through the build pipeline, so `esm test` started
+reaching the broken path — it EXPOSED the defect rather than introducing it.
+The distinction decided the fix: restoring `8ac536bf0`'s behaviour would have
+patched `inline_tests.rs` and left `esm simulate` broken.
 
 A variable with no `shape` reads as NaN inside a `faq` expression. The scalar
 itself is right when observed directly; every aggregate that reads it is NaN,
@@ -3686,6 +3695,15 @@ not evidence, because the tests that would say so do not run.
 A self-referential recurrence alone is NOT affected — `s[k] = ifelse(k<=1, 0,
 s[k-1]) + 1` still gives 1,2,3,4,5 — which is what narrowed this to the scalar
 rather than to the lag.
+
+**Fixed by [#433](https://github.com/EarthSciML/EarthSciAST/pull/433)**, open as
+of 2026-09-19: a build-time field's rank now comes from its DECLARATION, so an
+unshaped variable materializes at `IxDyn(&[])` and `lookup_variable` answers it
+as the scalar every other layer already expects. Verified against that branch
+here — the inline-test stage over `components lib runspecs` goes **723 pass /
+155 fail to 831 / 47**, 108 assertions across seven components that were
+silently NaN, with no file worse, and `components/tank_temperature.esm` alone
+goes 23/41 to **64/0**.
 
 **Fix shape.** Read an unshaped variable as the 0-d array it is, wherever a
 `faq` resolves an operand. Failing that, REFUSE it: a silent NaN is the worst

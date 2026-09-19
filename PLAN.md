@@ -2205,14 +2205,23 @@ model. **It is the fifth, and it is the next step.** The document stays in
 
 #### What the pin move cost: F59, and one red test
 
-Moving to `f22139eb1` brought a REGRESSION with it, found by the suite and filed
-as [#431](https://github.com/EarthSciML/EarthSciAST/issues/431) / finding F59:
+Moving to `f22139eb1` turned the suite red, and what it found was filed as
+[#431](https://github.com/EarthSciML/EarthSciAST/issues/431) / finding F59:
 **a variable with no `shape` reads as NaN inside a `faq`.** The scalar itself is
 right when observed directly; every aggregate that reads it is NaN, with no
-refusal and no warning. `8ac536bf0` is correct, so the bad range is
-`8ac536bf0..eec6a7d64` — #410, #411, #412, #413 — and the two PRs this step was
-about are innocent: they reproduce it identically and `ESS_JOIN_GATE_DISABLE=1`
-changes nothing.
+refusal and no warning.
+
+**It was reported here as a regression and it is not one — that was my error,
+and the correction is the useful part.** The claim rested on this suite being
+green at `8ac536bf0`, and this suite runs `esm test`. Building `8ac536bf0` and
+running `esm simulate` on the same document answers NaN there too, as does
+every commit tested. #412 gave the inline-test runner a retry that builds a
+state-free document through the build pipeline, so `esm test` began reaching a
+path it had never taken; it exposed the defect rather than causing it. **A green
+suite is evidence about the paths the suite takes**, and `esm simulate` on a
+scalar-in-`faq` was not one of them. The distinction decided the fix: restoring
+`8ac536bf0`'s behaviour would have patched the test runner and left `simulate`
+broken.
 
 `components/tank_temperature.esm` takes a scalar as a bare template operand, so
 its quarter-hourly recurrence is NaN throughout and **41 assertions fail**. That
@@ -2224,12 +2233,15 @@ of its aggregates are NaN. Every fixture and oracle is still green, which says
 the mounted paths are fine; it is not evidence, because the tests that would say
 so do not run.
 
-**A length-1 axis is a working workaround** — `index(base, 1)` over a 1-long
-index set reads correctly where the bare scalar does not — and
-`tank_temperature.esm` already has a `tt_first_cell_rows` of size 1 to hang it
-on. Whether to spend that on a document this repository would rather fix
-upstream is a judgement call and is recorded here rather than taken: the suite
-is 255 ok and 1 FAIL until it is made.
+**A length-1 axis works around it** — `index(base, 1)` over a 1-long index set
+reads correctly where the bare scalar does not — and was deliberately not spent,
+because [#433](https://github.com/EarthSciML/EarthSciAST/pull/433) fixes it
+upstream instead: a build-time field's rank now comes from its declaration, so an
+unshaped variable materializes at `IxDyn(&[])`. Verified against that branch
+here, the inline-test stage over `components lib runspecs` goes **723 pass / 155
+fail to 831 / 47** — 108 assertions across seven components that were silently
+NaN, no file worse — and `tank_temperature.esm` alone goes 23/41 to **64/0**.
+The suite is 255 ok and 1 FAIL until it merges and the pin moves again.
 
 ### 7.4 Upstream asks
 
