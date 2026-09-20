@@ -422,18 +422,30 @@ holding.
 ### 6.4 Worked example D — February, and the cold side of the reduced temperature
 
 `expand-month` is the corpus's only snapshot with a `ZoneMonthHour` row below
-freezing: month 2, hour 0, `temperature` 26.465902552983 °F,
-`relHumidity` 70.802489144539 %.
+freezing: month 2, hour 0, `temperature` 26.041854056039 °F,
+`relHumidity` 71.208215965313 %.
 
 | step | value |
 |---|---|
-| `TK` | 270.075501418324 K — **below** the ice point |
-| `TK/273.15` | 0.988744284892271 |
-| `273.15/TK` | 1.01138384846286 |
-| MG-5 terms 1–4 | −0.122897068, +0.024717717, −0.0000360993, −0.0000503850 |
-| exponent | −0.31212603520523 |
-| `PH2O` | 0.487387026555631 kPa |
-| `specificHumidity` | **2.18299345439443** g/kg (snapshot: 2.182993506596) |
+| `TK` | 269.839918920022 K — **below** the ice point |
+| `TK/273.15` | 0.987881819220289 |
+| `273.15/TK` | 1.012266832473216 |
+| MG-5 terms 1–4 | −0.132429534, +0.026623296, −0.0000391989, −0.0000540361 |
+| exponent | −0.31975967305079 |
+| `PH2O` | 0.478895026709748 kPa |
+| `specificHumidity` | **2.15716007672981** g/kg (snapshot: 2.157160128351) |
+
+**This row moved between corpus versions, and what moved it is a measurement
+rather than noise.** Against a v1 corpus the same cell reads 26.465902552983 °F
+and 70.802489144539 % — the numbers this section used to carry. `expand-month`
+sets `aggregateBy = Month`, so its `ZoneMonthHour` is not a reading but an
+HOURLY AVERAGE that MOVES computes before the rate calculation, weighted by
+`HW2(sourceType, day, hour) = Σ_rt hourVMTFraction · roadTypeVMTFraction / Σ_rt
+roadTypeVMTFraction` and **scoped to the run's selected day types**. v1 selected
+both day types by accident (`moves.rs` PR #55, conventions §42.5) and v2 selects
+weekdays alone, and averaging over both day types instead of over day 5 is
+exactly what reproduces 26.4659 from the default database. PLAN.md §7.3.11 has
+the weight and the rest of the pre-aggregation.
 
 Every one of the four temperature-dependent terms changes sign relative to §6.1,
 which is the point of carrying this row: a Goff–Gratch form that had `TK/273.15`

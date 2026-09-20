@@ -6417,3 +6417,82 @@ note. **A pending document should name the thing that actually stops it**, and
 the three measurements above — it is not the drive cycle, not the source-bin
 padding, and `expand-fueltype-diesel` at 24.6 GB runs — are worth more in that
 note than the word "memory".
+
+## 65. The month is an axis, and the calendar was the run's only scalar left **[PLAN.md step 7d; 26 variables promoted, five runs unchanged to the digit]**
+
+Every RunSpec in this repository selected one month, so `run_monthID` was a
+`run_rows` scalar — a faq that summed `rsm_monthID` over `runspecmonth_rows`
+and landed the total on the one-row carrier relation. At one selected month a
+sum of one is that month, which is §59's mistake for the fourth time and the
+last dimension the corpus could still hide it in.
+
+`expand-month` selects February, May, August and November and MOVES emits
+**500 rows = 1 pollutant-process block × 1 county × 4 months × 1 day type ×
+125 cohorts**.
+
+### 65.1 What varies with the month is 26 variables out of 472
+
+| gained the axis | why |
+|---|---|
+| `run_monthID`, `run_monthGroupID`, `run_daysInMonth`, `run_weeksPerMonth` | the month's own identity and calendar. These four were `run_rows` scalars, and the promotion REBINDS the range they were already summed over rather than adding one: the run axis they sat on IS the month axis |
+| `run_temperature`, `run_heatIndex` | `ZoneMonthHour` is keyed by month |
+| `run_acActivityTermA/B/C`, `run_acActivityRaw`, `run_acActivity`, `run_evTemperatureIsSuppressed` | `MonthGroupHour` is keyed by the month group, and the quadratic is evaluated at a heat index that is the month's |
+| `coh_acFactor`, `rt_acFactor`, `rt_evTemperatureAdjustRaw`, `rt_evTemperatureFactor` | the A/C load and the EV temperature quadratic both ride that meteorology |
+| `run_monthVMTFraction`, `act_dayVMTFraction`, `act_vmt`, `act_sho` | `MonthVMTFraction` is the month's share of the annual VMT, and `DayVMTFraction` is keyed by month as well as by day |
+| `rtDay_sho`, `rtDay_activity`, `rtDay_adjustedMeanBaseRate`, `rtDay_quantDirect`, `rtDay_quantChained`, `rtDay_quant` | everything downstream of both halves |
+
+| did NOT | why |
+|---|---|
+| `rtDay_meanBaseRate` and the whole rate stack under it | a base rate is not month-keyed. Only the ADJUSTED rate is, and only through the temperature and A/C steps |
+| `act_hourVMTFraction` | `HourVMTFraction` is keyed by (source type, road type, day, hour) and by nothing else — which is the sharpest line in the table, because `act_dayVMTFraction` beside it IS month-keyed |
+| the drive cycle and the operating-mode family | `driveSchedule` and `avgSpeedDistribution` carry no month |
+| `coh_isSelected`, `coh_rank`, the source bins, the age distribution | which cohorts survive is national and annual |
+
+### 65.2 The output relation is five levels, and the month is the third
+
+```
+output_rows = n_outputPolProcess × n_runspeccounty × n_runspecmonth × n_runspecday × n_outputCohort
+```
+
+county-major over month-major over day-major over cohort, one more level in the
+same decomposition §61.2 built. `month_ordinal` is the month relation's own row
+ordinal, exactly as `day_ordinal` and `rsc_ordinal` are, and every output column
+that varies with the month gains one key pair, `outMonthOrdinal ↔
+month_ordinal`, on the clause it already had. Four columns need it —
+`out_SHO`, `out_adjustedMeanBaseRate`, `out_emissionQuantDirect` and
+`out_emissionQuant` — plus `out_monthID` itself, which stops being a broadcast
+scalar and becomes a lookup.
+
+**`out_meanBaseRate` does NOT need it**, and that is worth stating because it
+looks like an omission: the unadjusted rate does not vary with the month, so
+each of the four month blocks joins to the same rate row and gets the same
+value. A column that does not carry the axis is replicated by the join, not
+dropped by it.
+
+### 65.3 What it bought, and what it did not
+
+| run | before | after |
+|---|---|---|
+| `process-tirewear` | 8.128e-06 | unchanged to the digit |
+| `expand-day` | 7.106e-06 | unchanged |
+| `expand-counties` | 1.140e-05 | unchanged |
+| `expand-fueltype-diesel` | 7.372e-06 | unchanged |
+| `expand-sourcetype` | 9.017e-06 | unchanged |
+
+Five runs, `n_runspecmonth` at 1 in all five, and the decomposition
+arithmetically the one it replaced — §64.5's rule again, that **a new axis whose
+default width is 1 is a refactor the existing corpus cannot see.**
+
+What it does NOT buy is `expand-month`, and the distinction is the whole reason
+this section stops here. That run sets `aggregateBy = Month`, and the axis is
+the cheaper half of what that costs: the other half is that MOVES rewrites six
+input tables before the rate calculation runs, to a single `(hourDayID, dayID,
+hourID) = (0, 0, 0)` cell the default database does not ship. That is a
+GENERATOR, in the sense §35.1 fixed for `MeteorologyGenerator` and
+`FuelEffectsGenerator`, and it belongs in a component with an oracle rather
+than inside the model. The pre-aggregation is measured — the collapsed
+`AvgSpeedDistribution` reproduces from the default database to 4.5e-06 over all
+64 cells and the collapsed `ZoneMonthHour` temperature and relative humidity to
+2.7e-10 over all four months, both at the snapshot column's own stored
+precision — and PLAN.md §7.3.11 records the two weights and the one place
+`moves.rs` gets the second of them wrong.

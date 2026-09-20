@@ -2305,6 +2305,96 @@ the EV factors are per-regClass-identical, and the cohort's one non-zero
 true for a *factor* to be the remaining explanation, which is what made a
 single constant the thing to look for.
 
+### 7.3.10 7d, 2026-09-20: the month is an axis, and it was the run's last scalar
+
+`run_monthID` was a `run_rows` scalar — a `faq` that summed `rsm_monthID` over
+`runspecmonth_rows` and landed the total on the one-row carrier relation. At one
+selected month a sum of one IS that month, and every RunSpec in the tree selects
+one, so nothing had ever told the model otherwise. That is §59's shape for the
+fourth time (conventions §65), after the day, the county and the source type.
+
+**26 of 472 variables gained the axis, three were added to carry it, and 446 did
+not.** Four of the 26 are a rebind rather than a promotion: `run_monthID`,
+`run_monthGroupID`, `run_daysInMonth` and `run_weeksPerMonth` were already faqs
+over `runspecmonth_rows` collapsed onto `run_rows`, so the change is to stop
+collapsing. The rest divide cleanly in two — the meteorology half
+(`ZoneMonthHour` is month-keyed, so `run_temperature`, `run_heatIndex`, the A/C
+quadratic and the EV temperature factor follow it) and the activity half
+(`MonthVMTFraction`, and `DayVMTFraction` which is keyed by month AND day).
+`act_hourVMTFraction` is the line worth reading: `HourVMTFraction` carries no
+month, so it did not move, while `act_dayVMTFraction` immediately beside it did.
+
+The output relation is five levels now —
+`n_outputPolProcess × n_runspeccounty × n_runspecmonth × n_runspecday ×
+n_outputCohort` — and four columns plus `out_monthID` gained the
+`outMonthOrdinal ↔ month_ordinal` key pair. `out_meanBaseRate` did NOT, because
+an unadjusted base rate does not vary with the month; the join replicates it
+across the four blocks.
+
+**All five RunSpecs in `runspecs/` reproduce unchanged to the digit** — 8.128e-06,
+7.106e-06, 1.140e-05, 7.372e-06 and 9.017e-06 — which is §64.5's rule a second
+time: an axis whose default width is 1 is a refactor the existing corpus cannot
+see.
+
+### 7.3.11 What `aggregateBy = Month` actually costs, measured before it is built
+
+The axis is the cheap half. `expand-month` sets `aggregateBy = Month`, and
+canonical MOVES answers that by REWRITING six input tables before the rate
+calculation runs, to a single `(hourDayID, dayID, hourID) = (0, 0, 0)` cell that
+the default database does not ship. `HourDay`, `HourOfAnyDay` and `DayOfAnyWeek`
+become one row each — the last of them `(0, "Whole Week", 7.0)`;
+`HourVMTFraction` and `DayVMTFraction` become 1.0; and `AvgSpeedDistribution`,
+`ZoneMonthHour` and `MonthGroupHour` are collapsed by weighted average. That is a
+GENERATOR in the sense conventions §35.1 fixed for `MeteorologyGenerator` and
+`FuelEffectsGenerator`: it belongs in a component with an oracle against the
+execution-database table, not inside the model and not in a fixture.
+
+**Both weights were reproduced from the default database before any of it was
+written**, which is what makes the next step a translation rather than a search.
+
+| collapsed table | weight | worst relative error over the snapshot's own cells |
+|---|---|---|
+| `AvgSpeedDistribution`, 64 cells | `hourVMTFraction(st,rt,day,hour) × DayWeighting1(st,rt,day)`, where `DayWeighting1 = Σ_month dayVMTFraction·noOfRealDays·monthVMTFraction / Σ_month monthVMTFraction` | **4.5e-06** |
+| `ZoneMonthHour` temperature and relative humidity, 4 months | `HW2(st,day,hour) = Σ_rt hourVMTFraction·roadTypeVMTFraction / Σ_rt roadTypeVMTFraction` | **2.7e-10** |
+
+Both numbers are the snapshot column's own stored precision, so both are exact.
+
+**THE WEIGHT IS SCOPED TO THE RUN'S SELECTED DAY, AND THAT IS THE ONE THING THE
+EXECUTION DATABASE NO LONGER SAYS.** Averaging the met columns over both day
+types instead of over day 5 alone gives 1.6e-02, four thousand times the storage
+precision; the same substitution in `AvgSpeedDistribution` gives 6.3e-02. The
+RunSpec XML selects `day id="5"`, `moves.rs` never has to look it up because
+`InputDataManager` filters `HourVMTFraction` and `DayOfAnyWeek` by `dayID`
+during extraction (`input_data_manager.rs:1283-1291`) — and the captured
+`runspecday` says `0`, because MOVES collapsed it after the pre-aggregation ran.
+**A per-fixture document reads its selections out of the snapshot's own
+`runspec*` tables, and for this one fixture one of those selections has been
+overwritten by a result.** That is the open question this step has to answer
+before `runspecs/expand-month.esm` can be written, and it is a question about
+provenance rather than about arithmetic.
+
+Three smaller findings from the same measurement:
+
+* **`MonthGroupHour`'s collapse is a no-op.** `ACActivityTermA/B/C` are constant
+  across the 24 hours for every month group in the default database, so the
+  HW3-weighted average returns them unchanged — which the snapshot confirms
+  (−3.63154, 0.072465, −0.000276 at hour 0, the same triple every hour carries).
+  The collapse still has to happen, because the A/C factor joins
+  `ZoneMonthHour.hourID` to `MonthGroupHour.hourID` and both sides must land on
+  hour 0 together.
+* **`heatIndex`, `specificHumidity` and `molWaterFraction` are NULL in the
+  default database** and computed by `MeteorologyGenerator`, which this
+  repository already ports. So they are computed AFTER the collapse, from the
+  collapsed temperature and humidity — and the snapshot's `heatIndex` equals its
+  `temperature` exactly in all four months, which is what that port already gives
+  below the heat-index threshold.
+* **The activity side is not a collapse but a literal**, and the literal is a
+  sum: `dayVMTFraction := 1` is `Σ_day dayVMTFraction`, which is exactly 1.0 in
+  the default database; `noOfRealDays := 7` is `Σ_day noOfRealDays` over the two
+  day types; and `hourVMTFraction := 1` is `Σ_hour hourVMTFraction`, which is 1
+  to 2.2e-07. So the whole-month activity is the full week at full hours, and the
+  run's day selection — which scopes the RATE side — does not scope it.
+
 ### 7.4 Upstream asks
 
 **None is blocking.** This section has said "still none", "already exists,
@@ -2382,7 +2472,7 @@ This repository writes `leaf-owns-shape`, which does not depend on the answer.
 | **7b** ✅ | Full-database monolithic conversion — **done 2026-09-10**: 237 monolithic + 3 schema-only, 0 partition directories, 517 MB, 15.6 s, validator extended and all 7 planted corruptions red (§7.3.1) | met; the load cost is measured and does not dictate the layout |
 | **7c** ✅ | The mount shape at fixture scale — **done 2026-09-10, re-shaped to conform 2026-09-12, thin 2026-09-15** (§7.3.2): `fixtures/process-tirewear.esm` split into a logic half, a catalogue document that mounts it, and a 43-line per-fixture document that mounts the catalogue, byte-identical over 375 rows × 26 fields. Four findings retired (F46, F48, F49, F50), one open (F51) | met; the per-fixture document is 12 lines — metadata and one `{ref}`, nothing mechanical (conventions §53.2) |
 | **7c′** ✅ | `moves-onroad.esm`: default DB → `MOVESOutput` for `process-tirewear` — **done 2026-09-17** (§7.3.3): 38 national tables and the same logic, behind a per-fixture document carrying ten runspec selections, emitting the inlined fixture's 375 rows byte for byte in 40 s | met; the first end-to-end number comes off the default database |
-| **7d** | Widen the runspec surface one selection dimension at a time — pollutant-process, source type, road type, timespan, geography | each dimension added only with a fixture that **discriminates** it (§23). **Begun 2026-09-17** (§7.3.4): **timespan** done at the day axis, the output relation is no longer a rectangle over the selected pollutant-processes (`runspecs/expand-day.esm`, 250 rows, byte-identical to the inlined fixture over 25 shared fields), and **geography** done at three counties in three states (`runspecs/expand-counties.esm`, 375 rows, worst cell 1.140e-05; conventions §61). **Source type is an axis as of 2026-09-18** (§7.3.5, conventions §62): 44 variables promoted, `run_sourceTypeID` gone, the three existing runs unchanged to the digit, and `runspecs/pending/expand-fueltype-diesel.esm` emitting the right 248-row shape with source type 21's 125 rows exact at 7.106e-06. **The source bin is its own relation as of 2026-09-18** (§7.3.6, conventions §63): `sourcebin_rows` beside `cohort_rows`, `n_sourceBin` a third declared and checked number relayed per fixture, the three existing runs still unchanged to the digit, and `expand-fueltype-diesel`'s activity AND source-bin distribution both exact for both source types — 330 bins against the run's own `sourceBinDistributionFuelUsage`. **The drive cycle is per VEHICLE as of 2026-09-18** (§7.3.7, conventions §64): `physicsrow_rows` is the run's selected `sourceusetypephysics` rows densely ranked, `n_physicsRow` a fourth declared and checked number, the three existing runs STILL unchanged to the digit, and **`runspecs/expand-fueltype-diesel.esm` promoted out of `pending/`** — all 248 rows, worst cell 7.372e-06, both regulatory classes of source type 32 and the split at model year 2010. **`runspecs/expand-sourcetype.esm` reproduces as of 2026-09-20** (§7.3.8, §7.3.9): the 40 GB kill was EarthSciAST#418 and was fixed upstream by PRs #420 and #423 — the run went from killed at 32 GB to 0.89 GB and 91 s — and the three cells left after that were `emissionRateAdjustment`, a table the model did not read, ported as J56. All 430 rows, worst cell 9.017e-06. **`runspecs/pending/` is empty.** Month and the criteria pollutants are left after it |
+| **7d** | Widen the runspec surface one selection dimension at a time — pollutant-process, source type, road type, timespan, geography | each dimension added only with a fixture that **discriminates** it (§23). **Begun 2026-09-17** (§7.3.4): **timespan** done at the day axis, the output relation is no longer a rectangle over the selected pollutant-processes (`runspecs/expand-day.esm`, 250 rows, byte-identical to the inlined fixture over 25 shared fields), and **geography** done at three counties in three states (`runspecs/expand-counties.esm`, 375 rows, worst cell 1.140e-05; conventions §61). **Source type is an axis as of 2026-09-18** (§7.3.5, conventions §62): 44 variables promoted, `run_sourceTypeID` gone, the three existing runs unchanged to the digit, and `runspecs/pending/expand-fueltype-diesel.esm` emitting the right 248-row shape with source type 21's 125 rows exact at 7.106e-06. **The source bin is its own relation as of 2026-09-18** (§7.3.6, conventions §63): `sourcebin_rows` beside `cohort_rows`, `n_sourceBin` a third declared and checked number relayed per fixture, the three existing runs still unchanged to the digit, and `expand-fueltype-diesel`'s activity AND source-bin distribution both exact for both source types — 330 bins against the run's own `sourceBinDistributionFuelUsage`. **The drive cycle is per VEHICLE as of 2026-09-18** (§7.3.7, conventions §64): `physicsrow_rows` is the run's selected `sourceusetypephysics` rows densely ranked, `n_physicsRow` a fourth declared and checked number, the three existing runs STILL unchanged to the digit, and **`runspecs/expand-fueltype-diesel.esm` promoted out of `pending/`** — all 248 rows, worst cell 7.372e-06, both regulatory classes of source type 32 and the split at model year 2010. **`runspecs/expand-sourcetype.esm` reproduces as of 2026-09-20** (§7.3.8, §7.3.9): the 40 GB kill was EarthSciAST#418 and was fixed upstream by PRs #420 and #423 — the run went from killed at 32 GB to 0.89 GB and 91 s — and the three cells left after that were `emissionRateAdjustment`, a table the model did not read, ported as J56. All 430 rows, worst cell 9.017e-06. **`runspecs/pending/` is empty.** **The month is an axis as of 2026-09-20** (§7.3.10, conventions §65): 26 variables promoted, `run_monthID` no longer a `run_rows` scalar, the output relation five levels, and all FIVE existing runs unchanged to the digit. What is left for `expand-month` is not the axis but `aggregateBy = Month` — a pre-aggregation generator whose two weights are measured at §7.3.11 and whose one open question is provenance, not arithmetic. The criteria pollutants are after it |
 | **7e** | `moves-nonroad.esm`, same shape | 12 `nr-*` fixtures |
 | **7f** | The five fixtures needing a second input database (four `-single` on `washtenaw_cdb`, `scale-project` on the project DB) | last, because they are the only ones whose model input is not the default DB |
 
