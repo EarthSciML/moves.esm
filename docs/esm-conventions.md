@@ -6907,3 +6907,105 @@ motorcycle; the Tier 3 model-year boundary is 2016/2017 for most source types an
 type 21 alone. Carrying only it would have been right on all six and wrong on
 `expand-sourcetype` — §62.3's width-one trap, in the dimension the corpus is
 known to move.
+
+### 68.6 A selection whose flag is not on the leading axis returns an EMPTY relation, silently
+
+`exact_else_wildcard` is an `ifelse`, and an `ifelse` over arrays broadcasts.
+Broadcasting here aligns operands by PREFIX: `X[b,g,m]` against `Y[b]` works, and
+`X[h,c,g,m,f]` against `Y[c]` does not — the flag is on the second axis, not the
+first. What the second one does is not an error and not a wrong number. It
+produces an **array with no elements**, and every relation downstream of it is
+then 0.
+
+Measured, on the Complex Model's term factors: a 78-row relation came back with
+zero rows, the polynomial that reads it came back 0, `exp(0)` is 1, and the
+weighted ratio of ones is exactly 1 — so the model silently dropped the entire
+complex model and kept only the sulfur half. The run still produced 372 plausible
+cells and the residual moved from 16 % to 2 %, which reads like progress.
+
+**The tell is an intermediate that is all zeros where the inputs are not.** The
+fix is to spell the selection inside a `faq` with explicit `index`es, which names
+the axes instead of aligning them:
+
+```json
+{"op": "faq", "output_idx": ["h","c","g","m","f"], "ranges": {...},
+ "expr": {"op": "apply_expression_template", "name": "exact_else_wildcard",
+          "bindings": {"has_exact":   {"op":"index","args":["flag","c"]},
+                       "exact_value": {"op":"index","args":["value","h","c","g","m","f"]},
+                       "wildcard_value": 1.0}}}
+```
+
+This is the same category as §67.3's dropped join key and it has the same
+symptom: a wrong answer of the right order of magnitude. The difference is where
+to look. A dropped key gives a number that is too WIDE — two pollutants agreeing
+to fifteen digits. A failed broadcast gives a number that is too NARROW — a
+relation that is empty, and a product that is 0. Check the intermediates for
+emptiness before checking the physics.
+
+## 69. A cohort or a pollutant-process with no rate is not emitted, and a chained one has no rate on purpose **[PLAN.md step 7d; `expand-criteria` 372 of 372, worst cell 7.805e-06, six runs unchanged to the digit]**
+
+§67.2 measured this and left it as a binding. It is now a rule, and writing it
+turned out to need one more distinction than the measurement showed.
+
+### 69.1 Two counts, one predicate
+
+The output relation is (pollutant-process block) × (cohort), and until
+`expand-criteria` the chain computed both dimensions from the run's SELECTIONS:
+a cohort was emitted if the grid selected a source bin of it, a pollutant-process
+if it happened on a road type the RunSpec selected. Both are necessary and
+neither is sufficient. MOVES emits what it has a NUMBER for:
+
+* `expand-criteria` emits **124** cohorts where every other run of source type 21
+  emits 125. The model year 2000 ELECTRICITY cohort has no `emissionRateByAge`
+  row at its age group; model years 2001–2020 of the same fuel have rows whose
+  rate is ZERO, and those are emitted. "No row" and "a row of zero" are different
+  answers and only the first removes a cohort.
+* It emits **3** blocks where 4 pass the road-type test. SO2 running exhaust is
+  selected, happens on a road, and has no rate row anywhere.
+
+So both counts multiply by the same predicate — does any rate row of this cohort,
+or of this pollutant-process, produce a number? — and the rate row's own ordinals
+(`rt_cohortOrdinal`, `rt_polProcOrdinal`) are already the keys into both
+relations, so no new key had to be built.
+
+### 69.2 The predicate is not `rt_survives`, because a chained pollutant-process has no rate by construction
+
+The obvious spelling is the existing `rt_survives`, which is
+`rt_isSelected × rt_hasRate`. It is wrong, and `process-tirewear` says so
+immediately: it emits three blocks and only two of them carry a rate. PM2.5 tire
+wear (10710) is `runspecchainedto`'s OUTPUT — its quantity is PM10's times a
+`pm10emissionratio` — and it has `rt_isSelected` **0** on every one of its rate
+rows, because `rt_isSelected` requires a `pollutantprocessmodelyear` row and not
+having one is exactly what makes a pollutant-process chained.
+
+The predicate is therefore a rate OR a chain:
+
+```
+rt_emits = max(rt_survives, (rt_chainRatio > 0) × bin_isSelectedAt)
+```
+
+which is `run_chainedRowCount`'s own spelling of the second arm. `rt_survives`
+stays what it was — the rate selection — because the two questions are different
+and the chain is the proof.
+
+### 69.3 What this replaces, and why the replacement is worth more than the number
+
+`runspecs/expand-criteria.esm` was pending with `n_outputCohort` bound to 124,
+and the binding gave an EXACT key set — 372 of 372, none missing, none extra.
+It was exact by luck: the relation is truncated to the declared length, so it
+drops the LAST cohort, and the unrated one happened to rank last. A run whose
+unrated cohort ranked in the middle would have emitted two wrong keys and the
+binding would have hidden it.
+
+That is the shape worth recognising. A declaration that makes the answer come out
+right is not the same as a rule that makes it come out right, and the difference
+only shows up in a run nobody has made yet. §11's "a checked declaration" is the
+standard: `n_outputCohort` is still declared, but `cohortSurvivorCount`
+recomputes it from the chain and run-tests.sh compares the two, so the number is
+now evidence rather than an input.
+
+Six RunSpecs could not tell the new rule from `true` (§23): every cohort they
+select is rated and every pollutant-process they select has a rate. That is the
+ordinary condition for a rule in this port — it is discovered by the first run
+that violates it, and the runs that cannot see it are what say the change is
+safe.

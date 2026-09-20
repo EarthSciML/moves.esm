@@ -2644,6 +2644,86 @@ spell, because it raises one property to a power. A start-exhaust rung needs a
 silent failure in the block, and it is written down in three places rather than
 guarded, because the guard would need a data source read for nothing else.
 
+### 7.3.15 7d, 2026-09-20: the other half of the criteria ratio, and the shape rule that was hiding behind a binding
+
+`runspecs/expand-criteria.esm` reproduces: **372 of 372 cells, worst 7.805e-06**,
+key set exact, and it has moved out of `runspecs/pending/`, which is empty again.
+All six RunSpecs that already reproduced are **unchanged to the digit**. This
+section is the second half of §7.3.14 and the rule that came with it.
+
+**The EPA Complex Model, ported relationally.** Six new national tables
+(`complexModelParameters`, `meanFuelParameters`, `fuelModelWtFactor`, `baseFuel`,
+`sulfurModelCoeff`, `sulfurModelName`), four small constant relations and
+J66–J76. The algebra is `ratio = ratioNoSulfur × sulfEff`, and the pieces that
+mattered:
+
+* **`coeff1 + coeff2 + coeff3`.** Three columns summed, not three alternatives.
+* **The standardising divisor is applied and the table's own expression does not
+  mention it.** `meanFuelParameters.stdDevValue` is genuinely ≠ 1 for THC and NOx,
+  and the `complexModelParameterName.cmpExpression` text omits the division.
+  `criteria.rs` applies it; so does this document; the table is incomplete
+  relative to what MOVES computes, and that is now written down where a reader of
+  the table will meet it.
+* **Two nulls in one row that mean different things.** A NULL `centeringValue` is
+  *no centring*, which is 0; a NULL `stdDevValue` is *no standardising*, which is
+  1. Every CO row is NULL in the second and not in the first.
+* **The fuel-model membership is not derivable, and that is measured.**
+  `fuelModelName.calculationEngines` is a pipe-delimited SET (`|airtoxicsA|co||`)
+  and no `codes` map decodes a set, so the 19 (engine, fuel model) pairs are data.
+  Taking them from `complexModelParameters` instead looks equivalent and is not:
+  fuel model 11, `All Tier2`, has non-zero CO coefficients and belongs to NO
+  engine, so CO would be averaged over eleven models instead of ten.
+* **The weight fallback is the ordinary path.** `fuelModelWtFactor` carries 410
+  rows at model-year group 19502000 for the ten CO fuel models and **none** for
+  the nine predictive ones, which take the uniform group 0.
+* **The sulfur model's group range is encoded in its own identifier** —
+  `19972000` is 1997 to 2000 — so the two bounds are decoded arithmetically, and
+  the 50/50 blend of the Normal and High emitter classes is the *contraction* over
+  `M6emitterID` rather than a second expression.
+
+**One wrong turn, and it is the reusable part of this section.** The first run
+with the Complex Model in place moved the 63 cells from 16 % wrong to 2 % wrong,
+which reads like progress and was not: the polynomial was returning **zero
+everywhere**, `exp(0)` is 1, and a weighted ratio of ones is exactly 1, so the
+sulfur half was doing all the work alone. The cause was an
+`exact_else_wildcard` whose flag is over the term axis and whose value is over
+five axes — **broadcasting aligns by PREFIX, and this is not a prefix**. It
+returned an array with **no elements**, silently. Conventions §68.6 has the shape
+and the fix. The tell is an intermediate that is all zeros where its inputs are
+not, and it is the opposite symptom to §67.3's dropped join key: a dropped key
+gives an answer that is too WIDE, a failed broadcast one that is too NARROW.
+
+**Then the shape rule, which the binding had been hiding.** With the numbers
+right, `expand-criteria` still could not be promoted: run-tests.sh compares the
+emitted shape against what the chain RECOMPUTES, and the chain said 4
+pollutant-process blocks and 125 cohorts where MOVES emits 3 and 124. The
+`n_outputCohort: 124` binding had made the key set exact — 372 of 372, none
+missing, none extra — **by luck**: the relation is truncated to the declared
+length, so it drops the LAST cohort, and the unrated one happened to rank last.
+
+Both counts now multiply by one predicate: does any rate row of this cohort, or
+of this pollutant-process, produce a number? The rate row's own ordinals are
+already the keys into both relations, so J77 needed no new key. What it did need
+was a distinction the measurement had not shown: the predicate is **not**
+`rt_survives`. `process-tirewear` emits three blocks and two of them carry a rate
+— PM2.5 tire wear is `runspecchainedto`'s output and has `rt_isSelected` 0 on
+every one of its rows, because not having a `pollutantprocessmodelyear` row is
+exactly what makes a pollutant-process chained. The predicate is a rate OR a
+chain (conventions §69).
+
+**What it cost.** Six more tables and a 6-D contraction over
+(configuration × source type × age × county × month × formulation): the suite's
+slowest run, `expand-sourcetype`, goes from 94 s and 1.53 GB to 170 s and
+1.61 GB, and `process-tirewear` from 10 s to 30 s. The formulation axis is 2,158
+rows wide and five of them are ever supplied, which is where most of that goes;
+narrowing it needs a dynamic extent and is not worth a document change today.
+
+**What is left in this dimension.** The other 135 rows of
+`generalFuelRatioExpression` — pollutant-processes 102, 202 and 302, START
+exhaust — still need a `standardized_cross_term`, and no RunSpec here selects
+process 2. `altCriteriaRatio`, the E85 alternate-RVP path, is likewise unreached:
+it needs the `altRVP` column that step 020 writes and only NMOG and VOC read it.
+
 ### 7.4 Upstream asks
 
 **None is blocking.** This section has said "still none", "already exists,

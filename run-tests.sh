@@ -1247,7 +1247,7 @@ fi
 # run's own execution-database snapshot, through two mount edges:
 #
 #   runspecs/<run>.esm            that run's selections + its oracle
-#     -> moves-onroad.esm         48 national tables + the mount
+#     -> moves-onroad.esm         54 national tables + the mount
 #       -> onroad/model.esm       the onroad domain model, shared with 7c
 #
 # WHAT IT IS CHECKING is not the plumbing -- 7c already checks that a three
@@ -1294,19 +1294,15 @@ C7P_DOMAIN=moves-onroad.esm
 # so rather than printing nothing when it is, because an empty pending directory
 # is a result and a silent stage would not distinguish it from a deleted one.
 #
-# IT HOLDS `expand-criteria` AS OF 2026-09-20. That document now waits on ONE
-# HALF of one factor. `criteriaRatio` is EMPTY in the default database because
-# MOVES computes all 4,398 of its rows at run time, and it computes them two
-# ways: for model years 2001 and later, and for diesel at every model year, by
-# evaluating a closed-form expression the database ships as SQL text; for
-# gasoline model years 2000 and earlier, by running the EPA Complex Model live
-# over `complexModelParameters` and the sulfur model. The first way is ported
-# (J60-J65, PLAN.md 7.3.14) and 309 of the run's 372 cells now land inside
-# tolerance at 7.8e-06. The second is not, and the 63 cells it owns -- gasoline,
-# model years 1980 to 2000, all three pollutants -- are high by 1.2 % to 16 %,
-# which is exactly the reduction the missing ratio would have applied. That is
-# what a pending document is for: it is the measurement, kept, and it is now a
-# smaller one.
+# IT IS EMPTY AGAIN AS OF 2026-09-20. `expand-criteria` held it for one day and
+# moved to `runspecs/` when the second half of `criteriaRatio` landed: MOVES
+# computes that table's 4,398 rows at run time and computes them TWO WAYS, from
+# a closed form the database ships as SQL text for model years 2001 and later
+# and for all of diesel, and from the live EPA Complex Model plus the sulfur
+# model for gasoline model years 2000 and earlier. The first way took the run
+# from 372 wrong cells to 63; the second took the 63 (PLAN.md 7.3.14, 7.3.15).
+# The document it leaves behind still carries what it waited on, in its own
+# description, which is what a pending document is for: the measurement, kept.
 #
 # `expand-month` never entered it. Its model work -- the month axis and the
 # `aggregateBy = Month` pre-aggregation -- was done first and BOTH of the
@@ -1460,7 +1456,7 @@ else
   #    recorded CSV to drift against.
   if cmp -s "$C7_BASE" "$RUNDIR/process-tirewear.runspec.csv"; then
     pass "7c' — the default database reproduces the inlined fixture's relation byte for byte"
-    say "       $(( $(wc -l < "$RUNDIR/process-tirewear.runspec.csv") - 1 )) rows from 48 national tables, no execution database"
+    say "       $(( $(wc -l < "$RUNDIR/process-tirewear.runspec.csv") - 1 )) rows from 54 national tables, no execution database"
   else
     fail "7c' — the default-database chain and the inlined fixture disagree"
     diff -u "$C7_BASE" "$RUNDIR/process-tirewear.runspec.csv" | sed 's/^/       /' | head -12
