@@ -651,12 +651,12 @@ above is asserted against `baserate_1_2020`'s own cells.
 | temperature (+ NOx humidity) | `:495-535` | **1.0**, see (e) |
 | air conditioning, `+= ACFactor × meanBaseRateACAdj` | `:536-568` | **ACFactor = 0**, see (d) |
 | I/M blend | `:569-583` | 9101 is `isAffectedByExhaustIM = 'N'` → no coverage row |
-| `emissionRateAdjustment` | `:584-603` | flag false in production |
+| `emissionRateAdjustment` | `:584-603` | `emissionrateadjustment` is **empty** → passthrough, see (g) |
 | EV efficiency divisor | `:611-616` | see (f) — and see the divergence note |
 
 So for this fixture `meanBaseRate' = baseRate.meanBaseRate`, except for the EV
 divisor of (f). That is an empirical result, verified to 8.23 × 10⁻⁶ over all
-250 rows, and (d) and (e) are why.
+250 rows, and (d), (e) and (g) are why.
 
 **(d) The A/C factor is exactly zero, by a clamp.**
 `baseratecalculator/setup.rs:409-411`, porting the canonical cache query:
@@ -765,16 +765,37 @@ Measured, and this is how the divisor was identified: `emissionQuant` for the
 | 1519 | 15–19 | 0.828272877 | 0.778576504 | 2001–2005 | 0.778576 |
 | 2099 | 20+ | 0.828272877 | 0.778576504 | 2000 | 0.778578 |
 
-> **A divergence in `moves.rs`, recorded because the `.esm` must not copy it.**
-> `ModuleFlags::ev_efficiency` is `false` on `moves.rs`'s production path
-> (`baseratecalculator/mod.rs:798-802` sets only `apply_activity`; `true`
-> appears solely in `tests/baseratecalculator.rs:467`), so `moves.rs` loads and
-> expands `evefficiency` and never applies it. Canonical MOVES *did* apply it —
-> the table above is measured off the snapshot's own `MOVESOutput` — and without
-> it the 42 fuel-9 rows are 10.7 % to 22.1 % low. `model.rs:55-56` records that
-> the Java "always run[s] evefficiency section". **The `.esm` follows canonical,
-> not `moves.rs`.** This is why §1.1 cross-checks the Rust against the snapshot
-> instead of trusting it.
+> **A divergence in `moves.rs`, recorded because the `.esm` must not copy it —
+> and since fixed there.** `ModuleFlags::ev_efficiency` was `false` on
+> `moves.rs`'s production path, `true` only in
+> `tests/baseratecalculator.rs`, so `moves.rs` loaded and expanded
+> `evefficiency` and never applied it. Canonical MOVES *did* apply it — the
+> table above is measured off the snapshot's own `MOVESOutput` — and without it
+> the 42 fuel-9 rows are 10.7 % to 22.1 % low. `model.rs:55-56` records that the
+> Java "always run[s] evefficiency section". **The `.esm` follows canonical, not
+> `moves.rs`.** This is why §1.1 cross-checks the Rust against the snapshot
+> instead of trusting it — and it is why the divergence was reported and fixed
+> upstream in `moves.rs` `30dc3d28` (2026-09-10), where `module_flags` now sets
+> the flag unconditionally. `emission_rate_adjustment` is the same defect one
+> step further down and is still open; see (g) and §8.3.
+
+**(g) `emissionRateAdjustment` is a passthrough here because the TABLE is
+empty, not because the section is off.** This row read *flag false in
+production* until 2026-09-20, which was an inference from `moves.rs` —
+`ModuleFlags::emission_rate_adjustment` is never set outside tests (§8.3) — and
+not a measurement of canonical MOVES. The measurement now exists and says the
+opposite. This fixture's execution database carries **0 rows** of
+`emissionRateAdjustment`, as do `expand-day`'s and `process-tirewear`'s, because
+the table is cut to the run and source type 21 has no row in it; the
+`expand-sourcetype` execution database carries **241**, and its own `MOVESOutput`
+is scaled by one of them. Source type 51 / regulatory class 47 / fuel type 9 /
+model years 1950–2020 holds `0.276035`, and without it that run's three
+electricity cells came out high by exactly `1 / 0.276035 = 3.622713`. Canonical
+MOVES applies the section; `onroad/model.esm` ports it as J56
+(`rt_emissionRateAdjustment`), multiplying after the temperature and A/C steps
+and before the EV divisor, exactly where `adjust.rs:586-603` sits. The general
+lesson is §1.1's: an inference from a table's shape — here, from a flag in the
+Rust — is not a measurement of what the chain does with it.
 
 ### 2.4 Activity weighting, and the output row
 
@@ -899,6 +920,7 @@ with the spelling that replaces it.
 | J31 | S15 | ″ | `sourcetypeage` | `(sourceTypeID, sourceTypeID)`, `(ageID, ageID)` with `ageID = yearID − modelYearID` |
 | J32 | S15 | ″ | `temperatureadjustment` | *not an equi-join*: `minModelYearID <= MY <= maxModelYearID` on `(polProcessID, fuelTypeID, regClassID)`. Three pairs plus a range `filter` |
 | J33 | S15 | ″ | `evefficiency` ⋈ `agecategory` | `(polProcessID, polProcessID)`, `(sourceTypeID, sourceTypeID)`, `(regClassID, regClassID)`, `(ageGroupID, ageGroupID)` with `ageID = yearID − modelYearID`; `fuelTypeID` is forced to 9 |
+| J56 | S15 | ″ | `emissionrateadjustment` | *not an equi-join*: `beginModelYearID <= MY <= endModelYearID` on `(polProcessID, sourceTypeID, regClassID, fuelTypeID)`. Four pairs plus a range `filter`, and a miss is factor 1. **Empty for this fixture** — the table is cut to the run and source type 21 has no row — so it is ported against `expand-sourcetype`, whose source type 51 does; see §2.3(g) |
 | J34 | S16 | `meanBaseRate'` | `sho` | `(hourDayID, hourDayID)`, `(ageID, ageID)` with `ageID = yearID − modelYearID` |
 | J35 | S16 | ″ | `hourday` ⋈ `dayofanyweek` | `(hourDayID, hourDayID)`, then `(dayID, dayID)` |
 
@@ -907,14 +929,14 @@ with the spelling that replaces it.
 | case | spelling |
 |---|---|
 | J1's `yearID <= runYearID` then `max` | a `filter` plus a reduction — a genuine range predicate |
-| J25 / J32's `beginModelYearID <= MY <= endModelYearID` | a `join.on` over the non-range keys plus an inclusive-range `filter`. Structurally identical to NONROAD's `hpMin <= hpAvg <= hpMax` |
+| J25 / J32 / J56's `beginModelYearID <= MY <= endModelYearID` | a `join.on` over the non-range keys plus an inclusive-range `filter`. Structurally identical to NONROAD's `hpMin <= hpAvg <= hpMax`, and written once as lib/keys.esm's `model_year_in_range` |
 | J5's numerator-against-denominator | two relations over two index sets, per finding F11 |
 
 **Note what is absent from this list:** there is no SCC fallback ladder, no
 state-default precedence and no rounded join key. All three of those were the
 awkward parts of NONROAD, and the onroad chain has none of them. What it has
-instead is one join on a **packed identifier above 2⁵³** (J22) and two joins on
-an **inclusive model-year range** (J25, J32).
+instead is one join on a **packed identifier above 2⁵³** (J22) and three joins on
+an **inclusive model-year range** (J25, J32, J56).
 
 ---
 
@@ -2056,13 +2078,26 @@ the number that closes it and §7.4 has the comparison.
 
 ### 8.3 An inconsistency in `moves.rs` worth reporting upstream
 
-`ModuleFlags::ev_efficiency` is never enabled outside tests
-(`baseratecalculator/mod.rs:798-802`), so `moves.rs` cannot reproduce this
-fixture's 42 electricity rows — they come out 10.7 % to 22.1 % low (§2.3(f)).
-The `EVEfficiency` table is declared in `INPUT_TABLES`, read, and expanded
-through its model-year ranges, and then the only code that consumes it is
-gated off. `model.rs:55-56` records that the Java always runs the section.
-`emissionRateAdjustment` (`adjust.rs:586`) is gated off the same way.
+**The `evefficiency` half is fixed.** `ModuleFlags::ev_efficiency` was never
+enabled outside tests, so `moves.rs` could not reproduce this fixture's 42
+electricity rows — they came out 10.7 % to 22.1 % low (§2.3(f)). Reported, and
+fixed upstream in `moves.rs` `30dc3d28` (2026-09-10), *"The evefficiency section
+was never enabled; scale-project now matches"*: `module_flags` now sets
+`ev_efficiency: true` unconditionally, which is what `model.rs:55-56` says the
+Java does.
+
+**The `emissionRateAdjustment` half is not, and is now measured rather than
+suspected.** `ModuleFlags::emission_rate_adjustment` is still set nowhere but
+`tests/baseratecalculator.rs:435`, so `adjust.rs:586-603` never runs on the
+production path. The table is declared in `INPUT_TABLES`, read, and expanded
+through its model-year ranges into `PreparedTables::emission_rate_adjustment`,
+and then the only code that consumes it is gated off — the same shape the
+`evefficiency` defect had. Filed as
+[moves.rs#68](https://github.com/EarthSciML/moves.rs/issues/68). `expand-sourcetype`'s `MOVESOutput` is scaled by one
+of its rows (§2.3(g)), so `moves.rs` cannot reproduce that run's three
+electricity cells: they come out **3.622713× high**, which is `1 / 0.276035`,
+the factor row `9101 / 51 / 47 / 9 / 1950-2020` holds. The `.esm` follows
+canonical here too, as J56.
 
 Also recorded in that report and not chased here: `sum_sbd_raw` is assigned
 `sum_sbd` (`sbweighted.rs:420`, `:444`), collapsing a distinction canonical

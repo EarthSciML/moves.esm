@@ -2200,8 +2200,9 @@ What that is NOT, each checked rather than assumed:
 A constant ratio on one (source type, fuel type) pair, identical across three
 model years, is the signature this step has met four times already
 (§60, §61, §62, §63): a key that is plural in the data and singular in the
-model. **It is the fifth, and it is the next step.** The document stays in
-`runspecs/pending/` and now says so.
+model. **It was read as the fifth, and it was not** — it was a whole table the
+model did not read. §7.3.9 has it, and the three bullets above kept their value
+anyway: each one that was ruled out is a factor this run now certifies.
 
 #### What the pin move cost: F59, and one red test
 
@@ -2247,6 +2248,62 @@ repository **155 assertions across eight documents**, silently, for longer than
 anyone had looked — and the reason nobody had looked is the one worth keeping:
 the suite's own inline-test stage was green at the pin before, because a
 state-free document never reached the path that was broken.
+
+### 7.3.9 7d, 2026-09-20: the last three cells were a table the model did not read
+
+`expand-sourcetype` reproduces. **430 of 430 cells, worst cell 9.017e-06 against
+a 2e-05 tolerance**, worst per-pollutant `emissionQuant` sum 1.074e-07, in 91
+seconds and 0.89 GB — unchanged from §7.3.8, because the fix is one factor and
+not a shape. The document moved out of `runspecs/pending/`, which is now empty,
+and `runspecs/` holds five RunSpecs that all reproduce their runs.
+
+**What the 3.622713 was.** `emissionRateAdjustment`, applied at
+`baseratecalculator/adjust.rs:586-603`, multiplies the rate by a factor keyed on
+(pollutant-process, source type, **regulatory class**, fuel type, model-year
+range), after the temperature and A/C steps and before the EV efficiency
+divisor. The national
+table has 1131 rows. Row `9101 / 51 / 47 / 9 / 1950-2020` holds **0.276035**,
+and `1 / 0.276035 = 3.622713`, which is the ratio all three cells carried to six
+digits. Ported as **J56** (`rt_emissionRateAdjustment`, conventions' J-numbering;
+docs/mixed-onroad.md §2.3(g) and the join catalogue), with the existence half
+spelled the way J25's is: a `bool_and_or` companion, so a rate row the table does
+not name is multiplied by 1 rather than by the `sum_product` identity of 0.
+
+**Why four RunSpecs passed over a table nobody read.** Of the 1131 rows, 26 carry
+a factor that is not 1 at a model year this corpus runs, and **every one of the
+26 is heavy-duty electric running energy** — source types 41, 42, 43, 51, 52, 53,
+54, 61, 62 at fuel type 9. `process-tirewear`, `expand-day` and `expand-counties`
+are source type 21; `expand-fueltype-diesel` is 21 and 32. Not one of their
+cohorts could reach a row. The execution databases say the same thing more
+sharply: the `expand-day` and `process-tirewear` snapshots carry **0 rows** of
+`emissionrateadjustment`, and the `expand-sourcetype` snapshot carries **241**.
+
+**The wrong inference this corrects, and it was written down.**
+docs/mixed-onroad.md §2.3(c) listed the step as *flag false in production*. That
+came from `moves.rs`, where `ModuleFlags::emission_rate_adjustment` is never set
+outside tests — the same gating that left `ev_efficiency` off until `moves.rs`
+`30dc3d28` fixed that one on 2026-09-10 — and it was never a measurement of
+canonical MOVES. Canonical applies the section, and the oracle says so in three
+cells. The .esm already followed canonical rather than `moves.rs` on the EV
+divisor, for exactly this reason, and did not on this one because no run had yet
+been able to tell.
+
+**`moves.rs` cannot see it either, and its own gate cannot.**
+`full_suite_regression.rs` scores `expand-sourcetype` per POLLUTANT, at a
+recorded residual of ~1.3e-4. The three cells sum to 2.25e-04 of excess against
+a pollutant total of 799.5 — **2.8e-07 relative**, three orders of magnitude under
+that fixture's own noise. A per-cell comparison against the run's own
+`MOVESOutput` is the only thing in either repository that could have found this,
+and `compare-output.py` is it. Filed as [moves.rs#68](https://github.com/EarthSciML/moves.rs/issues/68).
+
+**What the three rejected explanations bought.** §7.3.8's list — not the
+physics-row match, not the EV efficiency, not a bin selection — read at the time
+as three dead ends. They are three certifications: `run_rateRowsWithoutPhysics`
+is 0 and no `(sourceTypeID, regClassID, modelYearID)` triple is double-covered,
+the EV factors are per-regClass-identical, and the cohort's one non-zero
+`stmyFraction` bin is the one the rates come from. Every one of those had to be
+true for a *factor* to be the remaining explanation, which is what made a
+single constant the thing to look for.
 
 ### 7.4 Upstream asks
 
@@ -2325,7 +2382,7 @@ This repository writes `leaf-owns-shape`, which does not depend on the answer.
 | **7b** ✅ | Full-database monolithic conversion — **done 2026-09-10**: 237 monolithic + 3 schema-only, 0 partition directories, 517 MB, 15.6 s, validator extended and all 7 planted corruptions red (§7.3.1) | met; the load cost is measured and does not dictate the layout |
 | **7c** ✅ | The mount shape at fixture scale — **done 2026-09-10, re-shaped to conform 2026-09-12, thin 2026-09-15** (§7.3.2): `fixtures/process-tirewear.esm` split into a logic half, a catalogue document that mounts it, and a 43-line per-fixture document that mounts the catalogue, byte-identical over 375 rows × 26 fields. Four findings retired (F46, F48, F49, F50), one open (F51) | met; the per-fixture document is 12 lines — metadata and one `{ref}`, nothing mechanical (conventions §53.2) |
 | **7c′** ✅ | `moves-onroad.esm`: default DB → `MOVESOutput` for `process-tirewear` — **done 2026-09-17** (§7.3.3): 38 national tables and the same logic, behind a per-fixture document carrying ten runspec selections, emitting the inlined fixture's 375 rows byte for byte in 40 s | met; the first end-to-end number comes off the default database |
-| **7d** | Widen the runspec surface one selection dimension at a time — pollutant-process, source type, road type, timespan, geography | each dimension added only with a fixture that **discriminates** it (§23). **Begun 2026-09-17** (§7.3.4): **timespan** done at the day axis, the output relation is no longer a rectangle over the selected pollutant-processes (`runspecs/expand-day.esm`, 250 rows, byte-identical to the inlined fixture over 25 shared fields), and **geography** done at three counties in three states (`runspecs/expand-counties.esm`, 375 rows, worst cell 1.140e-05; conventions §61). **Source type is an axis as of 2026-09-18** (§7.3.5, conventions §62): 44 variables promoted, `run_sourceTypeID` gone, the three existing runs unchanged to the digit, and `runspecs/pending/expand-fueltype-diesel.esm` emitting the right 248-row shape with source type 21's 125 rows exact at 7.106e-06. **The source bin is its own relation as of 2026-09-18** (§7.3.6, conventions §63): `sourcebin_rows` beside `cohort_rows`, `n_sourceBin` a third declared and checked number relayed per fixture, the three existing runs still unchanged to the digit, and `expand-fueltype-diesel`'s activity AND source-bin distribution both exact for both source types — 330 bins against the run's own `sourceBinDistributionFuelUsage`. **The drive cycle is per VEHICLE as of 2026-09-18** (§7.3.7, conventions §64): `physicsrow_rows` is the run's selected `sourceusetypephysics` rows densely ranked, `n_physicsRow` a fourth declared and checked number, the three existing runs STILL unchanged to the digit, and **`runspecs/expand-fueltype-diesel.esm` promoted out of `pending/`** — all 248 rows, worst cell 7.372e-06, both regulatory classes of source type 32 and the split at model year 2010. `expand-sourcetype` is the one dimension left pending and it is no longer waiting on a key: it is killed at a 40 GB limit, which is EarthSciAST#418 and not a model step. PR #420 cuts this model's memory 3x and its wall clock 3-4x with byte-identical answers, and still leaves that one run 38.67 GB against the cap. Month and the criteria pollutants are left after it |
+| **7d** | Widen the runspec surface one selection dimension at a time — pollutant-process, source type, road type, timespan, geography | each dimension added only with a fixture that **discriminates** it (§23). **Begun 2026-09-17** (§7.3.4): **timespan** done at the day axis, the output relation is no longer a rectangle over the selected pollutant-processes (`runspecs/expand-day.esm`, 250 rows, byte-identical to the inlined fixture over 25 shared fields), and **geography** done at three counties in three states (`runspecs/expand-counties.esm`, 375 rows, worst cell 1.140e-05; conventions §61). **Source type is an axis as of 2026-09-18** (§7.3.5, conventions §62): 44 variables promoted, `run_sourceTypeID` gone, the three existing runs unchanged to the digit, and `runspecs/pending/expand-fueltype-diesel.esm` emitting the right 248-row shape with source type 21's 125 rows exact at 7.106e-06. **The source bin is its own relation as of 2026-09-18** (§7.3.6, conventions §63): `sourcebin_rows` beside `cohort_rows`, `n_sourceBin` a third declared and checked number relayed per fixture, the three existing runs still unchanged to the digit, and `expand-fueltype-diesel`'s activity AND source-bin distribution both exact for both source types — 330 bins against the run's own `sourceBinDistributionFuelUsage`. **The drive cycle is per VEHICLE as of 2026-09-18** (§7.3.7, conventions §64): `physicsrow_rows` is the run's selected `sourceusetypephysics` rows densely ranked, `n_physicsRow` a fourth declared and checked number, the three existing runs STILL unchanged to the digit, and **`runspecs/expand-fueltype-diesel.esm` promoted out of `pending/`** — all 248 rows, worst cell 7.372e-06, both regulatory classes of source type 32 and the split at model year 2010. **`runspecs/expand-sourcetype.esm` reproduces as of 2026-09-20** (§7.3.8, §7.3.9): the 40 GB kill was EarthSciAST#418 and was fixed upstream by PRs #420 and #423 — the run went from killed at 32 GB to 0.89 GB and 91 s — and the three cells left after that were `emissionRateAdjustment`, a table the model did not read, ported as J56. All 430 rows, worst cell 9.017e-06. **`runspecs/pending/` is empty.** Month and the criteria pollutants are left after it |
 | **7e** | `moves-nonroad.esm`, same shape | 12 `nr-*` fixtures |
 | **7f** | The five fixtures needing a second input database (four `-single` on `washtenaw_cdb`, `scale-project` on the project DB) | last, because they are the only ones whose model input is not the default DB |
 

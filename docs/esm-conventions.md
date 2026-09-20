@@ -5009,7 +5009,7 @@ edited in place is not re-read.)
 same shape carrying a real fixture: `fixtures/process-tirewear.esm` split into
 `onroad/model.esm` (49 → 0 `data_sources`, 411 variables, 245 equations, 49
 metaparameters, 53 index sets, 6 enums, all eleven `tests` blocks) and
-`tirewear_mount.esm` (49 `data_sources`, the same 6 enums, one `{ref}`, and —
+`tirewear_mount.esm` (51 `data_sources`, the same 6 enums, one `{ref}`, and —
 until PR #317 — the same 49 metaparameters), itself mounted since 2026-09-15 by
 the 43-line `tirewear_fixture.esm` (§53.2).
 

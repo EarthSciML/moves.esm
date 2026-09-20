@@ -1287,6 +1287,12 @@ C7P_DOMAIN=moves-onroad.esm
 # load and it must still name what it waits on -- but it is not asked for
 # numbers it cannot yet give. The alternative was to delete it, which would
 # throw away the measurement that says what is left.
+#
+# AS OF 2026-09-20 THE DIRECTORY IS EMPTY and the check below says so rather
+# than printing nothing: `expand-sourcetype` was the last one in it and moved to
+# `runspecs/` when J56 -- the `emissionRateAdjustment` model-year factor -- took
+# it from 427 of 430 cells to 430. An empty pending directory is a result and a
+# silent stage would not distinguish it from a deleted one.
 mapfile -t RUNSPECS < <(find runspecs -maxdepth 1 -name '*.esm' -not -name '.*' 2>/dev/null | sort)
 mapfile -t RUNSPECS_PENDING < <(find runspecs/pending -maxdepth 1 -name '*.esm' -not -name '.*' 2>/dev/null | sort)
 
@@ -1364,6 +1370,9 @@ else
   #     reproduce them yet -- but they must stay LOADABLE and must keep saying
   #     what they wait on. A pending document that quietly stopped validating
   #     would be a deleted measurement with a file still in the tree.
+  if [[ ${#RUNSPECS_PENDING[@]} -eq 0 ]]; then
+    pass "7d — runspecs/pending/ is empty: every RunSpec written against this chain reproduces its run"
+  fi
   for rs in "${RUNSPECS_PENDING[@]}"; do
     rsname=$(basename "$rs" .esm)
     if ! "$ESM" validate "$rs" >/dev/null 2>&1; then
@@ -1371,7 +1380,7 @@ else
     elif ! grep -q 'WHAT IT WAITS ON' "$rs"; then
       fail "7d pending $rsname — it validates but no longer says what it waits on. Either it is ready for runspecs/ or the note was lost"
     else
-      pass "$rsname — pending: it validates and names what it waits on (3 cells, PLAN.md §7.3.8)"
+      pass "$rsname — pending: it validates and names what it waits on"
     fi
   done
 
