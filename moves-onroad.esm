@@ -628,6 +628,87 @@
         "esio_format": "parquet"
       }
     },
+    "db_regioncounty": {
+      "kind": "static",
+      "source": {
+        "url_template": "./movesdb/regionCounty.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_regioncounty"
+      },
+      "metadata": {
+        "tags": [
+          "fuel",
+          "scope"
+        ],
+        "note": "regionCounty, the national table: 407,233 rows -- every (region, county, regionCode, fuelYear) pairing MOVES ships, and the biggest table this document reads after the two rate tables. It is read for ONE number per county: the fuel region whose `fuelSupply` rows the county's formulations come from. `regionCodeID` 1 is the onroad refinery supply and 2 the nonroad one, so the gather filters to 1; a document that dropped that filter would pick up whichever of the two rows the sum reached first.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_fuelsupply": {
+      "kind": "static",
+      "source": {
+        "url_template": "./movesdb/FuelSupply.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_fuelsupply"
+      },
+      "metadata": {
+        "tags": [
+          "fuel"
+        ],
+        "note": "FuelSupply, the national table: 105,651 rows. The (fuelRegion, fuelYear, monthGroup) -> (formulation, marketShare) relation. `marketShare` is a WEIGHT on the rate and not on the formulation's properties -- `baseratecalculator/aggregate.rs:38` accumulates `mean_base_rate * market_share` -- so a fuel effect that multiplies the rate may be weighted by it BEFORE the rate is touched, which is what J60 does. Every county in this corpus supplies exactly one formulation per fuel type at share 1.0, so the corpus cannot tell that ordering from any other (conventions §23); the linearity is the argument, not the measurement.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_fuelformulation": {
+      "kind": "static",
+      "source": {
+        "url_template": "./movesdb/FuelFormulation.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_fuelformulation"
+      },
+      "metadata": {
+        "tags": [
+          "fuel"
+        ],
+        "note": "FuelFormulation, the national table: 2,158 rows, read for seven of its seventeen property columns -- the six the running-exhaust criteria polynomial uses and the one the biodiesel form uses. THE COLUMNS CARRY NULLS AND A NULL ARRIVES AS A NaN: 2,118 rows have a NULL `BioDieselEsterVolume`, 7 a NULL `T50`, 6 a NULL `RVP`, `ETOHVolume` and `aromaticContent`, and 1 a NULL `T90`. MOVES sweeps them with `changeFuelFormulationNulls`; so does this document, through lib/fuel_effects.esm's `fuel_property_or_zero`, and without it one NaN formulation would poison a market-share sum that never selected it. THE VALUES ARE THE DECIMALS AND NOT THE binary32 WIDENINGS. MariaDB stores these columns as FLOAT and MOVES computes in DOUBLE, so the number that entered MOVES's arithmetic was 23.139999389648438 where this table says 23.14 (docs/fuel-effects-generator.md §7.2). The gap is 4.4e-08 on the criteria ratio, measured; tolerance.toml's per-cell bound is 2e-05, so no fixture here can see it, and components/fuel_effects.esm is where the question is decided.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_fuelsubtype": {
+      "kind": "static",
+      "source": {
+        "url_template": "./movesdb/FuelSubtype.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_fuelsubtype"
+      },
+      "metadata": {
+        "tags": [
+          "fuel"
+        ],
+        "note": "FuelSubtype, the national table: 15 rows. Read for `fuelTypeID`, which is how a formulation reaches the fuel type its rate rows are keyed by. Two of the subtypes `FuelFormulation` uses -- 23 and 24 -- are NOT in this table, so their formulations gather fuel type 0 and match no criteria row; neither is in any fuel supply this corpus selects.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_e10fuelproperties": {
+      "kind": "static",
+      "source": {
+        "url_template": "./movesdb/e10FuelProperties.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_e10fuelproperties"
+      },
+      "metadata": {
+        "tags": [
+          "fuel"
+        ],
+        "note": "e10FuelProperties, the national table: 16,117 rows over 24 fuel regions, 64 fuel years and 13 month groups. This is the table that makes an E85 formulation computable at all. The default database ships the high-ethanol formulations with DISTILLATION SENTINELS -- formulation 27002 has `T50` 999, `T90` 999 and `ETOHVolume` 74 -- and the THC criteria polynomial carries `5.58e-05*T50*T50`, so reading them straight returns a ratio of 1.0e+17 instead of 0.64. `FuelEffectsGenerator.setup()` step 020 (`alterHighEthanolFuelProperties`) overwrites every combustion property of a subtype-51 or -52 formulation with this table's row for the formulation's own (region, fuelYear, monthGroup), falling back to the national row 0 and then to the formulation's own value. RVP is NOT overwritten -- it is the one property the E85 row keeps, and the e10 RVP goes to a separate `altRVP` column that only `altCriteriaRatio` reads. NOT ONE of the 15,360 non-national rows has a NULL in any of the six columns read here, so the fallback chain collapses to the region's own row wherever one exists; the national row 0, by contrast, has a NULL `sulfurLevel` and `ETOHVolume` in all 757 of its rows, which is what the fallback would be falling back to.",
+        "esio_format": "parquet"
+      }
+    },
     "db_hourday": {
       "kind": "static",
       "source": {

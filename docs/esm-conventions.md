@@ -6776,3 +6776,134 @@ from the EPA Complex Model for MY ≤ 2000 gasoline and from
 `generalFuelRatioExpression` for the rest. That is the one thing
 `runspecs/pending/expand-criteria.esm` waits on, and the pending document says so
 in those terms rather than as a list of suspicions.
+
+## 68. An equation carried as a string is a form and a table of coefficients, and the split is a measurement **[PLAN.md step 7d; `expand-criteria` 309 of 372 cells at 7.804e-06, six runs unchanged to the digit]**
+
+§24 says what to do with a MOVES table whose column holds arithmetic: the FORM
+becomes an expression template, spelled once, and the COEFFICIENTS stay data.
+`criteriaRatio` is the first place in this port where that rule had to be applied
+to a table the chain reads at scale, and it turned out to have four separate
+lessons in it.
+
+### 68.1 Split along the seam the generator already has, not along the table
+
+`criteriaRatio` has 4,398 rows and three columns, and **MOVES fills them two
+different ways without recording which**. Model years 2001 and later, and diesel
+at every model year, come from evaluating a closed form the database ships as SQL
+text. Gasoline model years 2000 and earlier come from running the EPA Complex
+Model live over five more tables. Nothing in the output distinguishes them.
+
+The seam is worth finding before any porting starts, because the two halves cost
+very different amounts and one of them can be delivered on its own. Here the
+closed form is 135 expression strings and five data sources; the Complex Model is
+eight tables and a weighted polynomial sum. Porting the first alone took
+`expand-criteria` from 372 wrong cells to **63**, and the 63 are exactly the rows
+the second half owns — which is both a result and a check that the seam was read
+correctly.
+
+### 68.2 Parse the strings, then prove the parse against the strings
+
+The coefficients cannot be read out of the database: searched across all 237
+tables, not one of the intercepts, polynomial coefficients, base divisors, GPA
+factors or low-sulfur slopes appears anywhere except inside the expression text.
+(`sulfurModelCoeff.sulfurCoeff` and `m6SulfurCoeff.sulfurLongCoeff` do carry the
+sulfur powers and multipliers — a corroboration, not a source, because the tables
+are keyed by a model-year group the string does not record.) So they are
+transcribed, and a transcription needs a check that is not "it reproduces the
+answer".
+
+The check that works is a **round trip through an independent evaluator**: parse
+every string, reconstruct it from the extracted coefficients using the very
+templates the document will use, and compare the two over every input the data
+can supply. Here that is 135 strings × 2,158 fuel formulations = **165,297 cells
+at a worst 1.4e-14**, run before a line of `.esm` was written. It is a stronger
+statement than the fixture comparison that follows it, because it covers inputs
+no RunSpec selects — and it is what says a coefficient was not silently dropped
+on a row the corpus never reaches.
+
+The census that comes out of the parse is the other half of the value: 102
+distinct strings collapse to **two top-level forms and five term sets**, and both
+forms were already in `lib/fuel_effects.esm`. What the chain had to add was one
+template, `criteria_exponent`, and 135 rows of numbers.
+
+### 68.3 The default database is not the execution database, and the difference is a generator
+
+Every captured `fuelformulation` table in the snapshot corpus is the EXECUTION
+copy — MOVES has already run its setup steps over it. Read the NATIONAL table
+instead and two of those steps become the document's problem:
+
+* **`changeFuelFormulationNulls`.** 2,118 of 2,158 rows have a NULL
+  `BioDieselEsterVolume`; a parquet NULL reaches an `.esm` as a NaN, and a NaN
+  multiplied by a market share of zero is still a NaN. `components/fuel_effects.esm`
+  calls this sweep "a no-op against a relation whose columns are concrete" and it
+  is, there — the component carries five formulations as literals, already filled.
+  Against the table it is not a no-op at all.
+* **`alterHighEthanolFuelProperties`** (`FuelEffectsGenerator.setup()` step 020).
+  The default database ships the E85 formulations with **distillation sentinels**
+  — `T50` 999, `T90` 999, `ETOHVolume` 74 — and the THC criteria polynomial
+  carries `5.58e-05·T50²`. Read straight, the fuel-effect ratio is **1.0e+17**
+  instead of 0.645. MOVES overwrites every combustion property of a subtype-51 or
+  -52 formulation from `e10FuelProperties`, keeping only its own RVP, before any
+  fuel-effect arithmetic runs.
+
+A sentinel of 999 is the useful shape to remember: it is not a flag and not a
+missing value, it is a number that will be squared. **A snapshot-fed document
+cannot find either of these**, because both have already happened to the table it
+reads. They are the price of §7.1's default-database rung and the reason it is
+worth paying.
+
+Where a canonical fallback chain exists and the data never exercises it, say so
+rather than porting it: step 020 coalesces the regional row, then the national
+row, then the formulation's own value, and not one of the 15,360 non-national
+rows has a NULL in any column read here. The port stops at the first level and
+the note records that the national row would have supplied a NULL `sulfurLevel`
+in all 757 of its rows — which is what the fallback would have been falling back
+to.
+
+### 68.4 Both arms of a form selection are evaluated, so the unused one has to be finite
+
+An `ifelse` over arrays computes both arms. A relation that carries several
+algebraic forms and selects between them therefore has to carry filler values
+that keep the unselected arm a number — and "a number" is a stronger requirement
+than it looks:
+
+* a diesel row carries base 1, GPA factor 1 and multiplier 0, so its sulfur arm
+  is exactly 1;
+* it carries sulfur power **1 and not 0**, because at power 0 the spelling
+  `exp(power · log(sulfur))` is `exp(0 · −∞)` — a NaN — for the two formulations
+  in the table whose sulfur level is 0. At any positive power it is `exp(−∞)`,
+  which is 0, and the arm stays finite;
+* a gasoline or ethanol row carries biodiesel coefficient 0, so its biodiesel arm
+  is exactly 1.
+
+The general rule: **look for the input that makes each filler degenerate, not
+just the filler that makes the arm look tidy.** `components/fuel_effects.esm`'s
+description already listed the finite-arm requirement and named `sulfurLevel = 0`
+as the one case it could not satisfy; reading the national table is where that
+case arrives.
+
+### 68.5 What the coverage is, stated as a count rather than guarded
+
+The relation covers the **135** rows of `generalFuelRatioExpression` whose
+pollutant-process is 101, 201 or 301 — all 13 source types, all 3 fuel types,
+both model-year ranges. It does not cover the other 135, which are processes 102,
+202 and 302 and carry **cross terms** (`ETOHVolume·T50`, `ETOHVolume·T90`,
+`ETOHVolume·RVP`, `ETOHVolume·aromaticContent`) that `standardized_term` cannot
+spell. A miss is scaled by 1, which is what MOVES does when its own lookup misses
+— so the failure mode for an uncovered key is silent.
+
+That is stated in the document, in the domain document's own commentary and in
+PLAN.md, and it is **not** guarded by a runtime check, because the guard would
+need a data source read for nothing else and no RunSpec in this repository
+selects process 2. §23's rule cuts both ways: a corpus that cannot discriminate
+something is a reason to write the limit down, not a reason to build machinery
+that watches for it.
+
+One thing the coverage decision is NOT free about: `sourceTypeID` is a real key
+in this table. The sulfur power is 0.168 at source types 11 and 21 and 0.125 at
+the other eleven; the low-sulfur slope takes three values and is zero for a
+motorcycle; the Tier 3 model-year boundary is 2016/2017 for most source types and
+2017/2018 for two of them. Six of this repository's seven RunSpecs select source
+type 21 alone. Carrying only it would have been right on all six and wrong on
+`expand-sourcetype` — §62.3's width-one trap, in the dimension the corpus is
+known to move.

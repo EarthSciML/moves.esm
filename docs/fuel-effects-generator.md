@@ -975,7 +975,18 @@ assertion, and it is what makes 1,015 extra keys evidence rather than a failure.
 
 What follows for the port:
 
-* **Form C is ported and no assertion anywhere faces MOVES on it.** 1,013 of
+* **Form C is ported, and as of 2026-09-20 it IS faced with MOVES — through
+  `criteriaRatio` rather than through `generalFuelRatio`.** That is the whole
+  point of the hand-off above: the rows are not lost, they are moved, and a
+  document that computes the table they were moved INTO meets them there.
+  `onroad/model.esm` now evaluates this form for the criteria running-exhaust
+  pollutant-processes and `runspecs/pending/expand-criteria.esm` compares the
+  result to the run's own `MOVESOutput`: **309 of 372 cells at a worst
+  7.804e-06**, and against the snapshot's captured `criteriaRatio` directly,
+  **2,013 rows at a worst 4.4e-08** — which is §7.2's binary32 question and not
+  a modelling residual. The paragraph below is what was true before that, and is
+  kept because it is still what THIS oracle and `components/fuel_effects.esm`
+  can say on their own. 1,013 of
   the corpus's 2,078 expression rows, 100 of its 118 strings — the dominant
   form —
   and every one of its rows goes to `criteriaRatio` before capture. It is

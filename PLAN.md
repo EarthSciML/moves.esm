@@ -2538,6 +2538,112 @@ Filed as
 the left side of a key pair already refuses this, the right side does not.
 Conventions §67.3 has the local rule that does not wait on the fix.
 
+### 7.3.14 7d, 2026-09-20: the criteria ratio is two generators in one table, and one of them is a parse
+
+`criteriaRatio` is the single factor §7.3.13 left, and the first thing worth
+recording about it is that **MOVES computes it two different ways and the table
+does not say which**. All 4,398 rows carry the same three columns. For model
+years 2001 and later, and for diesel at every model year, the number comes from
+evaluating a closed-form expression the default database ships as SQL text in
+`generalFuelRatioExpression`. For gasoline model years 2000 and earlier it comes
+from running the **EPA Complex Model** live — `complexModelParameters`
+polynomials over centred fuel properties, weighted across fuel models, then the
+sulfur model out of `sulfurModelCoeff`. Splitting the work along that seam is
+what made the first half a day's work instead of a week's.
+
+**The first half is ported and the measurement is exact about what it bought.**
+`expand-criteria` goes from 372 wrong cells to **63**, and those 63 are precisely
+the gasoline cohorts of model years 1980–2000 on all three pollutants — the
+Complex Model's half, to the row. The other **309 land at a worst 7.804e-06**,
+which is the residual every other RunSpec in `runspecs/` already carries. All six
+RunSpecs that reproduce are **unchanged to the digit** (8.128e-06 for
+`process-tirewear`, 7.372e-06 for `expand-fueltype-diesel`, and so on): the
+criteria rows are keyed on pollutant-processes 101, 201 and 301, and no other run
+in the tree emits one.
+
+**The form/coefficient split is conventions §24's rule, and it was measured
+rather than assumed.** The 135 rows of `generalFuelRatioExpression` whose
+`polProcessID` is 101, 201 or 301 hold 102 distinct expression strings. Parsed,
+they collapse to **two top-level forms and five term sets**: `sulfur_switch_ratio`
+over a six-term polynomial for gasoline and ethanol, `biodiesel_ester_ratio` for
+diesel, and the only difference between the gasoline and ethanol term sets is the
+`least(10, ETOHVolume)` clamp `standardized_term` already carries. Both forms were
+already in `lib/fuel_effects.esm`, written for `components/fuel_effects.esm` and
+never before reached from the chain; what this rung added there is
+`criteria_exponent`, which spells the six terms once.
+
+**What the coefficients could not be read from.** Every one of the intercepts,
+the six polynomial coefficients, the base divisors, the GPA factors and the
+low-sulfur slopes was searched for across all 237 tables of the default database.
+Not one appears. `sulfurModelCoeff.sulfurCoeff` does carry the sulfur powers
+(0.168, 0.236, 0.351 at source type 21) and `m6SulfurCoeff.sulfurLongCoeff` the
+multipliers (2.5, 2.36, 1.47), which is a corroboration and not a source: the
+table is also keyed by a model-year group the string does not record, so the
+string stays the authority. The 135 coefficient rows are therefore data in
+`onroad/model.esm`, and the extraction is checked twice — against an independent
+parse and evaluation of all 135 strings over all 2,158 formulations (**165,297
+cells, worst 1.4e-14**), and against the snapshot's own captured `criteriaRatio`
+for all **2,013** of its rows the closed form covers (**worst 4.4e-08**, which is
+the binary32 column question of docs/fuel-effects-generator.md §7.2 and not a
+modelling residual).
+
+**`sourceTypeID` is a real key here, and that is the reason the relation is 135
+rows and not 15.** The sulfur power is 0.168 for source types 11 and 21 and 0.125
+for the other eleven; the low-sulfur slope takes three values across them and is
+zero for a motorcycle; the Tier 3 model-year boundary is 2016/2017 for most source
+types and 2017/2018 for 31 and 32. Six of this repository's seven RunSpecs select
+source type 21 alone — a relation that carried only it would have been right on
+all six and wrong on `expand-sourcetype`, which is the shape
+`width-one-hides-a-key` warns about.
+
+**The finding that could only be made from the default database.** The default
+`FuelFormulation` ships the E85 formulation 27002 with **distillation sentinels**
+— `T50` 999, `T90` 999, `ETOHVolume` 74 — and the THC criteria polynomial carries
+`5.58244506624426e-05 * T50 * T50`. Read straight, that returns a fuel-effect
+ratio of **1.0e+17** instead of 0.645. `FuelEffectsGenerator.setup()` step 020,
+`alterHighEthanolFuelProperties`, overwrites every combustion property of a
+subtype-51 or -52 formulation from `e10FuelProperties` at the formulation's own
+(fuel region, fuel year, month group) — keeping only its RVP — before any
+fuel-effect arithmetic runs. **The snapshot corpus cannot show this at all**:
+every captured `fuelformulation` table in it is the EXECUTION copy, with the
+substitution already applied, which is why `components/fuel_effects.esm` could
+carry five formulations as literals and never meet it. It is visible only from
+the default database, which is what this rung of the plan exists to read. The
+port reaches 7.15 ppm, 10 % ethanol, 23.14 % aromatics, T50 222.95 and T90 327.77
+for 27002 in region 270000000 in August 2020 — the execution copy's numbers
+exactly — and the E85 cells then land inside tolerance.
+
+**Nulls became real for the first time.** `components/fuel_effects.esm` calls
+`changeFuelFormulationNulls` "a no-op against a relation whose columns are
+concrete", and it is, there. Against the national table it is not: 2,118 of 2,158
+rows have a NULL `BioDieselEsterVolume`, and a NULL reaches an `.esm` as a NaN
+that no market-share weight can multiply away. `fuel_property_or_zero` is that
+sweep, spelled with the `value == value` NaN test `in_half_open_range` already
+uses. The same care decides the filler values on the unused arm of every form
+selection: a diesel row carries sulfur power **1 and not 0**, because at power 0
+a formulation whose sulfur level is 0 would make `exp(0 * log(0))` a NaN rather
+than a 1 — and two of the 2,158 formulations have sulfur level 0.
+
+**What is left, which is one generator and 63 cells.** The EPA Complex Model plus
+the sulfur model, `moves.rs`'s `fueleffectsgenerator/criteria.rs`, reproduced in
+pandas from the default database at **≤2.1e-09 for all six criteria
+pollutant-processes** before any of this was written (§7.3.13). Two things about
+it are already known and neither is in the shipped table text: the coefficient is
+`coeff1 + coeff2 + coeff3`, and the `complexModelParameterName.cmpExpression`
+strings omit the `stdDev` division MOVES actually applies. It is eight more
+tables and no new algebra that is not already in `lib/fuel_effects.esm`.
+
+**And a gap that is named rather than guarded.** The other 135 rows of
+`generalFuelRatioExpression` — pollutant-processes 102, 202 and 302, START
+exhaust — carry **cross terms** (`ETOHVolume*T50`, `ETOHVolume*T90`,
+`ETOHVolume*RVP`, `ETOHVolume*aromaticContent`) that `standardized_term` cannot
+spell, because it raises one property to a power. A start-exhaust rung needs a
+`standardized_cross_term` beside it. No RunSpec in this repository selects process
+2, so no rate row can reach a missing coefficient set; the day one does,
+`rt_hasCriteriaRatio` returns 0 and the cohort is scaled by 1. That is the one
+silent failure in the block, and it is written down in three places rather than
+guarded, because the guard would need a data source read for nothing else.
+
 ### 7.4 Upstream asks
 
 **None is blocking.** This section has said "still none", "already exists,
