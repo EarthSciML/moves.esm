@@ -1,0 +1,257 @@
+{
+  "esm": "1.2.0",
+  "metadata": {
+    "name": "expand-criteria-runspec",
+    "description": "PLAN.md §7.5 step 7d, the POLLUTANT dimension: the `expand-criteria` run -- THC, CO and NOx running exhaust -- computed from the DEFAULT DATABASE through `moves-onroad.esm`. It is the seventh RunSpec this domain document has been asked for and the first to leave the energy and particulate pollutants, and it is PENDING.\n\nWHAT IT WAITS ON, which is two things and both are named rather than suspected.\n\nFIRST, `criteriaRatio`. With both rate tables read and the NOx humidity correction applied, the entire remaining gap is one multiplicative factor, and PLAN.md §7.3.13 measures it: `criteriaRatio(fuelType, formulation, polProcess, sourceType, modelYear, ageID)` reproduces the residual to a worst 8e-06 across all three pollutants, all three fuel types and all 124 cohorts. That table is EMPTY in the default database -- MOVES's `FuelEffectsGenerator` computes all 4,398 rows at run time, from the EPA Complex Model for MY <= 2000 gasoline and from `generalFuelRatioExpression` for everything else -- so this document cannot be promoted until that generator is ported. It is not a small factor: on this run it ranges from 0.501 to 1.044, and NOx gasoline model years 2001-2016 are a factor of two.\n\nSECOND, the SURVIVOR COUNT is declared here and not recomputed, and the `n_outputCohort` binding below is what papers over it. The chain's `cohortSurvivorCount` counts cohorts the GRID selects and returns 125; `rt_survives` -- which also requires a rate -- returns 124, and 124 is what MOVES emits. The binding makes the key set exact, 372 of 372 with none missing and none extra, but it is exact partly by luck: the unrated cohort happens to rank LAST, so truncating the relation drops the right one. A run whose unrated cohort ranked in the middle would emit two wrong keys and this binding would hide it. The rule the chain is missing is the one conventions §67.2 states -- a cohort with no rate is not emitted -- and it belongs in `coh_rank` and in `rspp_isEmitted`, which likewise counts 4 pollutant-processes here where MOVES emits 3, because SO2 passes the road-type test and has no rate at all.\n\nWHAT IT DISCRIMINATES, which §23 asks for before a dimension is called covered.\n\n* THE RATE TABLE HAS TWO ARMS, AND EVERY EARLIER RUNSPEC USED ONLY ONE. `emissionRate` and `emissionRateByAge` are disjoint in pollutant-process: a pollutant either deteriorates with age or it does not. Tire wear, brake wear and running energy are in the first and every RunSpec in this directory until now read nothing else; THC, CO and NOx running exhaust are in the second, which has an `ageGroupID` key and 1,590,830 rows against the first's 105,449. Before J58 this run returned ZERO for all 375 cells. Conventions §67.1 has the selection that reads one arm or the other and why it is not a sum.\n\n* THE COHORT COUNT IS 124, NOT 125, AND THE RATE TABLE IS WHAT SAYS SO. Every other run in this directory emits 125 cohorts for source type 21. Here the model year 2000 ELECTRICITY cohort has no `emissionRateByAge` row at its age group, so it is not rated, while model years 2001-2020 of the same fuel are rated at zero and are emitted. This is the first run in this port where the RATE table decides the SHAPE of the answer rather than only its values.\n\n* THE NOx HUMIDITY ADJUSTMENT IS LIVE, ON BOTH OF ITS EQUATIONS. `noxhumidityadjust` carries CFR 86 -- linear in bounded specific humidity -- for gasoline and E85, and CFR 1065 -- reciprocal in bounded water mole fraction -- for diesel, and this run exercises both, at 1.0215928 and 1.0095484. No RunSpec here could see either before, because neither energy nor tire wear is NOx.\n\n* THE SURVIVING POLLUTANT-PROCESSES ARE NOT A PREFIX. Eight are selected and three are emitted, at positions 1, 3 and 5. This is the one run in the corpus that would discriminate a renumbering of the output blocks (conventions §60).\n\nTHE FOURTEEN SELECTIONS, ONE BINDING AND THE ORACLE are everything this document carries, as §7.1 asks. Against `runspecs/process-tirewear.esm` it differs in its fourteen `url_template`s, in the one binding, and in nothing else: the same county, month, day, hour, source type and road type, and a different list of pollutant-processes. That is the point -- the dimension under test is the pollutant, and every other selection is held fixed.",
+    "authors": [
+      "EarthSciML Authors and Contributors"
+    ],
+    "tags": [
+      "runspec",
+      "onroad",
+      "default-database",
+      "expand-criteria",
+      "criteria-pollutants",
+      "pending"
+    ]
+  },
+  "data_sources": {
+    "db_runspecyear": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../../moves.rs/characterization/snapshots/expand-criteria/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecyear.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecyear"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, yearID 2020. The scope comes from these tables and never from the RunSpec XML, whose @key attributes are 0-based indices into sorted ID lists (docs/mixed-onroad.md §0.1).",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecmonth": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../../moves.rs/characterization/snapshots/expand-criteria/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecmonth.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecmonth"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, monthID 8.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspechour": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../../moves.rs/characterization/snapshots/expand-criteria/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspechour.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspechour"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, hourID 7. Six in the RunSpec XML, seven here: the XML's @key is a 0-based index into the sorted hour list and the table carries the 1-based hourID. The hour the NOx humidity correction is evaluated at -- 59.5 degF and 90.4% relative humidity.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_aggregationhour": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../../moves.rs/characterization/snapshots/expand-criteria/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspechour.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_aggregationhour"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "The hours the run aggregates over. This run does not set `aggregateBy`, so it is `runspechour` itself and the same file.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecday": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../../moves.rs/characterization/snapshots/expand-criteria/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecday.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecday"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, dayID 5 (weekday). The second factor of the activity axis and of the output axis, and its extent is one in this run: `<day id=\"5\">` selects one day type where the earlier `<day key=\"5\">` was an out-of-range INDEX and fell back to both (moves.rs PR #55).",
+        "esio_format": "parquet"
+      }
+    },
+    "db_rateday": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../../moves.rs/characterization/snapshots/expand-criteria/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecday.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_rateday"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "The day types the RATE-side time pre-aggregation is scoped to. This run does not set `aggregateBy`, so it is `runspecday` itself and the same file: the pre-aggregation averages over one cell and returns the table's own value. A run that aggregates points this somewhere else, because MOVES overwrites `runspecday` with the synthesized output day AFTER the pre-aggregation has run.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_actday": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../../moves.rs/characterization/snapshots/expand-criteria/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecday.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_actday"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "The day types the output day's ACTIVITY covers. This run does not set `aggregateBy`, so it is `runspecday` itself and the same file, and `noOfRealDays` is that one day type's.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecsourcetype": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../../moves.rs/characterization/snapshots/expand-criteria/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecsourcetype.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecsourcetype"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, sourceTypeID 21.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecroadtype": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../../moves.rs/characterization/snapshots/expand-criteria/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecroadtype.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecroadtype"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, roadTypeID 4. J27: this is the join that suppresses every process-2 row, because start exhaust lives on the off-network road type 1 and the RunSpec does not select it (§0.2).",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecsourcefueltype": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../../moves.rs/characterization/snapshots/expand-criteria/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecsourcefueltype.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecsourcefueltype"
+      },
+      "metadata": {
+        "tags": [
+          "scope",
+          "cohorts"
+        ],
+        "note": "4 rows: gasoline, diesel, E85 and electricity, all under source type 21. The second factor of the cohort candidate grid, and all four reach the output -- three of them with a fuel-effect ratio and electricity with none, because `noxhumidityadjust` and `criteriaRatio` both have no fuel type 9 row.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_movesoutput": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../../moves.rs/characterization/snapshots/expand-criteria/tables/db__out_expand_criteria__movesoutput.parquet"
+      },
+      "reader_options": {
+        "float_columns": [
+          "emissionQuant"
+        ]
+      },
+      "metadata": {
+        "tags": [
+          "oracle",
+          "expected-output"
+        ],
+        "note": "The 372-row expected output -- 124 cohorts each for pollutants 1, 2 and 3 on process 1 -- shipped in the same snapshot so the oracle travels with the selections it was computed from. 124 and not the 125 every other RunSpec in this directory emits: the model year 2000 ELECTRICITY cohort has no `emissionRateByAge` row at its age group, so it is never rated and never emitted (conventions 67.2).",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecpollutantprocess": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../../moves.rs/characterization/snapshots/expand-criteria/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecpollutantprocess.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecpollutantprocess"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "8 rows: 101, 102, 201, 202, 301 and 302 -- THC, CO and NOx on running AND start exhaust -- plus 3101 and 3102, SO2 on both. THREE of the eight reach the output, and WHICH three is why this run is here. J27 suppresses every process-2 row, because start exhaust lives on road type 1 and this RunSpec selects road type 4; and SO2 has no `emissionRateByAge` row at all, because MOVES computes it from total energy in a calculator this chain does not have. The survivors are at positions 1, 3 and 5 of the selected list -- NOT a prefix -- which is the one run in this corpus that would discriminate a renumbering of the output blocks (conventions 60).",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecchainedto": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../../moves.rs/characterization/snapshots/expand-criteria/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecchainedto.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecchainedto"
+      },
+      "metadata": {
+        "tags": [
+          "scope",
+          "chain"
+        ],
+        "note": "0 rows. Nothing in this run is a CHAINED pollutant, unlike `process-tirewear` where PM10 tire wear is computed by scaling PM2.5. An empty relation is a selection like any other and is declared rather than omitted, so the document says the run has no chain instead of leaving it to be inferred from a missing source.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspeccounty": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../../moves.rs/characterization/snapshots/expand-criteria/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspeccounty.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspeccounty"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, countyID 26161. The runspec selection this catalogue did not have to carry while `link` arrived pre-selected. It changes nothing here -- the snapshot's `link` is the one row this joins to -- and it is what makes the same logic readable against a national Link table.",
+        "esio_format": "parquet"
+      }
+    }
+  },
+  "models": {
+    "Onroad": {
+      "ref": "../../moves-onroad.esm",
+      "bindings": {
+        "n_outputCohort": 124
+      }
+    }
+  }
+}

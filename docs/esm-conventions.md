@@ -6613,3 +6613,166 @@ against the snapshot's own collapsed tables **before the model changed**
 (PLAN.md §7.3.11), which turned a second aggregation mode from a search into a
 translation. Every other document in `runspecs/` went through `pending/` first;
 this one never entered it.
+
+---
+
+## 67. A pollutant either deteriorates with age or it does not, and that decides which rate table it is in **[PLAN.md step 7d; residual reduced to `criteriaRatio` alone at 8e-06, six runs unchanged to the digit]**
+
+`expand-criteria` is the first RunSpec in this tree to leave the energy and
+particulate pollutants, and the first thing it found was that the chain had been
+reading one of MOVES's **two** zero-hour rate tables and had no way to know it.
+
+### 67.1 The two tables are disjoint in pollutant-process, so the chain selects, it does not sum
+
+`emissionRate` is keyed on `(sourceBinID, polProcessID, opModeID)`.
+`emissionRateByAge` adds **`ageGroupID`** and is fifteen times the size — 1,590,830
+rows against 105,449. The temptation is to read the second as an age-resolved
+refinement of the first. It is not. Their `polProcessID` sets do not intersect:
+
+| table | pollutant-processes |
+|---|---|
+| `emissionRate` | 190, 191, 290, 291, 390, 391, 601, 602, 3090, 9101, 9102, 9190, 9191, 11290, 11291, 11609, 11710, 11890, 11891 |
+| `emissionRateByAge` | 101, 102, 111, 112, 113, 201, 202, 301, 302, 3001, 3002, 11201, 11202, 11801, 11802 |
+
+Running **energy** (9101) is in the first; running **THC, CO and NOx** (101, 201,
+301) are in the second. Which table a pollutant-process lives in is a statement
+about the pollutant — a 1980 passenger car emits far more hydrocarbon than a 2020
+one and exactly as much energy per source-hour — and not a modelling choice.
+
+So `rtMode_rate` is an `exact_else_wildcard` over `rt_hasRateByAge`, not a sum:
+
+```
+rt_hasRate    = exact_else_wildcard{ has_exact: rt_hasRateByAge, exact_value: 1,
+                                     wildcard_value: rt_hasRateAgeless }
+rtMode_rate   = exact_else_wildcard{ has_exact: rt_hasRateByAge,
+                                     exact_value:    rtMode_rateByAge,
+                                     wildcard_value: rtMode_rateAgeless }
+```
+
+A sum would give the same number on every run in this corpus, because the
+disjointness holds. Writing the selection is what makes the disjointness a
+**claim the document makes** rather than a property it silently depends on, and
+one discriminant serves both lines so they cannot disagree about which table was
+read.
+
+### 67.2 The surviving cohort count is a property of the rate table's key set
+
+Every RunSpec in `runspecs/` before this one emits 125 cohorts for source type
+21. `expand-criteria` emits **124**, and the missing one is (fuel type 9,
+model year 2000) — electricity. Model years 2001 to 2020 of the same fuel *are*
+emitted, at zero. The difference is not a rule about electricity: it is that
+`emissionRateByAge` has no row for that source bin at that model year's age
+group, so the rate row is not rated, `rt_survives` is 0, and nothing is emitted.
+
+That fell out of J58 with no extra rule written: adding the sixth key pair moved
+`cohortSurvivorCount` from 125 to 124 on the first run. It is worth naming
+because it is the first time in this port that the **rate** table decided the
+**shape** of the answer. Until now the cohort grid decided it and the rate table
+only supplied numbers.
+
+### 67.3 A join key that names the wrong relation is silently dropped, and the tell is that one pollutant looks like another
+
+This cost an hour and is the most transferable thing in this section.
+
+The model already had an `emissionRateAdjustment` relation whose columns are
+prefixed `era_`. The new `emissionRateByAge` relation was written with the same
+prefix, so its `era_polProcessID` — intended over `emissionratebyage_rows` — lost
+the name to the one already declared over `emissionrateadjustment_rows`. The
+document **validated and simulated**. Six of the seven key pairs in J58 bound;
+the `polProcessID` pair did not, because its right-hand side resolved to a column
+over an index set the aggregate has no range for, and EarthSciAST's
+`lower_node_joins` treats that as the degenerate positional no-op and `continue`s
+(`join.rs:463-474`). The contraction then summed the rates of **every**
+pollutant-process at each source bin.
+
+Two things made it hard to see:
+
+* **The answer was plausible.** Numbers came out, of the right order of
+  magnitude, for every cell.
+* **The left side has the error this needed and the right side does not.** A
+  left key that resolves to nothing is an `UnsupportedFeatureError` naming the
+  column. A right key that resolves to nothing is silence.
+
+The tell, once looked for, was diagnostic: **THC and NOx returned identical
+numbers**. Two pollutants agreeing to fifteen digits is not a modelling error, it
+is a key that is not in the join. The confirmation was cheaper still — polProcess
+3101 is absent from `emissionRateByAge` entirely, and `rt_hasRateByAge` returned
+3 for it rather than 0.
+
+Filed upstream as [EarthSciAST #437](https://github.com/EarthSciML/EarthSciAST/issues/437),
+which asks for the three cases `resolve_side` currently folds into one `continue`
+— undeclared name, column over a foreign axis, genuine positional no-op — to be
+told apart, with the middle one refused.
+
+**The local rule, which does not wait on the fix: one relation, one prefix, and
+check the prefix is free before using it.** `era_` was taken; the ByAge relation
+is `erba_`, which is what `fixtures/process-nox-speciation.esm` had already
+called it.
+
+There is a second instance of the same trap in this section's own work, caught
+the other way round. `rt_humidityCFR86` ranges over `run_rows` and indexes
+nothing with it. That range looks spare and deleting it is silent: it is what
+lets the second key pair's right side — `run_humidityEqCFR86`, a one-row relation
+over `run_rows` — resolve to a loop symbol at all. Without it both humidity arms
+fire for every fuel type. The equation says so in its comment, because nothing
+else would.
+
+### 67.4 The NOx humidity correction multiplies the temperature factor, and it is two formulae in one table
+
+`noxhumidityadjust` is three rows. Fuel types 1 and 5 carry `CFR 86`; fuel type 2
+carries `CFR 1065`; fuel type 9 carries nothing and therefore takes factor 1.
+The two names are two genuinely different formulae over two different measures of
+the same air:
+
+| equation | argument | form | on this run |
+|---|---|---|---|
+| CFR 86 | specific humidity, g H₂O / kg **dry** air, bounded to [3, 17.71] | `1 − A·(H − 10.71)` | 10.0536843 → **1.0215928** |
+| CFR 1065 | water mole fraction, per mole **ambient** air, bounded to [0.002, 0.035] | `1 / (A·x + B)` | 0.0159291 → **1.0095484** |
+
+Three things a reader would not guess from the table:
+
+1. **It multiplies the temperature factor rather than adding to it**:
+   `(1 + tempAdjust) × k`, inside the NOx branch of `general_temp_adjust`.
+2. **`humidityTermA` means different things in the two rows** — 0.0329 as a
+   slope in the first, 9.953 as a denominator coefficient in the second — and so
+   do the bounds, which carry two different units in one column. The bound has to
+   travel with the equation.
+3. **`humidityTermB` is NULL on the CFR 86 rows**, so the arms have to be
+   separate aggregates. §30.4 already argued this for the fixture; it holds here
+   for the same reason, and an `ifelse` would not help because it selects a
+   result and does not stop an operand being evaluated.
+
+This chain computes both humidity measures rather than reading them, because it
+has no execution database: `run_vaporPartialPressure` comes from the temperature
+and relative humidity it already computes, through `lib/meteorology.esm`'s
+MG-6/MG-7 templates. Measured against the columns MOVES stored, that is
+2.298e-08 and 2.262e-08 relative — the storage limit of the reference columns,
+and 870× below the per-cell gate.
+
+### 67.5 What the measurement bought, again
+
+§66's lesson held a second time. Before anything was written, the residual after
+J58 was taken to the snapshot and asked what it was, rather than a list of
+candidate adjustments being ported one at a time. The answer was exact and it was
+short:
+
+```
+missing factor  =  criteriaRatio(fuelType, formulation, polProcess,
+                                 sourceType, modelYear, ageID)
+                 × noxHumidityAdjust(fuelType)
+```
+
+worst 7e-06 across all three pollutants, all three fuel types and all 124
+cohorts. That is what says **`temperatureAdjustment` contributes exactly 1 here**
+(its only rows for these pollutant-processes are model years 2027 and later),
+**`IMCoverage` is empty** so the whole inspection-and-maintenance blend is
+inactive, and **`emissionRateAdjustment` is empty** — three ports not needed,
+established in twenty minutes of pandas rather than by writing them and watching
+the number not move.
+
+It also priced what IS needed. `criteriaRatio` is **empty in the default
+database**: MOVES's `FuelEffectsGenerator` computes all 4,398 rows at run time,
+from the EPA Complex Model for MY ≤ 2000 gasoline and from
+`generalFuelRatioExpression` for the rest. That is the one thing
+`runspecs/pending/expand-criteria.esm` waits on, and the pending document says so
+in those terms rather than as a list of suspicions.

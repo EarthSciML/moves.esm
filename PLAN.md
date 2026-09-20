@@ -2453,6 +2453,91 @@ self-describing about what was ASKED for as well as about what MOVES computed.
 `runspecs/` now holds **six** RunSpecs, all reproducing, and `runspecs/pending/`
 is still empty. What is left of 7d is the criteria pollutants.
 
+### 7.3.13 7d, 2026-09-20: the criteria pollutants are in the OTHER rate table, and what is left is one factor
+
+`expand-criteria` — THC, CO and NOx running exhaust, otherwise
+`process-tirewear`'s geometry exactly — is back in `runspecs/pending/`, and this
+section is the measurement that says what it waits on. The chain now computes
+every part of the run **except one multiplicative factor**, and that factor is
+identified rather than guessed at.
+
+**The first finding is that the chain had been reading one of two rate tables.**
+MOVES has `emissionRate` and `emissionRateByAge`, and they are **disjoint in
+`polProcessID`**: running energy, tire wear and brake wear are in the first,
+THC/CO/NOx running exhaust in the second, which carries an `ageGroupID` key and
+1,590,830 rows against 105,449. Every RunSpec in this tree until now read the
+first and nothing else, so the criteria run returned zero for all 375 cells
+before a line changed. `rtMode_rate` now SELECTS between the two arms on
+`rt_hasRateByAge` rather than summing them (conventions §67.1), and the
+selection is what makes the disjointness a claim the document makes.
+
+**The cohort count fell out of it.** `expand-criteria` emits **124** cohorts,
+not the 125 every other run in `runspecs/` emits: the model year 2000
+ELECTRICITY cohort has no `emissionRateByAge` row at its age group, so it is not
+rated and not emitted, while 2001–2020 of the same fuel are rated at zero and
+are. No rule was written for that; adding the sixth key pair moved
+`cohortSurvivorCount` from 125 to 124 on the first run. It is the first time in
+this port that the RATE table decided the SHAPE of the answer.
+
+**Then the residual was measured before anything else was ported**, which is
+§7.3.11's method applied a second time. With J58 read and nothing else changed,
+the ratio of emitted to expected `emissionQuant` was piecewise-constant in model
+year and nearly equal across pollutants — the signature of a fuel-effect factor,
+not of a missing physical term. Taking it to the snapshot's own tables:
+
+```
+missing factor  =  criteriaRatio(fuelType, formulation, polProcess,
+                                 sourceType, modelYear, ageID)
+                 × noxHumidityAdjust(fuelType)
+```
+
+**worst 7e-06 across all three pollutants, all three fuel types and all 124
+cohorts.** That single line is what says three other ports are NOT needed:
+`temperatureAdjustment` contributes exactly 1 here (its only rows for these
+pollutant-processes are model years 2027 and later), `IMCoverage` is **empty**
+so the entire inspection-and-maintenance blend is inactive, and
+`emissionRateAdjustment` is empty too. Twenty minutes of pandas, against writing
+three adjustments and watching the number not move.
+
+**The humidity half is built and the residual is now exactly `criteriaRatio`.**
+`noxhumidityadjust` carries two different formulae in one table — CFR 86, linear
+in bounded specific humidity, for gasoline and E85; CFR 1065, reciprocal in
+bounded water mole fraction, for diesel — and this run exercises both, at
+1.0215928 and 1.0095484. The chain computes both humidity measures from the
+temperature and relative humidity it already computes, rather than reading
+`ZoneMonthHour` as the fixtures do, and lands them at 2.298e-08 and 2.262e-08
+against the columns MOVES stored. With that applied, the leftover is
+`criteriaRatio` and nothing else, at a worst of **8e-06** (conventions §67.4,
+§67.5). The general temperature factor arrived with it — the NOx branch and the
+fall-through quadratic beside the EV branch that was all this chain had — and
+**all six existing RunSpecs are unchanged to the digit**, because the only
+`temperatureadjustment` rows in the national table are for pollutant-processes
+none of them reach.
+
+**What is left is `criteriaRatio`, and it is a generator.** The table is
+**empty in the default database**: MOVES's `FuelEffectsGenerator` computes all
+4,398 rows at run time, from the EPA Complex Model
+(`complexModelParameters` polynomials over fuel properties, then the sulfur
+model) for MY ≤ 2000 gasoline, and from `generalFuelRatioExpression` for
+everything else. `components/fuel_effects.esm` already evaluates the second half
+— including the sulfur form — so the port is the Complex Model plus the sulfur
+model, `moves.rs`'s `fueleffectsgenerator/criteria.rs`, verified there as
+`ratio = ratioNoSulfur × sulfEff`. On this run the factor ranges from **0.501 to
+1.044**, so it is not optional: NOx gasoline MY 2001–2016 is a factor of two.
+
+**An upstream footgun, filed.** The `emissionRateByAge` relation was first
+written with the prefix `era_`, which an existing `emissionRateAdjustment`
+relation already owned. The document validated and simulated; six of J58's seven
+key pairs bound and the `polProcessID` pair was **silently dropped**, because
+its right-hand side resolved to a column over an index set the aggregate has no
+range for and EarthSciAST treats that as a positional no-op. The contraction
+summed every pollutant-process at each source bin and returned plausible
+numbers. The tell was that THC and NOx came back identical to fifteen digits.
+Filed as
+[EarthSciAST #437](https://github.com/EarthSciML/EarthSciAST/issues/437) —
+the left side of a key pair already refuses this, the right side does not.
+Conventions §67.3 has the local rule that does not wait on the fix.
+
 ### 7.4 Upstream asks
 
 **None is blocking.** This section has said "still none", "already exists,

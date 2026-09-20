@@ -201,6 +201,21 @@
       "default": 0,
       "description": "Rows in emissionrate."
     },
+    "n_emissionratebyage": {
+      "type": "integer",
+      "default": 0,
+      "description": "Rows in emissionratebyage. The larger of the two rate tables by an order of magnitude, because it carries a row per age group."
+    },
+    "n_county": {
+      "type": "integer",
+      "default": 0,
+      "description": "Rows in county."
+    },
+    "n_noxhumidityadjust": {
+      "type": "integer",
+      "default": 0,
+      "description": "Rows in noxhumidityadjust. Three: one per fuel type that has a NOx humidity correction."
+    },
     "n_fleetavgadjustment": {
       "type": "integer",
       "default": 0,
@@ -463,6 +478,18 @@
       "kind": "interval",
       "size": "n_emissionrate"
     },
+    "emissionratebyage_rows": {
+      "kind": "interval",
+      "size": "n_emissionratebyage"
+    },
+    "county_rows": {
+      "kind": "interval",
+      "size": "n_county"
+    },
+    "noxhumidityadjust_rows": {
+      "kind": "interval",
+      "size": "n_noxhumidityadjust"
+    },
     "fleetavgadjustment_rows": {
       "kind": "interval",
       "size": "n_fleetavgadjustment"
@@ -614,14 +641,18 @@
     "pollutant": {
       "TotalEnergyConsumption": 91,
       "PetroleumEnergyConsumption": 92,
-      "FossilFuelEnergyConsumption": 93
+      "FossilFuelEnergyConsumption": 93,
+      "OxidesOfNitrogen": 3
     },
     "process": {
       "RunningExhaust": 1,
-      "Tirewear": 10
+      "Tirewear": 10,
+      "ExtendedIdleExhaust": 90,
+      "AuxiliaryPowerExhaust": 91
     },
     "fuel_type": {
-      "Electricity": 9
+      "Electricity": 9,
+      "Diesel": 2
     },
     "operating_mode": {
       "Braking": 0,
@@ -642,6 +673,10 @@
     },
     "road_type": {
       "OffNetwork": 1
+    },
+    "humidity_equation": {
+      "CFR86": 86,
+      "CFR1065": 1065
     }
   },
   "models": {
@@ -682,7 +717,13 @@
         {
           "ref": "../lib/adjustments.esm",
           "only": [
-            "exact_else_wildcard"
+            "exact_else_wildcard",
+            "bounded_low_then_high",
+            "bounded_specific_humidity",
+            "nox_humidity_cfr86",
+            "nox_humidity_cfr1065",
+            "nox_temperature_adjustment",
+            "quadratic_temperature_adjustment"
           ]
         },
         {
@@ -694,7 +735,10 @@
         {
           "ref": "../lib/meteorology.esm",
           "only": [
-            "heat_index"
+            "heat_index",
+            "vapor_partial_pressure_from_weather",
+            "specific_humidity",
+            "mol_water_fraction"
           ]
         }
       ],
@@ -1893,6 +1937,57 @@
           ],
           "description": "The relative humidity the heat index is computed at, cell-weighted over the run's time cells. On a run that does not aggregate it is `zonemonthhour.relHumidity` at the run's own hour."
         },
+        "run_barometricPressure": {
+          "type": "unknown",
+          "units": "inHg",
+          "shape": [
+            "runspeccounty_rows"
+          ],
+          "description": "`county.barometricPressure` for the run's county. It is per COUNTY and not per county-month, because the pressure is a property of the place; the two humidity measures that divide by it are per county-month because the vapour pressure is."
+        },
+        "run_vaporPartialPressure": {
+          "type": "unknown",
+          "units": "kPa",
+          "shape": [
+            "runspeccounty_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "`PV` for the run's county and month, from the same temperature and relative humidity the heat index reads."
+        },
+        "run_specificHumidity": {
+          "type": "unknown",
+          "units": "g/kg",
+          "shape": [
+            "runspeccounty_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "The hour's specific humidity, g water per kg DRY air, COMPUTED by lib/meteorology.esm's `specific_humidity` (MG-7) rather than read off `ZoneMonthHour.specificHumidity` -- which this chain could not read anyway, because it computes its meteorology rather than ingesting it. Its denominator subtracts the vapour pressure from the ambient pressure because the air it measures against is dry; the mole fraction's does not, and that one term is the only difference between them. Measured against the column it replaces: 10.053684062398 computed against 10.053684293477 stored, 2.298e-08 relative."
+        },
+        "run_molWaterFraction": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspeccounty_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "The hour's water mole fraction, moles of water per mole of AMBIENT air, by lib/meteorology.esm's `mol_water_fraction` (MG-7). The CFR 1065 argument; the two humidity columns are different measures of the same air and each equation wants its own. Measured against the column it replaces: 0.015929058669 computed against 0.015929059029 stored, 2.262e-08 relative."
+        },
+        "run_humidityEqCFR86": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "run_rows"
+          ],
+          "description": "A one-row relation carrying the code `noxhumidityadjust.humidityNOxEq` decodes `CFR 86` to, so the equation selection is a `join.on` like every other key selection in this chain rather than an `==` hidden in a filter (conventions 20.4)."
+        },
+        "run_humidityEqCFR1065": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "run_rows"
+          ],
+          "description": "The same, for `CFR 1065`."
+        },
         "act_timeVMTFraction": {
           "type": "unknown",
           "units": "1",
@@ -2719,6 +2814,86 @@
             }
           }
         },
+        "erba_sourceBinID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "emissionratebyage_rows"
+          ],
+          "description": "emissionratebyage.sourceBinID, packed exactly as `er_sourceBinID` is and unpacked by the same template.",
+          "update": {
+            "kind": "data",
+            "source": "db_emissionratebyage",
+            "from": {
+              "file_variable": "sourceBinID"
+            }
+          }
+        },
+        "erba_polProcessID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "emissionratebyage_rows"
+          ],
+          "description": "emissionratebyage.polProcessID. Disjoint from the set `er_polProcessID` carries.",
+          "update": {
+            "kind": "data",
+            "source": "db_emissionratebyage",
+            "from": {
+              "file_variable": "polProcessID"
+            }
+          }
+        },
+        "erba_opModeID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "emissionratebyage_rows"
+          ],
+          "description": "emissionratebyage.opModeID.",
+          "update": {
+            "kind": "data",
+            "source": "db_emissionratebyage",
+            "from": {
+              "file_variable": "opModeID"
+            }
+          }
+        },
+        "erba_ageGroupID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "emissionratebyage_rows"
+          ],
+          "description": "emissionratebyage.ageGroupID -- the key `emissionrate` does not have, and the whole reason there are two tables. `agegroup` has seven: 3, 405, 607, 809, 1014, 1519 and 2099, read as inclusive age ranges.",
+          "update": {
+            "kind": "data",
+            "source": "db_emissionratebyage",
+            "from": {
+              "file_variable": "ageGroupID"
+            }
+          }
+        },
+        "erba_meanBaseRate": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "emissionratebyage_rows"
+          ],
+          "description": "emissionratebyage.meanBaseRate at that age group, grams per source-hour at this operating mode.",
+          "update": {
+            "kind": "data",
+            "source": "db_emissionratebyage",
+            "from": {
+              "file_variable": "meanBaseRate"
+            }
+          }
+        },
         "fav_polProcessID": {
           "type": "parameter",
           "units": "1",
@@ -3404,6 +3579,141 @@
             "source": "db_emissionrateadjustment",
             "from": {
               "file_variable": "emissionRateAdjustment"
+            }
+          }
+        },
+        "cty_countyID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "county_rows"
+          ],
+          "description": "county.countyID. The national table's key; the run selects from it through `rsc_countyID`.",
+          "update": {
+            "kind": "data",
+            "source": "db_county",
+            "from": {
+              "file_variable": "countyID"
+            }
+          }
+        },
+        "cty_barometricPressure": {
+          "type": "parameter",
+          "units": "inHg",
+          "default": 0.0,
+          "shape": [
+            "county_rows"
+          ],
+          "description": "county.barometricPressure, inches of mercury -- 29.095 for Washtenaw. The unit is declared, and every use multiplies by 3.38639 to reach kPa exactly once, in lib/meteorology.esm's `ambient_pressure_kilopascals`.\n\nWHAT IS NOT CARRIED. MOVES runs two `UPDATE County` statements before the humidity pass: MG-1 fills a missing or non-positive pressure from the altitude CLASS, MG-2 then classes a missing altitude from that pressure. Neither is here. MG-1's guard cannot fire -- across all 40 snapshots and 22,815 `County` rows not one has a NULL or non-positive pressure (docs/meteorology-generator.md 8.1) -- and MG-2 writes a column nothing downstream reads. Both arms are checked in components/meteorology.esm against the SQL as ported, which is the only place they can be checked at all.",
+          "update": {
+            "kind": "data",
+            "source": "db_county",
+            "from": {
+              "file_variable": "barometricPressure"
+            }
+          }
+        },
+        "nha_fuelTypeID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "noxhumidityadjust_rows"
+          ],
+          "description": "noxhumidityadjust.fuelTypeID: 1, 2 and 5. Fuel type 9 is absent, so an electricity rate row takes no humidity correction.",
+          "update": {
+            "kind": "data",
+            "source": "db_noxhumidityadjust",
+            "from": {
+              "file_variable": "fuelTypeID"
+            }
+          }
+        },
+        "nha_humidityNOxEq": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "noxhumidityadjust_rows"
+          ],
+          "description": "noxhumidityadjust.humidityNOxEq -- `CFR 86` or `CFR 1065`, decoded to 86 and 1065 by a `codes` map on the binding. An EQUATION carried as data, which is why the two forms are two filtered aggregates below and not one expression with a coefficient switch (conventions 30.4).",
+          "update": {
+            "kind": "data",
+            "source": "db_noxhumidityadjust",
+            "from": {
+              "file_variable": "humidityNOxEq",
+              "codes": {
+                "map": {
+                  "CFR 86": 86,
+                  "CFR 1065": 1065
+                },
+                "case_insensitive": true
+              }
+            }
+          }
+        },
+        "nha_humidityTermA": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "noxhumidityadjust_rows"
+          ],
+          "description": "noxhumidityadjust.humidityTermA: 0.0329 for CFR 86 and 9.953 for CFR 1065. The same column name, two different roles.",
+          "update": {
+            "kind": "data",
+            "source": "db_noxhumidityadjust",
+            "from": {
+              "file_variable": "humidityTermA"
+            }
+          }
+        },
+        "nha_humidityTermB": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "noxhumidityadjust_rows"
+          ],
+          "description": "noxhumidityadjust.humidityTermB, 0.832 on the CFR 1065 row and NULL -- hence NaN -- on the two CFR 86 rows. It is read only inside an aggregate whose filter has already excluded those rows, so the NaN never reaches an operator; a document that folded both forms into one expression would return NaN for every gasoline cohort.",
+          "update": {
+            "kind": "data",
+            "source": "db_noxhumidityadjust",
+            "from": {
+              "file_variable": "humidityTermB"
+            }
+          }
+        },
+        "nha_humidityLowBound": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "noxhumidityadjust_rows"
+          ],
+          "description": "noxhumidityadjust.humidityLowBound: 3.0 g/kg for CFR 86, 0.002 mole fraction for CFR 1065. Two different UNITS in one column, which is why the bound has to travel with the equation.",
+          "update": {
+            "kind": "data",
+            "source": "db_noxhumidityadjust",
+            "from": {
+              "file_variable": "humidityLowBound"
+            }
+          }
+        },
+        "nha_humidityUpBound": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "noxhumidityadjust_rows"
+          ],
+          "description": "noxhumidityadjust.humidityUpBound: 17.71 g/kg for CFR 86, 0.035 mole fraction for CFR 1065.",
+          "update": {
+            "kind": "data",
+            "source": "db_noxhumidityadjust",
+            "from": {
+              "file_variable": "humidityUpBound"
             }
           }
         },
@@ -4743,6 +5053,38 @@
           ],
           "description": "The short model-year group, slot 1e10."
         },
+        "erba_fuelTypeID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "emissionratebyage_rows"
+          ],
+          "description": "The fuel type unpacked from the packed sourceBinID, slot 1e16."
+        },
+        "erba_engTechID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "emissionratebyage_rows"
+          ],
+          "description": "The engine technology, slot 1e14."
+        },
+        "erba_regClassID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "emissionratebyage_rows"
+          ],
+          "description": "The regulatory class, slot 1e12."
+        },
+        "erba_shortModYrGroupID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "emissionratebyage_rows"
+          ],
+          "description": "The short model-year group, slot 1e10."
+        },
         "bin_fleetAvgGroupID": {
           "type": "unknown",
           "units": "1",
@@ -5609,7 +5951,23 @@
           "shape": [
             "rate_rows"
           ],
-          "description": "Does emissionrate carry a row for this rate row's source bin at all?"
+          "description": "Does either rate table carry a row for this rate row's source bin? The union of the two arms below."
+        },
+        "rt_hasRateAgeless": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "The `emissionrate` arm: does the age-INDEPENDENT table carry this source bin?"
+        },
+        "rt_hasRateByAge": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "The `emissionratebyage` arm: does the age-RESOLVED table carry this source bin at the cohort's age group? It is also the discriminant `rtMode_rate` selects on."
         },
         "rt_survives": {
           "type": "unknown",
@@ -5627,6 +5985,24 @@
             "operating_mode_rows"
           ],
           "description": "J22: ONE clause carrying six key pairs, and THIS IS A COST DECISION, not a reading order (docs/esm-conventions.md 25). Splitting it into one-pair clauses gives a byte-identical answer and, measured on mixed-onroad's 164 x 60 version of it, takes 43x as long. The pollutant-process pair is now a column of the rate relation rather than a run-level scalar, which is what keeps the composite gate a composite gate at 492 x 60 output cells."
+        },
+        "rtMode_rateAgeless": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows",
+            "operating_mode_rows"
+          ],
+          "description": "The zero-hour rate read from `emissionrate`."
+        },
+        "rtMode_rateByAge": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows",
+            "operating_mode_rows"
+          ],
+          "description": "The zero-hour rate read from `emissionratebyage` at the cohort's age group. THIS is where deterioration enters an onroad criteria rate: a 1980 passenger car and a 2020 one read the same source bin and different rows."
         },
         "rtMode_fullACAdjustment": {
           "type": "unknown",
@@ -5849,6 +6225,90 @@
             "runspecmonth_rows"
           ],
           "description": "1 + max(adj, 0), unless the light-duty heat-index suppression fires. At 59.5 degF it does not, so this is a LIVE 1.015625 on the 84 energy/electricity rows. Per county, through the temperature."
+        },
+        "rt_isNoxTotal": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "Is this the TOTAL-NOx branch of `general_temp_adjust`? adjust.rs:127 gates it on pollutant 3 and process 1, 90 or 91 together. Two of those processes are in no RunSpec here and are named anyway, because the rule is the port and not the run."
+        },
+        "rt_isDiesel": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "Diesel, which the NOx temperature term treats differently from every other fuel: `(77 - T) x A`, switched off above 77 degF, against the ordinary quadratic about 75."
+        },
+        "rt_hasHumidityRow": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "Does `noxhumidityadjust` carry a row for this fuel type? Fuel type 9 does not, and adjust.rs:521's `nha.map_or(1.0, ...)` is what this flag reproduces."
+        },
+        "rt_humidityCFR86": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows",
+            "runspeccounty_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "The CFR 86 humidity correction, or 0 where the fuel's equation is not CFR 86. The equation is a TEXT column, so the branch is a filter on a decoded code and the two arms are separate aggregates -- which is also what keeps the CFR 86 rows' NULL `humidityTermB` out of the other arm's arithmetic."
+        },
+        "rt_humidityCFR1065": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows",
+            "runspeccounty_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "The CFR 1065 humidity correction, or 0 where the fuel's equation is not CFR 1065."
+        },
+        "rt_noxHumidityFactor": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows",
+            "runspeccounty_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "`calculate_nox_k`. Exactly one arm can be non-zero for a given fuel type, so their SUM is the selection; a fuel type with no row takes 1. Measured on `expand-criteria`: 1.0215928 for gasoline and E85, 1.0095484 for diesel."
+        },
+        "rt_noxTemperatureAdjust": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows",
+            "runspeccounty_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "The NOx branch's temperature term. Its coefficients are 0 for every model year `expand-criteria` emits -- `temperatureadjustment` carries polProcess 301 only for model years 2027 and later -- so the term is 0 there and the whole NOx factor is the humidity correction."
+        },
+        "rt_standardTemperatureAdjust": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows",
+            "runspeccounty_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "`general_temp_adjust`'s fall-through term, the quadratic about 75 degF that every pollutant with no branch of its own takes. It is 0 for every pollutant-process any RunSpec in this tree emits, because the only rows `temperatureadjustment` carries are for pollutant-processes none of them reach -- which is exactly why adding this branch leaves all six existing runs unchanged to the digit."
+        },
+        "rt_temperatureFactor": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows",
+            "runspeccounty_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "S15's temperature adjustment, `general_temp_adjust` (adjust.rs:95-141) in its own branch order. The EV arm was the only one this chain had, because energy and tire wear were the only pollutants it computed; the NOx arm and the fall-through arrive with the criteria pollutants. For total NOx the factor is `(1 + tempAdjust) x k` -- the humidity correction MULTIPLIES the temperature factor rather than adding to it, which is the part a reader would not guess from the table names.\n\nWHAT IS STILL MISSING, AND SAID RATHER THAN LEFT: adjust.rs's FIRST branch is PM (pollutant 112 or 118, process 1 or 2), an exponential in `72 - T` with a ceiling at 72. No RunSpec in this tree emits a PM pollutant, so it is not written here; `fixtures/process-pm-exhaust.esm` carries it and `lib/adjustments.esm` carries its templates. A PM RunSpec would take the fall-through quadratic and be wrong, which is why this is a named gap and not a silence."
         },
         "rt_batteryEfficiency": {
           "type": "unknown",
@@ -7331,6 +7791,131 @@
                 }
               ]
             }
+          }
+        },
+        {
+          "_comment": "MG-1's last leg: the ambient pressure the two humidity measures divide by, gathered onto the county axis. MOVES reaches it as ZoneMonthHour -> Zone -> County and this chain as runspeccounty -> County, which is the same key.",
+          "lhs": "run_barometricPressure",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "g"
+            ],
+            "ranges": {
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "y": {
+                "from": "county_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rsc_countyID",
+                    "cty_countyID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "cty_barometricPressure",
+                "y"
+              ]
+            }
+          }
+        },
+        {
+          "_comment": "MG-6. The fixtures read `ZoneMonthHour.vaporPartialPressure`; this chain has no execution database and computes it from the temperature and relative humidity it already computes -- the same two columns the heat index reads, so the three meteorological derivatives cannot disagree about which hour they are for.",
+          "lhs": "run_vaporPartialPressure",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "vapor_partial_pressure_from_weather",
+            "bindings": {
+              "temperature_degF": "run_temperature",
+              "rel_humidity_percent": "run_relHumidity"
+            }
+          }
+        },
+        {
+          "_comment": "MG-7, specific humidity: g water per kg DRY air. The denominator subtracts the vapour pressure from the ambient pressure because the air it measures against is dry; the mole fraction's does not, and that one term is the only difference between the two.",
+          "lhs": "run_specificHumidity",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "specific_humidity",
+            "bindings": {
+              "vapor_pressure_kpa": "run_vaporPartialPressure",
+              "barometric_pressure_inhg": "run_barometricPressure"
+            }
+          }
+        },
+        {
+          "_comment": "MG-7, water mole fraction: moles of water per mole of AMBIENT air. CFR 1065's argument.",
+          "lhs": "run_molWaterFraction",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "mol_water_fraction",
+            "bindings": {
+              "vapor_pressure_kpa": "run_vaporPartialPressure",
+              "barometric_pressure_inhg": "run_barometricPressure"
+            }
+          }
+        },
+        {
+          "_comment": "The two humidity equations as one-row relations, so selecting one is a `join.on` like every other key selection here rather than an `==` inside a filter (conventions 20.4).",
+          "lhs": "run_humidityEqCFR86",
+          "rhs": {
+            "op": "makearray",
+            "args": [],
+            "regions": [
+              [
+                [
+                  1,
+                  1
+                ]
+              ]
+            ],
+            "values": [
+              {
+                "op": "enum",
+                "args": [
+                  "humidity_equation",
+                  "CFR86"
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "lhs": "run_humidityEqCFR1065",
+          "rhs": {
+            "op": "makearray",
+            "args": [],
+            "regions": [
+              [
+                [
+                  1,
+                  1
+                ]
+              ]
+            ],
+            "values": [
+              {
+                "op": "enum",
+                "args": [
+                  "humidity_equation",
+                  "CFR1065"
+                ]
+              }
+            ]
           }
         },
         {
@@ -14994,6 +15579,103 @@
           }
         },
         {
+          "_comment": "The same four slots off the same packed key, through the same template, because `emissionratebyage` packs its sourceBinID identically. One template, two tables.",
+          "lhs": "erba_fuelTypeID",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "source_bin_slot",
+            "bindings": {
+              "source_bin_id": "erba_sourceBinID",
+              "slot_scale": {
+                "op": "^",
+                "args": [
+                  10.0,
+                  {
+                    "op": "enum",
+                    "args": [
+                      "source_bin_slot",
+                      "FuelType"
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "lhs": "erba_engTechID",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "source_bin_slot",
+            "bindings": {
+              "source_bin_id": "erba_sourceBinID",
+              "slot_scale": {
+                "op": "^",
+                "args": [
+                  10.0,
+                  {
+                    "op": "enum",
+                    "args": [
+                      "source_bin_slot",
+                      "EngineTech"
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "lhs": "erba_regClassID",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "source_bin_slot",
+            "bindings": {
+              "source_bin_id": "erba_sourceBinID",
+              "slot_scale": {
+                "op": "^",
+                "args": [
+                  10.0,
+                  {
+                    "op": "enum",
+                    "args": [
+                      "source_bin_slot",
+                      "RegulatoryClass"
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "lhs": "erba_shortModYrGroupID",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "source_bin_slot",
+            "bindings": {
+              "source_bin_id": "erba_sourceBinID",
+              "slot_scale": {
+                "op": "^",
+                "args": [
+                  10.0,
+                  {
+                    "op": "enum",
+                    "args": [
+                      "source_bin_slot",
+                      "ShortModelYearGroup"
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
           "lhs": "rtMode_fullACAdjustment",
           "rhs": {
             "op": "faq",
@@ -16035,7 +16717,7 @@
           }
         },
         {
-          "lhs": "rt_hasRate",
+          "lhs": "rt_hasRateAgeless",
           "rhs": {
             "op": "faq",
             "args": [],
@@ -16078,10 +16760,76 @@
               }
             ],
             "expr": 1.0
+          },
+          "_comment": "J22 against `emissionrate`, the age-INDEPENDENT arm. Five key pairs: the pollutant-process and the four slots of the packed source bin."
+        },
+        {
+          "lhs": "rt_hasRateByAge",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "bool_and_or",
+            "output_idx": [
+              "b"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "a": {
+                "from": "emissionratebyage_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rt_polProcessID",
+                    "erba_polProcessID"
+                  ],
+                  [
+                    "rt_shortModYrGroupID",
+                    "erba_shortModYrGroupID"
+                  ],
+                  [
+                    "rt_regClassID",
+                    "erba_regClassID"
+                  ],
+                  [
+                    "rt_engTechID",
+                    "erba_engTechID"
+                  ],
+                  [
+                    "rt_fuelTypeID",
+                    "erba_fuelTypeID"
+                  ],
+                  [
+                    "rt_ageGroupID",
+                    "erba_ageGroupID"
+                  ]
+                ]
+              }
+            ],
+            "expr": 1.0
+          },
+          "_comment": "J58, the existence half: the same join as J22 against `emissionratebyage`, with the cohort's AGE GROUP as a sixth key pair. `sbweighted.rs:276-289` keeps the rate row only when its ageGroupID is `AgeCategory[year - modelYearID]`, which is what `rt_ageGroupID` already is."
+        },
+        {
+          "_comment": "Which arm this rate row's pollutant-process lives in. The two rate tables are DISJOINT in polProcessID -- a pollutant either deteriorates with age or does not -- so this SELECTS rather than adds, and `run_rateRowsInBothRateTables` is the check that the disjointness holds for the run rather than being assumed here.",
+          "lhs": "rt_hasRate",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "exact_else_wildcard",
+            "bindings": {
+              "has_exact": "rt_hasRateByAge",
+              "exact_value": 1.0,
+              "wildcard_value": "rt_hasRateAgeless"
+            }
           }
         },
         {
-          "lhs": "rtMode_rate",
+          "lhs": "rtMode_rateAgeless",
           "rhs": {
             "op": "faq",
             "args": [],
@@ -16137,6 +16885,86 @@
                 "er_meanBaseRate",
                 "a"
               ]
+            }
+          },
+          "_comment": "The same five key pairs plus the operating mode, reading the rate itself. `sbweighted.rs:290-320`."
+        },
+        {
+          "lhs": "rtMode_rateByAge",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b",
+              "m"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "m": {
+                "from": "operating_mode_rows"
+              },
+              "a": {
+                "from": "emissionratebyage_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rt_polProcessID",
+                    "erba_polProcessID"
+                  ],
+                  [
+                    "om_opModeID",
+                    "erba_opModeID"
+                  ],
+                  [
+                    "rt_shortModYrGroupID",
+                    "erba_shortModYrGroupID"
+                  ],
+                  [
+                    "rt_regClassID",
+                    "erba_regClassID"
+                  ],
+                  [
+                    "rt_engTechID",
+                    "erba_engTechID"
+                  ],
+                  [
+                    "rt_fuelTypeID",
+                    "erba_fuelTypeID"
+                  ],
+                  [
+                    "rt_ageGroupID",
+                    "erba_ageGroupID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "erba_meanBaseRate",
+                "a"
+              ]
+            }
+          },
+          "_comment": "J58: the age-resolved rate, on seven key columns -- the four source-bin slots, the pollutant-process, the operating mode and the age group."
+        },
+        {
+          "_comment": "And the rate itself, through the same selection. A rate row whose pollutant-process is age-resolved reads the age group's rate; one whose pollutant-process is not reads the single rate. `rt_hasRateByAge` is the discriminant in both, so the two lines cannot disagree about which table was used.",
+          "lhs": "rtMode_rate",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "exact_else_wildcard",
+            "bindings": {
+              "has_exact": "rt_hasRateByAge",
+              "exact_value": "rtMode_rateByAge",
+              "wildcard_value": "rtMode_rateAgeless"
             }
           }
         },
@@ -17390,6 +18218,509 @@
           }
         },
         {
+          "_comment": "adjust.rs:127 gates the NOx branch on pollutant 3 AND process 1, 90 or 91 together. Two of those processes are in no RunSpec in this tree and are named anyway, because the rule is the port and not the run.",
+          "lhs": "rt_isNoxTotal",
+          "rhs": {
+            "op": "ifelse",
+            "args": [
+              {
+                "op": "and",
+                "args": [
+                  {
+                    "op": "==",
+                    "args": [
+                      "rt_pollutantID",
+                      {
+                        "op": "enum",
+                        "args": [
+                          "pollutant",
+                          "OxidesOfNitrogen"
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "op": "or",
+                    "args": [
+                      {
+                        "op": "==",
+                        "args": [
+                          "rt_processID",
+                          {
+                            "op": "enum",
+                            "args": [
+                              "process",
+                              "RunningExhaust"
+                            ]
+                          }
+                        ]
+                      },
+                      {
+                        "op": "or",
+                        "args": [
+                          {
+                            "op": "==",
+                            "args": [
+                              "rt_processID",
+                              {
+                                "op": "enum",
+                                "args": [
+                                  "process",
+                                  "ExtendedIdleExhaust"
+                                ]
+                              }
+                            ]
+                          },
+                          {
+                            "op": "==",
+                            "args": [
+                              "rt_processID",
+                              {
+                                "op": "enum",
+                                "args": [
+                                  "process",
+                                  "AuxiliaryPowerExhaust"
+                                ]
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              1.0,
+              0.0
+            ]
+          }
+        },
+        {
+          "lhs": "rt_isDiesel",
+          "rhs": {
+            "op": "ifelse",
+            "args": [
+              {
+                "op": "==",
+                "args": [
+                  "rt_fuelTypeID",
+                  {
+                    "op": "enum",
+                    "args": [
+                      "fuel_type",
+                      "Diesel"
+                    ]
+                  }
+                ]
+              },
+              1.0,
+              0.0
+            ]
+          }
+        },
+        {
+          "_comment": "adjust.rs:521's `nha.map_or(1.0, ...)`: a fuel type the table has no row for takes no correction at all.",
+          "lhs": "rt_hasHumidityRow",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "bool_and_or",
+            "output_idx": [
+              "b"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "h": {
+                "from": "noxhumidityadjust_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rt_fuelTypeID",
+                    "nha_fuelTypeID"
+                  ]
+                ]
+              }
+            ],
+            "expr": 1.0
+          }
+        },
+        {
+          "_comment": "J59: `calculate_nox_k`'s two arms, adjust.rs:168-188. The equation name is a TEXT column, so the branch is a second key pair against a one-row relation and the two arms are separate aggregates -- which is also what keeps the CFR 86 rows' NULL `humidityTermB` out of the other arm's arithmetic. The `run_rows` range carries no index in the expression and is NOT spare: it is what lets the second key pair's right side -- `run_humidityEqCFR86`, a one-row relation over `run_rows` -- resolve to a loop symbol at all. Dropping it does not raise; the pair is silently ignored and BOTH arms fire for every fuel type (EarthSciAST #437).",
+          "lhs": "rt_humidityCFR86",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b",
+              "g",
+              "m"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "m": {
+                "from": "runspecmonth_rows"
+              },
+              "h": {
+                "from": "noxhumidityadjust_rows"
+              },
+              "n": {
+                "from": "run_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rt_fuelTypeID",
+                    "nha_fuelTypeID"
+                  ],
+                  [
+                    "nha_humidityNOxEq",
+                    "run_humidityEqCFR86"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "nox_humidity_cfr86",
+              "bindings": {
+                "term_a": {
+                  "op": "index",
+                  "args": [
+                    "nha_humidityTermA",
+                    "h"
+                  ]
+                },
+                "bounded_specific_humidity": {
+                  "op": "apply_expression_template",
+                  "args": [],
+                  "name": "bounded_specific_humidity",
+                  "bindings": {
+                    "specific_humidity": {
+                      "op": "index",
+                      "args": [
+                        "run_specificHumidity",
+                        "g",
+                        "m"
+                      ]
+                    },
+                    "low_bound": {
+                      "op": "index",
+                      "args": [
+                        "nha_humidityLowBound",
+                        "h"
+                      ]
+                    },
+                    "up_bound": {
+                      "op": "index",
+                      "args": [
+                        "nha_humidityUpBound",
+                        "h"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "lhs": "rt_humidityCFR1065",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b",
+              "g",
+              "m"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "m": {
+                "from": "runspecmonth_rows"
+              },
+              "h": {
+                "from": "noxhumidityadjust_rows"
+              },
+              "n": {
+                "from": "run_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rt_fuelTypeID",
+                    "nha_fuelTypeID"
+                  ],
+                  [
+                    "nha_humidityNOxEq",
+                    "run_humidityEqCFR1065"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "nox_humidity_cfr1065",
+              "bindings": {
+                "term_a": {
+                  "op": "index",
+                  "args": [
+                    "nha_humidityTermA",
+                    "h"
+                  ]
+                },
+                "term_b": {
+                  "op": "index",
+                  "args": [
+                    "nha_humidityTermB",
+                    "h"
+                  ]
+                },
+                "bounded_mole_fraction": {
+                  "op": "apply_expression_template",
+                  "args": [],
+                  "name": "bounded_low_then_high",
+                  "bindings": {
+                    "value": {
+                      "op": "index",
+                      "args": [
+                        "run_molWaterFraction",
+                        "g",
+                        "m"
+                      ]
+                    },
+                    "low_bound": {
+                      "op": "index",
+                      "args": [
+                        "nha_humidityLowBound",
+                        "h"
+                      ]
+                    },
+                    "up_bound": {
+                      "op": "index",
+                      "args": [
+                        "nha_humidityUpBound",
+                        "h"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "_comment": "The `run_rows` range carries no index in the expression and is NOT spare: it is what lets the second key pair's right side -- `run_humidityEqCFR86`, a one-row relation over `run_rows` -- resolve to a loop symbol at all. Dropping it does not raise; the pair is silently ignored and BOTH arms fire for every fuel type (EarthSciAST #437)."
+        },
+        {
+          "_comment": "Exactly one arm can be non-zero for a given fuel type, so their SUM is the selection; a fuel type with no row takes 1.",
+          "lhs": "rt_noxHumidityFactor",
+          "rhs": {
+            "op": "ifelse",
+            "args": [
+              {
+                "op": ">",
+                "args": [
+                  "rt_hasHumidityRow",
+                  0.5
+                ]
+              },
+              {
+                "op": "+",
+                "args": [
+                  "rt_humidityCFR86",
+                  "rt_humidityCFR1065"
+                ]
+              },
+              1.0
+            ]
+          }
+        },
+        {
+          "_comment": "adjust.rs:128-137. DIESEL is `(77 - T) x A` and switched off above 77 degF; every other fuel is the ordinary centred quadratic about 75. Two different reference temperatures in one branch, which is not a thing a reader guesses.",
+          "lhs": "rt_noxTemperatureAdjust",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b",
+              "g",
+              "m"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "m": {
+                "from": "runspecmonth_rows"
+              }
+            },
+            "expr": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "nox_temperature_adjustment",
+              "bindings": {
+                "term_a": {
+                  "op": "index",
+                  "args": [
+                    "rt_tempAdjustTermA",
+                    "b"
+                  ]
+                },
+                "term_b": {
+                  "op": "index",
+                  "args": [
+                    "rt_tempAdjustTermB",
+                    "b"
+                  ]
+                },
+                "temperature": {
+                  "op": "index",
+                  "args": [
+                    "run_temperature",
+                    "g",
+                    "m"
+                  ]
+                },
+                "is_diesel": {
+                  "op": "index",
+                  "args": [
+                    "rt_isDiesel",
+                    "b"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "_comment": "adjust.rs:141, the fall-through every pollutant with no branch of its own takes.",
+          "lhs": "rt_standardTemperatureAdjust",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b",
+              "g",
+              "m"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "m": {
+                "from": "runspecmonth_rows"
+              }
+            },
+            "expr": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "quadratic_temperature_adjustment",
+              "bindings": {
+                "term_a": {
+                  "op": "index",
+                  "args": [
+                    "rt_tempAdjustTermA",
+                    "b"
+                  ]
+                },
+                "term_b": {
+                  "op": "index",
+                  "args": [
+                    "rt_tempAdjustTermB",
+                    "b"
+                  ]
+                },
+                "temperature": {
+                  "op": "index",
+                  "args": [
+                    "run_temperature",
+                    "g",
+                    "m"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "_comment": "`general_temp_adjust` in adjust.rs's own branch order, minus the PM arm its description names. The EV arm is unchanged and still first of the three, so the five RunSpecs that reach only it are untouched.",
+          "lhs": "rt_temperatureFactor",
+          "rhs": {
+            "op": "ifelse",
+            "args": [
+              {
+                "op": ">",
+                "args": [
+                  "rt_isEvEnergyRunning",
+                  0.5
+                ]
+              },
+              "rt_evTemperatureFactor",
+              {
+                "op": "ifelse",
+                "args": [
+                  {
+                    "op": ">",
+                    "args": [
+                      "rt_isNoxTotal",
+                      0.5
+                    ]
+                  },
+                  {
+                    "op": "*",
+                    "args": [
+                      {
+                        "op": "+",
+                        "args": [
+                          1.0,
+                          "rt_noxTemperatureAdjust"
+                        ]
+                      },
+                      "rt_noxHumidityFactor"
+                    ]
+                  },
+                  {
+                    "op": "+",
+                    "args": [
+                      1.0,
+                      "rt_standardTemperatureAdjust"
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
           "lhs": "rt_batteryEfficiency",
           "rhs": {
             "op": "faq",
@@ -17803,7 +19134,7 @@
                         {
                           "op": "index",
                           "args": [
-                            "rt_evTemperatureFactor",
+                            "rt_temperatureFactor",
                             "b",
                             "g",
                             "m"
