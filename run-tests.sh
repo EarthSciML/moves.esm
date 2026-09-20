@@ -1247,7 +1247,7 @@ fi
 # run's own execution-database snapshot, through two mount edges:
 #
 #   runspecs/<run>.esm            that run's selections + its oracle
-#     -> moves-onroad.esm         39 national tables + the mount
+#     -> moves-onroad.esm         40 national tables + the mount
 #       -> onroad/model.esm       the onroad domain model, shared with 7c
 #
 # WHAT IT IS CHECKING is not the plumbing -- 7c already checks that a three
@@ -1293,6 +1293,15 @@ C7P_DOMAIN=moves-onroad.esm
 # `runspecs/` when J56 -- the `emissionRateAdjustment` model-year factor -- took
 # it from 427 of 430 cells to 430. An empty pending directory is a result and a
 # silent stage would not distinguish it from a deleted one.
+#
+# `expand-month` never entered it. Its model work -- the month axis and the
+# `aggregateBy = Month` pre-aggregation -- was done first and BOTH of the
+# pre-aggregation's weights were reproduced from the default database against
+# the snapshot's own collapsed tables before a line of the model changed
+# (PLAN.md 7.3.11), so the document was written last and reproduced on its
+# first run. That is the other way round from every other document in this
+# directory and it is worth noticing: a measurement made before the port is
+# what turned a second aggregation MODE into a translation.
 mapfile -t RUNSPECS < <(find runspecs -maxdepth 1 -name '*.esm' -not -name '.*' 2>/dev/null | sort)
 mapfile -t RUNSPECS_PENDING < <(find runspecs/pending -maxdepth 1 -name '*.esm' -not -name '.*' 2>/dev/null | sort)
 

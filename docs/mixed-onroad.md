@@ -896,7 +896,7 @@ with the spelling that replaces it.
 | J7 | S5 | `analysisYearVMT` | `roadtypedistribution` | `(HPMSVtypeID via sourceusetype, —)`, `(—, sourceTypeID)`; then `roadtypedistribution` ⋈ `roadtype` on `(roadTypeID, roadTypeID)` |
 | J8 | S5 | that product | `travelFraction` | `(sourceTypeID, sourceTypeID)`, `(yearID, yearID)` |
 | J9 | S6 | `avgspeeddistribution` | `avgspeedbin` | `(avgSpeedBinID, avgSpeedBinID)` |
-| J10 | S6 | `avgspeeddistribution` | `hourday` | `(hourDayID, hourDayID)`; then ⋈ `runspecday` on `(dayID, dayID)` and ⋈ `runspechour` on `(hourID, hourID)` |
+| J10 | S6, S14 | `avgspeeddistribution` | `hourday` | `(hourDayID, hourDayID)`; then ⋈ `rateday` on `(dayID, dayID)` and ⋈ `aggregationhour` on `(hourID, hourID)`. Those two ARE `runspecday` and `runspechour` on every fixture here; on a run that sets `aggregateBy` they are the pre-aggregation's own day and hour lists, and the join becomes a `hourVMTFraction`-weighted MEAN over the cells rather than a lookup at one (conventions §66). Both S6's average speed and S14's `W` read the result |
 | J11 | S7 | `annualVMTByAgeRoadway` | `monthvmtfraction` | `(sourceTypeID, sourceTypeID)` |
 | J12 | S7 | ″ | `dayvmtfraction` | `(sourceTypeID, sourceTypeID)`, `(monthID, monthID)`, `(roadTypeID, roadTypeID)` |
 | J13 | S7 | ″ | `hourvmtfraction` | `(sourceTypeID, sourceTypeID)`, `(roadTypeID, roadTypeID)`, `(dayID, dayID)`, `(hourID, hourID)` — four pairs, one clause |
@@ -914,8 +914,9 @@ with the spelling that replaces it.
 | J25 | S13 | ″ | `fleetavgadjustment` | *not an equi-join*: `beginModelYearID <= MY <= endModelYearID` on `(polProcessID, fleetAvgGroupID)`. A two-pair `join.on` plus a range `filter` |
 | J26 | S14 | `sbWeightedMeanBaseRate` | `W` | `(opModeID, opModeID)`, `(hourDayID, hourDayID)` |
 | J27 | S15 | `baseRate` | `runspecroadtype` | `(roadTypeID, roadTypeID)`. **This is the join that suppresses every process-2 row** (§0.2) |
-| J28 | S15 | ″ | `zonemonthhour` | `(zoneID, zoneID)`, `(monthID, monthID)`, `(hourID, hourID)` |
-| J29 | S15 | ″ | `monthgrouphour` | `(monthGroupID via monthofanyyear, monthGroupID)`, `(hourID, hourID)` |
+| J28 | S15 | ″ | `zonemonthhour` | `(zoneID, zoneID)`, `(monthID, monthID)`, `(hourID, hourID)` — where the hour is the run's TIME CELL and not a scalar, so this is a cell-weighted mean and not a lookup. On this fixture there is one cell and the mean is the row; see J57 and conventions §66 |
+| J29 | S15 | ″ | `monthgrouphour` | `(monthGroupID via monthofanyyear, monthGroupID)`, `(hourID, hourID)`, over the same cells as J28. Both sides have to land on the same hour or the A/C energy term is dropped |
+| J57 | S14, S15 | the time cells | `hourvmtfraction` ⋈ `roadtypedistribution` | `(sourceTypeID, sourceTypeID)`, `(dayID, dayID)`, `(hourID, hourID)`, then `(sourceTypeID, roadTypeID)` on both. PreAggDAY's HourWeighting2 — the weight J28 and J29 average with, and beside it `hourVMTFraction` alone is the weight J10 averages with |
 | J30 | S15 | ″ | `sourcetypemodelyear` | `(sourceTypeModelYearID, sourceTypeModelYearID)` |
 | J31 | S15 | ″ | `sourcetypeage` | `(sourceTypeID, sourceTypeID)`, `(ageID, ageID)` with `ageID = yearID − modelYearID` |
 | J32 | S15 | ″ | `temperatureadjustment` | *not an equi-join*: `minModelYearID <= MY <= maxModelYearID` on `(polProcessID, fuelTypeID, regClassID)`. Three pairs plus a range `filter` |

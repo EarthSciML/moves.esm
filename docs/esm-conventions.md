@@ -6444,7 +6444,7 @@ last dimension the corpus could still hide it in.
 | did NOT | why |
 |---|---|
 | `rtDay_meanBaseRate` and the whole rate stack under it | a base rate is not month-keyed. Only the ADJUSTED rate is, and only through the temperature and A/C steps |
-| `act_hourVMTFraction` | `HourVMTFraction` is keyed by (source type, road type, day, hour) and by nothing else — which is the sharpest line in the table, because `act_dayVMTFraction` beside it IS month-keyed |
+| `act_hourVMTFraction` | `HourVMTFraction` is keyed by (source type, road type, day, hour) and by nothing else — which is the sharpest line in the table, because `act_dayVMTFraction` beside it IS month-keyed. **Both names are gone as of §66**, merged into one `act_timeVMTFraction` summed over the run's time cells; the asymmetry above is why the merged relation carries the month |
 | the drive cycle and the operating-mode family | `driveSchedule` and `avgSpeedDistribution` carry no month |
 | `coh_isSelected`, `coh_rank`, the source bins, the age distribution | which cohorts survive is national and annual |
 
@@ -6487,12 +6487,129 @@ What it does NOT buy is `expand-month`, and the distinction is the whole reason
 this section stops here. That run sets `aggregateBy = Month`, and the axis is
 the cheaper half of what that costs: the other half is that MOVES rewrites six
 input tables before the rate calculation runs, to a single `(hourDayID, dayID,
-hourID) = (0, 0, 0)` cell the default database does not ship. That is a
-GENERATOR, in the sense §35.1 fixed for `MeteorologyGenerator` and
-`FuelEffectsGenerator`, and it belongs in a component with an oracle rather
-than inside the model. The pre-aggregation is measured — the collapsed
-`AvgSpeedDistribution` reproduces from the default database to 4.5e-06 over all
-64 cells and the collapsed `ZoneMonthHour` temperature and relative humidity to
-2.7e-10 over all four months, both at the snapshot column's own stored
-precision — and PLAN.md §7.3.11 records the two weights and the one place
-`moves.rs` gets the second of them wrong.
+hourID) = (0, 0, 0)` cell the default database does not ship. The pre-aggregation was
+measured first — the collapsed `AvgSpeedDistribution` reproduces from the
+default database to 4.5e-06 over all 64 cells and the collapsed `ZoneMonthHour`
+temperature and relative humidity to 2.7e-10 over all four months, both at the
+snapshot column's own stored precision — and §66 is what those two measurements
+turned out to be worth.
+
+## 66. A second aggregation MODE is a per-run selection of time cells, and then it is not a mode **[PLAN.md step 7d; `expand-month` 500 of 500, worst cell 8.513e-06, five runs unchanged to the digit]**
+
+`aggregateBy = Month` looks like a branch. Canonical MOVES answers it by
+REWRITING six input tables before the rate calculation runs — `HourDay`,
+`HourOfAnyDay` and `DayOfAnyWeek` to one row each, `HourVMTFraction` and
+`DayVMTFraction` to the literal 1.0, and `AvgSpeedDistribution`, `ZoneMonthHour`
+and `MonthGroupHour` to a weighted average over a single
+`(hourDayID, dayID, hourID) = (0, 0, 0)` cell — and none of those rewritten rows
+is in the default database, because every one of them is a RESULT (§59.2).
+
+**Written as a branch it would be a second model. Written as a per-run
+selection it is the case every other run was already the degenerate form of.**
+A RunSpec declares three lists beside the ones it already declares:
+
+| source | what it says | the five runs that do not aggregate | `expand-month` |
+|---|---|---|---|
+| `db_rateday` | day types the RATE tables are averaged over | its own `runspecday`, same file | `dayID 5` |
+| `db_actday` | day types the output day's ACTIVITY covers | its own `runspecday`, same file | the whole week |
+| `db_aggregationhour` | hours the run averages over | its own `runspechour`, same file | all 24 |
+
+and the model reads `avgSpeedDistribution` and `zoneMonthHour` as WEIGHTED MEANS
+over the resulting (day type, hour) cells instead of as lookups. **A mean over
+one cell is that cell**, whatever the weight, so all five existing RunSpecs
+reproduce unchanged to the digit — 8.128e-06, 7.106e-06, 1.140e-05, 7.372e-06
+and 9.017e-06 — with nine new relations between them and the table.
+
+### 66.1 The two weights, and the one that cancels
+
+```
+asd_cellWeight(day, hour, sourceType) = hourVMTFraction at the run's road type
+met_cellWeight(day, hour)             = Σ_s HourWeighting2(s, day, hour),
+   HourWeighting2 = Σ_rt hourVMTFraction × roadTypeVMTFraction
+                  / Σ_rt roadTypeVMTFraction
+```
+
+Canonical multiplies the first by a `DayWeighting1` over the month —
+`Σ_month dayVMTFraction·noOfRealDays·monthVMTFraction / Σ_month
+monthVMTFraction`. **It cancels, and the reason is structural rather than
+numerical**: every output day of every run in this corpus aggregates over ONE
+day type, so a factor keyed on the day type is constant across the cells it is
+averaged over. Reproducing the snapshot's collapsed `AvgSpeedDistribution` with
+the factor and without it gives the same 4.5e-06, which is that column's storage
+precision. Carrying it would have been four more relations that no measurement
+could see.
+
+`met_cellWeight` sums HourWeighting2 over the run's SELECTED source types where
+canonical picks one out of a fixed ordering (`moves.rs` ports that ordering as a
+13-element constant). **No run in this corpus can tell the two apart**, and the
+reason is worth stating rather than the fact: a run that aggregates selects one
+source type, and a run that does not average over one cell, where the weight
+cancels entirely. The sum is the form that needs no unverifiable constant, and
+this paragraph is the record that it is a choice.
+
+### 66.2 The rate side and the activity side are scoped DIFFERENTLY
+
+This is the part a reader gets wrong, and `db_rateday` against `db_actday` is
+the whole of it:
+
+* the rate-side collapse is scoped to the day type the RunSpec **selected** —
+  `day id="5"`. Averaging over both day types instead moves the collapsed
+  `ZoneMonthHour` temperature by 1.6e-02 and `AvgSpeedDistribution` by 6.3e-02.
+  Measured at the output by pointing `db_rateday` at `db_actday`'s file: **all
+  500 cells over the per-cell gate, worst 2.403e-02**, and the per-pollutant sum
+  at 6.890e-03 against a 1e-3 gate.
+* the activity covers the **whole week** whatever the RunSpec selected.
+  Canonical writes `dayVMTFraction := 1`, `hourVMTFraction := 1` and
+  `noOfRealDays := 7` — on a run that asked for weekdays.
+
+Both literals are SUMS, and the model writes them as sums so that no literal
+appears in it. `Σ_day dayVMTFraction` is exactly 1.0 in the default database,
+`Σ_hour hourVMTFraction` is 1 to 2.2e-07, and `Σ_day noOfRealDays` over the two
+day types is 7. `act_dayVMTFraction × act_hourVMTFraction` became one
+`act_timeVMTFraction` for the same reason: the product of two per-cell fractions
+is not the sum over cells of their product unless there is one cell, and writing
+the sum makes the one-cell case fall out instead of being assumed.
+
+### 66.3 What it retired
+
+`zmh_heatIndex` is gone. The heat index was computed per `zoneMonthHour` row and
+then looked up; it is now computed from the COLLAPSED temperature and relative
+humidity, which is what canonical does and what the snapshot shows — all four
+of `expand-month`'s months carry `heatIndex == temperature`, the below-threshold
+branch, at the collapsed temperature. **The two orders differ whenever a run
+aggregates across the 78 °F threshold**, and averaging the branch is the wrong
+one. `act_dayID` went with it, unreferenced once the activity read its fractions
+through the cells.
+
+### 66.4 The one selection that is not in the snapshot
+
+`db_rateday` is the only source in `runspecs/` that does not point at its own
+snapshot or at the default database. MOVES overwrites `RunSpecDay` with the
+synthesized output day AFTER the pre-aggregation has run, so the captured table
+says `dayID 0` and the day the weights were scoped to is not in the execution
+database at all. `tools/runspec-day-selection.py` reads it from the RunSpec XML
+into `runspecs/selections/expand-month-rateday.parquet`.
+
+**That is an interim and it is filed as one** (moves.rs#69): a snapshot should
+be self-describing about what was ASKED for as well as about what MOVES
+computed, and the capture already holds the XML. When it carries the parsed
+selections the script and its output go away. The general rule this run adds to
+§7.1's discipline is narrower than it looks: **a per-fixture document reads its
+selections out of the snapshot, except where MOVES has overwritten one with a
+result — and then the document says which one, and why, and where it went
+instead.**
+
+### 66.5 What it bought
+
+| | |
+|---|---|
+| `expand-month` | **500 of 500 cells, worst cell 8.513e-06** against a 2e-05 gate, worst per-pollutant 6.386e-07 |
+| cost | 8.6 s, 0.51 GB — the cheapest run in `runspecs/` after `process-tirewear` |
+| the other five | unchanged to the digit |
+| first run | it reproduced on it |
+
+The last line is the one worth keeping. Both weights were reproduced in Python
+against the snapshot's own collapsed tables **before the model changed**
+(PLAN.md §7.3.11), which turned a second aggregation mode from a search into a
+translation. Every other document in `runspecs/` went through `pending/` first;
+this one never entered it.

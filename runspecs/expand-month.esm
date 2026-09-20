@@ -1,0 +1,254 @@
+{
+  "esm": "1.2.0",
+  "metadata": {
+    "name": "expand-month-runspec",
+    "description": "PLAN.md §7.5 step 7d, the timespan dimension at its second axis AND at its second MODE: the `expand-month` run computed from the DEFAULT DATABASE through `moves-onroad.esm`. It is the sixth RunSpec this domain document has been asked for, and the first whose RunSpec asks MOVES to do something to the input tables rather than to select from them.\n\nWHAT IT DISCRIMINATES, which §23 asks for before a dimension is called covered.\n\n* FOUR MONTHS, AND THE MONTH WAS A SCALAR UNTIL THIS RUN. `runspecmonth` is 4 rows here and 1 everywhere else in this tree, so `run_monthID` -- a `faq` that summed `rsm_monthID` onto the one-row carrier relation -- returned the right answer on the whole corpus by summing one number. February, May, August and November span the meteorology: 26.04, 61.49, 74.17 and 41.75 degF, one of them below freezing and one of them the only cell in `runspecs/` where the A/C activity quadratic clears its clamp. Conventions §65 has the 26 variables that gained the axis and the 446 that did not.\n\n* `aggregateBy = Month`, WHICH IS A SECOND TIME-AGGREGATION MODE AND NOT A WIDER SELECTION. The RunSpec selects `day id=5` and the 6am hour, and MOVES answers by collapsing the hour and day dimensions of six input tables to a single `(hourDayID, dayID, hourID) = (0, 0, 0)` cell BEFORE the rate calculation runs -- `HourDay`, `HourOfAnyDay` and `DayOfAnyWeek` to one row each, `HourVMTFraction` and `DayVMTFraction` to 1.0, and `AvgSpeedDistribution`, `ZoneMonthHour` and `MonthGroupHour` to a weighted average. The output's `dayID` and `hourID` both come back 0 and its `noOfRealDays` is 7, on a run that asked for weekdays. None of that is in the default database, because all of it is a RESULT; PLAN.md §7.3.11 measures both weights against the snapshot's own collapsed tables before the model was asked to compute either.\n\n* THE ACTIVITY AND THE RATES ARE SCOPED DIFFERENTLY, and this is the run that says so. The rate-side collapse is weighted by `hourVMTFraction` and scoped to the day type the RunSpec SELECTED; the activity covers the whole week whatever the RunSpec selected. Substituting one scoping for the other moves `ZoneMonthHour`'s February temperature by 1.6e-02 and `AvgSpeedDistribution` by 6.3e-02 relative, and the probe measures it at the OUTPUT: pointing `db_rateday` at `db_actday`'s file puts ALL 500 CELLS over the per-cell gate, worst 2.403e-02, and the per-pollutant sum at 6.890e-03 against a 1e-3 gate. `db_rateday` and `db_actday` are the same file on every other RunSpec in this directory and are two different files here, which is the whole content of the distinction.\n\nWHY `db_rateday` IS THE ONE SELECTION THIS DOCUMENT DOES NOT READ OUT OF ITS SNAPSHOT. MOVES overwrites `RunSpecDay` with the synthesized output day AFTER the pre-aggregation has run, so the captured table says `dayID 0` and the day the weights were scoped to is not in the execution database at all. It is still in the RunSpec XML, and `tools/runspec-day-selection.py` reads it from there into `runspecs/selections/expand-month-rateday.parquet`. That is an interim and it is filed upstream: the snapshot is where a parsed selection belongs, beside the tables MOVES wrote, and `moves.rs` already records the XML's sha256 in `provenance.json`.\n\nTHE THIRTEEN SELECTIONS, ONE BINDING AND THE ORACLE are everything this document carries, as §7.1 asks. Against `runspecs/expand-day.esm` it differs in eleven `url_template`s, in the three files `db_rateday`, `db_actday` and `db_aggregationhour` point at, and in nothing else.",
+    "authors": [
+      "EarthSciML Authors and Contributors"
+    ],
+    "tags": [
+      "runspec",
+      "onroad",
+      "default-database",
+      "expand-month",
+      "aggregate-by-month"
+    ]
+  },
+  "data_sources": {
+    "db_runspecyear": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/expand-month/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecyear.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecyear"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, yearID 2020.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecmonth": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/expand-month/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecmonth.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecmonth"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "4 ROWS -- monthID 2, 5, 8 and 11, AND THAT IS HALF OF WHY THIS RUN IS HERE. Every other RunSpec in this tree selects one month, so `run_monthID` summed a single row onto `run_rows` and was right by accident. `n_runspecmonth` is discovered from this extent, and the output relation gains a level with no other edit (conventions §65.2).",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspechour": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/expand-month/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspechour.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspechour"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, hourID 0 -- the SYNTHESIZED `Entire Day`, not an hour of the clock. The RunSpec asked for the 6am hour; `aggregateBy = Month` overrode it, and this is the OUTPUT hour the answer is keyed by.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_aggregationhour": {
+      "kind": "static",
+      "source": {
+        "url_template": "../movesdb/HourOfAnyDay.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_aggregationhour"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "THE 24 HOURS THE RATES AND THE ACTIVITY ARE AVERAGED OVER, and not a selection of the run's -- `aggregateBy` overrides the RunSpec's hour range with the whole day, so this is the default database's own `HourOfAnyDay`. On every other RunSpec in this directory it is that run's `runspechour` and the averaging is over one cell.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecday": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/expand-month/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecday.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecday"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, dayID 0 -- the SYNTHESIZED `Whole Week`, which `dayofanyweek` does not name. It is the OUTPUT day, and it is what makes `rday_outputDayOrdinal`'s wildcard fire: no real day type matches it, so every time cell belongs to it.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_rateday": {
+      "kind": "static",
+      "source": {
+        "url_template": "./selections/expand-month-rateday.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_rateday"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "THE DAY TYPE THE RATE-SIDE COLLAPSE IS SCOPED TO, dayID 5, and the only selection in this directory that does not come from a snapshot table. See the description: MOVES overwrote `RunSpecDay` after the pre-aggregation ran, so the captured table no longer states it, and `tools/runspec-day-selection.py` reads it from the RunSpec XML instead.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_actday": {
+      "kind": "static",
+      "source": {
+        "url_template": "../movesdb/DayOfAnyWeek.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_actday"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "THE DAY TYPES THE ACTIVITY COVERS: the default database's own `DayOfAnyWeek`, both of them. `aggregateBy = Month` puts the whole month's travel in one cell whatever the RunSpec selected, which canonical writes as `dayVMTFraction := 1` and `noOfRealDays := 7`. The model reads those as SUMS over these two rows -- `dayVMTFraction` sums to exactly 1.0 and `noOfRealDays` to 7 -- so the literal never appears in the document.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecsourcetype": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/expand-month/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecsourcetype.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecsourcetype"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, sourceTypeID 21.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecroadtype": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/expand-month/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecroadtype.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecroadtype"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, roadTypeID 4.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecsourcefueltype": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/expand-month/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecsourcefueltype.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecsourcefueltype"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "4 rows, source type 21 on fuel types 1, 2, 5 and 9.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecpollutantprocess": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/expand-month/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecpollutantprocess.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecpollutantprocess"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "3 rows -- 9101, 9102 and 9190. Only 9101 reaches `MOVESOutput`, for the reason `expand-day` established: start exhaust and extended idle write on the off-network road type and this run selects road type 4 alone.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecchainedto": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/expand-month/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecchainedto.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecchainedto"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "0 rows. Total energy is not a chained pollutant.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspeccounty": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/expand-month/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspeccounty.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspeccounty"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, Washtenaw County, Michigan (26161).",
+        "esio_format": "parquet"
+      }
+    },
+    "db_movesoutput": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/expand-month/tables/db__out_expand_month__movesoutput.parquet"
+      },
+      "reader_options": {
+        "float_columns": [
+          "emissionQuant"
+        ]
+      },
+      "metadata": {
+        "tags": [
+          "oracle",
+          "expected-output"
+        ],
+        "note": "The ORACLE: 500 rows = 1 pollutant-process block x 1 county x 4 months x 1 day type x 125 cohorts, every one of them at dayID 0 and hourID 0. `compare-output.py` reads it per cell against this chain's answer.",
+        "esio_format": "parquet"
+      }
+    }
+  },
+  "models": {
+    "Onroad": {
+      "ref": "../moves-onroad.esm",
+      "bindings": {
+        "n_outputPolProcess": 1
+      }
+    }
+  }
+}
