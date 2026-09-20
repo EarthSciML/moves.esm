@@ -1,11 +1,11 @@
 # Findings: conventions the format or the toolchain could not express
 
 Forty-eight things PLAN.md §3 Phase 1 through Phase 5 assumed, or that an author
-would reasonably assume, that did not hold. **Twenty-four are fixed upstream and
+would reasonably assume, that did not hold. **Twenty-six are fixed upstream and
 retired** from the tripwire, with their sections kept so the workarounds they
 forced can be traced — and one of those, F14, was retired because the assumption
 was wrong rather than the format. The rest still hold at the pinned toolchain
-(`esm-version.lock`: EarthSciAST `8ac536bf0`, EarthSciIO `7d8b748`, `--features
+(`esm-version.lock`: EarthSciAST `3cf6f6f92`, EarthSciIO `7d8b748`, `--features
 esio,parallel`).
 
 **F2 and F34 were retired at that rebuild**, which moved the pin 272 commits
@@ -15,7 +15,7 @@ bottom now. Nothing else changed state: the other nine repro-carrying findings
 — ten files, F22 having two — still fail exactly as recorded, no spec, fixture
 or oracle regressed, and no tolerance moved.
 
-F22, F28, F41, F43, F45, F56, F57 and F59 each have a minimal `.esm` repro in this directory —
+F22, F28, F41, F43, F45, F56 and F57 each have a minimal `.esm` repro in this directory —
 F22 has two, one per construct, and F57 has a control beside its repro. **F58's
 file was never a repro and is now a control**, which is a ninth reason and a new
 one: its document is the minimal case and it PASSES, because F58 was a cost
@@ -3644,10 +3644,17 @@ its arms are DEMONSTRATED rather than argued — exit 0 on the pinned binary,
 exit 1 with the retirement instructions on the #420 build. A tripwire whose
 passing arm is the only one ever exercised is a tripwire nobody has tested.
 
-## F59 — a scalar (unshaped) variable reads as NaN inside a `faq`
+## F59 — a scalar (unshaped) variable reads as NaN inside a `faq` **[fixed upstream, retired]**
 
-`F59_a_scalar_is_nan_inside_a_faq.esm`. Found at PLAN.md §7.3.8, moving the pin
-to the toolchain that fixed F58.
+**Fixed by EarthSciAST PR #433 (merged 2026-09-19), retired at the `3cf6f6f92`
+rebuild.** Filed as #431. A build-time field's rank now comes from its
+DECLARATION, so a variable with no `shape` materializes at `IxDyn(&[])` and
+`lookup_variable` answers it as the scalar every other layer already expects.
+The repro is deleted; the fixing commit carries `tests/scalar_operand_in_faq.rs`,
+which I checked is falsifiable on the unfixed tree. There was no workaround to
+remove, because the length-1 axis was deliberately never spent.
+
+Found at PLAN.md §7.3.8, moving the pin to the toolchain that fixed F58.
 
 **It is NOT a regression, and this section said it was.** The claim came from
 this suite going green on `8ac536bf0`, which exercises `esm test`; nobody had

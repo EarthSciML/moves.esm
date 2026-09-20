@@ -2233,15 +2233,20 @@ of its aggregates are NaN. Every fixture and oracle is still green, which says
 the mounted paths are fine; it is not evidence, because the tests that would say
 so do not run.
 
-**A length-1 axis works around it** — `index(base, 1)` over a 1-long index set
-reads correctly where the bare scalar does not — and was deliberately not spent,
+**A length-1 axis would have worked around it and was deliberately not spent**,
 because [#433](https://github.com/EarthSciML/EarthSciAST/pull/433) fixes it
 upstream instead: a build-time field's rank now comes from its declaration, so an
-unshaped variable materializes at `IxDyn(&[])`. Verified against that branch
-here, the inline-test stage over `components lib runspecs` goes **723 pass / 155
-fail to 831 / 47** — 108 assertions across seven components that were silently
-NaN, no file worse — and `tank_temperature.esm` alone goes 23/41 to **64/0**.
-The suite is 255 ok and 1 FAIL until it merges and the pin moves again.
+unshaped variable materializes at `IxDyn(&[])`. **Merged 2026-09-19**, along with
+[#434](https://github.com/EarthSciML/EarthSciAST/pull/434), and the pin moves
+again to `3cf6f6f92`. F59 is retired.
+
+**The inline-test stage is now 878 pass / 0 fail**, over `components`, `lib` and
+`runspecs`. It was 723 / 155 on the pin that found this, 831 / 47 with #433
+alone, and #434 closed the rest. So the scalar defect was costing this
+repository **155 assertions across eight documents**, silently, for longer than
+anyone had looked — and the reason nobody had looked is the one worth keeping:
+the suite's own inline-test stage was green at the pin before, because a
+state-free document never reached the path that was broken.
 
 ### 7.4 Upstream asks
 

@@ -426,7 +426,6 @@ declare -A REPRO_SIGNATURE=(
   [F45_an_ingesting_document_holds_one_model]='document holds several models'
   [F56_a_zero_sized_axis_panics]='col_major_to_arrayd shape mismatch'
   [F57_a_wide_join_key_is_dropped]='actual=4 expected=2'
-  [F59_a_scalar_is_nan_inside_a_faq]='actual=NaN expected=11'
 )
 
 # The positive control for the mount-edge repros that use it. join_leaf.esm is
