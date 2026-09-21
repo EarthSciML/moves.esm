@@ -5,11 +5,14 @@ RECOMPUTES, rather than against the shape it was declared with.
 Four numbers in `onroad/model.esm` are declared and not discovered, because no
 table in the database states them -- MOVES works them all out at run time:
 
-  n_outputCohort      how many (sourceTypeID, fuelTypeID, modelYearID) cohorts
-                      reach MOVESOutput, recomputed as `cohortSurvivorCount`
-  n_outputPolProcess  how many of the run's selected pollutant-processes reach
-                      it at all, recomputed as `outputPolProcessCount` from
-                      `rspp_isEmitted` -- MOVES's join to `runSpecRoadType`
+  n_outputRate        how many (pollutant-process, cohort) PAIRS reach
+                      MOVESOutput, recomputed as `rateSurvivorCount`. It is ONE
+                      number where there used to be two, because two could only
+                      describe a rectangle: a chained block is narrower than its
+                      parent wherever its ratio table is (PLAN.md 7.3.16). The
+                      two factors are still reported separately, as
+                      `outputPolProcessCount` and `cohortSurvivorCount`, and
+                      this says whether their product is the answer
   n_sourceBin         how many source bins the widest cohort holds, checked the
                       other way round by `run_sourceBinsDropped`
   n_physicsRow        how many `sourceusetypephysics` rows the run's source
@@ -26,9 +29,10 @@ where it was.
 So this asserts the identity three ways at once -- the declared row count, the
 chain's recomputation, and the KEYS actually present in the output:
 
-    rows == outputPolProcessCount x counties x months x day types x cohortSurvivorCount
+    rows == rateSurvivorCount x counties x months x day types
     distinct (pollutantID, processID) == outputPolProcessCount
     distinct (sourceTypeID, fuelTypeID, modelYearID) == cohortSurvivorCount
+    rateSurvivorCount <= outputPolProcessCount x cohortSurvivorCount
     run_sourceBinsDropped == 0
     run_physicsRowsDropped == 0
     run_rateRowsWithoutPhysics == 0
@@ -85,6 +89,7 @@ def main(emitted_path, shape_path):
                  % (shape_path, len(shape)))
     blocks = int(float(shape[0]["outputPolProcessCount"]))
     cohorts = int(float(shape[0]["cohortSurvivorCount"]))
+    pairs_emitted = int(float(shape[0]["rateSurvivorCount"]))
     dropped = int(float(shape[0]["run_sourceBinsDropped"]))
     vehicleless = int(float(shape[0]["run_physicsRowsDropped"]))
     unphysical = int(float(shape[0]["run_rateRowsWithoutPhysics"]))
@@ -99,11 +104,15 @@ def main(emitted_path, shape_path):
     cohort_keys = distinct("out_sourceTypeID", "out_fuelTypeID", "out_modelYearID")
 
     problems = []
-    expected = blocks * len(counties) * len(months) * len(days) * cohorts
+    expected = pairs_emitted * len(counties) * len(months) * len(days)
     if len(rows) != expected:
-        problems.append("%d rows, but the chain recomputes %d x %d x %d x %d x %d "
-                        "= %d" % (len(rows), blocks, len(counties), len(months),
-                                  len(days), cohorts, expected))
+        problems.append("%d rows, but the chain recomputes %d x %d x %d x %d = %d"
+                        % (len(rows), pairs_emitted, len(counties), len(months),
+                           len(days), expected))
+    if pairs_emitted > blocks * cohorts:
+        problems.append("%d (pollutant-process, cohort) pairs emit, which is MORE "
+                        "than the %d blocks x %d cohorts they can be drawn from"
+                        % (pairs_emitted, blocks, cohorts))
     if len(pairs) != blocks:
         problems.append("%d (pollutantID, processID) pairs emitted, but "
                         "outputPolProcessCount is %d" % (len(pairs), blocks))
@@ -130,10 +139,15 @@ def main(emitted_path, shape_path):
             print(p)
         return 1
 
-    print("%d rows = %d pollutant-process block(s) x %d count%s x %d month(s) "
-          "x %d day type(s) x %d cohorts, no source bin and no vehicle dropped"
-          % (len(rows), blocks, len(counties), "y" if len(counties) == 1 else "ies",
-             len(months), len(days), cohorts))
+    ragged = pairs_emitted != blocks * cohorts
+    print("%d rows = %d (pollutant-process, cohort) pair%s x %d count%s x %d "
+          "month(s) x %d day type(s); %d block(s) and %d cohort(s), %s; no source "
+          "bin and no vehicle dropped"
+          % (len(rows), pairs_emitted, "" if pairs_emitted == 1 else "s",
+             len(counties), "y" if len(counties) == 1 else "ies",
+             len(months), len(days), blocks, cohorts,
+             "RAGGED -- a block is narrower than the widest" if ragged
+             else "a rectangle"))
     return 0
 
 

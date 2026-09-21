@@ -7009,3 +7009,71 @@ select is rated and every pollutant-process they select has a rate. That is the
 ordinary condition for a rule in this port — it is discovered by the first run
 that violates it, and the runs that cannot see it are what say the change is
 safe.
+
+### 70 The output relation is not a rectangle, and two declared numbers could not say so
+
+`onroad/model.esm` declared its output shape as a product —
+`n_outputPolProcess × n_outputCohort × counties × months × day types` — and
+every RunSpec in `runspecs/` satisfied it, because every one of them emitted
+blocks of the same width. That is a property of the corpus and not of MOVES.
+A **chained** pollutant-process is as wide as its ratio table's coverage, and
+`NONO2Ratio` and `CrankcaseEmissionRatio` carry fuel types 1, 2, 3 and 5 and no
+row for electricity, so NO, NO2, HONO and the three crankcase processes emit
+**104** cohorts where their parents emit **124**.
+
+#### 70.1 The shape of the fix: rank the PAIRS, once
+
+The output relation's leading factor is now the (pollutant-process, cohort)
+**pair**, ranked densely 1..`n_outputRate`, with the county, month and day-type
+levels inside it. `ratecohort_rows` is the pollutant-process crossed with the
+cohort candidate grid — the rate relation with the source bin divided out — and
+it carries the rank. Two declared numbers became one, and the one that remains
+is the one that can be ragged; `outputPolProcessCount` and `cohortSurvivorCount`
+are still reported, and `rateSurvivorCount` is now what `n_outputRate` is checked
+against. `tools/check-runspec-shape.py` prints which of the two a run is:
+
+    436 rows = 436 (pollutant-process, cohort) pairs x 1 county x 1 month(s)
+    x 1 day type(s); 4 block(s) and 124 cohort(s), RAGGED
+
+**Do not rank the rate relation itself.** The rate relation is keyed by source
+BIN, so several of its rows share a pair, and a prefix count over it would
+number the bins rather than the output rows. The pair relation is also 1,722
+rows where the rate relation is 13,776 on `expand-sourcetype`, and the rank is a
+self-join with a `<=` filter, so it is the difference between three million
+cell-pairs and a hundred and ninety million.
+
+**Two conditions have to be spelled again.** The old packing carried them in an
+`and`: a pair emits when a rate row of it emits AND the road-type test kept its
+block. Dropping the second one is not visible as an error — `rateSurvivorCount`
+came back 744 instead of 372 on `expand-criteria`, six blocks' worth where three
+are emitted, and the extra rows appeared in the output as pollutant 68 process 9,
+which is the SUM of the five pollutant-processes whose `rspp_outputOrdinal` is 0.
+A key column read through a join that matched nothing is not blank; it is the
+sum of everything the join did match.
+
+#### 70.2 A ratio of exactly zero is a ratio
+
+`CrankcaseEmissionRatio` carries `crankcaseRatio = 0.0` for diesel model years
+2001 and later, and MOVES emits those cohorts — as zeros. A chain arm written as
+`rt_chainRatio > 0` drops them: `process-crankcase-running` emitted 627 rows
+instead of 684, 85 cohorts per crankcase block instead of 104. The test is
+PRESENCE, and it has to be a separate flag from the value, because the value
+cannot distinguish "no row" from "a row that says zero". This is §69's rule in a
+second place: a cohort rated at zero is rated, and a ratio of zero is a ratio.
+
+#### 70.3 Three chain tables, three ways of saying which model years
+
+| table | chained | model years keyed by | other keys |
+|---|---|---|---|
+| `PM10EmissionRatio` | PM2.5 from PM10 | min/max RANGE | polProcess, fuel, source type |
+| `NONO2Ratio` | NO, NO2, HONO from NOx | model-year GROUP, of the SPECIES | polProcess, fuel, source type |
+| `CrankcaseEmissionRatio` | crankcase from running | min/max RANGE | polProcess, fuel, source type, **regClass** |
+
+The arms are disjoint by pollutant-process, so the union is a **sum** and not a
+precedence, and the presence flags union under `max`. The group in the middle
+row is the SPECIES' own group, not its parent's, which is why the port needed
+`rt_modelYearGroupID` as a value and not only J18/J19's presence test. The
+regulatory class in the last row is a real key that no RunSpec here can see:
+source type 21 has exactly one class, so dropping it would be right on every run
+in this directory and wrong for a light commercial truck — §62.3's width-one
+trap, named rather than closed.

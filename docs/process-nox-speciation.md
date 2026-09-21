@@ -973,11 +973,16 @@ has exactly one formulation at market share 1.0, so the share weighting in
 
 ## 8. Gaps and things not verified
 
-* **`FuelEffectsGenerator` is not ported.** `criteriaratio` is read as the
-  captured input it is on this path (§1.3). Porting it means an expression
+* **`FuelEffectsGenerator` is not ported *here*.** `criteriaratio` is read as
+  the captured input it is on this path (§1.3). Porting it means an expression
   evaluator over `generalfuelratioexpression`'s strings *and* the Complex +
   sulfur model for model years ≤ 2000 — two rungs, not one, and the calculator
-  path in §0 does not claim it.
+  path in §0 does not claim it. **Both rungs exist now**, in
+  `onroad/model.esm` (PLAN.md §7.3.14, §7.3.15), and
+  `runspecs/process-nox-speciation.esm` computes this run's 436 rows from the
+  default database with `criteriaratio` among them, at a worst cell of
+  9.485e-06. This fixture keeps reading the captured table, which is what makes
+  the two documents an independent check of each other.
 * **One process, one source type, one road type.** The NOx branch of
   `general_temp_adjust` also covers processes 90 and 91; the enums name them and
   nothing exercises them.

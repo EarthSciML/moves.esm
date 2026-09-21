@@ -1247,7 +1247,7 @@ fi
 # run's own execution-database snapshot, through two mount edges:
 #
 #   runspecs/<run>.esm            that run's selections + its oracle
-#     -> moves-onroad.esm         54 national tables + the mount
+#     -> moves-onroad.esm         56 national tables + the mount
 #       -> onroad/model.esm       the onroad domain model, shared with 7c
 #
 # WHAT IT IS CHECKING is not the plumbing -- 7c already checks that a three
@@ -1262,14 +1262,21 @@ fi
 # national file and are byte-identical drop-ins.
 #
 # THE SHAPE IS RECOMPUTED, not just compared. The output relation is four
-# levels -- pollutant-process, then county, then day type, then cohort -- and
-# two of the four are DECLARED numbers, because no table in the database states
-# them: `n_outputCohort` (which cohorts survive is a result of the chain) and
-# `n_outputPolProcess` (which pollutant-processes reach MOVESOutput at all,
-# which MOVES works out from a join to `runSpecRoadType` and the model works out
-# in `rspp_isEmitted`). `cohortSurvivorCount` and `outputPolProcessCount` report
-# what the chain worked out, and check 3 requires the rows emitted to be exactly
-# their product with the counties and day types the output carries.
+# levels -- the (pollutant-process, cohort) PAIR, then county, then month, then
+# day type -- and the leading one is a DECLARED number, because no table in the
+# database states it: `n_outputRate`, how many pairs reach MOVESOutput.
+# `rateSurvivorCount` reports what the chain worked out and check 3 requires the
+# rows emitted to be exactly its product with the counties, months and day types
+# the output carries.
+#
+# IT USED TO BE TWO NUMBERS, `n_outputCohort` x `n_outputPolProcess`, and that
+# is a RECTANGLE -- every block the same width. Eight RunSpecs satisfied it and
+# `process-nox-speciation` does not: it emits 124 + 104 x 3, because a chained
+# block is as wide as its ratio table's coverage and `NONO2Ratio` has no
+# electricity row (conventions §70). Both factors are still reported, as
+# `outputPolProcessCount` and `cohortSurvivorCount`, and check 3 prints whether
+# their product is the answer or whether the run is ragged -- which is the only
+# thing that would notice a chained block quietly emitted at its parent's width.
 #
 # That check is the only thing `expand-day` has that FAILS when the road-type
 # rule is deleted: its one surviving block is also its FIRST, so the renumbering
@@ -1322,6 +1329,14 @@ C7P_DOMAIN=moves-onroad.esm
 # row, named `Doesn't Matter`, which is the only reason the tire-wear path
 # passes J18/J19 at all -- and PM10 BRAKE wear is six real groups chosen by the
 # model year (PLAN.md 7.3.16).
+#
+# `process-nox-speciation` and `process-crankcase-running` did not enter it
+# either. §7.3.16's measurement pass said exactly what they were missing, both
+# halves were reproduced in pandas from the default database BEFORE the model
+# changed -- 312 species cells at 9.485e-06 and 312 crankcase cells at
+# 6.265e-06, against this chain's own parent values -- and the documents then
+# reproduced on their first run at those figures. They are the first two runs
+# here whose output is RAGGED (PLAN.md 7.3.17).
 mapfile -t RUNSPECS < <(find runspecs -maxdepth 1 -name '*.esm' -not -name '.*' 2>/dev/null | sort)
 mapfile -t RUNSPECS_PENDING < <(find runspecs/pending -maxdepth 1 -name '*.esm' -not -name '.*' 2>/dev/null | sort)
 
@@ -1379,7 +1394,7 @@ else
     # 3. The shape, recomputed by the chain rather than read off the answer.
     RS_SHAPE="$RUNDIR/$rsname.runspec.shape.csv"
     if "$ESM" simulate "$rs" --time 0 --format csv \
-         --observed outputPolProcessCount --observed cohortSurvivorCount \
+         --observed rateSurvivorCount --observed outputPolProcessCount --observed cohortSurvivorCount \
          --observed run_sourceBinsDropped \
          --observed run_physicsRowsDropped \
          --observed run_rateRowsWithoutPhysics \
@@ -1443,7 +1458,7 @@ else
     if "$ESM" simulate "$RS_PROBE" --time 0 --format csv "${c7_obs[@]}" \
          --output "$RUNDIR/$pname.probe.csv" >/dev/null 2>&1 \
        && "$ESM" simulate "$RS_PROBE" --time 0 --format csv \
-            --observed outputPolProcessCount --observed cohortSurvivorCount \
+            --observed rateSurvivorCount --observed outputPolProcessCount --observed cohortSurvivorCount \
             --observed run_sourceBinsDropped \
             --observed run_physicsRowsDropped \
             --observed run_rateRowsWithoutPhysics \
@@ -1466,7 +1481,7 @@ else
   #    recorded CSV to drift against.
   if cmp -s "$C7_BASE" "$RUNDIR/process-tirewear.runspec.csv"; then
     pass "7c' — the default database reproduces the inlined fixture's relation byte for byte"
-    say "       $(( $(wc -l < "$RUNDIR/process-tirewear.runspec.csv") - 1 )) rows from 54 national tables, no execution database"
+    say "       $(( $(wc -l < "$RUNDIR/process-tirewear.runspec.csv") - 1 )) rows from 56 national tables, no execution database"
   else
     fail "7c' — the default-database chain and the inlined fixture disagree"
     diff -u "$C7_BASE" "$RUNDIR/process-tirewear.runspec.csv" | sed 's/^/       /' | head -12

@@ -1,0 +1,258 @@
+{
+  "esm": "1.2.0",
+  "metadata": {
+    "name": "process-nox-speciation-runspec",
+    "description": "PLAN.md §7.5 step 7d: the `process-nox-speciation` RunSpec -- total NOx running exhaust and its three chained species, NO, NO2 and HONO -- computed from the DEFAULT DATABASE. It is the ninth RunSpec this chain reproduces and the FIRST WHOSE OUTPUT IS NOT A RECTANGLE.\n\nWHY THAT MATTERS, and it is the whole reason the model changed. Until J78 the output relation was declared as a product: `n_outputPolProcess` x `n_outputCohort` x counties x months x day types, every block the same width. This run emits 436 rows as 124 + 104 + 104 + 104. The 20 cohorts the species blocks drop against their parent are fuel type 9, model years 2001 to 2020 -- electricity, every one -- and `NONO2Ratio` carries fuel types 1, 2, 3 and 5 and no row for 9. So a chained block is the parent's cohorts INTERSECTED with the ratio table's coverage, which is a join and not a property of either relation, and 124 + 104 x 3 and 109 x 4 are the same 436. The two declared numbers are now ONE, `n_outputRate`, and `rateSurvivorCount` recomputes it.\n\nWHAT IT DISCRIMINATES (§23).\n\n* THE OUTPUT RELATION IS RAGGED. No other RunSpec here is: every one of the other eight emits blocks of equal width, so all eight could not tell the product from the sum. run-tests.sh prints which of the two a run is.\n\n* THE CHAIN TABLE IS KEYED BY A MODEL-YEAR GROUP. `PM10EmissionRatio`, the only chain table before this one, is keyed by a min/max RANGE; `NONO2Ratio` is keyed by the `modelYearGroupID` that `pollutantprocessmodelyear` gives the SPECIES -- not the parent -- so the port needed `rt_modelYearGroupID` as a value and not just the presence test J18 and J19 already made.\n\n* A SPECIES IS ITS PARENT TIMES A NUMBER, AND THE PARENT IS THE WORK. The speciation is one multiply. Everything under it -- the `emissionRateByAge` arm, the criteria fuel ratio, the NOx humidity correction -- is `expand-criteria`'s, and this run reaching 9.485e-06 on all 436 cells is what says the parent was right for a reason and not by luck.\n\n436 rows, worst cell 9.485e-06. Reproduced in pandas from the default database BEFORE the port, against this run's own parent values, at the same figure.",
+    "authors": [
+      "EarthSciML Authors and Contributors"
+    ],
+    "tags": [
+      "runspec",
+      "onroad",
+      "default-database",
+      "process-nox-speciation",
+      "nox-speciation",
+      "chained",
+      "ragged"
+    ]
+  },
+  "data_sources": {
+    "db_runspecyear": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/process-nox-speciation/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecyear.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecyear"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, yearID 2020. The scope comes from these tables and never from the RunSpec XML, whose @key attributes are 0-based indices into sorted ID lists (docs/mixed-onroad.md §0.1).",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecmonth": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/process-nox-speciation/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecmonth.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecmonth"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, monthID 8.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspechour": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/process-nox-speciation/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspechour.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspechour"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, hourID 7. Six in the RunSpec XML, seven here: the XML's @key is a 0-based index into the sorted hour list (docs/mixed-onroad.md 0.1).",
+        "esio_format": "parquet"
+      }
+    },
+    "db_aggregationhour": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/process-nox-speciation/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspechour.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_aggregationhour"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "The hours the run aggregates over. This run does not set `aggregateBy`, so it is `runspechour` itself and the same file.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecday": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/process-nox-speciation/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecday.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecday"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, dayID 5 (weekday). The second factor of the activity axis and of the output axis, and its extent is one in this run: `<day id=\"5\">` selects one day type where the earlier `<day key=\"5\">` was an out-of-range INDEX and fell back to both (moves.rs PR #55).",
+        "esio_format": "parquet"
+      }
+    },
+    "db_rateday": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/process-nox-speciation/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecday.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_rateday"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "The day types the RATE-side time pre-aggregation is scoped to. This run does not set `aggregateBy`, so it is `runspecday` itself and the same file: the pre-aggregation averages over one cell and returns the table's own value. A run that aggregates points this somewhere else, because MOVES overwrites `runspecday` with the synthesized output day AFTER the pre-aggregation has run.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_actday": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/process-nox-speciation/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecday.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_actday"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "The day types the output day's ACTIVITY covers. This run does not set `aggregateBy`, so it is `runspecday` itself and the same file, and `noOfRealDays` is that one day type's.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecsourcetype": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/process-nox-speciation/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecsourcetype.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecsourcetype"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, sourceTypeID 21.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecroadtype": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/process-nox-speciation/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecroadtype.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecroadtype"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, roadTypeID 4. J27: this is the join that suppresses every process-2 row, because start exhaust lives on the off-network road type 1 and the RunSpec does not select it (§0.2).",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecsourcefueltype": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/process-nox-speciation/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecsourcefueltype.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecsourcefueltype"
+      },
+      "metadata": {
+        "tags": [
+          "scope",
+          "cohorts"
+        ],
+        "note": "4 rows: gasoline, diesel, E85 and electricity. The second factor of the cohort candidate grid.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_movesoutput": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/process-nox-speciation/tables/db__out_process_nox_speciation__movesoutput.parquet"
+      },
+      "reader_options": {
+        "float_columns": [
+          "emissionQuant"
+        ]
+      },
+      "metadata": {
+        "tags": [
+          "oracle",
+          "expected-output"
+        ],
+        "note": "The 750-row expected output -- 250 rows each for pollutants 91, 107 and 117, shipped in the same snapshot so no canonical MOVES, MariaDB or JVM is needed to develop against it. DECLARED AND CONSUMED BY NOTHING -- reading it would transcribe the answer and its extent would transcribe the answer's shape. compare-output.py reads it directly under tolerance.toml.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecpollutantprocess": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/process-nox-speciation/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecpollutantprocess.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecpollutantprocess"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "4 rows: 301 (total NOx running exhaust) and its three chained species, 3201 NO, 3301 NO2 and 3401 HONO. All four happen on a road and all four are emitted, at four DIFFERENT widths -- 124, 104, 104, 104.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecchainedto": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/process-nox-speciation/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecchainedto.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecchainedto"
+      },
+      "metadata": {
+        "tags": [
+          "scope",
+          "chain"
+        ],
+        "note": "3 rows: 3201, 3301 and 3401 each chained FROM 301. The species carry no `pollutantprocessmodelyear` row of their own, so `rt_isSelected` is 0 on every one of their rate rows and they are emitted on the chain alone (conventions §69).",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspeccounty": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/process-nox-speciation/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspeccounty.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspeccounty"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, countyID 26161. The runspec selection this catalogue did not have to carry while `link` arrived pre-selected. It changes nothing here -- the snapshot's `link` is the one row this joins to -- and it is what makes the same logic readable against a national Link table.",
+        "esio_format": "parquet"
+      }
+    }
+  },
+  "models": {
+    "Onroad": {
+      "ref": "../moves-onroad.esm",
+      "bindings": {
+        "n_outputRate": 436
+      }
+    }
+  }
+}

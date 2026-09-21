@@ -331,15 +331,10 @@
       "default": 0,
       "description": "Rows in emissionprocess."
     },
-    "n_outputCohort": {
+    "n_outputRate": {
       "type": "integer",
-      "default": 125,
-      "description": "THE FIRST DECLARED NUMBER IN THIS DOCUMENT: how many cohorts reach MOVESOutput in each pollutant-process block. A cohort is a (sourceTypeID, fuelTypeID, modelYearID) triple -- `runspecsourcefueltype` is the grid's second factor and carries PAIRS -- so this number is a SUM over the run's source types and not a product: 125 at one source type (of 164 candidates, ragged by fuel: 41 gasoline model years, 40 diesel, 23 E85, 21 electricity), 248 at two (125 + 123) and 430 at five (41 + 125 + 125 + 89 + 50). WHICH candidates survive is a result of the chain (docs/mixed-onroad.md 2.2's `stmyFraction > 0` rule) and is never written down: `coh_rank` numbers the survivors 1..n by an inclusive prefix count over the candidate grid and the output row joins to that rank (docs/esm-conventions.md 22). `cohortSurvivorCount` recomputes the number from the chain, `pp_selectedCohortCount` recomputes it separately for each pollutant-process, and tests pin all three together."
-    },
-    "n_outputPolProcess": {
-      "type": "integer",
-      "default": 3,
-      "description": "THE SECOND DECLARED NUMBER IN THIS DOCUMENT: how many of the run's selected pollutant-processes reach MOVESOutput at all. Three of three here, because every one of 9101, 10710 and 11710 has its rates on a road type this run selects. A run that selects start exhaust or extended idle on an on-road road type alone has fewer: those processes' rates live on the off-network road type 1, `BaseRateCalculator` joins its rate rows to `runSpecRoadType`, and the whole block is discarded (docs/mixed-onroad.md 0.2). WHICH pollutant-processes survive is never written down -- `rspp_isEmitted` decides it from `emissionprocess.occursOnRealRoads` and `runspecroadtype`, `rspp_outputOrdinal` numbers the survivors 1..n by an inclusive prefix count, and `outputPolProcessCount` recomputes this number from the chain."
+      "default": 375,
+      "description": "How many (pollutant-process, cohort) PAIRS reach MOVESOutput, summed over the run's emitted blocks. It replaces `n_outputCohort` and `n_outputPolProcess`, which between them could describe only a RECTANGLE -- every block the same width -- and a chained block is not the same width as its parent: `NONO2Ratio` and `CrankcaseEmissionRatio` carry no electricity row, so NO, NO2 and HONO emit 104 cohorts where total NOx emits 124 (PLAN.md §7.3.16). 375 is `process-tirewear`'s value, three blocks of 125, and it is the default for the same reason the numbers it replaces had theirs. `rateSurvivorCount` recomputes it from the chain, so it is a CHECKED declaration; `outputPolProcessCount` and `cohortSurvivorCount` still report the two factors separately, which is what says whether a run is ragged."
     },
     "n_sourceBin": {
       "type": "integer",
@@ -365,6 +360,16 @@
       "type": "integer",
       "default": 0,
       "description": "Rows in pm10emissionratio."
+    },
+    "n_nono2ratio": {
+      "type": "integer",
+      "default": 0,
+      "description": "Rows in nono2ratio."
+    },
+    "n_crankcaseemissionratio": {
+      "type": "integer",
+      "default": 0,
+      "description": "Rows in crankcaseemissionratio."
     },
     "n_sourceusetypephysics": {
       "type": "integer",
@@ -634,24 +639,18 @@
       "size": {
         "op": "*",
         "args": [
-          "n_outputPolProcess",
+          "n_outputRate",
           {
             "op": "*",
             "args": [
               {
                 "op": "*",
                 "args": [
-                  {
-                    "op": "*",
-                    "args": [
-                      "n_outputCohort",
-                      "n_runspecday"
-                    ]
-                  },
+                  "n_runspeccounty",
                   "n_runspecmonth"
                 ]
               },
-              "n_runspeccounty"
+              "n_runspecday"
             ]
           }
         ]
@@ -668,6 +667,14 @@
     "pm10emissionratio_rows": {
       "kind": "interval",
       "size": "n_pm10emissionratio"
+    },
+    "nono2ratio_rows": {
+      "kind": "interval",
+      "size": "n_nono2ratio"
+    },
+    "crankcaseemissionratio_rows": {
+      "kind": "interval",
+      "size": "n_crankcaseemissionratio"
     },
     "rate_rows": {
       "kind": "interval",
@@ -686,6 +693,22 @@
                   "n_runspecsourcefueltype"
                 ]
               }
+            ]
+          }
+        ]
+      }
+    },
+    "ratecohort_rows": {
+      "kind": "interval",
+      "size": {
+        "op": "*",
+        "args": [
+          "n_runspecpollutantprocess",
+          {
+            "op": "*",
+            "args": [
+              "n_agecategory",
+              "n_runspecsourcefueltype"
             ]
           }
         ]
@@ -7676,6 +7699,198 @@
             }
           }
         },
+        "nnr_polProcessID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "nono2ratio_rows"
+          ],
+          "description": "nono2ratio.polProcessID: the SPECIES, 3201 NO, 3301 NO2 or 3401 HONO, not the total NOx it is computed from.",
+          "update": {
+            "kind": "data",
+            "source": "db_nono2ratio",
+            "from": {
+              "file_variable": "polProcessID"
+            }
+          }
+        },
+        "nnr_sourceTypeID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "nono2ratio_rows"
+          ],
+          "description": "nono2ratio.sourceTypeID.",
+          "update": {
+            "kind": "data",
+            "source": "db_nono2ratio",
+            "from": {
+              "file_variable": "sourceTypeID"
+            }
+          }
+        },
+        "nnr_fuelTypeID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "nono2ratio_rows"
+          ],
+          "description": "nono2ratio.fuelTypeID. The table holds 1, 2, 3 and 5; there is no electricity row, and that absence is what makes a species block narrower than its parent.",
+          "update": {
+            "kind": "data",
+            "source": "db_nono2ratio",
+            "from": {
+              "file_variable": "fuelTypeID"
+            }
+          }
+        },
+        "nnr_modelYearGroupID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "nono2ratio_rows"
+          ],
+          "description": "nono2ratio.modelYearGroupID: a GROUP identifier joined to `pollutantprocessmodelyear`'s, not a model-year range to be bracketed the way PM10EmissionRatio's is.",
+          "update": {
+            "kind": "data",
+            "source": "db_nono2ratio",
+            "from": {
+              "file_variable": "modelYearGroupID"
+            }
+          }
+        },
+        "nnr_NOxRatio": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "nono2ratio_rows"
+          ],
+          "description": "nono2ratio.NOxRatio, the whole of NOCalculator's and NO2Calculator's arithmetic: the species is its total-NOx parent times this.",
+          "update": {
+            "kind": "data",
+            "source": "db_nono2ratio",
+            "from": {
+              "file_variable": "NOxRatio"
+            }
+          }
+        },
+        "cer_polProcessID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "crankcaseemissionratio_rows"
+          ],
+          "description": "crankcaseemissionratio.polProcessID: the CRANKCASE process, 115, 215 or 315, not the running exhaust it is computed from.",
+          "update": {
+            "kind": "data",
+            "source": "db_crankcaseemissionratio",
+            "from": {
+              "file_variable": "polProcessID"
+            }
+          }
+        },
+        "cer_sourceTypeID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "crankcaseemissionratio_rows"
+          ],
+          "description": "crankcaseemissionratio.sourceTypeID.",
+          "update": {
+            "kind": "data",
+            "source": "db_crankcaseemissionratio",
+            "from": {
+              "file_variable": "sourceTypeID"
+            }
+          }
+        },
+        "cer_regClassID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "crankcaseemissionratio_rows"
+          ],
+          "description": "crankcaseemissionratio.regClassID. It is a real key and this run cannot see it: source type 21 has one regulatory class, so exactly one row matches each (fuel type, model year) and dropping the class would be right here and wrong for a light truck -- conventions §62.3's width-one trap.",
+          "update": {
+            "kind": "data",
+            "source": "db_crankcaseemissionratio",
+            "from": {
+              "file_variable": "regClassID"
+            }
+          }
+        },
+        "cer_fuelTypeID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "crankcaseemissionratio_rows"
+          ],
+          "description": "crankcaseemissionratio.fuelTypeID. 1, 2, 3 and 5; no electricity row, which is what makes a crankcase block 104 cohorts where its parent is 124.",
+          "update": {
+            "kind": "data",
+            "source": "db_crankcaseemissionratio",
+            "from": {
+              "file_variable": "fuelTypeID"
+            }
+          }
+        },
+        "cer_minModelYearID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "crankcaseemissionratio_rows"
+          ],
+          "description": "crankcaseemissionratio.minModelYearID.",
+          "update": {
+            "kind": "data",
+            "source": "db_crankcaseemissionratio",
+            "from": {
+              "file_variable": "minModelYearID"
+            }
+          }
+        },
+        "cer_maxModelYearID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "crankcaseemissionratio_rows"
+          ],
+          "description": "crankcaseemissionratio.maxModelYearID.",
+          "update": {
+            "kind": "data",
+            "source": "db_crankcaseemissionratio",
+            "from": {
+              "file_variable": "maxModelYearID"
+            }
+          }
+        },
+        "cer_crankcaseRatio": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "crankcaseemissionratio_rows"
+          ],
+          "description": "crankcaseemissionratio.crankcaseRatio, the whole of CrankcaseEmissionCalculator's arithmetic.",
+          "update": {
+            "kind": "data",
+            "source": "db_crankcaseemissionratio",
+            "from": {
+              "file_variable": "crankcaseRatio"
+            }
+          }
+        },
         "zmh_temperature": {
           "type": "parameter",
           "units": "degF",
@@ -8173,7 +8388,7 @@
           "shape": [
             "rate_rows"
           ],
-          "description": "Does this rate row put a number in `MOVESOutput`? Not the same question as `rt_survives`: a CHAINED pollutant-process -- PM2.5 tire wear, computed from PM10 by a ratio -- has `rt_isSelected` 0 on every one of its rows, because it has no `pollutantprocessmodelyear` row at all, and is emitted anyway. This is the predicate the two emission counts read; `rt_survives` stays what it was, the rate selection."
+          "description": "Does this rate row put a number in `MOVESOutput`? Not the same question as `rt_survives`: a CHAINED pollutant-process -- PM2.5 tire wear, computed from PM10 by a ratio -- has `rt_isSelected` 0 on every one of its rows, because it has no `pollutantprocessmodelyear` row at all, and is emitted anyway. This is the predicate the two emission counts read; `rt_survives` stays what it was, the rate selection. The chain arm asks whether the ratio EXISTS, not whether it is positive: `CrankcaseEmissionRatio` carries crankcaseRatio = 0 for diesel model years 2001 and later, and MOVES emits those 19 cohorts as zeros. Testing `rt_chainRatio > 0` instead drops them, which is the same mistake as reading an unrated cohort off a rate of zero (conventions §69)."
         },
         "rtMode_rate": {
           "type": "unknown",
@@ -8613,13 +8828,85 @@
           ],
           "description": "S16, aggregate.rs:223-231: universalActivity = SHO / noOfRealDays. Per county."
         },
-        "rt_chainRatio": {
+        "rt_modelYearGroupID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "The model-year GROUP `pollutantprocessmodelyear` gives this rate row's (pollutant-process, model year). `rt_modelYearGroupIsPresent` (J18, J19) already asks whether the pair is there; this is the value, and it is a key rather than a test because `NONO2Ratio` is keyed by the group. It is 0 for every pollutant-process whose group is `Doesn't Matter`, which is most of them."
+        },
+        "rt_pm10ChainRatio": {
           "type": "unknown",
           "units": "1",
           "shape": [
             "rate_rows"
           ],
           "description": "J36, PM10BrakeTireCalculator.sql: PM10PM25Ratio for the CHAINED pollutant-process, on this cohort's fuel type and source type, in the model-year range that brackets its model year (lib/keys.esm's `model_year_in_range`). Zero on the two unchained rate paths, because `pm10emissionratio` carries polProcessID 10710 and nothing else -- so the chain term vanishes there with no branch. 6.6667 on every chained row here, which is why docs/process-tirewear.md 7.2 says this fixture cannot see the fuel key or the range."
+        },
+        "rt_noxChainRatio": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "J79, NOCalculator and NO2Calculator: `NONO2Ratio` for the chained SPECIES -- NO, NO2 or HONO -- on this cohort's fuel type and source type, at the model-year group its own pollutant-process maps this model year to. Zero everywhere else, including on total NOx itself, which is the parent and not a species. The join has no electricity row to find, so it is also what makes a species block 104 cohorts where its parent is 124."
+        },
+        "rt_crankcaseChainRatio": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "J80, CrankcaseEmissionCalculator: `CrankcaseEmissionRatio` for the chained crankcase process on this cohort's fuel type, source type and regulatory class, in the model-year range that brackets its model year. Zero everywhere else."
+        },
+        "rt_chainRatio": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "The chain ratio, whichever of the three tables holds it. The arms are DISJOINT by pollutant-process -- `PM10EmissionRatio` carries the particulate chains, `NONO2Ratio` the nitrogen species and `CrankcaseEmissionRatio` the crankcase processes, and no polProcessID is in two of them -- so the union is a sum and not a precedence."
+        },
+        "rt_hasPm10ChainRatio": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "Does `PM10EmissionRatio` carry a row for this pollutant-process, fuel type, source type and model year? A PRESENCE test, separate from the value, because a ratio of exactly zero is a ratio."
+        },
+        "rt_hasNoxChainRatio": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "Does `NONO2Ratio` carry a row for this species, fuel type, source type and model-year group? Zero for every electricity row, which is the whole of why a species block is 104 cohorts and its parent 124."
+        },
+        "rt_hasCrankcaseChainRatio": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "Does `CrankcaseEmissionRatio` carry a row for this crankcase process, fuel type, source type, regulatory class and model year? It does for diesel model years 2001 and later, and the ratio there is exactly 0.0 -- a cohort that is emitted as a zero, not a cohort that is absent."
+        },
+        "rt_hasChainRatio": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "Is this rate row chained from something, with a ratio recorded for it in any of the three tables? The union is a `max` because the arms are disjoint and a presence flag is not additive."
+        },
+        "rt_parentEmitsHere": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "Does the pollutant-process this row is CHAINED FROM survive on this same cohort? A self-join of the rate relation on (chained-from pollutant-process, cohort), under `max` because the cohort's source bins would otherwise be counted one per bin. A species is emitted where its ratio exists AND its parent was emitted; for the particulate chains the two are the same set, and for the nitrogen ones the ratio is the narrower test."
         },
         "rtDay_quantDirect": {
           "type": "unknown",
@@ -8670,13 +8957,93 @@
           ],
           "description": "The bin's membership read back at the rate row, so the chained block's row count can be counted without a second rank."
         },
+        "pcoh_ordinal": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "ratecohort_rows"
+          ],
+          "description": "Its own position, 1..n_runspecpollutantprocess x n_agecategory x n_runspecsourcefueltype. This relation is the pollutant-process crossed with the COHORT candidate grid -- the rate relation with the source bin divided out -- and it exists because the output relation is keyed by (block, cohort) and the rate relation is keyed by (block, BIN). J78."
+        },
+        "pcoh_polProcOrdinal": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "ratecohort_rows"
+          ],
+          "description": "Which pollutant-process this (block, cohort) pair is for. Pollutant-process major, the same order `rate_rows` uses, which is what makes the rank below agree with the emitted row order."
+        },
+        "pcoh_cohortOrdinal": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "ratecohort_rows"
+          ],
+          "description": "And which cohort candidate, 1..n_agecategory x n_runspecsourcefueltype."
+        },
+        "pcoh_outputBlockOrdinal": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "ratecohort_rows"
+          ],
+          "description": "The output block this pair's pollutant-process owns, read back from `rspp_outputOrdinal`. 0 on every pair of a pollutant-process that is not emitted."
+        },
+        "pcoh_hasEmittingRate": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "ratecohort_rows"
+          ],
+          "description": "Does ANY rate row of this (pollutant-process, cohort) pair put a number in MOVESOutput? The OR over the cohort's source bins of `rt_emits`. It is NOT the same question as whether the pair is emitted: six of `expand-criteria`'s eight selected pollutant-processes have rate rows that emit and only three of them happen on a road, so this counts 744 pairs where the run emits 372."
+        },
+        "pcoh_emits": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "ratecohort_rows"
+          ],
+          "description": "And is its pollutant-process an emitted BLOCK? A pair emits when a rate row of it emits AND the road-type test kept its block -- the two conditions the old `(block - 1) x n_outputCohort + cohortRank` packing carried in its `and`, which is why they have to be spelled again here."
+        },
+        "pcoh_prefixEmits": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "ratecohort_rows"
+          ],
+          "description": "An inclusive prefix count of `rc_emits` over the whole pollutant-process-major relation (docs/esm-conventions.md §22)."
+        },
+        "pcoh_rateOrdinal": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "ratecohort_rows"
+          ],
+          "description": "The prefix count ZEROED on the pairs that do not emit, so every emitted (block, cohort) pair has a dense 1..n_outputRate and every other pair has 0. This is the output relation's leading key and it replaces the (block - 1) x n_outputCohort + cohortRank packing, which could only number a rectangle."
+        },
+        "pcoh_cohortRank": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "ratecohort_rows"
+          ],
+          "description": "The cohort's GLOBAL dense rank, 1..cohortSurvivorCount, which `coh_rank` is the other side of. The output row reads its model year, fuel type and source type from the cohort relation through this, not through the rate ordinal, because a key column is read from the relation that OWNS it."
+        },
+        "rateSurvivorCount": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "run_rows"
+          ],
+          "description": "How many (pollutant-process, cohort) pairs emit, computed from the chain, so `n_outputRate` is a CHECKED declaration rather than a transcription. It equals `outputPolProcessCount` x `cohortSurvivorCount` exactly when the run is a rectangle, and is LESS when a chained block is narrower than its parent; run-tests.sh prints which."
+        },
         "rt_outputOrdinal": {
           "type": "unknown",
           "units": "1",
           "shape": [
             "rate_rows"
           ],
-          "description": "Where this rate row lands in the output relation's (pollutant-process, cohort) block: (outputBlockOrdinal - 1) x n_outputCohort + cohortRank, and 0 both for a candidate that is not emitted and for a pollutant-process whose whole block is discarded -- an ordinal no output row can match. This is the ONE key the output row joins on, and all three of its factors are computed."
+          "description": "Where this rate row lands in the output relation: the dense rank of its (pollutant-process, cohort) PAIR, read from `rc_rateOrdinal`, and 0 when that pair does not emit. Every source bin of the same cohort carries the same ordinal and `out_emissionQuant` sums over them, which is what it did before; what changed at J78 is that the number is a rank and no longer (block - 1) x n_outputCohort + rank, an arithmetic that assumed every block is the same width."
         },
         "outPolProcOrdinal": {
           "type": "unknown",
@@ -8684,15 +9051,23 @@
           "shape": [
             "output_rows"
           ],
-          "description": "S17's row structure, decomposed from the aggregate's own loop symbol: pollutant-process-major blocks of (n_runspeccounty x n_runspecday x n_outputCohort). 3 x 1 x 1 x 125 = 375 in `process-tirewear`, 1 x 1 x 2 x 125 = 250 in `expand-day`, 1 x 3 x 1 x 125 = 375 in `expand-counties`, 1 x 1 x 1 x 248 in `expand-fueltype-diesel` and 1 x 1 x 1 x 430 in `expand-sourcetype`. The source type is INSIDE `n_outputCohort` rather than beside it, which is why five source types do not make this a five-way product."
+          "description": "Which output block this row belongs to, read BACK from the pair relation through the rate rank. It used to be a division of the row index by a fixed block length; a block length is exactly what a ragged output does not have (J78)."
         },
-        "outBlockOffset": {
+        "outRateOrdinal": {
           "type": "unknown",
           "units": "1",
           "shape": [
             "output_rows"
           ],
-          "description": "The row's offset within its pollutant-process block, which the county, day and cohort levels decompose in that order."
+          "description": "S17's row structure: the output relation is (pollutant-process, cohort) PAIR major, then county, then month, then day type. This is the pair's dense rank, 1..n_outputRate, and `rc_rateOrdinal` is the other side of it. The county, month and day levels moved INSIDE the pair at J78; nothing reads the emitted order but `process-tirewear`'s byte-for-byte check, whose run has one county, one month and one day type, so its rows are where they were."
+        },
+        "outRateOffset": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "output_rows"
+          ],
+          "description": "The row's offset within its pair's block of counties x months x day types, which the three levels below decompose in that order."
         },
         "outCountyOrdinal": {
           "type": "unknown",
@@ -8718,14 +9093,6 @@
           ],
           "description": "Month-major within the county's block."
         },
-        "outMonthOffset": {
-          "type": "unknown",
-          "units": "1",
-          "shape": [
-            "output_rows"
-          ],
-          "description": "The position of this row within its month's block, which is what the day and cohort levels decompose."
-        },
         "outDayOrdinal": {
           "type": "unknown",
           "units": "1",
@@ -8734,21 +9101,13 @@
           ],
           "description": "Day-major within the county's block."
         },
-        "outCohortOrdinal": {
+        "outCohortRank": {
           "type": "unknown",
           "units": "1",
           "shape": [
             "output_rows"
           ],
-          "description": "The surviving cohort's rank, 1..125, which coh_rank is the other side of."
-        },
-        "outPolProcCohortOrdinal": {
-          "type": "unknown",
-          "units": "1",
-          "shape": [
-            "output_rows"
-          ],
-          "description": "The two block coordinates packed the way `rt_outputOrdinal` packs them, so one key pair carries the whole gather."
+          "description": "The surviving cohort's GLOBAL rank, 1..cohortSurvivorCount, which `coh_rank` is the other side of. It is read back from the pair relation rather than decomposed out of the row index, because the pair's position in its block is not the cohort's rank once a block is narrower than the widest one."
         },
         "out_modelYearID": {
           "type": "unknown",
@@ -19283,17 +19642,23 @@
                 "op": "*",
                 "args": [
                   {
-                    "op": "ifelse",
+                    "op": "*",
                     "args": [
+                      "rt_hasChainRatio",
                       {
-                        "op": ">",
+                        "op": "ifelse",
                         "args": [
-                          "rt_chainRatio",
+                          {
+                            "op": ">",
+                            "args": [
+                              "rt_parentEmitsHere",
+                              0.0
+                            ]
+                          },
+                          1.0,
                           0.0
                         ]
-                      },
-                      1.0,
-                      0.0
+                      }
                     ]
                   },
                   "bin_isSelectedAt"
@@ -28511,7 +28876,7 @@
           }
         },
         {
-          "lhs": "rt_chainRatio",
+          "lhs": "rt_pm10ChainRatio",
           "rhs": {
             "op": "faq",
             "args": [],
@@ -28578,6 +28943,424 @@
               "args": [
                 "pmr_PM10PM25Ratio",
                 "s"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rt_modelYearGroupID",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "y": {
+                "from": "pollutantprocessmodelyear_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rt_polProcessID",
+                    "ppmy_polProcessID"
+                  ],
+                  [
+                    "rt_modelYearID",
+                    "ppmy_modelYearID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "ppmy_modelYearGroupID",
+                "y"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rt_noxChainRatio",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "s": {
+                "from": "nono2ratio_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rt_polProcessID",
+                    "nnr_polProcessID"
+                  ],
+                  [
+                    "rt_fuelTypeID",
+                    "nnr_fuelTypeID"
+                  ],
+                  [
+                    "rt_sourceTypeID",
+                    "nnr_sourceTypeID"
+                  ],
+                  [
+                    "rt_modelYearGroupID",
+                    "nnr_modelYearGroupID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "nnr_NOxRatio",
+                "s"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rt_crankcaseChainRatio",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "s": {
+                "from": "crankcaseemissionratio_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rt_polProcessID",
+                    "cer_polProcessID"
+                  ],
+                  [
+                    "rt_fuelTypeID",
+                    "cer_fuelTypeID"
+                  ],
+                  [
+                    "rt_sourceTypeID",
+                    "cer_sourceTypeID"
+                  ],
+                  [
+                    "rt_regClassID",
+                    "cer_regClassID"
+                  ]
+                ]
+              }
+            ],
+            "filter": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "model_year_in_range",
+              "bindings": {
+                "model_year": {
+                  "op": "index",
+                  "args": [
+                    "rt_modelYearID",
+                    "b"
+                  ]
+                },
+                "first_model_year": {
+                  "op": "index",
+                  "args": [
+                    "cer_minModelYearID",
+                    "s"
+                  ]
+                },
+                "last_model_year": {
+                  "op": "index",
+                  "args": [
+                    "cer_maxModelYearID",
+                    "s"
+                  ]
+                }
+              }
+            },
+            "expr": {
+              "op": "index",
+              "args": [
+                "cer_crankcaseRatio",
+                "s"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rt_chainRatio",
+          "rhs": {
+            "op": "+",
+            "args": [
+              {
+                "op": "+",
+                "args": [
+                  "rt_pm10ChainRatio",
+                  "rt_noxChainRatio"
+                ]
+              },
+              "rt_crankcaseChainRatio"
+            ]
+          }
+        },
+        {
+          "lhs": "rt_hasPm10ChainRatio",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "bool_and_or",
+            "output_idx": [
+              "b"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "s": {
+                "from": "pm10emissionratio_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rt_polProcessID",
+                    "pmr_polProcessID"
+                  ],
+                  [
+                    "rt_fuelTypeID",
+                    "pmr_fuelTypeID"
+                  ],
+                  [
+                    "rt_sourceTypeID",
+                    "pmr_sourceTypeID"
+                  ]
+                ]
+              }
+            ],
+            "filter": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "model_year_in_range",
+              "bindings": {
+                "model_year": {
+                  "op": "index",
+                  "args": [
+                    "rt_modelYearID",
+                    "b"
+                  ]
+                },
+                "first_model_year": {
+                  "op": "index",
+                  "args": [
+                    "pmr_minModelYearID",
+                    "s"
+                  ]
+                },
+                "last_model_year": {
+                  "op": "index",
+                  "args": [
+                    "pmr_maxModelYearID",
+                    "s"
+                  ]
+                }
+              }
+            },
+            "expr": 1.0
+          }
+        },
+        {
+          "lhs": "rt_hasNoxChainRatio",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "bool_and_or",
+            "output_idx": [
+              "b"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "s": {
+                "from": "nono2ratio_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rt_polProcessID",
+                    "nnr_polProcessID"
+                  ],
+                  [
+                    "rt_fuelTypeID",
+                    "nnr_fuelTypeID"
+                  ],
+                  [
+                    "rt_sourceTypeID",
+                    "nnr_sourceTypeID"
+                  ],
+                  [
+                    "rt_modelYearGroupID",
+                    "nnr_modelYearGroupID"
+                  ]
+                ]
+              }
+            ],
+            "expr": 1.0
+          }
+        },
+        {
+          "lhs": "rt_hasCrankcaseChainRatio",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "bool_and_or",
+            "output_idx": [
+              "b"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "s": {
+                "from": "crankcaseemissionratio_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rt_polProcessID",
+                    "cer_polProcessID"
+                  ],
+                  [
+                    "rt_fuelTypeID",
+                    "cer_fuelTypeID"
+                  ],
+                  [
+                    "rt_sourceTypeID",
+                    "cer_sourceTypeID"
+                  ],
+                  [
+                    "rt_regClassID",
+                    "cer_regClassID"
+                  ]
+                ]
+              }
+            ],
+            "filter": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "model_year_in_range",
+              "bindings": {
+                "model_year": {
+                  "op": "index",
+                  "args": [
+                    "rt_modelYearID",
+                    "b"
+                  ]
+                },
+                "first_model_year": {
+                  "op": "index",
+                  "args": [
+                    "cer_minModelYearID",
+                    "s"
+                  ]
+                },
+                "last_model_year": {
+                  "op": "index",
+                  "args": [
+                    "cer_maxModelYearID",
+                    "s"
+                  ]
+                }
+              }
+            },
+            "expr": 1.0
+          }
+        },
+        {
+          "lhs": "rt_hasChainRatio",
+          "rhs": {
+            "op": "max",
+            "args": [
+              {
+                "op": "max",
+                "args": [
+                  "rt_hasPm10ChainRatio",
+                  "rt_hasNoxChainRatio"
+                ]
+              },
+              "rt_hasCrankcaseChainRatio"
+            ]
+          }
+        },
+        {
+          "lhs": "rt_parentEmitsHere",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "max_product",
+            "output_idx": [
+              "b"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "b2": {
+                "from": "rate_rows"
+              }
+            },
+            "join": [
+              {
+                "syms": [
+                  "b",
+                  "b2"
+                ],
+                "on": [
+                  [
+                    "rt_chainInputPolProcessID",
+                    "rt_polProcessID"
+                  ],
+                  [
+                    "rt_cohortOrdinal",
+                    "rt_cohortOrdinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "rt_survives",
+                "b2"
               ]
             }
           }
@@ -28823,54 +29606,417 @@
           }
         },
         {
-          "lhs": "rt_outputOrdinal",
+          "lhs": "pcoh_ordinal",
           "rhs": {
-            "op": "ifelse",
+            "op": "faq",
+            "args": [],
+            "output_idx": [
+              "r"
+            ],
+            "ranges": {
+              "r": {
+                "from": "ratecohort_rows"
+              }
+            },
+            "expr": "r"
+          }
+        },
+        {
+          "lhs": "pcoh_polProcOrdinal",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "output_idx": [
+              "r"
+            ],
+            "ranges": {
+              "r": {
+                "from": "ratecohort_rows"
+              }
+            },
+            "expr": {
+              "op": "+",
+              "args": [
+                {
+                  "op": "floor",
+                  "args": [
+                    {
+                      "op": "/",
+                      "args": [
+                        {
+                          "op": "-",
+                          "args": [
+                            "r",
+                            1
+                          ]
+                        },
+                        {
+                          "op": "*",
+                          "args": [
+                            "n_agecategory",
+                            "n_runspecsourcefueltype"
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                1
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "pcoh_cohortOrdinal",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "output_idx": [
+              "r"
+            ],
+            "ranges": {
+              "r": {
+                "from": "ratecohort_rows"
+              }
+            },
+            "expr": {
+              "op": "+",
+              "args": [
+                {
+                  "op": "-",
+                  "args": [
+                    {
+                      "op": "-",
+                      "args": [
+                        "r",
+                        1
+                      ]
+                    },
+                    {
+                      "op": "*",
+                      "args": [
+                        {
+                          "op": "*",
+                          "args": [
+                            "n_agecategory",
+                            "n_runspecsourcefueltype"
+                          ]
+                        },
+                        {
+                          "op": "floor",
+                          "args": [
+                            {
+                              "op": "/",
+                              "args": [
+                                {
+                                  "op": "-",
+                                  "args": [
+                                    "r",
+                                    1
+                                  ]
+                                },
+                                {
+                                  "op": "*",
+                                  "args": [
+                                    "n_agecategory",
+                                    "n_runspecsourcefueltype"
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                1
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "pcoh_outputBlockOrdinal",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "r"
+            ],
+            "ranges": {
+              "r": {
+                "from": "ratecohort_rows"
+              },
+              "p": {
+                "from": "runspecpollutantprocess_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "pcoh_polProcOrdinal",
+                    "rspp_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "rspp_outputOrdinal",
+                "p"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "pcoh_hasEmittingRate",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "bool_and_or",
+            "output_idx": [
+              "r"
+            ],
+            "ranges": {
+              "r": {
+                "from": "ratecohort_rows"
+              },
+              "b": {
+                "from": "rate_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "pcoh_polProcOrdinal",
+                    "rt_polProcOrdinal"
+                  ],
+                  [
+                    "pcoh_cohortOrdinal",
+                    "rt_cohortOrdinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "rt_emits",
+                "b"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "pcoh_emits",
+          "rhs": {
+            "op": "*",
             "args": [
+              "pcoh_hasEmittingRate",
               {
-                "op": "and",
+                "op": "ifelse",
                 "args": [
                   {
                     "op": ">",
                     "args": [
-                      "rt_cohortRank",
+                      "pcoh_outputBlockOrdinal",
                       0.5
                     ]
                   },
-                  {
-                    "op": ">",
-                    "args": [
-                      "rt_outputBlockOrdinal",
-                      0.5
-                    ]
-                  }
+                  1.0,
+                  0.0
                 ]
-              },
-              {
-                "op": "+",
-                "args": [
-                  {
-                    "op": "*",
-                    "args": [
-                      {
-                        "op": "-",
-                        "args": [
-                          "rt_outputBlockOrdinal",
-                          1
-                        ]
-                      },
-                      "n_outputCohort"
-                    ]
-                  },
-                  "rt_cohortRank"
-                ]
-              },
-              0.0
+              }
             ]
           }
         },
         {
+          "lhs": "pcoh_prefixEmits",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "r"
+            ],
+            "ranges": {
+              "r": {
+                "from": "ratecohort_rows"
+              },
+              "x": {
+                "from": "ratecohort_rows"
+              }
+            },
+            "filter": {
+              "op": "<=",
+              "args": [
+                "x",
+                "r"
+              ]
+            },
+            "expr": {
+              "op": "index",
+              "args": [
+                "pcoh_emits",
+                "x"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "pcoh_rateOrdinal",
+          "rhs": {
+            "op": "*",
+            "args": [
+              "pcoh_emits",
+              "pcoh_prefixEmits"
+            ]
+          }
+        },
+        {
+          "lhs": "pcoh_cohortRank",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "r"
+            ],
+            "ranges": {
+              "r": {
+                "from": "ratecohort_rows"
+              },
+              "c": {
+                "from": "cohort_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "pcoh_cohortOrdinal",
+                    "coh_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "coh_rank",
+                "c"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rateSurvivorCount",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "n"
+            ],
+            "ranges": {
+              "n": {
+                "from": "run_rows"
+              },
+              "r": {
+                "from": "ratecohort_rows"
+              }
+            },
+            "expr": {
+              "op": "index",
+              "args": [
+                "pcoh_emits",
+                "r"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rt_outputOrdinal",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "r": {
+                "from": "ratecohort_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rt_polProcOrdinal",
+                    "pcoh_polProcOrdinal"
+                  ],
+                  [
+                    "rt_cohortOrdinal",
+                    "pcoh_cohortOrdinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "pcoh_rateOrdinal",
+                "r"
+              ]
+            }
+          }
+        },
+        {
           "lhs": "outPolProcOrdinal",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "o"
+            ],
+            "ranges": {
+              "o": {
+                "from": "output_rows"
+              },
+              "r": {
+                "from": "ratecohort_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "outRateOrdinal",
+                    "pcoh_rateOrdinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "pcoh_outputBlockOrdinal",
+                "r"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "outRateOrdinal",
           "rhs": {
             "op": "faq",
             "args": [],
@@ -28904,17 +30050,11 @@
                             {
                               "op": "*",
                               "args": [
-                                {
-                                  "op": "*",
-                                  "args": [
-                                    "n_outputCohort",
-                                    "n_runspecday"
-                                  ]
-                                },
+                                "n_runspeccounty",
                                 "n_runspecmonth"
                               ]
                             },
-                            "n_runspeccounty"
+                            "n_runspecday"
                           ]
                         }
                       ]
@@ -28927,7 +30067,7 @@
           }
         },
         {
-          "lhs": "outBlockOffset",
+          "lhs": "outRateOffset",
           "rhs": {
             "op": "faq",
             "args": [],
@@ -28958,17 +30098,11 @@
                         {
                           "op": "*",
                           "args": [
-                            {
-                              "op": "*",
-                              "args": [
-                                "n_outputCohort",
-                                "n_runspecday"
-                              ]
-                            },
+                            "n_runspeccounty",
                             "n_runspecmonth"
                           ]
                         },
-                        "n_runspeccounty"
+                        "n_runspecday"
                       ]
                     },
                     {
@@ -28990,17 +30124,11 @@
                                 {
                                   "op": "*",
                                   "args": [
-                                    {
-                                      "op": "*",
-                                      "args": [
-                                        "n_outputCohort",
-                                        "n_runspecday"
-                                      ]
-                                    },
+                                    "n_runspeccounty",
                                     "n_runspecmonth"
                                   ]
                                 },
-                                "n_runspeccounty"
+                                "n_runspecday"
                               ]
                             }
                           ]
@@ -29024,18 +30152,12 @@
                   {
                     "op": "/",
                     "args": [
-                      "outBlockOffset",
+                      "outRateOffset",
                       {
                         "op": "*",
                         "args": [
-                          {
-                            "op": "*",
-                            "args": [
-                              "n_outputCohort",
-                              "n_runspecday"
-                            ]
-                          },
-                          "n_runspecmonth"
+                          "n_runspecmonth",
+                          "n_runspecday"
                         ]
                       }
                     ]
@@ -29051,21 +30173,15 @@
           "rhs": {
             "op": "-",
             "args": [
-              "outBlockOffset",
+              "outRateOffset",
               {
                 "op": "*",
                 "args": [
                   {
                     "op": "*",
                     "args": [
-                      {
-                        "op": "*",
-                        "args": [
-                          "n_outputCohort",
-                          "n_runspecday"
-                        ]
-                      },
-                      "n_runspecmonth"
+                      "n_runspecmonth",
+                      "n_runspecday"
                     ]
                   },
                   {
@@ -29074,18 +30190,12 @@
                       {
                         "op": "/",
                         "args": [
-                          "outBlockOffset",
+                          "outRateOffset",
                           {
                             "op": "*",
                             "args": [
-                              {
-                                "op": "*",
-                                "args": [
-                                  "n_outputCohort",
-                                  "n_runspecday"
-                                ]
-                              },
-                              "n_runspecmonth"
+                              "n_runspecmonth",
+                              "n_runspecday"
                             ]
                           }
                         ]
@@ -29109,57 +30219,12 @@
                     "op": "/",
                     "args": [
                       "outCountyOffset",
-                      {
-                        "op": "*",
-                        "args": [
-                          "n_outputCohort",
-                          "n_runspecday"
-                        ]
-                      }
+                      "n_runspecday"
                     ]
                   }
                 ]
               },
               1
-            ]
-          }
-        },
-        {
-          "lhs": "outMonthOffset",
-          "rhs": {
-            "op": "-",
-            "args": [
-              "outCountyOffset",
-              {
-                "op": "*",
-                "args": [
-                  {
-                    "op": "*",
-                    "args": [
-                      "n_outputCohort",
-                      "n_runspecday"
-                    ]
-                  },
-                  {
-                    "op": "floor",
-                    "args": [
-                      {
-                        "op": "/",
-                        "args": [
-                          "outCountyOffset",
-                          {
-                            "op": "*",
-                            "args": [
-                              "n_outputCohort",
-                              "n_runspecday"
-                            ]
-                          }
-                        ]
-                      }
-                    ]
-                  }
-                ]
-              }
             ]
           }
         },
@@ -29169,42 +30234,21 @@
             "op": "+",
             "args": [
               {
-                "op": "floor",
-                "args": [
-                  {
-                    "op": "/",
-                    "args": [
-                      "outMonthOffset",
-                      "n_outputCohort"
-                    ]
-                  }
-                ]
-              },
-              1
-            ]
-          }
-        },
-        {
-          "lhs": "outCohortOrdinal",
-          "rhs": {
-            "op": "+",
-            "args": [
-              {
                 "op": "-",
                 "args": [
-                  "outMonthOffset",
+                  "outCountyOffset",
                   {
                     "op": "*",
                     "args": [
-                      "n_outputCohort",
+                      "n_runspecday",
                       {
                         "op": "floor",
                         "args": [
                           {
                             "op": "/",
                             "args": [
-                              "outMonthOffset",
-                              "n_outputCohort"
+                              "outCountyOffset",
+                              "n_runspecday"
                             ]
                           }
                         ]
@@ -29218,25 +30262,39 @@
           }
         },
         {
-          "lhs": "outPolProcCohortOrdinal",
+          "lhs": "outCohortRank",
           "rhs": {
-            "op": "+",
-            "args": [
-              {
-                "op": "*",
-                "args": [
-                  {
-                    "op": "-",
-                    "args": [
-                      "outPolProcOrdinal",
-                      1
-                    ]
-                  },
-                  "n_outputCohort"
-                ]
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "o"
+            ],
+            "ranges": {
+              "o": {
+                "from": "output_rows"
               },
-              "outCohortOrdinal"
-            ]
+              "r": {
+                "from": "ratecohort_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "outRateOrdinal",
+                    "pcoh_rateOrdinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "pcoh_cohortRank",
+                "r"
+              ]
+            }
           }
         },
         {
@@ -29261,7 +30319,7 @@
               {
                 "on": [
                   [
-                    "outCohortOrdinal",
+                    "outCohortRank",
                     "coh_rank"
                   ]
                 ]
@@ -29297,7 +30355,7 @@
               {
                 "on": [
                   [
-                    "outCohortOrdinal",
+                    "outCohortRank",
                     "coh_rank"
                   ]
                 ]
@@ -29477,7 +30535,7 @@
               {
                 "on": [
                   [
-                    "outCohortOrdinal",
+                    "outCohortRank",
                     "coh_rank"
                   ]
                 ]
@@ -29684,7 +30742,7 @@
               {
                 "on": [
                   [
-                    "outPolProcCohortOrdinal",
+                    "outRateOrdinal",
                     "rt_outputOrdinal"
                   ],
                   [
@@ -29739,7 +30797,7 @@
               {
                 "on": [
                   [
-                    "outPolProcCohortOrdinal",
+                    "outRateOrdinal",
                     "rt_outputOrdinal"
                   ],
                   [
@@ -29799,7 +30857,7 @@
               {
                 "on": [
                   [
-                    "outPolProcCohortOrdinal",
+                    "outRateOrdinal",
                     "rt_outputOrdinal"
                   ],
                   [
@@ -29859,7 +30917,7 @@
               {
                 "on": [
                   [
-                    "outPolProcCohortOrdinal",
+                    "outRateOrdinal",
                     "rt_outputOrdinal"
                   ],
                   [
@@ -30070,7 +31128,7 @@
               {
                 "on": [
                   [
-                    "outCohortOrdinal",
+                    "outCohortRank",
                     "coh_rank"
                   ]
                 ]
