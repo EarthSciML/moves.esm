@@ -371,6 +371,16 @@
       "default": 0,
       "description": "Rows in crankcaseemissionratio."
     },
+    "n_methanethcratio": {
+      "type": "integer",
+      "default": 0,
+      "description": "Rows in methanethcratio."
+    },
+    "n_hcspeciation": {
+      "type": "integer",
+      "default": 0,
+      "description": "Rows in hcspeciation."
+    },
     "n_sourceusetypephysics": {
       "type": "integer",
       "default": 0,
@@ -675,6 +685,14 @@
     "crankcaseemissionratio_rows": {
       "kind": "interval",
       "size": "n_crankcaseemissionratio"
+    },
+    "methanethcratio_rows": {
+      "kind": "interval",
+      "size": "n_methanethcratio"
+    },
+    "hcspeciation_rows": {
+      "kind": "interval",
+      "size": "n_hcspeciation"
     },
     "rate_rows": {
       "kind": "interval",
@@ -4130,6 +4148,22 @@
             }
           }
         },
+        "e10_RVP": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "e10fuelproperties_rows"
+          ],
+          "description": "e10FuelProperties.RVP, the Reid vapour pressure of the E10 base fuel. It is the ONE column of this table the high-ethanol substitution does not write into the formulation: step 020 puts it in a NEW column, `altRVP`, and only the alternate criteria ratio reads it. `ff_RVP` next to it declares no unit either, and the two are compared and substituted for one another, so neither may declare one (docs/esm-conventions.md §57). 8.0 for region 270000000 in August 2020, against formulation 27002's own 7.7.",
+          "update": {
+            "kind": "data",
+            "source": "db_e10fuelproperties",
+            "from": {
+              "file_variable": "RVP"
+            }
+          }
+        },
         "e10_ETOHVolume": {
           "type": "parameter",
           "units": "1",
@@ -4418,6 +4452,32 @@
           ],
           "description": "Subtype 51 (E85) or 52 (E70): the formulations whose combustion properties `FuelEffectsGenerator.setup()` step 020 replaces wholesale. Three of the 2,158 rows."
         },
+        "ff_isE10Speciated": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "fuelformulation_rows"
+          ],
+          "description": "Subtype 50 (Ethanol), 51 (E85) or 52 (E70): the formulations whose running- and start-exhaust hydrocarbons MOVES speciates with E10's ratios from model year 2001. It is ONE subtype wider than `ff_isHighEthanol`, which is the property substitution's set and stops at 51 -- two sets that agree on the three formulations any run here selects and are not the same question."
+        },
+        "ff_speciationSubtypeID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "fuelformulation_rows"
+          ],
+          "description": "The fuel subtype the hydrocarbon speciation tables are looked up under: 12, gasohol E10, for a 50/51/52 formulation and the formulation's own subtype otherwise. It is a JOIN KEY and not a value, which is why the substitution is made here on the formulation and not inside the lookup: a `join.on` names a column."
+        },
+        "ffsup_marketShare": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspeccounty_rows",
+            "runspecmonth_rows",
+            "fuelformulation_rows"
+          ],
+          "description": "The share of its fuel type's volume that this formulation is, in this county and this month -- `FuelSupply` resolved against the county's fuel region, the month's month group and the run's fuel year, and laid out on the formulation axis. It is 1.0 for the five formulations any run in `runspecs/` carries and 0 for the other 2,153.\n\nIT EXISTS TO BE COMPUTED ONCE. `FuelSupply` is 105,651 national rows and the collapse used to live inside `cfr_suppliedRatio`, which was affordable while one lookup needed it. The hydrocarbon species need it seven more times -- the methane ratio and the two speciation constants, each at the row's own fuel subtype and again at the E10 one -- and seven more spines over 105,651 x 2,158 took `expand-day` from 60 seconds to 564. Every lookup now joins this instead, and the run that had one such spine has none."
+        },
         "ffx_RVP": {
           "type": "unknown",
           "units": "1",
@@ -4425,6 +4485,16 @@
             "fuelformulation_rows"
           ],
           "description": "RVP with `changeFuelFormulationNulls` applied and NOTHING else: the property the high-ethanol substitution deliberately leaves at the formulation's own value."
+        },
+        "ffx_altRVP": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspeccounty_rows",
+            "runspecmonth_rows",
+            "fuelformulation_rows"
+          ],
+          "description": "The E10 base fuel's RVP where the formulation is high-ethanol and the formulation's own RVP everywhere else -- `alterHighEthanolFuelProperties` step 020's `altRVP` column. It is the mirror image of `ffx_RVP`: the substitution that every other property gets and this one does not, kept instead as a second value beside it. 8.0 against 7.7 for formulation 27002."
         },
         "ffx_esterVolume": {
           "type": "unknown",
@@ -4495,6 +4565,17 @@
           ],
           "description": "The argument of the single `exp` the sulfur form applies: the intercept plus six standardized terms, none of them centred or scaled. It is per (coefficient set, county, month, formulation) and not per criteria row, because the thirteen source types and two model-year ranges that share a (fuelType, polProcess) share this number exactly."
         },
+        "cff_altExponent": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "criteriaform_rows",
+            "runspeccounty_rows",
+            "runspecmonth_rows",
+            "fuelformulation_rows"
+          ],
+          "description": "`cff_exponent` again, with `ffx_altRVP` where it reads `ffx_RVP` and nothing else changed. The whole of `altCriteriaRatio` is this one substitution: the Java replaces the string `RVP` with `altRVP` in the ethanol THC expressions and evaluates the same form."
+        },
         "cfr_ratio": {
           "type": "unknown",
           "units": "1",
@@ -4506,6 +4587,17 @@
           ],
           "description": "`criteriaRatio.ratio` for every (criteria row, county, month, formulation) cell -- the table MOVES writes at run time and the default database ships EMPTY. `ratioGPA` is not computed: the GPA expression string is IDENTICAL to the main one in all 270 criteria rows, so the blend `ratio + gpaFract*(ratioGPA - ratio)` is the identity whatever `county.GPAFract` is."
         },
+        "cfr_exponentDelta": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "criteriafuel_rows",
+            "runspeccounty_rows",
+            "runspecmonth_rows",
+            "fuelformulation_rows"
+          ],
+          "description": "How much the alternate exponent exceeds the ordinary one, per formulation. The two criteria ratios share their sulfur factor and their base divisor exactly, so their quotient is `exp` of this and no division is needed. Zero on every formulation that is not high-ethanol, because there `altRVP` IS `RVP`."
+        },
         "cfr_suppliedRatio": {
           "type": "unknown",
           "units": "1",
@@ -4515,6 +4607,16 @@
             "runspecmonth_rows"
           ],
           "description": "The market-share-weighted ratio over the formulations the county's fuel supply actually carries for the criteria row's fuel type. This is where the 2,158-row formulation table collapses to the five formulations a run uses."
+        },
+        "cfr_suppliedExponentDelta": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "criteriafuel_rows",
+            "runspeccounty_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "The market-share-weighted exponent difference over the formulations the county's fuel supply carries for this row's fuel type -- `cfr_suppliedRatio`'s collapse, applied to the difference instead of the ratio. With one formulation per fuel type at market share 1.0, which is every run in `runspecs/`, the weighting is the identity and the number is that formulation's."
         },
         "ff_olefinContent": {
           "type": "parameter",
@@ -7897,6 +7999,214 @@
             }
           }
         },
+        "mtr_processID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "methanethcratio_rows"
+          ],
+          "description": "methanethcratio.processID. The methane split is keyed by the PROCESS and not by the pollutant-process, because its input is always THC: there is one row set per process, and the pollutant a rate row carries is what selects the arm (5 methane, 79 NMHC), not what selects the row.",
+          "update": {
+            "kind": "data",
+            "source": "db_methanethcratio",
+            "from": {
+              "file_variable": "processID"
+            }
+          }
+        },
+        "mtr_fuelSubtypeID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "methanethcratio_rows"
+          ],
+          "description": "methanethcratio.fuelSubtypeID. The FUEL SUBTYPE, not the fuel type: gasoline is 10 conventional, 11 reformulated and 12 to 15 the gasohols, and their methane fractions differ. A rate row carries a fuel TYPE, so the subtype is reached through the county's fuel supply and its formulations, market-share weighted, exactly as the criteria ratio reaches them.",
+          "update": {
+            "kind": "data",
+            "source": "db_methanethcratio",
+            "from": {
+              "file_variable": "fuelSubtypeID"
+            }
+          }
+        },
+        "mtr_regClassID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "methanethcratio_rows"
+          ],
+          "description": "methanethcratio.regClassID. The second width-one trap of this port: source type 21 has exactly one regulatory class, 20, so a document that dropped this key would be right on every run in `runspecs/` and wrong for a light commercial truck. It is carried (conventions §70.3).",
+          "update": {
+            "kind": "data",
+            "source": "db_methanethcratio",
+            "from": {
+              "file_variable": "regClassID"
+            }
+          }
+        },
+        "mtr_beginModelYearID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "methanethcratio_rows"
+          ],
+          "description": "methanethcratio.beginModelYearID, the first model year of the band.",
+          "update": {
+            "kind": "data",
+            "source": "db_methanethcratio",
+            "from": {
+              "file_variable": "beginModelYearID"
+            }
+          }
+        },
+        "mtr_endModelYearID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "methanethcratio_rows"
+          ],
+          "description": "methanethcratio.endModelYearID, the last.",
+          "update": {
+            "kind": "data",
+            "source": "db_methanethcratio",
+            "from": {
+              "file_variable": "endModelYearID"
+            }
+          }
+        },
+        "mtr_CH4THCRatio": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "methanethcratio_rows"
+          ],
+          "description": "methanethcratio.CH4THCRatio, the methane fraction of THC. Methane is THC times it and NMHC is THC times one minus it, so the two species this table produces are complements and the ROW is what both of them need -- absence, not a zero, is what stops them being emitted (§69). It runs 0.0 to 0.959 over the national table's 1,117 rows, which is why the NMHC complement is never zero and can be divided by.",
+          "update": {
+            "kind": "data",
+            "source": "db_methanethcratio",
+            "from": {
+              "file_variable": "CH4THCRatio"
+            }
+          }
+        },
+        "hcs_polProcessID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "hcspeciation_rows"
+          ],
+          "description": "hcspeciation.polProcessID: the SPECIES, 8001 NMOG or 8701 VOC, and not the NMHC it is computed from. Unlike methanethcratio this table names the pollutant-process, so its own key selects the arm.",
+          "update": {
+            "kind": "data",
+            "source": "db_hcspeciation",
+            "from": {
+              "file_variable": "polProcessID"
+            }
+          }
+        },
+        "hcs_fuelSubtypeID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "hcspeciation_rows"
+          ],
+          "description": "hcspeciation.fuelSubtypeID, the fuel subtype -- see `mtr_fuelSubtypeID`.",
+          "update": {
+            "kind": "data",
+            "source": "db_hcspeciation",
+            "from": {
+              "file_variable": "fuelSubtypeID"
+            }
+          }
+        },
+        "hcs_regClassID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "hcspeciation_rows"
+          ],
+          "description": "hcspeciation.regClassID, the regulatory class -- see `mtr_regClassID`.",
+          "update": {
+            "kind": "data",
+            "source": "db_hcspeciation",
+            "from": {
+              "file_variable": "regClassID"
+            }
+          }
+        },
+        "hcs_beginModelYearID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "hcspeciation_rows"
+          ],
+          "description": "hcspeciation.beginModelYearID, the first model year of the band.",
+          "update": {
+            "kind": "data",
+            "source": "db_hcspeciation",
+            "from": {
+              "file_variable": "beginModelYearID"
+            }
+          }
+        },
+        "hcs_endModelYearID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "hcspeciation_rows"
+          ],
+          "description": "hcspeciation.endModelYearID, the last.",
+          "update": {
+            "kind": "data",
+            "source": "db_hcspeciation",
+            "from": {
+              "file_variable": "endModelYearID"
+            }
+          }
+        },
+        "hcs_speciationConstant": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "hcspeciation_rows"
+          ],
+          "description": "hcspeciation.speciationConstant, the NMHC-to-species factor.",
+          "update": {
+            "kind": "data",
+            "source": "db_hcspeciation",
+            "from": {
+              "file_variable": "speciationConstant"
+            }
+          }
+        },
+        "hcs_oxySpeciation": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "hcspeciation_rows"
+          ],
+          "description": "hcspeciation.oxySpeciation, the coefficient on the fuel's oxygen weight percent. It is EXACTLY ZERO in all 2,562 rows of the national table, so the oxygenate term `oxySpeciation x volToWtPercentOxy x totalOxygenate` contributes nothing anywhere and this document does not carry the two fuel properties it would need. That is a fact about the DATA and not about MOVES, so it is counted rather than assumed: `run_oxySpeciationReached` is the number of rows a run's joins reach whose coefficient is not zero, asserted at 0, and the day a county database ships one the run says so instead of quietly dropping a term (lib/adjustments.esm's `speciation_factor` is the form it would take).",
+          "update": {
+            "kind": "data",
+            "source": "db_hcspeciation",
+            "from": {
+              "file_variable": "oxySpeciation"
+            }
+          }
+        },
         "zmh_temperature": {
           "type": "parameter",
           "units": "degF",
@@ -8033,14 +8343,6 @@
           ],
           "description": "The divisor S18 applies after the group-by sum: 1,055,055.9 kJ per Million BTU for an energy pollutant and exactly 1 for a mass one."
         },
-        "rspp_chainInputPolProcessID": {
-          "type": "unknown",
-          "units": "1",
-          "shape": [
-            "runspecpollutantprocess_rows"
-          ],
-          "description": "A LEFT JOIN onto runspecchainedto: 11710 for the chained 10710 and 0 -- the additive identity, which is no pollutant-process -- for the two that carry a rate of their own. That 0 is what makes the chain term vanish on an unchained row without a branch."
-        },
         "ppmy_shortModYrGroupID": {
           "type": "unknown",
           "units": "1",
@@ -8120,14 +8422,6 @@
             "rate_rows"
           ],
           "description": "Its output-unit divisor."
-        },
-        "rt_chainInputPolProcessID": {
-          "type": "unknown",
-          "units": "1",
-          "shape": [
-            "rate_rows"
-          ],
-          "description": "The pollutant-process this one is chained FROM, or 0."
         },
         "rt_modelYearID": {
           "type": "unknown",
@@ -8842,6 +9136,210 @@
           ],
           "description": "The model-year GROUP `pollutantprocessmodelyear` gives this rate row's (pollutant-process, model year). `rt_modelYearGroupIsPresent` (J18, J19) already asks whether the pair is there; this is the value, and it is a key rather than a test because `NONO2Ratio` is keyed by the group. It is 0 for every pollutant-process whose group is `Doesn't Matter`, which is most of them."
         },
+        "rt_thcPolProcessID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "The THC pollutant-process of THIS row's process -- 101 for running exhaust, 201 for start. The alternate criteria ratio is a property of the THC the species descend from and not of the species, so the criteria-fuel lookup that supplies it is keyed by this and not by the row's own pollutant-process."
+        },
+        "rt_isE10Speciation": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "Is this row on the E10 speciation path -- model year 2001 or later, running or start exhaust? The fuel half of the test is NOT here: it is folded into `ff_speciationSubtypeID`, which is the formulation's own subtype for everything that is not 50, 51 or 52, and into `ffx_altRVP`, which is the formulation's own RVP for everything that is not 51 or 52. So the correction this flag enables is the identity on every fuel but ethanol, and the flag needs to say only what the FORMULATION cannot: which model years and which processes."
+        },
+        "rt_isMethane": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "Pollutant 5. `methaneTHCRatio` is keyed by the PROCESS, so the row's pollutant is what picks the arm -- methane takes the ratio and NMHC takes its complement, from the same row."
+        },
+        "rt_isNMHC": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "Pollutant 79."
+        },
+        "rt_isTOG": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "Pollutant 86. TOG is the only chained pollutant-process in this port with TWO parents and no table of its own: it is methane plus NMOG, so its arm is the number one and the work is done by the second parent."
+        },
+        "rt_ch4RatioOwn": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows",
+            "runspeccounty_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "`methaneTHCRatio.CH4THCRatio` at the row's OWN fuel subtype, market-share weighted over the county's fuel supply. This is the one the REPORTED methane and NMHC use, on every fuel and every model year -- the E10 substitution below changes what NMOG and VOC are computed from and not what NMHC is reported as, which is the fidelity note that makes the E85 rows come out at 0.178 of THC and not 0.662."
+        },
+        "rt_ch4RatioE10": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows",
+            "runspeccounty_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "The same lookup at `ff_speciationSubtypeID`: gasohol E10 for a 50/51/52 formulation and the row's own subtype for everything else. It is the complement of THIS that scales `altTHC` into the NMOG and VOC operand."
+        },
+        "rt_hasCh4Ratio": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "Is there a `methaneTHCRatio` row for this cohort at all? PRESENCE, not positivity: the national table carries ratios of exactly 0.0 and §69's rule is that a row saying zero is a row. It carries no electricity subtype, which is why the methane and NMHC blocks are 104 cohorts where THC is 124."
+        },
+        "rt_speciationConstantOwn": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows",
+            "runspeccounty_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "`HCSpeciation.speciationConstant` at the row's own fuel subtype, market-share weighted. The table is keyed by the SPECIES' pollutant-process -- 8001 NMOG, 8701 VOC -- so unlike the methane table its own key picks the arm and no pollutant test is needed."
+        },
+        "rt_speciationConstantE10": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows",
+            "runspeccounty_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "The same at `ff_speciationSubtypeID`."
+        },
+        "rt_hasSpeciationConstant": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "Is there an `HCSpeciation` row for this cohort?"
+        },
+        "rt_oxySpeciationReached": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "How many `HCSpeciation` rows this row's joins reach whose `oxySpeciation` is not zero. It is 0 for every row of the national table, which is why this document carries no oxygenate term: `speciationConstant + oxySpeciation x volToWtPercentOxy x totalOxygenate` is the form (lib/adjustments.esm's `speciation_factor`) and its second summand is identically absent. Counted rather than assumed, because it is a fact about the DATA."
+        },
+        "rt_speciationExponentDelta": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows",
+            "runspeccounty_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "How much the alternate criteria exponent exceeds the ordinary one for the THC this row descends from. Zero except on a high-ethanol formulation."
+        },
+        "rt_speciationAltQuotient": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows",
+            "runspeccounty_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "`altCriteriaRatio / criteriaRatio` -- the ratio of the pseudo-THC tally `altTHC` to the reported THC -- computed as the exponential of the exponent difference, because the two ratios share every other factor. 0.9934070 for formulation 27002 on this corpus, against 0.993396 read off the run. One outside the E10 model years and processes."
+        },
+        "rt_speciationOperandCorrection": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows",
+            "runspeccounty_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "What the NMOG and VOC arms multiply by, over and above their speciation constant: the operand MOVES speciates them from, as a multiple of the NMHC this document actually reports. On the E10 path that operand is `altTHC x (1 - CH4THCRatio[E10])` while the reported NMHC is `THC x (1 - CH4THCRatio[own])`, so the correction is the quotient of the two; everywhere else it is one. The denominator cannot vanish: `CH4THCRatio` tops out at 0.959 over the national table's 1,117 rows and is 0 where the table has no row at all."
+        },
+        "rt_methaneChainRatio": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows",
+            "runspeccounty_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "The methane arm."
+        },
+        "rt_nmhcChainRatio": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows",
+            "runspeccounty_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "The NMHC arm: the complement of the same ratio."
+        },
+        "rt_hcSpeciationChainRatio": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows",
+            "runspeccounty_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "The NMOG and VOC arms, which are one expression."
+        },
+        "rt_togChainRatio": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "The TOG arm: the number one, applied to each of TOG's two parents."
+        },
+        "rt_hasMethaneChainRatio": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "Presence of the methane arm."
+        },
+        "rt_hasNmhcChainRatio": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "Presence of the NMHC arm."
+        },
+        "rt_hasHcSpeciationChainRatio": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "Presence of the NMOG and VOC arms."
+        },
+        "rt_hasTogChainRatio": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "Presence of the TOG arm. It has no table, so this is the pollutant test alone -- and what stops TOG being emitted where its parents are not is `rt_parentEmitsHere`, which is the other half of `rt_emits` and not this."
+        },
         "rt_pm10ChainRatio": {
           "type": "unknown",
           "units": "1",
@@ -8870,9 +9368,11 @@
           "type": "unknown",
           "units": "1",
           "shape": [
-            "rate_rows"
+            "rate_rows",
+            "runspeccounty_rows",
+            "runspecmonth_rows"
           ],
-          "description": "The chain ratio, whichever of the three tables holds it. The arms are DISJOINT by pollutant-process -- `PM10EmissionRatio` carries the particulate chains, `NONO2Ratio` the nitrogen species and `CrankcaseEmissionRatio` the crankcase processes, and no polProcessID is in two of them -- so the union is a sum and not a precedence."
+          "description": "The ratio a chained pollutant-process scales EACH of its parents by. Seven arms, disjoint by pollutant-process, so the union is a sum. It gained the county and the month with the hydrocarbon species: their tables are keyed by the fuel SUBTYPE, which a rate row reaches only through the county's fuel supply and its formulations, and the E10 correction is a criteria ratio, which was already per county and month."
         },
         "rt_hasPm10ChainRatio": {
           "type": "unknown",
@@ -8904,7 +9404,7 @@
           "shape": [
             "rate_rows"
           ],
-          "description": "Is this rate row chained from something, with a ratio recorded for it in any of the three tables? The union is a `max` because the arms are disjoint and a presence flag is not additive."
+          "description": "Is this rate row chained from something, with a ratio recorded for it in any of the seven arms? The union is a `max` because the arms are disjoint and a presence flag is not additive. It stays a function of the rate row alone while the ratio itself is per county and month: whether a table HAS a row for a cohort does not depend on which county is asking."
         },
         "rt_parentEmitsGen1": {
           "type": "unknown",
@@ -8912,7 +9412,7 @@
           "shape": [
             "rate_rows"
           ],
-          "description": "Generation 1 of the chain's presence fixed point: does the pollutant-process this row is CHAINED FROM carry a RATE of its own on this same cohort? A self-join of the rate relation on (chained-from pollutant-process, cohort), under `max` because the cohort's source bins would otherwise be counted one per bin. THE CHAIN IS A FIXED POINT, UNROLLED THREE TIMES. A chained pollutant-process can itself be the parent of another: `chain-tog-speciation` runs THC (101) to NMHC (7901) to NMOG (8001) to TOG (8601), and `process-airtoxics` runs THC to NMHC to VOC (8701) to benzene (2001). Reading the parent's DIRECT quantity, which is what one pass does, gives a grandchild zero. Three is not a guess: it is the longest chain in the whole snapshot corpus (docs/esm-conventions.md §71), measured over every `runspecchainedto` in `../moves.rs/characterization/snapshots`, and a run deeper than three would leave its deepest species at zero rather than wrong -- `run_chainDeeperThanThree` counts exactly those rows and is asserted at 0. The three passes are spelled out rather than factored because a `faq`'s ranges and join clause are equation-level and an expression template cannot carry them; what IS shared -- the emission predicate -- is lib/emission_factors.esm's `chained_emits`, applied at all three."
+          "description": "Generation 1 of the chain's presence fixed point: does a pollutant-process this row is CHAINED FROM carry a RATE of its own on this same cohort? The rate relation self-joined THROUGH `runspecchainedto`, under `max` because the cohort's source bins would otherwise be counted one per bin -- and through the EDGE LIST rather than through a derived parent key, because TOG has two parents and a key column can hold one. THE CHAIN IS A FIXED POINT, UNROLLED THREE TIMES. A chained pollutant-process can itself be the parent of another: `chain-tog-speciation` runs THC (101) to NMHC (7901) to NMOG (8001) to TOG (8601), and `process-airtoxics` runs THC to NMHC to VOC (8701) to benzene (2001). Reading the parent's DIRECT quantity, which is what one pass does, gives a grandchild zero. Three is not a guess: it is the longest chain in the whole snapshot corpus (docs/esm-conventions.md §71), measured over every `runspecchainedto` in `../moves.rs/characterization/snapshots`, and a run deeper than three would leave its deepest species at zero rather than wrong -- `run_chainDeeperThanThree` counts exactly those rows and is asserted at 0. The three passes are spelled out rather than factored because a `faq`'s ranges and join clause are equation-level and an expression template cannot carry them; what IS shared -- the emission predicate -- is lib/emission_factors.esm's `chained_emits`, applied at all three."
         },
         "rt_emitsGen1": {
           "type": "unknown",
@@ -9047,13 +9547,21 @@
           ],
           "description": "How many rate rows a FOURTH rung of the chain would newly emit: 0, asserted. lib/chaining.esm records that three is the longest chain in the whole snapshot corpus; this is the run's own check of it, and a run that broke it would leave its deepest species at zero rather than wrong -- which this counts and the shape checker would then see as missing rows."
         },
+        "run_oxySpeciationReached": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "run_rows"
+          ],
+          "description": "How many `HCSpeciation` rows with a non-zero `oxySpeciation` this run's joins reach: 0, asserted. The oxygenate term is the one part of `speciation_factor` this document does not carry, and this is what says the omission is a reading of the DATA rather than of MOVES."
+        },
         "run_chainedRowCount": {
           "type": "unknown",
           "units": "1",
           "shape": [
             "run_rows"
           ],
-          "description": "How many emitted rate rows carry a chain ratio: 125, the one chained pollutant-process's cohorts. A rate row can never have both a ratio and a rate of its own here, which is what makes `rtDay_quant`'s sum a union."
+          "description": "How many selected rate rows carry a chain ratio. It reads the PRESENCE flag and not `rt_chainRatio > 0`, for the reason §70.2 gives: `CrankcaseEmissionRatio` carries ratios of exactly zero and those cohorts are emitted. A rate row can never have both a ratio and a rate of its own, which is what makes `rtDay_quant`'s sum a union."
         },
         "bin_isSelectedAt": {
           "type": "unknown",
@@ -10968,43 +11476,6 @@
                 "name": "kilojoules_per_million_btu",
                 "bindings": {}
               }
-            }
-          }
-        },
-        {
-          "_comment": "J35: MOVES's own chain declaration, read rather than written down.",
-          "lhs": "rspp_chainInputPolProcessID",
-          "rhs": {
-            "op": "faq",
-            "args": [],
-            "semiring": "sum_product",
-            "output_idx": [
-              "p"
-            ],
-            "ranges": {
-              "p": {
-                "from": "runspecpollutantprocess_rows"
-              },
-              "h": {
-                "from": "runspecchainedto_rows"
-              }
-            },
-            "join": [
-              {
-                "on": [
-                  [
-                    "rspp_polProcessID",
-                    "rct_outputPolProcessID"
-                  ]
-                ]
-              }
-            ],
-            "expr": {
-              "op": "index",
-              "args": [
-                "rct_inputPolProcessID",
-                "h"
-              ]
             }
           }
         },
@@ -17195,42 +17666,6 @@
           }
         },
         {
-          "lhs": "rt_chainInputPolProcessID",
-          "rhs": {
-            "op": "faq",
-            "args": [],
-            "semiring": "sum_product",
-            "output_idx": [
-              "b"
-            ],
-            "ranges": {
-              "b": {
-                "from": "rate_rows"
-              },
-              "p": {
-                "from": "runspecpollutantprocess_rows"
-              }
-            },
-            "join": [
-              {
-                "on": [
-                  [
-                    "rt_polProcOrdinal",
-                    "rspp_ordinal"
-                  ]
-                ]
-              }
-            ],
-            "expr": {
-              "op": "index",
-              "args": [
-                "rspp_chainInputPolProcessID",
-                "p"
-              ]
-            }
-          }
-        },
-        {
           "lhs": "rt_modelYearID",
           "rhs": {
             "op": "faq",
@@ -22651,6 +23086,99 @@
           }
         },
         {
+          "lhs": "ff_isE10Speciated",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "in_half_open_range",
+            "bindings": {
+              "lower": 49.5,
+              "upper": 52.5,
+              "value": "ff_fuelSubtypeID"
+            }
+          }
+        },
+        {
+          "lhs": "ff_speciationSubtypeID",
+          "rhs": {
+            "op": "ifelse",
+            "args": [
+              {
+                "op": ">",
+                "args": [
+                  "ff_isE10Speciated",
+                  0.5
+                ]
+              },
+              12.0,
+              "ff_fuelSubtypeID"
+            ]
+          }
+        },
+        {
+          "lhs": "ffsup_marketShare",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "g",
+              "m",
+              "f"
+            ],
+            "ranges": {
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "m": {
+                "from": "runspecmonth_rows"
+              },
+              "f": {
+                "from": "fuelformulation_rows"
+              },
+              "s": {
+                "from": "fuelsupply_rows"
+              },
+              "k": {
+                "from": "run_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "fs_fuelFormulationID",
+                    "ff_fuelFormulationID"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "run_fuelRegionID",
+                    "fs_fuelRegionID"
+                  ],
+                  [
+                    "run_monthGroupID",
+                    "fs_monthGroupID"
+                  ],
+                  [
+                    "run_fuelYearID",
+                    "fs_fuelYearID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "fs_marketShare",
+                "s"
+              ]
+            }
+          }
+        },
+        {
           "_comment": "`changeFuelFormulationNulls` on the one property step 020 does not touch.",
           "lhs": "ffx_RVP",
           "rhs": {
@@ -22659,6 +23187,82 @@
             "name": "fuel_property_or_zero",
             "bindings": {
               "value": "ff_RVP"
+            }
+          }
+        },
+        {
+          "lhs": "ffx_altRVP",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "g",
+              "m",
+              "f"
+            ],
+            "ranges": {
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "m": {
+                "from": "runspecmonth_rows"
+              },
+              "f": {
+                "from": "fuelformulation_rows"
+              },
+              "p": {
+                "from": "e10fuelproperties_rows"
+              },
+              "k": {
+                "from": "run_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "run_fuelRegionID",
+                    "e10_fuelRegionID"
+                  ],
+                  [
+                    "run_monthGroupID",
+                    "e10_monthGroupID"
+                  ],
+                  [
+                    "run_fuelYearID",
+                    "e10_fuelYearID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "high_ethanol_property",
+              "bindings": {
+                "is_high_ethanol": {
+                  "op": "index",
+                  "args": [
+                    "ff_isHighEthanol",
+                    "f"
+                  ]
+                },
+                "own_value": {
+                  "op": "index",
+                  "args": [
+                    "ff_RVP",
+                    "f"
+                  ]
+                },
+                "substitute_value": {
+                  "op": "index",
+                  "args": [
+                    "e10_RVP",
+                    "p"
+                  ]
+                }
+              }
             }
           }
         },
@@ -23198,6 +23802,149 @@
           }
         },
         {
+          "lhs": "cff_altExponent",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "e",
+              "g",
+              "m",
+              "f"
+            ],
+            "ranges": {
+              "e": {
+                "from": "criteriaform_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "m": {
+                "from": "runspecmonth_rows"
+              },
+              "f": {
+                "from": "fuelformulation_rows"
+              }
+            },
+            "expr": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "criteria_exponent",
+              "bindings": {
+                "aromatic_content": {
+                  "op": "index",
+                  "args": [
+                    "ffx_aromaticContent",
+                    "g",
+                    "m",
+                    "f"
+                  ]
+                },
+                "coefficient_aromatic_content": {
+                  "op": "index",
+                  "args": [
+                    "cff_coefficientAromaticContent",
+                    "e"
+                  ]
+                },
+                "coefficient_etoh_volume": {
+                  "op": "index",
+                  "args": [
+                    "cff_coefficientETOHVolume",
+                    "e"
+                  ]
+                },
+                "coefficient_rvp": {
+                  "op": "index",
+                  "args": [
+                    "cff_coefficientRVP",
+                    "e"
+                  ]
+                },
+                "coefficient_t50": {
+                  "op": "index",
+                  "args": [
+                    "cff_coefficientT50",
+                    "e"
+                  ]
+                },
+                "coefficient_t50_squared": {
+                  "op": "index",
+                  "args": [
+                    "cff_coefficientT50Squared",
+                    "e"
+                  ]
+                },
+                "coefficient_t90": {
+                  "op": "index",
+                  "args": [
+                    "cff_coefficientT90",
+                    "e"
+                  ]
+                },
+                "etoh_cap": {
+                  "op": "index",
+                  "args": [
+                    "cff_etohCap",
+                    "e"
+                  ]
+                },
+                "etoh_cap_is_active": {
+                  "op": "index",
+                  "args": [
+                    "cff_etohCapIsActive",
+                    "e"
+                  ]
+                },
+                "etoh_volume": {
+                  "op": "index",
+                  "args": [
+                    "ffx_ETOHVolume",
+                    "g",
+                    "m",
+                    "f"
+                  ]
+                },
+                "intercept": {
+                  "op": "index",
+                  "args": [
+                    "cff_intercept",
+                    "e"
+                  ]
+                },
+                "rvp": {
+                  "op": "index",
+                  "args": [
+                    "ffx_altRVP",
+                    "g",
+                    "m",
+                    "f"
+                  ]
+                },
+                "t50": {
+                  "op": "index",
+                  "args": [
+                    "ffx_T50",
+                    "g",
+                    "m",
+                    "f"
+                  ]
+                },
+                "t90": {
+                  "op": "index",
+                  "args": [
+                    "ffx_T90",
+                    "g",
+                    "m",
+                    "f"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
           "_comment": "J63: the criteria row picks up its coefficient set, and the two forms are selected between. BOTH ARMS ARE EVALUATED, so both have to be finite for every formulation, and the filler values on the unused side are chosen for exactly that: a diesel row carries base 1, GPA factor 1, power 1 and multiplier 0, which makes its sulfur arm a finite number even against the two formulations whose sulfur level is 0 and whose `log` is therefore minus infinity; a gasoline or ethanol row carries biodiesel coefficient 0, which makes its biodiesel arm exactly 1. Power 1 and not 0 on the diesel rows: at power 0, `exp(0*log(0))` is a NaN rather than a 1.",
           "lhs": "cfr_ratio",
           "rhs": {
@@ -23358,6 +24105,76 @@
           }
         },
         {
+          "lhs": "cfr_exponentDelta",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "c",
+              "g",
+              "m",
+              "f"
+            ],
+            "ranges": {
+              "c": {
+                "from": "criteriafuel_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "m": {
+                "from": "runspecmonth_rows"
+              },
+              "f": {
+                "from": "fuelformulation_rows"
+              },
+              "e": {
+                "from": "criteriaform_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "cfr_fuelTypeID",
+                    "cff_fuelTypeID"
+                  ],
+                  [
+                    "cfr_polProcessID",
+                    "cff_polProcessID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "-",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "cff_altExponent",
+                    "e",
+                    "g",
+                    "m",
+                    "f"
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "cff_exponent",
+                    "e",
+                    "g",
+                    "m",
+                    "f"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
           "_comment": "J64: the fuel supply, which is what turns 2,158 formulations into the one or two a county burns in a given month. The weight is on the RATIO and MOVES puts it on the RATE -- `aggregate.rs:38` accumulates `mean_base_rate * market_share` and `adjust.rs:477` has already scaled that rate by the ratio -- and the two are the same number because the rate does not depend on the formulation. Every county in this corpus supplies one formulation per fuel type at share 1.0, so the corpus cannot tell them apart (conventions §23); linearity is the argument. The `run_rows` range is the EarthSciAST#437 trap again, for `run_fuelYearID`.",
           "lhs": "cfr_suppliedRatio",
           "rhs": {
@@ -23379,42 +24196,16 @@
               "m": {
                 "from": "runspecmonth_rows"
               },
-              "s": {
-                "from": "fuelsupply_rows"
-              },
               "f": {
                 "from": "fuelformulation_rows"
-              },
-              "k": {
-                "from": "run_rows"
               }
             },
             "join": [
               {
                 "on": [
                   [
-                    "fs_fuelFormulationID",
-                    "ff_fuelFormulationID"
-                  ],
-                  [
                     "cfr_fuelTypeID",
                     "ff_fuelTypeID"
-                  ]
-                ]
-              },
-              {
-                "on": [
-                  [
-                    "run_fuelRegionID",
-                    "fs_fuelRegionID"
-                  ],
-                  [
-                    "run_monthGroupID",
-                    "fs_monthGroupID"
-                  ],
-                  [
-                    "run_fuelYearID",
-                    "fs_fuelYearID"
                   ]
                 ]
               }
@@ -23425,14 +24216,77 @@
                 {
                   "op": "index",
                   "args": [
-                    "fs_marketShare",
-                    "s"
+                    "ffsup_marketShare",
+                    "g",
+                    "m",
+                    "f"
                   ]
                 },
                 {
                   "op": "index",
                   "args": [
                     "cfr_ratio",
+                    "c",
+                    "g",
+                    "m",
+                    "f"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "cfr_suppliedExponentDelta",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "c",
+              "g",
+              "m"
+            ],
+            "ranges": {
+              "c": {
+                "from": "criteriafuel_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "m": {
+                "from": "runspecmonth_rows"
+              },
+              "f": {
+                "from": "fuelformulation_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "cfr_fuelTypeID",
+                    "ff_fuelTypeID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "ffsup_marketShare",
+                    "g",
+                    "m",
+                    "f"
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "cfr_exponentDelta",
                     "c",
                     "g",
                     "m",
@@ -28961,6 +29815,1028 @@
           }
         },
         {
+          "lhs": "rt_thcPolProcessID",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "pol_process_id",
+            "bindings": {
+              "pollutant_id": 1.0,
+              "process_id": "rt_processID"
+            }
+          }
+        },
+        {
+          "lhs": "rt_isE10Speciation",
+          "rhs": {
+            "op": "*",
+            "args": [
+              {
+                "op": "ifelse",
+                "args": [
+                  {
+                    "op": ">=",
+                    "args": [
+                      "rt_modelYearID",
+                      2001.0
+                    ]
+                  },
+                  1.0,
+                  0.0
+                ]
+              },
+              {
+                "op": "apply_expression_template",
+                "args": [],
+                "name": "in_half_open_range",
+                "bindings": {
+                  "lower": 0.5,
+                  "upper": 2.5,
+                  "value": "rt_processID"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "lhs": "rt_isMethane",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "in_half_open_range",
+            "bindings": {
+              "lower": 4.5,
+              "upper": 5.5,
+              "value": "rt_pollutantID"
+            }
+          }
+        },
+        {
+          "lhs": "rt_isNMHC",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "in_half_open_range",
+            "bindings": {
+              "lower": 78.5,
+              "upper": 79.5,
+              "value": "rt_pollutantID"
+            }
+          }
+        },
+        {
+          "lhs": "rt_isTOG",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "in_half_open_range",
+            "bindings": {
+              "lower": 85.5,
+              "upper": 86.5,
+              "value": "rt_pollutantID"
+            }
+          }
+        },
+        {
+          "lhs": "rt_ch4RatioOwn",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b",
+              "g",
+              "m"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "m": {
+                "from": "runspecmonth_rows"
+              },
+              "f": {
+                "from": "fuelformulation_rows"
+              },
+              "q": {
+                "from": "methanethcratio_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rt_fuelTypeID",
+                    "ff_fuelTypeID"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "rt_processID",
+                    "mtr_processID"
+                  ],
+                  [
+                    "ff_fuelSubtypeID",
+                    "mtr_fuelSubtypeID"
+                  ],
+                  [
+                    "rt_regClassID",
+                    "mtr_regClassID"
+                  ]
+                ]
+              }
+            ],
+            "filter": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "model_year_in_range",
+              "bindings": {
+                "first_model_year": {
+                  "op": "index",
+                  "args": [
+                    "mtr_beginModelYearID",
+                    "q"
+                  ]
+                },
+                "last_model_year": {
+                  "op": "index",
+                  "args": [
+                    "mtr_endModelYearID",
+                    "q"
+                  ]
+                },
+                "model_year": {
+                  "op": "index",
+                  "args": [
+                    "rt_modelYearID",
+                    "b"
+                  ]
+                }
+              }
+            },
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "ffsup_marketShare",
+                    "g",
+                    "m",
+                    "f"
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "mtr_CH4THCRatio",
+                    "q"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rt_ch4RatioE10",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b",
+              "g",
+              "m"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "m": {
+                "from": "runspecmonth_rows"
+              },
+              "f": {
+                "from": "fuelformulation_rows"
+              },
+              "q": {
+                "from": "methanethcratio_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rt_fuelTypeID",
+                    "ff_fuelTypeID"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "rt_processID",
+                    "mtr_processID"
+                  ],
+                  [
+                    "ff_speciationSubtypeID",
+                    "mtr_fuelSubtypeID"
+                  ],
+                  [
+                    "rt_regClassID",
+                    "mtr_regClassID"
+                  ]
+                ]
+              }
+            ],
+            "filter": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "model_year_in_range",
+              "bindings": {
+                "first_model_year": {
+                  "op": "index",
+                  "args": [
+                    "mtr_beginModelYearID",
+                    "q"
+                  ]
+                },
+                "last_model_year": {
+                  "op": "index",
+                  "args": [
+                    "mtr_endModelYearID",
+                    "q"
+                  ]
+                },
+                "model_year": {
+                  "op": "index",
+                  "args": [
+                    "rt_modelYearID",
+                    "b"
+                  ]
+                }
+              }
+            },
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "ffsup_marketShare",
+                    "g",
+                    "m",
+                    "f"
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "mtr_CH4THCRatio",
+                    "q"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rt_hasCh4Ratio",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "bool_and_or",
+            "output_idx": [
+              "b"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "m": {
+                "from": "runspecmonth_rows"
+              },
+              "f": {
+                "from": "fuelformulation_rows"
+              },
+              "q": {
+                "from": "methanethcratio_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rt_fuelTypeID",
+                    "ff_fuelTypeID"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "rt_processID",
+                    "mtr_processID"
+                  ],
+                  [
+                    "ff_fuelSubtypeID",
+                    "mtr_fuelSubtypeID"
+                  ],
+                  [
+                    "rt_regClassID",
+                    "mtr_regClassID"
+                  ]
+                ]
+              }
+            ],
+            "filter": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "model_year_in_range",
+              "bindings": {
+                "first_model_year": {
+                  "op": "index",
+                  "args": [
+                    "mtr_beginModelYearID",
+                    "q"
+                  ]
+                },
+                "last_model_year": {
+                  "op": "index",
+                  "args": [
+                    "mtr_endModelYearID",
+                    "q"
+                  ]
+                },
+                "model_year": {
+                  "op": "index",
+                  "args": [
+                    "rt_modelYearID",
+                    "b"
+                  ]
+                }
+              }
+            },
+            "expr": 1.0
+          }
+        },
+        {
+          "lhs": "rt_speciationConstantOwn",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b",
+              "g",
+              "m"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "m": {
+                "from": "runspecmonth_rows"
+              },
+              "f": {
+                "from": "fuelformulation_rows"
+              },
+              "h": {
+                "from": "hcspeciation_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rt_fuelTypeID",
+                    "ff_fuelTypeID"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "rt_polProcessID",
+                    "hcs_polProcessID"
+                  ],
+                  [
+                    "ff_fuelSubtypeID",
+                    "hcs_fuelSubtypeID"
+                  ],
+                  [
+                    "rt_regClassID",
+                    "hcs_regClassID"
+                  ]
+                ]
+              }
+            ],
+            "filter": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "model_year_in_range",
+              "bindings": {
+                "first_model_year": {
+                  "op": "index",
+                  "args": [
+                    "hcs_beginModelYearID",
+                    "h"
+                  ]
+                },
+                "last_model_year": {
+                  "op": "index",
+                  "args": [
+                    "hcs_endModelYearID",
+                    "h"
+                  ]
+                },
+                "model_year": {
+                  "op": "index",
+                  "args": [
+                    "rt_modelYearID",
+                    "b"
+                  ]
+                }
+              }
+            },
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "ffsup_marketShare",
+                    "g",
+                    "m",
+                    "f"
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "hcs_speciationConstant",
+                    "h"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rt_speciationConstantE10",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b",
+              "g",
+              "m"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "m": {
+                "from": "runspecmonth_rows"
+              },
+              "f": {
+                "from": "fuelformulation_rows"
+              },
+              "h": {
+                "from": "hcspeciation_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rt_fuelTypeID",
+                    "ff_fuelTypeID"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "rt_polProcessID",
+                    "hcs_polProcessID"
+                  ],
+                  [
+                    "ff_speciationSubtypeID",
+                    "hcs_fuelSubtypeID"
+                  ],
+                  [
+                    "rt_regClassID",
+                    "hcs_regClassID"
+                  ]
+                ]
+              }
+            ],
+            "filter": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "model_year_in_range",
+              "bindings": {
+                "first_model_year": {
+                  "op": "index",
+                  "args": [
+                    "hcs_beginModelYearID",
+                    "h"
+                  ]
+                },
+                "last_model_year": {
+                  "op": "index",
+                  "args": [
+                    "hcs_endModelYearID",
+                    "h"
+                  ]
+                },
+                "model_year": {
+                  "op": "index",
+                  "args": [
+                    "rt_modelYearID",
+                    "b"
+                  ]
+                }
+              }
+            },
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "ffsup_marketShare",
+                    "g",
+                    "m",
+                    "f"
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "hcs_speciationConstant",
+                    "h"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rt_hasSpeciationConstant",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "bool_and_or",
+            "output_idx": [
+              "b"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "m": {
+                "from": "runspecmonth_rows"
+              },
+              "f": {
+                "from": "fuelformulation_rows"
+              },
+              "h": {
+                "from": "hcspeciation_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rt_fuelTypeID",
+                    "ff_fuelTypeID"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "rt_polProcessID",
+                    "hcs_polProcessID"
+                  ],
+                  [
+                    "ff_fuelSubtypeID",
+                    "hcs_fuelSubtypeID"
+                  ],
+                  [
+                    "rt_regClassID",
+                    "hcs_regClassID"
+                  ]
+                ]
+              }
+            ],
+            "filter": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "model_year_in_range",
+              "bindings": {
+                "first_model_year": {
+                  "op": "index",
+                  "args": [
+                    "hcs_beginModelYearID",
+                    "h"
+                  ]
+                },
+                "last_model_year": {
+                  "op": "index",
+                  "args": [
+                    "hcs_endModelYearID",
+                    "h"
+                  ]
+                },
+                "model_year": {
+                  "op": "index",
+                  "args": [
+                    "rt_modelYearID",
+                    "b"
+                  ]
+                }
+              }
+            },
+            "expr": 1.0
+          }
+        },
+        {
+          "lhs": "rt_oxySpeciationReached",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "m": {
+                "from": "runspecmonth_rows"
+              },
+              "f": {
+                "from": "fuelformulation_rows"
+              },
+              "h": {
+                "from": "hcspeciation_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rt_fuelTypeID",
+                    "ff_fuelTypeID"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "rt_polProcessID",
+                    "hcs_polProcessID"
+                  ],
+                  [
+                    "ff_fuelSubtypeID",
+                    "hcs_fuelSubtypeID"
+                  ],
+                  [
+                    "rt_regClassID",
+                    "hcs_regClassID"
+                  ]
+                ]
+              }
+            ],
+            "filter": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "model_year_in_range",
+              "bindings": {
+                "first_model_year": {
+                  "op": "index",
+                  "args": [
+                    "hcs_beginModelYearID",
+                    "h"
+                  ]
+                },
+                "last_model_year": {
+                  "op": "index",
+                  "args": [
+                    "hcs_endModelYearID",
+                    "h"
+                  ]
+                },
+                "model_year": {
+                  "op": "index",
+                  "args": [
+                    "rt_modelYearID",
+                    "b"
+                  ]
+                }
+              }
+            },
+            "expr": {
+              "op": "+",
+              "args": [
+                {
+                  "op": "ifelse",
+                  "args": [
+                    {
+                      "op": ">",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "hcs_oxySpeciation",
+                            "h"
+                          ]
+                        },
+                        0.0
+                      ]
+                    },
+                    1.0,
+                    0.0
+                  ]
+                },
+                {
+                  "op": "ifelse",
+                  "args": [
+                    {
+                      "op": "<",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "hcs_oxySpeciation",
+                            "h"
+                          ]
+                        },
+                        0.0
+                      ]
+                    },
+                    1.0,
+                    0.0
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rt_speciationExponentDelta",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b",
+              "g",
+              "m"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "m": {
+                "from": "runspecmonth_rows"
+              },
+              "c": {
+                "from": "criteriafuel_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rt_fuelTypeID",
+                    "cfr_fuelTypeID"
+                  ],
+                  [
+                    "rt_thcPolProcessID",
+                    "cfr_polProcessID"
+                  ],
+                  [
+                    "rt_sourceTypeID",
+                    "cfr_sourceTypeID"
+                  ]
+                ]
+              }
+            ],
+            "filter": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "model_year_in_range",
+              "bindings": {
+                "first_model_year": {
+                  "op": "index",
+                  "args": [
+                    "cfr_minModelYearID",
+                    "c"
+                  ]
+                },
+                "last_model_year": {
+                  "op": "index",
+                  "args": [
+                    "cfr_maxModelYearID",
+                    "c"
+                  ]
+                },
+                "model_year": {
+                  "op": "index",
+                  "args": [
+                    "rt_modelYearID",
+                    "b"
+                  ]
+                }
+              }
+            },
+            "expr": {
+              "op": "index",
+              "args": [
+                "cfr_suppliedExponentDelta",
+                "c",
+                "g",
+                "m"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rt_speciationAltQuotient",
+          "rhs": {
+            "op": "ifelse",
+            "args": [
+              {
+                "op": ">",
+                "args": [
+                  "rt_isE10Speciation",
+                  0.5
+                ]
+              },
+              {
+                "op": "exp",
+                "args": [
+                  "rt_speciationExponentDelta"
+                ]
+              },
+              1.0
+            ]
+          }
+        },
+        {
+          "lhs": "rt_speciationOperandCorrection",
+          "rhs": {
+            "op": "ifelse",
+            "args": [
+              {
+                "op": ">",
+                "args": [
+                  "rt_isE10Speciation",
+                  0.5
+                ]
+              },
+              {
+                "op": "/",
+                "args": [
+                  {
+                    "op": "*",
+                    "args": [
+                      "rt_speciationAltQuotient",
+                      {
+                        "op": "-",
+                        "args": [
+                          1.0,
+                          "rt_ch4RatioE10"
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "op": "-",
+                    "args": [
+                      1.0,
+                      "rt_ch4RatioOwn"
+                    ]
+                  }
+                ]
+              },
+              1.0
+            ]
+          }
+        },
+        {
+          "lhs": "rt_methaneChainRatio",
+          "rhs": {
+            "op": "*",
+            "args": [
+              "rt_isMethane",
+              "rt_ch4RatioOwn"
+            ]
+          }
+        },
+        {
+          "lhs": "rt_nmhcChainRatio",
+          "rhs": {
+            "op": "*",
+            "args": [
+              "rt_isNMHC",
+              {
+                "op": "-",
+                "args": [
+                  1.0,
+                  "rt_ch4RatioOwn"
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "lhs": "rt_hcSpeciationChainRatio",
+          "rhs": {
+            "op": "*",
+            "args": [
+              {
+                "op": "ifelse",
+                "args": [
+                  {
+                    "op": ">",
+                    "args": [
+                      "rt_isE10Speciation",
+                      0.5
+                    ]
+                  },
+                  "rt_speciationConstantE10",
+                  "rt_speciationConstantOwn"
+                ]
+              },
+              "rt_speciationOperandCorrection"
+            ]
+          }
+        },
+        {
+          "lhs": "rt_togChainRatio",
+          "rhs": "rt_isTOG"
+        },
+        {
+          "lhs": "rt_hasMethaneChainRatio",
+          "rhs": {
+            "op": "*",
+            "args": [
+              "rt_isMethane",
+              "rt_hasCh4Ratio"
+            ]
+          }
+        },
+        {
+          "lhs": "rt_hasNmhcChainRatio",
+          "rhs": {
+            "op": "*",
+            "args": [
+              "rt_isNMHC",
+              "rt_hasCh4Ratio"
+            ]
+          }
+        },
+        {
+          "lhs": "rt_hasHcSpeciationChainRatio",
+          "rhs": "rt_hasSpeciationConstant"
+        },
+        {
+          "lhs": "rt_hasTogChainRatio",
+          "rhs": "rt_isTOG"
+        },
+        {
           "lhs": "rt_pm10ChainRatio",
           "rhs": {
             "op": "faq",
@@ -29204,11 +31080,35 @@
               {
                 "op": "+",
                 "args": [
-                  "rt_pm10ChainRatio",
-                  "rt_noxChainRatio"
+                  {
+                    "op": "+",
+                    "args": [
+                      "rt_pm10ChainRatio",
+                      "rt_noxChainRatio"
+                    ]
+                  },
+                  "rt_crankcaseChainRatio"
                 ]
               },
-              "rt_crankcaseChainRatio"
+              {
+                "op": "+",
+                "args": [
+                  {
+                    "op": "+",
+                    "args": [
+                      "rt_methaneChainRatio",
+                      "rt_nmhcChainRatio"
+                    ]
+                  },
+                  {
+                    "op": "+",
+                    "args": [
+                      "rt_hcSpeciationChainRatio",
+                      "rt_togChainRatio"
+                    ]
+                  }
+                ]
+              }
             ]
           }
         },
@@ -29398,11 +31298,35 @@
               {
                 "op": "max",
                 "args": [
-                  "rt_hasPm10ChainRatio",
-                  "rt_hasNoxChainRatio"
+                  {
+                    "op": "max",
+                    "args": [
+                      "rt_hasPm10ChainRatio",
+                      "rt_hasNoxChainRatio"
+                    ]
+                  },
+                  "rt_hasCrankcaseChainRatio"
                 ]
               },
-              "rt_hasCrankcaseChainRatio"
+              {
+                "op": "max",
+                "args": [
+                  {
+                    "op": "max",
+                    "args": [
+                      "rt_hasMethaneChainRatio",
+                      "rt_hasNmhcChainRatio"
+                    ]
+                  },
+                  {
+                    "op": "max",
+                    "args": [
+                      "rt_hasHcSpeciationChainRatio",
+                      "rt_hasTogChainRatio"
+                    ]
+                  }
+                ]
+              }
             ]
           }
         },
@@ -29421,19 +31345,42 @@
               },
               "b2": {
                 "from": "rate_rows"
+              },
+              "h": {
+                "from": "runspecchainedto_rows"
               }
             },
             "join": [
               {
                 "syms": [
                   "b",
-                  "b2"
+                  "h"
                 ],
                 "on": [
                   [
-                    "rt_chainInputPolProcessID",
-                    "rt_polProcessID"
-                  ],
+                    "rt_polProcessID",
+                    "rct_outputPolProcessID"
+                  ]
+                ]
+              },
+              {
+                "syms": [
+                  "b2",
+                  "h"
+                ],
+                "on": [
+                  [
+                    "rt_polProcessID",
+                    "rct_inputPolProcessID"
+                  ]
+                ]
+              },
+              {
+                "syms": [
+                  "b",
+                  "b2"
+                ],
+                "on": [
                   [
                     "rt_cohortOrdinal",
                     "rt_cohortOrdinal"
@@ -29479,19 +31426,42 @@
               },
               "b2": {
                 "from": "rate_rows"
+              },
+              "h": {
+                "from": "runspecchainedto_rows"
               }
             },
             "join": [
               {
                 "syms": [
                   "b",
-                  "b2"
+                  "h"
                 ],
                 "on": [
                   [
-                    "rt_chainInputPolProcessID",
-                    "rt_polProcessID"
-                  ],
+                    "rt_polProcessID",
+                    "rct_outputPolProcessID"
+                  ]
+                ]
+              },
+              {
+                "syms": [
+                  "b2",
+                  "h"
+                ],
+                "on": [
+                  [
+                    "rt_polProcessID",
+                    "rct_inputPolProcessID"
+                  ]
+                ]
+              },
+              {
+                "syms": [
+                  "b",
+                  "b2"
+                ],
+                "on": [
                   [
                     "rt_cohortOrdinal",
                     "rt_cohortOrdinal"
@@ -29537,19 +31507,42 @@
               },
               "b2": {
                 "from": "rate_rows"
+              },
+              "h": {
+                "from": "runspecchainedto_rows"
               }
             },
             "join": [
               {
                 "syms": [
                   "b",
-                  "b2"
+                  "h"
                 ],
                 "on": [
                   [
-                    "rt_chainInputPolProcessID",
-                    "rt_polProcessID"
-                  ],
+                    "rt_polProcessID",
+                    "rct_outputPolProcessID"
+                  ]
+                ]
+              },
+              {
+                "syms": [
+                  "b2",
+                  "h"
+                ],
+                "on": [
+                  [
+                    "rt_polProcessID",
+                    "rct_inputPolProcessID"
+                  ]
+                ]
+              },
+              {
+                "syms": [
+                  "b",
+                  "b2"
+                ],
+                "on": [
                   [
                     "rt_cohortOrdinal",
                     "rt_cohortOrdinal"
@@ -29658,19 +31651,42 @@
               },
               "m": {
                 "from": "runspecmonth_rows"
+              },
+              "h": {
+                "from": "runspecchainedto_rows"
               }
             },
             "join": [
               {
                 "syms": [
                   "b",
-                  "b2"
+                  "h"
                 ],
                 "on": [
                   [
-                    "rt_chainInputPolProcessID",
-                    "rt_polProcessID"
-                  ],
+                    "rt_polProcessID",
+                    "rct_outputPolProcessID"
+                  ]
+                ]
+              },
+              {
+                "syms": [
+                  "b2",
+                  "h"
+                ],
+                "on": [
+                  [
+                    "rt_polProcessID",
+                    "rct_inputPolProcessID"
+                  ]
+                ]
+              },
+              {
+                "syms": [
+                  "b",
+                  "b2"
+                ],
+                "on": [
                   [
                     "rt_binOrdinal",
                     "rt_binOrdinal"
@@ -29685,7 +31701,9 @@
                   "op": "index",
                   "args": [
                     "rt_chainRatio",
-                    "b"
+                    "b",
+                    "g",
+                    "m"
                   ]
                 },
                 {
@@ -29739,19 +31757,42 @@
               },
               "m": {
                 "from": "runspecmonth_rows"
+              },
+              "h": {
+                "from": "runspecchainedto_rows"
               }
             },
             "join": [
               {
                 "syms": [
                   "b",
-                  "b2"
+                  "h"
                 ],
                 "on": [
                   [
-                    "rt_chainInputPolProcessID",
-                    "rt_polProcessID"
-                  ],
+                    "rt_polProcessID",
+                    "rct_outputPolProcessID"
+                  ]
+                ]
+              },
+              {
+                "syms": [
+                  "b2",
+                  "h"
+                ],
+                "on": [
+                  [
+                    "rt_polProcessID",
+                    "rct_inputPolProcessID"
+                  ]
+                ]
+              },
+              {
+                "syms": [
+                  "b",
+                  "b2"
+                ],
+                "on": [
                   [
                     "rt_binOrdinal",
                     "rt_binOrdinal"
@@ -29766,7 +31807,9 @@
                   "op": "index",
                   "args": [
                     "rt_chainRatio",
-                    "b"
+                    "b",
+                    "g",
+                    "m"
                   ]
                 },
                 {
@@ -29820,19 +31863,42 @@
               },
               "m": {
                 "from": "runspecmonth_rows"
+              },
+              "h": {
+                "from": "runspecchainedto_rows"
               }
             },
             "join": [
               {
                 "syms": [
                   "b",
-                  "b2"
+                  "h"
                 ],
                 "on": [
                   [
-                    "rt_chainInputPolProcessID",
-                    "rt_polProcessID"
-                  ],
+                    "rt_polProcessID",
+                    "rct_outputPolProcessID"
+                  ]
+                ]
+              },
+              {
+                "syms": [
+                  "b2",
+                  "h"
+                ],
+                "on": [
+                  [
+                    "rt_polProcessID",
+                    "rct_inputPolProcessID"
+                  ]
+                ]
+              },
+              {
+                "syms": [
+                  "b",
+                  "b2"
+                ],
+                "on": [
                   [
                     "rt_binOrdinal",
                     "rt_binOrdinal"
@@ -29847,7 +31913,9 @@
                   "op": "index",
                   "args": [
                     "rt_chainRatio",
-                    "b"
+                    "b",
+                    "g",
+                    "m"
                   ]
                 },
                 {
@@ -29932,19 +32000,42 @@
               },
               "b2": {
                 "from": "rate_rows"
+              },
+              "h": {
+                "from": "runspecchainedto_rows"
               }
             },
             "join": [
               {
                 "syms": [
                   "b",
-                  "b2"
+                  "h"
                 ],
                 "on": [
                   [
-                    "rt_chainInputPolProcessID",
-                    "rt_polProcessID"
-                  ],
+                    "rt_polProcessID",
+                    "rct_outputPolProcessID"
+                  ]
+                ]
+              },
+              {
+                "syms": [
+                  "b2",
+                  "h"
+                ],
+                "on": [
+                  [
+                    "rt_polProcessID",
+                    "rct_inputPolProcessID"
+                  ]
+                ]
+              },
+              {
+                "syms": [
+                  "b",
+                  "b2"
+                ],
+                "on": [
                   [
                     "rt_cohortOrdinal",
                     "rt_cohortOrdinal"
@@ -30014,6 +32105,44 @@
           }
         },
         {
+          "lhs": "run_oxySpeciationReached",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "n"
+            ],
+            "ranges": {
+              "n": {
+                "from": "run_rows"
+              },
+              "b": {
+                "from": "rate_rows"
+              }
+            },
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "rt_oxySpeciationReached",
+                    "b"
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "bin_isSelectedAt",
+                    "b"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
           "lhs": "run_chainedRowCount",
           "rhs": {
             "op": "faq",
@@ -30034,23 +32163,10 @@
               "op": "*",
               "args": [
                 {
-                  "op": "ifelse",
+                  "op": "index",
                   "args": [
-                    {
-                      "op": ">",
-                      "args": [
-                        {
-                          "op": "index",
-                          "args": [
-                            "rt_chainRatio",
-                            "b"
-                          ]
-                        },
-                        0.0
-                      ]
-                    },
-                    1.0,
-                    0.0
+                    "rt_hasChainRatio",
+                    "b"
                   ]
                 },
                 {

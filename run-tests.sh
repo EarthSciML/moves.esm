@@ -1247,7 +1247,7 @@ fi
 # run's own execution-database snapshot, through two mount edges:
 #
 #   runspecs/<run>.esm            that run's selections + its oracle
-#     -> moves-onroad.esm         56 national tables + the mount
+#     -> moves-onroad.esm         58 national tables + the mount
 #       -> onroad/model.esm       the onroad domain model, shared with 7c
 #
 # WHAT IT IS CHECKING is not the plumbing -- 7c already checks that a three
@@ -1296,10 +1296,21 @@ fi
 # rule is deleted: its one surviving block is also its FIRST, so the renumbering
 # cannot show up in the numbers (see the probes below).
 #
-# Each document costs about 40 seconds twice over -- once for the output
-# relation, once for the two recomputed counts, which have a different shape and
-# so cannot ride along. Nearly all of it is fuelUsageFraction: 1,424,430 rows
+# Each document costs about 35 seconds twice over -- once for the output
+# relation, once for the recomputed counts, which have a different shape and so
+# cannot ride along. Nearly all of it is fuelUsageFraction: 1,424,430 rows
 # uncompressed, of which a run keeps 5.
+#
+# IT WAS 60 AND BRIEFLY 564. The hydrocarbon species reach their ratio tables by
+# the fuel SUBTYPE, which a rate row has no column for, so each lookup went
+# through `fuelsupply` and `fuelformulation` the way `cfr_suppliedRatio` always
+# had. `FuelSupply` is 105,651 national rows: one spine over that product is
+# affordable and eight are not, and `expand-day` -- a run with no chained
+# pollutant at all -- went to 564 seconds. The collapse is now
+# `ffsup_marketShare`, computed once, with `cfr_suppliedRatio` rewritten onto it
+# too, so the suite is FASTER than before the species were added. The cost of
+# that pattern was `n_fuelsupply`, a number the document already declares
+# (conventions §72.5).
 head2 "the default database, one document per RunSpec (7c', 7d)"
 C7P_DOMAIN=moves-onroad.esm
 # `runspecs/` holds the RunSpecs this chain REPRODUCES; `runspecs/pending/` holds
@@ -1497,7 +1508,7 @@ else
   #    recorded CSV to drift against.
   if cmp -s "$C7_BASE" "$RUNDIR/process-tirewear.runspec.csv"; then
     pass "7c' — the default database reproduces the inlined fixture's relation byte for byte"
-    say "       $(( $(wc -l < "$RUNDIR/process-tirewear.runspec.csv") - 1 )) rows from 56 national tables, no execution database"
+    say "       $(( $(wc -l < "$RUNDIR/process-tirewear.runspec.csv") - 1 )) rows from 58 national tables, no execution database"
   else
     fail "7c' — the default-database chain and the inlined fixture disagree"
     diff -u "$C7_BASE" "$RUNDIR/process-tirewear.runspec.csv" | sed 's/^/       /' | head -12

@@ -1,0 +1,259 @@
+{
+  "esm": "1.2.0",
+  "metadata": {
+    "name": "chain-tog-speciation-runspec",
+    "description": "PLAN.md §7.5 step 7d: the `chain-tog-speciation` RunSpec -- THC running exhaust and the four hydrocarbon species MOVES splits it into: methane (5), NMHC (79), NMOG (80) and TOG (86) -- computed from the DEFAULT DATABASE. It is the eleventh RunSpec this chain reproduces and the first whose chain is more than one rung deep.\n\nWHAT IT DISCRIMINATES (§23).\n\n* THE CHAIN IS A FIXED POINT. 101 to 7901 to 8001 to 8601, three rungs. Every earlier chained run -- tire wear, brake wear, the nitrogen species, the crankcase processes -- is exactly one rung, so all ten of them could not tell \"the parent's own-rate quantity\" from \"the parent's quantity\". Read one rung deep, NMOG and TOG are not wrong here: they are ABSENT, which is §69's failure and which `run_chainDepthExceeded` now measures from the other side.\n\n* A CHAINED POLLUTANT-PROCESS CAN HAVE TWO PARENTS. TOG is methane PLUS NMOG. No other run in this repository has a fan-in above one, and the derived parent key the chain used to go through would have handed TOG 501 + 8001 = 8501 -- an ID column holding the SUM of what the join matched, which is §70.1's failure at a second site. The chain now joins through `runspecchainedto` itself, which is the edge list, so a fan-in is a fan-in and not a collision.\n\n* A RATIO TABLE CAN BE KEYED BY THE FUEL SUBTYPE. `methaneTHCRatio` and `HCSpeciation` are keyed by (process or pollutant-process, fuel SUBTYPE, regulatory class, model-year range). A rate row carries a fuel TYPE, so the subtype is reached through the county's fuel supply and its formulations -- the same collapse the criteria ratio makes, and the reason the chain ratio gained a county and a month. Neither table has an electricity subtype, which is why the four species blocks are 104 cohorts where THC is 124.\n\n* A SPECIES CAN BE COMPUTED FROM A TALLY THAT IS NOT REPORTED. Ethanol E70/E85 vehicles of model year 2001 and later have their NMOG and VOC speciated from `altTHC` (pollutant 10001), the THC the fuel-effect machinery would have produced under the E10 base fuel's RVP -- while their REPORTED methane and NMHC still come from the ordinary THC. The whole of it is one number: the high-ethanol substitution overwrites fifteen combustion properties of formulation 27002 and deliberately leaves RVP at 7.7, and `altRVP` is the 8.0 it declined to use. The two criteria ratios then share every factor but the exponential, so their quotient is `exp` of the exponent difference -- 0.9934070 here. Without it this run is 20 rows wrong by 73%, and 520 rows right.\n\n540 rows, worst cell 8.135e-06. Reproduced in pandas from the DEFAULT database before the port -- including the high-ethanol substitution and `altRVP` rebuilt from `e10FuelProperties` -- at methane 5.770e-06, NMHC 7.892e-06, NMOG 5.380e-06 and TOG 8.135e-06.",
+    "authors": [
+      "EarthSciML Authors and Contributors"
+    ],
+    "tags": [
+      "runspec",
+      "onroad",
+      "default-database",
+      "chain-tog-speciation",
+      "hc-speciation",
+      "chained",
+      "ragged",
+      "fixed-point"
+    ]
+  },
+  "data_sources": {
+    "db_runspecyear": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/chain-tog-speciation/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecyear.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecyear"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, yearID 2020. The scope comes from these tables and never from the RunSpec XML, whose @key attributes are 0-based indices into sorted ID lists (docs/mixed-onroad.md §0.1).",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecmonth": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/chain-tog-speciation/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecmonth.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecmonth"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, monthID 8.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspechour": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/chain-tog-speciation/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspechour.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspechour"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, hourID 7. Six in the RunSpec XML, seven here: the XML's @key is a 0-based index into the sorted hour list (docs/mixed-onroad.md 0.1).",
+        "esio_format": "parquet"
+      }
+    },
+    "db_aggregationhour": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/chain-tog-speciation/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspechour.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_aggregationhour"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "The hours the run aggregates over. This run does not set `aggregateBy`, so it is `runspechour` itself and the same file.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecday": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/chain-tog-speciation/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecday.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecday"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, dayID 5 (weekday). The second factor of the activity axis and of the output axis, and its extent is one in this run: `<day id=\"5\">` selects one day type where the earlier `<day key=\"5\">` was an out-of-range INDEX and fell back to both (moves.rs PR #55).",
+        "esio_format": "parquet"
+      }
+    },
+    "db_rateday": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/chain-tog-speciation/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecday.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_rateday"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "The day types the RATE-side time pre-aggregation is scoped to. This run does not set `aggregateBy`, so it is `runspecday` itself and the same file: the pre-aggregation averages over one cell and returns the table's own value. A run that aggregates points this somewhere else, because MOVES overwrites `runspecday` with the synthesized output day AFTER the pre-aggregation has run.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_actday": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/chain-tog-speciation/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecday.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_actday"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "The day types the output day's ACTIVITY covers. This run does not set `aggregateBy`, so it is `runspecday` itself and the same file, and `noOfRealDays` is that one day type's.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecsourcetype": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/chain-tog-speciation/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecsourcetype.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecsourcetype"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, sourceTypeID 21.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecroadtype": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/chain-tog-speciation/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecroadtype.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecroadtype"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, roadTypeID 4. J27: this is the join that suppresses every process-2 row, because start exhaust lives on the off-network road type 1 and the RunSpec does not select it (§0.2).",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecsourcefueltype": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/chain-tog-speciation/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecsourcefueltype.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecsourcefueltype"
+      },
+      "metadata": {
+        "tags": [
+          "scope",
+          "cohorts"
+        ],
+        "note": "4 rows: gasoline, diesel, E85 and electricity. The second factor of the cohort candidate grid.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_movesoutput": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/chain-tog-speciation/tables/db__out_chain_tog_speciation__movesoutput.parquet"
+      },
+      "reader_options": {
+        "float_columns": [
+          "emissionQuant"
+        ]
+      },
+      "metadata": {
+        "tags": [
+          "oracle",
+          "expected-output"
+        ],
+        "note": "The 540-row expected output -- 124 rows of THC and 104 each of methane, NMHC, NMOG and TOG -- shipped in the same snapshot so no canonical MOVES, MariaDB or JVM is needed to develop against it. DECLARED AND CONSUMED BY THE COMPARATOR, not by the chain.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecpollutantprocess": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/chain-tog-speciation/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecpollutantprocess.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecpollutantprocess"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "5 rows: 101 THC running exhaust and the four species it is split into -- 501 methane, 7901 NMHC, 8001 NMOG, 8601 TOG. Only the first has a rate of its own.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecchainedto": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/chain-tog-speciation/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecchainedto.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecchainedto"
+      },
+      "metadata": {
+        "tags": [
+          "scope",
+          "chain"
+        ],
+        "note": "5 rows and THREE rungs: 501 and 7901 from 101, 8001 from 7901, and 8601 from BOTH 8001 and 501. It is the deepest and the widest chain in `runspecs/`, and the model reads it as an edge list rather than as a per-output parent key for exactly that reason.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspeccounty": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/chain-tog-speciation/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspeccounty.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspeccounty"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, countyID 26161. The runspec selection this catalogue did not have to carry while `link` arrived pre-selected. It changes nothing here -- the snapshot's `link` is the one row this joins to -- and it is what makes the same logic readable against a national Link table.",
+        "esio_format": "parquet"
+      }
+    }
+  },
+  "models": {
+    "Onroad": {
+      "ref": "../moves-onroad.esm",
+      "bindings": {
+        "n_outputRate": 540
+      }
+    }
+  }
+}

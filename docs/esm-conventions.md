@@ -7146,3 +7146,135 @@ its parent emitted — and that is `lib/chaining.esm`'s `chained_emits`, applied
 at all four generations including the check. Before it, that `max` of a
 `survives` and a gated product was spelled once; at four generations, spelling
 it four times is how the check and the thing checked drift apart.
+
+### 72 A ratio table keyed by the fuel SUBTYPE, and a species computed from a tally nobody reports
+
+The hydrocarbon species — methane, NMHC, NMOG, TOG, VOC — are four ratio
+lookups and one sum, and between them they broke three assumptions this port
+had never had to question.
+
+#### 72.1 A rate row has a fuel type; a ratio table can want a subtype
+
+`methaneTHCRatio` and `HCSpeciation` are keyed by **(process or
+pollutant-process, fuel SUBTYPE, regulatory class, model-year range)**. Gasoline
+is not one subtype but six — 10 conventional, 11 reformulated, 12–15 the
+gasohols — and their methane fractions differ. A rate row carries a fuel *type*.
+
+The subtype is not a column to add; it is a **join through the county's fuel
+supply**. `FuelSupply` gives the formulations a region carries in a month group,
+`FuelFormulation` gives each one's subtype, and the ratio is the market-share
+weighted mean over them — the same collapse `cfr_suppliedRatio` already makes
+for the criteria ratio, and the reason `rt_chainRatio` gained a county and a
+month. It had been a function of the rate row alone since PM10 brake wear, where
+the ratio table is keyed by fuel *type* and the question never arose.
+
+`rt_hasChainRatio` did **not** gain them: whether a table has a row for a cohort
+does not depend on which county is asking.
+
+Neither table carries an electricity subtype, so the four species blocks are 104
+cohorts where THC is 124 — §70's ragged output reached from a third table.
+
+#### 72.2 TOG has two parents, and a key column holds one
+
+`rspp_chainInputPolProcessID` was a `sum_product` over `runspecchainedto` keyed
+by the output pollutant-process. With one edge per output the sum *was* the
+parent. TOG is methane **plus** NMOG, two edges, and that sum would have
+returned `501 + 8001 = 8501` — a pollutant-process that does not exist. It is
+§70.1's "pollutant 68, process 9" at a second site: an ID column holding the sum
+of everything the join matched, and the tell is that it is an ID that is not one.
+
+The fix is not a second slot. `runspecchainedto` **is** the edge list, so the
+chain joins through it:
+
+```
+{ "syms": ["b",  "h"], "on": [["rt_polProcessID", "rct_outputPolProcessID"]] }
+{ "syms": ["b2", "h"], "on": [["rt_polProcessID", "rct_inputPolProcessID" ]] }
+{ "syms": ["b", "b2"], "on": [["rt_binOrdinal",   "rt_binOrdinal"         ]] }
+```
+
+One `faq` per rung whatever the fan-in, and two variables deleted rather than
+one added. `syms` may pair a rate-row symbol with a chained-to symbol —
+CONFORMANCE_SPEC §5.5.8 requires only that each entry name a range the node
+binds and that the key's axis be the one that symbol draws.
+
+TOG then needs no arithmetic of its own. The chain multiplies a row's ratio by
+*each* parent and sums, so an arm that says **one** is the whole of
+`TOG = methane + NMOG`. It is also the one arm whose presence flag is a pollutant
+test alone, with no table behind it — which is why `run_chainedRowCount` reads
+437 on this run and not 436: 104 each for the three table-backed arms and **125**
+for TOG, the selected cohorts rather than the rated ones. What stops TOG being
+emitted where its parents are not is `rt_parentEmitsHere`, not its ratio.
+
+#### 72.3 `altTHC` is one property, and the quotient is an exponent difference
+
+Ethanol E70/E85 vehicles of model year 2001 and later have their NMOG and VOC
+speciated from `altTHC` (pollutant 10001) — the THC the fuel-effect machinery
+would have produced under the E10 base fuel's RVP — while their **reported**
+methane and NMHC still come from the ordinary THC. Get that backwards and the
+E85 NMHC comes out at 0.662 of THC instead of 0.178.
+
+`altTHC` is the base rate scaled by `altCriteriaRatio`, and the whole difference
+between that and `criteriaRatio` is **one property**. The high-ethanol
+substitution overwrites fifteen combustion properties of a 51/52 formulation
+with the E10 row's and deliberately leaves RVP alone; `altRVP` is the value it
+declined to use — 8.0 against formulation 27002's own 7.7. The model already
+computed both sides of that and kept only one.
+
+The two ratios therefore share their sulfur factor and their base divisor
+exactly and differ only inside the exponential, so
+
+```
+altCriteriaRatio / criteriaRatio  =  exp(altExponent − exponent)
+```
+
+which is computed as written: no division by a ratio, and no second copy of the
+sulfur arm. `cff_altExponent` is `cff_exponent` with one binding changed, which
+is what a template library is for. The number is **0.9934070**, against 0.993396
+read off the run.
+
+The fuel half of the E10 test is not in the flag. `ff_speciationSubtypeID` is
+the formulation's own subtype for everything that is not 50/51/52 and
+`ffx_altRVP` is its own RVP for everything that is not 51/52, so the correction
+is the identity on every fuel but ethanol and `rt_isE10Speciation` says only
+what the formulation cannot: which model years and which processes.
+
+#### 72.4 A term that is identically zero is still counted
+
+`HCSpeciation`'s factor is
+`speciationConstant + oxySpeciation × volToWtPercentOxy × totalOxygenate`, and
+`oxySpeciation` is **exactly zero in all 2,562 rows** of the national table. So
+the second summand contributes nothing anywhere and this document carries
+neither `volToWtPercentOxy` nor the four oxygenate volumes it would need.
+
+That is a fact about the DATA, not about MOVES, and §23's rule applies to an
+omission as much as to a rule: `run_oxySpeciationReached` counts the rows a
+run's joins reach whose coefficient is not zero, asserted at 0, so a county
+database that shipped one would say so instead of quietly losing a term.
+`lib/adjustments.esm`'s `speciation_factor` already spells the form it would
+take.
+
+#### 72.5 A working pattern has a price, and the price is a declared number
+
+`cfr_suppliedRatio` reaches the county's formulations by ranging over
+`fuelsupply` and `fuelformulation` and collapsing them by market share inside
+the lookup. It is the obvious pattern, it is correct, and it was copied seven
+times for the hydrocarbon species — once for each of the methane ratio and the
+two speciation constants, at the row's own fuel subtype and again at the E10
+one, plus the presence flags.
+
+`expand-day` went from **60 seconds to 564**, on a run with no chained
+pollutant at all. `FuelSupply` is **105,651** rows nationally against
+`FuelFormulation`'s 2,158: one spine over that product is affordable, eight are
+not.
+
+The collapse is now `ffsup_marketShare[county, month, formulation]`, computed
+once, and every lookup joins the small result. `cfr_suppliedRatio` was rewritten
+onto it too, so a run that had one such spine now has none and `expand-day`
+finishes in **34 seconds** — faster than before the species were added.
+
+The lesson is not "hoist common subexpressions". It is that **the cost of a
+pattern is a number the document already declares**: `n_fuelsupply` is a
+metaparameter, it is discovered at load, and reading it before copying the
+pattern an eighth time would have priced the copy in seconds. §62's rule — price a
+promotion by forward closure before making it — applies to reusing a relational
+step, not only to adding an axis.
