@@ -7278,3 +7278,178 @@ metaparameter, it is discovered at load, and reading it before copying the
 pattern an eighth time would have priced the copy in seconds. §62's rule — price a
 promotion by forward closure before making it — applies to reusing a relational
 step, not only to adding an axis.
+
+### 73 A table the default database ships EMPTY, and one generator fills it two different ways
+
+`ATRatio` is `AirToxicsCalculator`'s gasoline ratio table. In the default
+database it has **0 rows**, and MOVES writes it at run time — as it writes
+`criteriaRatio`, and for the same reason (§68): the rows depend on the county's
+fuel, so they cannot be shipped. What is new here is that the two halves of the
+table are produced by two *different* computations inside one generator, and
+that a run needs both.
+
+| model years | source | rows it produces here | what it is |
+|---|---|---|---|
+| 2001–2060 | `generalFuelRatioExpression` | 6 (3 toxics × 2 fuel types) | the closed form, evaluated on each supplied formulation |
+| ≤ 2000 | the Complex Model at the `airtoxicsA` engine | 3 toxics × 41 ages | `(atBaseEmissions_toxic × ratioNoSulfur_toxic) / (atBaseEmissions_VOC × ratioNoSulfur_VOC)` |
+
+`criteriaRatio` splits at exactly the same model year and in exactly the same
+two ways (§68.2), which is the argument for having ported it first: the second
+table needed one new engine, four new configurations and three new algebraic
+forms, and no new *shape*.
+
+#### 73.1 A constant that turns out to be a key, found by the second engine
+
+The Complex Model read `meanFuelParameters` and `baseFuel` at the literal
+model-year group **19502000**, written into three filters. That is right for all
+three criteria configurations and wrong for all four air-toxics ones, which sit
+at group **0** and whose base fuel is formulation 96 (`Base Gasoline Fuel`)
+rather than 99 (`High Sulfur Gasoline`). This is §62.3's width-one trap at a fifth
+site, and it has the property that makes that trap worth naming: **the three
+configurations that existed could not see it**, because they agreed. The fix is
+two columns on the configuration relation — `cmxcfg_meanModelYearGroupID` and
+`cmxcfg_baseModelYearGroupID` — and the filters become join keys.
+
+#### 73.2 Centring only shows up in a NONLINEAR term
+
+`meanFuelParameters` gives every complex-model property a centring value, and
+the polynomial subtracts it before multiplying. In `exp(S(target)) −
+exp(S(base))` a centre **cancels** whenever the term is linear in the property:
+`c·((x_t − m) − (x_b − m))` is `c·(x_t − x_b)`. Benzene, 1,3-butadiene and
+formaldehyde use linear terms only. VOC — the shared denominator of all three
+quotients — carries an E200 squared, an E300 squared and an E300 × aromatics
+term, and there the centre does not cancel.
+
+So a document with the centring silently missing reproduced **all three toxic
+`ratioNoSulfur` values to every digit an `--observed` printed** and every one of
+the three *ratios* was **7.4 % high**. Three of the four configurations could not see the bug and the
+fourth moved all three answers by the same factor — which is what a shared
+denominator does, and which reads exactly like a physics error in the numerators.
+
+The rule: when an intermediate is shared by several answers, **check the
+intermediate**. A common factor is invisible in the ratios between the answers
+and obvious in the intermediate. Here `cmx_ratioNoSulfur` was observable with one
+`--observed`, and comparing it against the same number computed in pandas found
+in one step what comparing three answers could not find at all.
+
+#### 73.3 Three forms the corpus said were not checkable
+
+`docs/fuel-effects-generator.md` §8.1 recorded forms D, E and F as ported by
+nobody and checkable by nobody: every `generalFuelRatioExpression` row that uses
+them is moved into `ATRatio` and deleted from `generalFuelRatio` before a
+snapshot is taken. That is true of the SNAPSHOT path. On the default-database
+path the same rows are the only way to get a number, and `ATRatio`'s own 243
+captured rows are the reference for them. The three are now
+`centered_linear_ratio`, `quadratic_property_ratio` and `air_toxics_exponent` in
+`lib/fuel_effects.esm`, and `runspecs/process-airtoxics.esm` checks all three.
+
+Form F is worth one line of its own: `exp(A)/(exp(B) − exp(C))`, where A, B and C
+are the same four standardised properties with different coefficients. The
+denominator is a DIFFERENCE and a `sum_product` faq adds, so the subtraction is
+carried as data: the three exponent rows have a `numeratorSign` and a
+`denominatorSign` column, `+1` and `−1`, and one join gathers both halves of the
+denominator. A sign column is how a difference is written relationally.
+
+#### 73.4 Widening a shared relation is priced the same way as copying one
+
+The complex-model relation now serves two generators. `complexconfig_rows` went
+from 3 rows to 7 and `complexengine_rows` from 19 to 29, and every `cmx_*`
+variable is dense over both: `cmx_modelSumTarget` is (configuration × engine row
+× county × month × formulation) and `cmx_ratio` adds the source type and the
+age. Measured on `expand-criteria`, which selects no air toxic and reads none of the
+new work: **39.9 s of user CPU before and 49.8 s after, 25 % more**, with peak
+RSS 1,277 MB against 1,315 MB and the emitted relation byte-identical.
+
+**Measure the CPU, not the clock.** This node is shared and its load average
+moved between 43 and 112 while that was being measured; the same document took
+**42 s of wall clock on one pass and 557 s on another**, which is a factor of 13
+of somebody else's job. User CPU over three interleaved passes is steady to
+0.2 s on each side. The first two attempts at this number were thrown away for
+believing the clock: one of them reported the WIDENED document as twice as fast
+as the narrow one.
+
+§72.5 priced *copying* a relational pattern. This is the other case — the
+pattern is not copied, it is **widened** — and the price is the widening factor
+times whatever the relation already cost. It is read off the same kind of number:
+there, a metaparameter discovered at load; here, two `interval` sizes written in
+the document itself, which is cheaper still to look up.
+
+The saving that is available and is not taken: the (configuration × engine row)
+product is 7 × 29 = **203 pairs of which 59 are meaningful**, because an engine
+row belongs to one engine and a configuration names one. Indexing the model sums
+by fuel MODEL rather than by engine ROW would make it 133, and restricting each
+configuration to its own engine's rows would make it 59 — which would pay for
+this widening and the last one. Named, not closed.
+
+### 74 A bare variable in a `filter` is IGNORED once the aggregate has two output indices
+
+This is a third member of the family §67.3 and §68.6 name — a shape error that
+produces no error, no NaN and a plausible number — and it is the one that costs
+the most, because the working spelling and the broken one differ by four
+characters. §67.3 is a join key silently dropped, §68.6 is a selection that
+returns an empty relation, and this one is a filter that is not applied at all.
+Filed upstream as EarthSciML/EarthSciAST#441.
+
+A faq's `filter` may reference a variable by BARE NAME, resolved from the
+variable's shape exactly as `expr` resolves it, and that is how every filter in
+`onroad/model.esm` was written:
+
+```json
+"filter": { "op": "apply_expression_template", "name": "in_half_open_range",
+            "bindings": { "lower": 0.5, "upper": 1.5, "value": "rt_fuelTypeID" } }
+```
+
+That works while the aggregate has **one** output index. Give it a second — a
+county and a month beside the rate row — and **the filter is ignored
+entirely**. Every tuple passes. The gasoline test and the model-year test both
+went inert together, every fuel type took the gasoline ratio, and model year
+2020 took both halves of a table that is split at 2000: the answer was the
+*sum* of two ratios that can never apply to one row, which reads as a modelling
+mistake about appending versus choosing.
+
+#### 74.1 The trigger is the output count and nothing else, measured
+
+A three-variable probe settles it. `a_val` is `[1, 2, 3]`, the filter is
+`a_val > 1.5` in all three, and row 1 should never survive:
+
+| `output_idx` | the filter's `a_val` | result | correct? |
+|---|---|---|---|
+| `["i"]` | bare | `0, 2, 3` | yes |
+| `["i","g"]` | bare | `10,20 / 20,40 / 30,60` | **no — row 1 survives** |
+| `["i","g"]` | `index(a_val,"i")` | `0,0 / 20,40 / 30,60` | yes |
+
+Everything else was varied and changed nothing: a second non-output range, a
+`join` clause, the filter written inline as an `ifelse` versus through an
+`apply_expression_template`, the bare variable drawing the first output index
+or the second, and a second factor over another index set. Only the number of
+output indices matters.
+
+#### 74.2 The rule, and the lint that enforces it
+
+**In a `filter`, index every variable explicitly.** The bare form is not
+shorthand for the same thing once the aggregate has more than one output index,
+and the spelling that is always right costs four characters:
+`{"op": "index", "args": ["rt_fuelTypeID", "b"]}`.
+
+`run-tests.sh` now checks this rather than trusting it: one pass over every
+`.esm` document in the repository, reporting any `faq` with two or more output
+indices whose `filter` names a declared variable of that model bare. The repo
+had exactly one instance before this rung and it is the subject of §74.3; it has
+none now.
+
+#### 74.3 Two things that made it cost more than four characters
+
+* **The `bool_and_or` twin of the same faq filtered correctly.**
+  `rt_hasAtComplexRatio` is `rt_atComplexRatio` with the county and month ranges
+  dropped and `expr: 1.0` — so it has ONE output index, and its identical filter
+  applied. The presence relation said gasoline-only while the value relation
+  said every fuel type, and the two disagreed silently. A presence relation is
+  usually the narrower twin of its value relation, which puts it on the right
+  side of this bug and makes the disagreement look like a modelling
+  inconsistency.
+* **`rt_complexRatioExact` had carried the same inert filter all along**, and
+  nothing was wrong: `rt_criteriaRatio` is
+  `ifelse(rt_hasComplexRatio > 0.5, rt_complexRatioExact, ...)`, and
+  `rt_hasComplexRatio` is the single-output twin whose filter works. **A boolean
+  gate in front of a value relation hides this class of bug completely.** Both
+  filters are now explicit, and the lint is what says there is not a third.

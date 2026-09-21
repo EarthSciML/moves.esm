@@ -1332,3 +1332,41 @@ shared logic and not a new-fixture problem. Then:
 7. key `atratio` on `ageID` as well as on the model-year window (§3.2), and
    decode `atrationongas`'s group with `lib/keys.esm`'s new
    `model_year_in_group`.
+
+### 9.1 What the default-database path needed that this document does not describe
+
+This specification is written against the **snapshot**, where `atratio` ships
+with 243 captured rows. `runspecs/process-airtoxics.esm` computes the same run
+from the **default database**, where the table has **0** rows, and MOVES's own
+`FuelEffectsGenerator` writes it — in two halves, split at model year 2001, the
+way it writes `criteriaRatio` (docs/esm-conventions.md §73). Four things the
+list above does not mention, because on the snapshot path none of them exists:
+
+1. **The model-year-2001-and-later half is three algebraic forms**, D, E and F
+   of `docs/fuel-effects-generator.md` §2.1 — the three that document records as
+   ported by nobody and checkable by nobody, because the rows that use them are
+   moved out of `generalFuelRatio` before a capture. They are now
+   `centered_linear_ratio`, `quadratic_property_ratio` and `air_toxics_exponent`
+   in `lib/fuel_effects.esm`, and the 243 captured rows here are their reference.
+2. **The model-year-2000-and-earlier half is the Complex Model at a fourth
+   calculation engine**, `airtoxicsA`, non-predictive, over the same ten fuel
+   models `co` uses: `atRatio = (atBaseEmissions_toxic × ratioNoSulfur_toxic) /
+   (atBaseEmissions_VOC × ratioNoSulfur_VOC)`. `atbaseemissions` is an input
+   after all — §1.3 is right that this fixture does not read it, and the
+   default-database path must.
+3. **The engine's reference data sits at a different model-year group.**
+   `meanFuelParameters` and `baseFuel` are read at group **0** and not 19502000,
+   and the base fuel is formulation **96** and not 99 (§73.1).
+4. **VOC's own configuration is needed although no rate row reads it.** It is
+   the denominator of all three quotients, and it is the only one of the four
+   whose polynomial has nonlinear terms — which is why the centring matters at
+   all (§73.2).
+
+Item 7 above is also superseded: the decode lives in `lib/identifiers.esm` as
+`model_year_group_first` / `model_year_group_last`, beside the `polProcessID`
+unpackers, because a packed model-year group is the same kind of arithmetic on
+an identifier. `sulfurModelCoeff.fuelMYGroupID` was already doing it inline and
+now shares the template.
+
+The measured result on that path: **644 of 644 rows, worst cell 7.564e-06**,
+against this document's 7.564e-06 on the snapshot path.

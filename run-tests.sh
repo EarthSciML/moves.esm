@@ -299,6 +299,41 @@ else
   fail "inline tests (see the table above for which)"
 fi
 
+# --- 3b. the faq-filter lint ----------------------------------------------
+#
+# EarthSciML/EarthSciAST#441 and docs/esm-conventions.md 74: a `faq` whose
+# `filter` names a variable by BARE NAME has no filter at all once the
+# aggregate has two or more output indices. It is not partly applied and it
+# does not fail -- every tuple passes, and the answer is a sum over the rows
+# the filter names.
+#
+# IT IS IN THE SUITE AND THE TWO AUDITS ABOVE ARE NOT, for the reasons they
+# give themselves: this one reads the documents and writes nothing, it costs a
+# fraction of a second over all 107 of them, and the property it checks changes
+# every time a `filter` is written -- where they perturb the tree in place and
+# check properties that move only when assertions or joins are added.
+#
+# The clean sweep is not trusted: `--selftest` builds the smallest document
+# that HAS the defect and requires the walk to reject it, so a lint that
+# quietly stopped recognising the structure reports that instead of a clean
+# tree. The clause-order audit above is why that paragraph exists: its first
+# version emitted `runs/`, which declares no `out_*` variables, found nothing
+# to observe, and reported a clean sweep over an empty set.
+head2 "faq filter lint"
+if out=$("$PYTHON" tools/faq-filter-lint.py 2>&1); then
+  pass "no faq filter names a variable bare at two or more output indices"
+  say "       $out"
+else
+  fail "a faq filter does not apply (EarthSciAST#441): index its variables explicitly"
+  sed 's/^/       /' <<<"$out" | head -6
+fi
+if out=$("$PYTHON" tools/faq-filter-lint.py --selftest 2>&1); then
+  pass "faq filter lint — two-sided: $out"
+else
+  fail "faq filter lint — it does not reject a document that HAS the defect, so a clean sweep says nothing"
+  sed 's/^/       /' <<<"$out" | head -4
+fi
+
 # The assertions this stage just ran are audited for whether they CAN fail, by
 # `tools/perturbation-audit.py`, which is deliberately NOT part of this suite.
 # It perturbs the documents in place and restores them from git, and a hard kill
@@ -1247,7 +1282,7 @@ fi
 # run's own execution-database snapshot, through two mount edges:
 #
 #   runspecs/<run>.esm            that run's selections + its oracle
-#     -> moves-onroad.esm         58 national tables + the mount
+#     -> moves-onroad.esm         60 national tables + the mount
 #       -> onroad/model.esm       the onroad domain model, shared with 7c
 #
 # WHAT IT IS CHECKING is not the plumbing -- 7c already checks that a three
@@ -1362,6 +1397,20 @@ C7P_DOMAIN=moves-onroad.esm
 # 6.265e-06, against this chain's own parent values -- and the documents then
 # reproduced on their first run at those figures. They are the first two runs
 # here whose output is RAGGED (PLAN.md 7.3.17).
+#
+# `process-airtoxics` is the first document here that needs a table the default
+# database ships EMPTY and that TWO generators fill between them. `ATRatio` has
+# 0 national rows: for model years 2001 and later MOVES evaluates three
+# `generalFuelRatioExpression` forms that `docs/fuel-effects-generator.md` 8.1
+# had recorded as ported by nobody and checkable by nobody, and for model years
+# 2000 and earlier it runs the Complex Model at a FOURTH calculation engine,
+# `airtoxicsA`, whose reference data sits at a different model-year group than
+# the three criteria engines -- a constant that turned out to be a key, and one
+# the three could not see because they agreed (conventions 73.1). Both halves
+# were reproduced in pandas from the default database before the model changed;
+# the document then landed 644 of 644 cells at 7.564e-06 on its first run after
+# one filter was fixed, which is conventions 74 and is the most expensive four
+# characters in this repository.
 mapfile -t RUNSPECS < <(find runspecs -maxdepth 1 -name '*.esm' -not -name '.*' 2>/dev/null | sort)
 mapfile -t RUNSPECS_PENDING < <(find runspecs/pending -maxdepth 1 -name '*.esm' -not -name '.*' 2>/dev/null | sort)
 
@@ -1508,7 +1557,7 @@ else
   #    recorded CSV to drift against.
   if cmp -s "$C7_BASE" "$RUNDIR/process-tirewear.runspec.csv"; then
     pass "7c' — the default database reproduces the inlined fixture's relation byte for byte"
-    say "       $(( $(wc -l < "$RUNDIR/process-tirewear.runspec.csv") - 1 )) rows from 58 national tables, no execution database"
+    say "       $(( $(wc -l < "$RUNDIR/process-tirewear.runspec.csv") - 1 )) rows from 60 national tables, no execution database"
   else
     fail "7c' — the default-database chain and the inlined fixture disagree"
     diff -u "$C7_BASE" "$RUNDIR/process-tirewear.runspec.csv" | sed 's/^/       /' | head -12

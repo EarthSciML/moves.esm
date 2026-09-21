@@ -957,7 +957,7 @@ others are dated, and this section is the date.
 
 ## 8. Gaps and things not verified
 
-### 8.1 Three of the six forms are ported and unverifiable, and three are not ported
+### 8.1 Where the six forms are checked, and why not one of them is checked HERE
 
 MOVES's `doGeneralFuelRatio` computes a ratio for **every** expression row, and
 then the predictive/complex-model paths this port does not cover take most of
@@ -995,14 +995,21 @@ What follows for the port:
   the factoring into templates reproduces §6.5's independent evaluation of the
   same string. Two implementations of one text agreeing is evidence about the
   port; it is not evidence about MOVES.
-* **Forms D, E and F are not ported.** 273 rows and 10 strings between them,
-  across four snapshots: `process-airtoxics` and the two
-  `chain-so2-co2e-mechanism*` captures, where every one of their rows is handed
-  to `ATRatio`, and `nr-airtoxics-lawn-garden-county`, a NONROAD snapshot where
-  the generator never runs. They are
-  the olefin quadratic, the benzene linear and the three-`exp` complex-model
-  ratio of §2.1. A later air-toxics rung should port them together with the
-  `ATRatio` path that consumes them, where they can be checked.
+* **Forms D, E and F are ported as of 2026-09-21, and they ARE faced with
+  MOVES — through `ATRatio`.** 273 rows and 10 strings between them, across four
+  snapshots: `process-airtoxics` and the two `chain-so2-co2e-mechanism*`
+  captures, where every one of their rows is handed to `ATRatio`, and
+  `nr-airtoxics-lawn-garden-county`, a NONROAD snapshot where the generator
+  never runs. They are the olefin quadratic, the benzene linear and the
+  three-`exp` complex-model ratio of §2.1, and they are now
+  `quadratic_property_ratio`, `centered_linear_ratio` and `air_toxics_exponent`
+  in `lib/fuel_effects.esm`. The same hand-off argument as form C's: the rows
+  are moved, not lost, and `runspecs/process-airtoxics.esm` computes the table
+  they were moved into — **644 of 644 cells at a worst 7.564e-06**, with the six
+  closed-form ratios agreeing with the snapshot's own captured `atratio` to
+  between 1.0e-10 and 9.6e-08. The paragraph this replaces said a later
+  air-toxics rung should port them together with the `ATRatio` path that
+  consumes them, where they could be checked. That is what happened.
 * **The `already_ratioed` de-duplication is ported and unexercised.** No
   `(fuelFormulationID, polProcessID)` in the corpus is reached by two
   expressions, so the "first expression wins" rule is never the thing that
