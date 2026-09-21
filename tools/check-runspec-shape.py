@@ -36,6 +36,7 @@ chain's recomputation, and the KEYS actually present in the output:
     run_sourceBinsDropped == 0
     run_physicsRowsDropped == 0
     run_rateRowsWithoutPhysics == 0
+    run_chainDepthExceeded == 0
 
 The last three lines are a different KIND of check from the three above them.
 The first two declared numbers are extents: too small and the document emits
@@ -47,6 +48,17 @@ that bin's share; a short `n_physicsRow` drops a vehicle off the drive-cycle
 axis and every rate row of its regulatory class collapses against no weights at
 all, which is quietly ZERO. Nothing about the shape would notice either, so the
 chain counts what it could not reach and this asserts the counts are zero.
+
+`run_chainDepthExceeded` is a third kind again, and the one this file exists to
+make cheap. A chained pollutant-process can itself be a parent -- THC to NMHC to
+NMOG to TOG -- so the chain is a fixed point, and `onroad/model.esm` unrolls it
+THREE times because three is the longest chain in the whole snapshot corpus
+(lib/chaining.esm). A run needing a fourth would not be wrong: its deepest
+species would be ZERO, which the row count above would report as missing rows
+with no hint of why. So the model runs one extra PRESENCE pass -- a presence
+pass carries no day, county or month, so it is nearly free -- and counts the
+rows a fourth rung would newly emit. Zero means the unroll converged on THIS
+run, which is a measurement and not the corpus-wide claim.
 
 `run_rateRowsWithoutPhysics` is the same failure reached from the other side: a
 rate row whose (source type, regulatory class, model year) matches no
@@ -93,6 +105,7 @@ def main(emitted_path, shape_path):
     dropped = int(float(shape[0]["run_sourceBinsDropped"]))
     vehicleless = int(float(shape[0]["run_physicsRowsDropped"]))
     unphysical = int(float(shape[0]["run_rateRowsWithoutPhysics"]))
+    undeep = int(float(shape[0]["run_chainDepthExceeded"]))
 
     def distinct(*cols):
         return {tuple(r[c] for c in cols) for r in rows}
@@ -134,6 +147,11 @@ def main(emitted_path, shape_path):
         problems.append("%d selected rate row(s) match no sourceusetypephysics "
                         "row at all, so they have no drive cycle and emit 0"
                         % unphysical)
+    if undeep:
+        problems.append("a fourth rung of the chain would newly emit %d rate "
+                        "row(s): this run's chain is deeper than the three the "
+                        "model unrolls, and its deepest species are emitting 0 "
+                        "or not emitting at all" % undeep)
     if problems:
         for p in problems:
             print(p)
@@ -142,7 +160,7 @@ def main(emitted_path, shape_path):
     ragged = pairs_emitted != blocks * cohorts
     print("%d rows = %d (pollutant-process, cohort) pair%s x %d count%s x %d "
           "month(s) x %d day type(s); %d block(s) and %d cohort(s), %s; no source "
-          "bin and no vehicle dropped"
+          "bin and no vehicle dropped, and the chain converged in three rungs"
           % (len(rows), pairs_emitted, "" if pairs_emitted == 1 else "s",
              len(counties), "y" if len(counties) == 1 else "ies",
              len(months), len(days), blocks, cohorts,

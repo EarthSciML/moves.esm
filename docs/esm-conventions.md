@@ -7077,3 +7077,72 @@ regulatory class in the last row is a real key that no RunSpec here can see:
 source type 21 has exactly one class, so dropping it would be right on every run
 in this directory and wrong for a light commercial truck — §62.3's width-one
 trap, named rather than closed.
+
+### 71 The chain is a fixed point, and three is a measurement
+
+`rtDay_quantChained` read the parent's **direct** quantity: the quantity a rate
+row gets from its own rate table row, before any chain term is added. That is
+correct for a species whose parent is rated — PM2.5 brake wear from PM10, NO
+from total NOx, crankcase running from running — and it is every chain in
+`runspecs/` up to this point. It is wrong the moment a chained pollutant-process
+is itself a parent, and the hydrocarbon species are exactly that:
+
+```
+chain-tog-speciation   THC 101 → NMHC 7901 → NMOG 8001 → TOG 8601
+process-airtoxics      THC 101 → NMHC 7901 → VOC  8701 → benzene 2001
+```
+
+Read one rung deep, TOG and benzene come out **zero** — not wrong by a factor,
+absent. §69 makes that the same failure as a cohort with no rate: the row is not
+emitted at all, and the shape checker reports missing rows with no hint of why.
+
+#### 71.1 Three is the corpus, counted rather than assumed
+
+The unroll depth is not a judgement call. Every `runspecchainedto` in
+`../moves.rs/characterization/snapshots` was read and its graph's longest path
+measured:
+
+| chained snapshots | rows | longest chain | widest fan-in |
+|---|---|---|---|
+| `process-tirewear`, `process-brakewear` | 1 | 1 | 1 |
+| `process-nox-speciation`, `process-crankcase-running` | 3 | 1 | 1 |
+| `process-airtoxics` | 5 | 3 | 1 |
+| `chain-tog-speciation`, `chain-nonhaptog` | 5 | 3 | **2** |
+| `chain-so2-co2e-mechanism`(`-control`) | 21 (20) | 3 | **2** |
+| `process-pm-exhaust` | 8 | — | 2 |
+| the twelve `nr-*` | 651 | — | 2 |
+
+Three rungs and two parents cover every onroad run. The two rows with no
+longest chain are the reason this is a *measurement* and not a bound: their
+graphs have **cycles**. `process-pm-exhaust` records 118 from 115 *and* 115 from
+118, and 118 from 119 *and* 119 from 118. `runspecchainedto` says which
+pollutant a calculator MAY derive an output from, not which one it does — the
+calculator registration decides that — so the table is not a DAG and no
+"compute the depth and unroll that far" rule is well defined on it. A fixed
+number of rungs is, which is the other reason to spell the unroll out.
+
+#### 71.2 The run checks the number it was given
+
+Three being enough for the corpus is not three being enough for a run, so the
+run says so itself. `rt_emitsGen4` is a **fourth presence pass** — a presence
+pass carries no day, county or month, so it costs one more self-join of the rate
+relation and nothing else — and `run_chainDepthExceeded` counts the rate rows a
+fourth rung would newly emit. It is 0 on every RunSpec here, asserted by
+`tools/check-runspec-shape.py` alongside the dropped source bins and the
+vehicleless physics rows, and it is the same **kind** of check as those two: a
+failure that costs rows rather than accuracy, which nothing else in the shape
+identity would attribute correctly.
+
+The value side needs no separate check. Presence and value walk the same graph,
+so a chain that converges in three rungs for one converges for the other.
+
+#### 71.3 What a template can carry and what it cannot
+
+A `faq`'s `ranges` and `join` are equation-level: an expression template can
+carry an expression, not a relational step, so the three passes are three
+equations and not one applied three times. What *is* shared is the per-pass
+predicate — a row emits if it has a rate of its own, or if its ratio exists and
+its parent emitted — and that is `lib/chaining.esm`'s `chained_emits`, applied
+at all four generations including the check. Before it, that `max` of a
+`survives` and a gated product was spelled once; at four generations, spelling
+it four times is how the check and the thing checked drift apart.

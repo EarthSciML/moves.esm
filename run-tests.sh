@@ -1278,6 +1278,20 @@ fi
 # their product is the answer or whether the run is ragged -- which is the only
 # thing that would notice a chained block quietly emitted at its parent's width.
 #
+# CHECK 3 ALSO ASSERTS THAT THE CHAIN CONVERGED. A chained pollutant-process can
+# itself be a parent -- THC 101 to NMHC 7901 to NMOG 8001 to TOG 8601 -- so the
+# chain is a fixed point, and `onroad/model.esm` unrolls it THREE times because
+# three is the longest chain in every `runspecchainedto` of the snapshot corpus,
+# counted rather than assumed (conventions §71.1; two of those graphs have
+# CYCLES and have no longest chain at all). A run needing a fourth rung would
+# not emit a wrong number -- it would emit NO ROW for its deepest species, which
+# the row count above reports as missing rows with no hint of the cause. So the
+# model runs a fourth PRESENCE pass, which carries no day, county or month and
+# therefore costs one self-join and nothing else, and
+# `run_chainDepthExceeded` counts the rate rows that fourth rung would newly
+# emit. 0 on all ten, and it is the run's own measurement rather than the
+# corpus-wide claim.
+#
 # That check is the only thing `expand-day` has that FAILS when the road-type
 # rule is deleted: its one surviving block is also its FIRST, so the renumbering
 # cannot show up in the numbers (see the probes below).
@@ -1398,6 +1412,7 @@ else
          --observed run_sourceBinsDropped \
          --observed run_physicsRowsDropped \
          --observed run_rateRowsWithoutPhysics \
+         --observed run_chainDepthExceeded \
          --output "$RS_SHAPE" >/dev/null 2>&1; then
       if out=$("$PYTHON" tools/check-runspec-shape.py "$RS_CSV" "$RS_SHAPE" 2>&1); then
         pass "$rsname — the emitted shape is what the chain recomputes: $out"
@@ -1462,6 +1477,7 @@ else
             --observed run_sourceBinsDropped \
             --observed run_physicsRowsDropped \
             --observed run_rateRowsWithoutPhysics \
+         --observed run_chainDepthExceeded \
             --output "$RUNDIR/$pname.probe.shape.csv" >/dev/null 2>&1 \
        && cmp -s "$RUNDIR/$prun.runspec.csv" "$RUNDIR/$pname.probe.csv" \
        && "$PYTHON" tools/check-runspec-shape.py \

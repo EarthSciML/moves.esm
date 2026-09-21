@@ -898,6 +898,12 @@
             "complex_model_property",
             "sulfur_adjust_arm"
           ]
+        },
+        {
+          "ref": "../lib/chaining.esm",
+          "only": [
+            "chained_emits"
+          ]
         }
       ],
       "tolerance": {
@@ -8900,13 +8906,45 @@
           ],
           "description": "Is this rate row chained from something, with a ratio recorded for it in any of the three tables? The union is a `max` because the arms are disjoint and a presence flag is not additive."
         },
+        "rt_parentEmitsGen1": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "Generation 1 of the chain's presence fixed point: does the pollutant-process this row is CHAINED FROM carry a RATE of its own on this same cohort? A self-join of the rate relation on (chained-from pollutant-process, cohort), under `max` because the cohort's source bins would otherwise be counted one per bin. THE CHAIN IS A FIXED POINT, UNROLLED THREE TIMES. A chained pollutant-process can itself be the parent of another: `chain-tog-speciation` runs THC (101) to NMHC (7901) to NMOG (8001) to TOG (8601), and `process-airtoxics` runs THC to NMHC to VOC (8701) to benzene (2001). Reading the parent's DIRECT quantity, which is what one pass does, gives a grandchild zero. Three is not a guess: it is the longest chain in the whole snapshot corpus (docs/esm-conventions.md §71), measured over every `runspecchainedto` in `../moves.rs/characterization/snapshots`, and a run deeper than three would leave its deepest species at zero rather than wrong -- `run_chainDeeperThanThree` counts exactly those rows and is asserted at 0. The three passes are spelled out rather than factored because a `faq`'s ranges and join clause are equation-level and an expression template cannot carry them; what IS shared -- the emission predicate -- is lib/emission_factors.esm's `chained_emits`, applied at all three."
+        },
+        "rt_emitsGen1": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "`rt_emits` as one pass of the chain would compute it: a row emits if it has a rate of its own, or if its ratio exists and its parent has a rate of its own. Correct for every chain one deep, which is every RunSpec in `runspecs/` before the hydrocarbon species."
+        },
+        "rt_parentEmitsGen2": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "Generation 2: does the parent emit at generation 1? The same self-join, one rung further from the root."
+        },
+        "rt_emitsGen2": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "`rt_emits` after two passes: correct for every chain two deep."
+        },
         "rt_parentEmitsHere": {
           "type": "unknown",
           "units": "1",
           "shape": [
             "rate_rows"
           ],
-          "description": "Does the pollutant-process this row is CHAINED FROM survive on this same cohort? A self-join of the rate relation on (chained-from pollutant-process, cohort), under `max` because the cohort's source bins would otherwise be counted one per bin. A species is emitted where its ratio exists AND its parent was emitted; for the particulate chains the two are the same set, and for the nitrogen ones the ratio is the narrower test."
+          "description": "Generation 3, the last: does the pollutant-process this row is CHAINED FROM emit after two passes? A species is emitted where its ratio exists AND its parent was emitted; for the particulate chains the two are the same set, for the nitrogen ones the ratio is the narrower test, and for the hydrocarbon species the parent is itself a species. THE CHAIN IS A FIXED POINT, UNROLLED THREE TIMES. A chained pollutant-process can itself be the parent of another: `chain-tog-speciation` runs THC (101) to NMHC (7901) to NMOG (8001) to TOG (8601), and `process-airtoxics` runs THC to NMHC to VOC (8701) to benzene (2001). Reading the parent's DIRECT quantity, which is what one pass does, gives a grandchild zero. Three is not a guess: it is the longest chain in the whole snapshot corpus (docs/esm-conventions.md §71), measured over every `runspecchainedto` in `../moves.rs/characterization/snapshots`, and a run deeper than three would leave its deepest species at zero rather than wrong -- `run_chainDeeperThanThree` counts exactly those rows and is asserted at 0. The three passes are spelled out rather than factored because a `faq`'s ranges and join clause are equation-level and an expression template cannot carry them; what IS shared -- the emission predicate -- is lib/emission_factors.esm's `chained_emits`, applied at all three."
         },
         "rtDay_quantDirect": {
           "type": "unknown",
@@ -8919,6 +8957,50 @@
           ],
           "description": "S17 and S18: rate x activity, in the output's own units. Exactly zero on the chained pollutant-process, because `emissionrate` carries no 10710 row and the inner join of J22 leaves its rate at the additive identity. Per county."
         },
+        "rtDay_chainGen1": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows",
+            "runspecday_rows",
+            "runspeccounty_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "The chain term computed against the parent's OWN-RATE quantity: correct for a species whose parent carries a rate, which is every chain one deep. One rung of the chain's value fixed point -- see lib/chaining.esm for why the chain is a fixed point and why three rungs is the measured maximum, and `run_chainDepthExceeded` for the per-run assertion that this run does not need a fourth."
+        },
+        "rtDay_quantGen1": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows",
+            "runspecday_rows",
+            "runspeccounty_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "The quantity after one rung: own rate plus a parent's own rate scaled. Zero on a species two rungs from a rate, which is what the next generation repairs. One rung of the chain's value fixed point -- see lib/chaining.esm for why the chain is a fixed point and why three rungs is the measured maximum, and `run_chainDepthExceeded` for the per-run assertion that this run does not need a fourth."
+        },
+        "rtDay_chainGen2": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows",
+            "runspecday_rows",
+            "runspeccounty_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "The chain term computed against the parent's quantity after one rung. One rung of the chain's value fixed point -- see lib/chaining.esm for why the chain is a fixed point and why three rungs is the measured maximum, and `run_chainDepthExceeded` for the per-run assertion that this run does not need a fourth."
+        },
+        "rtDay_quantGen2": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows",
+            "runspecday_rows",
+            "runspeccounty_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "The quantity after two rungs. One rung of the chain's value fixed point -- see lib/chaining.esm for why the chain is a fixed point and why three rungs is the measured maximum, and `run_chainDepthExceeded` for the per-run assertion that this run does not need a fourth."
+        },
         "rtDay_quantChained": {
           "type": "unknown",
           "units": "1",
@@ -8928,7 +9010,7 @@
             "runspeccounty_rows",
             "runspecmonth_rows"
           ],
-          "description": "PM10BrakeTireCalculator's whole arithmetic: the PM2.5 sibling's quantity, at the SAME cohort and day, times the PM10/PM2.5 ratio. It is a SELF-JOIN of the rate relation -- the chained row and the row it is chained from are two rows of one relation -- so the clause names its two sides with `syms` (CONFORMANCE_SPEC 5.5.8). On an unchained row the ratio is 0 and the chain key is 0, which matches no pollutant-process, so both halves say the same thing. Per county."
+          "description": "The chain term at the THIRD and last rung: the parent's quantity after two rungs, at the same source bin and day, times this row's ratio. It is a SELF-JOIN of the rate relation -- the chained row and the row it is chained from are two rows of one relation -- so the clause names its two sides with `syms` (CONFORMANCE_SPEC 5.5.8). On an unchained row the ratio is 0 and the chain key is 0, which matches no pollutant-process, so both halves say the same thing. PM10BrakeTireCalculator's whole arithmetic is the one-rung case of this. Per county. One rung of the chain's value fixed point -- see lib/chaining.esm for why the chain is a fixed point and why three rungs is the measured maximum, and `run_chainDepthExceeded` for the per-run assertion that this run does not need a fourth."
         },
         "rtDay_quant": {
           "type": "unknown",
@@ -8940,6 +9022,30 @@
             "runspecmonth_rows"
           ],
           "description": "The emitted quantity: its own rate path plus its chain. Every rate row is exactly one of the two, so the sum is a union and not a double count -- `run_chainedRowCount` is the test. Per county, which is the axis the output relation's second level reads it at."
+        },
+        "rt_parentEmitsGen4": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "Generation 4, which exists only to be compared with generation 3: does the parent emit after three rungs? A presence pass carries no day, county or month, so a fourth costs one more self-join of the rate relation and nothing else."
+        },
+        "rt_emitsGen4": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "`rt_emits` after four rungs. Equal to `rt_emits` on every RunSpec in `runspecs/`, and that equality is the whole point: it is what turns \"three rungs is enough\" from an assumption into a measurement the run itself makes."
+        },
+        "run_chainDepthExceeded": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "run_rows"
+          ],
+          "description": "How many rate rows a FOURTH rung of the chain would newly emit: 0, asserted. lib/chaining.esm records that three is the longest chain in the whole snapshot corpus; this is the run's own check of it, and a run that broke it would leave its deepest species at zero rather than wrong -- which this counts and the shape checker would then see as missing rows."
         },
         "run_chainedRowCount": {
           "type": "unknown",
@@ -19635,36 +19741,15 @@
           "_comment": "A row emits if the rate table covers it, or if a CHAIN does. The second arm is `run_chainedRowCount`'s own spelling -- a chain ratio at a selected source bin -- and it cannot be written as `rt_survives` with something added, because `rt_isSelected` is 0 on every rate row of a chained pollutant-process: 10710 has no `pollutantprocessmodelyear` row, which is exactly what makes it chained. `process-tirewear` emits three blocks and two of them carry a rate.",
           "lhs": "rt_emits",
           "rhs": {
-            "op": "max",
-            "args": [
-              "rt_survives",
-              {
-                "op": "*",
-                "args": [
-                  {
-                    "op": "*",
-                    "args": [
-                      "rt_hasChainRatio",
-                      {
-                        "op": "ifelse",
-                        "args": [
-                          {
-                            "op": ">",
-                            "args": [
-                              "rt_parentEmitsHere",
-                              0.0
-                            ]
-                          },
-                          1.0,
-                          0.0
-                        ]
-                      }
-                    ]
-                  },
-                  "bin_isSelectedAt"
-                ]
-              }
-            ]
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "chained_emits",
+            "bindings": {
+              "survives": "rt_survives",
+              "has_chain_ratio": "rt_hasChainRatio",
+              "parent_emits": "rt_parentEmitsHere",
+              "bin_is_selected": "bin_isSelectedAt"
+            }
           }
         },
         {
@@ -29322,7 +29407,7 @@
           }
         },
         {
-          "lhs": "rt_parentEmitsHere",
+          "lhs": "rt_parentEmitsGen1",
           "rhs": {
             "op": "faq",
             "args": [],
@@ -29360,6 +29445,122 @@
               "op": "index",
               "args": [
                 "rt_survives",
+                "b2"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rt_emitsGen1",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "chained_emits",
+            "bindings": {
+              "survives": "rt_survives",
+              "has_chain_ratio": "rt_hasChainRatio",
+              "parent_emits": "rt_parentEmitsGen1",
+              "bin_is_selected": "bin_isSelectedAt"
+            }
+          }
+        },
+        {
+          "lhs": "rt_parentEmitsGen2",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "max_product",
+            "output_idx": [
+              "b"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "b2": {
+                "from": "rate_rows"
+              }
+            },
+            "join": [
+              {
+                "syms": [
+                  "b",
+                  "b2"
+                ],
+                "on": [
+                  [
+                    "rt_chainInputPolProcessID",
+                    "rt_polProcessID"
+                  ],
+                  [
+                    "rt_cohortOrdinal",
+                    "rt_cohortOrdinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "rt_emitsGen1",
+                "b2"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rt_emitsGen2",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "chained_emits",
+            "bindings": {
+              "survives": "rt_survives",
+              "has_chain_ratio": "rt_hasChainRatio",
+              "parent_emits": "rt_parentEmitsGen2",
+              "bin_is_selected": "bin_isSelectedAt"
+            }
+          }
+        },
+        {
+          "lhs": "rt_parentEmitsHere",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "max_product",
+            "output_idx": [
+              "b"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "b2": {
+                "from": "rate_rows"
+              }
+            },
+            "join": [
+              {
+                "syms": [
+                  "b",
+                  "b2"
+                ],
+                "on": [
+                  [
+                    "rt_chainInputPolProcessID",
+                    "rt_polProcessID"
+                  ],
+                  [
+                    "rt_cohortOrdinal",
+                    "rt_cohortOrdinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "rt_emitsGen2",
                 "b2"
               ]
             }
@@ -29431,7 +29632,7 @@
           }
         },
         {
-          "lhs": "rtDay_quantChained",
+          "lhs": "rtDay_chainGen1",
           "rhs": {
             "op": "faq",
             "args": [],
@@ -29502,6 +29703,168 @@
           }
         },
         {
+          "lhs": "rtDay_quantGen1",
+          "rhs": {
+            "op": "+",
+            "args": [
+              "rtDay_quantDirect",
+              "rtDay_chainGen1"
+            ]
+          }
+        },
+        {
+          "lhs": "rtDay_chainGen2",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b",
+              "k",
+              "g",
+              "m"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "k": {
+                "from": "runspecday_rows"
+              },
+              "b2": {
+                "from": "rate_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "m": {
+                "from": "runspecmonth_rows"
+              }
+            },
+            "join": [
+              {
+                "syms": [
+                  "b",
+                  "b2"
+                ],
+                "on": [
+                  [
+                    "rt_chainInputPolProcessID",
+                    "rt_polProcessID"
+                  ],
+                  [
+                    "rt_binOrdinal",
+                    "rt_binOrdinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "rt_chainRatio",
+                    "b"
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "rtDay_quantGen1",
+                    "b2",
+                    "k",
+                    "g",
+                    "m"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rtDay_quantGen2",
+          "rhs": {
+            "op": "+",
+            "args": [
+              "rtDay_quantDirect",
+              "rtDay_chainGen2"
+            ]
+          }
+        },
+        {
+          "lhs": "rtDay_quantChained",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b",
+              "k",
+              "g",
+              "m"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "k": {
+                "from": "runspecday_rows"
+              },
+              "b2": {
+                "from": "rate_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "m": {
+                "from": "runspecmonth_rows"
+              }
+            },
+            "join": [
+              {
+                "syms": [
+                  "b",
+                  "b2"
+                ],
+                "on": [
+                  [
+                    "rt_chainInputPolProcessID",
+                    "rt_polProcessID"
+                  ],
+                  [
+                    "rt_binOrdinal",
+                    "rt_binOrdinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "rt_chainRatio",
+                    "b"
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "rtDay_quantGen2",
+                    "b2",
+                    "k",
+                    "g",
+                    "m"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
           "lhs": "rtDay_quant",
           "rhs": {
             "op": "faq",
@@ -29548,6 +29911,102 @@
                     "k",
                     "g",
                     "m"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rt_parentEmitsGen4",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "max_product",
+            "output_idx": [
+              "b"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "b2": {
+                "from": "rate_rows"
+              }
+            },
+            "join": [
+              {
+                "syms": [
+                  "b",
+                  "b2"
+                ],
+                "on": [
+                  [
+                    "rt_chainInputPolProcessID",
+                    "rt_polProcessID"
+                  ],
+                  [
+                    "rt_cohortOrdinal",
+                    "rt_cohortOrdinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "rt_emits",
+                "b2"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rt_emitsGen4",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "chained_emits",
+            "bindings": {
+              "survives": "rt_survives",
+              "has_chain_ratio": "rt_hasChainRatio",
+              "parent_emits": "rt_parentEmitsGen4",
+              "bin_is_selected": "bin_isSelectedAt"
+            }
+          }
+        },
+        {
+          "lhs": "run_chainDepthExceeded",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "n"
+            ],
+            "ranges": {
+              "n": {
+                "from": "run_rows"
+              },
+              "b": {
+                "from": "rate_rows"
+              }
+            },
+            "expr": {
+              "op": "-",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "rt_emitsGen4",
+                    "b"
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "rt_emits",
+                    "b"
                   ]
                 }
               ]
