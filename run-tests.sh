@@ -1200,7 +1200,7 @@ PYEOF
   # shellcheck disable=SC2086 -- one path, no spaces
   rm -f "$C7_P2" $C7_P2_CHILD
 
-  # 6. `index_set_rename` at 70 axes -- F49's probe, kept and inverted. It was
+  # 6. `index_set_rename` at 80 axes -- F49's probe, kept and inverted. It was
   #    refused at this mount form before #298; it is now accepted, and Phase 7
   #    plans on it (it is what lets a shared domain document's axes be
   #    namespaced per fixture, so two domain documents can be mounted without
@@ -1312,6 +1312,16 @@ C7P_DOMAIN=moves-onroad.esm
 # first run. That is the other way round from every other document in this
 # directory and it is worth noticing: a measurement made before the port is
 # what turned a second aggregation MODE into a translation.
+#
+# `process-brakewear` never entered it either, and for the opposite reason: it
+# cost NOTHING. It is `runspecs/process-tirewear.esm` with fourteen
+# `url_template`s swapped, and it reproduced all 375 cells on its first run,
+# worst 8.251e-06. It is kept rather than deleted as redundant because it is the
+# only run here whose `pollutantprocessmodelyear` model-year group is not 0:
+# PM10 tire wear is group 0 at all 41 model years -- 0 IS a `modelyeargroup`
+# row, named `Doesn't Matter`, which is the only reason the tire-wear path
+# passes J18/J19 at all -- and PM10 BRAKE wear is six real groups chosen by the
+# model year (PLAN.md 7.3.16).
 mapfile -t RUNSPECS < <(find runspecs -maxdepth 1 -name '*.esm' -not -name '.*' 2>/dev/null | sort)
 mapfile -t RUNSPECS_PENDING < <(find runspecs/pending -maxdepth 1 -name '*.esm' -not -name '.*' 2>/dev/null | sort)
 

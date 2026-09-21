@@ -2724,6 +2724,94 @@ exhaust — still need a `standardized_cross_term`, and no RunSpec here selects
 process 2. `altCriteriaRatio`, the E85 alternate-RVP path, is likewise unreached:
 it needs the `altRVP` column that step 020 writes and only NMOG and VOC read it.
 
+### 7.3.16 7d, 2026-09-20: brake wear was free, and a measurement pass prices the rest
+
+`runspecs/process-brakewear.esm` reproduces — **375 of 375 cells, worst
+8.251e-06**, key set exact — and it required **no change to the model at all**.
+It was written by copying `runspecs/process-tirewear.esm`, swapping fourteen
+`url_template`s, and running it. That is the first RunSpec in this directory
+that cost nothing, and the thing worth recording is what it would have caught
+anyway.
+
+**The model-year group is 0 in every other run in this directory, and it is not
+0 here.** `rt_modelYearGroupIsPresent` (J18, J19) is S10's two inner joins as
+one semi-join: `pollutantprocessmodelyear` must carry the run's (polProcessID,
+modelYearID) pair, and that pair's `modelYearGroupID` must itself be a
+`modelyeargroup` row. For PM10 **tire** wear the group is `0` at all 41 model
+years — and `0` is a `modelyeargroup` row, named *Doesn't Matter*, which is the
+only reason the tire-wear path passes the test at all. For PM10 **brake** wear
+it is six real groups, 19501980 through 20112020, short groups 1 to 6, chosen by
+the model year. This is the first run in the corpus where that join has to find
+something, and the first where a chained block's model-year group moves.
+
+Brake wear is also a second process on the `emissionRate` arm J58 added (process
+9, a disjoint set of rate rows from tire wear's process 10), and a second
+chained pair — `runspecchainedto` says 10609 ← 11609 where tire wear says 10710
+← 11710 — so J77's rule that a chained block carries no rate of its own and is
+emitted anyway is exercised by a pair it was not written against.
+
+#### What the rest costs, measured rather than guessed
+
+Seven more onroad snapshots were then run the same way: build a throwaway probe
+RunSpec from `process-tirewear.esm` with the `url_template`s swapped, let the
+**chain** recompute the four declared shape numbers rather than reading them off
+the answer, bind those, and compare against that run's own `MOVESOutput`. The
+probes are deleted after; nothing here is checked in. (Not measured: the four
+`chain-*` snapshots, which are the same question at twenty times the width; the
+two other `process-evap-*`; the eight whose recorded `MOVESOutput` is EMPTY —
+every APU, extended-idle, crankcase-start and crankcase-extended-idle run —
+and `sample-runspec`, which ships no `MOVESOutput` at all; and `scale-project`,
+which is step 7f because its input is a second database.)
+
+| run | its rows | emitted | shared | worst on the shared cells | what is missing |
+|---|---|---|---|---|---|
+| `mixed-onroad` | 125 | 125 | 125 | 8.319e-06 | nothing |
+| `process-brakewear` | 375 | 375 | 375 | 8.251e-06 | nothing — **promoted** |
+| `process-nox-speciation` | 436 | 124 | 124 | 7.805e-06 | 3 x 104: NO, NO2, HONO |
+| `process-crankcase-running` | 684 | 372 | 372 | 7.805e-06 | 3 x 104: the crankcase ratio |
+| `process-airtoxics` | 644 | 124 | 124 | 7.564e-06 | 5 x 104: the air toxics |
+| `process-pm-exhaust` | 728 | 375 | 312 | **1.000e+00** | 4 of its 7 blocks absent; the 3 it emits are 125 cohorts wide instead of 104 and their values are wrong |
+| `process-refueling` | 168 | 125 | 0 | — | everything; the two runs have no block in common |
+| `process-evap-permeation` | 64 | — | 0 | — | everything; the chain recomputes **no surviving block at all** |
+
+The shape of that table is the finding. **Where a block is shared, it is exact
+to the same 8e-06 the corpus already carries; what is missing is always the
+CHAINED blocks, and they are 104 cohorts where the parent is 124.** Three
+different calculators — `NOCalculator`/`NO2Calculator`, the crankcase ratio and
+the air-toxics ratios — run into the same structural wall: `output_rows` is
+declared as a strict product, `n_outputPolProcess × n_outputCohort ×
+n_runspecday × n_runspecmonth × n_runspeccounty`, a rectangle over the blocks,
+and a chained species survives only where its ratio exists **and its parent
+survived**, which is 104 and not 124. One structural change is what
+`process-nox-speciation` and `process-crankcase-running` are waiting on and
+nothing else — 1,120 rows of MOVESOutput between them.
+
+**And 104 is not a coincidence; it is a join.** The 20 cohorts a species block
+drops, against its parent's 124, are **fuel type 9, model years 2001 to 2020** —
+electricity, every one of them. `NONO2Ratio` and `CrankcaseEmissionRatio` each
+carry fuel types 1, 2, 3 and 5 and no row for 9. So the chained block is the
+parent's cohorts INTERSECTED with the ratio table's coverage, which is a join and
+not a property of the parent, and it is the same 20 cohorts that `expand-criteria`
+found are *rated at zero and emitted anyway* on the parent. The fixtures already
+have the shape this needs: `docs/process-nox-speciation.md` §3.3 ranks the WHOLE
+rate relation once and declares a single `n_outputRate`, because "124 + 104 x 3
+and 109 x 4 are the same 436". `onroad/model.esm` still declares the rectangle.
+
+**Two of them need more than the shape change, and saying so is the point of
+measuring.** `process-airtoxics` reads `ATRatio`, which is **empty in the default
+database** and carries 243 rows in that run's execution copy — another table
+MOVES computes at run time, exactly like `criteriaRatio` (§7.3.14), so it is the
+shape change *plus* a generator. And `process-pm-exhaust` is not the same gap at
+all: four of its seven blocks are absent, the three it does emit (pollutants 100,
+112 and 118) come out 125 cohorts wide instead of 104, and their values are
+wrong — worst cell 1.000e+00, with 208 of 375 nonzero. It is a separate piece of
+work and not a free ride behind the others.
+
+`mixed-onroad` reproduces its 125 rows exactly and is **not** added to
+`runspecs/`: its selections are a strict subset of `runspecs/expand-day.esm`'s,
+so a document for it would discriminate nothing (§23) and cost the suite another
+80 seconds.
+
 ### 7.4 Upstream asks
 
 **None is blocking.** This section has said "still none", "already exists,
@@ -2801,7 +2889,7 @@ This repository writes `leaf-owns-shape`, which does not depend on the answer.
 | **7b** ✅ | Full-database monolithic conversion — **done 2026-09-10**: 237 monolithic + 3 schema-only, 0 partition directories, 517 MB, 15.6 s, validator extended and all 7 planted corruptions red (§7.3.1) | met; the load cost is measured and does not dictate the layout |
 | **7c** ✅ | The mount shape at fixture scale — **done 2026-09-10, re-shaped to conform 2026-09-12, thin 2026-09-15** (§7.3.2): `fixtures/process-tirewear.esm` split into a logic half, a catalogue document that mounts it, and a 43-line per-fixture document that mounts the catalogue, byte-identical over 375 rows × 26 fields. Four findings retired (F46, F48, F49, F50), one open (F51) | met; the per-fixture document is 12 lines — metadata and one `{ref}`, nothing mechanical (conventions §53.2) |
 | **7c′** ✅ | `moves-onroad.esm`: default DB → `MOVESOutput` for `process-tirewear` — **done 2026-09-17** (§7.3.3): 38 national tables and the same logic, behind a per-fixture document carrying ten runspec selections, emitting the inlined fixture's 375 rows byte for byte in 40 s | met; the first end-to-end number comes off the default database |
-| **7d** | Widen the runspec surface one selection dimension at a time — pollutant-process, source type, road type, timespan, geography | each dimension added only with a fixture that **discriminates** it (§23). **Begun 2026-09-17** (§7.3.4): **timespan** done at the day axis, the output relation is no longer a rectangle over the selected pollutant-processes (`runspecs/expand-day.esm`, 250 rows, byte-identical to the inlined fixture over 25 shared fields), and **geography** done at three counties in three states (`runspecs/expand-counties.esm`, 375 rows, worst cell 1.140e-05; conventions §61). **Source type is an axis as of 2026-09-18** (§7.3.5, conventions §62): 44 variables promoted, `run_sourceTypeID` gone, the three existing runs unchanged to the digit, and `runspecs/pending/expand-fueltype-diesel.esm` emitting the right 248-row shape with source type 21's 125 rows exact at 7.106e-06. **The source bin is its own relation as of 2026-09-18** (§7.3.6, conventions §63): `sourcebin_rows` beside `cohort_rows`, `n_sourceBin` a third declared and checked number relayed per fixture, the three existing runs still unchanged to the digit, and `expand-fueltype-diesel`'s activity AND source-bin distribution both exact for both source types — 330 bins against the run's own `sourceBinDistributionFuelUsage`. **The drive cycle is per VEHICLE as of 2026-09-18** (§7.3.7, conventions §64): `physicsrow_rows` is the run's selected `sourceusetypephysics` rows densely ranked, `n_physicsRow` a fourth declared and checked number, the three existing runs STILL unchanged to the digit, and **`runspecs/expand-fueltype-diesel.esm` promoted out of `pending/`** — all 248 rows, worst cell 7.372e-06, both regulatory classes of source type 32 and the split at model year 2010. **`runspecs/expand-sourcetype.esm` reproduces as of 2026-09-20** (§7.3.8, §7.3.9): the 40 GB kill was EarthSciAST#418 and was fixed upstream by PRs #420 and #423 — the run went from killed at 32 GB to 0.89 GB and 91 s — and the three cells left after that were `emissionRateAdjustment`, a table the model did not read, ported as J56. All 430 rows, worst cell 9.017e-06. **`runspecs/pending/` is empty.** **The month is an axis as of 2026-09-20** (§7.3.10, conventions §65): 26 variables promoted, `run_monthID` no longer a `run_rows` scalar, the output relation five levels, and all FIVE existing runs unchanged to the digit. **`runspecs/expand-month.esm` reproduces as of 2026-09-20** (§7.3.11, §7.3.12, conventions §66): `aggregateBy = Month` is three more lists a RunSpec declares and a model that reads its speed distribution and its meteorology as weighted means over TIME CELLS, not a second mode — 500 of 500 rows, worst cell 8.513e-06, reproduced on the first run because both pre-aggregation weights were measured before the port. Six RunSpecs in `runspecs/`, `runspecs/pending/` still empty, and the criteria pollutants are what is left |
+| **7d** | Widen the runspec surface one selection dimension at a time — pollutant-process, source type, road type, timespan, geography | each dimension added only with a fixture that **discriminates** it (§23). **Begun 2026-09-17** (§7.3.4): **timespan** done at the day axis, the output relation is no longer a rectangle over the selected pollutant-processes (`runspecs/expand-day.esm`, 250 rows, byte-identical to the inlined fixture over 25 shared fields), and **geography** done at three counties in three states (`runspecs/expand-counties.esm`, 375 rows, worst cell 1.140e-05; conventions §61). **Source type is an axis as of 2026-09-18** (§7.3.5, conventions §62): 44 variables promoted, `run_sourceTypeID` gone, the three existing runs unchanged to the digit, and `runspecs/pending/expand-fueltype-diesel.esm` emitting the right 248-row shape with source type 21's 125 rows exact at 7.106e-06. **The source bin is its own relation as of 2026-09-18** (§7.3.6, conventions §63): `sourcebin_rows` beside `cohort_rows`, `n_sourceBin` a third declared and checked number relayed per fixture, the three existing runs still unchanged to the digit, and `expand-fueltype-diesel`'s activity AND source-bin distribution both exact for both source types — 330 bins against the run's own `sourceBinDistributionFuelUsage`. **The drive cycle is per VEHICLE as of 2026-09-18** (§7.3.7, conventions §64): `physicsrow_rows` is the run's selected `sourceusetypephysics` rows densely ranked, `n_physicsRow` a fourth declared and checked number, the three existing runs STILL unchanged to the digit, and **`runspecs/expand-fueltype-diesel.esm` promoted out of `pending/`** — all 248 rows, worst cell 7.372e-06, both regulatory classes of source type 32 and the split at model year 2010. **`runspecs/expand-sourcetype.esm` reproduces as of 2026-09-20** (§7.3.8, §7.3.9): the 40 GB kill was EarthSciAST#418 and was fixed upstream by PRs #420 and #423 — the run went from killed at 32 GB to 0.89 GB and 91 s — and the three cells left after that were `emissionRateAdjustment`, a table the model did not read, ported as J56. All 430 rows, worst cell 9.017e-06. **`runspecs/pending/` is empty.** **The month is an axis as of 2026-09-20** (§7.3.10, conventions §65): 26 variables promoted, `run_monthID` no longer a `run_rows` scalar, the output relation five levels, and all FIVE existing runs unchanged to the digit. **`runspecs/expand-month.esm` reproduces as of 2026-09-20** (§7.3.11, §7.3.12, conventions §66): `aggregateBy = Month` is three more lists a RunSpec declares and a model that reads its speed distribution and its meteorology as weighted means over TIME CELLS, not a second mode — 500 of 500 rows, worst cell 8.513e-06, reproduced on the first run because both pre-aggregation weights were measured before the port. **`runspecs/expand-criteria.esm` reproduces as of 2026-09-20** (§7.3.14, §7.3.15, conventions §68, §69): `criteriaRatio` is EMPTY in the default database and MOVES computes its 4,398 rows at run time TWO WAYS — a closed form the database ships as SQL text, and the live EPA Complex Model plus the sulfur model — 372 of 372 rows, worst cell 7.805e-06, and with it the rule that a cohort or a pollutant-process with no rate is not emitted. **`runspecs/process-brakewear.esm` reproduces as of 2026-09-20** (§7.3.16) and cost NO model change: 375 of 375 rows, worst cell 8.251e-06, and it is the first run here whose model-year group is not `Doesn't Matter`. Eight RunSpecs in `runspecs/`, `runspecs/pending/` still empty, and a measurement pass (§7.3.16) prices what is left: the chained blocks are 104 cohorts where their parent is 124, and one structural change is what `process-nox-speciation`, `process-crankcase-running` and `process-airtoxics` are all waiting on |
 | **7e** | `moves-nonroad.esm`, same shape | 12 `nr-*` fixtures |
 | **7f** | The five fixtures needing a second input database (four `-single` on `washtenaw_cdb`, `scale-project` on the project DB) | last, because they are the only ones whose model input is not the default DB |
 

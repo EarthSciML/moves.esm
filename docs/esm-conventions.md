@@ -6903,8 +6903,8 @@ One thing the coverage decision is NOT free about: `sourceTypeID` is a real key
 in this table. The sulfur power is 0.168 at source types 11 and 21 and 0.125 at
 the other eleven; the low-sulfur slope takes three values and is zero for a
 motorcycle; the Tier 3 model-year boundary is 2016/2017 for most source types and
-2017/2018 for two of them. Six of this repository's seven RunSpecs select source
-type 21 alone. Carrying only it would have been right on all six and wrong on
+2017/2018 for two of them. Seven of this repository's eight RunSpecs select source
+type 21 alone. Carrying only it would have been right on all seven and wrong on
 `expand-sourcetype` — §62.3's width-one trap, in the dimension the corpus is
 known to move.
 
