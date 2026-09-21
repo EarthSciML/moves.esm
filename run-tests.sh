@@ -1371,6 +1371,14 @@ C7P_DOMAIN=moves-onroad.esm
 # The document it leaves behind still carries what it waited on, in its own
 # description, which is what a pending document is for: the measurement, kept.
 #
+# IT IS NOT EMPTY AS OF 2026-09-21. `chain-so2-co2e-mechanism` is in it, and it
+# is there for exactly the reason the paragraph above gives: the measurement is
+# worth more written down than re-derived. Every one of the 1,294 rows this
+# chain emits for that run is RIGHT -- worst cell 8.201e-06, 0 extra -- and the
+# whole of the gap is ABSENCE, in five named pieces, one of which is data for
+# two relations the air-toxics rung already added. Its `n_outputRate` is bound
+# to what the chain computes and not to what the run emits, so it runs.
+#
 # `expand-month` never entered it. Its model work -- the month axis and the
 # `aggregateBy = Month` pre-aggregation -- was done first and BOTH of the
 # pre-aggregation's weights were reproduced from the default database against
