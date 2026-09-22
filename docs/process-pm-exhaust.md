@@ -533,6 +533,12 @@ pollutant-process appears as an output. That is a row-set fact and it is
 cycle-free. The arithmetic comes from `sulfate_pm_calculator.rs`'s stages, which
 are a DAG even though MOVES's declaration of them is not.
 
+**Ported to the default-database path on 2026-09-22.** `onroad/model.esm`
+computes this calculator as a four-species share matrix and
+`runspecs/process-pm-exhaust.esm` reproduces all 728 cells at 7.516e-06 — the
+same worst cell as this fixture. The cycle below needed no resolving;
+`docs/esm-conventions.md` §76 says why.
+
 **The tell is that MOVES's chain table describes a calculator's inputs, not a
 computation order.** `SulfatePMCalculator` genuinely takes 118 in and puts 118
 out; the table records both facts and cannot distinguish them.

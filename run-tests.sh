@@ -1282,7 +1282,7 @@ fi
 # run's own execution-database snapshot, through two mount edges:
 #
 #   runspecs/<run>.esm            that run's selections + its oracle
-#     -> moves-onroad.esm         60 national tables + the mount
+#     -> moves-onroad.esm         62 national tables + the mount
 #       -> onroad/model.esm       the onroad domain model, shared with 7c
 #
 # WHAT IT IS CHECKING is not the plumbing -- 7c already checks that a three
@@ -1392,11 +1392,15 @@ C7P_DOMAIN=moves-onroad.esm
 # correction belongs in it, which is why its description was rewritten rather
 # than left to age.
 #
-# `process-pm-exhaust` JOINED IT on 2026-09-22, and it is a different kind of
-# measurement: of the 456 rows the chain emits, 37 are right. It is not only
-# short. The crankcase lift claims PM sulfate and water through ratio-1 rows
-# that are a filter inside `SulfatePMCalculator` (conventions 75), and EC lacks
-# the base-rate general fuel ratio by exactly its value (PLAN.md 7.3.24).
+# `process-pm-exhaust` passed THROUGH it on 2026-09-22, in one day. Its first
+# measurement was not only short -- of 456 rows the chain emitted, 37 were
+# right, because the crankcase lift claimed PM sulfate and water through ratio-1
+# rows that are a filter inside `SulfatePMCalculator` (conventions 75) and EC
+# lacked its base-rate general fuel ratio. Both fixed, the calculator was
+# reproduced in pandas from the default tables (728 of 728), and the port then
+# landed all 728 cells at 7.516e-06 on its first run. MOVES declares that
+# calculator's chain as a CYCLE; the port is a share matrix and needs none
+# (conventions 76).
 #
 # `expand-month` never entered it. Its model work -- the month axis and the
 # `aggregateBy = Month` pre-aggregation -- was done first and BOTH of the
@@ -1584,7 +1588,7 @@ else
   #    recorded CSV to drift against.
   if cmp -s "$C7_BASE" "$RUNDIR/process-tirewear.runspec.csv"; then
     pass "7c' — the default database reproduces the inlined fixture's relation byte for byte"
-    say "       $(( $(wc -l < "$RUNDIR/process-tirewear.runspec.csv") - 1 )) rows from 60 national tables, no execution database"
+    say "       $(( $(wc -l < "$RUNDIR/process-tirewear.runspec.csv") - 1 )) rows from 62 national tables, no execution database"
   else
     fail "7c' — the default-database chain and the inlined fixture disagree"
     diff -u "$C7_BASE" "$RUNDIR/process-tirewear.runspec.csv" | sed 's/^/       /' | head -12

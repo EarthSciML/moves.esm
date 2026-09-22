@@ -7586,3 +7586,41 @@ only. `runspecs/pending/process-pm-exhaust.esm` went from 456 emitted rows to
 248, the difference being exactly the 208 wrong sulfate and water cells, and
 `process-crankcase-running` is unchanged to the digit.
 
+### 76 A cyclic chain declaration is a linear map with no direction
+
+`runspecchainedto` for `process-pm-exhaust` has two 2-cycles: NonECPM → sulfate
+→ NonECPM, and NonECPM → water → NonECPM. §33.1 and `docs/process-pm-exhaust.md`
+§2.8 already said the table records a calculator's inputs rather than a
+computation order. What porting it showed is the positive half: **the arithmetic
+under that cycle is a matrix.**
+
+`SulfatePMCalculator` makes four species per cohort — EC copied from its rated
+block, and sulfate, water and an internal residue split out of the rated NonECPM
+— and then every block it writes is a sum of species with a coefficient:
+
+| block | EC | sulfate | water | residue |
+|---|---|---|---|---|
+| EC 112 | 1 | | | |
+| sulfate 115 | | 1 | | |
+| water 119 | | | 1 | |
+| NonECPM 118 | | 1 | 1 | 1 |
+| PM2.5 110 | 1 | 1 | 1 | 1 |
+| organic carbon 111 | | | | `pmSpeciationFraction` |
+
+NonECPM appears as an input (it is split) and as an output (it is re-summed),
+and that is the whole of the "cycle". Written as species × shares, the inputs are
+the two RATED blocks and the outputs are the six rows of the table; nothing
+feeds back. In `onroad/model.esm` it is eleven entries of `spmsh_*` and one sum.
+
+**The rule: when a chain declaration cycles, look for the species it is
+conserving.** A calculator that takes X in and puts X out is almost always
+splitting X into parts and adding some of them back, and the parts are the
+state — not X. The fixed-point iteration §71 built is the wrong tool for that
+and was never needed: the chain's rungs still run, and they see the six blocks
+as having their OWN quantities, because the share matrix enters at
+`rtDay_quantDirect` and not at the output. That is also what let PM10 chain off
+PM2.5 through a path that already existed.
+
+Measured: `runspecs/process-pm-exhaust.esm`, 728 of 728 at 7.516e-06, on the
+first run of the port, all fourteen other documents in `runspecs/` unchanged.
+

@@ -395,6 +395,16 @@
       "type": "integer",
       "default": 0,
       "description": "Rows in sourceUseTypePhysics."
+    },
+    "n_sulfatefractions": {
+      "type": "integer",
+      "default": 0,
+      "description": "Rows in sulfatefractions."
+    },
+    "n_pmspeciation": {
+      "type": "integer",
+      "default": 0,
+      "description": "Rows in pmspeciation."
     }
   },
   "index_sets": {
@@ -784,11 +794,11 @@
     },
     "airtoxicsexponent_rows": {
       "kind": "interval",
-      "size": 20
+      "size": 22
     },
     "basefuelratio_rows": {
       "kind": "interval",
-      "size": 3
+      "size": 6
     },
     "complexmodelparameters_rows": {
       "kind": "interval",
@@ -829,6 +839,22 @@
     "complexconfig_rows": {
       "kind": "interval",
       "size": 8
+    },
+    "sulfatefractions_rows": {
+      "kind": "interval",
+      "size": "n_sulfatefractions"
+    },
+    "pmspeciation_rows": {
+      "kind": "interval",
+      "size": "n_pmspeciation"
+    },
+    "spmspecies_rows": {
+      "kind": "interval",
+      "size": 4
+    },
+    "spmshare_rows": {
+      "kind": "interval",
+      "size": 11
     }
   },
   "enums": {
@@ -5036,7 +5062,7 @@
           "shape": [
             "basefuelratio_rows"
           ],
-          "description": "generalFuelRatioExpression.polProcessID for the ratios BaseRateCalculator applies to a RATED pollutant-process -- the ones `copyGeneralFuelRatioTo*` never moves into `criteriaRatio` or `ATRatio`. Here, PM elemental carbon, running exhaust, and nothing else yet: 12001 carries the same strings and is applied to `SulfatePMCalculator`'s residue, a species this model does not compute (PLAN.md 7.3.24)."
+          "description": "generalFuelRatioExpression.polProcessID for the ratios BaseRateCalculator applies to a RATED pollutant-process -- the ones `copyGeneralFuelRatioTo*` never moves into `criteriaRatio` or `ATRatio` -- and for `SulfatePMCalculator`'s residue: 11201, PM elemental carbon, and 12001, the residue, which carries the same strings and is read through `rt_residueFuelRatio` because no rate row is ever a residue."
         },
         "gfb_fuelTypeID": {
           "type": "unknown",
@@ -9648,13 +9674,21 @@
           ],
           "description": "The `emissionratebyage` arm: does the age-RESOLVED table carry this source bin at the cohort's age group? It is also the discriminant `rtMode_rate` selects on."
         },
+        "rt_survivesRated": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "Selected AND rated -- `rt_survives` before `SulfatePMCalculator` claims its blocks."
+        },
         "rt_survives": {
           "type": "unknown",
           "units": "1",
           "shape": [
             "rate_rows"
           ],
-          "description": "Selected AND rated."
+          "description": "Selected AND rated -- or, on one of `SulfatePMCalculator`'s blocks, covered by `sulfateFractions` and made of a surviving parent."
         },
         "rt_emits": {
           "type": "unknown",
@@ -10428,6 +10462,529 @@
           ],
           "description": "Generation 3, the last: does the pollutant-process this row is CHAINED FROM emit after two passes? A species is emitted where its ratio exists AND its parent was emitted; for the particulate chains the two are the same set, for the nitrogen ones the ratio is the narrower test, and for the hydrocarbon species the parent is itself a species. THE CHAIN IS A FIXED POINT, UNROLLED THREE TIMES. A chained pollutant-process can itself be the parent of another: `chain-tog-speciation` runs THC (101) to NMHC (7901) to NMOG (8001) to TOG (8601), and `process-airtoxics` runs THC to NMHC to VOC (8701) to benzene (2001). Reading the parent's DIRECT quantity, which is what one pass does, gives a grandchild zero. Three is not a guess: it is the longest chain in the whole snapshot corpus (docs/esm-conventions.md §71), measured over every `runspecchainedto` in `../moves.rs/characterization/snapshots`, and a run deeper than three would leave its deepest species at zero rather than wrong -- `run_chainDeeperThanThree` counts exactly those rows and is asserted at 0. The three passes are spelled out rather than factored because a `faq`'s ranges and join clause are equation-level and an expression template cannot carry them; what IS shared -- the emission predicate -- is lib/emission_factors.esm's `chained_emits`, applied at all three."
         },
+        "sfr_processID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "sulfatefractions_rows"
+          ],
+          "description": "sulfateFractions.processID.",
+          "update": {
+            "kind": "data",
+            "source": "db_sulfatefractions",
+            "from": {
+              "file_variable": "processID"
+            }
+          }
+        },
+        "sfr_fuelTypeID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "sulfatefractions_rows"
+          ],
+          "description": "sulfateFractions.fuelTypeID. No electricity row, which is why `SulfatePMCalculator`'s inner join drops every fuel-type-9 EC and NonECPM row -- 40 of them in `process-pm-exhaust`.",
+          "update": {
+            "kind": "data",
+            "source": "db_sulfatefractions",
+            "from": {
+              "file_variable": "fuelTypeID"
+            }
+          }
+        },
+        "sfr_sourceTypeID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "sulfatefractions_rows"
+          ],
+          "description": "sulfateFractions.sourceTypeID.",
+          "update": {
+            "kind": "data",
+            "source": "db_sulfatefractions",
+            "from": {
+              "file_variable": "sourceTypeID"
+            }
+          }
+        },
+        "sfr_minModelYearID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "sulfatefractions_rows"
+          ],
+          "description": "sulfateFractions.minModelYearID.",
+          "update": {
+            "kind": "data",
+            "source": "db_sulfatefractions",
+            "from": {
+              "file_variable": "minModelYearID"
+            }
+          }
+        },
+        "sfr_maxModelYearID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "sulfatefractions_rows"
+          ],
+          "description": "sulfateFractions.maxModelYearID.",
+          "update": {
+            "kind": "data",
+            "source": "db_sulfatefractions",
+            "from": {
+              "file_variable": "maxModelYearID"
+            }
+          }
+        },
+        "sfr_sulfateFraction": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "sulfatefractions_rows"
+          ],
+          "description": "sulfateFractions.SulfatenonECPMFraction: the share of NonECPM that is sulfate at the BASE fuel's sulfur level.",
+          "update": {
+            "kind": "data",
+            "source": "db_sulfatefractions",
+            "from": {
+              "file_variable": "SulfatenonECPMFraction"
+            }
+          }
+        },
+        "sfr_waterFraction": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "sulfatefractions_rows"
+          ],
+          "description": "sulfateFractions.H2OnonECPMFraction. 0.0 on every row the corpus reaches, so particulate water is a real zero and is emitted as one.",
+          "update": {
+            "kind": "data",
+            "source": "db_sulfatefractions",
+            "from": {
+              "file_variable": "H2OnonECPMFraction"
+            }
+          }
+        },
+        "sfr_baseFuelSulfurLevel": {
+          "type": "parameter",
+          "units": "ppm",
+          "default": 0.0,
+          "shape": [
+            "sulfatefractions_rows"
+          ],
+          "description": "sulfateFractions.BaseFuelSulfurLevel, ppm -- the sulfur the two fractions were measured at.",
+          "update": {
+            "kind": "data",
+            "source": "db_sulfatefractions",
+            "from": {
+              "file_variable": "BaseFuelSulfurLevel"
+            }
+          }
+        },
+        "sfr_baseFuelSulfateFraction": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "sulfatefractions_rows"
+          ],
+          "description": "sulfateFractions.BaseFuelSulfateFraction: how much of the sulfate moves with the fuel's sulfur.",
+          "update": {
+            "kind": "data",
+            "source": "db_sulfatefractions",
+            "from": {
+              "file_variable": "BaseFuelSulfateFraction"
+            }
+          }
+        },
+        "pms_processID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "pmspeciation_rows"
+          ],
+          "description": "pmSpeciation.processID.",
+          "update": {
+            "kind": "data",
+            "source": "db_pmspeciation",
+            "from": {
+              "file_variable": "processID"
+            }
+          }
+        },
+        "pms_inputPollutantID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "pmspeciation_rows"
+          ],
+          "description": "pmSpeciation.inputPollutantID. 120, the residue, on every row this chain reads.",
+          "update": {
+            "kind": "data",
+            "source": "db_pmspeciation",
+            "from": {
+              "file_variable": "inputPollutantID"
+            }
+          }
+        },
+        "pms_sourceTypeID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "pmspeciation_rows"
+          ],
+          "description": "pmSpeciation.sourceTypeID.",
+          "update": {
+            "kind": "data",
+            "source": "db_pmspeciation",
+            "from": {
+              "file_variable": "sourceTypeID"
+            }
+          }
+        },
+        "pms_fuelTypeID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "pmspeciation_rows"
+          ],
+          "description": "pmSpeciation.fuelTypeID.",
+          "update": {
+            "kind": "data",
+            "source": "db_pmspeciation",
+            "from": {
+              "file_variable": "fuelTypeID"
+            }
+          }
+        },
+        "pms_minModelYearID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "pmspeciation_rows"
+          ],
+          "description": "pmSpeciation.minModelYearID.",
+          "update": {
+            "kind": "data",
+            "source": "db_pmspeciation",
+            "from": {
+              "file_variable": "minModelYearID"
+            }
+          }
+        },
+        "pms_maxModelYearID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "pmspeciation_rows"
+          ],
+          "description": "pmSpeciation.maxModelYearID.",
+          "update": {
+            "kind": "data",
+            "source": "db_pmspeciation",
+            "from": {
+              "file_variable": "maxModelYearID"
+            }
+          }
+        },
+        "pms_outputPollutantID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "pmspeciation_rows"
+          ],
+          "description": "pmSpeciation.outputPollutantID -- the species the residue is speciated INTO, and so the rate row's own pollutant.",
+          "update": {
+            "kind": "data",
+            "source": "db_pmspeciation",
+            "from": {
+              "file_variable": "outputPollutantID"
+            }
+          }
+        },
+        "pms_fraction": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "pmspeciation_rows"
+          ],
+          "description": "pmSpeciation.pmSpeciationFraction: 0.7067 of the residue is organic carbon on gasoline, 0.7258 / 0.7417 on diesel either side of 2007.",
+          "update": {
+            "kind": "data",
+            "source": "db_pmspeciation",
+            "from": {
+              "file_variable": "pmSpeciationFraction"
+            }
+          }
+        },
+        "spmsp_pollutantID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "spmspecies_rows"
+          ],
+          "description": "THE FOUR SPECIES `SulfatePMCalculator` splits a cohort's PM into: elemental carbon 112, sulfate 115, water 119, and the residue 120 -- which is never emitted and reaches the output three ways, inside NonECPM, inside PM2.5 and speciated into organic carbon."
+        },
+        "spmsp_parentPollutantID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "spmspecies_rows"
+          ],
+          "description": "The RATED block each species is made from: EC is EC, and the other three are NonECPM split three ways."
+        },
+        "spmsp_isEC": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "spmspecies_rows"
+          ],
+          "description": "Selects the species' fraction of its parent: 1 for EC, which is copied."
+        },
+        "spmsp_isSulfate": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "spmspecies_rows"
+          ],
+          "description": "Selects the fuel-sulfur-ADJUSTED sulfate fraction."
+        },
+        "spmsp_isWater": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "spmspecies_rows"
+          ],
+          "description": "Selects the adjusted water fraction."
+        },
+        "spmsp_isResidue": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "spmspecies_rows"
+          ],
+          "description": "Selects the residue: 1 minus the UNADJUSTED sulfate and water fractions, times the residue's own base-rate fuel ratio. Unadjusted is not a slip -- it is what the SQL does, and it is what the reference shows: 0.027248 / (0.027248 + 0.92) is the observed 0.028766 sulfate share of gasoline NonECPM in 1980."
+        },
+        "spmsh_outputPollutantID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "spmshare_rows"
+          ],
+          "description": "THE SHARE MATRIX, long format: which species an emitted block is made of. It is the split AND the re-sum at once -- NonECPM is sulfate + water + residue, PM2.5 is all four -- which is why MOVES's chain declaration has a 2-cycle (11801 -> 11501 -> 11801) and this relation does not need one (docs/process-pm-exhaust.md 2.8)."
+        },
+        "spmsh_speciesPollutantID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "spmshare_rows"
+          ],
+          "description": "The species this entry takes."
+        },
+        "spmsh_isSpeciated": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "spmshare_rows"
+          ],
+          "description": "1 on organic carbon's one entry, whose share of the residue is `pmSpeciation`'s fraction rather than 1."
+        },
+        "rt_isSPMOutput": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "1 on a rate row whose pollutant `SulfatePMCalculator` produces: 110, 111, 112, 115, 118 or 119. Its quantity is the share matrix times the four species, and not its own rate or a chain. PM10 is not one -- it chains off PM2.5 by `PM10EmissionRatio` as before."
+        },
+        "rt_hasSulfateFractions": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "Does `sulfateFractions` cover this row's process, fuel type, source type and model year? The calculator's inner join: a cohort without one emits no PM species at all."
+        },
+        "rt_spmSulfateFraction": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows",
+            "runspeccounty_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "`SulfateFraction = Sum marketShare x SulfatenonECPMFraction x (1 + BaseFuelSulfateFraction x (sulfurLevel / BaseFuelSulfurLevel - 1))` over the county's formulations of this row's fuel type: 0.027248 on 1980 gasoline, 0.066530 on 2020, 0.014773 on 1980 diesel."
+        },
+        "rt_spmWaterFraction": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows",
+            "runspeccounty_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "The same adjustment on the water fraction."
+        },
+        "rt_spmResidueFraction": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "`1 - SulfatenonECPMFraction - H2OnonECPMFraction`, UNADJUSTED -- see `spmsp_isResidue`."
+        },
+        "rt_residuePolProcessID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "The residue's own pollutant-process at this row's process, 12001 on running exhaust: the key its base-rate fuel ratio is stored under."
+        },
+        "rt_residueFuelRatioExact": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows",
+            "runspeccounty_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "The residue's `generalFuelRatio`, where a row covers."
+        },
+        "rt_hasResidueFuelRatio": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "Does one?"
+        },
+        "rt_residueFuelRatio": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows",
+            "runspeccounty_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "The residue's base-rate fuel ratio, 1 where no row covers -- the same strings as EC's, so 1.0909107 on gasoline and E85 from 2001 and 0.9727 on diesel through 2006."
+        },
+        "rt_spmSpeciesFraction": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows",
+            "spmspecies_rows",
+            "runspeccounty_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "How much of its parent each species is: 1 for EC, the adjusted sulfate and water fractions, and the residue fraction times the residue's fuel ratio."
+        },
+        "rt_spmSplitRatio": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows",
+            "spmspecies_rows"
+          ],
+          "description": "The crankcase split: the share of each species that stays in THIS row's process, from `crankcaseEmissionRatio` at the species' own pollutant -- the exhaust-process rows conventions 75 says are this calculator's. 1.0 on every running-exhaust row of the default database; carried because it is the arithmetic, and it is where a start- or crankcase-process PM run would differ."
+        },
+        "rt_pmSpeciationFraction": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "`pmSpeciation`'s fraction of the residue that is this row's pollutant -- organic carbon's, on the 11101 rows."
+        },
+        "rt_spmShare": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows",
+            "spmspecies_rows"
+          ],
+          "description": "How much of each species this rate row emits: the share matrix at the row's pollutant, with organic carbon's entry replaced by its speciation fraction."
+        },
+        "rtDay_spmParent": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows",
+            "spmspecies_rows",
+            "runspecday_rows",
+            "runspeccounty_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "Each species' parent quantity: the RATED quantity of the EC or NonECPM row of the same source bin and process. A self-join of the rate relation, the one `rtDay_quantChained` uses."
+        },
+        "rtDay_spmSpecies": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows",
+            "spmspecies_rows",
+            "runspecday_rows",
+            "runspeccounty_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "The four species of this row's cohort, in the output's units."
+        },
+        "rtDay_spmQuant": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows",
+            "runspecday_rows",
+            "runspeccounty_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "The share matrix times the species: this row's quantity when it is one of `SulfatePMCalculator`'s blocks."
+        },
+        "rt_spmParentSurvives": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "Does a rated parent of some species this row takes survive in the same source bin?"
+        },
+        "rt_spmSurvives": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "A `SulfatePMCalculator` block's own survival: covered by `sulfateFractions` AND made of a surviving parent. Organic carbon and water have no `pollutantProcessModelYear` row and so are never SELECTED -- they exist only because this calculator writes them."
+        },
+        "rtDay_quantRated": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows",
+            "runspecday_rows",
+            "runspeccounty_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "S17 and S18: rate x activity, in the output's own units -- what `rtDay_quantDirect` was before `SulfatePMCalculator` took over six blocks. Exactly zero on a chained pollutant-process."
+        },
         "rtDay_quantDirect": {
           "type": "unknown",
           "units": "1",
@@ -10437,7 +10994,7 @@
             "runspeccounty_rows",
             "runspecmonth_rows"
           ],
-          "description": "S17 and S18: rate x activity, in the output's own units. Exactly zero on the chained pollutant-process, because `emissionrate` carries no 10710 row and the inner join of J22 leaves its rate at the additive identity. Per county."
+          "description": "The row's OWN quantity, before any chain: `rtDay_quantRated` everywhere except on `SulfatePMCalculator`'s six blocks, where it is the share matrix times the four species. Putting it HERE, and not in the output, is what lets PM10 chain off PM2.5 exactly as it chained off nothing before."
         },
         "rtDay_chainGen1": {
           "type": "unknown",
@@ -21145,12 +21702,29 @@
           }
         },
         {
-          "lhs": "rt_survives",
+          "lhs": "rt_survivesRated",
           "rhs": {
             "op": "*",
             "args": [
               "rt_isSelected",
               "rt_hasRate"
+            ]
+          }
+        },
+        {
+          "lhs": "rt_survives",
+          "rhs": {
+            "op": "ifelse",
+            "args": [
+              {
+                "op": ">",
+                "args": [
+                  "rt_isSPMOutput",
+                  0.5
+                ]
+              },
+              "rt_spmSurvives",
+              "rt_survivesRated"
             ]
           }
         },
@@ -25767,7 +26341,9 @@
               2601,
               2601,
               11201,
-              11201
+              11201,
+              12001,
+              12001
             ]
           }
         },
@@ -25794,6 +26370,8 @@
               1,
               5,
               5,
+              5,
+              1,
               5,
               1,
               5
@@ -25825,6 +26403,8 @@
               -4.77747,
               -7.72407814737,
               0.0,
+              0.0,
+              0.0,
               0.0
             ]
           }
@@ -25853,6 +26433,8 @@
               0.4379,
               1.2431,
               2.8188,
+              0.0,
+              0.0,
               0.0,
               0.0
             ]
@@ -25883,6 +26465,8 @@
               0.0,
               0.0,
               1.0,
+              1.0,
+              1.0,
               1.0
             ]
           }
@@ -25911,6 +26495,8 @@
               0.0,
               1.0,
               -1.0,
+              0.0,
+              0.0,
               0.0,
               0.0
             ]
@@ -25941,6 +26527,8 @@
               0.01778,
               0.0734478962167,
               0.1126,
+              0.1126,
+              0.1126,
               0.1126
             ]
           }
@@ -25969,6 +26557,8 @@
               11.018182,
               11.018182,
               11.018182,
+              10.313704,
+              10.313704,
               10.313704,
               10.313704
             ]
@@ -25999,6 +26589,8 @@
               8.059247,
               8.059247,
               7.879557,
+              7.879557,
+              7.879557,
               7.879557
             ]
           }
@@ -26027,6 +26619,8 @@
               0.07991,
               0.0332,
               -0.126032050981,
+              0.1662,
+              0.1662,
               0.1662,
               0.1662
             ]
@@ -26057,6 +26651,8 @@
               24.390909,
               24.390909,
               25.62963,
+              25.62963,
+              25.62963,
               25.62963
             ]
           }
@@ -26085,6 +26681,8 @@
               9.924259,
               9.924259,
               9.924259,
+              10.015366,
+              10.015366,
               10.015366,
               10.015366
             ]
@@ -26115,6 +26713,8 @@
               0.04258,
               0.181462600303,
               0.0,
+              0.0,
+              0.0,
               0.0
             ]
           }
@@ -26143,6 +26743,8 @@
               197.0,
               197.0,
               197.0,
+              0.0,
+              0.0,
               0.0,
               0.0
             ]
@@ -26173,6 +26775,8 @@
               23.453614,
               23.453614,
               1.0,
+              1.0,
+              1.0,
               1.0
             ]
           }
@@ -26201,6 +26805,8 @@
               -0.07836,
               0.09051,
               0.132185759787,
+              0.1072,
+              0.1072,
               0.1072,
               0.1072
             ]
@@ -26231,6 +26837,8 @@
               323.527273,
               323.527273,
               320.533333,
+              320.533333,
+              320.533333,
               320.533333
             ]
           }
@@ -26259,6 +26867,8 @@
               19.601484,
               19.601484,
               19.601484,
+              19.480128,
+              19.480128,
               19.480128,
               19.480128
             ]
@@ -26289,6 +26899,8 @@
               10.0,
               10.0,
               0.0,
+              10.0,
+              0.0,
               10.0
             ]
           }
@@ -26316,6 +26928,8 @@
               0.0,
               1.0,
               1.0,
+              1.0,
+              0.0,
               1.0,
               0.0,
               1.0
@@ -27043,7 +27657,10 @@
             "value": [
               11201,
               11201,
-              11201
+              11201,
+              12001,
+              12001,
+              12001
             ]
           }
         },
@@ -27053,6 +27670,9 @@
             "op": "const",
             "args": [],
             "value": [
+              1,
+              5,
+              2,
               1,
               5,
               2
@@ -27067,6 +27687,9 @@
             "value": [
               2001,
               2001,
+              1950,
+              2001,
+              2001,
               1950
             ]
           }
@@ -27077,6 +27700,9 @@
             "op": "const",
             "args": [],
             "value": [
+              2060,
+              2060,
+              2006,
               2060,
               2060,
               2006
@@ -27091,6 +27717,9 @@
             "value": [
               0.0,
               0.0,
+              1.0,
+              0.0,
+              0.0,
               1.0
             ]
           }
@@ -27103,6 +27732,9 @@
             "value": [
               0.0,
               0.0,
+              -0.78,
+              0.0,
+              0.0,
               -0.78
             ]
           }
@@ -27113,6 +27745,9 @@
             "op": "const",
             "args": [],
             "value": [
+              0.911205970892,
+              0.911205970892,
+              1.0,
               0.911205970892,
               0.911205970892,
               1.0
@@ -36248,7 +36883,1724 @@
           }
         },
         {
-          "lhs": "rtDay_quantDirect",
+          "_comment": "SULFATEPMCALCULATOR (PLAN.md 7.3.24): four species per cohort, and an emitted block is a linear combination of them. The split and the re-sum MOVES declares as a cycle are one share matrix here.",
+          "lhs": "spmsp_pollutantID",
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              112,
+              115,
+              119,
+              120
+            ]
+          }
+        },
+        {
+          "lhs": "spmsp_parentPollutantID",
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              112,
+              118,
+              118,
+              118
+            ]
+          }
+        },
+        {
+          "lhs": "spmsp_isEC",
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              1.0,
+              0.0,
+              0.0,
+              0.0
+            ]
+          }
+        },
+        {
+          "lhs": "spmsp_isSulfate",
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              0.0,
+              1.0,
+              0.0,
+              0.0
+            ]
+          }
+        },
+        {
+          "lhs": "spmsp_isWater",
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              0.0,
+              0.0,
+              1.0,
+              0.0
+            ]
+          }
+        },
+        {
+          "lhs": "spmsp_isResidue",
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              0.0,
+              0.0,
+              0.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "lhs": "spmsh_outputPollutantID",
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              110,
+              110,
+              110,
+              110,
+              111,
+              112,
+              115,
+              118,
+              118,
+              118,
+              119
+            ]
+          }
+        },
+        {
+          "lhs": "spmsh_speciesPollutantID",
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              112,
+              115,
+              119,
+              120,
+              120,
+              112,
+              115,
+              115,
+              119,
+              120,
+              119
+            ]
+          }
+        },
+        {
+          "lhs": "spmsh_isSpeciated",
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0
+            ]
+          }
+        },
+        {
+          "lhs": "rt_isSPMOutput",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "bool_and_or",
+            "output_idx": [
+              "b"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "h": {
+                "from": "spmshare_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rt_pollutantID",
+                    "spmsh_outputPollutantID"
+                  ]
+                ]
+              }
+            ],
+            "expr": 1.0
+          }
+        },
+        {
+          "lhs": "rt_hasSulfateFractions",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "bool_and_or",
+            "output_idx": [
+              "b"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "s": {
+                "from": "sulfatefractions_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rt_processID",
+                    "sfr_processID"
+                  ],
+                  [
+                    "rt_fuelTypeID",
+                    "sfr_fuelTypeID"
+                  ],
+                  [
+                    "rt_sourceTypeID",
+                    "sfr_sourceTypeID"
+                  ]
+                ]
+              }
+            ],
+            "filter": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "model_year_in_range",
+              "bindings": {
+                "first_model_year": {
+                  "op": "index",
+                  "args": [
+                    "sfr_minModelYearID",
+                    "s"
+                  ]
+                },
+                "last_model_year": {
+                  "op": "index",
+                  "args": [
+                    "sfr_maxModelYearID",
+                    "s"
+                  ]
+                },
+                "model_year": {
+                  "op": "index",
+                  "args": [
+                    "rt_modelYearID",
+                    "b"
+                  ]
+                }
+              }
+            },
+            "expr": 1.0
+          }
+        },
+        {
+          "_comment": "The fuel-sulfur adjustment, weighted by market share -- `compute_sulfate_fractions` in sulfate_pm_calculator.rs.",
+          "lhs": "rt_spmSulfateFraction",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b",
+              "g",
+              "m"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "s": {
+                "from": "sulfatefractions_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "m": {
+                "from": "runspecmonth_rows"
+              },
+              "f": {
+                "from": "fuelformulation_rows"
+              }
+            },
+            "join": [
+              {
+                "syms": [
+                  "b",
+                  "s"
+                ],
+                "on": [
+                  [
+                    "rt_processID",
+                    "sfr_processID"
+                  ],
+                  [
+                    "rt_fuelTypeID",
+                    "sfr_fuelTypeID"
+                  ],
+                  [
+                    "rt_sourceTypeID",
+                    "sfr_sourceTypeID"
+                  ]
+                ]
+              },
+              {
+                "syms": [
+                  "b",
+                  "f"
+                ],
+                "on": [
+                  [
+                    "rt_fuelTypeID",
+                    "ff_fuelTypeID"
+                  ]
+                ]
+              }
+            ],
+            "filter": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "model_year_in_range",
+              "bindings": {
+                "first_model_year": {
+                  "op": "index",
+                  "args": [
+                    "sfr_minModelYearID",
+                    "s"
+                  ]
+                },
+                "last_model_year": {
+                  "op": "index",
+                  "args": [
+                    "sfr_maxModelYearID",
+                    "s"
+                  ]
+                },
+                "model_year": {
+                  "op": "index",
+                  "args": [
+                    "rt_modelYearID",
+                    "b"
+                  ]
+                }
+              }
+            },
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "ffsup_marketShare",
+                    "g",
+                    "m",
+                    "f"
+                  ]
+                },
+                {
+                  "op": "*",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "sfr_sulfateFraction",
+                        "s"
+                      ]
+                    },
+                    {
+                      "op": "+",
+                      "args": [
+                        1.0,
+                        {
+                          "op": "*",
+                          "args": [
+                            {
+                              "op": "index",
+                              "args": [
+                                "sfr_baseFuelSulfateFraction",
+                                "s"
+                              ]
+                            },
+                            {
+                              "op": "-",
+                              "args": [
+                                {
+                                  "op": "/",
+                                  "args": [
+                                    {
+                                      "op": "index",
+                                      "args": [
+                                        "ffx_sulfurLevel",
+                                        "g",
+                                        "m",
+                                        "f"
+                                      ]
+                                    },
+                                    {
+                                      "op": "index",
+                                      "args": [
+                                        "sfr_baseFuelSulfurLevel",
+                                        "s"
+                                      ]
+                                    }
+                                  ]
+                                },
+                                1.0
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rt_spmWaterFraction",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b",
+              "g",
+              "m"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "s": {
+                "from": "sulfatefractions_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "m": {
+                "from": "runspecmonth_rows"
+              },
+              "f": {
+                "from": "fuelformulation_rows"
+              }
+            },
+            "join": [
+              {
+                "syms": [
+                  "b",
+                  "s"
+                ],
+                "on": [
+                  [
+                    "rt_processID",
+                    "sfr_processID"
+                  ],
+                  [
+                    "rt_fuelTypeID",
+                    "sfr_fuelTypeID"
+                  ],
+                  [
+                    "rt_sourceTypeID",
+                    "sfr_sourceTypeID"
+                  ]
+                ]
+              },
+              {
+                "syms": [
+                  "b",
+                  "f"
+                ],
+                "on": [
+                  [
+                    "rt_fuelTypeID",
+                    "ff_fuelTypeID"
+                  ]
+                ]
+              }
+            ],
+            "filter": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "model_year_in_range",
+              "bindings": {
+                "first_model_year": {
+                  "op": "index",
+                  "args": [
+                    "sfr_minModelYearID",
+                    "s"
+                  ]
+                },
+                "last_model_year": {
+                  "op": "index",
+                  "args": [
+                    "sfr_maxModelYearID",
+                    "s"
+                  ]
+                },
+                "model_year": {
+                  "op": "index",
+                  "args": [
+                    "rt_modelYearID",
+                    "b"
+                  ]
+                }
+              }
+            },
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "ffsup_marketShare",
+                    "g",
+                    "m",
+                    "f"
+                  ]
+                },
+                {
+                  "op": "*",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "sfr_waterFraction",
+                        "s"
+                      ]
+                    },
+                    {
+                      "op": "+",
+                      "args": [
+                        1.0,
+                        {
+                          "op": "*",
+                          "args": [
+                            {
+                              "op": "index",
+                              "args": [
+                                "sfr_baseFuelSulfateFraction",
+                                "s"
+                              ]
+                            },
+                            {
+                              "op": "-",
+                              "args": [
+                                {
+                                  "op": "/",
+                                  "args": [
+                                    {
+                                      "op": "index",
+                                      "args": [
+                                        "ffx_sulfurLevel",
+                                        "g",
+                                        "m",
+                                        "f"
+                                      ]
+                                    },
+                                    {
+                                      "op": "index",
+                                      "args": [
+                                        "sfr_baseFuelSulfurLevel",
+                                        "s"
+                                      ]
+                                    }
+                                  ]
+                                },
+                                1.0
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rt_spmResidueFraction",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "s": {
+                "from": "sulfatefractions_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rt_processID",
+                    "sfr_processID"
+                  ],
+                  [
+                    "rt_fuelTypeID",
+                    "sfr_fuelTypeID"
+                  ],
+                  [
+                    "rt_sourceTypeID",
+                    "sfr_sourceTypeID"
+                  ]
+                ]
+              }
+            ],
+            "filter": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "model_year_in_range",
+              "bindings": {
+                "first_model_year": {
+                  "op": "index",
+                  "args": [
+                    "sfr_minModelYearID",
+                    "s"
+                  ]
+                },
+                "last_model_year": {
+                  "op": "index",
+                  "args": [
+                    "sfr_maxModelYearID",
+                    "s"
+                  ]
+                },
+                "model_year": {
+                  "op": "index",
+                  "args": [
+                    "rt_modelYearID",
+                    "b"
+                  ]
+                }
+              }
+            },
+            "expr": {
+              "op": "-",
+              "args": [
+                {
+                  "op": "-",
+                  "args": [
+                    1.0,
+                    {
+                      "op": "index",
+                      "args": [
+                        "sfr_sulfateFraction",
+                        "s"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "sfr_waterFraction",
+                    "s"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "_comment": "120 is the residue's pollutant: SulfatePMCalculator's internal species, which no RunSpec can select and so no rate row carries.",
+          "lhs": "rt_residuePolProcessID",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              }
+            },
+            "expr": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "pol_process_id",
+              "bindings": {
+                "pollutant_id": 120,
+                "process_id": {
+                  "op": "index",
+                  "args": [
+                    "rt_processID",
+                    "b"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "lhs": "rt_residueFuelRatioExact",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b",
+              "g",
+              "m"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "m": {
+                "from": "runspecmonth_rows"
+              },
+              "r": {
+                "from": "basefuelratio_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rt_residuePolProcessID",
+                    "gfb_polProcessID"
+                  ],
+                  [
+                    "rt_fuelTypeID",
+                    "gfb_fuelTypeID"
+                  ]
+                ]
+              }
+            ],
+            "filter": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "model_year_in_range",
+              "bindings": {
+                "first_model_year": {
+                  "op": "index",
+                  "args": [
+                    "gfb_minModelYearID",
+                    "r"
+                  ]
+                },
+                "last_model_year": {
+                  "op": "index",
+                  "args": [
+                    "gfb_maxModelYearID",
+                    "r"
+                  ]
+                },
+                "model_year": {
+                  "op": "index",
+                  "args": [
+                    "rt_modelYearID",
+                    "b"
+                  ]
+                }
+              }
+            },
+            "expr": {
+              "op": "index",
+              "args": [
+                "gfb_suppliedRatio",
+                "r",
+                "g",
+                "m"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rt_hasResidueFuelRatio",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "bool_and_or",
+            "output_idx": [
+              "b"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "r": {
+                "from": "basefuelratio_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rt_residuePolProcessID",
+                    "gfb_polProcessID"
+                  ],
+                  [
+                    "rt_fuelTypeID",
+                    "gfb_fuelTypeID"
+                  ]
+                ]
+              }
+            ],
+            "filter": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "model_year_in_range",
+              "bindings": {
+                "first_model_year": {
+                  "op": "index",
+                  "args": [
+                    "gfb_minModelYearID",
+                    "r"
+                  ]
+                },
+                "last_model_year": {
+                  "op": "index",
+                  "args": [
+                    "gfb_maxModelYearID",
+                    "r"
+                  ]
+                },
+                "model_year": {
+                  "op": "index",
+                  "args": [
+                    "rt_modelYearID",
+                    "b"
+                  ]
+                }
+              }
+            },
+            "expr": 1.0
+          }
+        },
+        {
+          "lhs": "rt_residueFuelRatio",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "exact_else_wildcard",
+            "bindings": {
+              "exact_value": "rt_residueFuelRatioExact",
+              "has_exact": "rt_hasResidueFuelRatio",
+              "wildcard_value": 1.0
+            }
+          }
+        },
+        {
+          "lhs": "rt_spmSpeciesFraction",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b",
+              "e",
+              "g",
+              "m"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "e": {
+                "from": "spmspecies_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "m": {
+                "from": "runspecmonth_rows"
+              }
+            },
+            "expr": {
+              "op": "+",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "spmsp_isEC",
+                    "e"
+                  ]
+                },
+                {
+                  "op": "+",
+                  "args": [
+                    {
+                      "op": "*",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "spmsp_isSulfate",
+                            "e"
+                          ]
+                        },
+                        {
+                          "op": "index",
+                          "args": [
+                            "rt_spmSulfateFraction",
+                            "b",
+                            "g",
+                            "m"
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "op": "+",
+                      "args": [
+                        {
+                          "op": "*",
+                          "args": [
+                            {
+                              "op": "index",
+                              "args": [
+                                "spmsp_isWater",
+                                "e"
+                              ]
+                            },
+                            {
+                              "op": "index",
+                              "args": [
+                                "rt_spmWaterFraction",
+                                "b",
+                                "g",
+                                "m"
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "op": "*",
+                          "args": [
+                            {
+                              "op": "index",
+                              "args": [
+                                "spmsp_isResidue",
+                                "e"
+                              ]
+                            },
+                            {
+                              "op": "*",
+                              "args": [
+                                {
+                                  "op": "index",
+                                  "args": [
+                                    "rt_spmResidueFraction",
+                                    "b"
+                                  ]
+                                },
+                                {
+                                  "op": "index",
+                                  "args": [
+                                    "rt_residueFuelRatio",
+                                    "b",
+                                    "g",
+                                    "m"
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rt_spmSplitRatio",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "exact_else_wildcard",
+            "bindings": {
+              "exact_value": {
+                "op": "faq",
+                "args": [],
+                "semiring": "sum_product",
+                "output_idx": [
+                  "b",
+                  "e"
+                ],
+                "ranges": {
+                  "b": {
+                    "from": "rate_rows"
+                  },
+                  "e": {
+                    "from": "spmspecies_rows"
+                  },
+                  "c": {
+                    "from": "crankcaseemissionratio_rows"
+                  }
+                },
+                "join": [
+                  {
+                    "syms": [
+                      "e",
+                      "c"
+                    ],
+                    "on": [
+                      [
+                        "spmsp_pollutantID",
+                        "cer_pollutantID"
+                      ]
+                    ]
+                  },
+                  {
+                    "syms": [
+                      "b",
+                      "c"
+                    ],
+                    "on": [
+                      [
+                        "rt_fuelTypeID",
+                        "cer_fuelTypeID"
+                      ],
+                      [
+                        "rt_sourceTypeID",
+                        "cer_sourceTypeID"
+                      ],
+                      [
+                        "rt_regClassID",
+                        "cer_regClassID"
+                      ]
+                    ]
+                  }
+                ],
+                "filter": {
+                  "op": "*",
+                  "args": [
+                    {
+                      "op": "apply_expression_template",
+                      "args": [],
+                      "name": "model_year_in_range",
+                      "bindings": {
+                        "first_model_year": {
+                          "op": "index",
+                          "args": [
+                            "cer_minModelYearID",
+                            "c"
+                          ]
+                        },
+                        "last_model_year": {
+                          "op": "index",
+                          "args": [
+                            "cer_maxModelYearID",
+                            "c"
+                          ]
+                        },
+                        "model_year": {
+                          "op": "index",
+                          "args": [
+                            "rt_modelYearID",
+                            "b"
+                          ]
+                        }
+                      }
+                    },
+                    {
+                      "op": "apply_expression_template",
+                      "args": [],
+                      "name": "in_half_open_range",
+                      "bindings": {
+                        "lower": {
+                          "op": "-",
+                          "args": [
+                            {
+                              "op": "index",
+                              "args": [
+                                "rt_processID",
+                                "b"
+                              ]
+                            },
+                            0.5
+                          ]
+                        },
+                        "upper": {
+                          "op": "+",
+                          "args": [
+                            {
+                              "op": "index",
+                              "args": [
+                                "rt_processID",
+                                "b"
+                              ]
+                            },
+                            0.5
+                          ]
+                        },
+                        "value": {
+                          "op": "apply_expression_template",
+                          "args": [],
+                          "name": "process_id_of",
+                          "bindings": {
+                            "pol_process_id": {
+                              "op": "index",
+                              "args": [
+                                "cer_polProcessID",
+                                "c"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                },
+                "expr": {
+                  "op": "index",
+                  "args": [
+                    "cer_crankcaseRatio",
+                    "c"
+                  ]
+                }
+              },
+              "has_exact": {
+                "op": "faq",
+                "args": [],
+                "semiring": "bool_and_or",
+                "output_idx": [
+                  "b",
+                  "e"
+                ],
+                "ranges": {
+                  "b": {
+                    "from": "rate_rows"
+                  },
+                  "e": {
+                    "from": "spmspecies_rows"
+                  },
+                  "c": {
+                    "from": "crankcaseemissionratio_rows"
+                  }
+                },
+                "join": [
+                  {
+                    "syms": [
+                      "e",
+                      "c"
+                    ],
+                    "on": [
+                      [
+                        "spmsp_pollutantID",
+                        "cer_pollutantID"
+                      ]
+                    ]
+                  },
+                  {
+                    "syms": [
+                      "b",
+                      "c"
+                    ],
+                    "on": [
+                      [
+                        "rt_fuelTypeID",
+                        "cer_fuelTypeID"
+                      ],
+                      [
+                        "rt_sourceTypeID",
+                        "cer_sourceTypeID"
+                      ],
+                      [
+                        "rt_regClassID",
+                        "cer_regClassID"
+                      ]
+                    ]
+                  }
+                ],
+                "filter": {
+                  "op": "*",
+                  "args": [
+                    {
+                      "op": "apply_expression_template",
+                      "args": [],
+                      "name": "model_year_in_range",
+                      "bindings": {
+                        "first_model_year": {
+                          "op": "index",
+                          "args": [
+                            "cer_minModelYearID",
+                            "c"
+                          ]
+                        },
+                        "last_model_year": {
+                          "op": "index",
+                          "args": [
+                            "cer_maxModelYearID",
+                            "c"
+                          ]
+                        },
+                        "model_year": {
+                          "op": "index",
+                          "args": [
+                            "rt_modelYearID",
+                            "b"
+                          ]
+                        }
+                      }
+                    },
+                    {
+                      "op": "apply_expression_template",
+                      "args": [],
+                      "name": "in_half_open_range",
+                      "bindings": {
+                        "lower": {
+                          "op": "-",
+                          "args": [
+                            {
+                              "op": "index",
+                              "args": [
+                                "rt_processID",
+                                "b"
+                              ]
+                            },
+                            0.5
+                          ]
+                        },
+                        "upper": {
+                          "op": "+",
+                          "args": [
+                            {
+                              "op": "index",
+                              "args": [
+                                "rt_processID",
+                                "b"
+                              ]
+                            },
+                            0.5
+                          ]
+                        },
+                        "value": {
+                          "op": "apply_expression_template",
+                          "args": [],
+                          "name": "process_id_of",
+                          "bindings": {
+                            "pol_process_id": {
+                              "op": "index",
+                              "args": [
+                                "cer_polProcessID",
+                                "c"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                },
+                "expr": 1.0
+              },
+              "wildcard_value": 1.0
+            }
+          }
+        },
+        {
+          "lhs": "rt_pmSpeciationFraction",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "p": {
+                "from": "pmspeciation_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rt_processID",
+                    "pms_processID"
+                  ],
+                  [
+                    "rt_sourceTypeID",
+                    "pms_sourceTypeID"
+                  ],
+                  [
+                    "rt_fuelTypeID",
+                    "pms_fuelTypeID"
+                  ],
+                  [
+                    "rt_pollutantID",
+                    "pms_outputPollutantID"
+                  ]
+                ]
+              }
+            ],
+            "filter": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "apply_expression_template",
+                  "args": [],
+                  "name": "model_year_in_range",
+                  "bindings": {
+                    "first_model_year": {
+                      "op": "index",
+                      "args": [
+                        "pms_minModelYearID",
+                        "p"
+                      ]
+                    },
+                    "last_model_year": {
+                      "op": "index",
+                      "args": [
+                        "pms_maxModelYearID",
+                        "p"
+                      ]
+                    },
+                    "model_year": {
+                      "op": "index",
+                      "args": [
+                        "rt_modelYearID",
+                        "b"
+                      ]
+                    }
+                  }
+                },
+                {
+                  "op": "apply_expression_template",
+                  "args": [],
+                  "name": "in_half_open_range",
+                  "bindings": {
+                    "lower": 119.5,
+                    "upper": 120.5,
+                    "value": {
+                      "op": "index",
+                      "args": [
+                        "pms_inputPollutantID",
+                        "p"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "expr": {
+              "op": "index",
+              "args": [
+                "pms_fraction",
+                "p"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rt_spmShare",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b",
+              "e"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "e": {
+                "from": "spmspecies_rows"
+              },
+              "h": {
+                "from": "spmshare_rows"
+              }
+            },
+            "join": [
+              {
+                "syms": [
+                  "b",
+                  "h"
+                ],
+                "on": [
+                  [
+                    "rt_pollutantID",
+                    "spmsh_outputPollutantID"
+                  ]
+                ]
+              },
+              {
+                "syms": [
+                  "e",
+                  "h"
+                ],
+                "on": [
+                  [
+                    "spmsp_pollutantID",
+                    "spmsh_speciesPollutantID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                {
+                  "op": ">",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "spmsh_isSpeciated",
+                        "h"
+                      ]
+                    },
+                    0.5
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "rt_pmSpeciationFraction",
+                    "b"
+                  ]
+                },
+                1.0
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rtDay_spmParent",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b",
+              "e",
+              "k",
+              "g",
+              "m"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "e": {
+                "from": "spmspecies_rows"
+              },
+              "b2": {
+                "from": "rate_rows"
+              },
+              "k": {
+                "from": "runspecday_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "m": {
+                "from": "runspecmonth_rows"
+              }
+            },
+            "join": [
+              {
+                "syms": [
+                  "b",
+                  "b2"
+                ],
+                "on": [
+                  [
+                    "rt_binOrdinal",
+                    "rt_binOrdinal"
+                  ],
+                  [
+                    "rt_processID",
+                    "rt_processID"
+                  ]
+                ]
+              },
+              {
+                "syms": [
+                  "b2",
+                  "e"
+                ],
+                "on": [
+                  [
+                    "rt_pollutantID",
+                    "spmsp_parentPollutantID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "rtDay_quantRated",
+                "b2",
+                "k",
+                "g",
+                "m"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rtDay_spmSpecies",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b",
+              "e",
+              "k",
+              "g",
+              "m"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "e": {
+                "from": "spmspecies_rows"
+              },
+              "k": {
+                "from": "runspecday_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "m": {
+                "from": "runspecmonth_rows"
+              }
+            },
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "rtDay_spmParent",
+                    "b",
+                    "e",
+                    "k",
+                    "g",
+                    "m"
+                  ]
+                },
+                {
+                  "op": "*",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "rt_spmSpeciesFraction",
+                        "b",
+                        "e",
+                        "g",
+                        "m"
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "rt_spmSplitRatio",
+                        "b",
+                        "e"
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rtDay_spmQuant",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b",
+              "k",
+              "g",
+              "m"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "e": {
+                "from": "spmspecies_rows"
+              },
+              "k": {
+                "from": "runspecday_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "m": {
+                "from": "runspecmonth_rows"
+              }
+            },
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "rt_spmShare",
+                    "b",
+                    "e"
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "rtDay_spmSpecies",
+                    "b",
+                    "e",
+                    "k",
+                    "g",
+                    "m"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rt_spmParentSurvives",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "max_product",
+            "output_idx": [
+              "b"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "e": {
+                "from": "spmspecies_rows"
+              },
+              "b2": {
+                "from": "rate_rows"
+              }
+            },
+            "join": [
+              {
+                "syms": [
+                  "b",
+                  "b2"
+                ],
+                "on": [
+                  [
+                    "rt_binOrdinal",
+                    "rt_binOrdinal"
+                  ],
+                  [
+                    "rt_processID",
+                    "rt_processID"
+                  ]
+                ]
+              },
+              {
+                "syms": [
+                  "b2",
+                  "e"
+                ],
+                "on": [
+                  [
+                    "rt_pollutantID",
+                    "spmsp_parentPollutantID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "ifelse",
+                  "args": [
+                    {
+                      "op": ">",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "rt_spmShare",
+                            "b",
+                            "e"
+                          ]
+                        },
+                        0.0
+                      ]
+                    },
+                    1.0,
+                    0.0
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "rt_survivesRated",
+                    "b2"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rt_spmSurvives",
+          "rhs": {
+            "op": "*",
+            "args": [
+              "rt_hasSulfateFractions",
+              "rt_spmParentSurvives"
+            ]
+          }
+        },
+        {
+          "lhs": "rtDay_quantRated",
           "rhs": {
             "op": "faq",
             "args": [],
@@ -36310,6 +38662,23 @@
                 }
               ]
             }
+          }
+        },
+        {
+          "lhs": "rtDay_quantDirect",
+          "rhs": {
+            "op": "ifelse",
+            "args": [
+              {
+                "op": ">",
+                "args": [
+                  "rt_isSPMOutput",
+                  0.5
+                ]
+              },
+              "rtDay_spmQuant",
+              "rtDay_quantRated"
+            ]
           }
         },
         {

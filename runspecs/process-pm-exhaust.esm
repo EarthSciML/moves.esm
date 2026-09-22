@@ -2,7 +2,7 @@
   "esm": "1.2.0",
   "metadata": {
     "name": "process-pm-exhaust-runspec",
-    "description": "PENDING (PLAN.md 7.5 step 7d). The `process-pm-exhaust` RunSpec -- seven PM pollutant-processes, 728 rows, 104 cohorts on every block. It does NOT reproduce yet. When it was first measured (2026-09-22) it was not only short: of the 456 rows this chain emitted, 37 were right. Two of the three causes are now fixed, and the chain emits 248 rows of which 104 -- every EC cell -- are right and none is spuriously claimed. `n_outputRate` is bound to what the chain computes (248) so the document runs.\n\nTHE CYCLE IS NOT THE GAP. `runspecchainedto` has 11801 -> 11501 -> 11801 and 11801 -> 11901 -> 11801, and docs/process-pm-exhaust.md 2.8 already says why that does not matter: the table records `SulfatePMCalculator`'s INPUTS, and the arithmetic under it is a DAG. `fixtures/process-pm-exhaust.esm` computes it on the snapshot path, 728 of 728 cells at 7.516e-06. So this rung is moving machinery that exists into onroad/model.esm, not inventing it.\n\nWHAT IT WAITS ON, MEASURED 2026-09-22 against the run's own MOVESOutput, per block:\n\n* EC (112) -- DONE: 104 of 104 at 5.272e-06. Every wrong cell had been off by exactly `1/generalFuelRatio` on 11201 (1/1.0909107 on gasoline and E85 from 2001, 1/0.9727 on diesel through 2006): BaseRateCalculator multiplies a rated pollutant-process by the `generalFuelRatio` rows no other calculator moves away, and the model had no such factor. It is `rt_baseFuelRatio` now, forms A and B of the existing templates. Still 20 extra electricity rows, rated at exactly zero, which MOVES drops because `SulfatePMCalculator` consumes EC through an inner join on `sulfatefractions` and that table has no fuel-type-9 row.\n* NonECPM (118) -- 124 emitted, 0 of 104 right, off by 0.93 to 1.19. MOVES emits the RE-SUMMED 118 -- sulfate + water + a residue carrying the SAME base-rate fuel ratio on 12001 -- and the chain emits the rated one. The same 20 electricity rows.\n* SULFATE (115) AND WATER (119) -- FIXED AS A WRONG ANSWER, NOW ABSENT. The crankcase lift used to claim them through ratio-1 `crankcaseEmissionRatio` rows that are a row filter inside `SulfatePMCalculator`: sulfate came out as ALL of NonECPM, 1.7x to 68x high, and water as NonECPM where MOVES has 0.0. `rt_isSulfatePMSpecies` now keeps the lift off them, derived from the table (conventions 75), and `process-crankcase-running` is unchanged to the digit.\n* PM2.5 (110), OC (111) and PM10 (100) -- absent. `rt_pm10ChainRatio` already reads 1.13043 on 10001; its parent 11001 is what is missing.\n\nTHE ARITHMETIC, CONFIRMED FROM THE REFERENCE BEFORE ANY PORT. PM10 = PM2.5 x `PM10PM25Ratio` (1.13043, 1.08696 on diesel); 118-out = 115 + 119 + residue to 1e-5; OC = residue x `pmSpeciationFraction` (0.70672, 0.72582, 0.74170); and the sulfate fraction `SulfatenonECPMFraction x (1 + BaseFuelSulfateFraction x (sulfur/BaseFuelSulfurLevel - 1))` gives 0.027248, 0.066530 and 0.014773 by hand, equal to the fixture's own `rt_sulfateFraction`. What is NEW for the model is an operation and not data: a FRACTIONAL SPLIT of one parent into three siblings, one of them (120) internal and never emitted, and a RE-SUM back into the parent.",
+    "description": "The `process-pm-exhaust` RunSpec: seven PM running-exhaust pollutant-processes, 728 rows, 104 cohorts on every block. Reproduced from the DEFAULT database: 728 of 728 cells, worst 7.516e-06 -- the same worst cell as the snapshot-path fixture -- and on the port's first run, because the whole computation was reproduced in pandas from the default tables before a line of the model changed.\n\nWHAT IT DISCRIMINATES. (1) `SulfatePMCalculator`, whose chain declaration in `runspecchainedto` is CYCLIC (11801 -> 11501 -> 11801, 11801 -> 11901 -> 11801) and whose arithmetic is not: four species per cohort -- EC, sulfate, water and an internal residue 120 -- and every emitted block a linear combination of them. The split and the re-sum are one share matrix (`spmsh_*`), which is why the cycle never has to be resolved. (2) The fuel-sulfur adjustment of the sulfate fraction, weighted by market share, and the UNADJUSTED residue fraction beside it. (3) BaseRateCalculator's `generalFuelRatio` on a rated pollutant-process -- EC's, `rt_baseFuelRatio` -- and the residue's own copy of it on 12001, which no rate row carries. (4) PM10 chaining off a block that is not rated and not chained but WRITTEN by another calculator. (5) Presence by inner join: electricity's EC and NonECPM are rated at exactly zero and dropped, because `sulfateFractions` has no fuel-type-9 row.\n\nHOW IT GOT HERE, because the first measurement was not only short. On 2026-09-22 the chain emitted 456 rows and 37 were right: EC lacked the base-rate fuel ratio by exactly its value, and the crankcase lift claimed PM sulfate and water through ratio-1 rows that are a row filter inside this calculator -- sulfate came out as ALL of NonECPM (conventions 75). PLAN.md 7.3.24 has the sequence.",
     "authors": [
       "EarthSciML Authors and Contributors"
     ],
@@ -13,7 +13,7 @@
       "process-pm-exhaust",
       "pm",
       "sulfate",
-      "chained",
+      "share-matrix",
       "cyclic-declaration"
     ]
   },
@@ -21,7 +21,7 @@
     "db_runspecyear": {
       "kind": "static",
       "source": {
-        "url_template": "../../../moves.rs/characterization/snapshots/process-pm-exhaust/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecyear.parquet"
+        "url_template": "../../moves.rs/characterization/snapshots/process-pm-exhaust/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecyear.parquet"
       },
       "extent": {
         "metaparameter": "n_runspecyear"
@@ -37,7 +37,7 @@
     "db_runspecmonth": {
       "kind": "static",
       "source": {
-        "url_template": "../../../moves.rs/characterization/snapshots/process-pm-exhaust/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecmonth.parquet"
+        "url_template": "../../moves.rs/characterization/snapshots/process-pm-exhaust/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecmonth.parquet"
       },
       "extent": {
         "metaparameter": "n_runspecmonth"
@@ -53,7 +53,7 @@
     "db_runspechour": {
       "kind": "static",
       "source": {
-        "url_template": "../../../moves.rs/characterization/snapshots/process-pm-exhaust/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspechour.parquet"
+        "url_template": "../../moves.rs/characterization/snapshots/process-pm-exhaust/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspechour.parquet"
       },
       "extent": {
         "metaparameter": "n_runspechour"
@@ -69,7 +69,7 @@
     "db_aggregationhour": {
       "kind": "static",
       "source": {
-        "url_template": "../../../moves.rs/characterization/snapshots/process-pm-exhaust/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspechour.parquet"
+        "url_template": "../../moves.rs/characterization/snapshots/process-pm-exhaust/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspechour.parquet"
       },
       "extent": {
         "metaparameter": "n_aggregationhour"
@@ -85,7 +85,7 @@
     "db_runspecday": {
       "kind": "static",
       "source": {
-        "url_template": "../../../moves.rs/characterization/snapshots/process-pm-exhaust/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecday.parquet"
+        "url_template": "../../moves.rs/characterization/snapshots/process-pm-exhaust/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecday.parquet"
       },
       "extent": {
         "metaparameter": "n_runspecday"
@@ -101,7 +101,7 @@
     "db_rateday": {
       "kind": "static",
       "source": {
-        "url_template": "../../../moves.rs/characterization/snapshots/process-pm-exhaust/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecday.parquet"
+        "url_template": "../../moves.rs/characterization/snapshots/process-pm-exhaust/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecday.parquet"
       },
       "extent": {
         "metaparameter": "n_rateday"
@@ -117,7 +117,7 @@
     "db_actday": {
       "kind": "static",
       "source": {
-        "url_template": "../../../moves.rs/characterization/snapshots/process-pm-exhaust/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecday.parquet"
+        "url_template": "../../moves.rs/characterization/snapshots/process-pm-exhaust/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecday.parquet"
       },
       "extent": {
         "metaparameter": "n_actday"
@@ -133,7 +133,7 @@
     "db_runspecsourcetype": {
       "kind": "static",
       "source": {
-        "url_template": "../../../moves.rs/characterization/snapshots/process-pm-exhaust/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecsourcetype.parquet"
+        "url_template": "../../moves.rs/characterization/snapshots/process-pm-exhaust/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecsourcetype.parquet"
       },
       "extent": {
         "metaparameter": "n_runspecsourcetype"
@@ -149,7 +149,7 @@
     "db_runspecroadtype": {
       "kind": "static",
       "source": {
-        "url_template": "../../../moves.rs/characterization/snapshots/process-pm-exhaust/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecroadtype.parquet"
+        "url_template": "../../moves.rs/characterization/snapshots/process-pm-exhaust/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecroadtype.parquet"
       },
       "extent": {
         "metaparameter": "n_runspecroadtype"
@@ -165,7 +165,7 @@
     "db_runspecsourcefueltype": {
       "kind": "static",
       "source": {
-        "url_template": "../../../moves.rs/characterization/snapshots/process-pm-exhaust/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecsourcefueltype.parquet"
+        "url_template": "../../moves.rs/characterization/snapshots/process-pm-exhaust/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecsourcefueltype.parquet"
       },
       "extent": {
         "metaparameter": "n_runspecsourcefueltype"
@@ -182,7 +182,7 @@
     "db_movesoutput": {
       "kind": "static",
       "source": {
-        "url_template": "../../../moves.rs/characterization/snapshots/process-pm-exhaust/tables/db__out_process_pm_exhaust__movesoutput.parquet"
+        "url_template": "../../moves.rs/characterization/snapshots/process-pm-exhaust/tables/db__out_process_pm_exhaust__movesoutput.parquet"
       },
       "reader_options": {
         "float_columns": [
@@ -201,7 +201,7 @@
     "db_runspecpollutantprocess": {
       "kind": "static",
       "source": {
-        "url_template": "../../../moves.rs/characterization/snapshots/process-pm-exhaust/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecpollutantprocess.parquet"
+        "url_template": "../../moves.rs/characterization/snapshots/process-pm-exhaust/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecpollutantprocess.parquet"
       },
       "extent": {
         "metaparameter": "n_runspecpollutantprocess"
@@ -217,7 +217,7 @@
     "db_runspecchainedto": {
       "kind": "static",
       "source": {
-        "url_template": "../../../moves.rs/characterization/snapshots/process-pm-exhaust/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecchainedto.parquet"
+        "url_template": "../../moves.rs/characterization/snapshots/process-pm-exhaust/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecchainedto.parquet"
       },
       "extent": {
         "metaparameter": "n_runspecchainedto"
@@ -234,7 +234,7 @@
     "db_runspeccounty": {
       "kind": "static",
       "source": {
-        "url_template": "../../../moves.rs/characterization/snapshots/process-pm-exhaust/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspeccounty.parquet"
+        "url_template": "../../moves.rs/characterization/snapshots/process-pm-exhaust/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspeccounty.parquet"
       },
       "extent": {
         "metaparameter": "n_runspeccounty"
@@ -250,9 +250,9 @@
   },
   "models": {
     "Onroad": {
-      "ref": "../../moves-onroad.esm",
+      "ref": "../moves-onroad.esm",
       "bindings": {
-        "n_outputRate": 248
+        "n_outputRate": 728
       }
     }
   }
