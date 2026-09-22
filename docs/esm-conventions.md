@@ -7624,3 +7624,91 @@ PM2.5 through a path that already existed.
 Measured: `runspecs/process-pm-exhaust.esm`, 728 of 728 at 7.516e-06, on the
 first run of the port, all fourteen other documents in `runspecs/` unchanged.
 
+
+### 77 A chain edge has a unit and a weight, and not every edge is in `runspecchainedto`
+
+Until `chain-so2-co2e-mechanism`, every chained pollutant-process in this port
+was one ratio times one parent, the parent was a mass, and every edge was a
+row of `runspecchainedto`. That run broke all three, and the chain's shape
+changed from "a child has a ratio" to "an edge has a weight".
+
+**The unit.** MOVES chains in its internal units — kilojoules and grams — and
+converts energy to Million BTU only when it writes `MOVESOutput` (S18). This
+chain divides as it goes: `rtDay_quantRated` is already in the reported unit,
+so a child reads its parent in Million BTU. For a mass child of a mass parent
+the two agree. For SO2, the first child of an energy pollutant to be ported,
+every cell came out low by exactly 1,055,055.9, and the pandas reproduction
+had shown the same factor against the reported energy before the port began. The weight
+`lnk_weight` carries the parent's S18 divisor over the child's: 1,055,055.9 on
+the energy → SO2 and energy → CO2 edges, 1 on every other. It belongs on the
+EDGE, not the child, because it depends on both ends.
+
+**The edges MOVES keeps in code.** `CO2AERunningStartExtendedIdleCalculator`
+chains CO2 off Total Energy, and CO2 equivalent off CO2, methane and N2O, in
+its Java `subscribeToMe` — the step-2 input set is the literal `"90,5,6"`.
+`pollutantprocessassoc.chainedTo1/2` are NULL on 9001 and 9801, so no
+`runspecchainedto` carries those edges, while SO2's (9101 → 3101) is there.
+The table is the ASSOCIATION graph pruned to the run; it is not every edge a
+calculator follows. The port declares the four CO2AE edges as constants
+(`cae_*`, crossed with the calculator's four processes) and unions them with
+`runspecchainedto` into `chainlink_rows`, the one relation all seven rungs
+join through. A calculator with code-declared edges is then one more block of
+that relation, not a second copy of every rung.
+
+The union is spelled `concat`, and it had to be. A positional join (`l` ↔ `h` by
+an ordinal) is the first thing that comes to mind, but it needs an ordinal
+COMPUTED over `runspecchainedto_rows`, and that table is empty in six of the
+fifteen runs: a computed relation of length 0 panics (F56). The first version
+did exactly that and took six RunSpecs down, and the version before it spelled the
+position as an `==` in a filter, which the conventions lint rejects. `concat`
+names what the relation is and computes nothing over the empty axis. The CO2AE
+weight is then lifted onto the concatenated relation by its (output, input) pair
+with `exact_else_wildcard`, wildcard 1.
+
+**The weight that is physics.** CO2 equivalent is CO2 + 28 × methane + 265 × N2O:
+three different parents, each with its own factor, and a SUM. A per-child
+ratio cannot say that. With the weight on the edge (`cae_weight`, read from
+`Pollutant.globalWarmingPotential`) the child's own arm is the number one, as
+TOG's always was, and the rungs are unchanged.
+
+**The rule: when a chained child needs a number that depends on which parent
+it came from, the number is an edge attribute.** And before concluding that a
+calculator is not chained because `runspecchainedto` is silent, read its Java
+`subscribeToMe`.
+
+### 78 A leaf past the last rung is computed after the chain, not as a fourth rung
+
+NonHAPTOG (88) is NMOG minus the fourteen members of the national integrated
+species set, clamped at zero. Its inputs include benzene, which is THC → NMHC →
+VOC → benzene: three rungs. NonHAPTOG would be the fourth, one past what §71
+measured and unrolls. It is also not linear, because of the clamp.
+
+It needs neither a fourth rung nor a nonlinear chain, because it is a LEAF:
+nothing in any calculator is computed from 88. So `rtDay_nonHapTogSum` reads the
+FINISHED quantities (`rtDay_quantDirect + rtDay_quantChained`) of its fifteen
+inputs through a signed self-join on source bin and process (`rt_nonHapTogSign`:
++1 for NMOG, −1 for a member, 0 otherwise), and the clamp is applied to that.
+Presence is split the same way: `rt_emitsChained` is what the chain decides,
+and `rt_emits` adds NonHAPTOG wherever its NMOG is emitted. The fourth-rung
+check (`run_chainDepthExceeded`) compares against `rt_emitsChained`, so it still
+measures the chain alone.
+
+One place this is coarser than MOVES: the SQL clamps each worker-output cell,
+which includes the regulatory class, and this clamps each source bin. The two
+agree unless a bin's NMOG is below its own toxics. In this corpus the smallest
+unclamped cell is 0.0015 g, so the corpus cannot tell the two apart.
+
+**What switches it on is not pollutant 88.** `chain-nonhaptog` selects 8801,
+and MOVES emits no NonHAPTOG for it. A run turns the calculator on by selecting a
+MECHANISM pseudo-pollutant on a process — `chain-so2-co2e-mechanism` selects
+300001, pollutant 3000, which `TOGSpeciationCalculator.java` decodes as mechanism
+`1 + (3000 − 1000)/500` = 5 — and the execution database's `integratedSpeciesSet`
+is filtered to the selected mechanisms, which is why it is empty in every other
+snapshot. The first version of this port gated on 88 alone and put 104 phantom
+rows into `chain-nonhaptog`. Its values still passed, because `n_outputRate`
+truncated the phantom block, which came last. The shape check caught it; the
+gate is `rt_mechanismSelected`. A declared size hides whatever it cuts off.
+
+**The rule: before adding a rung for an operation the chain cannot express,
+ask whether anything consumes its output.** If nothing does, the operation
+runs after the fixed point.
