@@ -142,7 +142,7 @@ for **57 of the 72 skeletons**, and form C is one form.
 
 | # | form | rows | strings | where | ported |
 |---|---|---:|---:|---|---|
-| A | `exp(Σ aⱼ·((xⱼ−mⱼ)/sⱼ))/base` | 32 | 2 | `process-pm-exhaust` only | **yes** — `log_linear_ratio` |
+| A | `exp(Σ aⱼ·((xⱼ−mⱼ)/sⱼ))/base` | 32 | 2 | `process-pm-exhaust` only | **yes** — `log_linear_ratio`, and since 2026-09-22 faced with MOVES from the default database too: it is EC's base-rate fuel ratio, 1.090910749585, and `runspecs/pending/process-pm-exhaust.esm` has every EC cell right |
 | B | `1 + (least(bioDieselEsterVolume, 20)/100)·c` | 676 | 4 | 21 snapshots | **yes** — `biodiesel_ester_ratio` |
 | C | `if(sulfurLevel > 30, HIGH, LOW)` | 974 | 99 | 15 snapshots | **yes** — `sulfur_switch_ratio` |
 | D | `((c₂·O² + c₁·O + c₀)/base)·scale` | 61 | 2 | 4 snapshots | no (§8.1) |

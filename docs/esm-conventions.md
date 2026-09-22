@@ -7576,3 +7576,13 @@ modifier. The cheap check is `runspecchainedto`: a pollutant-process that appear
 there as an OUTPUT whose inputs are not the table's parent is owned by something
 else. The fix belongs where the lift decides what it claims, not in the data.
 
+**Done that way.** `rt_isSulfatePMSpecies` is 1 on a rate row whose pollutant
+`crankcaseEmissionRatio` also carries on a NON-crankcase process, and both
+crankcase lifts multiply their filter by its complement. The exhaust-process
+rows of the default table are exactly 112, 115, 119 and 120, which is
+`SulfatePMCalculator`'s species set and nobody else's — `CalculatorInfo.txt`
+agrees, registering `CrankcaseEmissionCalculatorNonPM` for gaseous pollutants
+only. `runspecs/pending/process-pm-exhaust.esm` went from 456 emitted rows to
+248, the difference being exactly the 208 wrong sulfate and water cells, and
+`process-crankcase-running` is unchanged to the digit.
+
