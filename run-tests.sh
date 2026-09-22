@@ -1373,11 +1373,24 @@ C7P_DOMAIN=moves-onroad.esm
 #
 # IT IS NOT EMPTY AS OF 2026-09-21. `chain-so2-co2e-mechanism` is in it, and it
 # is there for exactly the reason the paragraph above gives: the measurement is
-# worth more written down than re-derived. Every one of the 1,294 rows this
+# worth more written down than re-derived. Every one of the 1,477 rows this
 # chain emits for that run is RIGHT -- worst cell 8.201e-06, 0 extra -- and the
-# whole of the gap is ABSENCE, in five named pieces, one of which is data for
-# two relations the air-toxics rung already added. Its `n_outputRate` is bound
-# to what the chain computes and not to what the run emits, so it runs.
+# whole of the gap is ABSENCE, in named pieces. Its `n_outputRate` is bound to
+# what the chain computes and not to what the run emits, so it runs.
+#
+# ONE OF THOSE PIECES IS CLOSED AS OF 2026-09-21, and the document's own
+# description now says what it cost, because the measurement was WRONG about it.
+# It called the three half-emitted toxics -- ethanol, acetaldehyde, acrolein --
+# `data and not new machinery`. Ethanol's model-year-2000-and-earlier ratio is a
+# SEVENTH algebraic form, a step in the ethanol volume, which
+# docs/fuel-effects-generator.md 2.1's census had absorbed into the sulfur
+# switch by testing for `if(` against a string that spells it `IF(`; and
+# acetaldehyde's complex model reads two fuel properties the shared relation did
+# not carry. 1,294 -> 1,477 rows, worst cell unmoved, and PLAN.md 7.3.23 and
+# conventions 73.5 have the rest. A pending document that turns out to have
+# measured the wrong thing is still worth more than no measurement -- but the
+# correction belongs in it, which is why its description was rewritten rather
+# than left to age.
 #
 # `expand-month` never entered it. Its model work -- the month axis and the
 # `aggregateBy = Month` pre-aggregation -- was done first and BOTH of the

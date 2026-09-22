@@ -129,7 +129,7 @@ rung was being verified and moved every count below by 15 to 20 %, which is
 | distinct rows (all nine columns) | **567** |
 | distinct `fuelEffectRatioExpression` strings | **118** |
 | distinct parse-tree skeletons (every numeric literal replaced by `#`) | **72** |
-| distinct top-level algebraic **forms** | **6** (plus a bare constant) |
+| distinct top-level algebraic **forms** | **7** (plus a bare constant) |
 
 The gap between 72 and 6 is the whole reason the forms are worth factoring: the
 skeleton count is inflated because MOVES writes the same polynomial's terms in
@@ -138,23 +138,48 @@ different **orders** in different rows — `…+b*ETOH-c*RVP+d*T90…` in one an
 one form and one coefficient set; only the text differs. Form C alone accounts
 for **57 of the 72 skeletons**, and form C is one form.
 
-### 2.1 The six forms
+### 2.1 The seven forms
 
 | # | form | rows | strings | where | ported |
 |---|---|---:|---:|---|---|
 | A | `exp(Σ aⱼ·((xⱼ−mⱼ)/sⱼ))/base` | 32 | 2 | `process-pm-exhaust` only | **yes** — `log_linear_ratio` |
 | B | `1 + (least(bioDieselEsterVolume, 20)/100)·c` | 676 | 4 | 21 snapshots | **yes** — `biodiesel_ester_ratio` |
-| C | `if(sulfurLevel > 30, HIGH, LOW)` | 1,013 | 100 | 15 snapshots | **yes** — `sulfur_switch_ratio` |
+| C | `if(sulfurLevel > 30, HIGH, LOW)` | 974 | 99 | 15 snapshots | **yes** — `sulfur_switch_ratio` |
 | D | `((c₂·O² + c₁·O + c₀)/base)·scale` | 61 | 2 | 4 snapshots | no (§8.1) |
 | E | `((benzeneContent − c)·k + 1)·scale` | 61 | 2 | 4 snapshots | no (§8.1) |
 | F | `exp(A)/(exp(B) − exp(C))` | 151 | 6 | 4 snapshots | no (§8.1) |
-| G | a bare numeric literal | 84 | 2 | 3 snapshots | no — and it needs no template |
+| G | a bare numeric literal | 84 | 2 | 3 snapshots | **yes** — it is E with a zero slope, and needs no template of its own |
+| H | `IF(x<c₁, v₀, IF(x<c₂, v₁, IF(x<c₃, v₂, v₃)))` | 39 | 1 | 3 snapshots | **yes** — `stepwise_property_ratio` |
 
 Row and string counts sum to 2,078 and 118 exactly, which is the check that the
-classification is a partition and not a sample. Form G is a constant ratio at
-polProcessID 2701, and every one of its rows sits in a snapshot where it is
-either never computed (NONROAD, §0.1) or handed off (§8.1), so it has no
-reachable answer to reproduce.
+classification is a partition and not a sample. **That check passed while the
+table was wrong**, and it is worth knowing how. Form H was counted as form C
+until 2026-09-21: the classifier asked whether a string contains `if(` and
+MariaDB does not care about case, so `IF(ETOHVolume<0.1, …)` answered yes. Form
+C read 1,013 rows and 100 strings; it is 974 and 99, and `974 + 39 = 1,013`. A
+misclassification moves rows between buckets without moving either total, so a
+partition check proves the classifier is **total** and says nothing about
+whether it is **right**. The cheap thing that catches it — one representative
+string printed per bucket — is the first column of the table below.
+
+| # | the first corpus row of that form, truncated where marked |
+|---|---|
+| A | `exp(+(0.1126*((ETOHVolume-10.313704)/(7.879557)))+(0.1662*((aromaticContent-25.629630)/(10.015366)))+(0.1072*((T90-320.533333)/(19.480128))))/0.911205970892` |
+| B | `1+(least(bioDieselEsterVolume,20)/100)*(-0.705)` |
+| C | `if(sulfurLevel>30,((exp(-3.65275441630756-0.00195000368524374*aromaticContent-0.019529192370317*T50+…` |
+| D | `(((0.000008*olefinContent*olefinContent)+(0.000200*olefinContent)+(0.006900))/(0.008823))*(0.0)` |
+| E | `((benzeneContent-0.660000)*0.240000+1)*(0.0465399915178)` |
+| F | `(exp(-9.3072+(0.92332*((ETOHVolume-11.018182)/(8.059247)))+(-0.37723*((aromaticContent-24.390909)/…` |
+| G | `0.000628499` |
+| H | `IF(ETOHVolume<0.1,0.0, IF(ETOHVolume >=0.1 AND ETOHVolume < 6.0,0.01195, IF(ETOHVolume >=6.0 AND ETOHVolume < 9.0,0.01912, IF(ETOHVolume >=9.0 AND ETOHVolume < 17.5,0.0239,  0.0239))))` |
+
+Form G is a constant ratio at polProcessID 2701. Its 84 corpus rows all sit in
+snapshots where it is either never computed (NONROAD, §0.1) or handed off
+(§8.1), so *those* rows have no reachable answer — but the same string reaches
+`ATRatio` from the default database, where `runspecs/pending/chain-so2-co2e-mechanism.esm`
+computes it and compares it, as form E with a zero slope. Form H is ethanol's
+model-year-2000-and-earlier ratio and is reached the same way; it is the one
+form in this table whose port was driven by a RunSpec rather than by the census.
 
 Form C's two arms, verbatim from a corpus string with the coefficients named:
 
@@ -957,7 +982,7 @@ others are dated, and this section is the date.
 
 ## 8. Gaps and things not verified
 
-### 8.1 Where the six forms are checked, and why not one of them is checked HERE
+### 8.1 Where the seven forms are checked, and why not one of them is checked HERE
 
 MOVES's `doGeneralFuelRatio` computes a ratio for **every** expression row, and
 then the predictive/complex-model paths this port does not cover take most of
@@ -986,9 +1011,10 @@ What follows for the port:
   **2,013 rows at a worst 4.4e-08** — which is §7.2's binary32 question and not
   a modelling residual. The paragraph below is what was true before that, and is
   kept because it is still what THIS oracle and `components/fuel_effects.esm`
-  can say on their own. 1,013 of
-  the corpus's 2,078 expression rows, 100 of its 118 strings — the dominant
-  form —
+  can say on their own. 974 of
+  the corpus's 2,078 expression rows, 99 of its 118 strings — the dominant
+  form; it read 1,013 and 100 until form H was pulled out of it on 2026-09-21,
+  and §2.1 says how —
   and every one of its rows goes to `criteriaRatio` before capture. It is
   ported because a later `criteriaRatio` rung needs exactly this algebra, and
   because `components/fuel_effects.esm`'s two probes at least establish that
@@ -1010,6 +1036,23 @@ What follows for the port:
   between 1.0e-10 and 9.6e-08. The paragraph this replaces said a later
   air-toxics rung should port them together with the `ATRatio` path that
   consumes them, where they could be checked. That is what happened.
+* **Forms G and H are ported as of 2026-09-21, and they ARE faced with MOVES —
+  through `ATRatio`, in the same place.** They are acrolein's bare constant and
+  ethanol's step, 123 rows and 3 strings between them, and they are the two this
+  document had written off: G as "no reachable answer to reproduce" and H as
+  part of form C. `runspecs/pending/chain-so2-co2e-mechanism.esm` reaches both,
+  because `ATRatio` in the **default database is empty** and a document that
+  computes it has to produce every row MOVES would have written, not only the
+  rows a snapshot kept. G needed no template — it is E with a zero slope — and H
+  is `stepwise_property_ratio`. The three toxics they belong to took the run
+  from 1,294 of its 2,767 rows to **1,477, worst cell 8.201e-06**, with the
+  worst cell unmoved.
+
+  **What checks H is one point of it.** This corpus supplies one gasoline
+  formulation with 10 vol% ethanol, so the step is evaluated in its top band and
+  the three breakpoints below are asserted by nothing. A step function checked
+  at one point checks the band it is in. That is §8.2's kind of gap and it is
+  listed there.
 * **The `already_ratioed` de-duplication is ported and unexercised.** No
   `(fuelFormulationID, polProcessID)` in the corpus is reached by two
   expressions, so the "first expression wins" rule is never the thing that
@@ -1022,11 +1065,12 @@ compared cell moves.
 
 | construct | occurrences | can any compared cell see it? |
 |---|---|---|
-| the E85 `least(10, ETOHVolume)` clamp | 29 of the 118 strings — 1 of 2 in form A, 25 of 100 in form C, 3 of 6 in form F | **no.** The only E85 formulation any corpus fuel supply carries is 27002, whose `ETOHVolume` is exactly 10.0, so the clamp is the identity on all 194 cells and deleting it leaves the comparison bit-identical. Probed instead: §6.4 |
+| the E85 `least(10, ETOHVolume)` clamp | 29 of the 118 strings — 1 of 2 in form A, 25 of 99 in form C, 3 of 6 in form F | **no.** The only E85 formulation any corpus fuel supply carries is 27002, whose `ETOHVolume` is exactly 10.0, so the clamp is the identity on all 194 cells and deleting it leaves the comparison bit-identical. Probed instead: §6.4 |
 | the biodiesel `least(…, 20)` clamp | all 4 form-B strings | **no.** 3.5 vol% is the only ester volume any supplied formulation carries |
 | the `minModelYearID > maxModelYearID` empty-window skip | 0 rows | **no.** No corpus row has an inverted window |
 | the `fuelSubtypes in (51, 52)` restriction on Pseudo-THC | all derived rows | **no.** Every derived row is handed off (§8.3) |
 | the `sourceTypeID` column | 13 values in `process-crankcase-running`, 3 for fuel type 5 in `process-pm-exhaust` | **yes**, as a key — it multiplies rows without changing the ratio, so it is checked by the key-set assertion and by nothing else |
+| form H's three breakpoints, at 0.1, 6.0 and 9.0 vol% ethanol | the 1 string, 39 rows | **no.** Every gasoline formulation any corpus fuel supply carries has `ETOHVolume` 10.0, which is in the top band, so all three breakpoints and the two lower levels could be any numbers at all and no compared cell would move. Only the top level, 0.0239, is checked |
 
 ### 8.3 `altRVP` is a column nobody here has
 

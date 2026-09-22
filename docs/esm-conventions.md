@@ -7290,13 +7290,24 @@ that a run needs both.
 
 | model years | source | rows it produces here | what it is |
 |---|---|---|---|
-| 2001–2060 | `generalFuelRatioExpression` | 6 (3 toxics × 2 fuel types) | the closed form, evaluated on each supplied formulation |
-| ≤ 2000 | the Complex Model at the `airtoxicsA` engine | 3 toxics × 41 ages | `(atBaseEmissions_toxic × ratioNoSulfur_toxic) / (atBaseEmissions_VOC × ratioNoSulfur_VOC)` |
+| 2001–2060 | `generalFuelRatioExpression` | 11 | the closed form, evaluated on each supplied formulation |
+| ≤ 2000 | the Complex Model at the `airtoxicsA` engine | 4 toxics × 41 ages | `(atBaseEmissions_toxic × ratioNoSulfur_toxic) / (atBaseEmissions_VOC × ratioNoSulfur_VOC)` |
+| ≤ 2000 | `generalFuelRatioExpression` again | 2 | for the two toxics that have no complex model at all (§73.5) |
 
 `criteriaRatio` splits at exactly the same model year and in exactly the same
 two ways (§68.2), which is the argument for having ported it first: the second
-table needed one new engine, four new configurations and three new algebraic
+table needed one new engine, five new configurations and four new algebraic
 forms, and no new *shape*.
+
+**The split is NOT by model year.** That is how it reads with three toxics in
+front of you, and it is wrong: it is by *which generator holds the
+coefficients*. Benzene, 1,3-butadiene, formaldehyde and acetaldehyde have rows
+in `ATBaseEmissions` and in `ComplexModelParameters`, so their early half comes
+off the complex model and `generalFuelRatioExpression` carries no early string
+for them. Ethanol and acrolein have neither, so `generalFuelRatioExpression`
+carries a 1950–2000 string for them and there is no second half to look for.
+The cheap check that tells the two apart is a row count in `ATBaseEmissions`,
+not a model year.
 
 #### 73.1 A constant that turns out to be a key, found by the second engine
 
@@ -7360,6 +7371,16 @@ age. Measured on `expand-criteria`, which selects no air toxic and reads none of
 new work: **39.9 s of user CPU before and 49.8 s after, 25 % more**, with peak
 RSS 1,277 MB against 1,315 MB and the emitted relation byte-identical.
 
+**A second widening, priced the same way.** §73.5 added acetaldehyde:
+`complexconfig_rows` 7 → 8, `complexproperty_rows` 13 → 15 and
+`complexterm_rows` 29 → 31. Same document, same binary, same metric:
+**49.8 s → 52.8 s of user CPU, 6 % more** over three interleaved passes,
+peak RSS unmoved at 1,326 MB. The first widening was 33 % more configuration
+rows for 25 % more CPU; this one is 14 % more for 6 %. The relation is not
+linear in any one of its three sizes, and the useful reading is that each is
+cheap on its own and the product is not — which is the §72.5 argument again,
+against a different factor.
+
 **Measure the CPU, not the clock.** This node is shared and its load average
 moved between 43 and 112 while that was being measured; the same document took
 **42 s of wall clock on one pass and 557 s on another**, which is a factor of 13
@@ -7368,6 +7389,19 @@ of somebody else's job. User CPU over three interleaved passes is steady to
 believing the clock: one of them reported the WIDENED document as twice as fast
 as the narrow one.
 
+**And the upstream fix for this does not exist yet, measured rather than
+hoped.** EarthSciAST PR #440, "materialize an inline `const` array literal once,
+not once per cell", merged the morning after the first widening, and the
+widening is mostly inline `const` arrays — so it looked like the thing that
+would pay for it. It does not. `esm` built from `3cf6f6f` and from `be1fafe6`
+(which carries #436, #440 and #439) on the same document, three interleaved
+passes each: **52.6 / 53.7 / 52.2 s against 52.4 / 52.2 / 54.2 s**, peak RSS
+1,326 MB both, output byte-identical. The means differ by 0.2 %, and the single
+slowest pass of the six is the *new* binary's. **This is a negative result and
+it is worth the same as a positive one**: the cost above is the document's
+shape, not the runtime's handling of `const`, so the saving named below is where
+it has to come from.
+
 §72.5 priced *copying* a relational pattern. This is the other case — the
 pattern is not copied, it is **widened** — and the price is the widening factor
 times whatever the relation already cost. It is read off the same kind of number:
@@ -7375,11 +7409,75 @@ there, a metaparameter discovered at load; here, two `interval` sizes written in
 the document itself, which is cheaper still to look up.
 
 The saving that is available and is not taken: the (configuration × engine row)
-product is 7 × 29 = **203 pairs of which 59 are meaningful**, because an engine
+product is 8 × 29 = **232 pairs of which 69 are meaningful**, because an engine
 row belongs to one engine and a configuration names one. Indexing the model sums
-by fuel MODEL rather than by engine ROW would make it 133, and restricting each
-configuration to its own engine's rows would make it 59 — which would pay for
-this widening and the last one. Named, not closed.
+by fuel MODEL rather than by engine ROW would make it 152, and restricting each
+configuration to its own engine's rows would make it 69 — which would pay for
+both widenings over. Named, not closed.
+
+#### 73.5 "That is data and not new machinery" is a claim, and it was wrong twice — and a census that sums correctly can still be wrong
+
+`runspecs/pending/chain-so2-co2e-mechanism.esm` recorded, as a *measurement*,
+that three of the toxics it half-emits — ethanol 21, acetaldehyde 26 and
+acrolein 27 — were **"DATA in the two relations `process-airtoxics` already
+added, and not new machinery."** Closing them took 183 rows and two pieces of
+machinery. Both are worth naming, because both are the same mistake: **a form
+census and a property set are sized to the rows you have read, and the next
+pollutant-process is not obliged to stay inside them.**
+
+**Ethanol's early ratio is a SEVENTH algebraic form.** It is
+
+```
+IF(E<0.1, 0.0, IF(E>=0.1 AND E<6.0, 0.01195, IF(E>=6.0 AND E<9.0, 0.01912, 0.0239)))
+```
+
+— a step function of one fuel property, which is neither a polynomial nor an
+exponential and which none of `docs/fuel-effects-generator.md` §2.1's six forms
+can spell.
+
+**And the census was wrong, in a way worth more than the form is.** It counted
+**"six forms plus a bare constant"** over 2,078 rows and reported form C, the
+sulfur switch, at **1,013 rows and 100 strings**. Re-classified with this form
+pulled out: form C is **974 rows and 99 strings**, and the step is **39 rows and
+1 string in 3 snapshots**. `974 + 39 = 1,013`. The rows were never missing —
+they were **absorbed**, by a classifier that asked whether a string contains
+`if(` and got a case-insensitive yes on `IF(ETOHVolume<0.1, …)`. The partition
+checks the census reported — rows summing to 2,078 and strings to 118 — all
+still pass, because a misclassification moves rows between buckets without
+changing either total. **A partition check proves the classifier is total, not
+that it is right**; what would have caught this is printing one representative
+string per bucket, which costs one line and is now in §2.1. (The bare constant,
+meanwhile, really was data: acrolein is `centered_linear_ratio` with a zero
+slope, which returns its scale exactly.)
+
+**Acetaldehyde's complex model reads two properties the relation did not
+carry.** `complexproperty_rows` held thirteen — the ones the three criteria
+pollutant-processes, the three ported toxics and VOC need. Acetaldehyde's
+`complexModelParameters` rows name cmpID 46 (`ETBE`) and 47 (`Ethanol`), which
+are fuel parameters 11 and 12, and neither was there. Twelve of its thirteen
+terms were right and the answer was **wrong by a flat 2.386 on all 21 model
+years**.
+
+That flatness is the whole diagnosis, and it is §73.2 read the other way round.
+§73.2 said a centring is invisible in a linear term; this says **a missing
+LINEAR term is invisible as anything but a constant factor** — the complex
+model's answer is `exp(Σ coefficient × property)`, so dropping one term whose
+property does not vary over the run multiplies every cell by one number. Here
+that number is `exp(0.249326 × 0.3488 × 10) = 2.386`, and it agrees with the
+observed 1/0.4191 before any code is read. **When every cell of a block is
+wrong by the same factor, take the logarithm and look for a term, not a bug.**
+The corollary for finding it: the 21 wrong cells were exactly the model years
+the *complex* half covers, and every closed-form row was right — so the
+residual named its own generator before anything was instrumented.
+
+**What it cost, and what would have caught it.** One re-run of the chain (74 s
+of CPU) to see the factor, one `grep` of `ComplexModelParameters` for the new
+pollutant-process's `cmpID` set against `cmxprop_fuelParameterID`, and one
+column. **That grep is the check worth keeping**: before adding a configuration
+to a shared engine, list the parameter identifiers its coefficients name and
+subtract the ones the relation carries. It is two lines of pandas and it is the
+same check §62.3's width-one trap asks for, applied to a *set* rather than to a
+column.
 
 ### 74 A bare variable in a `filter` is IGNORED once the aggregate has two output indices
 

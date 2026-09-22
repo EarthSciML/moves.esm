@@ -1370,3 +1370,26 @@ now shares the template.
 
 The measured result on that path: **644 of 644 rows, worst cell 7.564e-06**,
 against this document's 7.564e-06 on the snapshot path.
+
+**And what the three toxics here could not show, the next three did.** This run
+selects benzene, 1,3-butadiene and formaldehyde, and on 2026-09-21 the same
+relations were widened for ethanol, acetaldehyde and acrolein
+(`runspecs/pending/chain-so2-co2e-mechanism.esm`, PLAN.md §7.3.23). Two of the
+four claims above are true of *these* three toxics and not of air toxics in
+general:
+
+* **The split is not at model year 2001**; it is by which generator holds the
+  coefficients. Ethanol and acrolein have no `ATBaseEmissions` row and no
+  `ComplexModelParameters` row, so `generalFuelRatioExpression` carries a
+  1950–2000 string for them and there is no complex-model half to look for.
+  Item 2's "two halves, split at model year 2001" is what three toxics that all
+  have a complex model look like.
+* **Three forms was three, not all of them.** Ethanol's early ratio is a step
+  function of the ethanol volume — a seventh form, and one
+  `docs/fuel-effects-generator.md` §2.1 had absorbed into the sulfur switch.
+  Acetaldehyde's complex model also reads two fuel properties this run's four
+  configurations never name, `ETBE` and `Ethanol`.
+
+Neither changes a number in this document. Both are the reason item 1 and item 2
+are worded as observations about four configurations rather than as rules
+(conventions §73.5).
