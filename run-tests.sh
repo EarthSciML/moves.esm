@@ -1392,6 +1392,12 @@ C7P_DOMAIN=moves-onroad.esm
 # correction belongs in it, which is why its description was rewritten rather
 # than left to age.
 #
+# `process-pm-exhaust` JOINED IT on 2026-09-22, and it is a different kind of
+# measurement: of the 456 rows the chain emits, 37 are right. It is not only
+# short. The crankcase lift claims PM sulfate and water through ratio-1 rows
+# that are a filter inside `SulfatePMCalculator` (conventions 75), and EC lacks
+# the base-rate general fuel ratio by exactly its value (PLAN.md 7.3.24).
+#
 # `expand-month` never entered it. Its model work -- the month axis and the
 # `aggregateBy = Month` pre-aggregation -- was done first and BOTH of the
 # pre-aggregation's weights were reproduced from the default database against

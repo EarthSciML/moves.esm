@@ -7551,3 +7551,28 @@ none now.
   `rt_hasComplexRatio` is the single-output twin whose filter works. **A boolean
   gate in front of a value relation hides this class of bug completely.** Both
   filters are now explicit, and the lint is what says there is not a third.
+
+### 75 A ratio-1 row can be a FILTER in one calculator and a chain in another
+
+`crankcaseEmissionRatio` has rows for PM sulfate (11501) and PM water (11901)
+on the **running** process, ratio 1. `process-crankcase-running` taught the
+chain to read that table as "this child is its parent times this ratio", which
+is what it means for the crankcase processes. Inside `SulfatePMCalculator` the
+same rows mean something else: sulfate and water have *already* been split out
+of NonECPM by the sulfate fraction, and the ratio-1 row only says the running
+portion of each stays in the running process — a **row filter** on a species
+that exists, not a recipe for making it.
+
+Measured on `runspecs/pending/process-pm-exhaust.esm`: the generic crankcase
+lift emits sulfate as **all of NonECPM** — 1.7× to 68× high — and water as
+NonECPM where MOVES has exactly 0.0. Nothing fails loudly, the rows have the
+right keys, and no RunSpec that reproduces today selects either pollutant, which
+is why the suite has never seen it.
+
+**The rule: a ratio table does not say which calculator owns its rows.** Before
+a generic lift claims a (pollutant-process) for the chain, check whether another
+calculator produces that pollutant-process first and reads the same table as a
+modifier. The cheap check is `runspecchainedto`: a pollutant-process that appears
+there as an OUTPUT whose inputs are not the table's parent is owned by something
+else. The fix belongs where the lift decides what it claims, not in the data.
+
