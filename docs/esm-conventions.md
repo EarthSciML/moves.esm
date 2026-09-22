@@ -7712,3 +7712,36 @@ gate is `rt_mechanismSelected`. A declared size hides whatever it cuts off.
 **The rule: before adding a rung for an operation the chain cannot express,
 ask whether anything consumes its output.** If nothing does, the operation
 runs after the fixed point.
+
+## 79. A control run is a document, and what it checks is the gate rather than the arithmetic **[PLAN.md step 7d; `chain-so2-co2e-mechanism-control` 2,309 of 2,309, worst cell 8.201e-06, at no model cost]**
+
+Most documents in `runspecs/` earn their place by making the model compute
+something new. `chain-so2-co2e-mechanism-control` computes nothing new at all:
+it is `chain-so2-co2e-mechanism` with five pollutants deselected, and MOVES's
+own two answers are bit-identical on all 2,309 shared rows. It reproduced on its
+first run and cost no model change, which is exactly the outcome that makes a
+control worth keeping rather than deleting as redundant.
+
+**What it checks is what a selection is ALLOWED to switch off.** Conventions §69
+says a pollutant-process with no rate is not emitted; that rule is about the
+data. This is the other half: a pollutant-process the RunSpec never selected
+must not be emitted either, and the two places that can go wrong are the two
+places where the model supplies machinery the run's own tables do not.
+
+| mechanism | present in | switched off by |
+|---|---|---|
+| the four CO2AE chain edges (§77) | EVERY run — they are declared in the model, because `pollutantprocessassoc.chainedTo1/2` are NULL | nothing in the run's tables. Only the absence of a rate row for 9001/9801 |
+| the NonHAPTOG leaf (§78) | every run | the mechanism pseudo-pollutant, not pollutant 88 |
+
+A declared edge list is the dangerous kind of machinery, because a table-driven
+edge disappears with its table and a declared one does not. The rule it needs is
+that a declared edge must join to the run's selected rates like any other, never
+to a set the model itself constructed — and the only way to see that it does is
+a run where the edge exists and its endpoint is not selected.
+
+**The rule: when a port replaces a data-driven mechanism with a declared one,
+the run that does NOT want it is as much a test as the run that does.** Write
+that run as its own document. The cheap way to know it is worth writing is to
+check the two references against each other first: if the deselected run's rows
+are bit-identical to the other's, the document can only fail by gating wrongly,
+and every failure it reports is a real one.

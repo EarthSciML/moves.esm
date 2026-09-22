@@ -1454,6 +1454,21 @@ C7P_DOMAIN=moves-onroad.esm
 # the document then landed 644 of 644 cells at 7.564e-06 on its first run after
 # one filter was fixed, which is conventions 74 and is the most expensive four
 # characters in this repository.
+#
+# `chain-so2-co2e-mechanism-control` never entered it either, and it is the
+# first document here whose job is not arithmetic. It is the same run as
+# `chain-so2-co2e-mechanism` with five pollutants DESELECTED -- SO2, NonHAPTOG,
+# CO2, CO2 equivalent and the NonHAPTOG mechanism pseudo-pollutant -- and MOVES's
+# own two answers are bit-identical on all 2,309 shared rows, which was checked
+# before the document was written. So every way it can fail is this port GATING
+# wrongly, and three of the five deselected pollutants are exactly the ones whose
+# machinery does not come from the run's own tables: the four CO2AE chain edges
+# are DECLARED in the model (conventions 77) and are therefore present in every
+# run, and NonHAPTOG is switched by the mechanism pseudo-pollutant rather than by
+# selecting 88 (conventions 78). A declared edge that is not selection-gated, or
+# a leaf that fires on its own pollutant, would each show up here and nowhere
+# else in `runspecs/`. It reproduced all 2,309 cells at 8.201e-06 on its first
+# run, the same worst cell as the twin, and cost no model change.
 mapfile -t RUNSPECS < <(find runspecs -maxdepth 1 -name '*.esm' -not -name '.*' 2>/dev/null | sort)
 mapfile -t RUNSPECS_PENDING < <(find runspecs/pending -maxdepth 1 -name '*.esm' -not -name '.*' 2>/dev/null | sort)
 
