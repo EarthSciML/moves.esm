@@ -7745,3 +7745,66 @@ that run as its own document. The cheap way to know it is worth writing is to
 check the two references against each other first: if the deselected run's rows
 are bit-identical to the other's, the document can only fail by gating wrongly,
 and every failure it reports is a real one.
+
+## 80. Mount the empty table **[PLAN.md step 7d; `process-evap-leaks` 64 of 64, worst cell 7.294e-06, on its first run]**
+
+§30 says absence and zero are different and that a value of 0 is a row, so a
+`> 0` filter deletes it. This is the same distinction one level up, where the
+whole relation is the thing that is absent, and it decides how a document spells
+a multiplication by nothing.
+
+`process-evap-leaks` needs MOVES's evaporative operating-mode distribution,
+which is `soakActivityFraction × (1 − fractionOfOperating)` on the soaking modes
+and `greatest(0, 1 − Σ soaking)` on All Running. `soakActivityFraction` has
+**zero rows in the national default database** — `TankTemperatureGenerator`
+writes it, and all four of that generator's outputs ship empty — and zero rows
+in every execution-database snapshot this model is mounted against. So the two
+soaking modes contribute nothing, and there are three ways to write that:
+
+1. Leave the table out and give mode 300 the weight 1.
+2. Leave the table out and give the soaking modes the weight 0.
+3. **Mount the empty table, join it on all five of its keys, and sum over no
+   rows.**
+
+The first two are shorter, both are right on every run in the corpus, and both
+are wrong. An aggregate over an empty relation is the additive identity, so (3)
+produces the same three numbers — but it produces them from the data, and the
+other two produce them from the author. The difference shows the day a county
+database ships the table, or the day a run selects the off-network road type and
+`fractionOfOperating` stops being 1.
+
+**What makes this affordable is that an empty extent is legal — and finding F56
+says the opposite, which is worth pinning down.** F56 is that an `interval`
+index set of size 0 makes evaluation PANIC (`col_major_to_arrayd shape mismatch:
+shape [0] (product 0) vs 1 elements`), and it is still open. It does not apply
+here, and the difference is the data source:
+
+| | axis size | what writes the relation | result |
+|---|---|---|---|
+| F56's repro | a metaparameter left at its DEFAULT of 0 | nothing — no `data_source` supplies it | panic: one element placed into shape [0] |
+| an empty mount | an `extent` that DISCOVERED 0 | a parquet with no rows | a relation of length 0, and an aggregate over it is the identity |
+
+Both were probed rather than reasoned about: a five-variable document over the
+national `SoakActivityFraction` validates, simulates and passes an inline
+assertion that the sum is 0, while `docs/findings/F56_*.esm` still panics beside
+it. The rule F56 states from the other side — an axis sized 0 is fine as a `faq`
+RANGE and fatal when a relation is MATERIALIZED at that length — is the same
+rule: a source that supplies zero rows *is* the thing that materializes it, at
+the right length. What stays unsafe is `--observed` on such a relation, which is
+refused as not build-time-evaluable.
+
+`spikes/7c/` had been mounting a zero-row `integratedSpeciesSet` all along
+without anyone noticing it was the same question.
+
+**The rule: if the calculation joins a table, mount it — even when you have
+measured that it has no rows.** An empty mount costs one data source and says
+where the number came from; a missing mount saves the line and moves the
+statement from the database into the document, where nothing will ever check it
+again. State the measured emptiness in the source's `note`, because the note is
+what a later reader compares the next database against.
+
+**The corollary is that a row set can diverge where the numbers do not.** MOVES's
+own `opModeDistribution` for this run has three rows and this port emits one, and
+the two absent rows carry exactly 0. Nothing in `MOVESOutput` can see that, and
+a document is entitled to reproduce a run whose intermediates it cannot — but
+only if it says so. This one does, in its description and in this section.

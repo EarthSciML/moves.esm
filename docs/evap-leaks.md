@@ -30,6 +30,21 @@ Sources, in the order they were trusted:
 
 ## 0. The fixture at a glance
 
+> **The snapshot lost a day type after this was written, and the prose below has
+> not been re-run.** `moves.rs` PR #55 made `<day id="5">` select the weekday
+> type where the earlier `<day key="5">` was an out-of-range INDEX and fell back
+> to both (conventions §42.5). This run selects **dayID 5 only** now, so it emits
+> **64 rows** and **760.305817 g THC**, not the 128 rows and 960.061201 g that
+> §0's table, §6's worked examples and §7's fidelity tables still quote. Every
+> per-row quantity here is unchanged — what vanished is the weekend block and
+> its `noOfRealDays` of 2 — and the arithmetic is still the arithmetic. **The
+> code is current**: §6.5's reproduction is extracted and run by
+> `./run-leaks-oracle.sh` on every suite, and it reports 64 rows at 7.294 × 10⁻⁶.
+> Read the numbered sections for the CHAIN and the oracle's output for the
+> NUMBERS until the two are reconciled. `runspecs/process-evap-leaks.esm`, the
+> default-database port, was authored against the current shape and reproduces
+> all 64 rows at that same worst cell (PLAN.md §7.3.28).
+
 | | |
 |---|---|
 | snapshot | `../moves.rs/characterization/snapshots/process-evap-leaks` |

@@ -1469,6 +1469,45 @@ C7P_DOMAIN=moves-onroad.esm
 # a leaf that fires on its own pollutant, would each show up here and nowhere
 # else in `runspecs/`. It reproduced all 2,309 cells at 8.201e-06 on its first
 # run, the same worst cell as the twin, and cost no model change.
+# `process-evap-leaks` is the first EVAPORATIVE run here and the first to leave
+# the exhaust processes altogether. What it cost the model is smaller than the
+# family looks, and the reason is worth keeping: MOVES weights a rated
+# pollutant-process's operating modes with a `RatesOpModeDistribution` over speed
+# bins, and an evaporative one is written by a different generator entirely, over
+# SOAKING and RUNNING. So `pp_W` acquired an ALTERNATIVE rather than a term --
+# `evap_W`, with E1's `fractionOfOperating`, E2's soak weights and E3's residual
+# -- and everything else was already here: the activity chain, the source-bin
+# distribution and its fuel-usage rebase, the age-group join into
+# `emissionRateByAge`, and `SHO / noOfRealDays`, which IS the inventory
+# calculator's activity. The four adjustment tables an exhaust row goes through
+# were each measured to carry no row at `polProcessID` 113, so the factors this
+# chain already applies are their identities.
+#
+# Six tables the run's execution database carried are absent or empty nationally,
+# and all six were measured in pandas against the national files before the model
+# changed. `sourceBin` and `sourceBinDistribution` are empty because
+# `SourceBinDistributionGenerator` writes them and this port already derives
+# them: the 80 bins and 125 distribution rows reproduce exactly. `IMCoverage` is
+# 2,024,874 national rows that narrow to ZERO for county 26161 in any year, so
+# the emptiness the execution copy showed is a RESULT here and not a premise.
+#
+# And `soakActivityFraction` is empty nationally, which is the one place this
+# chain and MOVES do not agree on a row set. `TankTemperatureGenerator` writes it
+# -- 2,645 lines of Java behind a quarter-hour tank-temperature recurrence -- and
+# the default database ships all four of that generator's outputs with no rows.
+# MOVES's own `opModeDistribution` for this run has three rows where this chain
+# has one: modes 150 and 151 at EXACTLY ZERO and 300 at one. The emission is
+# unaffected to the last bit, because at an on-network link `SourceHours` is
+# `SHO` row for row, E1's ratio is exactly 1 and the soak weight
+# `1 - fractionOfOperating` is exactly 0 -- and that zero is COMPUTED. The empty
+# table is mounted and joined on all five of its keys, and the residual that
+# gives mode 300 its weight is `greatest(0, 1 - SUM(soaking))` and not
+# `fractionOfOperating`. A document that wrote the soak weight as zero would
+# agree here and be wrong at the first off-network link, which is why
+# `run_offNetworkLinkCount` joined the shape check: an off-network run would
+# divide `SHO` by a copy of itself where MOVES divided it by `SHP`, and nothing
+# else in this harness could see it. It reproduced all 64 cells at 7.294e-06 on
+# its first run, the same worst cell as the independent pandas reproduction.
 mapfile -t RUNSPECS < <(find runspecs -maxdepth 1 -name '*.esm' -not -name '.*' 2>/dev/null | sort)
 mapfile -t RUNSPECS_PENDING < <(find runspecs/pending -maxdepth 1 -name '*.esm' -not -name '.*' 2>/dev/null | sort)
 
@@ -1531,6 +1570,7 @@ else
          --observed run_physicsRowsDropped \
          --observed run_rateRowsWithoutPhysics \
          --observed run_chainDepthExceeded \
+         --observed run_offNetworkLinkCount \
          --output "$RS_SHAPE" >/dev/null 2>&1; then
       if out=$("$PYTHON" tools/check-runspec-shape.py "$RS_CSV" "$RS_SHAPE" 2>&1); then
         pass "$rsname — the emitted shape is what the chain recomputes: $out"
@@ -1596,6 +1636,7 @@ else
             --observed run_physicsRowsDropped \
             --observed run_rateRowsWithoutPhysics \
          --observed run_chainDepthExceeded \
+         --observed run_offNetworkLinkCount \
             --output "$RUNDIR/$pname.probe.shape.csv" >/dev/null 2>&1 \
        && cmp -s "$RUNDIR/$prun.runspec.csv" "$RUNDIR/$pname.probe.csv" \
        && "$PYTHON" tools/check-runspec-shape.py \

@@ -1,0 +1,255 @@
+{
+  "esm": "1.2.0",
+  "metadata": {
+    "name": "process-evap-leaks-runspec",
+    "description": "PLAN.md §7.5 step 7d: the `process-evap-leaks` RunSpec computed from the DEFAULT DATABASE. It mounts `moves-onroad.esm` -- the 69 national tables and the onroad model -- and supplies the thirteen things that are this run's: year 2020, August, hour 7, weekday, source type 21, road type 4, its four source-fuel types, three pollutant-processes, an EMPTY chained-to relation and county 26161, plus the expected output.\n\nIT IS THE FIRST EVAPORATIVE RUN HERE, and the first to leave the exhaust processes entirely. The calculator is `LiquidLeakingCalculator`, a direct master-loop subscriber: activity, cohorts, a base rate read from a table, one multiplication. No temperature adjustment, no fuel adjustment, no humidity term, no A/C term, no speciation -- all four of those tables were measured and carry no row at `polProcessID` 113, so the factors this port already applies are their identities and the arm it adds is only the operating-mode weight.\n\nWHAT THE MODEL GAINED, and it is smaller than the family looks. MOVES weights a rated pollutant-process's operating modes with a `RatesOpModeDistribution` over speed bins; an evaporative one is written by a different generator entirely, over SOAKING and RUNNING. So `pp_W` acquired an alternative rather than a term: `evap_W`, E1's `fractionOfOperating` from the ratio of SHO to `SourceHours`, E2's soak weights and E3's residual on mode 300. Everything else was already here -- the activity chain, the source-bin distribution and its fuel-usage rebase, the age-group join into `emissionRateByAge`, and `SHO / noOfRealDays`, which is exactly the inventory calculator's activity.\n\nWHAT THE DEFAULT DATABASE DOES NOT HAVE, measured before a line was written. Six tables this run's execution database carried are absent or empty nationally. `sourceBin` and `sourceBinDistribution` are empty because `SourceBinDistributionGenerator` writes them, and this port already derives them -- the 80 bins and 125 distribution rows reproduce exactly. `opModePolProcAssoc`, `pollutantProcessAssoc` and `fuelType` are national tables that were simply not mounted; the first is now. `IMCoverage` is 2,024,874 national rows that narrow to ZERO for this county, so the emptiness the execution copy showed is a result here and not a premise.\n\nAND `soakActivityFraction` IS EMPTY NATIONALLY, which is the one place this document and MOVES do not agree on a row set. `TankTemperatureGenerator` writes it -- 2,645 lines of Java behind a quarter-hour tank-temperature recurrence -- and the default database ships all four of that generator's outputs with no rows. MOVES's own `opModeDistribution` for this run therefore has three rows where this port has one: 150 and 151 at value EXACTLY ZERO, and 300 at one. The emission is unaffected to the last bit, because at an on-network link `SourceHours` is `SHO` row for row, E1's ratio is exactly 1, and the soak weight `1 - fractionOfOperating` is exactly 0. THAT ZERO IS COMPUTED AND NOT ASSUMED. The document mounts the empty table, joins it on all five of its keys, and sums over no rows; the residual that gives mode 300 its weight is `greatest(0, 1 - SUM(soaking))` and not `fractionOfOperating`, which `docs/evap-leaks.md` §2.3 separates with a probe at 0.599999932 against 0.6. A document that wrote the soak weight as zero would agree here and be wrong at the first off-network link; one that wrote the residual as `fractionOfOperating` would be right to seven digits and wrong in general.\n\nAND THE ZERO IS LOAD-BEARING, which is measurable rather than arguable. The soaking modes are not weighted out because their rates are small: `emissionRateByAge` carries 2,188 rows at each of the three modes for `polProcessID` 113, and their mean `meanBaseRate` is 0.0989 g/h at Hot Soaking and 0.0514 at Cold Soaking against 0.9267 at All Running. Only the weight suppresses them. A document that gave the soaking modes any weight at all would be wrong by roughly a sixth, and `run_offNetworkLinkCount` -- which `tools/check-runspec-shape.py` asserts at 0 -- is what keeps the identity that makes the weight zero from becoming an assumption about the link.\n\nIT EMITS 64 ROWS: 41 gasoline model years and 23 E85 ones, at one county, one month and one day type. `n_outputRate` is 64 and the shape check recomputes it.",
+    "authors": [
+      "EarthSciML Authors and Contributors"
+    ],
+    "tags": [
+      "fixture",
+      "onroad",
+      "default-database",
+      "evaporative"
+    ]
+  },
+  "data_sources": {
+    "db_runspecyear": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/process-evap-leaks/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecyear.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecyear"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, yearID 2020. The scope comes from these tables and never from the RunSpec XML, whose @key attributes are 0-based indices into sorted ID lists (docs/mixed-onroad.md §0.1).",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecmonth": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/process-evap-leaks/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecmonth.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecmonth"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, monthID 8. It is a key here and not only an axis: `soakActivityFraction` is stored per month, and `EvaporativeEmissionsOperatingModeDistributionGenerator`'s own source comment records that a former `month + 1` join was the unconverted RunSpec key seen from the other end -- the XML's `<month key=\"7\">` IS monthID 8, and the table always carried 8.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspechour": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/process-evap-leaks/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspechour.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspechour"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, hourID 7.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_aggregationhour": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/process-evap-leaks/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspechour.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_aggregationhour"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "The hours the run aggregates over. This run does not set `aggregateBy`, so it is `runspechour` itself and the same file.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecday": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/process-evap-leaks/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecday.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecday"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, dayID 5 (weekday). The second factor of the activity axis and of the output axis, and the axis `fractionOfOperating` is computed per: E1 sums SHO and sourceHours over the age dimension at one hour-day.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_rateday": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/process-evap-leaks/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecday.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_rateday"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "The day types the RATE-side time pre-aggregation is scoped to. This run does not set `aggregateBy`, so it is `runspecday` itself and the same file.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_actday": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/process-evap-leaks/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecday.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_actday"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "The day types the output day's ACTIVITY covers, and the source of `noOfRealDays` -- 5 here, the divisor that undoes the `1/weeksPerMonth` the month's VMT was put on. Applying it in both places, or in neither, is a factor of five on every row of this run.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecsourcetype": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/process-evap-leaks/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecsourcetype.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecsourcetype"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, sourceTypeID 21, Passenger Car. `fractionOfOperating` is per (hourDayID, sourceTypeID), so this is a key of the evaporative operating-mode distribution and not only a cohort factor.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecroadtype": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/process-evap-leaks/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecroadtype.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecroadtype"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, roadTypeID 4, Urban Restricted Access -- an ON-NETWORK link, and that is what makes this run tractable. `TotalActivityGenerator` copies SHO into `SourceHours` row for row at an on-network link and takes it from SHP at the off-network one; `run_offNetworkLinkCount` asserts which arm this is, and E1's ratio is exactly 1 because of it.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecsourcefueltype": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/process-evap-leaks/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecsourcefueltype.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecsourcefueltype"
+      },
+      "metadata": {
+        "tags": [
+          "scope",
+          "cohorts"
+        ],
+        "note": "4 rows: gasoline, diesel, E85 and electricity. Only gasoline and E85 reach the output, and by two routes that agree: `emissionRateByAge` carries `polProcessID` 113 for the 5,112 gasoline and 1,452 E85 bin-rows and for none of the diesel or electricity ones, and `fuelType.subjectToEvapCalculations` is `Y` on exactly those two. The second route is measurably inert here and the first does the work.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_movesoutput": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/process-evap-leaks/tables/db__out_process_evap_leaks__movesoutput.parquet"
+      },
+      "reader_options": {
+        "float_columns": [
+          "emissionQuant"
+        ]
+      },
+      "metadata": {
+        "tags": [
+          "oracle",
+          "expected-output"
+        ],
+        "note": "The 64-row expected output: 41 gasoline model years 1980-2020 and 23 E85 ones 1998-2020, all of pollutant 1 (THC) at process 13, totalling 760.305817 g. DECLARED AND CONSUMED BY NOTHING -- reading it would transcribe the answer and its extent would transcribe the answer's shape. compare-output.py reads it directly under tolerance.toml.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecpollutantprocess": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/process-evap-leaks/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecpollutantprocess.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecpollutantprocess"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "3 rows: 113 (THC x Evap Fuel Leaks), 8613 (TOG) and 8713 (VOC). ONLY 113 EMITS, and the reason is worth reading because it is not a filter anyone wrote: 8613 and 8713 are chained species -- `pollutantProcessAssoc` gives them `chainedTo1` 8013 and 7913 -- and `runspecchainedto` is EMPTY for this run, so MOVES computed no chain and neither table carries a rate for them. The port discards them through `rspp_hasRatedRow`, the same rule that makes a chained block as wide as its ratio table's coverage.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecchainedto": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/process-evap-leaks/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecchainedto.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecchainedto"
+      },
+      "metadata": {
+        "tags": [
+          "scope",
+          "chain"
+        ],
+        "note": "ZERO rows, and it is the first document here where that is the interesting number. This run selects two chained pollutants and MOVES chained neither, so the edge list the port builds is the four declared CO2AE edges and nothing else -- none of which this run's pollutant-processes touch. A chain that fired on a declared edge without a selection behind it would show up here.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspeccounty": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/process-evap-leaks/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspeccounty.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspeccounty"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, countyID 26161 (Washtenaw, MI). It is the selection that makes the I/M lift empty: `IMCoverage` is 2,024,874 rows nationally and carries NO row for this county in any year, so L1's disaggregation produces nothing and the I/M blend is the identity -- measured from the national table rather than inherited from the execution copy's emptiness.",
+        "esio_format": "parquet"
+      }
+    }
+  },
+  "models": {
+    "Onroad": {
+      "ref": "../moves-onroad.esm",
+      "bindings": {
+        "n_outputRate": 64
+      }
+    }
+  }
+}

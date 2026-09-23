@@ -27,7 +27,8 @@ so deleting the rule that discards the other two leaves every emitted number
 where it was.
 
 So this asserts the identity three ways at once -- the declared row count, the
-chain's recomputation, and the KEYS actually present in the output:
+chain's recomputation, and the KEYS actually present in the output -- and then
+asserts the four counts the chain keeps of what it could not reach:
 
     rows == rateSurvivorCount x counties x months x day types
     distinct (pollutantID, processID) == outputPolProcessCount
@@ -37,8 +38,9 @@ chain's recomputation, and the KEYS actually present in the output:
     run_physicsRowsDropped == 0
     run_rateRowsWithoutPhysics == 0
     run_chainDepthExceeded == 0
+    run_offNetworkLinkCount == 0
 
-The last three lines are a different KIND of check from the three above them.
+The last four lines are a different KIND of check from the four above them.
 The first two declared numbers are extents: too small and the document emits
 fewer rows than it computes, which the row count catches. The other two are
 WIDTHS of a relation the output has no column for, and a width one short does
@@ -59,6 +61,18 @@ with no hint of why. So the model runs one extra PRESENCE pass -- a presence
 pass carries no day, county or month, so it is nearly free -- and counts the
 rows a fourth rung would newly emit. Zero means the unroll converged on THIS
 run, which is a measurement and not the corpus-wide claim.
+
+`run_offNetworkLinkCount` is a FOURTH kind, and it guards an identity rather
+than a width. `TotalActivityGenerator` copies `SHO` into `SourceHours` row for
+row at an on-network link and takes it from `SHP` -- a table this model does not
+have -- at the off-network road type 1. The evaporative operating-mode
+distribution divides the first by the second, so on every run here that ratio is
+exactly 1 and the soaking modes are weighted exactly 0. A run that selected road
+type 1 would not lose a row or emit a zero: it would divide `SHO` by a copy of
+itself where MOVES divided it by something else, and every evaporative number
+would be wrong by whatever the two differ by. Nothing downstream could see it,
+so the model counts the counties whose link is off-network and this asserts none
+is.
 
 `run_rateRowsWithoutPhysics` is the same failure reached from the other side: a
 rate row whose (source type, regulatory class, model year) matches no
@@ -106,6 +120,7 @@ def main(emitted_path, shape_path):
     vehicleless = int(float(shape[0]["run_physicsRowsDropped"]))
     unphysical = int(float(shape[0]["run_rateRowsWithoutPhysics"]))
     undeep = int(float(shape[0]["run_chainDepthExceeded"]))
+    offnet = int(float(shape[0]["run_offNetworkLinkCount"]))
 
     def distinct(*cols):
         return {tuple(r[c] for c in cols) for r in rows}
@@ -152,6 +167,11 @@ def main(emitted_path, shape_path):
                         "row(s): this run's chain is deeper than the three the "
                         "model unrolls, and its deepest species are emitting 0 "
                         "or not emitting at all" % undeep)
+    if offnet:
+        problems.append("%d of this run's counties put their link on the "
+                        "OFF-NETWORK road type, where SourceHours is SHP and "
+                        "not SHO: the evaporative fractionOfOperating is "
+                        "dividing SHO by a copy of itself" % offnet)
     if problems:
         for p in problems:
             print(p)
