@@ -3717,3 +3717,54 @@ goes 23/41 to **64/0**.
 available outcome, because declaring a scalar and reading it in an aggregate is
 ordinary and nothing in `validate` or the run says a word.
 **Filed upstream: [EarthSciML/EarthSciAST#431](https://github.com/EarthSciML/EarthSciAST/issues/431)**, on `f22139eb1`.
+
+## F60 — a mounted leaf's `domain.element_type` is dropped, and the leaf runs in the root's precision
+
+Found 2026-09-23 at PLAN.md step 7e, lifting `fixtures/nr-logging-county.esm`'s
+model into `nonroad/model.esm`. **No repro file, for F46's reason**: the defect
+can only be shown through a document whose model is a mounted `{ref}`, and such
+a document discovers no assertions (F47), so the tripwire would read it as green
+from the day it was written. It is gated by command instead, two-sided, in
+`run-tests.sh`'s 7e stage.
+
+A document declares `"domain": {"element_type": "Float32"}`. Mounted through a
+top-level `models.<k>: {"ref": ...}` by a document that declares no domain, it is
+evaluated in **binary64**, with no refusal and no warning. The minimal case is
+§11.3.1's own example:
+
+```
+leaf:   domain Float32;  x = 100 * ((100 - a) / 100) / (100 - a),  a = 73.5
+$ ./esm simulate leaf.esm  --time 0 --observed x     x = 0.9999999403953552
+$ ./esm simulate mount.esm --time 0 --observed x     x = 1          # mount.esm: {"models": {"M": {"ref": "./leaf.esm"}}}
+```
+
+**Where it bit.** `runspecs/nonroad/nr-logging-county.esm` mounts
+`moves-nonroad.esm`, which mounts `nonroad/model.esm`, and the model is the
+fixture's own model, `domain` and all. Without a declaration at the ROOT the run
+reproduces 140 of its 144 rows: 2260007005's model year 2018 is missing, which is
+exactly the cohort docs/nonroad-logging-county.md §7.3 measures binary64 costing
+-- `agedist.f`'s residual is a catastrophic cancellation, and the sign it lands
+on decides whether a model year is populated. Nothing else changed, and nothing
+said the precision had.
+
+It is F54's failure one field over: a mount edge carries a leaf's variables but
+not a declaration the leaf made ABOUT them -- units there, working precision
+here. §11.3.1 says "a variable carries its declared `element_type`, or the
+document's", which reads naturally as the document that declares the variable;
+and it says a runtime that cannot honour a declaration MUST error rather than
+evaluate in another precision silently. Either reading makes this a defect.
+
+**Workaround in the tree, and why it is not hiding anything.** Every document in
+`runspecs/nonroad/` declares `Float32` itself. That is a true statement about the
+run, not a spelling the format should not need to accept -- but it is a
+duplicate, and the 7e stage's check 3 deletes it from `nr-logging-county` and
+requires the four rows to go missing. The day they do not, the leaf's
+declaration has started to count, and the duplicates and the control go.
+
+**Fix shape.** Carry the leaf's `domain.element_type` across the mount as the
+default precision of every variable the mounted component declares, with a
+per-variable `element_type` still overriding it and the existing
+`mixed_element_type` refusing an operator that meets both; where a binding
+cannot carry per-component precision, refuse the mount with a diagnostic. Being
+worked upstream on `fix/f59-mounted-leaf-precision` in `../EarthSciAST`
+(branch named before the number was corrected).

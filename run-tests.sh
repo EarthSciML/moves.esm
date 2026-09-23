@@ -133,6 +133,9 @@ COVERAGE_DAG=../moves.rs/characterization/calculator-chains/calculator-dag.json
 # on either therefore fails, and that refusal is a CHECK rather than a problem --
 # the 7c and 7c' stages assert both of them two-sided.
 #
+# `moves-nonroad.esm` and `nonroad/` are excluded for the same reason, and the
+# 7e stage asserts both refusals the same way.
+#
 # `runspecs/` is NOT excluded: a per-fixture document is the complete chain and
 # validates alone, which is the whole point of the split. `runspecs/pending/` is
 # not excluded either, and for the same reason: a RunSpec whose model work is
@@ -142,6 +145,8 @@ mapfile -t DOCS < <(find . -name '*.esm' -not -name '.*' \
   -not -path './.fixtures-run/*' -not -path './spikes/*' \
   -not -path './onroad/*' \
   -not -path './moves-onroad.esm' \
+  -not -path './nonroad/*' \
+  -not -path './moves-nonroad.esm' \
   | sort)
 
 if [[ ${#DOCS[@]} -eq 0 ]]; then
@@ -290,7 +295,7 @@ fi
 mapfile -t TEST_TARGETS < <(find . -maxdepth 1 -mindepth 1 -type d \
   -not -name '.*' -not -name 'target' -not -name 'gates' -not -name 'docs' \
   -not -name 'tools' -not -name 'fixtures' -not -name 'spikes' \
-  -not -name 'onroad' | sort)
+  -not -name 'onroad' -not -name 'nonroad' | sort)
 
 head2 "test (${TEST_TARGETS[*]})"
 if "$ESM" test "${TEST_TARGETS[@]}" 2>&1 | sed 's/^/  /'; then
@@ -1715,6 +1720,137 @@ else
     fail "7c' — the default-database chain and the inlined fixture disagree"
     diff -u "$C7_BASE" "$RUNDIR/process-tirewear.runspec.csv" | sed 's/^/       /' | head -12
   fi
+fi
+
+# --- the default database, nonroad (7e) --------------------------------------
+#
+# PLAN.md step 7e: the same shape as 7c'/7d, one mount edge per document, for
+# NONROAD. Every document in `runspecs/nonroad/` is one run computed from the
+# default database:
+#
+#   runspecs/nonroad/<run>.esm    that run's selections + its oracle
+#     -> moves-nonroad.esm        21 national tables + the mount
+#       -> nonroad/model.esm      the nonroad domain model, lifted out of
+#                                 fixtures/nr-logging-county.esm
+#
+# It is a separate stage and not more documents in `runspecs/`, because the
+# two domains share no output shape: the onroad checks below read a
+# (pollutant-process, cohort) pair relation and four declared widths this
+# model does not have. Its own three declared numbers -- equipment points,
+# output cohorts, fold years -- are checked by tools/check-nonroad-shape.py
+# against the chain's recomputation and the emitted keys, the way
+# check-runspec-shape.py checks onroad's.
+#
+# THE PRECISION IS THE RUNSPEC'S DECLARATION, NOT THE MODEL'S, until F60 is
+# fixed upstream: the pinned toolchain evaluates a mounted leaf in the ROOT's
+# `domain.element_type` and ignores the leaf's, so each document here declares
+# `Float32` itself. Check 3 is the two-sided control. With the declaration
+# deleted `nr-logging-county` must NOT reproduce -- binary64 loses exactly one
+# cohort, 2260007005's model year 2018, the four rows
+# docs/nonroad-logging-county.md 7.3 says it costs -- and the day it DOES
+# reproduce, the leaf's declaration has started to count and the RunSpecs'
+# duplicates can go.
+head2 "the default database, nonroad (7e)"
+NR_DOMAIN=moves-nonroad.esm
+NR_MODEL=nonroad/model.esm
+mapfile -t NR_RUNSPECS < <(find runspecs/nonroad -maxdepth 1 -name '*.esm' -not -name '.*' 2>/dev/null | sort)
+mapfile -t NR_FIELDS < <("$PYTHON" - "$NR_MODEL" <<'PYEOF'
+import json, sys
+doc = json.load(open(sys.argv[1]))
+for model in doc.get("models", {}).values():
+    for name in (model.get("variables") or {}):
+        if name.startswith("out_"):
+            print(name)
+PYEOF
+)
+nr_obs=()
+for f in "${NR_FIELDS[@]}"; do nr_obs+=(--observed "$f"); done
+NR_SHAPE_OBS=(--observed run_equipmentPointsSelected --observed run_equipmentPointsDropped
+              --observed run_outputCohortCount --observed run_extraScopeRows)
+
+if [[ ! -e movesdb ]]; then
+  skip "7e default database" "no ./movesdb (symlink the §7.3.1 conversion there)"
+elif [[ ! -d "$SNAPSHOTS" ]]; then
+  skip "7e default database" "no snapshots at $SNAPSHOTS (set SNAPSHOTS=...)"
+elif [[ ${#nr_obs[@]} -eq 0 ]]; then
+  fail "7e — $NR_MODEL declares no out_* fields to emit"
+elif [[ ${#NR_RUNSPECS[@]} -eq 0 ]]; then
+  fail "7e — runspecs/nonroad/ holds no documents"
+else
+  # 1. The data-open controls, two-sided. Neither the model nor the catalogue
+  #    may validate alone: the day either does, it has acquired a runspec of
+  #    its own and the per-run documents have stopped being what configure it.
+  for doc in "$NR_MODEL" "$NR_DOMAIN"; do
+    out=$("$ESM" validate "$doc" 2>&1)
+    if [[ $? -eq 0 ]]; then
+      fail "7e data-open control — $doc now validates ALONE. It has acquired a runspec, and the per-run documents stop being what configure it"
+    elif grep -q "names data source 'db_runspec" <<<"$out"; then
+      pass "7e — $doc is data-open: it declares no runspec"
+    else
+      fail "7e data-open control — $doc was refused, but not for its missing runspec sources"
+      sed 's/^/       /' <<<"$out" | head -4
+    fi
+  done
+
+  for rs in "${NR_RUNSPECS[@]}"; do
+    rsname=$(basename "$rs" .esm)
+    # 2. The numbers, against the run's own MOVESOutput, and the shape, against
+    #    what the chain recomputes.
+    RS_CSV="$RUNDIR/$rsname.runspec.csv"
+    RS_ACTUAL="$RUNDIR/$rsname.runspec.actual.csv"
+    RS_SHAPE="$RUNDIR/$rsname.runspec.shape.csv"
+    if ! out=$("$ESM" simulate "$rs" --time 0 --format csv "${nr_obs[@]}" --output "$RS_CSV" 2>&1); then
+      fail "7e $rsname — the default-database chain does not evaluate"
+      sed 's/^/       /' <<<"$out" | tail -5
+      continue
+    fi
+    sed '1s/out_//g' "$RS_CSV" > "$RS_ACTUAL"
+    if out=$("$PYTHON" compare-output.py --fixture "$rsname" --actual "$RS_ACTUAL" \
+               --snapshots "$SNAPSHOTS" 2>&1); then
+      pass "$rsname — the default database reproduces the run's MOVESOutput, complete"
+      sed 's/^/       /' <<<"$out" | tail -4
+    else
+      fail "7e $rsname — it evaluates from the default database, but not to the run's numbers"
+      sed 's/^/       /' <<<"$out" | tail -8
+    fi
+    if "$ESM" simulate "$rs" --time 0 --format csv "${NR_SHAPE_OBS[@]}" --output "$RS_SHAPE" >/dev/null 2>&1; then
+      if out=$("$PYTHON" tools/check-nonroad-shape.py "$rs" "$RS_CSV" "$RS_SHAPE" 2>&1); then
+        pass "$rsname — the emitted shape is what the chain recomputes: $out"
+      else
+        fail "7e $rsname — the rows emitted are not the shape the chain recomputes. A declared number is wrong: n_equipmentPoint, n_outputCohort, or the fold"
+        sed 's/^/       /' <<<"$out" | head -4
+      fi
+    else
+      fail "7e $rsname — the recomputed shape does not evaluate"
+    fi
+  done
+
+  # 3. F60, two-sided: the RunSpec's own Float32 is load-bearing.
+  NR_F60="runspecs/nonroad/.p_f60.esm"
+  NR_F60_BASE=runspecs/nonroad/nr-logging-county.esm
+  if [[ ! -f "$NR_F60_BASE" ]]; then
+    fail "7e F60 control — $NR_F60_BASE is gone, and the control reads it"
+  elif ! "$PYTHON" -c "
+import json, sys
+d = json.load(open(sys.argv[1]))
+assert d.pop('domain') == {'element_type': 'Float32'}
+json.dump(d, open(sys.argv[2], 'w'))" "$NR_F60_BASE" "$NR_F60" 2>/dev/null; then
+    fail "7e F60 control — $NR_F60_BASE no longer declares Float32 itself, which it must while F60 holds"
+  elif ! "$ESM" simulate "$NR_F60" --time 0 --format csv "${nr_obs[@]}" --output "$RUNDIR/f60.probe.csv" >/dev/null 2>&1; then
+    fail "7e F60 control — the probe without the RunSpec's domain does not evaluate"
+  else
+    sed '1s/out_//g' "$RUNDIR/f60.probe.csv" > "$RUNDIR/f60.probe.actual.csv"
+    if out=$("$PYTHON" compare-output.py --fixture nr-logging-county --actual "$RUNDIR/f60.probe.actual.csv" \
+               --snapshots "$SNAPSHOTS" 2>&1); then
+      fail "7e F60 control — without its own Float32 nr-logging-county now REPRODUCES: a mounted leaf's domain.element_type counts. F60 is fixed; delete the RunSpecs' duplicate declarations and this control"
+    elif grep -q "^4 key(s) in the snapshot but not emitted:" <<<"$out"; then
+      pass "7e F60 — still open: without the RunSpec's own Float32 the mounted model runs in binary64 and loses exactly one cohort, four rows"
+    else
+      fail "7e F60 control — the probe fails, but not by the four binary64 rows it should"
+      sed 's/^/       /' <<<"$out" | head -6
+    fi
+  fi
+  rm -f "$NR_F60" "$RUNDIR/f60.probe.csv" "$RUNDIR/f60.probe.actual.csv"
 fi
 
 # --- the two chains agree ---------------------------------------------------

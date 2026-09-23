@@ -8049,3 +8049,59 @@ it the thin per-fixture document and the index-set rename check, while every
 national run passed. **Put nothing computed on an axis some catalogue can mount
 empty**; contract over it instead, where a length of 0 is the additive identity
 (§80).
+
+## 86. A fixture's declarations are the second domain's first work, and "the first bin containing it" is a first-row gather **[PLAN.md step 7e; `nr-logging-county` byte-identical to its fixture, `nr-lawn-garden-county` 1,936 of 1,936, `nr-recreational-county` 1,010 of 1,010]**
+
+**Lift a fixture by listing what it DECLARED, not what it read.** A fixture over
+one execution database may write facts about its run into itself, and
+`fixtures/nr-logging-county.esm` wrote five: the six equipment points as a
+`const` array of source types, the county, state, year and day as parameters,
+the base year, a technology window of IDs 100..199, and a block size of 4 in the
+output relation. Every table it read was a drop-in from the default database --
+19 of 21 copied whole into the execution database, the other two already joined
+-- so the port was exactly those five turned into reads, and the fixture's own
+output was the oracle for the refactor: 144 rows, byte-identical over every
+emitted column. The equipment points are a SELECTION (§22's rank over a mask),
+and the mask is the moves.rs loader's, rule for rule, including the quirk that
+an empty `/SOURCE CATEGORY/` packet runs everything.
+
+**A second run with no fixture finds the rules the first could not tell apart.**
+Both of `nr-lawn-garden-county`'s were in a lookup that `nr-logging-county` exercises
+at points where the two readings agree:
+
+* NONROAD's SCC fallback chain (exact, equipment root, family root) is walked per
+  (pollutant, technology), not once per point. Logging's SCCs rate every
+  technology at one level, so "which level has a row for this point" and "which
+  level has a row for this technology" never differed.
+* A point whose hp sits ON a bin boundary takes the LOWER bin. An inclusive
+  `hpMin <= hp <= hpMax` filter sums both, and no logging point sat on a boundary;
+  37 national points do.
+
+**"The first row satisfying P" is a `min_sum` over the row index, then a gather.**
+`tech_rate<Level>Row = min over e of e` under the join and the containment filter
+gives the first matching row, or +Inf; `index(emr_meanBaseRate, min(row, n))`
+reads it, the `min` keeping the index in range on the branch the `ifelse`
+discards. That is only "the lowest bin" because the file is ASCENDING in hpMin
+within each (SCC, technology, pollutant) -- measured, with no two bins
+overlapping -- so it is a claim about the table, and the description says so.
+Where no row index is at hand the same rule is two passes, a `min_sum` of the
+lower bound and a filter `hpMin <= that` (`point_mixBinLow`), which selects one
+bin because bounds are distinct. Either way no key is 3-D: the level is chosen
+by an `ifelse` over three 1-D-keyed aggregates, never by joining on a computed
+per-(point, pollutant, technology) SCC (F57).
+
+**A species a model WRITES moves its inputs onto the axis of what it always
+has.** SO2 is not a rate NONROAD reads: `clcems.f` writes it from BSFC and the
+un-adjusted THC product, both of which it loads whatever the run selects. Keyed
+on the SELECTED pollutants, a run choosing SO2 without THC -- `nr-agriculture-state`
+does -- would find no THC to subtract. So the rate and deterioration lookups
+live on `rated_pp_rows`, the five pollutant-processes NONROAD rates, and the
+selected axis reads them by join; SO2's branch is one `ifelse` in
+`tech_hourlyEmission`, factored so the product associates exactly as it did
+inline and `nr-logging-county` stayed byte-identical.
+
+**The precision is the root's until F60 closes.** The model declares
+`Float32` and a mounted leaf's `domain` is ignored, so each RunSpec declares it
+again and `run-tests.sh` requires that deleting it costs `nr-logging-county` its
+four binary64 rows. A run whose rows depend on a residual's sign (`agedist.f`)
+is exactly where a silent precision change becomes a missing cohort.
