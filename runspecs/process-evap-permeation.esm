@@ -1,0 +1,255 @@
+{
+  "esm": "1.2.0",
+  "metadata": {
+    "name": "process-evap-permeation-runspec",
+    "description": "PLAN.md §7.5 step 7d: the `process-evap-permeation` RunSpec computed from the DEFAULT DATABASE. It mounts `moves-onroad.esm` -- the national tables and the onroad model -- and supplies the run's own selections and its expected output.\n\nIT IS THE FIRST RUN HERE THAT NEEDS `TankTemperatureGenerator`, and the generator's four output tables are EMPTY in the default database. `EvaporativePermeationCalculator` multiplies a source-bin-weighted rate by a TANK-TEMPERATURE adjustment (PC-2, `tempAdjustTermA x exp(tempAdjustTermB x averageTankTemperature)` weighted by the evaporative operating-mode distribution) and by an ethanol-bin fuel adjustment (PC-3), and the tank temperature is what the generator computes from the national sample of vehicle trips. On this on-network link the distribution is 0, 0 and 1, so the number that reaches the output is operating mode 300's: the minute-weighted mean tank temperature over every trip segment in hour 7, which depends on every trip and soak earlier in each vehicle's day. The model computes it as one recurrence over `SampleVehicleTrip`'s 37,216 rows with the inner loops closed in algebra (PLAN.md §7.3.31, lib/evaporative.esm), and its six cells here agree with the snapshot's `AverageTankTemperature` to 7.4e-07. Modes 150 and 151 are computed too and multiplied by exactly zero.\n\nWHAT ELSE IT COST THE MODEL. The rate joins read the regulatory class the SOURCE BIN carries for this process, and `sourceTypePolProcess.isRegClassReqd` is 'N' for polProcess 111, so the bins -- and `emissionRateByAge`'s rows -- carry class 0 (docs/evap-permeation.md §0.1, C2'); before `rt_rateRegClassID` every cohort joined no rate and all 64 rows were exactly 0. And `temperatureAdjustment`'s two 111 rows are PC-2a's coefficients, not a quadratic about 75 degF: `BaseRateCalculator`'s S15 would read them as one and multiply every row by 9.281, which is what the first run that emitted numbers did.\n\nIT EMITS 64 ROWS -- 41 gasoline and 23 E85 model years, one block, a rectangle -- and all 64 reproduce at 5.630e-06, the same worst cell the pandas reproduction from the national tables reached before the model changed.",
+    "authors": [
+      "EarthSciML Authors and Contributors"
+    ],
+    "tags": [
+      "fixture",
+      "onroad",
+      "default-database",
+      "evaporative"
+    ]
+  },
+  "data_sources": {
+    "db_runspecyear": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/process-evap-permeation/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecyear.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecyear"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, yearID 2020. The scope comes from these tables and never from the RunSpec XML, whose @key attributes are 0-based indices into sorted ID lists (docs/mixed-onroad.md §0.1).",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecmonth": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/process-evap-permeation/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecmonth.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecmonth"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, monthID 8. A key of the thermal chain and not only an axis: TTG-1 starts from `zoneMonthHour` at this month, and the cold-soak tank temperature it produces is every cold trip's key-on temperature and three degrees below where every hot soak ends.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspechour": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/process-evap-permeation/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspechour.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspechour"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, hourID 7. The hour TTG-5 averages over: each trip contributes at most one segment and one soak slice to it, because no national trip spans more than 22 hours.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_aggregationhour": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/process-evap-permeation/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspechour.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_aggregationhour"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "The hours the run aggregates over. This run does not set `aggregateBy`, so it is `runspechour` itself and the same file.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecday": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/process-evap-permeation/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecday.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecday"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, dayID 5 (weekday). It narrows the sample vehicles as well as the output: TTG-4a walks only the weekday vehicle-days, which is what the execution database's 821-row `sampleVehicleDay` was.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_rateday": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/process-evap-permeation/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecday.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_rateday"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "The day types the RATE-side time pre-aggregation is scoped to. This run does not set `aggregateBy`, so it is `runspecday` itself and the same file.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_actday": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/process-evap-permeation/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecday.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_actday"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "The day types the output day's ACTIVITY covers, and the source of `noOfRealDays` -- 5 here, the divisor that undoes the `1/weeksPerMonth` the month's VMT was put on. Applying it in both places, or in neither, is a factor of five on every row of this run.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecsourcetype": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/process-evap-permeation/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecsourcetype.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecsourcetype"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, sourceTypeID 21, Passenger Car. It selects the sample vehicles TTG-4a walks and, through `sourceTypeModelYearGroup`, the two tank-temperature groups they are walked as: 3 for model years 1996 and later and 5 before -- PC-6's gate.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecroadtype": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/process-evap-permeation/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecroadtype.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecroadtype"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, roadTypeID 4, Urban Restricted Access -- an ON-NETWORK link. `SourceHours` is `SHO` row for row there, `fractionOfOperating` is exactly 1, and the soak modes' weights are exactly 0, so the tank temperature that reaches the output is the all-running one. `run_offNetworkLinkCount` asserts which arm this is.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecsourcefueltype": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/process-evap-permeation/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecsourcefueltype.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecsourcefueltype"
+      },
+      "metadata": {
+        "tags": [
+          "scope",
+          "cohorts"
+        ],
+        "note": "4 rows: gasoline, diesel, E85 and electricity. Only gasoline and E85 reach the output: `emissionRateByAge` carries polProcess 111 for 484 gasoline and 484 E85 bin-rows, all at operating mode 300, and for none of the diesel or electricity ones.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_movesoutput": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/process-evap-permeation/tables/db__out_process_evap_permeation__movesoutput.parquet"
+      },
+      "reader_options": {
+        "float_columns": [
+          "emissionQuant"
+        ]
+      },
+      "metadata": {
+        "tags": [
+          "oracle",
+          "expected-output"
+        ],
+        "note": "The 64-row expected output: 41 gasoline model years 1980-2020 and 23 E85 ones 1998-2020, all of pollutant 1 (THC) at process 11, totalling 24.703317 g. DECLARED AND CONSUMED BY NOTHING -- reading it would transcribe the answer and its extent would transcribe the answer's shape. compare-output.py reads it directly under tolerance.toml.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecpollutantprocess": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/process-evap-permeation/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecpollutantprocess.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecpollutantprocess"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "3 rows: 111 (THC x Evap Permeation), 8611 (TOG) and 8711 (VOC). ONLY 111 EMITS: 8611 and 8711 are chained species (`chainedTo1` 8011 and 7911), `runspecchainedto` is empty, and neither rate table carries a row for them, so `rspp_hasRatedRow` discards them -- the rule the fuel-leaks run already exercises from the same three selections one process over.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecchainedto": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/process-evap-permeation/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecchainedto.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecchainedto"
+      },
+      "metadata": {
+        "tags": [
+          "scope",
+          "chain"
+        ],
+        "note": "ZERO rows. This run selects two chained pollutants and MOVES chained neither, so the edge list is the four declared CO2AE edges, none of which touch these pollutant-processes.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspeccounty": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/process-evap-permeation/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspeccounty.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspeccounty"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, countyID 26161 (Washtenaw, MI), zone 261610. It selects the ambient temperatures the thermal chain starts from and the fuel supply PC-3 weights. Its `GPAFract` is 0, so PC-3's GPA term contributes nothing. There is no I/M step at all: `EvaporativePermeationCalculator` reads neither `IMCoverage` nor `IMFactor` and polProcess 111 is `isAffectedByEvapIM = 'N'` (docs/evap-permeation.md §1).",
+        "esio_format": "parquet"
+      }
+    }
+  },
+  "models": {
+    "Onroad": {
+      "ref": "../moves-onroad.esm",
+      "bindings": {
+        "n_outputRate": 64
+      }
+    }
+  }
+}

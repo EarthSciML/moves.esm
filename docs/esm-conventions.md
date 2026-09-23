@@ -7889,3 +7889,114 @@ extended-idle energy is untouched.
 **The rule: when a flag is named for a physical fact, check which mechanism
 actually reads it before porting it as one.** This one reads as "refueling does
 not happen on a road", which is true and is not what the column is for.
+
+## 83. Put a recurrence on an axis the mount discovers, and close its inner loops in algebra **[PLAN.md step 7d; `process-evap-permeation` 64 of 64, worst cell 5.630e-06; `TankTemperatureGenerator` TTG-1..5]**
+
+`TankTemperatureGenerator` walks three nested loops: TTG-4a's work queue over a
+vehicle's trips, each trip's hour segments, and TTG-4b's soak one MINUTE at a
+time until the tank falls to the cold-soak temperature plus 3 °F, with the next
+trip starting from wherever the soak ended. esm-spec §4.3.1.1 admits one
+recurrence shape: ONE variable reading itself at a strictly earlier position
+along ONE axis, the other axes identity. Two variables that read each other are a
+cycle and are rejected, so there is no nesting to be had. What there is instead
+is a choice of axis and a closure of everything inside it.
+
+**The axis is the input table's rows, not MOVES's walk.** The obvious
+transcription is one row per segment and per soak slice — 19,390 for this run —
+with the state carried from row to row. Its length is a function of the data, so
+every RunSpec would have to declare it, and a run that selects no evaporative
+process would declare 0, which is finding F56: a computed relation of length 0
+panics. `SampleVehicleTrip` is already sorted `(vehID, dayID, tripID)`, its
+extent is discovered by the mount, and on it the predecessor of every chained
+trip is the previous non-marker row (docs/evap-permeation.md §8.1). So
+`ttg_tripState` recurs over the 37,216 national rows: a marker row carries the
+state through, a real trip reads its predecessor at lag 1, and a run that does not
+run the generator masks every row. Nothing is declared.
+
+**Inside a trip, every loop has a closed form, and each was verified against
+MOVES's own intermediates before it was written:**
+
+* the operating rise is affine in the key-on temperature, so the trip's segments
+  compose to `slope x keyOn + intercept` (`ttg_riseSlope`, `ttg_riseIntercept`),
+  and the 140 °F cap is applied once because it is ABSORBING — the rise at 140
+  °F is `termA + 15.84`, positive for every group;
+* a hot-soak minute is geometric decay toward the hour's ambient, so every
+  slice's entry temperature is affine in the trip's key-off temperature;
+* the early stop is monotone within a slice, so whether it happens ANYWHERE is
+  `keyOff <= K` for one threshold per trip (`trp_soakStopThreshold`), and WHERE
+  is a `ceil` of a logarithm;
+* the end-of-soak temperature is `U x keyOff + V`.
+
+The state is then one number with two sentinels — MOVES's own −1000 for "the
+soak ended cold" and −2000 for "the work queue never reaches this trip", which
+has to be STATE and not a column because it is transitive: 17 national trips name
+a predecessor that is not in the table, and 75 are unreachable. Reproduced from
+the national tables in exactly this shape before any JSON: 10,370 operating
+segments and 132,886 recorded hot-soak minutes, `OperatingTemperature`'s and
+`HotSoakTemperature`'s row counts EXACTLY, and every `AverageTankTemperature`
+cell below 1e-06.
+
+**Keep the recurrence body small; compute what it does not need to carry
+outside it.** The first version inlined the whole segment composition into the
+body, with three copies of the key-on template each holding three guarded
+self-reads. It was correct and did not finish: 595,456 cells in over 400 s at
+46 MB, which is the signature of per-cell cost, not size. Moving the affine rise
+into two ordinary variables took the same probe to 7.5 s, and the document then
+matched an independent numpy reproduction on every cell — the same class
+(temperature, ended cold, not walked) on all 595,456 and the temperatures to
+8.7e-16. The rule of thumb: a recurrence body should hold the state transition
+and nothing that is not a function of the state.
+
+**Two format facts the port ran into.** A join key must be a 1-D column over one
+index set: `tsk_hourID` is (trip, slot), so the slice's hour is a GATHER instead,
+which is safe only because the hour-of-day axis is the document's own and
+complete by construction — position h is hour h. And a NULL in an integer
+column is a hard error at ingest, which is the right behaviour: `priorTripID` and
+`keyontime` are read with `float_columns` so a NULL arrives as NaN and a marker
+row can be told from a trip with key-on time 0.
+
+**What it costs the runs that do not need it:** the soak grid and the recurrence
+are built in every run, masked, because the axes are national. Measured on five
+runspecs against HEAD: 10 to 28 s and 0.2 to 0.7 GB more each, and every output
+byte-identical.
+
+## 84. A column's meaning can belong to the calculator that reads it **[PLAN.md step 7d; `process-evap-permeation`, two keys and one factor]**
+
+Permeation found two tables whose rows mean different things to different
+calculators, and in both the symptom was the bad kind: every row present and
+every value wrong.
+
+**`temperatureAdjustment`.** It carries two rows for polProcess 111, and to
+`BaseRateCalculator`'s `general_temp_adjust` a row is the coefficients of a
+quadratic about 75 °F in the AMBIENT temperature. To `EvaporativePermeationCalculator`
+the same two numbers are PC-2a's scale and exponent, `termA x exp(termB x T)` in
+the TANK temperature. The first run of the permeation rate path multiplied every
+one of its 64 rows by 9.281 — exactly `1 + 0.0625(59.5 − 75) + 0.0385(59.5 − 75)^2`
+— because S15's fall-through read them. A factor that is the same on every cell
+is a whole-row mechanism applied where it does not belong, and it is worth
+evaluating the candidate before searching further. `rt_temperatureFactor` is now
+the identity on a permeation row, `rtDay_permeationTemperatureAdjust` reads the
+same terms, and the units are handed over where they are read, because the
+column's units depend on the reader too.
+
+**`sourceTypePolProcess.isRegClassReqd`.** The source bin's regulatory class
+is a property of the (source type, pollutant-process), not of the vehicle:
+`SourceBinDistributionGenerator` writes the bin with class 0 when the flag is
+'N', and the rate tables are keyed by that bin. Before `rt_rateRegClassID`, every
+permeation cohort found no rate and all 64 rows were exactly 0 with the key set
+perfect. Only 111 and the chained SO2, NO and NO2 processes are 'N' nationally,
+and the last three have no rate rows, so the rule changes nothing else.
+
+**`fuelFormulation.ETOHVolume`, and this one was exact by luck.** PC-3 bins each
+formulation by its ethanol volume, and MOVES reads the execution database's
+`FuelFormulation`, which `FuelEffectsGenerator.setup()` has already rewritten:
+E85 formulation 27002 ships 74 and is read as 10, E10's value. The first version
+of `rt_etohBinShare` read the national 74 and put E85 in bin 6 where MOVES puts
+it in bin 3 — and every cell still agreed, because `hcPermeationCoeff`'s bins 1
+to 7 carry identical coefficients nationally. It reads `ffx_ETOHVolume`, the
+model's substituted volume, now; `TankFuelGenerator`'s RVP does too, and there
+the difference is not invisible — 7.61 psi against 7.7 for E85.
+
+**The rule: before porting a lookup into a table that several calculators read,
+ask which calculator the row is for.** The table name is the same; the
+mechanism is not.

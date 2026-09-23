@@ -1530,6 +1530,28 @@ C7P_DOMAIN=moves-onroad.esm
 # space -- and only the comparator's key check saw it. Now all 168 cells at
 # 6.981e-06, the same worst cell the pandas reproduction reached first, and the
 # tire-wear spike that mounts the same tables stays byte-identical.
+# `process-evap-permeation` is the first run here that needs a GENERATOR whose
+# every output the default database ships empty: `TankTemperatureGenerator`,
+# 2,645 lines of Java whose `AverageTankTemperature` is the tank temperature
+# permeation's PC-2a adjusts by. The model computes it (conventions 83): one
+# lag-1 recurrence, `ttg_tripState`, over the national `SampleVehicleTrip`'s
+# 37,216 rows -- an axis the mount discovers, so no RunSpec declares a length
+# and a run that selects no evaporative process masks every row instead of
+# sizing a relation at 0 (F56) -- with the segments, the soak minutes and the
+# early stop closed in algebra inside each trip. Its six cells for this run agree
+# with the snapshot's to 7.4e-07 and the recurrence agrees with an independent
+# walk on all 595,456 cells. It costs every OTHER run 10 to 28 seconds and up to
+# 0.7 GB, measured against HEAD on five runspecs whose outputs stayed
+# byte-identical.
+#
+# Two keys the rate path had right by coincidence went on the way (conventions
+# 84). The source bin's regulatory class is 0 for a pollutant-process whose
+# `isRegClassReqd` is 'N', and permeation is the only rated one, so before that
+# every row was exactly 0 with a perfect key set. And `temperatureAdjustment`'s
+# two permeation rows are PC-2a's exponential in the TANK temperature, which
+# S15's quadratic in the ambient one read as a factor of exactly 9.281 on every
+# row. All 64 cells at 5.630e-06, the same worst cell the pandas reproduction
+# from the national tables reached before the model changed.
 mapfile -t RUNSPECS < <(find runspecs -maxdepth 1 -name '*.esm' -not -name '.*' 2>/dev/null | sort)
 mapfile -t RUNSPECS_PENDING < <(find runspecs/pending -maxdepth 1 -name '*.esm' -not -name '.*' 2>/dev/null | sort)
 

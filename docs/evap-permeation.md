@@ -918,6 +918,18 @@ a missing row, and `coh_tankTemperatureGroupID` is asserted at both values
 
 ### 8.1 `AverageTankTemperature` operating modes 150 and 300
 
+> **UPDATE 2026-09-22: both modes are now computed**, from the national default
+> database, in `onroad/model.esm` (PLAN.md §7.3.31, §7.3.32; docs/esm-conventions.md
+> §83), and `runspecs/process-evap-permeation.esm` reproduces all 64 rows at
+> 5.630e-06 with none of the 144 cells read. The bill below — a grid over the
+> longest soak, about 45 million cells — is the cost of walking TTG-2/3/4's
+> ROWS, and the model does not walk them: it recurs over `SampleVehicleTrip`'s
+> own rows and closes the segments, the soak minutes and the early stop in
+> algebra, which is 595,456 cells for sixteen groups. The fixture below still
+> reads the two modes, and this section still describes why it was written that
+> way; the analysis of the three recurrences is right, and the conclusion that
+> they must be materialized as rows is what changed.
+
 TTG-5 builds them from `OperatingTemperature` (14,462 rows) and
 `HotSoakTemperature` (182,532 rows), which TTG-4 builds from
 `SampleVehicleTripByHour`, which TTG-2 builds by splitting
