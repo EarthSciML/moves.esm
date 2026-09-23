@@ -8182,3 +8182,41 @@ from its absence (§23, and §86's first-bin rule). Where it cannot, a PROBE can
 another run's selections at the same scale, compared against a replica of the
 SQL rather than against an oracle, until a run whose oracle discriminates it
 arrives. Record which run that will be.
+
+## 89. A clamp, a renormalization and a bin choice apply where the FILE puts them **[PLAN.md step 7e; the five 213-SCC runs]**
+
+**Find the record before placing the operation.** NONROAD's arithmetic was ported
+from `clcems.f` and was right; three of the four diesel rules were in the code
+AROUND it -- the reader that renormalizes a technology set (`rdtech_moves.f`), the
+loader that clamps an output record (`NonroadOutputDataLoader`), and the lookup
+that chooses a rate row (`fndefc.f`). Each applies at the granularity of the
+record a file carries: the output file has a technology column, so the clamp is
+per (cohort, technology) and not per cohort. Before writing a `max(0, .)`, a
+division by a sum or a tie-break, open the writer or reader of the file it
+belongs to and list the record's key columns.
+
+**NONROAD reads what MOVES printed, not what the table holds.** MOVES hands NONROAD
+text files, and a writer's format is part of the arithmetic: the SEASON file's
+`%10.3f` turns six-decimal month fractions into sets that sum to 0.996..1.002,
+which `rdseas.f` then renormalizes. Wherever a file's format keeps fewer digits
+than the table, the model reads the printed value (`printed_decimal`, like
+`pop_file_rounding` before it for the POP file's `%17.1f`).
+
+**A rule that was right at one boundary is a sample of the rule.** "On a boundary
+the lower bin wins" reproduced two runs, because at 25 hp the lower bin IS the
+nearest; at 11 hp it is not. When a rule is inferred from where it fired, read
+the code that decides it before generalizing (§86's first-bin rule, §88's
+probes).
+
+**Attribute a residual to its contributors.** When a small share of a large
+correction is off, run the model with the correction switched off, take the
+difference per cohort, split it by each contributor's weight, and regress the
+gap on the contributors. The technologies whose rate can go negative took all of
+it, which named the clamp. Narrow the RunSpec for the loop -- one sector's
+diesel, `runspecfueltype` 23 -- and an 11-minute run is a 3-minute one.
+
+**A guard that normalization would hide becomes a number.** The listed mix
+summing to 1 was the check that one hp bin's set had been read; dividing by the
+sum makes every cohort's mix sum to 1 whatever was read. `run_mixSetsOffOne`
+keeps the check, as a count held at zero, at the tolerance the Fortran itself
+warns at.

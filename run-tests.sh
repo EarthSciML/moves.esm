@@ -1729,7 +1729,7 @@ fi
 # default database:
 #
 #   runspecs/nonroad/<run>.esm    that run's selections + its oracle
-#     -> moves-nonroad.esm        23 national tables + the mount
+#     -> moves-nonroad.esm        24 national tables + the mount
 #       -> nonroad/model.esm      the nonroad domain model, lifted out of
 #                                 fixtures/nr-logging-county.esm
 #
@@ -1768,7 +1768,7 @@ nr_obs=()
 for f in "${NR_FIELDS[@]}"; do nr_obs+=(--observed "$f"); done
 NR_SHAPE_OBS=(--observed run_equipmentPointsSelected --observed run_equipmentPointsDropped
               --observed run_outputCohortCount --observed run_outputPolProcessCount
-              --observed run_extraScopeRows)
+              --observed run_extraScopeRows --observed run_mixSetsOffOne)
 
 if [[ ! -e movesdb ]]; then
   skip "7e default database" "no ./movesdb (symlink the §7.3.1 conversion there)"
@@ -1794,16 +1794,40 @@ else
     fi
   done
 
+  # 2. Every RunSpec's two evaluations -- the emitted relation and the
+  #    recomputed shape -- run NR_JOBS at a time before any is checked. Five of
+  #    the RunSpecs are NONROAD's whole 213-SCC inventory at ~9 minutes and
+  #    ~5 GB each, so serially they would add an hour and a quarter; the
+  #    join.on timing gate has already run. 4 jobs stay under a 40 GB step.
+  nr_eval() {  # <runspec> <what>: runspec|shape
+    local n; n=$(basename "$1" .esm)
+    if [[ $2 == runspec ]]; then
+      "$ESM" simulate "$1" --time 0 --format csv "${nr_obs[@]}" --output "$RUNDIR/$n.runspec.csv" \
+        > "$RUNDIR/$n.runspec.log" 2>&1
+    else
+      "$ESM" simulate "$1" --time 0 --format csv "${NR_SHAPE_OBS[@]}" --output "$RUNDIR/$n.runspec.shape.csv" \
+        > "$RUNDIR/$n.runspec.shape.log" 2>&1
+    fi
+    echo $? > "$RUNDIR/$n.$2.rc"
+  }
+  for rs in "${NR_RUNSPECS[@]}"; do
+    for what in runspec shape; do
+      while (( $(jobs -rp | wc -l) >= ${NR_JOBS:-4} )); do wait -n; done
+      nr_eval "$rs" "$what" &
+    done
+  done
+  wait
+
   for rs in "${NR_RUNSPECS[@]}"; do
     rsname=$(basename "$rs" .esm)
-    # 2. The numbers, against the run's own MOVESOutput, and the shape, against
+    # 3. The numbers, against the run's own MOVESOutput, and the shape, against
     #    what the chain recomputes.
     RS_CSV="$RUNDIR/$rsname.runspec.csv"
     RS_ACTUAL="$RUNDIR/$rsname.runspec.actual.csv"
     RS_SHAPE="$RUNDIR/$rsname.runspec.shape.csv"
-    if ! out=$("$ESM" simulate "$rs" --time 0 --format csv "${nr_obs[@]}" --output "$RS_CSV" 2>&1); then
+    if [[ $(cat "$RUNDIR/$rsname.runspec.rc" 2>/dev/null) != 0 ]]; then
       fail "7e $rsname — the default-database chain does not evaluate"
-      sed 's/^/       /' <<<"$out" | tail -5
+      sed 's/^/       /' "$RUNDIR/$rsname.runspec.log" | tail -5
       continue
     fi
     sed '1s/out_//g' "$RS_CSV" > "$RS_ACTUAL"
@@ -1815,7 +1839,7 @@ else
       fail "7e $rsname — it evaluates from the default database, but not to the run's numbers"
       sed 's/^/       /' <<<"$out" | tail -8
     fi
-    if "$ESM" simulate "$rs" --time 0 --format csv "${NR_SHAPE_OBS[@]}" --output "$RS_SHAPE" >/dev/null 2>&1; then
+    if [[ $(cat "$RUNDIR/$rsname.shape.rc" 2>/dev/null) == 0 ]]; then
       if out=$("$PYTHON" tools/check-nonroad-shape.py "$rs" "$RS_CSV" "$RS_SHAPE" 2>&1); then
         pass "$rsname — the emitted shape is what the chain recomputes: $out"
       else
@@ -1827,7 +1851,7 @@ else
     fi
   done
 
-  # 3. F60, two-sided: the RunSpec's own Float32 is load-bearing.
+  # 4. F60, two-sided: the RunSpec's own Float32 is load-bearing.
   NR_F60="runspecs/nonroad/.p_f60.esm"
   NR_F60_BASE=runspecs/nonroad/nr-logging-county.esm
   if [[ ! -f "$NR_F60_BASE" ]]; then

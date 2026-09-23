@@ -2,7 +2,7 @@
   "esm": "1.2.0",
   "metadata": {
     "name": "moves.nonroad.model",
-    "description": "THE NONROAD DOMAIN MODEL (PLAN.md §7.5 step 7e). One model, no `data_sources`: `../moves-nonroad.esm` mounts it over the national default database and one thin document per RunSpec in `runspecs/nonroad/` mounts THAT and supplies the run's selections and its oracle. It is `fixtures/nr-logging-county.esm`'s model lifted out of the fixture -- the Phase 2 vertical slice, NONROAD's `prccty.f` chain from base-year population through `agedist.f`'s fold to `clcems.f`'s roll-up -- and the fixture stays where it is, because its 29 inline assertions run there and a mounted component's do not (F47).\n\nWHAT THE FIXTURE DECLARED AND THIS DOCUMENT READS. The fixture wrote five things into itself that a document serving more than one run cannot: (1) the six equipment points, `point_sourceTypeID = [1059, 1386..1390]`; (2) the county, state, year and day, as parameters; (3) the base year 1990; (4) the technology window 100..199; (5) the output relation's four pollutants per cohort. Here (1) is `sut_isPoint` -- the `nrsourceusetype` rows whose SCC is in the RunSpec's `/SOURCE CATEGORY/` packet (`scc_isSelected`, with NONROAD's rule that an EMPTY packet runs everything) and whose county population is positive -- ranked densely onto the point axis; (2) comes from `runspeccounty`, `runspecstate`, `runspecyear` and `runspecday`; (3) from `nrbaseyearequippopulation`; (4) is `engineTech`; and (5) is `n_runspecpollutantprocess`. The allocation moved from the point axis to the equipment-type axis, because the surrogate is the equipment type's and the point axis is not known until the allocation is.\n\nWHAT THE SECOND AND THIRD RUNS FOUND, which the first could not. `nr-lawn-garden-county` has SCCs whose exact rate rows cover some technologies and not others, so NONROAD's SCC chain (`fndefc.f`: exact, `xxxxxxx000`, `xxxx000000`) is walked per (pollutant, technology) and not once per point (`tech_rateRow`); and it has points ON a bin boundary -- 37 national points sit on one -- which take the LOWER bin in both the rate and the tech-mix lookups rather than the sum of both (`tech_rate*Row`, `point_mixBinLow`). `nr-recreational-county` selects SO2, which `clcems.f` does not read from a table but WRITES from BSFC and THC, so the rate and deterioration lookups moved onto the axis of what NONROAD always rates (`rated_pp_rows`), and `emsadj.f`'s sulfur correction reads the in-use sulfur of the county's nonroad fuel supply (`fk_sulfurWeightPercent`). `nr-logging-county`'s 144 rows are byte-identical to the fixture's through all of it. `fixtures/nr-airtoxics-lawn-garden-county.esm` had found three of these rules first; a fourth it found -- that a (pollutant, technology) pair with no `nrdeterioration` row deteriorates by 1 and not 0 -- is here too.\n\nIT IS EVALUATED IN BINARY32, and the declaration that makes it so is NOT this document's `domain`: the pinned toolchain drops a mounted leaf's `domain.element_type` and evaluates it in the ROOT's precision, silently (docs/findings F60). So every RunSpec in `runspecs/nonroad/` declares `Float32` itself, and `nr-logging-county` without it loses exactly the four rows `docs/nonroad-logging-county.md` §7.3 says binary64 costs. Twenty-one variables still override to Float64, and each holds an SCC or a constant that meets one in the same operator.\n\nFOUR NUMBERS ARE DECLARED, because no table states them and MOVES works them out at run time: `n_equipmentPoint`, `n_outputCohort`, `n_outputPolProcess` and `n_foldYear`. Each is recomputed by the chain -- `run_equipmentPointsSelected`, `run_outputCohortCount`, `run_outputPolProcessCount`, `run_extraScopeRows` -- and tools/check-nonroad-shape.py asserts the declaration against the recomputation and the emitted keys.\n\nSTATE SCALE IS A COUNTY AT A PSEUDO-COUNTY (PLAN.md §7.3.35). MOVES runs a state-level RunSpec at county stateID x 1000, zone stateID x 10000 and fuel region stateID, which it BUILDS (`PreAggSTATE.sql`, `DefaultDataMaker`) and no national table has. So the temperature is a weighted SUM over zones (`zone_runWeight`, divided by the 13 daytime hours and not by the weights, which are rounded before they are divided and sum to less than 1), the nonroad fuel supply is one union relation of the national rows and one default row per `nrFuelType` (`rsu_*`), the `.OPT` packet's func A falls back to formulation 10 when the default formulation 12 joins nothing, and nothing is allocated. At a real county each piece reduces to the formula it replaced. The output carries only what NONROAD EMITS (`emitted_pp_rows`), clamped at zero per record as `NonroadOutputDataLoader` does.\n\nNATION SCALE IS A COUNTY 0 (PLAN.md §7.3.36), and it is NOT a sum of state runs. `PreAggNATION.sql` folds every state into one state 0 before NONROAD sees a table, and the model computes each fold from the national rows (`run_isNationScale`), leaving out Puerto Rico and the Virgin Islands as it does (`state_is_in_nation`): the population is the states' SUM, `.POP`-rounded once afterwards (`sut_runPopulation`); the growth pattern is the states' MINIMUM per SCC (`gpf_runStateID`, a `min_sum`); the month allocation is another table, `nrUSMonthAllocation`, so the run's month table is a union (`rma_*`); the temperature is the start-weighted mean over every zone, renormalized where a state's is not; the fuel supply is every region's share weighted by the region's start activity (`sup_regionShare`); and the output has no state. Off the nation each is the formula it replaced.\n\nNOT CARRIED YET: the non-gasoline fuels' PM sulfur correction and `nrSulfurAdjustment`, reformulated gasoline, CO2 and crankcase, and the air-toxics and speciation chain `fixtures/nr-airtoxics-lawn-garden-county.esm` computes."
+    "description": "THE NONROAD DOMAIN MODEL (PLAN.md §7.5 step 7e). One model, no `data_sources`: `../moves-nonroad.esm` mounts it over the national default database and one thin document per RunSpec in `runspecs/nonroad/` mounts THAT and supplies the run's selections and its oracle. It is `fixtures/nr-logging-county.esm`'s model lifted out of the fixture -- the Phase 2 vertical slice, NONROAD's `prccty.f` chain from base-year population through `agedist.f`'s fold to `clcems.f`'s roll-up -- and the fixture stays where it is, because its 29 inline assertions run there and a mounted component's do not (F47).\n\nWHAT THE FIXTURE DECLARED AND THIS DOCUMENT READS. The fixture wrote five things into itself that a document serving more than one run cannot: (1) the six equipment points, `point_sourceTypeID = [1059, 1386..1390]`; (2) the county, state, year and day, as parameters; (3) the base year 1990; (4) the technology window 100..199; (5) the output relation's four pollutants per cohort. Here (1) is `sut_isPoint` -- the `nrsourceusetype` rows whose SCC is in the RunSpec's `/SOURCE CATEGORY/` packet (`scc_isSelected`, with NONROAD's rule that an EMPTY packet runs everything) and whose county population is positive -- ranked densely onto the point axis; (2) comes from `runspeccounty`, `runspecstate`, `runspecyear` and `runspecday`; (3) from `nrbaseyearequippopulation`; (4) is `engineTech`; and (5) is `n_runspecpollutantprocess`. The allocation moved from the point axis to the equipment-type axis, because the surrogate is the equipment type's and the point axis is not known until the allocation is.\n\nWHAT THE SECOND AND THIRD RUNS FOUND, which the first could not. `nr-lawn-garden-county` has SCCs whose exact rate rows cover some technologies and not others, so NONROAD's SCC chain (`fndefc.f`: exact, `xxxxxxx000`, `xxxx000000`) is walked per (pollutant, technology) and not once per point (`tech_rateRow`); and it has points ON a bin boundary -- 37 national points sit on one -- which take the LOWER bin in both the rate and the tech-mix lookups rather than the sum of both (`tech_rate*Row`, `point_mixBinLow`). `nr-recreational-county` selects SO2, which `clcems.f` does not read from a table but WRITES from BSFC and THC, so the rate and deterioration lookups moved onto the axis of what NONROAD always rates (`rated_pp_rows`), and `emsadj.f`'s sulfur correction reads the in-use sulfur of the county's nonroad fuel supply (`fk_sulfurWeightPercent`). `nr-logging-county`'s 144 rows stayed byte-identical to the fixture's through all of that, and left it only at the SEASON file's printed month fractions (PLAN.md §7.3.37), which the fixture does not read. `fixtures/nr-airtoxics-lawn-garden-county.esm` had found three of these rules first; a fourth it found -- that a (pollutant, technology) pair with no `nrdeterioration` row deteriorates by 1 and not 0 -- is here too.\n\nIT IS EVALUATED IN BINARY32, and the declaration that makes it so is NOT this document's `domain`: the pinned toolchain drops a mounted leaf's `domain.element_type` and evaluates it in the ROOT's precision, silently (docs/findings F60). So every RunSpec in `runspecs/nonroad/` declares `Float32` itself, and `nr-logging-county` without it loses exactly the four rows `docs/nonroad-logging-county.md` §7.3 says binary64 costs. Twenty-one variables still override to Float64, and each holds an SCC or a constant that meets one in the same operator.\n\nFOUR NUMBERS ARE DECLARED, because no table states them and MOVES works them out at run time: `n_equipmentPoint`, `n_outputCohort`, `n_outputPolProcess` and `n_foldYear`. Each is recomputed by the chain -- `run_equipmentPointsSelected`, `run_outputCohortCount`, `run_outputPolProcessCount`, `run_extraScopeRows` -- and tools/check-nonroad-shape.py asserts the declaration against the recomputation and the emitted keys.\n\nSTATE SCALE IS A COUNTY AT A PSEUDO-COUNTY (PLAN.md §7.3.35). MOVES runs a state-level RunSpec at county stateID x 1000, zone stateID x 10000 and fuel region stateID, which it BUILDS (`PreAggSTATE.sql`, `DefaultDataMaker`) and no national table has. So the temperature is a weighted SUM over zones (`zone_runWeight`, divided by the 13 daytime hours and not by the weights, which are rounded before they are divided and sum to less than 1), the nonroad fuel supply is one union relation of the national rows and one default row per `nrFuelType` (`rsu_*`), the `.OPT` packet's func A falls back to formulation 10 when the default formulation 12 joins nothing, and nothing is allocated. At a real county each piece reduces to the formula it replaced. The output carries only what NONROAD EMITS (`emitted_pp_rows`), clamped at zero per record as `NonroadOutputDataLoader` does.\n\nNATION SCALE IS A COUNTY 0 (PLAN.md §7.3.36), and it is NOT a sum of state runs. `PreAggNATION.sql` folds every state into one state 0 before NONROAD sees a table, and the model computes each fold from the national rows (`run_isNationScale`), leaving out Puerto Rico and the Virgin Islands as it does (`state_is_in_nation`): the population is the states' SUM, `.POP`-rounded once afterwards (`sut_runPopulation`); the growth pattern is the states' MINIMUM per SCC (`gpf_runStateID`, a `min_sum`); the month allocation is another table, `nrUSMonthAllocation`, so the run's month table is a union (`rma_*`); the temperature is the start-weighted mean over every zone, renormalized where a state's is not; the fuel supply is every region's share weighted by the region's start activity (`sup_regionShare`); and the output has no state. Off the nation each is the formula it replaced.\n\nDIESEL, LPG, CNG AND THE WHOLE INVENTORY (PLAN.md §7.3.37). A RunSpec selecting onroad diesel matches no `nrscc` fuel ID, so its packet is empty and NONROAD runs all 213 SCCs; the dense layout runs that in ~9 minutes and ~5 GB. Five rules came with it, each about where NONROAD applies an operation or what MOVES hands it: the `/PM BASE SULFUR/` packet's per-technology alternates and `clcems.f`'s diesel PM sulfur correction (`tech_pmSulfurBase`, `tech_sulfatePMScale`); every technology set divided by its sum, as `rdtech_moves.f` does (`tech_fraction`, with `run_mixSetsOffOne` keeping the one-bin check); the zero clamp per TECHNOLOGY record, which is what `NonroadOutputDataLoader` reads (`tech_hourlyEmission`); the rate row's hp bin chosen as `fndefc.f` chooses it, the NEAREST (`hp_bin_distance`); and the month fraction as the SEASON file prints it, renormalized (`printed_decimal`). The output's fuel type is `nrscc`'s, unmapped.\n\nNOT CARRIED YET: two residuals of `nr-railroad-support-nation` (`runspecs/nonroad/pending/`) -- gasoline SO2 at the nation 1.38e-4 high throughout, and one diesel cohort -- reformulated gasoline, CO2 and crankcase, and the air-toxics and speciation chain `fixtures/nr-airtoxics-lawn-garden-county.esm` computes."
   },
   "domain": {
     "element_type": "Float32"
@@ -153,6 +153,11 @@
       "default": 0,
       "description": "Rows in engineTech. Runtime-discovered."
     },
+    "n_nrsulfuradjustment": {
+      "type": "integer",
+      "default": 0,
+      "description": "Rows in nrsulfuradjustment. Runtime-discovered; see n_nrscc."
+    },
     "n_nremissionrate": {
       "type": "integer",
       "default": 0,
@@ -222,10 +227,6 @@
           "n_nrequipmenttype"
         ]
       }
-    },
-    "fuel_type_mapping_rows": {
-      "kind": "interval",
-      "size": 1
     },
     "scc_fuel_prefix_rows": {
       "kind": "interval",
@@ -391,6 +392,10 @@
       "kind": "interval",
       "size": "n_enginetech"
     },
+    "nrsulfuradjustment_rows": {
+      "kind": "interval",
+      "size": "n_nrsulfuradjustment"
+    },
     "rated_pp_rows": {
       "kind": "interval",
       "size": 5
@@ -509,7 +514,8 @@
             "state_default_precedence",
             "flat_relation_major",
             "flat_relation_minor",
-            "in_inclusive_range"
+            "in_inclusive_range",
+            "hp_bin_distance"
           ]
         },
         {
@@ -519,7 +525,8 @@
             "default_month_fraction",
             "default_day_fraction",
             "unit_conversion",
-            "emission_unit_g_per_hp_hr"
+            "emission_unit_g_per_hp_hr",
+            "printed_decimal"
           ]
         },
         {
@@ -1098,6 +1105,24 @@
             "equipment_point_rows"
           ],
           "description": "`emsadj.f`'s sulfur correction: in-use sulfur over the base the factor was written at, marine diesel's in-use sulfur for the two marine diesel families."
+        },
+        "tech_soxConversion": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "equipment_point_rows",
+            "engine_tech_rows"
+          ],
+          "description": "`soxcnv`: the technology's alternate sulfate conversion where the packet names it, else the fuel's."
+        },
+        "tech_pmSulfurBase": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "equipment_point_rows",
+            "engine_tech_rows"
+          ],
+          "description": "`sulbas`: the technology's alternate base sulfur where the packet names it, else the fuel's."
         },
         "rsm_monthID": {
           "type": "parameter",
@@ -2083,7 +2108,15 @@
           "shape": [
             "equipment_point_rows"
           ],
-          "description": "J15, now a plain three-column equi-join on the resolved key."
+          "description": "J15, now a plain three-column equi-join on the resolved key. As the SEASON file prints it, to three decimals (`%10.3f`)."
+        },
+        "point_monthPrintedSum": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "equipment_point_rows"
+          ],
+          "description": "The printed fractions of all twelve months of the point's matched SCC and state: what `rdseas.f` divides each by."
         },
         "point_monthFraction": {
           "type": "unknown",
@@ -2091,7 +2124,7 @@
           "shape": [
             "equipment_point_rows"
           ],
-          "description": "mthfrc: 0.0833333 for August at rung 2260007000."
+          "description": "mthfrc: 0.0833333 for August at rung 2260007000. NONROAD's value: the printed fraction over the printed twelve's sum (`rdseas.f` renormalizes unconditionally)."
         },
         "point_dayExactIsPresent": {
           "type": "unknown",
@@ -3380,6 +3413,16 @@
           ],
           "description": "The lowest hpMin among the `.TECH` bins at `point_mixEffectiveSCC` that contain the point's hpAvg. The bins only ever TOUCH -- no two overlap, none share a lower bound, measured -- so this names one bin, the first NONROAD's lookup finds; a point on a boundary, like 2260004071's 3.0 hp between [1, 3] and [3, 6], would otherwise read the mix of both and sum it."
         },
+        "tech_rateExactDistance": {
+          "type": "unknown",
+          "units": "hp",
+          "shape": [
+            "equipment_point_rows",
+            "rated_pp_rows",
+            "engine_tech_rows"
+          ],
+          "description": "`fndefc.f`'s hp distance of the nearest bin at the point's own SCC for this (pollutant-process, technology): the least `hp_bin_distance` over the rows whose closed hp interval holds the point's hpAvg."
+        },
         "tech_rateExactRow": {
           "type": "unknown",
           "units": "1",
@@ -3388,7 +3431,17 @@
             "rated_pp_rows",
             "engine_tech_rows"
           ],
-          "description": "The first `nremissionrate` row at the point's own SCC for this (pollutant-process, technology) whose hp bin contains the point's hpAvg, or +Inf if there is none. FIRST by row, which within one (SCC, technology, polProcess) is ascending hpMin -- measured over the national table -- so a point on a bin boundary takes the LOWER bin, as moves.rs `hp_pick` does."
+          "description": "The first `nremissionrate` row at the point's own SCC for this (pollutant-process, technology) among those whose closed hp interval holds the point's hpAvg AND sits at the nearest `hp_bin_distance` (`tech_rateExactDistance`), or +Inf if there is none. A tie takes the first row, which within one (SCC, technology, polProcess) is ascending hpMin -- measured over the national table -- as `fndefc.f` keeps the first match it meets."
+        },
+        "tech_rateZero3Distance": {
+          "type": "unknown",
+          "units": "hp",
+          "shape": [
+            "equipment_point_rows",
+            "rated_pp_rows",
+            "engine_tech_rows"
+          ],
+          "description": "`fndefc.f`'s hp distance of the nearest bin at the equipment root for this (pollutant-process, technology): the least `hp_bin_distance` over the rows whose closed hp interval holds the point's hpAvg."
         },
         "tech_rateZero3Row": {
           "type": "unknown",
@@ -3399,6 +3452,16 @@
             "engine_tech_rows"
           ],
           "description": "The first `nremissionrate` row at the equipment root `xxxxxxx000` for this (pollutant-process, technology) whose hp bin contains the point's hpAvg, or +Inf if there is none. FIRST by row, which within one (SCC, technology, polProcess) is ascending hpMin -- measured over the national table -- so a point on a bin boundary takes the LOWER bin, as moves.rs `hp_pick` does."
+        },
+        "tech_rateZero6Distance": {
+          "type": "unknown",
+          "units": "hp",
+          "shape": [
+            "equipment_point_rows",
+            "rated_pp_rows",
+            "engine_tech_rows"
+          ],
+          "description": "`fndefc.f`'s hp distance of the nearest bin at the family root for this (pollutant-process, technology): the least `hp_bin_distance` over the rows whose closed hp interval holds the point's hpAvg."
         },
         "tech_rateZero6Row": {
           "type": "unknown",
@@ -3446,6 +3509,102 @@
             }
           }
         },
+        "sadj_fuelTypeID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "nrsulfuradjustment_rows"
+          ],
+          "description": "nrsulfuradjustment.fuelTypeID: the packet reads the diesel rows, 23 and 24, which agree for every technology.",
+          "update": {
+            "kind": "data",
+            "source": "db_nrsulfuradjustment",
+            "from": {
+              "file_variable": "fuelTypeID"
+            }
+          }
+        },
+        "sadj_engTechID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "nrsulfuradjustment_rows"
+          ],
+          "description": "nrsulfuradjustment.engTechID.",
+          "update": {
+            "kind": "data",
+            "source": "db_nrsulfuradjustment",
+            "from": {
+              "file_variable": "engTechID"
+            }
+          }
+        },
+        "sadj_PMBaseSulfur": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "nrsulfuradjustment_rows"
+          ],
+          "description": "nrsulfuradjustment.PMBaseSulfur, weight percent: `clcems.f`'s `sulalt`.",
+          "update": {
+            "kind": "data",
+            "source": "db_nrsulfuradjustment",
+            "from": {
+              "file_variable": "PMBaseSulfur"
+            }
+          }
+        },
+        "sadj_sulfatePMConversionFactor": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "nrsulfuradjustment_rows"
+          ],
+          "description": "nrsulfuradjustment.sulfatePMConversionFactor: `clcems.f`'s `sulcnv`.",
+          "update": {
+            "kind": "data",
+            "source": "db_nrsulfuradjustment",
+            "from": {
+              "file_variable": "sulfatePMConversionFactor"
+            }
+          }
+        },
+        "sadj_isPacketRow": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "nrsulfuradjustment_rows"
+          ],
+          "description": "1 on a row the `/PM BASE SULFUR/` packet carries: a diesel one, `WHERE fueltypeid IN (23,24)`."
+        },
+        "tech_hasSulfurAlternate": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "engine_tech_rows"
+          ],
+          "description": "1 for a technology the packet names -- every diesel one -- whose alternates replace the fuel's defaults."
+        },
+        "tech_alternateSulfurBase": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "engine_tech_rows"
+          ],
+          "description": "The packet's base sulfur for the technology, weight percent."
+        },
+        "tech_alternateSulfateConversion": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "engine_tech_rows"
+          ],
+          "description": "The packet's sulfate conversion for the technology."
+        },
         "rtd_polProcessID": {
           "type": "unknown",
           "units": "1",
@@ -3462,14 +3621,14 @@
           ],
           "description": "The pollutant-processes a NONROAD run can put in MOVESOutput, and this model computes: moves.rs `SLOT_POLLUTANT`'s THC, CO, NOx, SO2 and PM10 -- every one stamped process 1, running exhaust. The sixth slot, CO2 (90), is not carried: a RunSpec selecting it misses those rows, and the comparator's key check says so."
         },
-        "tech_fraction": {
+        "tech_listedFraction": {
           "type": "unknown",
           "units": "1",
           "shape": [
             "cohort_rows",
             "engine_tech_rows"
           ],
-          "description": "J11: this cohort's share of each technology, from the .TECH row set the equipment chain and the hp bin selected at the cohort's mix year. Zero for every code the mix does not carry."
+          "description": "J11: this cohort's LISTED share of each technology, from the .TECH row set the equipment chain and the hp bin selected at the cohort's mix year, as `nrengtechfraction` has it. Zero for every code the mix does not carry."
         },
         "tech_fractionTotal": {
           "type": "unknown",
@@ -3477,7 +3636,16 @@
           "shape": [
             "cohort_rows"
           ],
-          "description": "The mix must sum to 1 for every cohort. This is what proves the 100-199 window covers the codes the data uses, and it is also the check that the hp bin and the processGroup filter did not admit a second bin's rows -- two bins would sum to 2."
+          "description": "The listed mix's sum, which NONROAD divides every share by (`rdtech_moves.f`): 1 for most sets, 0.999 or 1.001 for 33 national ones. It is also the check that the hp bin and the processGroup filter admitted ONE bin's set -- two would sum to 2 -- which `run_mixSetsOffOne` makes a number."
+        },
+        "tech_fraction": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "cohort_rows",
+            "engine_tech_rows"
+          ],
+          "description": "The share NONROAD uses: the listed share over the set's sum (`rdtech_moves.f` renormalizes unconditionally)."
         },
         "tech_meanBaseRate": {
           "type": "unknown",
@@ -3534,7 +3702,16 @@
             "cohort_rows",
             "engine_tech_rows"
           ],
-          "description": "`clcems.f`'s SOx factor, which it WRITES rather than reads: `hp * load * (bsfc * (1 - soxcnv) - ems_thc / (hp * load)) * 0.01 * soxbas * 2` -- the fuel's sulfur at the base weight percent, less the sulfate share, as SO2 (twice sulfur's mass). No deterioration of its own. NOT carried: `nrSulfurAdjustment`'s per-technology conversion override, which applies to diesel only."
+          "description": "`clcems.f`'s SOx factor, which it WRITES rather than reads: `hp * load * (bsfc * (1 - soxcnv) - ems_thc / (hp * load)) * 0.01 * soxbas * 2` -- the fuel's sulfur at the base weight percent, less the sulfate share, as SO2 (twice sulfur's mass). No deterioration of its own. NOT carried: `nrSulfurAdjustment`'s per-technology conversion override, which applies to diesel only. The conversion is the technology's (`tech_soxConversion`): a T4 diesel converts 30% of its sulfur to sulfate."
+        },
+        "tech_sulfatePMScale": {
+          "type": "unknown",
+          "units": "g/h",
+          "shape": [
+            "cohort_rows",
+            "engine_tech_rows"
+          ],
+          "description": "`clcems.f`'s `bsfval*453.6*hpval*faclod*7*soxcnv*0.01`: the sulfate PM a unit of base-minus-in-use sulfur is worth, per hour. 7 is the Fortran's sulfate-to-sulfur mass factor."
         },
         "tech_hourlyEmission": {
           "type": "unknown",
@@ -3544,7 +3721,7 @@
             "runspecpollutantprocess_rows",
             "engine_tech_rows"
           ],
-          "description": "`clcems.f`'s `emstmp` before the time adjustment: rate times unit conversion times deterioration, or the SOx factor for SOx, times the pollutant's adjustment. Factored out of `cell_emissionQuant` so the SOx branch is one ifelse; the product associates exactly as it did inline."
+          "description": "`clcems.f`'s `emstmp` before the time adjustment: rate times unit conversion times deterioration, or the SOx factor for SOx, times the pollutant's adjustment. Factored out of `cell_emissionQuant` so the SOx branch is one ifelse; the product associates exactly as it did inline. A diesel point's PM then loses the sulfate its base sulfur carried and its fuel does not (`clcems.f` :267-302): `tech_sulfatePMScale x (sulbas x adjPM - soxbas x adjSOx)`, where adjSOx is the SOx sulfur correction. Nothing is subtracted from any other cell, and x - 0 is x. Then clamped at zero, because this is the term of ONE output record: NONROAD writes a record per (SCC, hp level, model year, technology) and `NonroadOutputDataLoader` loads `Math.max(0, value)` of each, so a technology whose sulfur correction exceeds its PM contributes 0 while its cohort's other technologies keep theirs."
         },
         "cell_emissionQuant": {
           "type": "unknown",
@@ -3667,20 +3844,6 @@
             }
           }
         },
-        "ftm_nonroadFuelTypeID": {
-          "type": "unknown",
-          "shape": [
-            "fuel_type_mapping_rows"
-          ],
-          "description": "The nonroad fuel type this fixture's SCC can carry. One row, gasoline; the diesel SCCs of §5.4 produce no output at all."
-        },
-        "ftm_movesFuelTypeID": {
-          "type": "unknown",
-          "shape": [
-            "fuel_type_mapping_rows"
-          ],
-          "description": "Its MOVESOutput label. A zero here would mean the mapping had no row and would look like a legal fuel type."
-        },
         "sfp_prefix": {
           "type": "unknown",
           "units": "1",
@@ -3744,14 +3907,7 @@
           "shape": [
             "equipment_point_rows"
           ],
-          "description": "This SCC's nonroad fuel type, read from nrscc."
-        },
-        "point_outputFuelTypeID": {
-          "type": "unknown",
-          "shape": [
-            "equipment_point_rows"
-          ],
-          "description": "The mapped onroad label MOVESOutput carries."
+          "description": "This SCC's nonroad fuel type, read from nrscc, and the fuel type its output rows carry."
         },
         "out_hourID": {
           "type": "unknown",
@@ -3772,7 +3928,7 @@
           "shape": [
             "output_rows"
           ],
-          "description": "MOVESOutput.fuelTypeID, mapped out of the nonroad namespace."
+          "description": "MOVESOutput.fuelTypeID: the SCC's `nrscc.fuelTypeID` in the NONROAD namespace, unmapped -- gasoline 1, nonroad and marine diesel 23 and 24, CNG 3, LPG 4. Only gasoline's ID is shared with the onroad namespace."
         },
         "out_zoneID": {
           "type": "unknown",
@@ -3836,7 +3992,7 @@
           "shape": [
             "output_rows"
           ],
-          "description": "MOVESOutput.emissionQuant, in GRAMS and declared so: the cell above, flattened onto the output relation. This is the column compare-output.py diffs against the snapshot. Each (point, model year) record is clamped at zero before the points are summed: `NonroadOutputDataLoader` loads `Math.max(0, value)`, because NONROAD's SOx balance can go negative, and KEEPS the zero row."
+          "description": "MOVESOutput.emissionQuant, in GRAMS and declared so: the cell above, flattened onto the output relation. This is the column compare-output.py diffs against the snapshot. Nothing is clamped here: `NonroadOutputDataLoader`'s `Math.max(0, value)` is per technology record, and `tech_hourlyEmission` carries it. A record clamped to zero is KEPT: MOVESOutput has the row, at 0."
         },
         "fold_totalPopulation": {
           "type": "unknown",
@@ -4210,6 +4366,14 @@
             "run_scope_rows"
           ],
           "description": "How many selected pollutant-processes NONROAD emits, recomputed; `n_outputPolProcess` is checked against it."
+        },
+        "run_mixSetsOffOne": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "run_scope_rows"
+          ],
+          "description": "How many populated cohorts have a listed technology mix whose sum misses 1 by more than `rdtech_moves.f`'s 0.002 -- the threshold at which NONROAD warns. 0 in every run: a second hp bin's set, or none, would count here."
         }
       },
       "equations": [
@@ -6042,6 +6206,308 @@
           }
         },
         {
+          "lhs": "sadj_isPacketRow",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "a"
+            ],
+            "ranges": {
+              "a": {
+                "from": "nrsulfuradjustment_rows"
+              }
+            },
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                {
+                  "op": "or",
+                  "args": [
+                    {
+                      "op": "==",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "sadj_fuelTypeID",
+                            "a"
+                          ]
+                        },
+                        {
+                          "op": "enum",
+                          "args": [
+                            "nonroad_fuel_type",
+                            "NonroadDiesel"
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "op": "==",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "sadj_fuelTypeID",
+                            "a"
+                          ]
+                        },
+                        {
+                          "op": "enum",
+                          "args": [
+                            "nonroad_fuel_type",
+                            "MarineDiesel"
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                1,
+                0
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "tech_hasSulfurAlternate",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "max_product",
+            "output_idx": [
+              "cc"
+            ],
+            "ranges": {
+              "cc": {
+                "from": "engine_tech_rows"
+              },
+              "a": {
+                "from": "nrsulfuradjustment_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "sadj_engTechID",
+                    "tech_engTechID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "sadj_isPacketRow",
+                "a"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "tech_alternateSulfurBase",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "max_product",
+            "output_idx": [
+              "cc"
+            ],
+            "ranges": {
+              "cc": {
+                "from": "engine_tech_rows"
+              },
+              "a": {
+                "from": "nrsulfuradjustment_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "sadj_engTechID",
+                    "tech_engTechID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "sadj_isPacketRow",
+                    "a"
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "sadj_PMBaseSulfur",
+                    "a"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "tech_alternateSulfateConversion",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "max_product",
+            "output_idx": [
+              "cc"
+            ],
+            "ranges": {
+              "cc": {
+                "from": "engine_tech_rows"
+              },
+              "a": {
+                "from": "nrsulfuradjustment_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "sadj_engTechID",
+                    "tech_engTechID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "sadj_isPacketRow",
+                    "a"
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "sadj_sulfatePMConversionFactor",
+                    "a"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "tech_soxConversion",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "r",
+              "cc"
+            ],
+            "ranges": {
+              "r": {
+                "from": "equipment_point_rows"
+              },
+              "cc": {
+                "from": "engine_tech_rows"
+              }
+            },
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                {
+                  "op": ">",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "tech_hasSulfurAlternate",
+                        "cc"
+                      ]
+                    },
+                    0
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "tech_alternateSulfateConversion",
+                    "cc"
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "point_soxConversion",
+                    "r"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "tech_pmSulfurBase",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "r",
+              "cc"
+            ],
+            "ranges": {
+              "r": {
+                "from": "equipment_point_rows"
+              },
+              "cc": {
+                "from": "engine_tech_rows"
+              }
+            },
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                {
+                  "op": ">",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "tech_hasSulfurAlternate",
+                        "cc"
+                      ]
+                    },
+                    0
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "tech_alternateSulfurBase",
+                    "cc"
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "point_soxBase",
+                    "r"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
           "lhs": "alloc_scope_stateID",
           "rhs": {
             "op": "makearray",
@@ -6855,11 +7321,67 @@
               }
             ],
             "expr": {
-              "op": "index",
-              "args": [
-                "rma_monthFraction",
-                "m"
-              ]
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "printed_decimal",
+              "bindings": {
+                "value": {
+                  "op": "index",
+                  "args": [
+                    "rma_monthFraction",
+                    "m"
+                  ]
+                },
+                "scale": 1000
+              }
+            }
+          }
+        },
+        {
+          "lhs": "point_monthPrintedSum",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "r"
+            ],
+            "ranges": {
+              "r": {
+                "from": "equipment_point_rows"
+              },
+              "m": {
+                "from": "run_month_allocation_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "point_monthEffectiveSCC",
+                    "rma_SCC"
+                  ],
+                  [
+                    "point_monthEffectiveStateID",
+                    "rma_stateID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "printed_decimal",
+              "bindings": {
+                "value": {
+                  "op": "index",
+                  "args": [
+                    "rma_monthFraction",
+                    "m"
+                  ]
+                },
+                "scale": 1000
+              }
             }
           }
         },
@@ -6893,10 +7415,22 @@
                   ]
                 },
                 {
-                  "op": "index",
+                  "op": "/",
                   "args": [
-                    "point_matchedMonthFraction",
-                    "r"
+                    {
+                      "op": "index",
+                      "args": [
+                        "point_matchedMonthFraction",
+                        "r"
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "point_monthPrintedSum",
+                        "r"
+                      ]
+                    }
                   ]
                 },
                 {
@@ -13207,7 +13741,7 @@
           }
         },
         {
-          "lhs": "tech_rateExactRow",
+          "lhs": "tech_rateExactDistance",
           "rhs": {
             "op": "faq",
             "args": [],
@@ -13285,11 +13819,167 @@
                 }
               }
             },
+            "expr": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "hp_bin_distance",
+              "bindings": {
+                "value": {
+                  "op": "index",
+                  "args": [
+                    "point_hpAvg",
+                    "r"
+                  ]
+                },
+                "first": {
+                  "op": "index",
+                  "args": [
+                    "emr_hpMin",
+                    "e"
+                  ]
+                },
+                "last": {
+                  "op": "index",
+                  "args": [
+                    "emr_hpMax",
+                    "e"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "lhs": "tech_rateExactRow",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "min_sum",
+            "output_idx": [
+              "r",
+              "k",
+              "cc"
+            ],
+            "ranges": {
+              "r": {
+                "from": "equipment_point_rows"
+              },
+              "k": {
+                "from": "rated_pp_rows"
+              },
+              "cc": {
+                "from": "engine_tech_rows"
+              },
+              "e": {
+                "from": "nremissionrate_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "point_SCC",
+                    "emr_SCC"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "rtd_polProcessID",
+                    "emr_polProcessID"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "tech_engTechID",
+                    "emr_engTechID"
+                  ]
+                ]
+              }
+            ],
+            "filter": {
+              "op": "and",
+              "args": [
+                {
+                  "op": "apply_expression_template",
+                  "args": [],
+                  "name": "in_inclusive_range",
+                  "bindings": {
+                    "value": {
+                      "op": "index",
+                      "args": [
+                        "point_hpAvg",
+                        "r"
+                      ]
+                    },
+                    "first": {
+                      "op": "index",
+                      "args": [
+                        "emr_hpMin",
+                        "e"
+                      ]
+                    },
+                    "last": {
+                      "op": "index",
+                      "args": [
+                        "emr_hpMax",
+                        "e"
+                      ]
+                    }
+                  }
+                },
+                {
+                  "op": "<=",
+                  "args": [
+                    {
+                      "op": "apply_expression_template",
+                      "args": [],
+                      "name": "hp_bin_distance",
+                      "bindings": {
+                        "value": {
+                          "op": "index",
+                          "args": [
+                            "point_hpAvg",
+                            "r"
+                          ]
+                        },
+                        "first": {
+                          "op": "index",
+                          "args": [
+                            "emr_hpMin",
+                            "e"
+                          ]
+                        },
+                        "last": {
+                          "op": "index",
+                          "args": [
+                            "emr_hpMax",
+                            "e"
+                          ]
+                        }
+                      }
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "tech_rateExactDistance",
+                        "r",
+                        "k",
+                        "cc"
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
             "expr": "e"
           }
         },
         {
-          "lhs": "tech_rateZero3Row",
+          "lhs": "tech_rateZero3Distance",
           "rhs": {
             "op": "faq",
             "args": [],
@@ -13367,11 +14057,167 @@
                 }
               }
             },
+            "expr": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "hp_bin_distance",
+              "bindings": {
+                "value": {
+                  "op": "index",
+                  "args": [
+                    "point_hpAvg",
+                    "r"
+                  ]
+                },
+                "first": {
+                  "op": "index",
+                  "args": [
+                    "emr_hpMin",
+                    "e"
+                  ]
+                },
+                "last": {
+                  "op": "index",
+                  "args": [
+                    "emr_hpMax",
+                    "e"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "lhs": "tech_rateZero3Row",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "min_sum",
+            "output_idx": [
+              "r",
+              "k",
+              "cc"
+            ],
+            "ranges": {
+              "r": {
+                "from": "equipment_point_rows"
+              },
+              "k": {
+                "from": "rated_pp_rows"
+              },
+              "cc": {
+                "from": "engine_tech_rows"
+              },
+              "e": {
+                "from": "nremissionrate_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "point_sccZero3",
+                    "emr_SCC"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "rtd_polProcessID",
+                    "emr_polProcessID"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "tech_engTechID",
+                    "emr_engTechID"
+                  ]
+                ]
+              }
+            ],
+            "filter": {
+              "op": "and",
+              "args": [
+                {
+                  "op": "apply_expression_template",
+                  "args": [],
+                  "name": "in_inclusive_range",
+                  "bindings": {
+                    "value": {
+                      "op": "index",
+                      "args": [
+                        "point_hpAvg",
+                        "r"
+                      ]
+                    },
+                    "first": {
+                      "op": "index",
+                      "args": [
+                        "emr_hpMin",
+                        "e"
+                      ]
+                    },
+                    "last": {
+                      "op": "index",
+                      "args": [
+                        "emr_hpMax",
+                        "e"
+                      ]
+                    }
+                  }
+                },
+                {
+                  "op": "<=",
+                  "args": [
+                    {
+                      "op": "apply_expression_template",
+                      "args": [],
+                      "name": "hp_bin_distance",
+                      "bindings": {
+                        "value": {
+                          "op": "index",
+                          "args": [
+                            "point_hpAvg",
+                            "r"
+                          ]
+                        },
+                        "first": {
+                          "op": "index",
+                          "args": [
+                            "emr_hpMin",
+                            "e"
+                          ]
+                        },
+                        "last": {
+                          "op": "index",
+                          "args": [
+                            "emr_hpMax",
+                            "e"
+                          ]
+                        }
+                      }
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "tech_rateZero3Distance",
+                        "r",
+                        "k",
+                        "cc"
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
             "expr": "e"
           }
         },
         {
-          "lhs": "tech_rateZero6Row",
+          "lhs": "tech_rateZero6Distance",
           "rhs": {
             "op": "faq",
             "args": [],
@@ -13448,6 +14294,162 @@
                   ]
                 }
               }
+            },
+            "expr": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "hp_bin_distance",
+              "bindings": {
+                "value": {
+                  "op": "index",
+                  "args": [
+                    "point_hpAvg",
+                    "r"
+                  ]
+                },
+                "first": {
+                  "op": "index",
+                  "args": [
+                    "emr_hpMin",
+                    "e"
+                  ]
+                },
+                "last": {
+                  "op": "index",
+                  "args": [
+                    "emr_hpMax",
+                    "e"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "lhs": "tech_rateZero6Row",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "min_sum",
+            "output_idx": [
+              "r",
+              "k",
+              "cc"
+            ],
+            "ranges": {
+              "r": {
+                "from": "equipment_point_rows"
+              },
+              "k": {
+                "from": "rated_pp_rows"
+              },
+              "cc": {
+                "from": "engine_tech_rows"
+              },
+              "e": {
+                "from": "nremissionrate_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "point_sccZero6",
+                    "emr_SCC"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "rtd_polProcessID",
+                    "emr_polProcessID"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "tech_engTechID",
+                    "emr_engTechID"
+                  ]
+                ]
+              }
+            ],
+            "filter": {
+              "op": "and",
+              "args": [
+                {
+                  "op": "apply_expression_template",
+                  "args": [],
+                  "name": "in_inclusive_range",
+                  "bindings": {
+                    "value": {
+                      "op": "index",
+                      "args": [
+                        "point_hpAvg",
+                        "r"
+                      ]
+                    },
+                    "first": {
+                      "op": "index",
+                      "args": [
+                        "emr_hpMin",
+                        "e"
+                      ]
+                    },
+                    "last": {
+                      "op": "index",
+                      "args": [
+                        "emr_hpMax",
+                        "e"
+                      ]
+                    }
+                  }
+                },
+                {
+                  "op": "<=",
+                  "args": [
+                    {
+                      "op": "apply_expression_template",
+                      "args": [],
+                      "name": "hp_bin_distance",
+                      "bindings": {
+                        "value": {
+                          "op": "index",
+                          "args": [
+                            "point_hpAvg",
+                            "r"
+                          ]
+                        },
+                        "first": {
+                          "op": "index",
+                          "args": [
+                            "emr_hpMin",
+                            "e"
+                          ]
+                        },
+                        "last": {
+                          "op": "index",
+                          "args": [
+                            "emr_hpMax",
+                            "e"
+                          ]
+                        }
+                      }
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "tech_rateZero6Distance",
+                        "r",
+                        "k",
+                        "cc"
+                      ]
+                    }
+                  ]
+                }
+              ]
             },
             "expr": "e"
           }
@@ -14570,7 +15572,7 @@
         },
         {
           "_comment": "J11. The .TECH rows the equipment chain, the hp bin, the exhaust process group and the cohort's mix year select, laid out per technology. THE ORDER OF THE `join` CLAUSES BELOW IS A COST DECISION AND NOT A READING ORDER -- docs/esm-conventions.md §25, docs/findings/README.md F17. Only the FIRST clause a binding can resolve DRIVES enumeration; the other three still restrict the admitted set, but as per-leaf equality tests (CONFORMANCE_SPEC §5.5.8, `the others are membership tests on the driven leaves`). This node therefore costs exactly what the first clause's match set admits, and every order gives byte-identical rows. Measured on the whole document, one `esm simulate --time 0` each: engTechID first admits 2,320,704 leaves and runs in 11.5 s; SCC first 5,977,200 and 20.4 s; modelYearID first 24,107,900 and 57.2 s; processGroupID first -- a key with TWO distinct values -- 272,523,600 and 541 s. Do not reorder these for legibility.",
-          "lhs": "tech_fraction",
+          "lhs": "tech_listedFraction",
           "rhs": {
             "op": "faq",
             "args": [],
@@ -14718,9 +15720,68 @@
             "expr": {
               "op": "index",
               "args": [
-                "tech_fraction",
+                "tech_listedFraction",
                 "c",
                 "cc"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "tech_fraction",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "c",
+              "cc"
+            ],
+            "ranges": {
+              "c": {
+                "from": "cohort_rows"
+              },
+              "cc": {
+                "from": "engine_tech_rows"
+              }
+            },
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                {
+                  "op": ">",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "tech_fractionTotal",
+                        "c"
+                      ]
+                    },
+                    0
+                  ]
+                },
+                {
+                  "op": "/",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "tech_listedFraction",
+                        "c",
+                        "cc"
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "tech_fractionTotal",
+                        "c"
+                      ]
+                    }
+                  ]
+                },
+                0
               ]
             }
           }
@@ -15373,8 +16434,9 @@
                             {
                               "op": "index",
                               "args": [
-                                "point_soxConversion",
-                                "r"
+                                "tech_soxConversion",
+                                "r",
+                                "cc"
                               ]
                             }
                           ]
@@ -15435,6 +16497,76 @@
           }
         },
         {
+          "lhs": "tech_sulfatePMScale",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "c",
+              "cc"
+            ],
+            "ranges": {
+              "c": {
+                "from": "cohort_rows"
+              },
+              "cc": {
+                "from": "engine_tech_rows"
+              },
+              "r": {
+                "from": "equipment_point_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "cohort_pointOrdinal",
+                    "point_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "tech_bsfc",
+                    "c",
+                    "cc"
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "point_hpAvg",
+                    "r"
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "point_loadFactor",
+                    "r"
+                  ]
+                },
+                7,
+                {
+                  "op": "index",
+                  "args": [
+                    "tech_soxConversion",
+                    "r",
+                    "cc"
+                  ]
+                },
+                0.01
+              ]
+            }
+          }
+        },
+        {
           "lhs": "tech_hourlyEmission",
           "rhs": {
             "op": "faq",
@@ -15470,91 +16602,247 @@
               }
             ],
             "expr": {
-              "op": "*",
+              "op": "max",
               "args": [
                 {
-                  "op": "ifelse",
+                  "op": "-",
                   "args": [
-                    {
-                      "op": "==",
-                      "args": [
-                        {
-                          "op": "index",
-                          "args": [
-                            "rpp_polProcessID",
-                            "q"
-                          ]
-                        },
-                        {
-                          "op": "apply_expression_template",
-                          "args": [],
-                          "name": "pol_process_id",
-                          "bindings": {
-                            "pollutant_id": {
-                              "op": "enum",
-                              "args": [
-                                "pollutant",
-                                "SulfurDioxide"
-                              ]
-                            },
-                            "process_id": {
-                              "op": "enum",
-                              "args": [
-                                "process",
-                                "RunningExhaust"
-                              ]
-                            }
-                          }
-                        }
-                      ]
-                    },
-                    {
-                      "op": "index",
-                      "args": [
-                        "tech_soxFactor",
-                        "c",
-                        "cc"
-                      ]
-                    },
                     {
                       "op": "*",
                       "args": [
                         {
+                          "op": "ifelse",
+                          "args": [
+                            {
+                              "op": "==",
+                              "args": [
+                                {
+                                  "op": "index",
+                                  "args": [
+                                    "rpp_polProcessID",
+                                    "q"
+                                  ]
+                                },
+                                {
+                                  "op": "apply_expression_template",
+                                  "args": [],
+                                  "name": "pol_process_id",
+                                  "bindings": {
+                                    "pollutant_id": {
+                                      "op": "enum",
+                                      "args": [
+                                        "pollutant",
+                                        "SulfurDioxide"
+                                      ]
+                                    },
+                                    "process_id": {
+                                      "op": "enum",
+                                      "args": [
+                                        "process",
+                                        "RunningExhaust"
+                                      ]
+                                    }
+                                  }
+                                }
+                              ]
+                            },
+                            {
+                              "op": "index",
+                              "args": [
+                                "tech_soxFactor",
+                                "c",
+                                "cc"
+                              ]
+                            },
+                            {
+                              "op": "*",
+                              "args": [
+                                {
+                                  "op": "index",
+                                  "args": [
+                                    "tech_meanBaseRate",
+                                    "r",
+                                    "q",
+                                    "cc"
+                                  ]
+                                },
+                                {
+                                  "op": "index",
+                                  "args": [
+                                    "point_unitConversion",
+                                    "r"
+                                  ]
+                                },
+                                {
+                                  "op": "index",
+                                  "args": [
+                                    "tech_deteriorationFactor",
+                                    "c",
+                                    "q",
+                                    "cc"
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
                           "op": "index",
                           "args": [
-                            "tech_meanBaseRate",
+                            "pp_adjustment",
                             "r",
-                            "q",
-                            "cc"
+                            "q"
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "op": "ifelse",
+                      "args": [
+                        {
+                          "op": "and",
+                          "args": [
+                            {
+                              "op": "==",
+                              "args": [
+                                {
+                                  "op": "index",
+                                  "args": [
+                                    "rpp_polProcessID",
+                                    "q"
+                                  ]
+                                },
+                                {
+                                  "op": "apply_expression_template",
+                                  "args": [],
+                                  "name": "pol_process_id",
+                                  "bindings": {
+                                    "pollutant_id": {
+                                      "op": "enum",
+                                      "args": [
+                                        "pollutant",
+                                        "PrimaryExhaustPM10Total"
+                                      ]
+                                    },
+                                    "process_id": {
+                                      "op": "enum",
+                                      "args": [
+                                        "process",
+                                        "RunningExhaust"
+                                      ]
+                                    }
+                                  }
+                                }
+                              ]
+                            },
+                            {
+                              "op": "==",
+                              "args": [
+                                {
+                                  "op": "index",
+                                  "args": [
+                                    "point_engineFuelKindID",
+                                    "r"
+                                  ]
+                                },
+                                {
+                                  "op": "enum",
+                                  "args": [
+                                    "engine_fuel_kind",
+                                    "Diesel"
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "op": "!=",
+                              "args": [
+                                {
+                                  "op": "index",
+                                  "args": [
+                                    "tech_pmSulfurBase",
+                                    "r",
+                                    "cc"
+                                  ]
+                                },
+                                1
+                              ]
+                            }
                           ]
                         },
                         {
-                          "op": "index",
+                          "op": "*",
                           "args": [
-                            "point_unitConversion",
-                            "r"
+                            {
+                              "op": "index",
+                              "args": [
+                                "tech_sulfatePMScale",
+                                "c",
+                                "cc"
+                              ]
+                            },
+                            {
+                              "op": "-",
+                              "args": [
+                                {
+                                  "op": "*",
+                                  "args": [
+                                    {
+                                      "op": "index",
+                                      "args": [
+                                        "tech_pmSulfurBase",
+                                        "r",
+                                        "cc"
+                                      ]
+                                    },
+                                    {
+                                      "op": "index",
+                                      "args": [
+                                        "pp_adjustment",
+                                        "r",
+                                        "q"
+                                      ]
+                                    }
+                                  ]
+                                },
+                                {
+                                  "op": "*",
+                                  "args": [
+                                    {
+                                      "op": "index",
+                                      "args": [
+                                        "point_soxBase",
+                                        "r"
+                                      ]
+                                    },
+                                    {
+                                      "op": "index",
+                                      "args": [
+                                        "point_soxCorrection",
+                                        "r"
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
                           ]
                         },
                         {
-                          "op": "index",
-                          "args": [
-                            "tech_deteriorationFactor",
-                            "c",
-                            "q",
-                            "cc"
-                          ]
+                          "op": "const",
+                          "args": [],
+                          "value": 0.0,
+                          "units": "g/h"
                         }
                       ]
                     }
                   ]
                 },
                 {
-                  "op": "index",
-                  "args": [
-                    "pp_adjustment",
-                    "r",
-                    "q"
-                  ]
+                  "op": "const",
+                  "args": [],
+                  "value": 0.0,
+                  "units": "g/h"
                 }
               ]
             }
@@ -16046,55 +17334,6 @@
           }
         },
         {
-          "_comment": "§5.4's two fuel-type namespaces. nrscc speaks NONROAD (gasoline 1, diesel 23 and 24); MOVESOutput speaks onroad. The mapping is a one-row relation joined on, not an identity assumed.",
-          "lhs": "ftm_nonroadFuelTypeID",
-          "rhs": {
-            "op": "makearray",
-            "args": [],
-            "regions": [
-              [
-                [
-                  1,
-                  1
-                ]
-              ]
-            ],
-            "values": [
-              {
-                "op": "enum",
-                "args": [
-                  "nonroad_fuel_type",
-                  "Gasoline"
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "lhs": "ftm_movesFuelTypeID",
-          "rhs": {
-            "op": "makearray",
-            "args": [],
-            "regions": [
-              [
-                [
-                  1,
-                  1
-                ]
-              ]
-            ],
-            "values": [
-              {
-                "op": "enum",
-                "args": [
-                  "moves_fuel_type",
-                  "Gasoline"
-                ]
-              }
-            ]
-          }
-        },
-        {
           "lhs": "sfp_prefix",
           "rhs": {
             "op": "const",
@@ -16291,42 +17530,6 @@
           }
         },
         {
-          "lhs": "point_outputFuelTypeID",
-          "rhs": {
-            "op": "faq",
-            "args": [],
-            "semiring": "sum_product",
-            "output_idx": [
-              "r"
-            ],
-            "ranges": {
-              "r": {
-                "from": "equipment_point_rows"
-              },
-              "f": {
-                "from": "fuel_type_mapping_rows"
-              }
-            },
-            "join": [
-              {
-                "on": [
-                  [
-                    "point_nonroadFuelTypeID",
-                    "ftm_nonroadFuelTypeID"
-                  ]
-                ]
-              }
-            ],
-            "expr": {
-              "op": "index",
-              "args": [
-                "ftm_movesFuelTypeID",
-                "f"
-              ]
-            }
-          }
-        },
-        {
           "lhs": "out_hourID",
           "rhs": {
             "op": "faq",
@@ -16417,7 +17620,7 @@
             "expr": {
               "op": "index",
               "args": [
-                "point_outputFuelTypeID",
+                "point_nonroadFuelTypeID",
                 "r"
               ]
             }
@@ -16640,22 +17843,11 @@
               }
             ],
             "expr": {
-              "op": "max",
+              "op": "index",
               "args": [
-                {
-                  "op": "index",
-                  "args": [
-                    "cell_emissionQuant",
-                    "c",
-                    "q"
-                  ]
-                },
-                {
-                  "op": "const",
-                  "args": [],
-                  "value": 0.0,
-                  "units": "g"
-                }
+                "cell_emissionQuant",
+                "c",
+                "q"
               ]
             }
           }
@@ -16773,6 +17965,74 @@
               "args": [
                 "rpp_isEmitted",
                 "q"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "run_mixSetsOffOne",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "n"
+            ],
+            "ranges": {
+              "n": {
+                "from": "run_scope_rows"
+              },
+              "c": {
+                "from": "cohort_rows"
+              }
+            },
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                {
+                  "op": "and",
+                  "args": [
+                    {
+                      "op": ">",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "cohort_isPopulated",
+                            "c"
+                          ]
+                        },
+                        0
+                      ]
+                    },
+                    {
+                      "op": ">",
+                      "args": [
+                        {
+                          "op": "abs",
+                          "args": [
+                            {
+                              "op": "-",
+                              "args": [
+                                {
+                                  "op": "index",
+                                  "args": [
+                                    "tech_fractionTotal",
+                                    "c"
+                                  ]
+                                },
+                                1
+                              ]
+                            }
+                          ]
+                        },
+                        0.002
+                      ]
+                    }
+                  ]
+                },
+                1,
+                0
               ]
             }
           }

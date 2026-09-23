@@ -36,6 +36,13 @@ slots past the last owner carry SCC 0, too short and real cohorts are cut.
     run_equipmentPointsSelected == n_equipmentPoint
     run_equipmentPointsDropped == 0
     run_extraScopeRows == 0
+    run_mixSetsOffOne == 0
+
+`run_mixSetsOffOne` is not a declared number but a guard the renormalization
+would otherwise hide: NONROAD divides every technology set by its sum
+(`rdtech_moves.f`), so a cohort that had read a second hp bin's set -- or none
+-- would still come out as a mix summing to 1. It counts populated cohorts
+whose LISTED mix misses 1 by more than the Fortran's own 0.002.
 
 usage: check-nonroad-shape.py <runspec.esm> <emitted.csv> <shape.csv>
 """
@@ -89,7 +96,7 @@ def main(doc_path, emitted_path, shape_path):
                       (len(distinct_cohorts), int(s["run_outputCohortCount"]), cohorts))
     if int(s["run_equipmentPointsSelected"]) != points:
         errors.append("equipment points: %d recomputed, %d declared" % (int(s["run_equipmentPointsSelected"]), points))
-    for k in ("run_equipmentPointsDropped", "run_extraScopeRows"):
+    for k in ("run_equipmentPointsDropped", "run_extraScopeRows", "run_mixSetsOffOne"):
         if s[k] != 0:
             errors.append("%s = %g, expected 0" % (k, s[k]))
     if errors:
