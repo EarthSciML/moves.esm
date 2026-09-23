@@ -2,7 +2,7 @@
   "esm": "1.2.0",
   "metadata": {
     "name": "moves.nonroad.model",
-    "description": "THE NONROAD DOMAIN MODEL (PLAN.md §7.5 step 7e). One model, no `data_sources`: `../moves-nonroad.esm` mounts it over the national default database and one thin document per RunSpec in `runspecs/nonroad/` mounts THAT and supplies the run's selections and its oracle. It is `fixtures/nr-logging-county.esm`'s model lifted out of the fixture -- the Phase 2 vertical slice, NONROAD's `prccty.f` chain from base-year population through `agedist.f`'s fold to `clcems.f`'s roll-up -- and the fixture stays where it is, because its 29 inline assertions run there and a mounted component's do not (F47).\n\nWHAT THE FIXTURE DECLARED AND THIS DOCUMENT READS. The fixture wrote five things into itself that a document serving more than one run cannot: (1) the six equipment points, `point_sourceTypeID = [1059, 1386..1390]`; (2) the county, state, year and day, as parameters; (3) the base year 1990; (4) the technology window 100..199; (5) the output relation's four pollutants per cohort. Here (1) is `sut_isPoint` -- the `nrsourceusetype` rows whose SCC is in the RunSpec's `/SOURCE CATEGORY/` packet (`scc_isSelected`, with NONROAD's rule that an EMPTY packet runs everything) and whose county population is positive -- ranked densely onto the point axis; (2) comes from `runspeccounty`, `runspecstate`, `runspecyear` and `runspecday`; (3) from `nrbaseyearequippopulation`; (4) is `engineTech`; and (5) is `n_runspecpollutantprocess`. The allocation moved from the point axis to the equipment-type axis, because the surrogate is the equipment type's and the point axis is not known until the allocation is.\n\nWHAT THE SECOND AND THIRD RUNS FOUND, which the first could not. `nr-lawn-garden-county` has SCCs whose exact rate rows cover some technologies and not others, so NONROAD's SCC chain (`fndefc.f`: exact, `xxxxxxx000`, `xxxx000000`) is walked per (pollutant, technology) and not once per point (`tech_rateRow`); and it has points ON a bin boundary -- 37 national points sit on one -- which take the LOWER bin in both the rate and the tech-mix lookups rather than the sum of both (`tech_rate*Row`, `point_mixBinLow`). `nr-recreational-county` selects SO2, which `clcems.f` does not read from a table but WRITES from BSFC and THC, so the rate and deterioration lookups moved onto the axis of what NONROAD always rates (`rated_pp_rows`), and `emsadj.f`'s sulfur correction reads the in-use sulfur of the county's nonroad fuel supply (`fk_sulfurWeightPercent`). `nr-logging-county`'s 144 rows are byte-identical to the fixture's through all of it. `fixtures/nr-airtoxics-lawn-garden-county.esm` had found three of these rules first; a fourth it found -- that a (pollutant, technology) pair with no `nrdeterioration` row deteriorates by 1 and not 0 -- is here too.\n\nIT IS EVALUATED IN BINARY32, and the declaration that makes it so is NOT this document's `domain`: the pinned toolchain drops a mounted leaf's `domain.element_type` and evaluates it in the ROOT's precision, silently (docs/findings F60). So every RunSpec in `runspecs/nonroad/` declares `Float32` itself, and `nr-logging-county` without it loses exactly the four rows `docs/nonroad-logging-county.md` §7.3 says binary64 costs. Twenty-one variables still override to Float64, and each holds an SCC or a constant that meets one in the same operator.\n\nFOUR NUMBERS ARE DECLARED, because no table states them and MOVES works them out at run time: `n_equipmentPoint`, `n_outputCohort`, `n_outputPolProcess` and `n_foldYear`. Each is recomputed by the chain -- `run_equipmentPointsSelected`, `run_outputCohortCount`, `run_outputPolProcessCount`, `run_extraScopeRows` -- and tools/check-nonroad-shape.py asserts the declaration against the recomputation and the emitted keys.\n\nSTATE SCALE IS A COUNTY AT A PSEUDO-COUNTY (PLAN.md §7.3.35). MOVES runs a state-level RunSpec at county stateID x 1000, zone stateID x 10000 and fuel region stateID, which it BUILDS (`PreAggSTATE.sql`, `DefaultDataMaker`) and no national table has. So the temperature is a weighted SUM over zones (`zone_runWeight`, divided by the 13 daytime hours and not by the weights, which are rounded before they are divided and sum to less than 1), the nonroad fuel supply is one union relation of the national rows and one default row per `nrFuelType` (`rsu_*`), the `.OPT` packet's func A falls back to formulation 10 when the default formulation 12 joins nothing, and nothing is allocated. At a real county each piece reduces to the formula it replaced. The output carries only what NONROAD EMITS (`emitted_pp_rows`), clamped at zero per record as `NonroadOutputDataLoader` does.\n\nNOT CARRIED YET: nation scale (a nation run is the SUM of state computations under a national temperature and fuel -- `prc1st.f` per state record -- and MOVES pre-aggregates the national fuel supply by region activity, `PreAggNATION.sql`), the non-gasoline fuels' PM sulfur correction and `nrSulfurAdjustment`, reformulated gasoline, CO2 and crankcase, and the air-toxics and speciation chain `fixtures/nr-airtoxics-lawn-garden-county.esm` computes."
+    "description": "THE NONROAD DOMAIN MODEL (PLAN.md §7.5 step 7e). One model, no `data_sources`: `../moves-nonroad.esm` mounts it over the national default database and one thin document per RunSpec in `runspecs/nonroad/` mounts THAT and supplies the run's selections and its oracle. It is `fixtures/nr-logging-county.esm`'s model lifted out of the fixture -- the Phase 2 vertical slice, NONROAD's `prccty.f` chain from base-year population through `agedist.f`'s fold to `clcems.f`'s roll-up -- and the fixture stays where it is, because its 29 inline assertions run there and a mounted component's do not (F47).\n\nWHAT THE FIXTURE DECLARED AND THIS DOCUMENT READS. The fixture wrote five things into itself that a document serving more than one run cannot: (1) the six equipment points, `point_sourceTypeID = [1059, 1386..1390]`; (2) the county, state, year and day, as parameters; (3) the base year 1990; (4) the technology window 100..199; (5) the output relation's four pollutants per cohort. Here (1) is `sut_isPoint` -- the `nrsourceusetype` rows whose SCC is in the RunSpec's `/SOURCE CATEGORY/` packet (`scc_isSelected`, with NONROAD's rule that an EMPTY packet runs everything) and whose county population is positive -- ranked densely onto the point axis; (2) comes from `runspeccounty`, `runspecstate`, `runspecyear` and `runspecday`; (3) from `nrbaseyearequippopulation`; (4) is `engineTech`; and (5) is `n_runspecpollutantprocess`. The allocation moved from the point axis to the equipment-type axis, because the surrogate is the equipment type's and the point axis is not known until the allocation is.\n\nWHAT THE SECOND AND THIRD RUNS FOUND, which the first could not. `nr-lawn-garden-county` has SCCs whose exact rate rows cover some technologies and not others, so NONROAD's SCC chain (`fndefc.f`: exact, `xxxxxxx000`, `xxxx000000`) is walked per (pollutant, technology) and not once per point (`tech_rateRow`); and it has points ON a bin boundary -- 37 national points sit on one -- which take the LOWER bin in both the rate and the tech-mix lookups rather than the sum of both (`tech_rate*Row`, `point_mixBinLow`). `nr-recreational-county` selects SO2, which `clcems.f` does not read from a table but WRITES from BSFC and THC, so the rate and deterioration lookups moved onto the axis of what NONROAD always rates (`rated_pp_rows`), and `emsadj.f`'s sulfur correction reads the in-use sulfur of the county's nonroad fuel supply (`fk_sulfurWeightPercent`). `nr-logging-county`'s 144 rows are byte-identical to the fixture's through all of it. `fixtures/nr-airtoxics-lawn-garden-county.esm` had found three of these rules first; a fourth it found -- that a (pollutant, technology) pair with no `nrdeterioration` row deteriorates by 1 and not 0 -- is here too.\n\nIT IS EVALUATED IN BINARY32, and the declaration that makes it so is NOT this document's `domain`: the pinned toolchain drops a mounted leaf's `domain.element_type` and evaluates it in the ROOT's precision, silently (docs/findings F60). So every RunSpec in `runspecs/nonroad/` declares `Float32` itself, and `nr-logging-county` without it loses exactly the four rows `docs/nonroad-logging-county.md` §7.3 says binary64 costs. Twenty-one variables still override to Float64, and each holds an SCC or a constant that meets one in the same operator.\n\nFOUR NUMBERS ARE DECLARED, because no table states them and MOVES works them out at run time: `n_equipmentPoint`, `n_outputCohort`, `n_outputPolProcess` and `n_foldYear`. Each is recomputed by the chain -- `run_equipmentPointsSelected`, `run_outputCohortCount`, `run_outputPolProcessCount`, `run_extraScopeRows` -- and tools/check-nonroad-shape.py asserts the declaration against the recomputation and the emitted keys.\n\nSTATE SCALE IS A COUNTY AT A PSEUDO-COUNTY (PLAN.md §7.3.35). MOVES runs a state-level RunSpec at county stateID x 1000, zone stateID x 10000 and fuel region stateID, which it BUILDS (`PreAggSTATE.sql`, `DefaultDataMaker`) and no national table has. So the temperature is a weighted SUM over zones (`zone_runWeight`, divided by the 13 daytime hours and not by the weights, which are rounded before they are divided and sum to less than 1), the nonroad fuel supply is one union relation of the national rows and one default row per `nrFuelType` (`rsu_*`), the `.OPT` packet's func A falls back to formulation 10 when the default formulation 12 joins nothing, and nothing is allocated. At a real county each piece reduces to the formula it replaced. The output carries only what NONROAD EMITS (`emitted_pp_rows`), clamped at zero per record as `NonroadOutputDataLoader` does.\n\nNATION SCALE IS A COUNTY 0 (PLAN.md §7.3.36), and it is NOT a sum of state runs. `PreAggNATION.sql` folds every state into one state 0 before NONROAD sees a table, and the model computes each fold from the national rows (`run_isNationScale`), leaving out Puerto Rico and the Virgin Islands as it does (`state_is_in_nation`): the population is the states' SUM, `.POP`-rounded once afterwards (`sut_runPopulation`); the growth pattern is the states' MINIMUM per SCC (`gpf_runStateID`, a `min_sum`); the month allocation is another table, `nrUSMonthAllocation`, so the run's month table is a union (`rma_*`); the temperature is the start-weighted mean over every zone, renormalized where a state's is not; the fuel supply is every region's share weighted by the region's start activity (`sup_regionShare`); and the output has no state. Off the nation each is the formula it replaced.\n\nNOT CARRIED YET: the non-gasoline fuels' PM sulfur correction and `nrSulfurAdjustment`, reformulated gasoline, CO2 and crankcase, and the air-toxics and speciation chain `fixtures/nr-airtoxics-lawn-garden-county.esm` computes."
   },
   "domain": {
     "element_type": "Float32"
@@ -77,6 +77,11 @@
       "type": "integer",
       "default": 0,
       "description": "Rows in nrmonthallocation. Runtime-discovered; see n_nrscc."
+    },
+    "n_nrusmonthallocation": {
+      "type": "integer",
+      "default": 0,
+      "description": "Rows in nrusmonthallocation. Runtime-discovered; see n_nrscc."
     },
     "n_nrdayallocation": {
       "type": "integer",
@@ -269,6 +274,20 @@
     "nrmonthallocation_rows": {
       "kind": "interval",
       "size": "n_nrmonthallocation"
+    },
+    "nrusmonthallocation_rows": {
+      "kind": "interval",
+      "size": "n_nrusmonthallocation"
+    },
+    "run_month_allocation_rows": {
+      "kind": "interval",
+      "size": {
+        "op": "+",
+        "args": [
+          "n_nrmonthallocation",
+          "n_nrusmonthallocation"
+        ]
+      }
     },
     "nrdayallocation_rows": {
       "kind": "interval",
@@ -477,7 +496,8 @@
             "pol_process_id",
             "pollutant_id_of",
             "process_id_of",
-            "null_output_column"
+            "null_output_column",
+            "state_is_in_nation"
           ]
         },
         {
@@ -698,6 +718,14 @@
             }
           }
         },
+        "pop_runWeight": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "nrbaseyearequippopulation_rows"
+          ],
+          "description": "1 on a population row of the run's state -- at the nation, of any state but 72 and 78, which `PreAggNATION.sql` sums into one stateID 0 row per source type -- else 0."
+        },
         "pop_NRBaseYearID": {
           "type": "parameter",
           "units": "1",
@@ -899,7 +927,15 @@
           "shape": [
             "nrsourceusetype_rows"
           ],
-          "description": "The row's base-year population in the run's state, each `nrbaseyearequippopulation` row rounded to one decimal as `NonroadDataFileHelper.generatePopFile` writes it (`pop_file_rounding`)."
+          "description": "The population the .POP file carries for the run's state -- or the nation's -- `%17.1f`-rounded once, after the states are summed (`NonroadDataFileHelper.generatePopFile` writes the PreAgg'd row)."
+        },
+        "sut_runPopulation": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "nrsourceusetype_rows"
+          ],
+          "description": "The source type's base-year population over the run's states, before the .POP file rounds it: one state's row, or the nation's sum."
         },
         "sut_allocationFraction": {
           "type": "unknown",
@@ -974,6 +1010,11 @@
           "type": "unknown",
           "units": "1",
           "description": "1 when the run's county is a real county, 0 when it is a state's pseudo-county (stateID x 1000) or the nation's (0). MOVES runs a state-level RunSpec at a county it BUILDS -- `PreAggSTATE.sql` writes zone stateID x 10000, county stateID x 1000 and fuel region stateID -- and NONROAD's `prcsta.f` then neither allocates nor reads a county's surrogate."
+        },
+        "run_isNationScale": {
+          "type": "unknown",
+          "units": "1",
+          "description": "1 when the run is the nation's, county 0. `PreAggNATION.sql` then folds every state into a state 0 before NONROAD sees the tables -- population, growth pattern, month allocation, temperature and fuel supply -- and each fold is computed here from the national rows, leaving out Puerto Rico and the Virgin Islands as it does (`state_is_in_nation`)."
         },
         "nationalDefaultStateID": {
           "type": "parameter",
@@ -1304,6 +1345,104 @@
             }
           }
         },
+        "usm_SCC": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "nrusmonthallocation_rows"
+          ],
+          "description": "nrusmonthallocation.SCC.",
+          "update": {
+            "kind": "data",
+            "source": "db_nrusmonthallocation",
+            "from": {
+              "file_variable": "SCC"
+            }
+          },
+          "element_type": "Float64"
+        },
+        "usm_stateID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "nrusmonthallocation_rows"
+          ],
+          "description": "nrusmonthallocation.stateID: 0 on every row.",
+          "update": {
+            "kind": "data",
+            "source": "db_nrusmonthallocation",
+            "from": {
+              "file_variable": "stateID"
+            }
+          }
+        },
+        "usm_monthID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "nrusmonthallocation_rows"
+          ],
+          "description": "nrusmonthallocation.monthID.",
+          "update": {
+            "kind": "data",
+            "source": "db_nrusmonthallocation",
+            "from": {
+              "file_variable": "monthID"
+            }
+          }
+        },
+        "usm_monthFraction": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "nrusmonthallocation_rows"
+          ],
+          "description": "nrusmonthallocation.monthFraction.",
+          "update": {
+            "kind": "data",
+            "source": "db_nrusmonthallocation",
+            "from": {
+              "file_variable": "monthFraction"
+            }
+          }
+        },
+        "rma_SCC": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "run_month_allocation_rows"
+          ],
+          "description": "The run's month allocation table, a union: `nrMonthAllocation`'s rows, then `nrUSMonthAllocation`'s. At the nation `PreAggNATION.sql` replaces the first with the second's state 0 rows; off it the second is not read. `rma_stateID` says which half the run has.",
+          "element_type": "Float64"
+        },
+        "rma_stateID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "run_month_allocation_rows"
+          ],
+          "description": "The row's state in the run's table, -1 (which matches nothing) on the half the run does not have."
+        },
+        "rma_monthID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "run_month_allocation_rows"
+          ],
+          "description": "The row's month."
+        },
+        "rma_monthFraction": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "run_month_allocation_rows"
+          ],
+          "description": "The row's month fraction."
+        },
         "dal_SCC": {
           "type": "parameter",
           "element_type": "Float64",
@@ -1401,13 +1540,58 @@
           ],
           "description": "The summed `startAllocFactor` of the zone's state's zones, rounded to six decimals as `PreAggSTATE.sql`'s `ROUND(az.startAllocFactor, 6)` does."
         },
+        "zone_isInNation": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "zone_rows"
+          ],
+          "description": "1 on a zone of the nation, every state's but 72's and 78's."
+        },
+        "zone_fuelRegionID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "zone_rows"
+          ],
+          "description": "The zone's county's nonroad fuel region in the run's fuel year (`regioncounty`, regionCodeID 1). One region per county per year, and one zone per county, in the default database."
+        },
+        "zone_regionActivity": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "zone_rows"
+          ],
+          "description": "The summed start activity of the nation's zones in the zone's fuel region: `PreAggNATION.sql`'s `SurrogateRegionActivity` before it is normalized, carried on every zone of the region."
+        },
+        "zone_regionFirst": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "zone_rows"
+          ],
+          "description": "The first zone of the zone's fuel region, by row."
+        },
+        "zone_regionKey": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "zone_rows"
+          ],
+          "description": "The zone's fuel region on its region's first zone, -1 (which matches nothing) on the rest: the key a supply row gathers its region's activity through, once."
+        },
         "zone_runWeight": {
           "type": "unknown",
           "units": "1",
           "shape": [
             "zone_rows"
           ],
-          "description": "The zone's weight in the run's ambient temperature. At county scale 1 on the county's own zone and 0 elsewhere, which is the join it replaces; at state scale `PreAggSTATE.sql`'s `actFract = ROUND(startAllocFactor, 6) / ROUND(state sum, 6)` on the state's zones, the weight its pseudo-zone's `ZoneMonthHour` was written with."
+          "description": "The zone's weight in the run's ambient temperature. At county scale 1 on the county's own zone and 0 elsewhere, which is the join it replaces; at state scale `PreAggSTATE.sql`'s `actFract = ROUND(startAllocFactor, 6) / ROUND(state sum, 6)` on the state's zones, the weight its pseudo-zone's `ZoneMonthHour` was written with. At the nation, `PreAggNATION.sql`'s `startAllocFactor / nationalActivityFraction` on every zone of the nation."
+        },
+        "run_nationActivity": {
+          "type": "unknown",
+          "units": "1",
+          "description": "The summed `startAllocFactor` of the nation's zones, `PreAggNATION.sql`'s `nationalActivityFraction`, which the nation's temperature IS divided by -- unlike a state's."
         },
         "zmh_zoneID": {
           "type": "parameter",
@@ -2058,13 +2242,37 @@
           ],
           "description": "`regioncounty.regionID` for the run's county at regionCodeID 2 and the run's fuel year: 0 at a pseudo-county, which the national table has no row for."
         },
+        "run_regionActivityTotal": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "run_scope_rows"
+          ],
+          "description": "The start activity of every nonroad fuel region in the run's fuel year, which a region's activity is divided by: each region's once, from its first zone."
+        },
         "sup_isRunSupply": {
           "type": "unknown",
           "units": "1",
           "shape": [
             "nrfuelsupply_rows"
           ],
-          "description": "1 on the national `nrfuelsupply` rows of the run's fuel region, fuel year and month group -- the rows the `.OPT` packet's queries select (NonroadOptFileSqlHelper.java, funcs A to E) -- and 0 elsewhere."
+          "description": "1 on the national `nrfuelsupply` rows of the run's fuel region, fuel year and month group -- the rows the `.OPT` packet's queries select (NonroadOptFileSqlHelper.java, funcs A to E) -- and 0 elsewhere. At the nation every region's rows are the run's."
+        },
+        "sup_regionActivity": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "nrfuelsupply_rows"
+          ],
+          "description": "The start activity of the row's fuel region in the RUN's fuel year, gathered from the region's first zone. A row of another fuel year gets it too, and is out of the run's supply (`sup_isRunSupply`) either way."
+        },
+        "sup_regionShare": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "nrfuelsupply_rows"
+          ],
+          "description": "The weight of the row's market share in the run's supply: 1 off the nation, where one region's rows are the run's; at the nation the region's share of the nation's activity, `PreAggNATION.sql`'s `SurrogateRegionActivity`, and the run's supply is `sum(marketShare x actFract)` over every region."
         },
         "nft_isSelected": {
           "type": "unknown",
@@ -2355,6 +2563,14 @@
               "file_variable": "stateID"
             }
           }
+        },
+        "gpf_runStateID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "nrgrowthpatternfinder_rows"
+          ],
+          "description": "The row's state as the run's copy of the table has it: its own off the nation, 0 at the nation for every state but 72 and 78 (-1, which matches nothing) -- `PreAggNATION.sql` rewrites the table as one stateID 0 row per SCC carrying `min(growthPatternID)`, so the nation's rows are all the states' rows and the pattern is their minimum."
         },
         "gpf_growthPatternID": {
           "type": "parameter",
@@ -2839,7 +3055,7 @@
           "shape": [
             "equipment_point_rows"
           ],
-          "description": "J8: 2176."
+          "description": "J8: 2176. The MINIMUM over the matching rows: one row off the nation, every state's at the nation."
         },
         "point_baseGrowthIndex": {
           "type": "unknown",
@@ -4122,6 +4338,23 @@
           }
         },
         {
+          "lhs": "run_isNationScale",
+          "rhs": {
+            "op": "ifelse",
+            "args": [
+              {
+                "op": "==",
+                "args": [
+                  "runCountyID",
+                  0
+                ]
+              },
+              1,
+              0
+            ]
+          }
+        },
+        {
           "lhs": "runBaseYearID",
           "rhs": {
             "op": "faq",
@@ -5002,7 +5235,69 @@
           }
         },
         {
-          "lhs": "sut_statePopulation",
+          "lhs": "pop_runWeight",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "p"
+            ],
+            "ranges": {
+              "p": {
+                "from": "nrbaseyearequippopulation_rows"
+              }
+            },
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                {
+                  "op": ">",
+                  "args": [
+                    "run_isNationScale",
+                    0
+                  ]
+                },
+                {
+                  "op": "apply_expression_template",
+                  "args": [],
+                  "name": "state_is_in_nation",
+                  "bindings": {
+                    "state_id": {
+                      "op": "index",
+                      "args": [
+                        "pop_stateID",
+                        "p"
+                      ]
+                    }
+                  }
+                },
+                {
+                  "op": "ifelse",
+                  "args": [
+                    {
+                      "op": "==",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "pop_stateID",
+                            "p"
+                          ]
+                        },
+                        "runStateID"
+                      ]
+                    },
+                    1,
+                    0
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "sut_runPopulation",
           "rhs": {
             "op": "faq",
             "args": [],
@@ -5016,9 +5311,6 @@
               },
               "p": {
                 "from": "nrbaseyearequippopulation_rows"
-              },
-              "k": {
-                "from": "runspecstate_rows"
               }
             },
             "join": [
@@ -5029,16 +5321,43 @@
                     "pop_sourceTypeID"
                   ]
                 ]
-              },
-              {
-                "on": [
-                  [
-                    "pop_stateID",
-                    "rss_stateID"
-                  ]
-                ]
               }
             ],
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "pop_population",
+                    "p"
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "pop_runWeight",
+                    "p"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "sut_statePopulation",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "u"
+            ],
+            "ranges": {
+              "u": {
+                "from": "nrsourceusetype_rows"
+              }
+            },
             "expr": {
               "op": "apply_expression_template",
               "args": [],
@@ -5047,8 +5366,8 @@
                 "population": {
                   "op": "index",
                   "args": [
-                    "pop_population",
-                    "p"
+                    "sut_runPopulation",
+                    "u"
                   ]
                 }
               }
@@ -5868,6 +6187,272 @@
           }
         },
         {
+          "lhs": "rma_SCC",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "m"
+            ],
+            "ranges": {
+              "m": {
+                "from": "run_month_allocation_rows"
+              }
+            },
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                {
+                  "op": "<=",
+                  "args": [
+                    "m",
+                    "n_nrmonthallocation"
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "mal_SCC",
+                    {
+                      "op": "min",
+                      "args": [
+                        "m",
+                        "n_nrmonthallocation"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "usm_SCC",
+                    {
+                      "op": "max",
+                      "args": [
+                        {
+                          "op": "-",
+                          "args": [
+                            "m",
+                            "n_nrmonthallocation"
+                          ]
+                        },
+                        1
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rma_stateID",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "m"
+            ],
+            "ranges": {
+              "m": {
+                "from": "run_month_allocation_rows"
+              }
+            },
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                {
+                  "op": "<=",
+                  "args": [
+                    "m",
+                    "n_nrmonthallocation"
+                  ]
+                },
+                {
+                  "op": "ifelse",
+                  "args": [
+                    {
+                      "op": ">",
+                      "args": [
+                        "run_isNationScale",
+                        0
+                      ]
+                    },
+                    -1,
+                    {
+                      "op": "index",
+                      "args": [
+                        "mal_stateID",
+                        {
+                          "op": "min",
+                          "args": [
+                            "m",
+                            "n_nrmonthallocation"
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "op": "ifelse",
+                  "args": [
+                    {
+                      "op": ">",
+                      "args": [
+                        "run_isNationScale",
+                        0
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "usm_stateID",
+                        {
+                          "op": "max",
+                          "args": [
+                            {
+                              "op": "-",
+                              "args": [
+                                "m",
+                                "n_nrmonthallocation"
+                              ]
+                            },
+                            1
+                          ]
+                        }
+                      ]
+                    },
+                    -1
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rma_monthID",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "m"
+            ],
+            "ranges": {
+              "m": {
+                "from": "run_month_allocation_rows"
+              }
+            },
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                {
+                  "op": "<=",
+                  "args": [
+                    "m",
+                    "n_nrmonthallocation"
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "mal_monthID",
+                    {
+                      "op": "min",
+                      "args": [
+                        "m",
+                        "n_nrmonthallocation"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "usm_monthID",
+                    {
+                      "op": "max",
+                      "args": [
+                        {
+                          "op": "-",
+                          "args": [
+                            "m",
+                            "n_nrmonthallocation"
+                          ]
+                        },
+                        1
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rma_monthFraction",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "m"
+            ],
+            "ranges": {
+              "m": {
+                "from": "run_month_allocation_rows"
+              }
+            },
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                {
+                  "op": "<=",
+                  "args": [
+                    "m",
+                    "n_nrmonthallocation"
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "mal_monthFraction",
+                    {
+                      "op": "min",
+                      "args": [
+                        "m",
+                        "n_nrmonthallocation"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "usm_monthFraction",
+                    {
+                      "op": "max",
+                      "args": [
+                        {
+                          "op": "-",
+                          "args": [
+                            "m",
+                            "n_nrmonthallocation"
+                          ]
+                        },
+                        1
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
           "_comment": "The month ladder's three presence questions, each scoped by the run month and the two visible states, because the ladder searches WITHIN that scope -- a rung that exists only for another month is not a match.",
           "lhs": "point_monthExactIsPresent",
           "rhs": {
@@ -5882,7 +6467,7 @@
                 "from": "equipment_point_rows"
               },
               "m": {
-                "from": "nrmonthallocation_rows"
+                "from": "run_month_allocation_rows"
               },
               "u": {
                 "from": "runspecmonth_rows"
@@ -5896,14 +6481,14 @@
                 "on": [
                   [
                     "point_SCC",
-                    "mal_SCC"
+                    "rma_SCC"
                   ]
                 ]
               },
               {
                 "on": [
                   [
-                    "mal_monthID",
+                    "rma_monthID",
                     "rsm_monthID"
                   ]
                 ]
@@ -5911,7 +6496,7 @@
               {
                 "on": [
                   [
-                    "mal_stateID",
+                    "rma_stateID",
                     "alloc_scope_stateID"
                   ]
                 ]
@@ -5934,7 +6519,7 @@
                 "from": "equipment_point_rows"
               },
               "m": {
-                "from": "nrmonthallocation_rows"
+                "from": "run_month_allocation_rows"
               },
               "u": {
                 "from": "runspecmonth_rows"
@@ -5948,14 +6533,14 @@
                 "on": [
                   [
                     "point_sccZero2",
-                    "mal_SCC"
+                    "rma_SCC"
                   ]
                 ]
               },
               {
                 "on": [
                   [
-                    "mal_monthID",
+                    "rma_monthID",
                     "rsm_monthID"
                   ]
                 ]
@@ -5963,7 +6548,7 @@
               {
                 "on": [
                   [
-                    "mal_stateID",
+                    "rma_stateID",
                     "alloc_scope_stateID"
                   ]
                 ]
@@ -5986,7 +6571,7 @@
                 "from": "equipment_point_rows"
               },
               "m": {
-                "from": "nrmonthallocation_rows"
+                "from": "run_month_allocation_rows"
               },
               "u": {
                 "from": "runspecmonth_rows"
@@ -6000,14 +6585,14 @@
                 "on": [
                   [
                     "point_sccZero4",
-                    "mal_SCC"
+                    "rma_SCC"
                   ]
                 ]
               },
               {
                 "on": [
                   [
-                    "mal_monthID",
+                    "rma_monthID",
                     "rsm_monthID"
                   ]
                 ]
@@ -6015,7 +6600,7 @@
               {
                 "on": [
                   [
-                    "mal_stateID",
+                    "rma_stateID",
                     "alloc_scope_stateID"
                   ]
                 ]
@@ -6106,7 +6691,7 @@
                 "from": "equipment_point_rows"
               },
               "m": {
-                "from": "nrmonthallocation_rows"
+                "from": "run_month_allocation_rows"
               },
               "u": {
                 "from": "runspecmonth_rows"
@@ -6120,14 +6705,14 @@
                 "on": [
                   [
                     "point_monthEffectiveSCC",
-                    "mal_SCC"
+                    "rma_SCC"
                   ]
                 ]
               },
               {
                 "on": [
                   [
-                    "mal_monthID",
+                    "rma_monthID",
                     "rsm_monthID"
                   ]
                 ]
@@ -6135,7 +6720,7 @@
               {
                 "on": [
                   [
-                    "mal_stateID",
+                    "rma_stateID",
                     "alloc_runspec_stateID"
                   ]
                 ]
@@ -6195,7 +6780,7 @@
                 "from": "equipment_point_rows"
               },
               "m": {
-                "from": "nrmonthallocation_rows"
+                "from": "run_month_allocation_rows"
               },
               "u": {
                 "from": "runspecmonth_rows"
@@ -6206,18 +6791,18 @@
                 "on": [
                   [
                     "point_monthEffectiveSCC",
-                    "mal_SCC"
+                    "rma_SCC"
                   ],
                   [
                     "point_monthEffectiveStateID",
-                    "mal_stateID"
+                    "rma_stateID"
                   ]
                 ]
               },
               {
                 "on": [
                   [
-                    "mal_monthID",
+                    "rma_monthID",
                     "rsm_monthID"
                   ]
                 ]
@@ -6241,7 +6826,7 @@
                 "from": "equipment_point_rows"
               },
               "m": {
-                "from": "nrmonthallocation_rows"
+                "from": "run_month_allocation_rows"
               },
               "u": {
                 "from": "runspecmonth_rows"
@@ -6252,18 +6837,18 @@
                 "on": [
                   [
                     "point_monthEffectiveSCC",
-                    "mal_SCC"
+                    "rma_SCC"
                   ],
                   [
                     "point_monthEffectiveStateID",
-                    "mal_stateID"
+                    "rma_stateID"
                   ]
                 ]
               },
               {
                 "on": [
                   [
-                    "mal_monthID",
+                    "rma_monthID",
                     "rsm_monthID"
                   ]
                 ]
@@ -6272,7 +6857,7 @@
             "expr": {
               "op": "index",
               "args": [
-                "mal_monthFraction",
+                "rma_monthFraction",
                 "m"
               ]
             }
@@ -6785,6 +7370,240 @@
           }
         },
         {
+          "lhs": "zone_isInNation",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "z"
+            ],
+            "ranges": {
+              "z": {
+                "from": "zone_rows"
+              }
+            },
+            "expr": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "state_is_in_nation",
+              "bindings": {
+                "state_id": {
+                  "op": "index",
+                  "args": [
+                    "zone_stateID",
+                    "z"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "lhs": "zone_fuelRegionID",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "z"
+            ],
+            "ranges": {
+              "z": {
+                "from": "zone_rows"
+              },
+              "c": {
+                "from": "regioncounty_rows"
+              },
+              "n": {
+                "from": "run_scope_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rc_countyID",
+                    "zone_countyID"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "rc_regionCodeID",
+                    "run_fuelRegionCodeID"
+                  ],
+                  [
+                    "rc_fuelYearID",
+                    "run_fuelYearID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "rc_regionID",
+                "c"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "zone_regionActivity",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "z"
+            ],
+            "ranges": {
+              "z": {
+                "from": "zone_rows"
+              },
+              "z2": {
+                "from": "zone_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "zone_fuelRegionID",
+                    "zone_fuelRegionID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "zone_startAllocFactor",
+                    "z2"
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "zone_isInNation",
+                    "z2"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "zone_regionFirst",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "min_sum",
+            "output_idx": [
+              "z"
+            ],
+            "ranges": {
+              "z": {
+                "from": "zone_rows"
+              },
+              "z2": {
+                "from": "zone_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "zone_fuelRegionID",
+                    "zone_fuelRegionID"
+                  ]
+                ]
+              }
+            ],
+            "expr": "z2"
+          }
+        },
+        {
+          "lhs": "zone_regionKey",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "z"
+            ],
+            "ranges": {
+              "z": {
+                "from": "zone_rows"
+              }
+            },
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                {
+                  "op": "==",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "zone_regionFirst",
+                        "z"
+                      ]
+                    },
+                    "z"
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "zone_fuelRegionID",
+                    "z"
+                  ]
+                },
+                -1
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "run_nationActivity",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [],
+            "ranges": {
+              "z": {
+                "from": "zone_rows"
+              }
+            },
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "zone_startAllocFactor",
+                    "z"
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "zone_isInNation",
+                    "z"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
           "lhs": "zone_runWeight",
           "rhs": {
             "op": "faq",
@@ -6804,112 +7623,149 @@
                 {
                   "op": ">",
                   "args": [
-                    "run_isCountyScale",
+                    "run_isNationScale",
                     0
                   ]
                 },
                 {
-                  "op": "ifelse",
+                  "op": "/",
                   "args": [
                     {
-                      "op": "==",
+                      "op": "*",
                       "args": [
                         {
                           "op": "index",
                           "args": [
-                            "zone_countyID",
+                            "zone_startAllocFactor",
                             "z"
                           ]
                         },
-                        "runCountyID"
-                      ]
-                    },
-                    1,
-                    0
-                  ]
-                },
-                {
-                  "op": "ifelse",
-                  "args": [
-                    {
-                      "op": "==",
-                      "args": [
                         {
                           "op": "index",
                           "args": [
-                            "zone_stateID",
+                            "zone_isInNation",
                             "z"
-                          ]
-                        },
-                        "runStateID"
-                      ]
-                    },
-                    {
-                      "op": "/",
-                      "args": [
-                        {
-                          "op": "/",
-                          "args": [
-                            {
-                              "op": "floor",
-                              "args": [
-                                {
-                                  "op": "+",
-                                  "args": [
-                                    {
-                                      "op": "*",
-                                      "args": [
-                                        {
-                                          "op": "index",
-                                          "args": [
-                                            "zone_startAllocFactor",
-                                            "z"
-                                          ]
-                                        },
-                                        1000000
-                                      ]
-                                    },
-                                    0.5
-                                  ]
-                                }
-                              ]
-                            },
-                            1000000
-                          ]
-                        },
-                        {
-                          "op": "/",
-                          "args": [
-                            {
-                              "op": "floor",
-                              "args": [
-                                {
-                                  "op": "+",
-                                  "args": [
-                                    {
-                                      "op": "*",
-                                      "args": [
-                                        {
-                                          "op": "index",
-                                          "args": [
-                                            "zone_stateActivity",
-                                            "z"
-                                          ]
-                                        },
-                                        1000000
-                                      ]
-                                    },
-                                    0.5
-                                  ]
-                                }
-                              ]
-                            },
-                            1000000
                           ]
                         }
                       ]
                     },
-                    0
+                    "run_nationActivity"
+                  ]
+                },
+                {
+                  "op": "ifelse",
+                  "args": [
+                    {
+                      "op": ">",
+                      "args": [
+                        "run_isCountyScale",
+                        0
+                      ]
+                    },
+                    {
+                      "op": "ifelse",
+                      "args": [
+                        {
+                          "op": "==",
+                          "args": [
+                            {
+                              "op": "index",
+                              "args": [
+                                "zone_countyID",
+                                "z"
+                              ]
+                            },
+                            "runCountyID"
+                          ]
+                        },
+                        1,
+                        0
+                      ]
+                    },
+                    {
+                      "op": "ifelse",
+                      "args": [
+                        {
+                          "op": "==",
+                          "args": [
+                            {
+                              "op": "index",
+                              "args": [
+                                "zone_stateID",
+                                "z"
+                              ]
+                            },
+                            "runStateID"
+                          ]
+                        },
+                        {
+                          "op": "/",
+                          "args": [
+                            {
+                              "op": "/",
+                              "args": [
+                                {
+                                  "op": "floor",
+                                  "args": [
+                                    {
+                                      "op": "+",
+                                      "args": [
+                                        {
+                                          "op": "*",
+                                          "args": [
+                                            {
+                                              "op": "index",
+                                              "args": [
+                                                "zone_startAllocFactor",
+                                                "z"
+                                              ]
+                                            },
+                                            1000000
+                                          ]
+                                        },
+                                        0.5
+                                      ]
+                                    }
+                                  ]
+                                },
+                                1000000
+                              ]
+                            },
+                            {
+                              "op": "/",
+                              "args": [
+                                {
+                                  "op": "floor",
+                                  "args": [
+                                    {
+                                      "op": "+",
+                                      "args": [
+                                        {
+                                          "op": "*",
+                                          "args": [
+                                            {
+                                              "op": "index",
+                                              "args": [
+                                                "zone_stateActivity",
+                                                "z"
+                                              ]
+                                            },
+                                            1000000
+                                          ]
+                                        },
+                                        0.5
+                                      ]
+                                    }
+                                  ]
+                                },
+                                1000000
+                              ]
+                            }
+                          ]
+                        },
+                        0
+                      ]
+                    }
                   ]
                 }
               ]
@@ -7257,6 +8113,51 @@
           }
         },
         {
+          "lhs": "run_regionActivityTotal",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "n"
+            ],
+            "ranges": {
+              "n": {
+                "from": "run_scope_rows"
+              },
+              "z": {
+                "from": "zone_rows"
+              }
+            },
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                {
+                  "op": ">",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "zone_regionKey",
+                        "z"
+                      ]
+                    },
+                    0
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "zone_regionActivity",
+                    "z"
+                  ]
+                },
+                0
+              ]
+            }
+          }
+        },
+        {
           "lhs": "run_fuelRegionID",
           "rhs": {
             "op": "faq",
@@ -7316,20 +8217,32 @@
                   "op": "and",
                   "args": [
                     {
-                      "op": "==",
+                      "op": "or",
                       "args": [
                         {
-                          "op": "index",
+                          "op": ">",
                           "args": [
-                            "sup_fuelRegionID",
-                            "s"
+                            "run_isNationScale",
+                            0
                           ]
                         },
                         {
-                          "op": "index",
+                          "op": "==",
                           "args": [
-                            "run_fuelRegionID",
-                            "n"
+                            {
+                              "op": "index",
+                              "args": [
+                                "sup_fuelRegionID",
+                                "s"
+                              ]
+                            },
+                            {
+                              "op": "index",
+                              "args": [
+                                "run_fuelRegionID",
+                                "n"
+                              ]
+                            }
                           ]
                         }
                       ]
@@ -7376,6 +8289,93 @@
                 },
                 1,
                 0
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "sup_regionActivity",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "s"
+            ],
+            "ranges": {
+              "s": {
+                "from": "nrfuelsupply_rows"
+              },
+              "z": {
+                "from": "zone_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "zone_regionKey",
+                    "sup_fuelRegionID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "zone_regionActivity",
+                "z"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "sup_regionShare",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "s"
+            ],
+            "ranges": {
+              "s": {
+                "from": "nrfuelsupply_rows"
+              },
+              "n": {
+                "from": "run_scope_rows"
+              }
+            },
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                {
+                  "op": ">",
+                  "args": [
+                    "run_isNationScale",
+                    0
+                  ]
+                },
+                {
+                  "op": "/",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "sup_regionActivity",
+                        "s"
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "run_regionActivityTotal",
+                        "n"
+                      ]
+                    }
+                  ]
+                },
+                1
               ]
             }
           }
@@ -7626,6 +8626,19 @@
                       "op": "index",
                       "args": [
                         "sup_isRunSupply",
+                        {
+                          "op": "min",
+                          "args": [
+                            "s",
+                            "n_nrfuelsupply"
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "sup_regionShare",
                         {
                           "op": "min",
                           "args": [
@@ -9383,6 +10396,68 @@
           }
         },
         {
+          "lhs": "gpf_runStateID",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "g"
+            ],
+            "ranges": {
+              "g": {
+                "from": "nrgrowthpatternfinder_rows"
+              }
+            },
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                {
+                  "op": ">",
+                  "args": [
+                    "run_isNationScale",
+                    0
+                  ]
+                },
+                {
+                  "op": "ifelse",
+                  "args": [
+                    {
+                      "op": ">",
+                      "args": [
+                        {
+                          "op": "apply_expression_template",
+                          "args": [],
+                          "name": "state_is_in_nation",
+                          "bindings": {
+                            "state_id": {
+                              "op": "index",
+                              "args": [
+                                "gpf_stateID",
+                                "g"
+                              ]
+                            }
+                          }
+                        },
+                        0
+                      ]
+                    },
+                    0,
+                    -1
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "gpf_stateID",
+                    "g"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
           "_comment": "J8's ladder, scoped to the states this run can see. The exact SCC HAS a row -- at stateID 99 -- and it must not win, which is what the scope join enforces.",
           "lhs": "point_growthExactIsPresent",
           "rhs": {
@@ -9415,7 +10490,7 @@
               {
                 "on": [
                   [
-                    "gpf_stateID",
+                    "gpf_runStateID",
                     "growth_scope_stateID"
                   ]
                 ]
@@ -9456,7 +10531,7 @@
               {
                 "on": [
                   [
-                    "gpf_stateID",
+                    "gpf_runStateID",
                     "growth_scope_stateID"
                   ]
                 ]
@@ -9552,7 +10627,7 @@
               {
                 "on": [
                   [
-                    "gpf_stateID",
+                    "gpf_runStateID",
                     "alloc_runspec_stateID"
                   ]
                 ]
@@ -9603,7 +10678,7 @@
           "rhs": {
             "op": "faq",
             "args": [],
-            "semiring": "sum_product",
+            "semiring": "min_sum",
             "output_idx": [
               "r"
             ],
@@ -9624,7 +10699,7 @@
                   ],
                   [
                     "point_growthEffectiveStateID",
-                    "gpf_stateID"
+                    "gpf_runStateID"
                   ]
                 ]
               }
@@ -15281,13 +16356,31 @@
               }
             },
             "expr": {
-              "op": "floor",
+              "op": "ifelse",
               "args": [
                 {
-                  "op": "/",
+                  "op": ">",
                   "args": [
-                    "runCountyID",
-                    1000
+                    "run_isNationScale",
+                    0
+                  ]
+                },
+                {
+                  "op": "apply_expression_template",
+                  "args": [],
+                  "name": "null_output_column",
+                  "bindings": {}
+                },
+                {
+                  "op": "floor",
+                  "args": [
+                    {
+                      "op": "/",
+                      "args": [
+                        "runCountyID",
+                        1000
+                      ]
+                    }
                   ]
                 }
               ]

@@ -8151,3 +8151,34 @@ where one wrong association lives in every document at once.
 NONROAD has no slot for it, so MOVESOutput has no row; a width declared from the
 selection emitted 330 rows of zeros. The width is its own declared and checked
 number, `n_outputPolProcess`, the fourth.
+
+## 88. A pre-aggregation is a fold the model computes, and a fold the oracle cannot see needs a probe that can **[PLAN.md step 7e; `nr-commercial-nation` 908 of 908 at 6.729e-06, the five earlier runs byte-identical]**
+
+**Read the execution database before the Fortran.** NONROAD's `prc1st.f` reads
+a population record per region, and the national tables have no state 0
+anywhere, so a nation run reads like a sum of state runs. It is not:
+`PreAggNATION.sql` rewrites every table NONROAD reads as one state 0 before the
+run. The execution database a snapshot carries says which, in a query --
+`nrbaseyearequippopulation` there has one stateID, 0 -- and the fold is then
+the SQL, which fits on a page. Measure each fold against the execution database
+in pandas before porting it, as §66 measured the month's pre-aggregation
+weights; all five here were exact, and the run reproduced on its first
+evaluation.
+
+**Fold the way the SQL folds: before the rounding, not after.** The population
+is summed across states and THEN rounded to the `.POP` file's tenth; a sum of
+rounded state rows is a different number. The growth pattern is a `min` and
+not a sum -- so `point_growthPatternID` is a `min_sum`, which is also the
+single-row answer off the nation. And a fold that REPLACES a table is a union
+with a relabelled key: `rma_stateID` is -1, which matches nothing, on the half
+of `nrMonthAllocation` ∪ `nrUSMonthAllocation` the run does not have, so every
+lookup against it is the lookup it was.
+
+**An oracle that cannot distinguish a rule has not tested it.** Every SCC
+`nr-commercial-nation` selects has one growth-finder row and a flat 1/12 month
+fraction, so the minimum and the table swap could both have been wrong and the
+run would have reproduced. Ask of each rule whether this run's data can tell it
+from its absence (§23, and §86's first-bin rule). Where it cannot, a PROBE can:
+another run's selections at the same scale, compared against a replica of the
+SQL rather than against an oracle, until a run whose oracle discriminates it
+arrives. Record which run that will be.
