@@ -1,0 +1,169 @@
+{
+  "esm": "1.2.0",
+  "metadata": {
+    "name": "nr-construction-state",
+    "description": "PLAN.md §7.5 step 7e: the `nr-construction-state` RunSpec computed from the DEFAULT DATABASE -- the whole of Michigan, August 2020, weekday, the Construction sector, gasoline, THC, CO, NOx, SO2 and PM10. The first STATE-level run: 100 equipment points over 25 SCCs, 471 cohorts, 2,355 rows.\n\nA STATE RUN IS A COUNTY RUN AT A COUNTY MOVES BUILDS. `PreAggSTATE.sql` makes Michigan a pseudo-county 26000 with a pseudo-zone 260000 whose `ZoneMonthHour` is `Sum(temperature x actFract)` over the state's 83 zones, and a fuel region 26 that no national `nrFuelSupply` row belongs to -- so `DefaultDataMaker` gives it gasoline formulation 12, which the default database does not have, and the `.OPT` packet's queries then fall back to formulation 10 for the sulfur (func A) and find no oxygen at all. None of that is in a table this document can read; all of it is in the model now (`zone_runWeight`, `rsu_*`, `run_defaultGasolineSulfurWeightPercent`), and at a real county each piece reduces to the formula it replaced, so the county runs kept their bytes.\n\nIT FOUND THREE THINGS, in order. SO2 was 0 until the formulation-10 fallback. Every 4-stroke gasoline THC, CO and NOx cell was then off by the exact ratio its temperature coefficient gives for +0.0049 degF: the state's zone weights sum to 0.9999322, not 1, because each county's share is rounded to six decimals first, and MOVES does not renormalize -- so the temperature is `Sum(w x T) / 13`, not a weighted mean. And 35 cells in six SCCs were off by up to 9.2e-4, whole cohorts at a time: model years whose `agedist.f` residual is a cancellation, where the growth indicator's interpolation had been associated `(dv x dy) / dx` where `grwfac.f` computes `(dv / dx) x dy`. One ulp, amplified a thousandfold. All 2,355 rows then reproduce at 6.615e-06."
+  },
+  "domain": {
+    "element_type": "Float32"
+  },
+  "data_sources": {
+    "db_runspeccounty": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../../moves.rs/characterization/snapshots/nr-construction-state/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspeccounty.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspeccounty"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, countyID 26000: Michigan's PSEUDO-county, which is how MOVES spells a state-level run. `run_isCountyScale` is 0 on it.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecstate": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../../moves.rs/characterization/snapshots/nr-construction-state/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecstate.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecstate"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, stateID 26: whose population is grown and reported whole, with nothing allocated.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecyear": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../../moves.rs/characterization/snapshots/nr-construction-state/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecyear.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecyear"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, 2020.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecmonth": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../../moves.rs/characterization/snapshots/nr-construction-state/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecmonth.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecmonth"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, monthID 8.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecday": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../../moves.rs/characterization/snapshots/nr-construction-state/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecday.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecday"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, dayID 5 (weekday).",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecsector": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../../moves.rs/characterization/snapshots/nr-construction-state/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecsector.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecsector"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, sectorID 2 (Construction).",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecfueltype": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../../moves.rs/characterization/snapshots/nr-construction-state/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecfueltype.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecfueltype"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "2 rows, gasoline and ONROAD diesel 2, which selects no nonroad SCC. It also selects no default fuel: `nrFuelType` has no fuel type 2.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecpollutantprocess": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../../moves.rs/characterization/snapshots/nr-construction-state/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecpollutantprocess.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecpollutantprocess"
+      },
+      "metadata": {
+        "tags": [
+          "output"
+        ],
+        "note": "5 rows: THC, CO, NOx, SO2 and PM10 running exhaust.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_movesoutput": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../../moves.rs/characterization/snapshots/nr-construction-state/tables/db__out_nr_construction_state__movesoutput.parquet"
+      },
+      "reader_options": {
+        "float_columns": [
+          "emissionQuant"
+        ]
+      },
+      "metadata": {
+        "tags": [
+          "oracle",
+          "expected-output"
+        ],
+        "note": "The 2,355-row expected output, stateID 26 and NO county, SO2 totalling 1,589.213 g. DECLARED AND CONSUMED BY NOTHING -- compare-output.py reads it directly.",
+        "esio_format": "parquet"
+      }
+    }
+  },
+  "models": {
+    "Nonroad": {
+      "ref": "../../moves-nonroad.esm",
+      "bindings": {
+        "n_equipmentPoint": 100,
+        "n_outputCohort": 471,
+        "n_outputPolProcess": 5
+      }
+    }
+  }
+}

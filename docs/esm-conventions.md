@@ -8105,3 +8105,49 @@ inline and `nr-logging-county` stayed byte-identical.
 again and `run-tests.sh` requires that deleting it costs `nr-logging-county` its
 four binary64 rows. A run whose rows depend on a residual's sign (`agedist.f`)
 is exactly where a silent precision change becomes a missing cohort.
+
+## 87. A state is a county MOVES builds, and a one-ulp input can move a cohort a thousandfold **[PLAN.md step 7e; `nr-construction-state` 2,355 of 2,355, `nr-pleasure-craft-state` 440 of 440, the county runs unchanged]**
+
+**Build the pseudo-geography in the model, as a generalization the real one
+reduces to.** A state-level RunSpec runs at county stateID x 1000, zone
+stateID x 10000 and fuel region stateID, and `PreAggSTATE.sql` and
+`DefaultDataMaker` write all three into the execution database; the default
+database has none of them. Each became a weight or a union that is exactly the
+old formula at a real county -- `zone_runWeight` is 1 on the county's own zone,
+`sup_isRunSupply` selects the rows the old join selected, and the default
+supply rows carry share 0 wherever a fuel type has supply -- so the county runs
+kept their bytes, and that is the check that the generalization did not move
+them. `nr-logging-county` stayed byte-identical to its fixture through it.
+
+**Aggregate the way the SQL aggregates, not the way the statistic reads.**
+`PreAggSTATE.sql` writes a state's temperature as `Sum(temperature x actFract)`
+with `actFract = ROUND(start, 6) / ROUND(state sum, 6)`; the rounded shares sum
+to 0.9999322 for Michigan, and nothing renormalizes. Divided by its weights --
+the natural spelling of a weighted mean -- the temperature is 0.0049 degF high;
+divided by the thirteen hours NONROAD averages over, it is MOVES's. The tell
+was the pattern, not the size: every 4-stroke gasoline THC, CO and NOx cell off
+by exactly the ratio its temperature coefficient predicts, and every PM, SO2 and
+2-stroke cell exact (§84's lesson from the other side).
+
+**A default the database cannot satisfy falls through to another default.**
+`DefaultDataMaker` gives the pseudo-region gasoline formulation 12, the default
+database has no formulation 12, and the `.OPT` packet's func A then reads
+formulation 10's sulfur, while its oxygen query, which has no fallback, reads 0.
+SO2 was 0 until that rule was written; nothing else was wrong.
+
+**When a few whole cohorts are off, replicate the fold before suspecting it.**
+35 cells in six SCCs were off by up to 9.2e-04, every pollutant of a cohort by
+one ratio, at model years whose `agedist.f` residual is a cancellation (a
+fraction of 5.9e-05 between neighbours of 0.02), and a binary64 run moved exactly
+those cells. A numpy binary32 replica fed the model's own inputs matched the
+model bit for bit -- so the fold was right and an INPUT was one ulp off, and the
+input was `linear_series_interpolation` associating `(dv x dy) / dx` where
+`grwfac.f` computes `(dv / dx) x dy`. Algebra that is the same over the reals
+is not the same in the declared precision (§11.3.1), and a shared template is
+where one wrong association lives in every document at once.
+
+**The output is what the calculator EMITS, not what the RunSpec selects.**
+`nr-pleasure-craft-state` selects benzene at three permeation processes and
+NONROAD has no slot for it, so MOVESOutput has no row; a width declared from the
+selection emitted 330 rows of zeros. The width is its own declared and checked
+number, `n_outputPolProcess`, the fourth.

@@ -2,7 +2,7 @@
 """Check a `runspecs/nonroad/` document's emitted relation against the shape the
 chain RECOMPUTES, rather than against the shape it was declared with.
 
-Three numbers in `nonroad/model.esm` are declared and not discovered, because no
+Four numbers in `nonroad/model.esm` are declared and not discovered, because no
 table in the database states them -- NONROAD works them out at run time:
 
   n_equipmentPoint   how many `nrsourceusetype` rows are equipment points of
@@ -12,10 +12,14 @@ table in the database states them -- NONROAD works them out at run time:
                      round by `run_equipmentPointsDropped`
   n_outputCohort     how many (SCC, model year) cohorts reach MOVESOutput,
                      recomputed as `run_outputCohortCount`
+  n_outputPolProcess how many of the selected pollutant-processes NONROAD
+                     EMITS -- `nr-pleasure-craft-state` selects benzene at
+                     three permeation processes and gets no row for any --
+                     recomputed as `run_outputPolProcessCount`
   n_foldYear         how many years agedist.f's fold runs, checked by
                      `run_extraScopeRows` together with the one-row scope
 
-Each fails differently when it is wrong, which is why all three are checked and
+Each fails differently when it is wrong, which is why all four are checked and
 not just the row count. A SHORT `n_equipmentPoint` loses the points past it --
 whole SCCs, or some of an SCC's hp bins, which is quietly LOW rather than
 missing. A LONG one leaves point slots whose source type gathers as 0; those
@@ -25,7 +29,8 @@ happened (a probe run of `nr-lawn-garden-county` at 150 slots for its 97
 points). A wrong `n_outputCohort` shows up in the emitted keys: too long and the
 slots past the last owner carry SCC 0, too short and real cohorts are cut.
 
-    rows == n_outputCohort x distinct pollutants, no key repeated
+    rows == n_outputCohort x n_outputPolProcess, no key repeated
+    distinct pollutants == run_outputPolProcessCount == n_outputPolProcess
     no emitted row has SCC 0 or a missing SCC
     distinct (SCC, modelYearID) == run_outputCohortCount == n_outputCohort
     run_equipmentPointsSelected == n_equipmentPoint
@@ -51,8 +56,9 @@ def main(doc_path, emitted_path, shape_path):
     try:
         points = int(bindings["n_equipmentPoint"])
         cohorts = int(bindings["n_outputCohort"])
+        pps = int(bindings["n_outputPolProcess"])
     except KeyError as e:
-        sys.exit("%s: binds no %s -- every nonroad RunSpec declares both of its numbers" % (doc_path, e))
+        sys.exit("%s: binds no %s -- every nonroad RunSpec declares all three of its numbers" % (doc_path, e))
     rows = read(emitted_path)
     shape = read(shape_path)
     if len(shape) != 1:
@@ -73,8 +79,11 @@ def main(doc_path, emitted_path, shape_path):
         errors.append("%d emitted key(s) repeat" % (len(keys) - len(set(keys))))
     pollutants = {k[2] for k in keys}
     distinct_cohorts = {k[:2] for k in keys}
-    if len(rows) != cohorts * len(pollutants):
-        errors.append("rows %d != n_outputCohort %d x %d pollutants" % (len(rows), cohorts, len(pollutants)))
+    if len(rows) != cohorts * pps:
+        errors.append("rows %d != n_outputCohort %d x n_outputPolProcess %d" % (len(rows), cohorts, pps))
+    if not (len(pollutants) == int(s["run_outputPolProcessCount"]) == pps):
+        errors.append("pollutants: %d distinct emitted, %d recomputed, %d declared" %
+                      (len(pollutants), int(s["run_outputPolProcessCount"]), pps))
     if not (len(distinct_cohorts) == int(s["run_outputCohortCount"]) == cohorts):
         errors.append("cohorts: %d distinct emitted, %d recomputed, %d declared" %
                       (len(distinct_cohorts), int(s["run_outputCohortCount"]), cohorts))

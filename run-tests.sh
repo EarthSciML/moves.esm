@@ -1729,15 +1729,16 @@ fi
 # default database:
 #
 #   runspecs/nonroad/<run>.esm    that run's selections + its oracle
-#     -> moves-nonroad.esm        21 national tables + the mount
+#     -> moves-nonroad.esm        22 national tables + the mount
 #       -> nonroad/model.esm      the nonroad domain model, lifted out of
 #                                 fixtures/nr-logging-county.esm
 #
 # It is a separate stage and not more documents in `runspecs/`, because the
 # two domains share no output shape: the onroad checks below read a
 # (pollutant-process, cohort) pair relation and four declared widths this
-# model does not have. Its own three declared numbers -- equipment points,
-# output cohorts, fold years -- are checked by tools/check-nonroad-shape.py
+# model does not have. Its own four declared numbers -- equipment points,
+# output cohorts, emitted pollutant-processes, fold years -- are checked by
+# tools/check-nonroad-shape.py
 # against the chain's recomputation and the emitted keys, the way
 # check-runspec-shape.py checks onroad's.
 #
@@ -1766,7 +1767,8 @@ PYEOF
 nr_obs=()
 for f in "${NR_FIELDS[@]}"; do nr_obs+=(--observed "$f"); done
 NR_SHAPE_OBS=(--observed run_equipmentPointsSelected --observed run_equipmentPointsDropped
-              --observed run_outputCohortCount --observed run_extraScopeRows)
+              --observed run_outputCohortCount --observed run_outputPolProcessCount
+              --observed run_extraScopeRows)
 
 if [[ ! -e movesdb ]]; then
   skip "7e default database" "no ./movesdb (symlink the §7.3.1 conversion there)"
