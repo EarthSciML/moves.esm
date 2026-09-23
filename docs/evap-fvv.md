@@ -1693,6 +1693,15 @@ reading:
 
 ## 8. What is not computed, and what is not exercised
 
+> **UPDATE 2026-09-22.** `runspecs/process-evap-fvv.esm` reproduces all 64 rows
+> at 7.517e-06 from the national default database, with `AverageTankGasoline`
+> computed in `onroad/model.esm` (PLAN.md §7.3.33, docs/esm-conventions.md §85).
+> The model ports the operating insert of TVV-8 and not the cold-soak one, for the
+> reason §0.3 measures; §8.2's two generator outputs are no longer needed as
+> inputs on that path, because `TankTemperatureGenerator`'s walk over trips is in
+> the model too (§7.3.32) — and they are still only consumed by the half that is
+> weighted by zero.
+
 ### 8.1 What this fixture cannot check, even with the whole chain computed
 
 Everything in §0.3's zero-effect table, and in addition:

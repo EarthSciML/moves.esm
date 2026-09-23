@@ -1552,6 +1552,16 @@ C7P_DOMAIN=moves-onroad.esm
 # S15's quadratic in the ambient one read as a factor of exactly 9.281 on every
 # row. All 64 cells at 5.630e-06, the same worst cell the pandas reproduction
 # from the national tables reached before the model changed.
+# `process-evap-fvv` ports ONE of its calculator's two inserts, and says so
+# (conventions 85). TVV-8's operating insert is `emissionRateByAge` at modes 150
+# and 300 with mode 300 multiplied by two cubics, one of them interpolated at the
+# fuel's tank RVP -- `TankFuelGenerator`'s `averageTankGasoline`, empty in the
+# default database and computed here, read at the ethanol volume after the
+# high-ethanol substitution (E85 would weather to 7.61 psi without it, and is 7.7).
+# The cold-soak insert, TVV-2 to TVV-7, writes mode 151 and is weighted by a
+# computed exactly-zero on an on-network link; the shape check's
+# `run_offNetworkLinkCount` is what turns its absence into a failure the day a
+# RunSpec selects road type 1. All 64 cells at 7.517e-06 on the first run.
 mapfile -t RUNSPECS < <(find runspecs -maxdepth 1 -name '*.esm' -not -name '.*' 2>/dev/null | sort)
 mapfile -t RUNSPECS_PENDING < <(find runspecs/pending -maxdepth 1 -name '*.esm' -not -name '.*' 2>/dev/null | sort)
 

@@ -8000,3 +8000,52 @@ the difference is not invisible — 7.61 psi against 7.7 for E85.
 **The rule: before porting a lookup into a table that several calculators read,
 ask which calculator the row is for.** The table name is the same; the
 mechanism is not.
+
+## 85. Port the insert the run reads, and make the other's absence loud **[PLAN.md step 7d; `process-evap-fvv` 64 of 64, worst cell 7.517e-06, on its first run]**
+
+`MultidayTankVaporVentingCalculator` fills `WeightedMeanBaseRate` from two
+disjoint inserts. The OPERATING one weights `emissionRateByAge` at modes 150 and
+300 and multiplies mode 300 by TVV-8's `tempAdj x rvpAdj`. The COLD-SOAK one
+writes mode 151 from TVV-2 to TVV-7 — the peak cold-soak hour, tank vapour at two
+altitudes, the multi-day soak fold, two venting equation forms — and nothing else
+reads that chain. On an on-network link mode 151's operating-mode fraction is 0,
+and the zero is COMPUTED: E2 weights every soak mode by `1 − fractionOfOperating`,
+and A10 makes `SourceHours` equal `SHO` there.
+
+So the document ports the operating insert, whose inputs are real — including
+`TankFuelGenerator`, which the default database ships empty and every snapshot
+captures empty, and on which the answer turns — and does NOT port the cold-soak
+insert. That is a decision about what a run can check, and it is only honest if
+three things hold, all of which do here:
+
+* the zero that stands in for the missing half is a computed weight, not an
+  assumed one (§80, §18.2);
+* the specification computes the missing half for this snapshot and measures it
+  contributing exactly nothing (docs/evap-fvv.md §0.3), so "absent" and "zero"
+  were compared rather than presumed equal;
+* the one input that would give it weight — an off-network link — is asserted
+  away by the shape check (`run_offNetworkLinkCount` is 0), so the day a RunSpec
+  selects road type 1 this document fails instead of quietly dropping half a
+  calculator.
+
+**A linear interpolation over a knot table is a weight on every knot.** TVV-8
+reads `evapRVPTemperatureAdjustment` at the fuel's RVP by finding the greatest
+knot at or below it and the least one above, with sentinel rows at RVP −1 and
+1000 that carry the end knots outward. Finding "the" knot either side and reading
+its terms needs a key computed per (county, month, fuel), and a join key must be
+a 1-D column. So the two brackets are found by VALUE — `max_sum` and `min_sum`
+over the fuel's knots, each with a one-sided filter — and the interpolated term
+is `SUM(bracketing_knot_weight x term)` over the knots, the weight asking whether
+a knot IS one of the brackets (an equality in the expression, which is exact
+because a bracket is one of the knots' own values). The one-sided arms are the
+sentinels. At 7.7 psi E85's constant term is 1.263935, which is
+`1.390541 + 0.7 x (1.209675 − 1.390541)`.
+
+**The first version put the brackets on the knot rows and took the 7c spike
+down.** Each knot carried its previous and next RVP — tidy, and a computed
+relation over the knot axis. The tire-wear snapshot mounts that table with ZERO
+rows, and a computed relation of length 0 is F56: the spike panicked, and with
+it the thin per-fixture document and the index-set rename check, while every
+national run passed. **Put nothing computed on an axis some catalogue can mount
+empty**; contract over it instead, where a length of 0 is the additive identity
+(§80).
