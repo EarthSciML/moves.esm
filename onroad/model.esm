@@ -440,6 +440,36 @@
       "type": "integer",
       "default": 0,
       "description": "Rows in opModePolProcAssoc: which operating modes a pollutant-process HAS. 407 nationally, 65 in the tire-wear snapshot. It is what names the evaporative mode set -- 150, 151 and 300 for `polProcessID` 113 -- so that no literal in this document has to."
+    },
+    "n_refuelingfactors": {
+      "type": "integer",
+      "default": 0,
+      "description": "Rows in refuelingFactors: 5 nationally, one per fuel type MOVES has a refueling coefficient row for. The table is the whole of REFEC-1 and REFEC-2 -- six exponential terms, a temperature window, a tank-temperature ceiling, a vapour floor and a spillage rate."
+    },
+    "n_refuelingcontroltechnology": {
+      "type": "integer",
+      "default": 0,
+      "description": "Rows in refuelingControlTechnology: 189,379 nationally against the 9,102 the execution-database copy held for one source type and one process. It carries fuel types 1 and 5 ONLY, which is why the displacement block is 64 cohorts where spillage is 104."
+    },
+    "n_sourcetypetechadjustment": {
+      "type": "integer",
+      "default": 0,
+      "description": "Rows in sourceTypeTechAdjustment: 1,443 nationally against 111 for source type 21. It is the SPILLAGE side's technology penetration, keyed by (process, source type, model year) where the displacement side's is keyed by six columns."
+    },
+    "n_countyyear": {
+      "type": "integer",
+      "default": 0,
+      "description": "Rows in countyYear: 203,616 nationally against the 1 the execution-database copy held. It carries the two Stage II program reductions, and 7,375 of its rows have a nonzero vapour adjustment -- an arm no run in this corpus reaches, because county 26161's is 0."
+    },
+    "n_fueltype": {
+      "type": "integer",
+      "default": 0,
+      "description": "Rows in fuelType: 6 nationally. Read for `fuelDensity`, grams per gallon, which with the supply's energy content converts the chained energy to fuel VOLUME. `process-evap-leaks` measured its `subjectToEvapCalculations` flag inert; this is the column that is not."
+    },
+    "n_spillagecountyyear": {
+      "type": "integer",
+      "default": 5,
+      "description": "Rows in the fuel-type fan-out `RefuelingLossCalculator.sql` synthesises onto `RefuelingCountyYear`. FIVE, and DECLARED because it is not a table: the SQL ALTERs a fuelTypeID column into the county-year extract (existing rows default to gasoline), duplicates the gasoline row as E85, and inserts zero-adjustment rows for fuel types 2, 3 and 9. Most Stage II programs cover E85, and none covers diesel, CNG or electricity."
     }
   },
   "index_sets": {
@@ -747,7 +777,7 @@
         "op": "+",
         "args": [
           "n_runspecchainedto",
-          16
+          24
         ]
       }
     },
@@ -940,6 +970,50 @@
     "opmodepolprocassoc_rows": {
       "kind": "interval",
       "size": "n_opmodepolprocassoc"
+    },
+    "refuelingfactors_rows": {
+      "kind": "interval",
+      "size": "n_refuelingfactors"
+    },
+    "refuelingcontroltechnology_rows": {
+      "kind": "interval",
+      "size": "n_refuelingcontroltechnology"
+    },
+    "sourcetypetechadjustment_rows": {
+      "kind": "interval",
+      "size": "n_sourcetypetechadjustment"
+    },
+    "countyyear_rows": {
+      "kind": "interval",
+      "size": "n_countyyear"
+    },
+    "fueltype_rows": {
+      "kind": "interval",
+      "size": "n_fueltype"
+    },
+    "spillagecountyyear_rows": {
+      "kind": "interval",
+      "size": "n_spillagecountyyear"
+    },
+    "refuelingloss_rows": {
+      "kind": "interval",
+      "size": 2
+    },
+    "refuelingenergyprocess_rows": {
+      "kind": "interval",
+      "size": 4
+    },
+    "refuelingedge_rows": {
+      "kind": "interval",
+      "size": 8
+    },
+    "refuelingneedoutput_rows": {
+      "kind": "interval",
+      "size": 5
+    },
+    "refuelingneedinput_rows": {
+      "kind": "interval",
+      "size": 3
     }
   },
   "enums": {
@@ -947,14 +1021,17 @@
       "TotalEnergyConsumption": 91,
       "PetroleumEnergyConsumption": 92,
       "FossilFuelEnergyConsumption": 93,
-      "OxidesOfNitrogen": 3
+      "OxidesOfNitrogen": 3,
+      "TotalHydrocarbons": 1
     },
     "process": {
       "RunningExhaust": 1,
       "Tirewear": 10,
       "EvapFuelLeaks": 13,
       "ExtendedIdleExhaust": 90,
-      "AuxiliaryPowerExhaust": 91
+      "AuxiliaryPowerExhaust": 91,
+      "RefuelingDisplacementLoss": 18,
+      "RefuelingSpillageLoss": 19
     },
     "fuel_type": {
       "Electricity": 9,
@@ -1072,6 +1149,19 @@
           "ref": "../lib/chaining.esm",
           "only": [
             "chained_emits"
+          ]
+        },
+        {
+          "ref": "../lib/refueling.esm",
+          "only": [
+            "positive_else_zero",
+            "refueling_temperature",
+            "tank_temperature_dif",
+            "displaced_vapor_rate",
+            "floored_vapor_rate",
+            "adjusted_vapor_rate",
+            "adjusted_spill_rate",
+            "refueling_emission_quantity"
           ]
         }
       ],
@@ -2746,6 +2836,574 @@
               "file_variable": "soakActivityFraction"
             }
           }
+        },
+        "rff_fuelTypeID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "refuelingfactors_rows"
+          ],
+          "description": "refuelingFactors.fuelTypeID: 1, 2, 3, 5 and 9. The table's only key, which is why every quantity REFEC-1 and REFEC-2 compute is a property of the fuel and of the hour, and of nothing else.",
+          "update": {
+            "kind": "data",
+            "source": "db_refuelingfactors",
+            "from": {
+              "file_variable": "fuelTypeID"
+            }
+          }
+        },
+        "rff_vaporTermA": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "refuelingfactors_rows"
+          ],
+          "description": "refuelingFactors.vaporTermA, the constant term of the displaced-vapour exponential. -1.2798 on gasoline and E85 and 0 on diesel, CNG and electricity.",
+          "update": {
+            "kind": "data",
+            "source": "db_refuelingfactors",
+            "from": {
+              "file_variable": "vaporTermA"
+            }
+          }
+        },
+        "rff_vaporTermB": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "refuelingfactors_rows"
+          ],
+          "description": "refuelingFactors.vaporTermB, the tankTemperatureDif coefficient.",
+          "update": {
+            "kind": "data",
+            "source": "db_refuelingfactors",
+            "from": {
+              "file_variable": "vaporTermB"
+            }
+          }
+        },
+        "rff_vaporTermC": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "refuelingfactors_rows"
+          ],
+          "description": "refuelingFactors.vaporTermC, the refuelingTemperature coefficient.",
+          "update": {
+            "kind": "data",
+            "source": "db_refuelingfactors",
+            "from": {
+              "file_variable": "vaporTermC"
+            }
+          }
+        },
+        "rff_vaporTermD": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "refuelingfactors_rows"
+          ],
+          "description": "refuelingFactors.vaporTermD, the averageRVP coefficient.",
+          "update": {
+            "kind": "data",
+            "source": "db_refuelingfactors",
+            "from": {
+              "file_variable": "vaporTermD"
+            }
+          }
+        },
+        "rff_vaporTermE": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "refuelingfactors_rows"
+          ],
+          "description": "refuelingFactors.vaporTermE, 0.418: the refuelingTemperature coefficient of tankTemperatureDif.",
+          "update": {
+            "kind": "data",
+            "source": "db_refuelingfactors",
+            "from": {
+              "file_variable": "vaporTermE"
+            }
+          }
+        },
+        "rff_vaporTermF": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "refuelingfactors_rows"
+          ],
+          "description": "refuelingFactors.vaporTermF, -16.6: the constant term of tankTemperatureDif.",
+          "update": {
+            "kind": "data",
+            "source": "db_refuelingfactors",
+            "from": {
+              "file_variable": "vaporTermF"
+            }
+          }
+        },
+        "rff_vaporLowTLimit": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "refuelingfactors_rows"
+          ],
+          "description": "refuelingFactors.vaporLowTLimit, 45 degF on gasoline and E85. A (0, 0) PAIR with the high limit disables the 2008 California study relation entirely and leaves the ambient temperature alone, which is what the other three fuels carry -- absence spelled as a pair of zeroes rather than as a missing row.",
+          "update": {
+            "kind": "data",
+            "source": "db_refuelingfactors",
+            "from": {
+              "file_variable": "vaporLowTLimit"
+            }
+          }
+        },
+        "rff_vaporHighTLimit": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "refuelingfactors_rows"
+          ],
+          "description": "refuelingFactors.vaporHighTLimit, 90 degF.",
+          "update": {
+            "kind": "data",
+            "source": "db_refuelingfactors",
+            "from": {
+              "file_variable": "vaporHighTLimit"
+            }
+          }
+        },
+        "rff_tankTDiffLimit": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "refuelingfactors_rows"
+          ],
+          "description": "refuelingFactors.tankTDiffLimit, 20 degF: the upper bound of the tank-temperature difference.",
+          "update": {
+            "kind": "data",
+            "source": "db_refuelingfactors",
+            "from": {
+              "file_variable": "tankTDiffLimit"
+            }
+          }
+        },
+        "rff_minimumRefuelingVaporLoss": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "refuelingfactors_rows"
+          ],
+          "description": "refuelingFactors.minimumRefuelingVaporLoss, 1.8 g/gallon on gasoline and E85 and -1 on the rest. The -1 is a SENTINEL meaning `floor the rate at zero`, not a floor of -1, and reading it as a floor would let a negative rate through.",
+          "update": {
+            "kind": "data",
+            "source": "db_refuelingfactors",
+            "from": {
+              "file_variable": "minimumRefuelingVaporLoss"
+            }
+          }
+        },
+        "rff_refuelingSpillRate": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "refuelingfactors_rows"
+          ],
+          "description": "refuelingFactors.refuelingSpillRate, 0.31 g/gallon on fuel types 1, 2 and 5 and exactly 0 on CNG and electricity. Diesel HAS a spillage rate and no displacement rate, which is the whole reason the two output blocks differ in width.",
+          "update": {
+            "kind": "data",
+            "source": "db_refuelingfactors",
+            "from": {
+              "file_variable": "refuelingSpillRate"
+            }
+          }
+        },
+        "rfc_processID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "refuelingcontroltechnology_rows"
+          ],
+          "description": "refuelingControlTechnology.processID: 18, Refueling Displacement Loss. The table is the displacement side's control technology.",
+          "update": {
+            "kind": "data",
+            "source": "db_refuelingcontroltechnology",
+            "from": {
+              "file_variable": "processID"
+            }
+          }
+        },
+        "rfc_modelYearID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "refuelingcontroltechnology_rows"
+          ],
+          "description": "refuelingControlTechnology.modelYearID, 1950-2060.",
+          "update": {
+            "kind": "data",
+            "source": "db_refuelingcontroltechnology",
+            "from": {
+              "file_variable": "modelYearID"
+            }
+          }
+        },
+        "rfc_regClassID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "refuelingcontroltechnology_rows"
+          ],
+          "description": "refuelingControlTechnology.regClassID. A key of this table and NOT of the energy the refueling row chains off: `BaseRateCalculator`'s worker output collapses the regulatory class, so a rate row reaches this table by its bin's class and the parent energy by its cohort.",
+          "update": {
+            "kind": "data",
+            "source": "db_refuelingcontroltechnology",
+            "from": {
+              "file_variable": "regClassID"
+            }
+          }
+        },
+        "rfc_sourceTypeID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "refuelingcontroltechnology_rows"
+          ],
+          "description": "refuelingControlTechnology.sourceTypeID.",
+          "update": {
+            "kind": "data",
+            "source": "db_refuelingcontroltechnology",
+            "from": {
+              "file_variable": "sourceTypeID"
+            }
+          }
+        },
+        "rfc_fuelTypeID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "refuelingcontroltechnology_rows"
+          ],
+          "description": "refuelingControlTechnology.fuelTypeID: 1 and 5 ONLY, nationally as in the run's own copy. This is the join that makes the displacement block 64 cohorts where spillage is 104, and it is a coverage fact about the table rather than a filter anybody wrote.",
+          "update": {
+            "kind": "data",
+            "source": "db_refuelingcontroltechnology",
+            "from": {
+              "file_variable": "fuelTypeID"
+            }
+          }
+        },
+        "rfc_ageID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "refuelingcontroltechnology_rows"
+          ],
+          "description": "refuelingControlTechnology.ageID, 0-40. Not independent of the model year: the rate row's age is `yearID - modelYearID`, so the two keys are one key read twice, and the join has to carry both or it matches 41 rows where it should match one.",
+          "update": {
+            "kind": "data",
+            "source": "db_refuelingcontroltechnology",
+            "from": {
+              "file_variable": "ageID"
+            }
+          }
+        },
+        "rfc_refuelingTechAdjustment": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "refuelingcontroltechnology_rows"
+          ],
+          "description": "refuelingControlTechnology.refuelingTechAdjustment: the onboard refueling-vapour-recovery penetration T, which blends the uncontrolled and controlled displacement rates.",
+          "update": {
+            "kind": "data",
+            "source": "db_refuelingcontroltechnology",
+            "from": {
+              "file_variable": "refuelingTechAdjustment"
+            }
+          }
+        },
+        "rfc_controlledRefuelingRate": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "refuelingcontroltechnology_rows"
+          ],
+          "description": "refuelingControlTechnology.controlledRefuelingRate: the displaced-vapour rate of a FULLY controlled vehicle, 0.0361 g/gallon wherever T is non-zero.",
+          "update": {
+            "kind": "data",
+            "source": "db_refuelingcontroltechnology",
+            "from": {
+              "file_variable": "controlledRefuelingRate"
+            }
+          }
+        },
+        "stta_processID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "sourcetypetechadjustment_rows"
+          ],
+          "description": "sourceTypeTechAdjustment.processID: 19, Refueling Spillage Loss.",
+          "update": {
+            "kind": "data",
+            "source": "db_sourcetypetechadjustment",
+            "from": {
+              "file_variable": "processID"
+            }
+          }
+        },
+        "stta_sourceTypeID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "sourcetypetechadjustment_rows"
+          ],
+          "description": "sourceTypeTechAdjustment.sourceTypeID.",
+          "update": {
+            "kind": "data",
+            "source": "db_sourcetypetechadjustment",
+            "from": {
+              "file_variable": "sourceTypeID"
+            }
+          }
+        },
+        "stta_modelYearID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "sourcetypetechadjustment_rows"
+          ],
+          "description": "sourceTypeTechAdjustment.modelYearID, 1950-2060.",
+          "update": {
+            "kind": "data",
+            "source": "db_sourcetypetechadjustment",
+            "from": {
+              "file_variable": "modelYearID"
+            }
+          }
+        },
+        "stta_refuelingTechAdjustment": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "sourcetypetechadjustment_rows"
+          ],
+          "description": "sourceTypeTechAdjustment.refuelingTechAdjustment: 0 through 1995 and 0.5 from 1996 for source type 21. The spillage side's penetration, and it has no fuel type and no regulatory class -- a coarser key than the displacement side's, which is why the two adjustments cannot share a lookup.",
+          "update": {
+            "kind": "data",
+            "source": "db_sourcetypetechadjustment",
+            "from": {
+              "file_variable": "refuelingTechAdjustment"
+            }
+          }
+        },
+        "cyr_countyID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "countyyear_rows"
+          ],
+          "description": "countyYear.countyID.",
+          "update": {
+            "kind": "data",
+            "source": "db_countyyear",
+            "from": {
+              "file_variable": "countyID"
+            }
+          }
+        },
+        "cyr_yearID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "countyyear_rows"
+          ],
+          "description": "countyYear.yearID.",
+          "update": {
+            "kind": "data",
+            "source": "db_countyyear",
+            "from": {
+              "file_variable": "yearID"
+            }
+          }
+        },
+        "cyr_refuelingVaporProgramAdjust": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "countyyear_rows"
+          ],
+          "description": "countyYear.refuelingVaporProgramAdjust: the Stage II vapour-recovery reduction P, applied as (1 - P). EXACTLY 0 for county 26161 in 2020, and nonzero in 7,375 of the national table's 203,616 rows -- so the arm is real data that no run in this corpus reaches, and `components/refueling_loss_rate.esm` probes it at 0.2.",
+          "update": {
+            "kind": "data",
+            "source": "db_countyyear",
+            "from": {
+              "file_variable": "refuelingVaporProgramAdjust"
+            }
+          }
+        },
+        "cyr_refuelingSpillProgramAdjust": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "countyyear_rows"
+          ],
+          "description": "countyYear.refuelingSpillProgramAdjust, the same reduction on the spillage side. Nonzero in 7,154 national rows; probed at 0.3.",
+          "update": {
+            "kind": "data",
+            "source": "db_countyyear",
+            "from": {
+              "file_variable": "refuelingSpillProgramAdjust"
+            }
+          }
+        },
+        "ftp_fuelTypeID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "fueltype_rows"
+          ],
+          "description": "fuelType.fuelTypeID.",
+          "update": {
+            "kind": "data",
+            "source": "db_fueltype",
+            "from": {
+              "file_variable": "fuelTypeID"
+            }
+          }
+        },
+        "ftp_fuelDensity": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "fueltype_rows"
+          ],
+          "description": "fuelType.fuelDensity, grams per gallon: 2829 gasoline, 3203 diesel, 2944 E85, and NULL for CNG and electricity. The NULL is the `fuelDensity > 0` half of REFEC-7's inner join, and it is why an electricity cohort carries no refueling row at all rather than a zero one.",
+          "update": {
+            "kind": "data",
+            "source": "db_fueltype",
+            "from": {
+              "file_variable": "fuelDensity"
+            }
+          }
+        },
+        "rff_averageRVP": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "refuelingfactors_rows",
+            "runspeccounty_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "REFEC-2's `RefuelingAverageRVP`: the market-share-weighted Reid vapour pressure of this fuel type's supply, in the county and month. 8.0 for gasoline and 7.7 for E85 in the one-county runs, and 0 for the three fuels whose formulations carry no RVP -- a zero that reaches the exponential and is harmless there because `vaporTermD` is zero on exactly those fuels."
+        },
+        "rff_energyContent": {
+          "type": "unknown",
+          "units": "MJ/kg",
+          "shape": [
+            "refuelingfactors_rows",
+            "runspeccounty_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "The `RefuelingFuelType` extract's first column: the market-share-weighted energy content of the same supply, kJ per gram. Summed over the formulations of this fuel type, as `rt_supplyEnergyContent` is over a rate row's -- but on FIVE rows instead of thousands, because everything REFEC-7 needs is a property of the fuel. Electricity's subtype carries NULL and the extract's `WHERE energyContent > 0` is what keeps the NaN out of the divisor."
+        },
+        "rff_fuelDensity": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "refuelingfactors_rows"
+          ],
+          "description": "`fuelType.fuelDensity` at this coefficient row's fuel, grams per gallon. Zero where the column is NULL, which is CNG and electricity."
+        },
+        "rff_fuelVolumeDivisor": {
+          "type": "unknown",
+          "units": "MJ/kg",
+          "shape": [
+            "refuelingfactors_rows",
+            "runspeccounty_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "kJ per gallon: energy content times fuel density. Dividing the chained Total Energy Consumption by it turns energy into fuel VOLUME, which is what both refueling rates are per."
+        },
+        "rff_hasFuelDivisor": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "refuelingfactors_rows",
+            "runspeccounty_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "REFEC-7's INNER JOIN onto `RefuelingFuelType`, whose extract keeps only `energyContent > 0 AND fuelDensity > 0`. Electricity fails BOTH and CNG fails one, and this is the presence flag that makes an electricity cohort carry no refueling row rather than a zero one -- conventions 30, tested on its own flag and not on the divisor's value."
+        },
+        "rff_refuelingTemperature": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "refuelingfactors_rows",
+            "runspeccounty_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "REFEC-1: the 2008 California study relation 20.30 + 0.81 t, with t the hour's ambient temperature clamped to [vaporLowTLimit, vaporHighTLimit] -- and the ambient temperature UNCHANGED where both limits are zero, which is how the table spells `this fuel has no relation`. 68.495 degF for gasoline and E85 at 59.5 degF ambient."
+        },
+        "rff_tankTemperatureDif": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "refuelingfactors_rows",
+            "runspeccounty_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "REFEC-1: `vaporTermE x refuelingTemperature + vaporTermF`, clamped to [0, tankTDiffLimit]. 12.03091 at this corpus's one temperature, inside the [0, 20] window, so neither clamp fires here and `components/refueling_loss_rate.esm` is where both arms are exercised."
+        },
+        "rff_displacedVaporRateRaw": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "refuelingfactors_rows",
+            "runspeccounty_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "REFEC-2 before the floor: `exp(A + B dif + C T + D rvp)`, grams of vapour displaced per gallon delivered."
+        },
+        "rff_displacedVaporRate": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "refuelingfactors_rows",
+            "runspeccounty_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "REFEC-2 after the floor. `minimumRefuelingVaporLoss` is a floor where it is above -1 and a SENTINEL meaning `zero this rate` where it is -1 or below, which is what the three non-gasoline fuels carry: 3.0152931 g/gallon for gasoline, 2.8986556 for E85 and exactly 0 for the rest."
         },
         "phys_realSourceTypeID": {
           "type": "parameter",
@@ -7078,6 +7736,149 @@
           ],
           "description": "J104, SO2Calculator: SO2 = meanBaseRate x WsulfurLevel x energy / energyContent, so the ratio to Total Energy is the first two over the third. The energy is in KILOJOULES -- the chain's own unit, before S18 converts pollutant 91 to Million BTU -- which is why a comparison against the reported energy is off by exactly 1,055,055.9. `SO2Calculator.sql`'s last step multiplies by `generalFuelRatio` for pollutant 31; no national expression names it, so that factor is 1 on every cohort MOVES ships and is not ported."
         },
+        "rt_isRefuelingDisplacement": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "Is this rate row Total Hydrocarbons at Refueling Displacement Loss? BOTH halves are tested: `runspecpollutantprocess` also carries 8618, Total Organic Gases at the same process, and a gate on the process alone would hand a TOG row the THC row's rate."
+        },
+        "rt_isRefuelingSpillage": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "The same for Refueling Spillage Loss."
+        },
+        "rt_refuelingTechAdjustment": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "`bin_refuelingTechAdjustment` read back at the rate row, zero off the displacement pollutant-process."
+        },
+        "rt_controlledRefuelingRate": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "`bin_controlledRefuelingRate` read back the same way."
+        },
+        "rt_hasRefuelingControl": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "`bin_hasRefuelingControl` read back the same way: the displacement block's width."
+        },
+        "rt_spillTechAdjustment": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "`bin_spillTechAdjustment` read back at the rate row, zero off the spillage pollutant-process."
+        },
+        "rt_refuelingDisplacedVaporRate": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows",
+            "runspeccounty_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "REFEC-2's rate at this row's fuel type."
+        },
+        "rt_refuelingSpillRate": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "`refuelingFactors.refuelingSpillRate` at this row's fuel type: 0.31 g/gallon on gasoline, diesel and E85 and exactly 0 on CNG and electricity. Diesel HAS a spillage rate and no displacement rate, which is the whole of why the two blocks differ in width."
+        },
+        "rt_refuelingFuelVolumeDivisor": {
+          "type": "unknown",
+          "units": "MJ/kg",
+          "shape": [
+            "rate_rows",
+            "runspeccounty_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "REFEC-7's kJ per gallon at this row's fuel type."
+        },
+        "rt_hasRefuelingFuelDivisor": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows",
+            "runspeccounty_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "Both halves of REFEC-7's inner join at this row's fuel type."
+        },
+        "rt_spillProgramAdjust": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows",
+            "runspeccounty_rows"
+          ],
+          "description": "The county's spillage reduction as the fuel-type fan-out delivers it to this row: the county's value on gasoline and E85, zero on diesel, CNG and electricity."
+        },
+        "rt_adjustedVaporRate": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows",
+            "runspeccounty_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "REFEC-3/4: `displacedVaporRate (1-P)(1-T) + controlledRefuelingRate (1-P) T`. One convex blend covering an uncontrolled fleet, a fully controlled one and everything between, with no branch."
+        },
+        "rt_adjustedSpillRate": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows",
+            "runspeccounty_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "REFEC-5/6: `(1 - Pspill)((1 - T) refuelingSpillRate)`."
+        },
+        "rt_refuelingRate": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows",
+            "runspeccounty_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "The rate this row is per gallon of: the adjusted vapour rate on a displacement row, the adjusted spillage rate on a spillage row, and zero on every other row in the run."
+        },
+        "rt_refuelingChainRatio": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows",
+            "runspeccounty_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "REFEC-8 as a RATIO to the Total Energy Consumption this row chains off: rate over (energy content x fuel density), which is grams of loss per kilojoule burned. `refueling_emission_quantity` is applied at unit energy, because the chain carries the parent's quantity and `lnk_weight` carries the kilojoule-to-MillionBTU rebase that every energy-to-mass edge needs (conventions 77). This is `rt_so2ChainRatio`'s shape exactly: a mass child of energy is a quotient, and the energy is the parent's."
+        },
+        "rt_hasRefuelingChainRatio": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "Is this rate row a refueling row the tables cover? Displacement needs a `refuelingControlTechnology` row and spillage does not; both need a fuel density. The ENERGY-CONTENT half of REFEC-7's inner join is not read here, and that is a stated simplification: it fails for exactly the two fuels whose density is also NULL -- CNG, whose subtype `fuelSubtype` does not carry, and electricity, whose subtype carries NULL -- measured on both databases. The quotient still carries both halves, so a supply with no energy content gives zero rather than a NaN."
+        },
         "rt_supplyCarbonContent": {
           "type": "unknown",
           "units": "1",
@@ -7467,6 +8268,54 @@
           ],
           "description": "The zone, which is what S9 allocates SHO to and what the heat index is read for -- and it is per county, which is how three counties get three meteorologies and three allocation factors out of one model."
         },
+        "run_refuelingDisplacementProcessID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "run_rows"
+          ],
+          "description": "18, NAMED from the process enum and carried as a one-row relation so that the control-technology lookup selects its process with a `join.on` and not with a literal (conventions 20.4)."
+        },
+        "run_refuelingSpillageProcessID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "run_rows"
+          ],
+          "description": "19, the same for the spillage side."
+        },
+        "run_vaporProgramAdjust": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspeccounty_rows"
+          ],
+          "description": "`countyYear.refuelingVaporProgramAdjust` for each selected county at the analysis year: the Stage II vapour-recovery reduction P, applied as (1 - P). Exactly 0 in every run this document has been given, and nonzero in 7,375 of the national table's rows."
+        },
+        "run_spillProgramAdjust": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspeccounty_rows"
+          ],
+          "description": "`countyYear.refuelingSpillProgramAdjust`, the same on the spillage side, before the fuel-type fan-out below zeroes it for the fuels no Stage II program covers."
+        },
+        "spcy_fuelTypeID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "spillagecountyyear_rows"
+          ],
+          "description": "The five fuel types the spillage section synthesises onto the county-year extract, in the SQL's own order: gasoline and E85 first, which the ALTER and the duplicate produce, then the three zero-adjustment inserts."
+        },
+        "spcy_retainsProgramAdjust": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "spillagecountyyear_rows"
+          ],
+          "description": "Whether the synthesised row KEEPS the county's spillage reduction. Gasoline and E85 do; diesel, CNG and electricity are inserted with zero. It is a property of the fuel and not of the county, which is why it is declared here rather than read."
+        },
         "run_linkRoadTypeID": {
           "type": "unknown",
           "units": "1",
@@ -7706,7 +8555,7 @@
           "shape": [
             "run_rows"
           ],
-          "description": "The cohort total, computed from the chain, so `n_outputCohort` is a CHECKED declaration rather than a transcription. 125 at one source type and the SUM over them at more."
+          "description": "The cohort total the OUTPUT carries, computed from the chain rather than transcribed. 125 at one source type on a run with no discarded block, the SUM over source types at more, and 104 on `process-refueling`, where the 21 electricity cohorts reach an emitting rate row only in the energy block the chain closure added and the output strips."
         },
         "run_sourceBinsDropped": {
           "type": "unknown",
@@ -8695,6 +9544,46 @@
           ],
           "description": "The bin's regulatory class. Summing it over a cohort's rows returned 71 for a light commercial truck -- 30 and 41, which are two classes and not a class -- and `emissionrate` matched nothing (PLAN.md §7.3.5)."
         },
+        "bin_ageID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "sourcebin_rows"
+          ],
+          "description": "The bin's age in the analysis year, read from its cohort. `refuelingControlTechnology` is keyed by the model year AND the age, which are one key read twice -- age is `yearID - modelYearID` -- and a join carrying only one of them matches 41 rows where it should match one."
+        },
+        "bin_refuelingTechAdjustment": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "sourcebin_rows"
+          ],
+          "description": "REFEC-3: `refuelingControlTechnology.refuelingTechAdjustment`, the onboard vapour-recovery penetration T, at this bin's (process 18, model year, regulatory class, source type, fuel type, age). It is looked up on the BIN and not on the rate row because the bin relation is seven times smaller and carries the regulatory class this table needs -- conventions 72.5's rule about where a spine over a large table belongs, and `refuelingControlTechnology` is 189,379 rows."
+        },
+        "bin_controlledRefuelingRate": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "sourcebin_rows"
+          ],
+          "description": "`refuelingControlTechnology.controlledRefuelingRate` at the same six keys: the displaced-vapour rate of a fully controlled vehicle."
+        },
+        "bin_hasRefuelingControl": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "sourcebin_rows"
+          ],
+          "description": "Whether that table covers this bin at all. It carries fuel types 1 and 5 ONLY, so this is what makes the displacement block 64 cohorts where spillage is 104 -- a coverage fact about the table, tested on its own flag because a penetration of exactly 0 is a real value and the table is full of them (conventions 30)."
+        },
+        "bin_spillTechAdjustment": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "sourcebin_rows"
+          ],
+          "description": "REFEC-5: `sourceTypeTechAdjustment.refuelingTechAdjustment` at (process 19, source type, model year). The spillage side's penetration has no fuel type and no regulatory class, which is why it cannot share the displacement side's lookup: 0 through 1995 and 0.5 from 1996 for a passenger car."
+        },
         "coh_prefixSelected": {
           "type": "unknown",
           "units": "1",
@@ -9186,13 +10075,101 @@
           ],
           "description": "`cae_weight` of this row's edge."
         },
+        "rfl_processID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "refuelingloss_rows"
+          ],
+          "description": "THE REFUELING EDGE LIST, output side: the two processes `RefuelingLossCalculator` writes, Refueling Displacement Loss (18) and Refueling Spillage Loss (19). Both produce Total Hydrocarbons, so the pollutant is a constant and the process is the list."
+        },
+        "rfl_ordinal": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "refuelingloss_rows"
+          ],
+          "description": "The loss list's own row ordinal."
+        },
+        "rfp_processID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "refuelingenergyprocess_rows"
+          ],
+          "description": "The edge list's input side: the exhaust processes whose Total Energy Consumption the refueling calculation chains off -- running (1), start (2), extended idle (90) and auxiliary power (91). `refueling_loss_calculator.rs`'s `ENERGY_SOURCE_PROCESS_IDS`, which is the Java `sourceProcessIDs` and the SQL's `mwo.processID IN (1, 2, 90, 91)`. It is the same four the CO2AE calculator declares and it is declared again here, because two calculators agreeing about which processes burn fuel is a coincidence of the data and not a shared constant."
+        },
+        "rfp_ordinal": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "refuelingenergyprocess_rows"
+          ],
+          "description": "The energy-process list's own row ordinal."
+        },
+        "rfe_lossOrdinal": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "refuelingedge_rows"
+          ],
+          "description": "The two losses crossed with the four energy processes, flattened so that every join key is one-dimensional (a two-dimensional key is dropped, F57). Rows 1-4 are displacement on the four processes and 5-8 are spillage."
+        },
+        "rfe_processOrdinal": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "refuelingedge_rows"
+          ],
+          "description": "Which of the four energy processes this flattened row is on."
+        },
+        "rfe_outputPolProcessID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "refuelingedge_rows"
+          ],
+          "description": "The edge's output: Total Hydrocarbons at this row's refueling process. UNLIKE the CO2AE edges, the output does NOT sit on the input's process -- a refueling loss happens at the pump and the energy was burned on the road, so the output process is fixed and the input process is what varies."
+        },
+        "rfe_inputPolProcessID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "refuelingedge_rows"
+          ],
+          "description": "The edge's input: Total Energy Consumption at this row's exhaust process. `runspecchainedto` says nothing about any of this -- it is EMPTY for the refueling run -- and the edge is declared for the same reason the CO2AE ones are (conventions 77): `pollutantProcessAssoc.chainedTo1/2` are NULL on 118 and 119, and the dependency lives in the calculator's Java."
+        },
+        "rfn_pollutantID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "refuelingneedoutput_rows"
+          ],
+          "description": "THE NEEDS TABLE, output side: the five pollutants whose refueling losses pull Total Energy Consumption in behind them -- Total Hydrocarbons, Non-Methane Hydrocarbons, Non-Methane Organic Gases, Total Organic Gases and Volatile Organic Compounds. Crossed with the two refueling processes `rfl_processID` already names, they are the Java `needs[]` array's ten outputs, and the array is REFUELING-ONLY: no other calculator in MOVES adds a prerequisite this way, which is the whole reason the user's selection can be recovered from the expanded one at all."
+        },
+        "rfn_energyProcessID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "refuelingneedinput_rows"
+          ],
+          "description": "The needs table's input side: running (1), start (2) and extended-idle (90) exhaust. THREE, where `rfp_processID` -- what the calculator READS -- is four. Auxiliary-power energy is consumed if it is there and is never pulled in, and the two lists are kept apart because they answer different questions."
+        },
+        "run_selectsRefuelingOutput": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "run_rows"
+          ],
+          "description": "Does this RunSpec select any of the needs table's ten outputs? It is the switch that turns the whole prerequisite rule on, and it is off in every run here but `process-refueling`."
+        },
         "lnk_outputPolProcessID": {
           "type": "unknown",
           "units": "1",
           "shape": [
             "chainlink_rows"
           ],
-          "description": "THE CHAIN'S EDGE LIST: `runspecchainedto`'s rows CONCATENATED with the CO2AE edges crossed with their processes. Every chain rung joins through this and not through `runspecchainedto` directly, so a calculator whose edges MOVES keeps in code is one more block of this relation and not a second copy of every rung. `concat` and not a positional join, because a positional join needs an ordinal COMPUTED over `runspecchainedto_rows`, which is empty in six of the runs and a computed relation of length 0 panics (F56)."
+          "description": "THE CHAIN'S EDGE LIST: `runspecchainedto`'s rows CONCATENATED with the CO2AE edges crossed with their processes, and with the refueling edges crossed with theirs."
         },
         "lnk_inputPolProcessID": {
           "type": "unknown",
@@ -10305,13 +11282,29 @@
           ],
           "description": "Whether this pollutant-process's rates live on a real road, looked up from `emissionprocess` by its process half. 1 on all three here."
         },
+        "rspp_hasBaseRateTableRow": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecpollutantprocess_rows"
+          ],
+          "description": "Does EITHER zero-hour rate table carry a row at this pollutant-process -- anywhere, for any source bin? It is a fact about the DATABASE and not about the run's cohorts, which is why it is asked of the table and not of the rate relation: it decides which road type the pollutant-process's rows live on, and a road type cannot depend on which vehicles a RunSpec happened to select."
+        },
+        "rspp_isSilentlyRequired": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecpollutantprocess_rows"
+          ],
+          "description": "Is this pollutant-process a chain PREREQUISITE the RunSpec never asked for? `ExecutionRunSpec.flagRequiredPollutantProcesses` adds Total Energy Consumption at running, start and extended-idle exhaust whenever a refueling loss is selected, because without it `BaseRate` emits no energy and the chained calculator sees no input; the addition is flagged `silentlyRequired` and the output processor strips it. So `process-refueling` computes 250 energy rows and emits none of them.\n\nIT IS DERIVED FROM `runspecpollutantprocess` AND THE DECLARED NEEDS TABLE, not read: the execution database records the EXPANDED set and not the user's. That is a real limit, and it has exactly one blind spot -- `require()` does not flag a pair the user had already selected, so a RunSpec asking for refueling AND for Total Energy Consumption would keep its energy block and this document would drop it. No run in the corpus does that, and the needs table is refueling-only, which is what makes the rest derivable."
+        },
         "rspp_rateRoadTypeID": {
           "type": "unknown",
           "units": "1",
           "shape": [
             "runspecpollutantprocess_rows"
           ],
-          "description": "The road type this pollutant-process's rates are written on. `BaseRateGenerator` emits a real-road process on every road type the RunSpec selected and an off-network one on road type 1 alone, so this is the run's road type or the OffNetwork enum's 1 -- 4, 4 and 4 here."
+          "description": "The road type this pollutant-process's rows live on. `BaseRateGenerator` writes a real-road process on every road type the RunSpec selected and an off-network one on road type 1 alone, so for a RATED pollutant-process this is the run's road type or the OffNetwork enum's 1. A pollutant-process with no row in either rate table is not `BaseRateGenerator`'s at all -- it is a chained calculator's, stamped on its parent's row -- and takes the run's road type whatever its process's flag says. Off-network processes 2, 90 and 91 DO have rate rows and keep road type 1; the refueling pair 18 and 19 have none in either table, measured on the national database."
         },
         "rspp_isEmitted": {
           "type": "unknown",
@@ -10319,7 +11312,7 @@
           "shape": [
             "runspecpollutantprocess_rows"
           ],
-          "description": "Is this pollutant-process one of the output's blocks? It has to happen on a selected road type AND have a rate. Both halves are measured on `expand-criteria`: eight are selected, four pass the road-type test and three are emitted."
+          "description": "Is this pollutant-process one of the output's blocks? It has to happen on a selected road type, have a rate, and be a SELECTION rather than a prerequisite the chain closure pulled in. The first two are measured on `expand-criteria`: eight are selected, four pass the road-type test and three are emitted. The third is `process-refueling`'s, and only its."
         },
         "rspp_occursOnSelectedRoad": {
           "type": "unknown",
@@ -10650,6 +11643,14 @@
             "cohort_rows"
           ],
           "description": "Does any rate row of this cohort have a RATE? A cohort the grid selects but the rate table does not cover is not emitted -- conventions §67.2 -- and on `expand-criteria` that is exactly one cohort: model year 2000 ELECTRICITY, which has no `emissionRateByAge` row at age group 2099 while model years 2001-2020 of the same fuel are rated at zero and are emitted."
+        },
+        "coh_hasEmittedRow": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "cohort_rows"
+          ],
+          "description": "Does any rate row of this cohort emit in a block the output KEEPS? `coh_hasRatedRow` asks the first half alone, and until `process-refueling` the two were the same question: every rate row that emitted belonged to an emitted block. A chain prerequisite breaks that -- the 125 energy cohorts all have emitting rate rows and none of them reaches MOVESOutput -- so the cohort COUNT has to read the block as well, while `coh_isSelected` deliberately does not: the source-bin grid is built for every cohort the chain needs, emitted or not."
         },
         "run_binSelectionTotal": {
           "type": "unknown",
@@ -12658,6 +13659,172 @@
           }
         },
         {
+          "_comment": "18, NAMED, as a one-row relation so the lookup joins to it (conventions 20.4).",
+          "lhs": "run_refuelingDisplacementProcessID",
+          "rhs": {
+            "op": "makearray",
+            "args": [],
+            "regions": [
+              [
+                [
+                  1,
+                  1
+                ]
+              ]
+            ],
+            "values": [
+              {
+                "op": "enum",
+                "args": [
+                  "process",
+                  "RefuelingDisplacementLoss"
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "lhs": "run_refuelingSpillageProcessID",
+          "rhs": {
+            "op": "makearray",
+            "args": [],
+            "regions": [
+              [
+                [
+                  1,
+                  1
+                ]
+              ]
+            ],
+            "values": [
+              {
+                "op": "enum",
+                "args": [
+                  "process",
+                  "RefuelingSpillageLoss"
+                ]
+              }
+            ]
+          },
+          "_comment": "19, NAMED, for the same reason as the line above."
+        },
+        {
+          "_comment": "The county-year extract, at each selected county and the analysis year.",
+          "lhs": "run_vaporProgramAdjust",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "g"
+            ],
+            "ranges": {
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "y": {
+                "from": "countyyear_rows"
+              },
+              "n": {
+                "from": "run_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "cyr_countyID",
+                    "run_countyID"
+                  ],
+                  [
+                    "cyr_yearID",
+                    "run_yearID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "cyr_refuelingVaporProgramAdjust",
+                "y"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "run_spillProgramAdjust",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "g"
+            ],
+            "ranges": {
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "y": {
+                "from": "countyyear_rows"
+              },
+              "n": {
+                "from": "run_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "cyr_countyID",
+                    "run_countyID"
+                  ],
+                  [
+                    "cyr_yearID",
+                    "run_yearID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "cyr_refuelingSpillProgramAdjust",
+                "y"
+              ]
+            }
+          }
+        },
+        {
+          "_comment": "The SQL's fan-out, in its own order: the ALTER defaults existing rows to gasoline, the duplicate makes E85, and three inserts carry zero.",
+          "lhs": "spcy_fuelTypeID",
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              1,
+              5,
+              2,
+              3,
+              9
+            ]
+          }
+        },
+        {
+          "lhs": "spcy_retainsProgramAdjust",
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              1,
+              1,
+              0,
+              0,
+              0
+            ]
+          }
+        },
+        {
           "lhs": "run_linkRoadTypeID",
           "rhs": {
             "op": "faq",
@@ -13938,7 +15105,70 @@
           }
         },
         {
-          "_comment": "The run relation is one row, so the cross product with it is a read.",
+          "_comment": "Asked of the two rate TABLES, not of the run's rate rows.",
+          "lhs": "rspp_hasBaseRateTableRow",
+          "rhs": {
+            "op": "max",
+            "args": [
+              {
+                "op": "faq",
+                "args": [],
+                "semiring": "bool_and_or",
+                "output_idx": [
+                  "p"
+                ],
+                "ranges": {
+                  "p": {
+                    "from": "runspecpollutantprocess_rows"
+                  },
+                  "e": {
+                    "from": "emissionrate_rows"
+                  }
+                },
+                "join": [
+                  {
+                    "on": [
+                      [
+                        "rspp_polProcessID",
+                        "er_polProcessID"
+                      ]
+                    ]
+                  }
+                ],
+                "expr": 1.0
+              },
+              {
+                "op": "faq",
+                "args": [],
+                "semiring": "bool_and_or",
+                "output_idx": [
+                  "p"
+                ],
+                "ranges": {
+                  "p": {
+                    "from": "runspecpollutantprocess_rows"
+                  },
+                  "e": {
+                    "from": "emissionratebyage_rows"
+                  }
+                },
+                "join": [
+                  {
+                    "on": [
+                      [
+                        "rspp_polProcessID",
+                        "erba_polProcessID"
+                      ]
+                    ]
+                  }
+                ],
+                "expr": 1.0
+              }
+            ]
+          }
+        },
+        {
+          "_comment": "The run relation is one row, so the cross product with it is a read. The road type is `BaseRateGenerator`'s: a real-road process on every road type the RunSpec selected, an off-network one on road type 1 alone -- AND the run's road type for a process the generator writes no rates for at all, which has no road type of its own and takes the one its parent's rows were stamped with. The refueling processes are the case: `occursOnRealRoads` is 'N' on both and MOVES emits them at road type 4, because a refueling loss happens at a pump and the row it is computed from was on the road.",
           "lhs": "rspp_rateRoadTypeID",
           "rhs": {
             "op": "faq",
@@ -13959,16 +15189,34 @@
               "op": "ifelse",
               "args": [
                 {
-                  "op": ">",
+                  "op": "or",
                   "args": [
                     {
-                      "op": "index",
+                      "op": ">",
                       "args": [
-                        "rspp_occursOnRealRoads",
-                        "p"
+                        {
+                          "op": "index",
+                          "args": [
+                            "rspp_occursOnRealRoads",
+                            "p"
+                          ]
+                        },
+                        0.5
                       ]
                     },
-                    0.5
+                    {
+                      "op": "<",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "rspp_hasBaseRateTableRow",
+                            "p"
+                          ]
+                        },
+                        0.5
+                      ]
+                    }
                   ]
                 },
                 {
@@ -14058,13 +15306,25 @@
           }
         },
         {
-          "_comment": "A pollutant-process the RunSpec selects, that happens on a selected road type, and that the rate table covers. `expand-criteria` is the run that separates the last two: SO2 running exhaust passes the road-type test and has no rate row anywhere, so MOVES emits three blocks where the road-type test alone counts four.",
+          "_comment": "A pollutant-process the RunSpec selects, that happens on a selected road type, that the rate table covers, AND that the RunSpec asked for rather than the chain closure adding. `expand-criteria` separates the middle two -- SO2 running exhaust passes the road-type test and has no rate row anywhere -- and `process-refueling` is the run that needs the last: it computes 250 rows of Total Energy Consumption and emits none of them.",
           "lhs": "rspp_isEmitted",
           "rhs": {
             "op": "*",
             "args": [
-              "rspp_occursOnSelectedRoad",
-              "rspp_hasRatedRow"
+              {
+                "op": "*",
+                "args": [
+                  "rspp_occursOnSelectedRoad",
+                  "rspp_hasRatedRow"
+                ]
+              },
+              {
+                "op": "-",
+                "args": [
+                  1.0,
+                  "rspp_isSilentlyRequired"
+                ]
+              }
             ]
           }
         },
@@ -20535,6 +21795,262 @@
           }
         },
         {
+          "lhs": "bin_ageID",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "i"
+            ],
+            "ranges": {
+              "i": {
+                "from": "sourcebin_rows"
+              },
+              "c": {
+                "from": "cohort_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "bin_cohortOrdinal",
+                    "coh_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "coh_ageID",
+                "c"
+              ]
+            }
+          }
+        },
+        {
+          "_comment": "REFEC-3, refueling_loss_calculator.rs. SIX key pairs in one clause: the process, the model year, the regulatory class, the source type, the fuel type and the AGE, which is the model year read a second way and is not optional (F57 is what a split clause costs).",
+          "lhs": "bin_refuelingTechAdjustment",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "i"
+            ],
+            "ranges": {
+              "i": {
+                "from": "sourcebin_rows"
+              },
+              "k": {
+                "from": "refuelingcontroltechnology_rows"
+              },
+              "n": {
+                "from": "run_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rfc_processID",
+                    "run_refuelingDisplacementProcessID"
+                  ],
+                  [
+                    "rfc_modelYearID",
+                    "bin_modelYearID"
+                  ],
+                  [
+                    "rfc_regClassID",
+                    "bin_regClassID"
+                  ],
+                  [
+                    "rfc_sourceTypeID",
+                    "bin_sourceTypeID"
+                  ],
+                  [
+                    "rfc_fuelTypeID",
+                    "bin_fuelTypeID"
+                  ],
+                  [
+                    "rfc_ageID",
+                    "bin_ageID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "rfc_refuelingTechAdjustment",
+                "k"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "bin_controlledRefuelingRate",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "i"
+            ],
+            "ranges": {
+              "i": {
+                "from": "sourcebin_rows"
+              },
+              "k": {
+                "from": "refuelingcontroltechnology_rows"
+              },
+              "n": {
+                "from": "run_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rfc_processID",
+                    "run_refuelingDisplacementProcessID"
+                  ],
+                  [
+                    "rfc_modelYearID",
+                    "bin_modelYearID"
+                  ],
+                  [
+                    "rfc_regClassID",
+                    "bin_regClassID"
+                  ],
+                  [
+                    "rfc_sourceTypeID",
+                    "bin_sourceTypeID"
+                  ],
+                  [
+                    "rfc_fuelTypeID",
+                    "bin_fuelTypeID"
+                  ],
+                  [
+                    "rfc_ageID",
+                    "bin_ageID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "rfc_controlledRefuelingRate",
+                "k"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "bin_hasRefuelingControl",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "bool_and_or",
+            "output_idx": [
+              "i"
+            ],
+            "ranges": {
+              "i": {
+                "from": "sourcebin_rows"
+              },
+              "k": {
+                "from": "refuelingcontroltechnology_rows"
+              },
+              "n": {
+                "from": "run_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rfc_processID",
+                    "run_refuelingDisplacementProcessID"
+                  ],
+                  [
+                    "rfc_modelYearID",
+                    "bin_modelYearID"
+                  ],
+                  [
+                    "rfc_regClassID",
+                    "bin_regClassID"
+                  ],
+                  [
+                    "rfc_sourceTypeID",
+                    "bin_sourceTypeID"
+                  ],
+                  [
+                    "rfc_fuelTypeID",
+                    "bin_fuelTypeID"
+                  ],
+                  [
+                    "rfc_ageID",
+                    "bin_ageID"
+                  ]
+                ]
+              }
+            ],
+            "expr": 1.0
+          }
+        },
+        {
+          "_comment": "REFEC-5. THREE key pairs, not six: the spillage side's penetration is keyed by the process, the source type and the model year alone.",
+          "lhs": "bin_spillTechAdjustment",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "i"
+            ],
+            "ranges": {
+              "i": {
+                "from": "sourcebin_rows"
+              },
+              "k": {
+                "from": "sourcetypetechadjustment_rows"
+              },
+              "n": {
+                "from": "run_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "stta_processID",
+                    "run_refuelingSpillageProcessID"
+                  ],
+                  [
+                    "stta_sourceTypeID",
+                    "bin_sourceTypeID"
+                  ],
+                  [
+                    "stta_modelYearID",
+                    "bin_modelYearID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "stta_refuelingTechAdjustment",
+                "k"
+              ]
+            }
+          }
+        },
+        {
           "lhs": "ppmy_shortModYrGroupID",
           "rhs": {
             "op": "faq",
@@ -21601,6 +23117,68 @@
               "args": [
                 "rt_emits",
                 "b"
+              ]
+            }
+          }
+        },
+        {
+          "_comment": "The same aggregate as `coh_hasRatedRow` with the block test beside it. `rt_outputBlockOrdinal` is 0 on every row of a discarded pollutant-process, which is what a prerequisite becomes.",
+          "lhs": "coh_hasEmittedRow",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "bool_and_or",
+            "output_idx": [
+              "c"
+            ],
+            "ranges": {
+              "c": {
+                "from": "cohort_rows"
+              },
+              "b": {
+                "from": "rate_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rt_cohortOrdinal",
+                    "coh_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "rt_emits",
+                    "b"
+                  ]
+                },
+                {
+                  "op": "ifelse",
+                  "args": [
+                    {
+                      "op": ">",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "rt_outputBlockOrdinal",
+                            "b"
+                          ]
+                        },
+                        0.5
+                      ]
+                    },
+                    1.0,
+                    0.0
+                  ]
+                }
               ]
             }
           }
@@ -23583,13 +25161,26 @@
               }
             },
             "expr": {
-              "op": "index",
+              "op": "*",
               "args": [
-                "coh_isSelected",
-                "c"
+                {
+                  "op": "index",
+                  "args": [
+                    "coh_hasSelectedBin",
+                    "c"
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "coh_hasEmittedRow",
+                    "c"
+                  ]
+                }
               ]
             }
-          }
+          },
+          "_comment": "The cohorts the OUTPUT carries, which is what `tools/check-runspec-shape.py` counts against the emitted key set. It is `coh_isSelected` with the block test in place of the bare rate test -- the same number on every run where no cohort reaches only a discarded block, and 104 instead of 125 on `process-refueling`."
         },
         {
           "lhs": "run_sourceBinsDropped",
@@ -35705,6 +37296,551 @@
           }
         },
         {
+          "_comment": "REFEC-2's RefuelingAverageRVP, spelled like `rt_supplySulfurLevel`'s sum but over the FUEL and not over the rate row: the SQL groups by fuelTypeID, and refuelingFactors already has one row per fuel type.",
+          "lhs": "rff_averageRVP",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "a",
+              "g",
+              "m"
+            ],
+            "ranges": {
+              "a": {
+                "from": "refuelingfactors_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "m": {
+                "from": "runspecmonth_rows"
+              },
+              "f": {
+                "from": "fuelformulation_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rff_fuelTypeID",
+                    "ff_fuelTypeID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "ffsup_marketShare",
+                    "g",
+                    "m",
+                    "f"
+                  ]
+                },
+                {
+                  "op": "apply_expression_template",
+                  "args": [],
+                  "name": "positive_else_zero",
+                  "bindings": {
+                    "value": {
+                      "op": "index",
+                      "args": [
+                        "ffx_RVP",
+                        "f"
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "_comment": "The RefuelingFuelType extract's energy content, the same sum over the same formulations -- under the extract's own `WHERE energyContent > 0`. Electricity's subtype carries NULL, which arrives as NaN, and a NaN that reaches the divisor spreads through every product downstream even though the presence flag beside it is correctly 0. The guard is the extract's filter and not a repair.",
+          "lhs": "rff_energyContent",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "a",
+              "g",
+              "m"
+            ],
+            "ranges": {
+              "a": {
+                "from": "refuelingfactors_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "m": {
+                "from": "runspecmonth_rows"
+              },
+              "f": {
+                "from": "fuelformulation_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rff_fuelTypeID",
+                    "ff_fuelTypeID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "ffsup_marketShare",
+                    "g",
+                    "m",
+                    "f"
+                  ]
+                },
+                {
+                  "op": "apply_expression_template",
+                  "args": [],
+                  "name": "positive_else_zero",
+                  "bindings": {
+                    "value": {
+                      "op": "index",
+                      "args": [
+                        "ff_energyContent",
+                        "f"
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rff_fuelDensity",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "a"
+            ],
+            "ranges": {
+              "a": {
+                "from": "refuelingfactors_rows"
+              },
+              "p": {
+                "from": "fueltype_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rff_fuelTypeID",
+                    "ftp_fuelTypeID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "positive_else_zero",
+              "bindings": {
+                "value": {
+                  "op": "index",
+                  "args": [
+                    "ftp_fuelDensity",
+                    "p"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "lhs": "rff_fuelVolumeDivisor",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "a",
+              "g",
+              "m"
+            ],
+            "ranges": {
+              "a": {
+                "from": "refuelingfactors_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "m": {
+                "from": "runspecmonth_rows"
+              }
+            },
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "rff_energyContent",
+                    "a",
+                    "g",
+                    "m"
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "rff_fuelDensity",
+                    "a"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "_comment": "Both halves of the extract's WHERE, tested separately from the divisor's value: a divisor of zero and a divisor that is absent are the same number and different statements (conventions 30).",
+          "lhs": "rff_hasFuelDivisor",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "a",
+              "g",
+              "m"
+            ],
+            "ranges": {
+              "a": {
+                "from": "refuelingfactors_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "m": {
+                "from": "runspecmonth_rows"
+              }
+            },
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                {
+                  "op": "and",
+                  "args": [
+                    {
+                      "op": ">",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "rff_energyContent",
+                            "a",
+                            "g",
+                            "m"
+                          ]
+                        },
+                        0.0
+                      ]
+                    },
+                    {
+                      "op": ">",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "rff_fuelDensity",
+                            "a"
+                          ]
+                        },
+                        0.0
+                      ]
+                    }
+                  ]
+                },
+                1.0,
+                0.0
+              ]
+            }
+          }
+        },
+        {
+          "_comment": "REFEC-1, refueling_loss_calculator.rs. The ambient temperature hands over to a NONROAD-style pure-number relation here: `run_temperature` is typed degF and the study relation's 20.30 and 0.81 are not, so the magnitude is taken once, where the handover is visible.",
+          "lhs": "rff_refuelingTemperature",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "a",
+              "g",
+              "m"
+            ],
+            "ranges": {
+              "a": {
+                "from": "refuelingfactors_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "m": {
+                "from": "runspecmonth_rows"
+              }
+            },
+            "expr": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "refueling_temperature",
+              "bindings": {
+                "temperature": {
+                  "op": "/",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "run_temperature",
+                        "g",
+                        "m"
+                      ]
+                    },
+                    {
+                      "op": "const",
+                      "args": [],
+                      "value": 1.0,
+                      "units": "degF"
+                    }
+                  ]
+                },
+                "low_limit": {
+                  "op": "index",
+                  "args": [
+                    "rff_vaporLowTLimit",
+                    "a"
+                  ]
+                },
+                "high_limit": {
+                  "op": "index",
+                  "args": [
+                    "rff_vaporHighTLimit",
+                    "a"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "lhs": "rff_tankTemperatureDif",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "a",
+              "g",
+              "m"
+            ],
+            "ranges": {
+              "a": {
+                "from": "refuelingfactors_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "m": {
+                "from": "runspecmonth_rows"
+              }
+            },
+            "expr": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "tank_temperature_dif",
+              "bindings": {
+                "term_e": {
+                  "op": "index",
+                  "args": [
+                    "rff_vaporTermE",
+                    "a"
+                  ]
+                },
+                "term_f": {
+                  "op": "index",
+                  "args": [
+                    "rff_vaporTermF",
+                    "a"
+                  ]
+                },
+                "refueling_temperature": {
+                  "op": "index",
+                  "args": [
+                    "rff_refuelingTemperature",
+                    "a",
+                    "g",
+                    "m"
+                  ]
+                },
+                "limit": {
+                  "op": "index",
+                  "args": [
+                    "rff_tankTDiffLimit",
+                    "a"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "lhs": "rff_displacedVaporRateRaw",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "a",
+              "g",
+              "m"
+            ],
+            "ranges": {
+              "a": {
+                "from": "refuelingfactors_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "m": {
+                "from": "runspecmonth_rows"
+              }
+            },
+            "expr": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "displaced_vapor_rate",
+              "bindings": {
+                "term_a": {
+                  "op": "index",
+                  "args": [
+                    "rff_vaporTermA",
+                    "a"
+                  ]
+                },
+                "term_b": {
+                  "op": "index",
+                  "args": [
+                    "rff_vaporTermB",
+                    "a"
+                  ]
+                },
+                "term_c": {
+                  "op": "index",
+                  "args": [
+                    "rff_vaporTermC",
+                    "a"
+                  ]
+                },
+                "term_d": {
+                  "op": "index",
+                  "args": [
+                    "rff_vaporTermD",
+                    "a"
+                  ]
+                },
+                "tank_temperature_dif": {
+                  "op": "index",
+                  "args": [
+                    "rff_tankTemperatureDif",
+                    "a",
+                    "g",
+                    "m"
+                  ]
+                },
+                "refueling_temperature": {
+                  "op": "index",
+                  "args": [
+                    "rff_refuelingTemperature",
+                    "a",
+                    "g",
+                    "m"
+                  ]
+                },
+                "average_rvp": {
+                  "op": "index",
+                  "args": [
+                    "rff_averageRVP",
+                    "a",
+                    "g",
+                    "m"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "_comment": "The floor, and the sentinel. A `minimumRefuelingVaporLoss` of -1 or below means ZERO THIS RATE; reading it as a floor of -1 would let the exponential's own value through on diesel, CNG and electricity, which all carry it.",
+          "lhs": "rff_displacedVaporRate",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "a",
+              "g",
+              "m"
+            ],
+            "ranges": {
+              "a": {
+                "from": "refuelingfactors_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "m": {
+                "from": "runspecmonth_rows"
+              }
+            },
+            "expr": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "floored_vapor_rate",
+              "bindings": {
+                "rate": {
+                  "op": "index",
+                  "args": [
+                    "rff_displacedVaporRateRaw",
+                    "a",
+                    "g",
+                    "m"
+                  ]
+                },
+                "minimum": {
+                  "op": "index",
+                  "args": [
+                    "rff_minimumRefuelingVaporLoss",
+                    "a"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
           "_comment": "J104: `SO2FuelCalculation2`, the model-year group decoded as `ATRatioNonGas`'s is.",
           "lhs": "rt_so2BaseRate",
           "rhs": {
@@ -35863,6 +37999,846 @@
               },
               0.0
             ]
+          }
+        },
+        {
+          "_comment": "Both halves. `runspecpollutantprocess` carries 8618 -- Total Organic Gases at the same process -- so a gate on the process alone would give a TOG row the THC row's rate.",
+          "lhs": "rt_isRefuelingDisplacement",
+          "rhs": {
+            "op": "ifelse",
+            "args": [
+              {
+                "op": "and",
+                "args": [
+                  {
+                    "op": "==",
+                    "args": [
+                      "rt_pollutantID",
+                      {
+                        "op": "enum",
+                        "args": [
+                          "pollutant",
+                          "TotalHydrocarbons"
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "op": "==",
+                    "args": [
+                      "rt_processID",
+                      {
+                        "op": "enum",
+                        "args": [
+                          "process",
+                          "RefuelingDisplacementLoss"
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              1.0,
+              0.0
+            ]
+          }
+        },
+        {
+          "lhs": "rt_isRefuelingSpillage",
+          "rhs": {
+            "op": "ifelse",
+            "args": [
+              {
+                "op": "and",
+                "args": [
+                  {
+                    "op": "==",
+                    "args": [
+                      "rt_pollutantID",
+                      {
+                        "op": "enum",
+                        "args": [
+                          "pollutant",
+                          "TotalHydrocarbons"
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "op": "==",
+                    "args": [
+                      "rt_processID",
+                      {
+                        "op": "enum",
+                        "args": [
+                          "process",
+                          "RefuelingSpillageLoss"
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              1.0,
+              0.0
+            ]
+          },
+          "_comment": "Both halves again: 8619 is Total Organic Gases at the spillage process."
+        },
+        {
+          "lhs": "rt_refuelingTechAdjustment",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "i": {
+                "from": "sourcebin_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rt_binOrdinal",
+                    "bin_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "bin_refuelingTechAdjustment",
+                    "i"
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "rt_isRefuelingDisplacement",
+                    "b"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rt_controlledRefuelingRate",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "i": {
+                "from": "sourcebin_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rt_binOrdinal",
+                    "bin_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "bin_controlledRefuelingRate",
+                    "i"
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "rt_isRefuelingDisplacement",
+                    "b"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rt_hasRefuelingControl",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "i": {
+                "from": "sourcebin_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rt_binOrdinal",
+                    "bin_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "bin_hasRefuelingControl",
+                    "i"
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "rt_isRefuelingDisplacement",
+                    "b"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rt_spillTechAdjustment",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "i": {
+                "from": "sourcebin_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rt_binOrdinal",
+                    "bin_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "bin_spillTechAdjustment",
+                    "i"
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "rt_isRefuelingSpillage",
+                    "b"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rt_refuelingDisplacedVaporRate",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b",
+              "g",
+              "m"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "m": {
+                "from": "runspecmonth_rows"
+              },
+              "a": {
+                "from": "refuelingfactors_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rt_fuelTypeID",
+                    "rff_fuelTypeID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "rff_displacedVaporRate",
+                "a",
+                "g",
+                "m"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rt_refuelingSpillRate",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "a": {
+                "from": "refuelingfactors_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rt_fuelTypeID",
+                    "rff_fuelTypeID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "rff_refuelingSpillRate",
+                "a"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rt_refuelingFuelVolumeDivisor",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b",
+              "g",
+              "m"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "m": {
+                "from": "runspecmonth_rows"
+              },
+              "a": {
+                "from": "refuelingfactors_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rt_fuelTypeID",
+                    "rff_fuelTypeID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "rff_fuelVolumeDivisor",
+                "a",
+                "g",
+                "m"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rt_hasRefuelingFuelDivisor",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b",
+              "g",
+              "m"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "m": {
+                "from": "runspecmonth_rows"
+              },
+              "a": {
+                "from": "refuelingfactors_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rt_fuelTypeID",
+                    "rff_fuelTypeID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "rff_hasFuelDivisor",
+                "a",
+                "g",
+                "m"
+              ]
+            }
+          }
+        },
+        {
+          "_comment": "The county's spillage reduction through the SQL's fuel-type fan-out.",
+          "lhs": "rt_spillProgramAdjust",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b",
+              "g"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "s": {
+                "from": "spillagecountyyear_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rt_fuelTypeID",
+                    "spcy_fuelTypeID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "run_spillProgramAdjust",
+                    "g"
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "spcy_retainsProgramAdjust",
+                    "s"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rt_adjustedVaporRate",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b",
+              "g",
+              "m"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "m": {
+                "from": "runspecmonth_rows"
+              }
+            },
+            "expr": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "adjusted_vapor_rate",
+              "bindings": {
+                "displaced_rate": {
+                  "op": "index",
+                  "args": [
+                    "rt_refuelingDisplacedVaporRate",
+                    "b",
+                    "g",
+                    "m"
+                  ]
+                },
+                "controlled_rate": {
+                  "op": "index",
+                  "args": [
+                    "rt_controlledRefuelingRate",
+                    "b"
+                  ]
+                },
+                "program_adjust": {
+                  "op": "index",
+                  "args": [
+                    "run_vaporProgramAdjust",
+                    "g"
+                  ]
+                },
+                "tech_adjust": {
+                  "op": "index",
+                  "args": [
+                    "rt_refuelingTechAdjustment",
+                    "b"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "lhs": "rt_adjustedSpillRate",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b",
+              "g",
+              "m"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "m": {
+                "from": "runspecmonth_rows"
+              }
+            },
+            "expr": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "adjusted_spill_rate",
+              "bindings": {
+                "spill_rate": {
+                  "op": "index",
+                  "args": [
+                    "rt_refuelingSpillRate",
+                    "b"
+                  ]
+                },
+                "program_adjust": {
+                  "op": "index",
+                  "args": [
+                    "rt_spillProgramAdjust",
+                    "b",
+                    "g"
+                  ]
+                },
+                "tech_adjust": {
+                  "op": "index",
+                  "args": [
+                    "rt_spillTechAdjustment",
+                    "b"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "_comment": "The two sides are disjoint by pollutant-process, so the sum is a selection.",
+          "lhs": "rt_refuelingRate",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b",
+              "g",
+              "m"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "m": {
+                "from": "runspecmonth_rows"
+              }
+            },
+            "expr": {
+              "op": "+",
+              "args": [
+                {
+                  "op": "*",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "rt_isRefuelingDisplacement",
+                        "b"
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "rt_adjustedVaporRate",
+                        "b",
+                        "g",
+                        "m"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "op": "*",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "rt_isRefuelingSpillage",
+                        "b"
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "rt_adjustedSpillRate",
+                        "b",
+                        "g",
+                        "m"
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "_comment": "REFEC-8 as a ratio to the parent energy: `refueling_emission_quantity` at UNIT energy, because the chain supplies the parent's quantity and `lnk_weight` supplies the kilojoule rebase.",
+          "lhs": "rt_refuelingChainRatio",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b",
+              "g",
+              "m"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "m": {
+                "from": "runspecmonth_rows"
+              }
+            },
+            "expr": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "refueling_emission_quantity",
+              "bindings": {
+                "rate": {
+                  "op": "index",
+                  "args": [
+                    "rt_refuelingRate",
+                    "b",
+                    "g",
+                    "m"
+                  ]
+                },
+                "energy": 1.0,
+                "fuel_volume_divisor": {
+                  "op": "/",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "rt_refuelingFuelVolumeDivisor",
+                        "b",
+                        "g",
+                        "m"
+                      ]
+                    },
+                    {
+                      "op": "const",
+                      "args": [],
+                      "value": 1.0,
+                      "units": "MJ/kg"
+                    }
+                  ]
+                },
+                "has_divisor": {
+                  "op": "index",
+                  "args": [
+                    "rt_hasRefuelingFuelDivisor",
+                    "b",
+                    "g",
+                    "m"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "_comment": "Displacement needs a control-technology row and spillage does not; both need a fuel density. See the variable's description for the half of REFEC-7's join this does not read and why.",
+          "lhs": "rt_hasRefuelingChainRatio",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "a": {
+                "from": "refuelingfactors_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rt_fuelTypeID",
+                    "rff_fuelTypeID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                {
+                  "op": ">",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "rff_fuelDensity",
+                        "a"
+                      ]
+                    },
+                    0.0
+                  ]
+                },
+                {
+                  "op": "max",
+                  "args": [
+                    {
+                      "op": "*",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "rt_isRefuelingDisplacement",
+                            "b"
+                          ]
+                        },
+                        {
+                          "op": "index",
+                          "args": [
+                            "rt_hasRefuelingControl",
+                            "b"
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "rt_isRefuelingSpillage",
+                        "b"
+                      ]
+                    }
+                  ]
+                },
+                0.0
+              ]
+            }
           }
         },
         {
@@ -39389,47 +42365,53 @@
                                   {
                                     "op": "+",
                                     "args": [
-                                      "rt_pm10ChainRatio",
-                                      "rt_noxChainRatio"
-                                    ]
-                                  },
-                                  "rt_crankcaseChainRatio"
-                                ]
-                              },
-                              {
-                                "op": "+",
-                                "args": [
-                                  {
-                                    "op": "+",
-                                    "args": [
-                                      "rt_methaneChainRatio",
-                                      "rt_nmhcChainRatio"
+                                      {
+                                        "op": "+",
+                                        "args": [
+                                          "rt_pm10ChainRatio",
+                                          "rt_noxChainRatio"
+                                        ]
+                                      },
+                                      "rt_crankcaseChainRatio"
                                     ]
                                   },
                                   {
                                     "op": "+",
                                     "args": [
-                                      "rt_hcSpeciationChainRatio",
-                                      "rt_togChainRatio"
+                                      {
+                                        "op": "+",
+                                        "args": [
+                                          "rt_methaneChainRatio",
+                                          "rt_nmhcChainRatio"
+                                        ]
+                                      },
+                                      {
+                                        "op": "+",
+                                        "args": [
+                                          "rt_hcSpeciationChainRatio",
+                                          "rt_togChainRatio"
+                                        ]
+                                      }
                                     ]
                                   }
                                 ]
-                              }
+                              },
+                              "rt_airToxicsChainRatio"
                             ]
                           },
-                          "rt_airToxicsChainRatio"
+                          "rt_so2ChainRatio"
                         ]
                       },
-                      "rt_so2ChainRatio"
+                      "rt_co2ChainRatio"
                     ]
                   },
-                  "rt_co2ChainRatio"
+                  "rt_co2eChainRatio"
                 ]
               },
-              "rt_co2eChainRatio"
+              "rt_refuelingChainRatio"
             ]
           },
-          "_comment": "The arms, summed. Each is zero off its own pollutant-processes, so the sum is a union."
+          "_comment": "The arms, summed. Each is zero off its own pollutant-processes, so the sum is a union -- and the refueling arm is the first that is disjoint by the PROCESS half of the identifier rather than by the pollutant, because both of its processes produce Total Hydrocarbons."
         },
         {
           "lhs": "rt_hasPm10ChainRatio",
@@ -39650,44 +42632,50 @@
                                   {
                                     "op": "max",
                                     "args": [
-                                      "rt_hasPm10ChainRatio",
-                                      "rt_hasNoxChainRatio"
-                                    ]
-                                  },
-                                  "rt_hasCrankcaseChainRatio"
-                                ]
-                              },
-                              {
-                                "op": "max",
-                                "args": [
-                                  {
-                                    "op": "max",
-                                    "args": [
-                                      "rt_hasMethaneChainRatio",
-                                      "rt_hasNmhcChainRatio"
+                                      {
+                                        "op": "max",
+                                        "args": [
+                                          "rt_hasPm10ChainRatio",
+                                          "rt_hasNoxChainRatio"
+                                        ]
+                                      },
+                                      "rt_hasCrankcaseChainRatio"
                                     ]
                                   },
                                   {
                                     "op": "max",
                                     "args": [
-                                      "rt_hasHcSpeciationChainRatio",
-                                      "rt_hasTogChainRatio"
+                                      {
+                                        "op": "max",
+                                        "args": [
+                                          "rt_hasMethaneChainRatio",
+                                          "rt_hasNmhcChainRatio"
+                                        ]
+                                      },
+                                      {
+                                        "op": "max",
+                                        "args": [
+                                          "rt_hasHcSpeciationChainRatio",
+                                          "rt_hasTogChainRatio"
+                                        ]
+                                      }
                                     ]
                                   }
                                 ]
-                              }
+                              },
+                              "rt_hasAirToxicsChainRatio"
                             ]
                           },
-                          "rt_hasAirToxicsChainRatio"
+                          "rt_hasSo2BaseRate"
                         ]
                       },
-                      "rt_hasSo2BaseRate"
+                      "rt_isCO2"
                     ]
                   },
-                  "rt_isCO2"
+                  "rt_isCO2Equivalent"
                 ]
               },
-              "rt_isCO2Equivalent"
+              "rt_hasRefuelingChainRatio"
             ]
           }
         },
@@ -40084,13 +43072,440 @@
           }
         },
         {
-          "_comment": "J105: the union. `runspecchainedto`'s rows first, then the flattened CO2AE edges.",
+          "lhs": "rfl_processID",
+          "rhs": {
+            "op": "makearray",
+            "args": [],
+            "regions": [
+              [
+                [
+                  1,
+                  1
+                ]
+              ],
+              [
+                [
+                  2,
+                  2
+                ]
+              ]
+            ],
+            "values": [
+              {
+                "op": "enum",
+                "args": [
+                  "process",
+                  "RefuelingDisplacementLoss"
+                ]
+              },
+              {
+                "op": "enum",
+                "args": [
+                  "process",
+                  "RefuelingSpillageLoss"
+                ]
+              }
+            ]
+          },
+          "_comment": "One region per value: the two refueling processes, each NAMED from the enum rather than written as 18 and 19."
+        },
+        {
+          "lhs": "rfl_ordinal",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "output_idx": [
+              "c"
+            ],
+            "ranges": {
+              "c": {
+                "from": "refuelingloss_rows"
+              }
+            },
+            "expr": "c"
+          }
+        },
+        {
+          "_comment": "refueling_loss_calculator.rs ENERGY_SOURCE_PROCESS_IDS.",
+          "lhs": "rfp_processID",
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              1,
+              2,
+              90,
+              91
+            ]
+          }
+        },
+        {
+          "lhs": "rfp_ordinal",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "output_idx": [
+              "q"
+            ],
+            "ranges": {
+              "q": {
+                "from": "refuelingenergyprocess_rows"
+              }
+            },
+            "expr": "q"
+          }
+        },
+        {
+          "_comment": "The two losses crossed with the four energy processes, flattened as the CO2AE edges are.",
+          "lhs": "rfe_lossOrdinal",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "output_idx": [
+              "r"
+            ],
+            "ranges": {
+              "r": {
+                "from": "refuelingedge_rows"
+              }
+            },
+            "expr": {
+              "op": "+",
+              "args": [
+                {
+                  "op": "floor",
+                  "args": [
+                    {
+                      "op": "/",
+                      "args": [
+                        {
+                          "op": "-",
+                          "args": [
+                            "r",
+                            1
+                          ]
+                        },
+                        4
+                      ]
+                    }
+                  ]
+                },
+                1
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rfe_processOrdinal",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "output_idx": [
+              "r"
+            ],
+            "ranges": {
+              "r": {
+                "from": "refuelingedge_rows"
+              }
+            },
+            "expr": {
+              "op": "-",
+              "args": [
+                "r",
+                {
+                  "op": "*",
+                  "args": [
+                    4,
+                    {
+                      "op": "floor",
+                      "args": [
+                        {
+                          "op": "/",
+                          "args": [
+                            {
+                              "op": "-",
+                              "args": [
+                                "r",
+                                1
+                              ]
+                            },
+                            4
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rfe_outputPolProcessID",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "r"
+            ],
+            "ranges": {
+              "r": {
+                "from": "refuelingedge_rows"
+              },
+              "c": {
+                "from": "refuelingloss_rows"
+              }
+            },
+            "join": [
+              {
+                "syms": [
+                  "r",
+                  "c"
+                ],
+                "on": [
+                  [
+                    "rfe_lossOrdinal",
+                    "rfl_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "pol_process_id",
+              "bindings": {
+                "pollutant_id": {
+                  "op": "enum",
+                  "args": [
+                    "pollutant",
+                    "TotalHydrocarbons"
+                  ]
+                },
+                "process_id": {
+                  "op": "index",
+                  "args": [
+                    "rfl_processID",
+                    "c"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "lhs": "rfe_inputPolProcessID",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "r"
+            ],
+            "ranges": {
+              "r": {
+                "from": "refuelingedge_rows"
+              },
+              "q": {
+                "from": "refuelingenergyprocess_rows"
+              }
+            },
+            "join": [
+              {
+                "syms": [
+                  "r",
+                  "q"
+                ],
+                "on": [
+                  [
+                    "rfe_processOrdinal",
+                    "rfp_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "pol_process_id",
+              "bindings": {
+                "pollutant_id": {
+                  "op": "enum",
+                  "args": [
+                    "pollutant",
+                    "TotalEnergyConsumption"
+                  ]
+                },
+                "process_id": {
+                  "op": "index",
+                  "args": [
+                    "rfp_processID",
+                    "q"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "_comment": "flagRequiredPollutantProcesses' needs[] array, output pollutants. The ten outputs are these five crossed with the two refueling processes.",
+          "lhs": "rfn_pollutantID",
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              1,
+              79,
+              80,
+              86,
+              87
+            ]
+          }
+        },
+        {
+          "_comment": "Its required processes: three, where the calculator itself reads four.",
+          "lhs": "rfn_energyProcessID",
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              1,
+              2,
+              90
+            ]
+          }
+        },
+        {
+          "lhs": "run_selectsRefuelingOutput",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "bool_and_or",
+            "output_idx": [
+              "n"
+            ],
+            "ranges": {
+              "n": {
+                "from": "run_rows"
+              },
+              "p": {
+                "from": "runspecpollutantprocess_rows"
+              },
+              "o": {
+                "from": "refuelingneedoutput_rows"
+              },
+              "c": {
+                "from": "refuelingloss_rows"
+              }
+            },
+            "join": [
+              {
+                "syms": [
+                  "p",
+                  "o"
+                ],
+                "on": [
+                  [
+                    "rspp_pollutantID",
+                    "rfn_pollutantID"
+                  ]
+                ]
+              },
+              {
+                "syms": [
+                  "p",
+                  "c"
+                ],
+                "on": [
+                  [
+                    "rspp_processID",
+                    "rfl_processID"
+                  ]
+                ]
+              }
+            ],
+            "expr": 1.0
+          }
+        },
+        {
+          "_comment": "An energy pollutant-process at one of the three required processes, in a run that selects a refueling loss. The pollutant half is an enum test rather than a join because Total Energy Consumption is the only pollutant the needs table ever requires.",
+          "lhs": "rspp_isSilentlyRequired",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "p"
+            ],
+            "ranges": {
+              "p": {
+                "from": "runspecpollutantprocess_rows"
+              },
+              "q": {
+                "from": "refuelingneedinput_rows"
+              },
+              "n": {
+                "from": "run_rows"
+              }
+            },
+            "join": [
+              {
+                "syms": [
+                  "p",
+                  "q"
+                ],
+                "on": [
+                  [
+                    "rspp_processID",
+                    "rfn_energyProcessID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                {
+                  "op": "==",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "rspp_pollutantID",
+                        "p"
+                      ]
+                    },
+                    {
+                      "op": "enum",
+                      "args": [
+                        "pollutant",
+                        "TotalEnergyConsumption"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "run_selectsRefuelingOutput",
+                    "n"
+                  ]
+                },
+                0.0
+              ]
+            }
+          }
+        },
+        {
+          "_comment": "J105: the union. `runspecchainedto`'s rows first, then the flattened CO2AE edges, then the flattened refueling ones. Two of the three arms are DECLARED rather than read, and both for the same reason: `pollutantprocessassoc.chainedTo1/2` are NULL on 9001, 9801, 118 and 119, and the dependency lives in a calculator's Java (conventions 77).",
           "lhs": "lnk_outputPolProcessID",
           "rhs": {
             "op": "concat",
             "args": [
               "rct_outputPolProcessID",
-              "caee_outputPolProcessID"
+              "caee_outputPolProcessID",
+              "rfe_outputPolProcessID"
             ],
             "axis": 0
           }
@@ -40101,7 +43516,8 @@
             "op": "concat",
             "args": [
               "rct_inputPolProcessID",
-              "caee_inputPolProcessID"
+              "caee_inputPolProcessID",
+              "rfe_inputPolProcessID"
             ],
             "axis": 0
           }

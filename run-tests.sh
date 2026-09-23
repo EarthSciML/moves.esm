@@ -1508,6 +1508,28 @@ C7P_DOMAIN=moves-onroad.esm
 # divide `SHO` by a copy of itself where MOVES divided it by `SHP`, and nothing
 # else in this harness could see it. It reproduced all 64 cells at 7.294e-06 on
 # its first run, the same worst cell as the independent pandas reproduction.
+# `process-refueling` is the first run whose selection is not what its execution
+# database records. `runspecpollutantprocess` carries seven pollutant-processes
+# and MOVES emits two: a refueling loss is Total Energy scaled by a
+# displaced-vapour rate over energy content and fuel density -- `rt_so2ChainRatio`'s
+# shape, with `lnk_weight` carrying the kilojoule rebase -- so
+# `flagRequiredPollutantProcesses` ADDS energy at running, start and extended
+# idle, flags it `silentlyRequired`, and the output processor strips it. The
+# flag is not persisted. It is recoverable only because the needs table is
+# refueling-only (conventions 81), and the blind spot is stated there: a run
+# that selected energy itself beside a refueling loss would lose its energy
+# rows here and keep them in MOVES, and no run in this corpus does that.
+#
+# The second gate it corrected had been right for seventeen runs by coincidence.
+# `occursOnRealRoads` is 'N' on both refueling processes and MOVES emits them at
+# road type 4, because the flag says where `BaseRateGenerator` WRITES rates and
+# neither rate table has a row at 118 or 119; a chained calculator's rows take
+# their parent's road type (conventions 82). Before either rule was understood
+# the run emitted the right row COUNT -- 125 energy rows and 43 with summed key
+# columns, `n_outputRate` having truncated two real blocks into a prerequisite's
+# space -- and only the comparator's key check saw it. Now all 168 cells at
+# 6.981e-06, the same worst cell the pandas reproduction reached first, and the
+# tire-wear spike that mounts the same tables stays byte-identical.
 mapfile -t RUNSPECS < <(find runspecs -maxdepth 1 -name '*.esm' -not -name '.*' 2>/dev/null | sort)
 mapfile -t RUNSPECS_PENDING < <(find runspecs/pending -maxdepth 1 -name '*.esm' -not -name '.*' 2>/dev/null | sort)
 

@@ -7808,3 +7808,84 @@ own `opModeDistribution` for this run has three rows and this port emits one, an
 the two absent rows carry exactly 0. Nothing in `MOVESOutput` can see that, and
 a document is entitled to reproduce a run whose intermediates it cannot — but
 only if it says so. This one does, in its description and in this section.
+
+## 81. A prerequisite is not a selection, and the execution database does not say which is which **[PLAN.md step 7d; `process-refueling` 168 of 168, worst cell 6.981e-06]**
+
+Every document in `runspecs/` takes its scope from the execution database's
+`runspec*` tables and never from the RunSpec XML, because the XML's `@key`
+attributes are 0-based indices into sorted ID lists and a document that reads
+them as identifiers is off by one in month and hour and wrong wholesale in day
+(`docs/mixed-onroad.md` §0.1). `process-refueling` is the one run where that
+rule has a cost, and the cost is worth stating exactly, because it is the first
+thing the execution database cannot answer.
+
+`runspecpollutantprocess` carries **seven** rows and MOVES emits **two**. Three
+of the seven are Total Energy Consumption at running, start and extended-idle
+exhaust, and the RunSpec never asked for them:
+`ExecutionRunSpec.flagRequiredPollutantProcesses` adds them because a refueling
+loss is computed by scaling energy, and without them `BaseRate` emits none and
+the chained calculator sees no input at all. The addition is flagged
+`silentlyRequired` and the output processor strips it — so the run computes 250
+energy rows and emits none of them. **The flag is not persisted.** The execution
+database records the expanded set; `run_spec.pollutant_process_associations`,
+which the engine filters on, is the raw XML selection.
+
+**It is recoverable anyway, and only because the needs table is refueling-only.**
+`REFUELING_NEEDS` is thirty rows: five pollutants — THC, NMHC, NMOG, TOG, VOC —
+crossed with the two refueling processes, each requiring Total Energy
+Consumption at three exhaust processes. No other calculator in MOVES adds a
+prerequisite. So the rule
+
+> a pollutant-process is stripped iff it is Total Energy Consumption at running,
+> start or extended-idle exhaust **and** the run selects one of the ten
+> refueling outputs
+
+is a function of the selections and a declared table, which is what
+`rspp_isSilentlyRequired` computes. Had the mechanism been general — had any
+chained calculator been able to pull its parent in — the expanded set would not
+determine the original one, because `X = S ∪ needs(S)` has more than one
+solution and the maximal one is always `X` itself.
+
+**State the blind spot rather than hiding it.** `require()` returns without
+flagging when the pair is already selected, so a RunSpec asking for refueling
+**and** for Total Energy Consumption keeps its energy block where this rule drops
+it. Nothing in the corpus does that. The document says so, in its own
+description, because a limitation a reader has to rediscover is worse than one
+that is written down.
+
+**The general rule this leaves: a runspec document supplies SELECTIONS, and a
+selection is not the same thing as a scope.** Where the two differ and the
+database records only the scope, derive the selection from a declared table and
+name the case the derivation cannot reach. Do not reach for the XML — the reason
+not to read it has not changed — and do not quietly emit the prerequisite either,
+which is the failure this section exists to have caught: it put 125 energy rows
+into a 168-row answer and the key columns went to nonsense, because
+`n_outputRate` truncated the real blocks away.
+
+## 82. `occursOnRealRoads` says where a process's RATES are written, not where its rows appear **[PLAN.md step 7d; `process-refueling`, and the corrected rule changes no earlier run]**
+
+`emissionProcess.occursOnRealRoads` is `'N'` on both refueling processes, and
+MOVES emits both at road type **4**, the run's. The flag is not a statement
+about where the emission happens; it is `BaseRateGenerator`'s, and it says which
+road types that generator writes a process's rate rows on — every selected road
+type for a real-road process, road type 1 alone for an off-network one.
+
+**A process the generator writes no rates for has no road type of its own.** Its
+rows are a chained calculator's, stamped on the rows they were computed from, so
+they carry the parent's road type. That is measurable rather than arguable:
+neither `emissionRate` nor `emissionRateByAge` carries a single row at
+`polProcessID` 118 or 119, while the off-network processes that DO keep road
+type 1 — start exhaust 2, extended idle 90, auxiliary power 91 — carry 8, 7 and 6
+pollutant-processes between them.
+
+So the test is `occursOnRealRoads` **or** *the rate tables have no row for this
+pollutant-process at all*, the second half asked of the TABLE and not of the
+run's rate rows — a road type cannot depend on which vehicles a RunSpec happened
+to select. Over the whole snapshot corpus the correction can only reach
+processes 16, 17, 18, 19, 22, 23 and 24, and none of them is selected by a run
+in `runspecs/` other than this one, so `expand-day`'s suppression of start and
+extended-idle energy is untouched.
+
+**The rule: when a flag is named for a physical fact, check which mechanism
+actually reads it before porting it as one.** This one reads as "refueling does
+not happen on a road", which is true and is not what the column is for.

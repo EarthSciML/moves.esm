@@ -1,0 +1,255 @@
+{
+  "esm": "1.2.0",
+  "metadata": {
+    "name": "process-refueling-runspec",
+    "description": "PLAN.md §7.5 step 7d: the `process-refueling` RunSpec computed from the DEFAULT DATABASE. It mounts `moves-onroad.esm` -- the 74 national tables and the onroad model -- and supplies the run's own selections and its expected output.\n\nIT IS A CHAINED CALCULATOR WITH NO RATE OF ITS OWN. `RefuelingLossCalculator` scales the Total Energy Consumption a vehicle burned: REFEC-1 and REFEC-2 turn the hour's temperature and the month's fuel supply into grams of vapour per gallon, REFEC-3 to REFEC-6 apply the onboard-recovery penetration and the Stage II program reduction, and REFEC-7 divides the energy by kilojoules-per-gallon to get the gallons. In this chain that is a RATIO to the parent, exactly as SO2 and CO2 are: `rt_refuelingChainRatio` is the loss rate over (energy content x fuel density), and `lnk_weight` carries the kilojoule-to-MillionBTU rebase every energy-to-mass edge needs (conventions §77).\n\nTHE TWO BLOCKS ARE DIFFERENT SIZES, 64 and 104, and the two suppressions are different joins. `refuelingControlTechnology` carries fuel types 1 and 5 only, so diesel has no displacement rate row at all -- 40 diesel cohorts are in the spillage block and absent from the displacement one. Electricity is dropped from BOTH by REFEC-7, because `fuelSubtype.energyContent` is NULL for subtype 90 and `fuelType.fuelDensity` is NULL for fuel type 9 and the extract keeps only rows where both are positive. It is NOT the rate that drops electricity: `sourceTypeTechAdjustment` knows nothing about fuel, so the spillage side HAS a row for every electricity cohort with a rate of zero. A document that dropped them on the rate would agree here on all 168 rows and be wrong the first time a fuel had a spill rate and no energy content.\n\nWHAT IT COST THE MODEL, beyond the calculator itself, was two corrections to gates that seventeen earlier RunSpecs had agreed with.\n\nFIRST, A ROAD TYPE. `emissionProcess.occursOnRealRoads` is 'N' on both refueling processes and MOVES emits them at road type 4. The flag says where `BaseRateGenerator` WRITES a process's rates, and it writes none for 18 or 19 -- neither rate table carries a single row at either, measured on the national database. A chained calculator's rows are stamped on their parent's, so they take the parent's road type. Off-network processes 2, 90 and 91 do have rate rows and keep road type 1, which is what `expand-day` depends on, so the corrected rule changes nothing there.\n\nSECOND, AND IT IS THE FIRST TIME THE EXECUTION DATABASE IS NOT ENOUGH. `runspecpollutantprocess` carries seven rows and MOVES emits two. Three of the seven are Total Energy Consumption, which `ExecutionRunSpec.flagRequiredPollutantProcesses` ADDED -- the RunSpec asked for hydrocarbons at the two refueling processes and nothing else -- and the output processor strips what it added. The execution database records the EXPANDED set and not the user's, and the XML that records the user's is the file this repository has a rule against reading. What makes it recoverable anyway is that the needs table is REFUELING-ONLY: thirty rows, five pollutants crossed with the two refueling processes, each requiring Total Energy Consumption at running, start and extended-idle exhaust, and no other calculator in MOVES adds a prerequisite at all. So `rspp_isSilentlyRequired` derives the strip from the selections plus a declared table, and it has exactly one blind spot: `require()` does not flag a pair the user had already selected, so a RunSpec asking for refueling AND for energy would keep its energy block where this chain drops it. No run in the corpus does that, and the document says so rather than leaving it to be found.\n\nIT EMITS 168 ROWS and computes 250 more it does not emit. `n_outputRate` is 168, `cohortSurvivorCount` is 104 -- not the 125 the energy spine carries -- and the shape check recomputes both.",
+    "authors": [
+      "EarthSciML Authors and Contributors"
+    ],
+    "tags": [
+      "fixture",
+      "onroad",
+      "default-database",
+      "refueling"
+    ]
+  },
+  "data_sources": {
+    "db_runspecyear": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/process-refueling/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecyear.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecyear"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, yearID 2020. The scope comes from these tables and never from the RunSpec XML, whose @key attributes are 0-based indices into sorted ID lists (docs/mixed-onroad.md §0.1). This run is the one place that rule has a COST, and the description above says what it is.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecmonth": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/process-refueling/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecmonth.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecmonth"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, monthID 8. A key of REFEC-2: the average Reid vapour pressure is the market-share-weighted RVP of the month's fuel supply, so the displaced-vapour rate is seasonal.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspechour": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/process-refueling/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspechour.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspechour"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, hourID 7. The hour is what fixes the ambient temperature REFEC-1 puts through the 2008 California study relation: 59.5 °F, giving a refueling temperature of 68.495 °F for gasoline and E85.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_aggregationhour": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/process-refueling/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspechour.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_aggregationhour"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "The hours the run aggregates over. This run does not set `aggregateBy`, so it is `runspechour` itself and the same file.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecday": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/process-refueling/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecday.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecday"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, dayID 5 (weekday).",
+        "esio_format": "parquet"
+      }
+    },
+    "db_rateday": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/process-refueling/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecday.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_rateday"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "The day types the RATE-side time pre-aggregation is scoped to; `runspecday` itself here.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_actday": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/process-refueling/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecday.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_actday"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "The day types the output day's ACTIVITY covers; `runspecday` itself here.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecsourcetype": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/process-refueling/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecsourcetype.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecsourcetype"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, sourceTypeID 21, Passenger Car. A key of BOTH technology adjustments -- the displacement side's six-column one and the spillage side's three-column one.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecroadtype": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/process-refueling/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecroadtype.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecroadtype"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, roadTypeID 4. It is the join that leaves the energy spine with ONE contributing pollutant-process: start-exhaust and extended-idle energy live on the off-network road type 1, so 9102 and 9190 contribute exactly zero and 9101 carries all 2.5398e+08 kJ.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecsourcefueltype": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/process-refueling/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecsourcefueltype.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecsourcefueltype"
+      },
+      "metadata": {
+        "tags": [
+          "scope",
+          "cohorts"
+        ],
+        "note": "4 rows: gasoline, diesel, E85 and electricity. All four reach the spillage block's cohort grid and only three of them emit, and the two suppressions are DIFFERENT joins -- see the description above.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_movesoutput": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/process-refueling/tables/db__out_process_refueling__movesoutput.parquet"
+      },
+      "reader_options": {
+        "float_columns": [
+          "emissionQuant"
+        ]
+      },
+      "metadata": {
+        "tags": [
+          "oracle",
+          "expected-output"
+        ],
+        "note": "The 168-row expected output: 64 displacement cohorts and 104 spillage ones, all of pollutant 1 (THC) at processes 18 and 19, on road type 4. NO pollutant-91 row, although the run computes 250 of them. DECLARED AND CONSUMED BY NOTHING -- reading it would transcribe the answer and its extent would transcribe the answer's shape. compare-output.py reads it directly under tolerance.toml.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecpollutantprocess": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/process-refueling/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecpollutantprocess.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecpollutantprocess"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "7 rows, and this is the most interesting selection table in `runspecs/`. Two are produced (118 THC displacement, 119 THC spillage), two are produced downstream and are not chained in this run (8618, 8619 Total Organic Gases), and THREE ARE PREREQUISITES THE RUNSPEC NEVER ASKED FOR: 9101, 9102 and 9190, Total Energy Consumption at running, start and extended-idle exhaust, which `ExecutionRunSpec.flagRequiredPollutantProcesses` adds because without them `BaseRate` emits no energy and the chained calculator sees no input. They are computed and stripped from the output, and `rspp_isSilentlyRequired` is how this chain knows.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecchainedto": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/process-refueling/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspecchainedto.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecchainedto"
+      },
+      "metadata": {
+        "tags": [
+          "scope",
+          "chain"
+        ],
+        "note": "ZERO rows. The refueling dependency is NOT here -- `pollutantProcessAssoc.chainedTo1/2` are NULL on 118 and 119 and the edge lives in the calculator's Java, as the CO2AE edges do (conventions §77). So the eight refueling edges this chain follows are DECLARED, and this empty table is what says they had to be.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspeccounty": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/process-refueling/tables/db__movesexecution1ccc0232_campuscluster_illinois_edu__runspeccounty.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspeccounty"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, countyID 26161 (Washtenaw, MI). It selects the fuel supply REFEC-2's average RVP is weighted over, and the county-year row carrying the two Stage II program reductions -- both 0 here, and nonzero in 7,375 and 7,154 of the national table's 203,616 rows.",
+        "esio_format": "parquet"
+      }
+    }
+  },
+  "models": {
+    "Onroad": {
+      "ref": "../moves-onroad.esm",
+      "bindings": {
+        "n_outputRate": 168
+      }
+    }
+  }
+}
