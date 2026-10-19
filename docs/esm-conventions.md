@@ -8234,3 +8234,13 @@ summing to 1 was the check that one hp bin's set had been read; dividing by the
 sum makes every cohort's mix sum to 1 whatever was read. `run_mixSetsOffOne`
 keeps the check, as a count held at zero, at the tolerance the Fortran itself
 warns at.
+
+## 90. A precision artifact is diagnosed before it is accepted, and then ported or excepted by its cost **[PLAN.md step 7e; `nr-railroad-support-nation` 23,108 of 23,108]**
+
+**Diagnose first, every time.** A residual of 1e-4 looks like reference-precision noise, and most of 7e's were not noise. The Tier 4 PM clamp and the renormalized technology sets were logic, and both were found by refusing to accept a residual nobody had explained. A tolerance is loosened only for a cause that has been MEASURED, and against the reference itself where it can be run. moves.rs `generate-corpus.sh` runs a nonroad RunSpec through an instrumented NONROAD in about a minute.
+
+**What a reference reader sees is part of the arithmetic.** §89 said NONROAD reads what MOVES printed. It also reads only what its parser's window holds: `rdnropt.f` reads each `/OPTIONS/` value from columns 21-30, so a weight-percent sulfur keeps seven decimals (`opt_option_value`). When a value enters a reference through a file, read the writer's format AND the reader's field width.
+
+**Then port it or except it, by cost.** A precision artifact the format can replicate exactly and cheaply is ported, and the gate stays strict (the sulfur window, the SEASON file's `%10.3f`, the POP file's `%17.1f`). One the format cannot express gets a `cell_exception` in `tolerance.toml`. It names the cohort's key, carries the measurement in a comment and the cause in `why`, and is refused once it matches nothing. Never a per-fixture `rel`, which would loosen thousands of cells to cover four. The railroad's binary32 population sum is the first: it crosses a `.POP` rounding boundary, and the format has no binary64-to-binary32 conversion (EarthSciAST#536).
+
+**A cancellation turns ulps into percent.** agedist.f's newest cohort is a residual, `totpop/baspop - frcsum`. Where sales fall, both terms are about 1.32 and their difference is about 0.001, so one ulp of the minuend is 1e-4 of the cohort. A cohort that is off alone, by one factor across all its pollutants, in a year when its equipment's growth turned negative, is that residual. Look at the fold's inputs (`baspop`, the growth factors), not at the fold (§87).

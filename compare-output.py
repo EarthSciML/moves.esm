@@ -504,8 +504,44 @@ def compare(expected: list[dict], actual: list[dict], tol: dict, fixture: str,
         f"key set: {len(shared)} shared, {len(only_exp)} missing, {len(only_act)} extra"
     )
 
+    # --- declared cell exceptions -------------------------------------------
+    #
+    # A fixture may hold named cohorts -- a key over some identity columns, e.g.
+    # one (SCC, modelYearID) -- to a LOOSER relative gate than [cell] rel, and
+    # nothing else. Every other cell keeps the full gate, the key set and the
+    # sums are untouched, and the reason is mandatory. It exists for one class
+    # of residual: a PRECISION artifact whose cause has been measured and whose
+    # replication the format cannot express (tolerance.toml says which). An
+    # exception that matches no compared cell is refused, so it cannot outlive
+    # the cohort it names, and one whose cells are all inside [cell] rel is
+    # reported as dead weight, like the storage floor above.
+    exc = tol.get("fixtures", {}).get(fixture, {}).get("cell_exception", {})
+    exc_keys: set = set()
+    exc_rel = None
+    if exc:
+        exc_cols = list(exc.get("columns", []))
+        vals = [_norm(v) for v in exc.get("values", [])]
+        exc_rel = exc.get("rel")
+        if not str(exc.get("why", "")).strip():
+            raise Failure(
+                f"tolerance.toml declares a cell_exception for {fixture} with no "
+                f"`why`. An exception without a reason is a bug being hidden."
+            )
+        if not exc_cols or not vals or len(vals) % len(exc_cols) or exc_rel is None:
+            raise Failure(
+                f"{fixture}'s cell_exception needs `columns`, `values` (a multiple "
+                f"of the columns) and `rel`"
+            )
+        bad = [c for c in exc_cols if c not in keys]
+        if bad:
+            raise Failure(f"{fixture}'s cell_exception names non-key column(s) {', '.join(bad)}")
+        idx = [keys.index(c) for c in exc_cols]
+        exc_keys = {tuple(vals[i:i + len(exc_cols)]) for i in range(0, len(vals), len(exc_cols))}
+        excepted_of = lambda k: tuple(k[i] for i in idx)
+
     # 3. per-cell
     cell_rel = tol.get("cell", {}).get("rel")
+    excepted = []
     worst = (0.0, None)
     worst_gated = (0.0, None)
     cells_checked = 0
@@ -529,10 +565,18 @@ def compare(expected: list[dict], actual: list[dict], tol: dict, fixture: str,
                     gated = excess / abs(e) if e else excess
                     if gated > worst_gated[0]:
                         worst_gated = (gated, (k, col, a, e))
+                is_excepted = bool(exc_keys) and excepted_of(k) in exc_keys
                 cells_checked += 1
-                if r > worst[0]:
+                # The headline worst is over the cells the FULL gate judges, so
+                # it stays comparable across rungs; the excepted cells are
+                # reported on their own line.
+                if r > worst[0] and not is_excepted:
                     worst = (r, (k, col, a, e))
-                if gated > cell_rel:
+                if is_excepted:
+                    excepted.append((r, k, col, a, e))
+                    if gated > exc_rel:
+                        over.append((r, k, col, a, e))
+                elif gated > cell_rel:
                     over.append((r, k, col, a, e))
         if over:
             over.sort(reverse=True)
@@ -543,10 +587,29 @@ def compare(expected: list[dict], actual: list[dict], tol: dict, fixture: str,
                 )
             if len(over) > 5:
                 problems.append(f"    ... and {len(over) - 5} more")
+        if exc_keys:
+            matched = {excepted_of(k) for _, k, *_ in excepted}
+            unmatched = exc_keys - matched
+            if unmatched:
+                problems.append(
+                    f"cell_exception names {len(unmatched)} key(s) that match no "
+                    f"compared cell -- delete them: {sorted(unmatched)}"
+                )
+            if excepted:
+                ew = max(excepted)[0]
+                report.append(
+                    f"cell exception: {len(excepted)} cell(s) of {len(matched)} "
+                    f"cohort(s) held to {exc_rel:g} instead of {cell_rel:g}; their "
+                    f"worst is rel={ew:.3e}"
+                    + (" -- inside the full gate, so the exception is dead weight"
+                       if ew <= cell_rel else "")
+                )
+                report.append(f"       why: {exc['why']}")
         if cells_checked:
             report.append(
-                f"worst cell: rel={worst[0]:.3e} over {cells_checked} cells "
+                f"worst cell: rel={worst[0]:.3e} over {cells_checked - len(excepted)} cells "
                 f"(tolerance {cell_rel:g})"
+                + (f"; {len(excepted)} excepted cell(s) reported above" if excepted else "")
             )
             if half_quantum:
                 # Said separately and labelled differently, because it is a
@@ -807,6 +870,41 @@ def _self_test() -> int:
         got = "no\n`why`" in str(exc).replace(" ", "\n") or "why" in str(exc)
         print(f"  {'ok  ' if got else 'FAIL'} an exclusion with no `why` is refused")
         extra_failures += 0 if got else 1
+
+    # --- the declared cell exception -----------------------------------------
+    #
+    # It loosens the gate for the named cohort and NOWHERE else, refuses a
+    # missing reason, and refuses a key that matches nothing -- so it cannot
+    # quietly outlive the cohort it was written for.
+    excd = {**tol, "fixtures": {"nr-self-test": {"cell_exception": {
+        "columns": ["SCC", "modelYearID"], "values": ["A", "2021"],
+        "rel": 1e-3, "why": "a self-test reason"}}}}
+    near = lambda m: rows((1, "A", 2020, "100.0" if m != 2020 else "100.05"),
+                          (1, "A", 2021, "200.0" if m != 2021 else "200.1"),
+                          (2, "A", 2020, "300.0"))
+    # (a) 5e-4 on the excepted cohort is inside its 1e-3: passes.
+    alone("cell exception: the named cohort is held to its own gate", base,
+          near(2021), excd, True)
+    # (b) the same 5e-4 on a cohort that is NOT named still fails.
+    alone("cell exception: an unnamed cohort keeps the full gate", base,
+          near(2020), excd, False)
+    # (c) beyond the exception's own gate, the named cohort fails too.
+    alone("cell exception: the named cohort still fails beyond its gate", base,
+          rows((1, "A", 2020, "100.0"), (1, "A", 2021, "201.0"), (2, "A", 2020, "300.0")),
+          excd, False)
+    # (d) a key that matches no cell is refused, and so is a missing reason.
+    stale = {**tol, "fixtures": {"nr-self-test": {"cell_exception": {
+        "columns": ["SCC", "modelYearID"], "values": ["A", "1999"],
+        "rel": 1e-3, "why": "x"}}}}
+    alone("cell exception: a key that matches nothing fails", base, base, stale, False)
+    for label, bad in (("no `why`", {"columns": ["SCC"], "values": ["A"], "rel": 1e-3}),):
+        try:
+            compare(base, base, {**tol, "fixtures": {"nr-self-test": {"cell_exception": bad}}},
+                    "nr-self-test")
+            print(f"  FAIL a cell exception with {label} was accepted")
+            extra_failures += 1
+        except Failure:
+            print(f"  ok   a cell exception with {label} is refused")
 
     # --- the storage floor ---------------------------------------------------
     #
