@@ -116,15 +116,29 @@ values, in the order the pairs are listed". The author writes the pair list; the
 gate builds the skolem tuple. Several pairs over *different* symbol pairs are
 several gates, which compose by conjunction.
 
-**A semi-join is `bool_and_or` with a numeric body** **[Phase 2]**. *Does a
+**A semi-join is a clamped match count, `row_is_present`** **[Phase 2]**. *Does a
 matching row exist* is the shape every precomputed key needs — the two SCC
 ladders, state-default precedence, the `getind.f` year rule, the RunSpec sector
-and fuel selections. Spell it `"semiring": "bool_and_or"` with `"expr": 1.0`,
-giving 1 on a match and 0 on none, and bind it at the call site as an explicit
-`> 0` comparison. The body is `true`: a presence test carries no value. (It read
-`1.0` for as long as `true` panicked at evaluation — F10, now fixed upstream in
+and fuel selections. Spell it as a `"semiring": "sum_product"` faq with
+`"expr": 1.0` (or a 0/1 indicator), wrapped in lib/keys.esm's `row_is_present`,
+which clamps the count to 1: 1 on a match and 0 on none, and bind it at the call
+site as an explicit `> 0` comparison. The body carries no value. (It read `1.0`
+for as long as `true` panicked at evaluation — F10, now fixed upstream in
 EarthSciAST `a1a592ecf`, which also refused the other nine core-but-unevaluable
 ops at build rather than letting them reach `unreachable!()`.)
+
+It was spelled `"semiring": "bool_and_or"` until esm 0.3.1. CONFORMANCE_SPEC
+§5.6.1 (EarthSciAST `1b6e7099f`) has the numeric evaluators REJECT an
+array-valued `bool_and_or` reduction — a faq with an output index that
+contracts another — and run only a scalar one, so under 0.3.1 every component
+that spelled a semi-join that way errored at build under `esm test`, 353
+assertions in twelve files. The clamped count is the same OR: a sum of terms
+that are each 0 or 1 is at least 1 exactly when one of them is 1, and every
+cell of the twelve files reproduces bit for bit. `onroad/model.esm` and
+`nonroad/model.esm` still spell `bool_and_or`: `esm simulate`'s build pipeline
+admits it (EarthSciAST `3c7a717bb`, "pipeline route only"), so the RunSpecs
+evaluate, but the same faq would be refused on the compile path, and they
+should move to `row_is_present` too.
 
 **A relation cannot be joined to itself** **[Phase 2]**. Two `ranges` over one
 index set leave every key column unresolvable, because resolution is by axis

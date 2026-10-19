@@ -2,7 +2,7 @@
   "esm": "1.2.0",
   "metadata": {
     "name": "moves.nonroad.model",
-    "description": "THE NONROAD DOMAIN MODEL (PLAN.md §7.5 step 7e). One model, no `data_sources`: `../moves-nonroad.esm` mounts it over the national default database and one thin document per RunSpec in `runspecs/nonroad/` mounts THAT and supplies the run's selections and its oracle. It is `fixtures/nr-logging-county.esm`'s model lifted out of the fixture -- the Phase 2 vertical slice, NONROAD's `prccty.f` chain from base-year population through `agedist.f`'s fold to `clcems.f`'s roll-up -- and the fixture stays where it is, because its 29 inline assertions run there and a mounted component's do not (F47).\n\nWHAT THE FIXTURE DECLARED AND THIS DOCUMENT READS. The fixture wrote five things into itself that a document serving more than one run cannot: (1) the six equipment points, `point_sourceTypeID = [1059, 1386..1390]`; (2) the county, state, year and day, as parameters; (3) the base year 1990; (4) the technology window 100..199; (5) the output relation's four pollutants per cohort. Here (1) is `sut_isPoint` -- the `nrsourceusetype` rows whose SCC is in the RunSpec's `/SOURCE CATEGORY/` packet (`scc_isSelected`, with NONROAD's rule that an EMPTY packet runs everything) and whose county population is positive -- ranked densely onto the point axis; (2) comes from `runspeccounty`, `runspecstate`, `runspecyear` and `runspecday`; (3) from `nrbaseyearequippopulation`; (4) is `engineTech`; and (5) is `n_runspecpollutantprocess`. The allocation moved from the point axis to the equipment-type axis, because the surrogate is the equipment type's and the point axis is not known until the allocation is.\n\nWHAT THE SECOND AND THIRD RUNS FOUND, which the first could not. `nr-lawn-garden-county` has SCCs whose exact rate rows cover some technologies and not others, so NONROAD's SCC chain (`fndefc.f`: exact, `xxxxxxx000`, `xxxx000000`) is walked per (pollutant, technology) and not once per point (`tech_rateRow`); and it has points ON a bin boundary -- 37 national points sit on one -- which take the LOWER bin in both the rate and the tech-mix lookups rather than the sum of both (`tech_rate*Row`, `point_mixBinLow`). `nr-recreational-county` selects SO2, which `clcems.f` does not read from a table but WRITES from BSFC and THC, so the rate and deterioration lookups moved onto the axis of what NONROAD always rates (`rated_pp_rows`), and `emsadj.f`'s sulfur correction reads the in-use sulfur of the county's nonroad fuel supply (`fk_sulfurWeightPercent`). `nr-logging-county`'s 144 rows stayed byte-identical to the fixture's through all of that, and left it only at the SEASON file's printed month fractions (PLAN.md §7.3.37), which the fixture does not read. `fixtures/nr-airtoxics-lawn-garden-county.esm` had found three of these rules first; a fourth it found -- that a (pollutant, technology) pair with no `nrdeterioration` row deteriorates by 1 and not 0 -- is here too.\n\nIT IS EVALUATED IN BINARY32, and the declaration that makes it so is NOT this document's `domain`: the pinned toolchain drops a mounted leaf's `domain.element_type` and evaluates it in the ROOT's precision, silently (docs/findings F60). So every RunSpec in `runspecs/nonroad/` declares `Float32` itself, and `nr-logging-county` without it loses exactly the four rows `docs/nonroad-logging-county.md` §7.3 says binary64 costs. Twenty-one variables still override to Float64, and each holds an SCC or a constant that meets one in the same operator.\n\nFOUR NUMBERS ARE DECLARED, because no table states them and MOVES works them out at run time: `n_equipmentPoint`, `n_outputCohort`, `n_outputPolProcess` and `n_foldYear`. Each is recomputed by the chain -- `run_equipmentPointsSelected`, `run_outputCohortCount`, `run_outputPolProcessCount`, `run_extraScopeRows` -- and tools/check-nonroad-shape.py asserts the declaration against the recomputation and the emitted keys.\n\nSTATE SCALE IS A COUNTY AT A PSEUDO-COUNTY (PLAN.md §7.3.35). MOVES runs a state-level RunSpec at county stateID x 1000, zone stateID x 10000 and fuel region stateID, which it BUILDS (`PreAggSTATE.sql`, `DefaultDataMaker`) and no national table has. So the temperature is a weighted SUM over zones (`zone_runWeight`, divided by the 13 daytime hours and not by the weights, which are rounded before they are divided and sum to less than 1), the nonroad fuel supply is one union relation of the national rows and one default row per `nrFuelType` (`rsu_*`), the `.OPT` packet's func A falls back to formulation 10 when the default formulation 12 joins nothing, and nothing is allocated. At a real county each piece reduces to the formula it replaced. The output carries only what NONROAD EMITS (`emitted_pp_rows`), clamped at zero per record as `NonroadOutputDataLoader` does.\n\nNATION SCALE IS A COUNTY 0 (PLAN.md §7.3.36), and it is NOT a sum of state runs. `PreAggNATION.sql` folds every state into one state 0 before NONROAD sees a table, and the model computes each fold from the national rows (`run_isNationScale`), leaving out Puerto Rico and the Virgin Islands as it does (`state_is_in_nation`): the population is the states' SUM, `.POP`-rounded once afterwards (`sut_runPopulation`); the growth pattern is the states' MINIMUM per SCC (`gpf_runStateID`, a `min_sum`); the month allocation is another table, `nrUSMonthAllocation`, so the run's month table is a union (`rma_*`); the temperature is the start-weighted mean over every zone, renormalized where a state's is not; the fuel supply is every region's share weighted by the region's start activity (`sup_regionShare`); and the output has no state. Off the nation each is the formula it replaced.\n\nDIESEL, LPG, CNG AND THE WHOLE INVENTORY (PLAN.md §7.3.37). A RunSpec selecting onroad diesel matches no `nrscc` fuel ID, so its packet is empty and NONROAD runs all 213 SCCs; the dense layout runs that in ~9 minutes and ~5 GB. Five rules came with it, each about where NONROAD applies an operation or what MOVES hands it: the `/PM BASE SULFUR/` packet's per-technology alternates and `clcems.f`'s diesel PM sulfur correction (`tech_pmSulfurBase`, `tech_sulfatePMScale`); every technology set divided by its sum, as `rdtech_moves.f` does (`tech_fraction`, with `run_mixSetsOffOne` keeping the one-bin check); the zero clamp per TECHNOLOGY record, which is what `NonroadOutputDataLoader` reads (`tech_hourlyEmission`); the rate row's hp bin chosen as `fndefc.f` chooses it, the NEAREST (`hp_bin_distance`); and the month fraction as the SEASON file prints it, renormalized (`printed_decimal`). The output's fuel type is `nrscc`'s, unmapped.\n\nNOT CARRIED YET: two residuals of `nr-railroad-support-nation` (`runspecs/nonroad/pending/`) -- gasoline SO2 at the nation 1.38e-4 high throughout, and one diesel cohort -- reformulated gasoline, CO2 and crankcase, and the air-toxics and speciation chain `fixtures/nr-airtoxics-lawn-garden-county.esm` computes."
+    "description": "THE NONROAD DOMAIN MODEL (PLAN.md §7.5 step 7e). One model, no `data_sources`: `../moves-nonroad.esm` mounts it over the national default database and one thin document per RunSpec in `runspecs/nonroad/` mounts THAT and supplies the run's selections and its oracle. It is `fixtures/nr-logging-county.esm`'s model lifted out of the fixture -- the Phase 2 vertical slice, NONROAD's `prccty.f` chain from base-year population through `agedist.f`'s fold to `clcems.f`'s roll-up -- and the fixture stays where it is, because its 29 inline assertions run there and a mounted component's do not (F47).\n\nWHAT THE FIXTURE DECLARED AND THIS DOCUMENT READS. The fixture wrote five things into itself that a document serving more than one run cannot: (1) the six equipment points, `point_sourceTypeID = [1059, 1386..1390]`; (2) the county, state, year and day, as parameters; (3) the base year 1990; (4) the technology window 100..199; (5) the output relation's four pollutants per cohort. Here (1) is `sut_isPoint` -- the `nrsourceusetype` rows whose SCC is in the RunSpec's `/SOURCE CATEGORY/` packet (`scc_isSelected`, with NONROAD's rule that an EMPTY packet runs everything) and whose county population is positive -- ranked densely onto the point axis; (2) comes from `runspeccounty`, `runspecstate`, `runspecyear` and `runspecday`; (3) from `nrbaseyearequippopulation`; (4) is `engineTech`; and (5) is `n_runspecpollutantprocess`. The allocation moved from the point axis to the equipment-type axis, because the surrogate is the equipment type's and the point axis is not known until the allocation is.\n\nWHAT THE SECOND AND THIRD RUNS FOUND, which the first could not. `nr-lawn-garden-county` has SCCs whose exact rate rows cover some technologies and not others, so NONROAD's SCC chain (`fndefc.f`: exact, `xxxxxxx000`, `xxxx000000`) is walked per (pollutant, technology) and not once per point (`tech_rateRow`); and it has points ON a bin boundary -- 37 national points sit on one -- which take the LOWER bin in both the rate and the tech-mix lookups rather than the sum of both (`tech_rate*Row`, `point_mixBinLow`). `nr-recreational-county` selects SO2, which `clcems.f` does not read from a table but WRITES from BSFC and THC, so the rate and deterioration lookups moved onto the axis of what NONROAD always rates (`rated_pp_rows`), and `emsadj.f`'s sulfur correction reads the in-use sulfur of the county's nonroad fuel supply (`fk_sulfurWeightPercent`). `nr-logging-county`'s 144 rows stayed byte-identical to the fixture's through all of that, and left it only at the SEASON file's printed month fractions (PLAN.md §7.3.37), which the fixture does not read. `fixtures/nr-airtoxics-lawn-garden-county.esm` had found three of these rules first; a fourth it found -- that a (pollutant, technology) pair with no `nrdeterioration` row deteriorates by 1 and not 0 -- is here too.\n\nIT IS EVALUATED IN BINARY32, and the declaration that makes it so is NOT this document's `domain`: the pinned toolchain drops a mounted leaf's `domain.element_type` and evaluates it in the ROOT's precision, silently (docs/findings F60). So every RunSpec in `runspecs/nonroad/` declares `Float32` itself, and `nr-logging-county` without it loses exactly the four rows `docs/nonroad-logging-county.md` §7.3 says binary64 costs. Twenty-three variables still override to Float64, and each holds an SCC or a constant that meets one in the same operator.\n\nFOUR NUMBERS ARE DECLARED, because no table states them and MOVES works them out at run time: `n_equipmentPoint`, `n_outputCohort`, `n_outputPolProcess` and `n_foldYear`. Each is recomputed by the chain -- `run_equipmentPointsSelected`, `run_outputCohortCount`, `run_outputPolProcessCount`, `run_extraScopeRows` -- and tools/check-nonroad-shape.py asserts the declaration against the recomputation and the emitted keys.\n\nSTATE SCALE IS A COUNTY AT A PSEUDO-COUNTY (PLAN.md §7.3.35). MOVES runs a state-level RunSpec at county stateID x 1000, zone stateID x 10000 and fuel region stateID, which it BUILDS (`PreAggSTATE.sql`, `DefaultDataMaker`) and no national table has. So the temperature is a weighted SUM over zones (`zone_runWeight`, divided by the 13 daytime hours and not by the weights, which are rounded before they are divided and sum to less than 1), the nonroad fuel supply is one union relation of the national rows and one default row per `nrFuelType` (`rsu_*`), the `.OPT` packet's func A falls back to formulation 10 when the default formulation 12 joins nothing, and nothing is allocated. At a real county each piece reduces to the formula it replaced. The output carries only what NONROAD EMITS (`emitted_pp_rows`), clamped at zero per record as `NonroadOutputDataLoader` does.\n\nNATION SCALE IS A COUNTY 0 (PLAN.md §7.3.36), and it is NOT a sum of state runs. `PreAggNATION.sql` folds every state into one state 0 before NONROAD sees a table, and the model computes each fold from the national rows (`run_isNationScale`), leaving out Puerto Rico and the Virgin Islands as it does (`state_is_in_nation`): the population is the states' SUM, `.POP`-rounded once afterwards (`sut_runPopulation`); the growth pattern is the states' MINIMUM per SCC (`gpf_runStateID`, a `min_sum`); the month allocation is another table, `nrUSMonthAllocation`, so the run's month table is a union (`rma_*`); the temperature is the start-weighted mean over every zone, renormalized where a state's is not; the fuel supply is every region's share weighted by the region's start activity (`sup_regionShare`); and the output has no state. Off the nation each is the formula it replaced.\n\nDIESEL, LPG, CNG AND THE WHOLE INVENTORY (PLAN.md §7.3.37). A RunSpec selecting onroad diesel matches no `nrscc` fuel ID, so its packet is empty and NONROAD runs all 213 SCCs; the dense layout runs that in ~9 minutes and ~5 GB. Five rules came with it, each about where NONROAD applies an operation or what MOVES hands it: the `/PM BASE SULFUR/` packet's per-technology alternates and `clcems.f`'s diesel PM sulfur correction (`tech_pmSulfurBase`, `tech_sulfatePMScale`); every technology set divided by its sum, as `rdtech_moves.f` does (`tech_fraction`, with `run_mixSetsOffOne` keeping the one-bin check); the zero clamp per TECHNOLOGY record, which is what `NonroadOutputDataLoader` reads (`tech_hourlyEmission`); the rate row's hp bin chosen as `fndefc.f` chooses it, the NEAREST (`hp_bin_distance`); and the month fraction as the SEASON file prints it, renormalized (`printed_decimal`). The output's fuel type is `nrscc`'s, unmapped.\n\nThe in-use sulfur is what NONROAD READS back from the `.OPT` packet, not what MOVES computed: `rdnropt.f` reads `line(21:30)`, seven decimals of a weight percent (`opt_option_value`), which is what closed `nr-railroad-support-nation`'s gasoline SO2.\n\nNOT CARRIED YET: one residual of `nr-railroad-support-nation` (`runspecs/nonroad/pending/`) -- diesel 2270002066 model year 2010, 0.7 to 1.3e-4 on every pollutant. It is the nation's base-year population: MOVES sums the states in binary64 (137670.538, `.POP`-printed 137670.5) and this document sums them in binary32 (137670.547, printed .6), and `agedist.f`'s 2010 newest-cohort residual is a cancellation, 0.00099 of 1.323, that turns the 7e-7 into 2.4e-4. Summing in binary64 needs a binary64-to-binary32 conversion the format does not yet have (every route is `mixed_element_type`); measured with the rounding forced to .5, the cohort closes to 1.6e-5. Also not carried: reformulated gasoline, CO2 and crankcase, and the air-toxics and speciation chain `fixtures/nr-airtoxics-lawn-garden-county.esm` computes."
   },
   "domain": {
     "element_type": "Float32"
@@ -526,7 +526,8 @@
             "default_day_fraction",
             "unit_conversion",
             "emission_unit_g_per_hp_hr",
-            "printed_decimal"
+            "printed_decimal",
+            "opt_option_value"
           ]
         },
         {
@@ -1104,7 +1105,7 @@
           "shape": [
             "equipment_point_rows"
           ],
-          "description": "`emsadj.f`'s sulfur correction: in-use sulfur over the base the factor was written at, marine diesel's in-use sulfur for the two marine diesel families."
+          "description": "`emsadj.f`'s sulfur correction: in-use sulfur over the base the factor was written at, marine diesel's in-use sulfur for the two marine diesel families. The in-use sulfur is what NONROAD READS from the .OPT packet (`opt_option_value`), seven decimals of weight percent, and not what MOVES computed: at the nation the gasoline sulfur 0.00066419126 arrives as 0.0006641, and every gasoline SO2 cell of nr-railroad-support-nation was 1.374e-4 high until it was read that way."
         },
         "tech_soxConversion": {
           "type": "unknown",
@@ -6163,36 +6164,43 @@
               "op": "/",
               "args": [
                 {
-                  "op": "ifelse",
-                  "args": [
-                    {
-                      "op": ">",
+                  "op": "apply_expression_template",
+                  "args": [],
+                  "name": "opt_option_value",
+                  "bindings": {
+                    "value": {
+                      "op": "ifelse",
                       "args": [
+                        {
+                          "op": ">",
+                          "args": [
+                            {
+                              "op": "index",
+                              "args": [
+                                "point_isMarineDiesel",
+                                "r"
+                              ]
+                            },
+                            0
+                          ]
+                        },
                         {
                           "op": "index",
                           "args": [
-                            "point_isMarineDiesel",
-                            "r"
+                            "run_marineSulfurWeightPercent",
+                            "n"
                           ]
                         },
-                        0
-                      ]
-                    },
-                    {
-                      "op": "index",
-                      "args": [
-                        "run_marineSulfurWeightPercent",
-                        "n"
-                      ]
-                    },
-                    {
-                      "op": "index",
-                      "args": [
-                        "point_sulfurWeightPercent",
-                        "r"
+                        {
+                          "op": "index",
+                          "args": [
+                            "point_sulfurWeightPercent",
+                            "r"
+                          ]
+                        }
                       ]
                     }
-                  ]
+                  }
                 },
                 {
                   "op": "index",

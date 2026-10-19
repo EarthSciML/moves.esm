@@ -408,10 +408,12 @@ done
 #
 # The gate is a RATIO between two runs on this machine, not an absolute time, so
 # it needs no calibration: gates/equijoin_driven.esm contracts 1.0e10 candidate
-# pairs under a `join.on`, gates/equijoin_undriven_control.esm contracts 4.0e6
-# under an equality `filter` — 2,500x FEWER — and the driven one must still be
-# several times faster. Ungated cost is quadratic in N (measured: 0.47 s at
-# 1.0e6 pairs, 4.09 s at 9.0e6), so a fallback at 1.0e10 would need minutes.
+# pairs under a `join.on`, gates/equijoin_undriven_control.esm contracts 6.4e7
+# under an equality `filter` — 156x FEWER — and the driven one must still be
+# several times faster. Ungated cost is quadratic in N (measured at esm 0.3.1:
+# 0.22 s at 4.0e6 pairs, 3.38 s at 6.4e7), so a fallback at 1.0e10 would need
+# minutes. The control's size is a calibration: esm 0.3.1 made the ungated
+# path ~18x cheaper per pair, and at the old 4.0e6 the ratio fell to 2.3.
 # Both documents also assert the admitted pair SET, not merely its size.
 
 GATE_MARGIN="${GATE_MARGIN:-4}"
@@ -430,13 +432,13 @@ head2 "join.on scaling gate"
 if driven_ms=$(time_ms gates/equijoin_driven.esm); then
   if control_ms=$(time_ms gates/equijoin_undriven_control.esm); then
     say "  driven   (1.0e10 candidate pairs, join.on): ${driven_ms} ms"
-    say "  ungated  (4.0e6 candidate pairs, filter)  : ${control_ms} ms"
+    say "  ungated  (6.4e7 candidate pairs, filter)  : ${control_ms} ms"
     if (( driven_ms * GATE_MARGIN < control_ms )); then
-      pass "driven join is >${GATE_MARGIN}x faster on 2500x the pairs"
+      pass "driven join is >${GATE_MARGIN}x faster on 156x the pairs"
     else
       fail "join.on scaling gate — driven ${driven_ms} ms vs ungated ${control_ms} ms"
       say "       The gate is no longer driving enumeration: a contraction over"
-      say "       2,500x fewer pairs should not be competitive. See"
+      say "       156x fewer pairs should not be competitive. See"
       say "       CONFORMANCE_SPEC §5.5.8 and gates/equijoin_driven.esm."
     fi
   else
@@ -464,7 +466,7 @@ declare -A REPRO_SIGNATURE=(
   [F41_an_assertion_cannot_say_why]='Additional properties are not allowed'
   [F43_an_ingested_parameter_is_not_assertable]='has no cells in var_map'
   [F45_an_ingesting_document_holds_one_model]='document holds several models'
-  [F56_a_zero_sized_axis_panics]='col_major_to_arrayd shape mismatch'
+  [F56_a_zero_sized_axis_panics]='attempt to calculate the remainder with a divisor of zero'
   [F57_a_wide_join_key_is_dropped]='actual=4 expected=2'
 )
 
@@ -724,18 +726,32 @@ fi
 # CONTAINS a colon (`E_TREEWALK_UNBOUND_NAME: 'i'`) and the whole point of the
 # second field is to pin that exact text -- a bare `'i'` is short enough to
 # match somewhere incidental and would let a refusal that names nothing pass.
-for control in "$F25|Unknown variable 'undeclaredFloor'|ingesting a real snapshot table" \
-               "$F26|E_TREEWALK_UNBOUND_NAME: 'i'|a free index symbol on the array path"; do
+#
+# Each control runs under BOTH compilers, because esm 0.3.1 made `native` the
+# default for `esm test` and the two do not refuse in the same words. The
+# interpreter raises CONFORMANCE_SPEC §5.23's named fault; `native` declines
+# F26's rule as a tape capability gap that NAMES the symbol but calls it a
+# possible "forcing/NaN sentinel" -- short of §5.23.1, which wants one gate
+# and one fault on every route (docs/findings/README.md, F26).
+# So the fourth field is what the native run must say, defaulting to the
+# second; both runs must refuse and both must name the operand.
+for control in "$F25|Unknown variable 'undeclaredFloor'|ingesting a real snapshot table|" \
+               "$F26|E_TREEWALK_UNBOUND_NAME: 'i'|a free index symbol on the array path|unresolved symbol (forcing/NaN sentinel?) \`i\`"; do
   doc="${control%%|*}"; rest="${control#*|}"
-  name="${rest%%|*}"; what="${rest#*|}"
+  name="${rest%%|*}"; rest="${rest#*|}"
+  what="${rest%%|*}"; native_name="${rest#*|}"
+  [[ -n "$native_name" ]] || native_name="$name"
   [[ -f "$doc" ]] || continue
   if grep -q 'characterization/snapshots' "$doc" && [[ ! -d "$SNAPSHOTS" ]]; then
     skip "$(basename "$doc" .esm)" "needs the snapshots; none at $SNAPSHOTS"
     continue
   fi
-  out=$("$ESM" test "$doc" 2>&1 || true)
-  if grep -qF "$name" <<<"$out"; then
-    pass "unbound-name control: refused, naming it — $what"
+  out_interp=$("$ESM" test --compiler interpreter "$doc" 2>&1 || true)
+  out_native=$("$ESM" test --compiler native "$doc" 2>&1 || true)
+  out="$out_interp
+$out_native"
+  if grep -qF "$name" <<<"$out_interp" && grep -qF "$native_name" <<<"$out_native"; then
+    pass "unbound-name control: refused under both compilers, naming it — $what"
   else
     fail "unbound-name control ($(basename "$doc" .esm)) — the toolchain no longer refuses an
        unbound name, or no longer says WHICH name. This is the defect class that

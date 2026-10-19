@@ -39,6 +39,17 @@ verifies it against moves.rs's `canonical-image.lock` and builds it if it is
 missing (`--force` rebuilds, which rewrites that lock). The database, the SIF
 and the snapshots are all large and none of them is checked in.
 
+`build-snapshots.sh` regenerates the canonical-MOVES snapshots under
+`../moves.rs/characterization/snapshots/`. The `fixtures/` documents and the
+oracle scripts read them, and so do the runspecs for their MOVESOutput. They are
+development scaffolding; the RunSpecs in `runspecs/` compute from `./movesdb`.
+The script runs each RunSpec through EPA MOVES in moves.rs's `moves-fixture.sif`
+(`characterization/run-all-fixtures.sh`, seeding a county or project input
+database where a run needs one). It renames each capture's host-named execution
+database to the name the documents read, and checks that every snapshot file a
+tracked document names exists. `--list`, `--missing` and `--verify-only` do what
+they say.
+
 ## Layout
 
 | path | what it is |

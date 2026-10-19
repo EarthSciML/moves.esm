@@ -192,6 +192,27 @@ symbol that is not bound by the node it appears in, nor by any enclosing
 `aggregate`, nor declared as a variable, resolves nowhere and should be
 rejected — the same conclusion §9.7.5 reaches for every other reference.
 
+**At esm 0.3.1 the control refuses under both compilers, in two vocabularies.**
+0.3.1 made `native` the default for `esm test`. The interpreter still raises
+the §5.23 fault, `E_TREEWALK_UNBOUND_NAME: 'i' is referenced in an expression
+but bound by NOTHING in scope`. `native` refuses too, and names the symbol, but
+as a capability gap of the tape rather than as the fault:
+
+```
+compiler_refused_rule: compiler 'native' cannot run the const-cadence observed 'b':
+wholesale: unresolved symbol (forcing/NaN sentinel?) `i`. `native` is strict ...
+build with `compiler: Some(Compiler::Interpreter)` to run this document on the
+reference evaluator
+```
+
+It is fail-closed, so the defect class F26 and F25 record has not come back; the
+operand does not vanish. But §5.23.1 asks for ONE gate that every route calls
+and the same verdict, naming the same operand, on each — and this route never
+reaches the gate, reports a structural fault as something the slower evaluator
+might run, and offers "forcing/NaN sentinel" as the likely cause. run-tests.sh
+now drives the control under each compiler and pins each one's wording, so a
+change to either is reported as a change.
+
 
 ## F1 — a nested subsystem mount drops `join.on` key columns
 
@@ -3509,6 +3530,21 @@ a data-open document evaluated alone should be REFUSED with the diagnostic
 `validate` already produces, rather than reaching the layout code at all; and a
 genuinely empty relation — one an author asked for — should be laid out as
 empty. **Filed upstream: [EarthSciML/EarthSciAST#416](https://github.com/EarthSciML/EarthSciAST/issues/416)**, on `8ac536bf0`.
+
+**At esm 0.3.1 (`34f064149`) it still panics, one stage later.** The message
+is now
+
+```
+thread 'main' panicked at src/simulate_array/layout.rs:25:18:
+attempt to calculate the remainder with a divisor of zero
+```
+
+and the backtrace places it in `ObservedRows::row_names` under
+`assemble_solution`, i.e. after the solve: `flat_to_multi_col_major` divides a
+flat cell index by the axis length 0. The `faq` evaluation that panicked at
+0.2.0 no longer does; naming the rows of the empty output does. Same defect —
+a relation materialized at length 0 aborts the process — so run-tests.sh's
+recorded signature moved with it and #416 stays open.
 
 
 ## F57 — a join key of more than one dimension is dropped, and the answer is wrong

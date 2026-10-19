@@ -30,11 +30,11 @@
           "description": "The joined value minus the carried one. Exactly zero, and asserting a residual rather than the value again is the point: it is the only assertion that fails if the transcription is wrong, since both files' own tests would still pass."
         },
         "run_SHO": {
-          "type": "unknown", "shape": ["output_rows"], "units": "1",
+          "type": "unknown", "shape": ["output_rows"], "units": "h",
           "description": "J34 for real: `sho.SHO` reached from an output row by (hourDayID, ageID). `sho` carries no dayID column, so hourDayID is the key — which is why the output relation derives one."
         },
         "run_SHOResidual": {
-          "type": "unknown", "shape": ["output_rows"], "units": "1",
+          "type": "unknown", "shape": ["output_rows"], "units": "h",
           "description": "The joined source hours minus the ten carried in the output stage. Exactly zero."
         },
         "run_usedFraction": {
@@ -46,7 +46,7 @@
           "description": "The same join carrying the cohort stage's membership column. Every output row must reach a SELECTED cohort: a row whose cohort was suppressed is a row that should not exist, and 1 on all ten is the check that the two stages agree about the key set."
         },
         "run_activity": {
-          "type": "unknown", "shape": ["output_rows"], "units": "1",
+          "type": "unknown", "shape": ["output_rows"], "units": "h",
           "description": "S16 through the mount: the joined source hours over noOfRealDays, joined again on dayID."
         },
         "run_emissionQuant": {
@@ -77,13 +77,14 @@
           "rhs": { "op": "-", "args": ["run_travelFraction", "Activity.vmt_travelFraction"] }
         },
         {
-          "_comment": "J34: (hourDayID, ageID) as ONE clause with two key pairs, which §5.5.8 makes a single composite key whose canonical form is the skolem tuple of the two values.",
+          "_comment": "J34: (hourDayID, ageID) as ONE clause with two key pairs, which §5.5.8 makes a single composite key whose canonical form is the skolem tuple of the two values. The source-hours leaf is unitless throughout (components/onroad_source_hours.esm declares every column `1`), while the output stage it is joined to carries SHO in hours. The unit-bearing `const` is where the two meet: it types the joined column as `h` without changing a bit of it, so `run_SHOResidual` subtracts hours from hours. Without it the residual is `1 - h`, which the checker refuses now that it resolves units across mounts.",
           "lhs": "run_SHO",
           "rhs": { "op": "faq", "args": [], "semiring": "sum_product", "output_idx": ["r"],
             "ranges": { "r": { "from": "output_rows" }, "s": { "from": "source_hour_rows" } },
             "join": [ { "on": [["Output.out_hourDayID", "Activity.sho_hourDayID"],
                                ["Output.out_ageID", "Activity.sho_ageID"]] } ],
-            "expr": { "op": "index", "args": ["Activity.sho_SHO", "s"] } }
+            "expr": { "op": "*", "args": [{ "op": "index", "args": ["Activity.sho_SHO", "s"] },
+                                          { "op": "const", "args": [], "value": 1.0, "units": "h" }] } }
         },
         {
           "lhs": "run_SHOResidual",
