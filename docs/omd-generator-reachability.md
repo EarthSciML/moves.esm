@@ -27,7 +27,7 @@ Java classes MOVES loaded for that run.
 > **The brief for this work said the evidence is a `kind: "generator"` entry in
 > `java_classes`. There is no such entry anywhere in the corpus.** Rolled over
 > all 43 traces, `java_classes[*].kind` takes exactly five values —
-> `common` (2,522), `framework` (2,716), `master` (1,942), `utils` (76) and
+> `common` (2,591), `framework` (2,733), `master` (1,977), `utils` (84) and
 > `worker` (43). Generators are `kind: "master"` (or `framework`, for the
 > abstract `Generator` base). The signal that works is the class NAME.
 
@@ -118,15 +118,15 @@ which three of these rows share.
 
 | generator | class-loaded in | writes | snapshots with rows | reachable? |
 |---|---:|---|---:|---|
-| `RatesOperatingModeDistributionGenerator` | **31** / 43 | `RatesOpModeDistribution` | **15** | **yes** |
-| `StartOperatingModeDistributionGenerator` | **10** / 43 | `StartOpModeDistribution` | **9** | **yes** |
+| `RatesOperatingModeDistributionGenerator` | **31** / 43 | `RatesOpModeDistribution` | **17** | **yes** |
+| `StartOperatingModeDistributionGenerator` | **11** / 43 | `StartOpModeDistribution` | **10** | **yes** |
 | `LinkOperatingModeDistributionGenerator` | **1** / 43 | `OpModeDistribution` | **1** | **yes, since 2026-09-10** |
 | `OperatingModeDistributionGenerator` | 0 / 43 | `OpModeDistribution` | 0 | no — dead code |
 | `MesoscaleLookupOperatingModeDistributionGenerator` | 0 / 43 | `OpModeDistribution` | 0 | no — dead code |
 | `MesoscaleLookupTotalActivityGenerator` | 0 / 43 | `SourceHours`, `SHO` | 0 | no — dead code |
 | `NewTvvYearGenerator` | 0 / 43 | — | — | no — no such class |
 
-`FuelEffectsGenerator` (25 / 43) is the eighth unported generator and belongs to
+`FuelEffectsGenerator` (27 / 43) is the eighth unported generator and belongs to
 a parallel rung; it is listed here only so the eight add up. It has since been
 ported (`docs/fuel-effects-generator.md`), as have the first two rows of the
 table (`docs/operating-mode-distribution.md`).
@@ -138,17 +138,18 @@ all three of the generators that write it.
 
 ### Which snapshots, exactly
 
-`RatesOpModeDistribution` is non-empty in 15 snapshots:
+`RatesOpModeDistribution` is non-empty in 17 snapshots:
 
 | snapshot | rows | | snapshot | rows |
 |---|---:|---|---|---:|
-| `expand-counties` | 9 | | `process-apu` | 3 |
-| `expand-criteria` | 33 | | `process-apu-single` | 3 |
-| `expand-day` | 18 | | `process-extended-idle` | 1 |
-| `expand-fueltype-diesel` | 18 | | `process-extended-idle-single` | 1 |
-| `expand-month` | 9 | | `process-refueling` | 9 |
-| `expand-sourcetype` | 46 | | `process-tirewear` | 16 |
-| `mixed-onroad` | 9 | | `sample-runspec` | 9 |
+| `expand-counties` | 9 | | `process-apu-single` | 3 |
+| `expand-criteria` | 33 | | `process-crankcase-extidle-single` | 3 |
+| `expand-day` | 18 | | `process-crankcase-start-single` | 49 |
+| `expand-fueltype-diesel` | 18 | | `process-extended-idle` | 1 |
+| `expand-month` | 9 | | `process-extended-idle-single` | 1 |
+| `expand-sourcetype` | 46 | | `process-refueling` | 9 |
+| `mixed-onroad` | 9 | | `process-tirewear` | 16 |
+| `process-apu` | 3 | | `sample-runspec` | 9 |
 | `scale-project` | 22 | | | |
 
 **`scale-project`'s 22 are not all the same generator's**, and that is the
@@ -161,17 +162,17 @@ freshly-computed `OpModeDistribution` across —
 `LinkOperatingModeDistributionGenerator.java:448-458`. Four generators write
 this table and `(roadTypeID, avgSpeedBinID)` is what separates them.
 
-`StartOpModeDistribution` is non-empty in 9:
+`StartOpModeDistribution` is non-empty in 10:
 
 | snapshot | rows | | snapshot | rows |
 |---|---:|---|---|---:|
 | `expand-counties` | 5 | | `expand-sourcetype` | 29 |
 | `expand-criteria` | 5 | | `mixed-onroad` | 7 |
-| `expand-day` | 9 | | `process-refueling` | 5 |
-| `expand-fueltype-diesel` | 12 | | `sample-runspec` | 4 |
-| `expand-month` | 8 | | | |
+| `expand-day` | 9 | | `process-crankcase-start-single` | 5 |
+| `expand-fueltype-diesel` | 12 | | `process-refueling` | 5 |
+| `expand-month` | 8 | | `sample-runspec` | 4 |
 
-The same 9 are the only ones carrying `SOMDGOpModes` (the generator's own
+The same 10 are the only ones carrying `SOMDGOpModes` (the generator's own
 working table) and a populated `StartOpMode` input table — three independent
 corroborations of one predicate.
 

@@ -1139,3 +1139,21 @@ snapshot**, measured rather than assumed:
 6. The output row set is 484 cohorts × 29 blocks, and the 484 are ragged over
    SCC. §31's global rank is the shape; the blocks being equal here is a
    property of the data, not of the layout.
+
+## 10. From the default database (PLAN.md §7.3.39)
+
+`runspecs/nonroad/nr-airtoxics-lawn-garden-county.esm` computes the same 14,036
+rows from `./movesdb` through `nonroad/model.esm`: 14,036 of 14,036, key set
+exact, worst cell 8.537 × 10⁻⁶. The nine tables of §1.2 are mounted nationally
+in `moves-nonroad.esm`. Every row the execution copies held is in the national
+tables at an identical value. The copies were narrowed to the selected
+pollutants, running exhaust and the gasoline subtypes, all of which are join
+keys, and `nrIntegratedSpecies`' five extra national rows are unselected.
+Washtenaw's 2020 August nonroad supply is the same 9114 at 1.0 and 9414 at 0.0.
+The default-database run has 97 equipment points where §0 counts 108: the
+eleven others have zero county population and contribute nothing.
+
+Three rules here are the Go's and are written but not discriminated by this
+run, because everything is selected. TOG sums only the selected summands,
+NonHAPTOG subtracts only the selected integrated species, and a toxic needs its
+input block (VOC, PM2.5, fuel) selected.

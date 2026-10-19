@@ -2,7 +2,7 @@
   "esm": "1.2.0",
   "metadata": {
     "name": "moves.nonroad.model",
-    "description": "THE NONROAD DOMAIN MODEL (PLAN.md §7.5 step 7e). One model, no `data_sources`: `../moves-nonroad.esm` mounts it over the national default database and one thin document per RunSpec in `runspecs/nonroad/` mounts THAT and supplies the run's selections and its oracle. It is `fixtures/nr-logging-county.esm`'s model lifted out of the fixture -- the Phase 2 vertical slice, NONROAD's `prccty.f` chain from base-year population through `agedist.f`'s fold to `clcems.f`'s roll-up -- and the fixture stays where it is, because its 29 inline assertions run there and a mounted component's do not (F47).\n\nWHAT THE FIXTURE DECLARED AND THIS DOCUMENT READS. The fixture wrote five things into itself that a document serving more than one run cannot: (1) the six equipment points, `point_sourceTypeID = [1059, 1386..1390]`; (2) the county, state, year and day, as parameters; (3) the base year 1990; (4) the technology window 100..199; (5) the output relation's four pollutants per cohort. Here (1) is `sut_isPoint` -- the `nrsourceusetype` rows whose SCC is in the RunSpec's `/SOURCE CATEGORY/` packet (`scc_isSelected`, with NONROAD's rule that an EMPTY packet runs everything) and whose county population is positive -- ranked densely onto the point axis; (2) comes from `runspeccounty`, `runspecstate`, `runspecyear` and `runspecday`; (3) from `nrbaseyearequippopulation`; (4) is `engineTech`; and (5) is `n_runspecpollutantprocess`. The allocation moved from the point axis to the equipment-type axis, because the surrogate is the equipment type's and the point axis is not known until the allocation is.\n\nWHAT THE SECOND AND THIRD RUNS FOUND, which the first could not. `nr-lawn-garden-county` has SCCs whose exact rate rows cover some technologies and not others, so NONROAD's SCC chain (`fndefc.f`: exact, `xxxxxxx000`, `xxxx000000`) is walked per (pollutant, technology) and not once per point (`tech_rateRow`); and it has points ON a bin boundary -- 37 national points sit on one -- which take the LOWER bin in both the rate and the tech-mix lookups rather than the sum of both (`tech_rate*Row`, `point_mixBinLow`). `nr-recreational-county` selects SO2, which `clcems.f` does not read from a table but WRITES from BSFC and THC, so the rate and deterioration lookups moved onto the axis of what NONROAD always rates (`rated_pp_rows`), and `emsadj.f`'s sulfur correction reads the in-use sulfur of the county's nonroad fuel supply (`fk_sulfurWeightPercent`). `nr-logging-county`'s 144 rows stayed byte-identical to the fixture's through all of that, and left it only at the SEASON file's printed month fractions (PLAN.md §7.3.37), which the fixture does not read. `fixtures/nr-airtoxics-lawn-garden-county.esm` had found three of these rules first; a fourth it found -- that a (pollutant, technology) pair with no `nrdeterioration` row deteriorates by 1 and not 0 -- is here too.\n\nIT IS EVALUATED IN BINARY32, and the declaration that makes it so is NOT this document's `domain`: the pinned toolchain drops a mounted leaf's `domain.element_type` and evaluates it in the ROOT's precision, silently (docs/findings F60). So every RunSpec in `runspecs/nonroad/` declares `Float32` itself, and `nr-logging-county` without it loses exactly the four rows `docs/nonroad-logging-county.md` §7.3 says binary64 costs. Twenty-three variables still override to Float64, and each holds an SCC or a constant that meets one in the same operator.\n\nFOUR NUMBERS ARE DECLARED, because no table states them and MOVES works them out at run time: `n_equipmentPoint`, `n_outputCohort`, `n_outputPolProcess` and `n_foldYear`. Each is recomputed by the chain -- `run_equipmentPointsSelected`, `run_outputCohortCount`, `run_outputPolProcessCount`, `run_extraScopeRows` -- and tools/check-nonroad-shape.py asserts the declaration against the recomputation and the emitted keys.\n\nSTATE SCALE IS A COUNTY AT A PSEUDO-COUNTY (PLAN.md §7.3.35). MOVES runs a state-level RunSpec at county stateID x 1000, zone stateID x 10000 and fuel region stateID, which it BUILDS (`PreAggSTATE.sql`, `DefaultDataMaker`) and no national table has. So the temperature is a weighted SUM over zones (`zone_runWeight`, divided by the 13 daytime hours and not by the weights, which are rounded before they are divided and sum to less than 1), the nonroad fuel supply is one union relation of the national rows and one default row per `nrFuelType` (`rsu_*`), the `.OPT` packet's func A falls back to formulation 10 when the default formulation 12 joins nothing, and nothing is allocated. At a real county each piece reduces to the formula it replaced. The output carries only what NONROAD EMITS (`emitted_pp_rows`), clamped at zero per record as `NonroadOutputDataLoader` does.\n\nNATION SCALE IS A COUNTY 0 (PLAN.md §7.3.36), and it is NOT a sum of state runs. `PreAggNATION.sql` folds every state into one state 0 before NONROAD sees a table, and the model computes each fold from the national rows (`run_isNationScale`), leaving out Puerto Rico and the Virgin Islands as it does (`state_is_in_nation`): the population is the states' SUM, `.POP`-rounded once afterwards (`sut_runPopulation`); the growth pattern is the states' MINIMUM per SCC (`gpf_runStateID`, a `min_sum`); the month allocation is another table, `nrUSMonthAllocation`, so the run's month table is a union (`rma_*`); the temperature is the start-weighted mean over every zone, renormalized where a state's is not; the fuel supply is every region's share weighted by the region's start activity (`sup_regionShare`); and the output has no state. Off the nation each is the formula it replaced.\n\nDIESEL, LPG, CNG AND THE WHOLE INVENTORY (PLAN.md §7.3.37). A RunSpec selecting onroad diesel matches no `nrscc` fuel ID, so its packet is empty and NONROAD runs all 213 SCCs; the dense layout runs that in ~9 minutes and ~5 GB. Five rules came with it, each about where NONROAD applies an operation or what MOVES hands it: the `/PM BASE SULFUR/` packet's per-technology alternates and `clcems.f`'s diesel PM sulfur correction (`tech_pmSulfurBase`, `tech_sulfatePMScale`); every technology set divided by its sum, as `rdtech_moves.f` does (`tech_fraction`, with `run_mixSetsOffOne` keeping the one-bin check); the zero clamp per TECHNOLOGY record, which is what `NonroadOutputDataLoader` reads (`tech_hourlyEmission`); the rate row's hp bin chosen as `fndefc.f` chooses it, the NEAREST (`hp_bin_distance`); and the month fraction as the SEASON file prints it, renormalized (`printed_decimal`). The output's fuel type is `nrscc`'s, unmapped.\n\nThe in-use sulfur is what NONROAD READS back from the `.OPT` packet, not what MOVES computed: `rdnropt.f` reads `line(21:30)`, seven decimals of a weight percent (`opt_option_value`), which is what closed `nr-railroad-support-nation`'s gasoline SO2.\n\nONE COHORT IS HELD BY A DECLARED EXCEPTION (tolerance.toml, PLAN.md §7.3.38): `nr-railroad-support-nation`'s diesel 2270002066 model year 2010, 0.7 to 1.3e-4 on every pollutant. It is the nation's base-year population: MOVES sums the states in binary64 (137670.538, `.POP`-printed 137670.5) and this document sums them in binary32 (137670.547, printed .6), and `agedist.f`'s 2010 newest-cohort residual is a cancellation, 0.00099 of 1.323, that turns the 7e-7 into 2.4e-4. Summing in binary64 needs a binary64-to-binary32 conversion the format does not have (every route is `mixed_element_type`; EarthSciML/EarthSciAST#536); measured with the rounding forced to .5, the cohort closes to 1.6e-5. NOT CARRIED YET: reformulated gasoline, CO2 and crankcase, and the air-toxics and speciation chain `fixtures/nr-airtoxics-lawn-garden-county.esm` computes."
+    "description": "THE NONROAD DOMAIN MODEL (PLAN.md §7.5 step 7e). One model, no `data_sources`: `../moves-nonroad.esm` mounts it over the national default database and one thin document per RunSpec in `runspecs/nonroad/` mounts THAT and supplies the run's selections and its oracle. It is `fixtures/nr-logging-county.esm`'s model lifted out of the fixture -- the Phase 2 vertical slice, NONROAD's `prccty.f` chain from base-year population through `agedist.f`'s fold to `clcems.f`'s roll-up -- and the fixture stays where it is, because its 29 inline assertions run there and a mounted component's do not (F47).\n\nWHAT THE FIXTURE DECLARED AND THIS DOCUMENT READS. The fixture wrote five things into itself that a document serving more than one run cannot: (1) the six equipment points, `point_sourceTypeID = [1059, 1386..1390]`; (2) the county, state, year and day, as parameters; (3) the base year 1990; (4) the technology window 100..199; (5) the output relation's four pollutants per cohort. Here (1) is `sut_isPoint` -- the `nrsourceusetype` rows whose SCC is in the RunSpec's `/SOURCE CATEGORY/` packet (`scc_isSelected`, with NONROAD's rule that an EMPTY packet runs everything) and whose county population is positive -- ranked densely onto the point axis; (2) comes from `runspeccounty`, `runspecstate`, `runspecyear` and `runspecday`; (3) from `nrbaseyearequippopulation`; (4) is `engineTech`; and (5) is `n_runspecpollutantprocess`. The allocation moved from the point axis to the equipment-type axis, because the surrogate is the equipment type's and the point axis is not known until the allocation is.\n\nWHAT THE SECOND AND THIRD RUNS FOUND, which the first could not. `nr-lawn-garden-county` has SCCs whose exact rate rows cover some technologies and not others, so NONROAD's SCC chain (`fndefc.f`: exact, `xxxxxxx000`, `xxxx000000`) is walked per (pollutant, technology) and not once per point (`tech_rateRow`); and it has points ON a bin boundary -- 37 national points sit on one -- which take the LOWER bin in both the rate and the tech-mix lookups rather than the sum of both (`tech_rate*Row`, `point_mixBinLow`). `nr-recreational-county` selects SO2, which `clcems.f` does not read from a table but WRITES from BSFC and THC, so the rate and deterioration lookups moved onto the axis of what NONROAD always rates (`rated_pp_rows`), and `emsadj.f`'s sulfur correction reads the in-use sulfur of the county's nonroad fuel supply (`fk_sulfurWeightPercent`). `nr-logging-county`'s 144 rows stayed byte-identical to the fixture's through all of that, and left it only at the SEASON file's printed month fractions (PLAN.md §7.3.37), which the fixture does not read. `fixtures/nr-airtoxics-lawn-garden-county.esm` had found three of these rules first; a fourth it found -- that a (pollutant, technology) pair with no `nrdeterioration` row deteriorates by 1 and not 0 -- is here too.\n\nIT IS EVALUATED IN BINARY32, and the declaration that makes it so is NOT this document's `domain`: the pinned toolchain drops a mounted leaf's `domain.element_type` and evaluates it in the ROOT's precision, silently (docs/findings F60). So every RunSpec in `runspecs/nonroad/` declares `Float32` itself, and `nr-logging-county` without it loses exactly the four rows `docs/nonroad-logging-county.md` §7.3 says binary64 costs. Twenty-three variables still override to Float64, and each holds an SCC or a constant that meets one in the same operator.\n\nFOUR NUMBERS ARE DECLARED, because no table states them and MOVES works them out at run time: `n_equipmentPoint`, `n_outputCohort`, `n_outputPolProcess` and `n_foldYear`. Each is recomputed by the chain -- `run_equipmentPointsSelected`, `run_outputCohortCount`, `run_outputPolProcessCount`, `run_extraScopeRows` -- and tools/check-nonroad-shape.py asserts the declaration against the recomputation and the emitted keys.\n\nSTATE SCALE IS A COUNTY AT A PSEUDO-COUNTY (PLAN.md §7.3.35). MOVES runs a state-level RunSpec at county stateID x 1000, zone stateID x 10000 and fuel region stateID, which it BUILDS (`PreAggSTATE.sql`, `DefaultDataMaker`) and no national table has. So the temperature is a weighted SUM over zones (`zone_runWeight`, divided by the 13 daytime hours and not by the weights, which are rounded before they are divided and sum to less than 1), the nonroad fuel supply is one union relation of the national rows and one default row per `nrFuelType` (`rsu_*`), the `.OPT` packet's func A falls back to formulation 10 when the default formulation 12 joins nothing, and nothing is allocated. At a real county each piece reduces to the formula it replaced. The output carries only what NONROAD EMITS (`emitted_pp_rows`), clamped at zero per record as `NonroadOutputDataLoader` does.\n\nNATION SCALE IS A COUNTY 0 (PLAN.md §7.3.36), and it is NOT a sum of state runs. `PreAggNATION.sql` folds every state into one state 0 before NONROAD sees a table, and the model computes each fold from the national rows (`run_isNationScale`), leaving out Puerto Rico and the Virgin Islands as it does (`state_is_in_nation`): the population is the states' SUM, `.POP`-rounded once afterwards (`sut_runPopulation`); the growth pattern is the states' MINIMUM per SCC (`gpf_runStateID`, a `min_sum`); the month allocation is another table, `nrUSMonthAllocation`, so the run's month table is a union (`rma_*`); the temperature is the start-weighted mean over every zone, renormalized where a state's is not; the fuel supply is every region's share weighted by the region's start activity (`sup_regionShare`); and the output has no state. Off the nation each is the formula it replaced.\n\nDIESEL, LPG, CNG AND THE WHOLE INVENTORY (PLAN.md §7.3.37). A RunSpec selecting onroad diesel matches no `nrscc` fuel ID, so its packet is empty and NONROAD runs all 213 SCCs; the dense layout runs that in ~9 minutes and ~5 GB. Five rules came with it, each about where NONROAD applies an operation or what MOVES hands it: the `/PM BASE SULFUR/` packet's per-technology alternates and `clcems.f`'s diesel PM sulfur correction (`tech_pmSulfurBase`, `tech_sulfatePMScale`); every technology set divided by its sum, as `rdtech_moves.f` does (`tech_fraction`, with `run_mixSetsOffOne` keeping the one-bin check); the zero clamp per TECHNOLOGY record, which is what `NonroadOutputDataLoader` reads (`tech_hourlyEmission`); the rate row's hp bin chosen as `fndefc.f` chooses it, the NEAREST (`hp_bin_distance`); and the month fraction as the SEASON file prints it, renormalized (`printed_decimal`). The output's fuel type is `nrscc`'s, unmapped.\n\nThe in-use sulfur is what NONROAD READS back from the `.OPT` packet, not what MOVES computed: `rdnropt.f` reads `line(21:30)`, seven decimals of a weight percent (`opt_option_value`), which is what closed `nr-railroad-support-nation`'s gasoline SO2.\n\nONE COHORT IS HELD BY A DECLARED EXCEPTION (tolerance.toml, PLAN.md §7.3.38): `nr-railroad-support-nation`'s diesel 2270002066 model year 2010, 0.7 to 1.3e-4 on every pollutant. It is the nation's base-year population: MOVES sums the states in binary64 (137670.538, `.POP`-printed 137670.5) and this document sums them in binary32 (137670.547, printed .6), and `agedist.f`'s 2010 newest-cohort residual is a cancellation, 0.00099 of 1.323, that turns the 7e-7 into 2.4e-4. Summing in binary64 needs a binary64-to-binary32 conversion the format does not have (every route is `mixed_element_type`; EarthSciML/EarthSciAST#536); measured with the rounding forced to .5, the cohort closes to 1.6e-5. NOT CARRIED YET: reformulated gasoline, CO2 and crankcase.\n\nTHE SPECIATION AND AIR-TOXICS CHAIN (PLAN.md §7.3.39). `NRHCSpeciationCalculator` and `NRAirToxicsCalculator` are a ROOT and a MULTIPLIER, not a second pipeline. A selection reads its RATED root's rate, deterioration, adjustment and per-technology clamp (`rpp_ratedPolProcessID`: THC for the hydrocarbon species and the VOC toxics, PM10 for PM2.5 and its PAH, the BSFC carrier 9901 for fuel consumption and the dioxins and metals), and `cell_emissionQuant` multiplies each technology record by `pp_directMultiplier + tech_speciatedMultiplier`. The multiplier is computed where the tables key it -- per (technology, `nrHPCategory`, fuel subtype), weighted by the run's supply shares to a (technology, category, fuel type) value, and gathered onto the point through its hp bin's category (`tech_isHPCategory`) -- so the species is applied INSIDE the technology contraction. The emitted relation `emitted_pp_rows` carries share columns for the eight named species (docs/esm-conventions.md §33.3, §91), and the twenty toxic ids are read from the tables' own `pollutantID`. The needed set is the selection: TOG counts only selected summands, NonHAPTOG subtracts only selected integrated species, and a toxic needs its input block selected. Off the air-toxics run the root is the selection itself and the multiplier is exactly 1, which is why the eleven other runs did not move a byte."
   },
   "domain": {
     "element_type": "Float32"
@@ -167,6 +167,51 @@
       "type": "integer",
       "default": 0,
       "description": "Rows in nrdeterioration. Runtime-discovered; see n_nrscc."
+    },
+    "n_nrhpcategory": {
+      "type": "integer",
+      "default": 0,
+      "description": "Rows in nrhpcategory. Runtime-discovered."
+    },
+    "n_nrmethanethcratio": {
+      "type": "integer",
+      "default": 0,
+      "description": "Rows in nrmethanethcratio. Runtime-discovered."
+    },
+    "n_nrhcspeciation": {
+      "type": "integer",
+      "default": 0,
+      "description": "Rows in nrhcspeciation. Runtime-discovered."
+    },
+    "n_nratratio": {
+      "type": "integer",
+      "default": 0,
+      "description": "Rows in nratratio. Runtime-discovered."
+    },
+    "n_nrpahgasratio": {
+      "type": "integer",
+      "default": 0,
+      "description": "Rows in nrpahgasratio. Runtime-discovered."
+    },
+    "n_nrpahparticleratio": {
+      "type": "integer",
+      "default": 0,
+      "description": "Rows in nrpahparticleratio. Runtime-discovered."
+    },
+    "n_nrdioxinemissionrate": {
+      "type": "integer",
+      "default": 0,
+      "description": "Rows in nrdioxinemissionrate. Runtime-discovered."
+    },
+    "n_nrmetalemissionrate": {
+      "type": "integer",
+      "default": 0,
+      "description": "Rows in nrmetalemissionrate. Runtime-discovered."
+    },
+    "n_nrintegratedspecies": {
+      "type": "integer",
+      "default": 0,
+      "description": "Rows in nrintegratedspecies. Runtime-discovered."
     },
     "n_equipmentPoint": {
       "type": "integer",
@@ -396,13 +441,53 @@
       "kind": "interval",
       "size": "n_nrsulfuradjustment"
     },
+    "nrhpcategory_rows": {
+      "kind": "interval",
+      "size": "n_nrhpcategory"
+    },
+    "nrmethanethcratio_rows": {
+      "kind": "interval",
+      "size": "n_nrmethanethcratio"
+    },
+    "nrhcspeciation_rows": {
+      "kind": "interval",
+      "size": "n_nrhcspeciation"
+    },
+    "nratratio_rows": {
+      "kind": "interval",
+      "size": "n_nratratio"
+    },
+    "nrpahgasratio_rows": {
+      "kind": "interval",
+      "size": "n_nrpahgasratio"
+    },
+    "nrpahparticleratio_rows": {
+      "kind": "interval",
+      "size": "n_nrpahparticleratio"
+    },
+    "nrdioxinemissionrate_rows": {
+      "kind": "interval",
+      "size": "n_nrdioxinemissionrate"
+    },
+    "nrmetalemissionrate_rows": {
+      "kind": "interval",
+      "size": "n_nrmetalemissionrate"
+    },
+    "nrintegratedspecies_rows": {
+      "kind": "interval",
+      "size": "n_nrintegratedspecies"
+    },
+    "hp_category_rows": {
+      "kind": "interval",
+      "size": 2
+    },
     "rated_pp_rows": {
       "kind": "interval",
       "size": 5
     },
     "emitted_pp_rows": {
       "kind": "interval",
-      "size": 5
+      "size": 13
     },
     "default_curve_rows": {
       "kind": "interval",
@@ -462,7 +547,14 @@
       "OxidesOfNitrogen": 3,
       "SulfurDioxide": 31,
       "BrakeSpecificFuelConsumption": 99,
-      "PrimaryExhaustPM10Total": 100
+      "PrimaryExhaustPM10Total": 100,
+      "Methane": 5,
+      "NonMethaneHydrocarbons": 79,
+      "NonMethaneOrganicGases": 80,
+      "TotalOrganicGases": 86,
+      "VolatileOrganicCompounds": 87,
+      "NonHAPTOG": 88,
+      "PrimaryExhaustPM25Total": 110
     },
     "process": {
       "RunningExhaust": 1
@@ -515,7 +607,8 @@
             "flat_relation_major",
             "flat_relation_minor",
             "in_inclusive_range",
-            "hp_bin_distance"
+            "hp_bin_distance",
+            "row_is_present"
           ]
         },
         {
@@ -548,6 +641,24 @@
           "ref": "../lib/fuel_effects.esm",
           "only": [
             "fuel_property_or_zero"
+          ]
+        },
+        {
+          "ref": "../lib/nonroad_speciation.esm",
+          "only": [
+            "nr_hp_category_small",
+            "nr_hp_category_large",
+            "ratio_scaled",
+            "rate_scaled",
+            "nmhc_share",
+            "total_organic_gases",
+            "non_hap_tog",
+            "grams_to_gallons_factor",
+            "air_toxics_fuel_density",
+            "nonroad_pm25_fraction_of_pm10",
+            "gallons_to_grams",
+            "nonroad_fuel_gallons",
+            "nonroad_engine_gasoline_density"
           ]
         }
       ],
@@ -2517,6 +2628,22 @@
             }
           }
         },
+        "sut_NRHPRangeBinID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "nrsourceusetype_rows"
+          ],
+          "description": "nrsourceusetype.NRHPRangeBinID: the hp bin the point's MOVESWorkerOutput rows carry as hpID, and the first half of the `nrhpcategory` key every speciation lookup reads through.",
+          "update": {
+            "kind": "data",
+            "source": "db_nrsourceusetype",
+            "from": {
+              "file_variable": "NRHPRangeBinID"
+            }
+          }
+        },
         "sut_hoursUsedPerYear": {
           "type": "parameter",
           "units": "h",
@@ -3723,6 +3850,1238 @@
             "engine_tech_rows"
           ],
           "description": "`clcems.f`'s `emstmp` before the time adjustment: rate times unit conversion times deterioration, or the SOx factor for SOx, times the pollutant's adjustment. Factored out of `cell_emissionQuant` so the SOx branch is one ifelse; the product associates exactly as it did inline. A diesel point's PM then loses the sulfate its base sulfur carried and its fuel does not (`clcems.f` :267-302): `tech_sulfatePMScale x (sulbas x adjPM - soxbas x adjSOx)`, where adjSOx is the SOx sulfur correction. Nothing is subtracted from any other cell, and x - 0 is x. Then clamped at zero, because this is the term of ONE output record: NONROAD writes a record per (SCC, hp level, model year, technology) and `NonroadOutputDataLoader` loads `Math.max(0, value)` of each, so a technology whose sulfur correction exceeds its PM contributes 0 while its cohort's other technologies keep theirs."
+        },
+        "hpc_nrhprangebinid": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "nrhpcategory_rows"
+          ],
+          "description": "nrhpcategory.nrhprangebinid -- lower case in the file.",
+          "update": {
+            "kind": "data",
+            "source": "db_nrhpcategory",
+            "from": {
+              "file_variable": "nrhprangebinid"
+            }
+          }
+        },
+        "hpc_engtechid": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "nrhpcategory_rows"
+          ],
+          "description": "nrhpcategory.engtechid -- lower case in the file.",
+          "update": {
+            "kind": "data",
+            "source": "db_nrhpcategory",
+            "from": {
+              "file_variable": "engtechid"
+            }
+          }
+        },
+        "hpc_nrHPCategory": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "nrhpcategory_rows"
+          ],
+          "description": "nrhpcategory.nrhpcategory, the one-character 'S'/'L' horse-power category, decoded to 1 and 2 (lib/nonroad_speciation.esm `nr_hp_category_small`, `_large`). Every one of the seven ratio tables keys on it.",
+          "update": {
+            "kind": "data",
+            "source": "db_nrhpcategory",
+            "from": {
+              "file_variable": "nrhpcategory",
+              "codes": {
+                "map": {
+                  "S": 1,
+                  "L": 2
+                }
+              }
+            }
+          }
+        },
+        "mth_processID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "nrmethanethcratio_rows"
+          ],
+          "description": "nrmethanethcratio.processID.",
+          "update": {
+            "kind": "data",
+            "source": "db_nrmethanethcratio",
+            "from": {
+              "file_variable": "processID"
+            }
+          }
+        },
+        "mth_engTechID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "nrmethanethcratio_rows"
+          ],
+          "description": "nrmethanethcratio.engTechID.",
+          "update": {
+            "kind": "data",
+            "source": "db_nrmethanethcratio",
+            "from": {
+              "file_variable": "engTechID"
+            }
+          }
+        },
+        "mth_fuelSubtypeID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "nrmethanethcratio_rows"
+          ],
+          "description": "nrmethanethcratio.fuelSubtypeID: the supplied FORMULATION's subtype (`nrhcspeciation.go` reads `ff.fuelSubTypeID`).",
+          "update": {
+            "kind": "data",
+            "source": "db_nrmethanethcratio",
+            "from": {
+              "file_variable": "fuelSubtypeID"
+            }
+          }
+        },
+        "mth_nrHPCategory": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "nrmethanethcratio_rows"
+          ],
+          "description": "nrmethanethcratio.nrHPCategory, 'S'/'L' decoded to 1/2.",
+          "update": {
+            "kind": "data",
+            "source": "db_nrmethanethcratio",
+            "from": {
+              "file_variable": "nrHPCategory",
+              "codes": {
+                "map": {
+                  "S": 1,
+                  "L": 2
+                }
+              }
+            }
+          }
+        },
+        "mth_ch4ThcRatio": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "nrmethanethcratio_rows"
+          ],
+          "description": "nrmethanethcratio.CH4THCRatio: methane's share of THC.",
+          "update": {
+            "kind": "data",
+            "source": "db_nrmethanethcratio",
+            "from": {
+              "file_variable": "CH4THCRatio"
+            }
+          }
+        },
+        "hcs_pollutantID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "nrhcspeciation_rows"
+          ],
+          "description": "nrhcspeciation.pollutantID: 80 (NMOG) or 87 (VOC).",
+          "update": {
+            "kind": "data",
+            "source": "db_nrhcspeciation",
+            "from": {
+              "file_variable": "pollutantID"
+            }
+          }
+        },
+        "hcs_processID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "nrhcspeciation_rows"
+          ],
+          "description": "nrhcspeciation.processID.",
+          "update": {
+            "kind": "data",
+            "source": "db_nrhcspeciation",
+            "from": {
+              "file_variable": "processID"
+            }
+          }
+        },
+        "hcs_engTechID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "nrhcspeciation_rows"
+          ],
+          "description": "nrhcspeciation.engTechID.",
+          "update": {
+            "kind": "data",
+            "source": "db_nrhcspeciation",
+            "from": {
+              "file_variable": "engTechID"
+            }
+          }
+        },
+        "hcs_fuelSubtypeID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "nrhcspeciation_rows"
+          ],
+          "description": "nrhcspeciation.fuelSubtypeID: the EMISSION's subtype, which the fan-out over the supply makes the formulation's -- one value here, two in the Go.",
+          "update": {
+            "kind": "data",
+            "source": "db_nrhcspeciation",
+            "from": {
+              "file_variable": "fuelSubtypeID"
+            }
+          }
+        },
+        "hcs_nrHPCategory": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "nrhcspeciation_rows"
+          ],
+          "description": "nrhcspeciation.nrHPCategory, 'S'/'L' decoded to 1/2.",
+          "update": {
+            "kind": "data",
+            "source": "db_nrhcspeciation",
+            "from": {
+              "file_variable": "nrHPCategory",
+              "codes": {
+                "map": {
+                  "S": 1,
+                  "L": 2
+                }
+              }
+            }
+          }
+        },
+        "hcs_speciationConstant": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "nrhcspeciation_rows"
+          ],
+          "description": "nrhcspeciation.speciationConstant: NMOG or VOC as a multiple of NMHC.",
+          "update": {
+            "kind": "data",
+            "source": "db_nrhcspeciation",
+            "from": {
+              "file_variable": "speciationConstant"
+            }
+          }
+        },
+        "atr_pollutantID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "nratratio_rows"
+          ],
+          "description": "nratratio.pollutantID: the toxic the row produces. The eight this run selects are named by nothing else in the document (docs/esm-conventions.md §32.4).",
+          "update": {
+            "kind": "data",
+            "source": "db_nratratio",
+            "from": {
+              "file_variable": "pollutantID"
+            }
+          }
+        },
+        "atr_processID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "nratratio_rows"
+          ],
+          "description": "nratratio.processID.",
+          "update": {
+            "kind": "data",
+            "source": "db_nratratio",
+            "from": {
+              "file_variable": "processID"
+            }
+          }
+        },
+        "atr_engTechID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "nratratio_rows"
+          ],
+          "description": "nratratio.engTechID.",
+          "update": {
+            "kind": "data",
+            "source": "db_nratratio",
+            "from": {
+              "file_variable": "engTechID"
+            }
+          }
+        },
+        "atr_fuelSubtypeID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "nratratio_rows"
+          ],
+          "description": "nratratio.fuelSubtypeID: the formulation's subtype.",
+          "update": {
+            "kind": "data",
+            "source": "db_nratratio",
+            "from": {
+              "file_variable": "fuelSubtypeID"
+            }
+          }
+        },
+        "atr_nrHPCategory": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "nratratio_rows"
+          ],
+          "description": "nratratio.nrHPCategory, 'S'/'L' decoded to 1/2.",
+          "update": {
+            "kind": "data",
+            "source": "db_nratratio",
+            "from": {
+              "file_variable": "nrHPCategory",
+              "codes": {
+                "map": {
+                  "S": 1,
+                  "L": 2
+                }
+              }
+            }
+          }
+        },
+        "atr_atRatio": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "nratratio_rows"
+          ],
+          "description": "nratratio.atRatio: the toxic as a multiple of VOC.",
+          "update": {
+            "kind": "data",
+            "source": "db_nratratio",
+            "from": {
+              "file_variable": "atRatio"
+            }
+          }
+        },
+        "pahg_pollutantID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "nrpahgasratio_rows"
+          ],
+          "description": "nrpahgasratio.pollutantID: the toxic the row produces.",
+          "update": {
+            "kind": "data",
+            "source": "db_nrpahgasratio",
+            "from": {
+              "file_variable": "pollutantID"
+            }
+          }
+        },
+        "pahg_processID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "nrpahgasratio_rows"
+          ],
+          "description": "nrpahgasratio.processid -- lower case in the file.",
+          "update": {
+            "kind": "data",
+            "source": "db_nrpahgasratio",
+            "from": {
+              "file_variable": "processid"
+            }
+          }
+        },
+        "pahg_fuelTypeID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "nrpahgasratio_rows"
+          ],
+          "description": "nrpahgasratio.fuelTypeID, in the NONROAD namespace the equipment point's `nrscc` row uses.",
+          "update": {
+            "kind": "data",
+            "source": "db_nrpahgasratio",
+            "from": {
+              "file_variable": "fuelTypeID"
+            }
+          }
+        },
+        "pahg_engTechID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "nrpahgasratio_rows"
+          ],
+          "description": "nrpahgasratio.engTechID.",
+          "update": {
+            "kind": "data",
+            "source": "db_nrpahgasratio",
+            "from": {
+              "file_variable": "engTechID"
+            }
+          }
+        },
+        "pahg_nrHPCategory": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "nrpahgasratio_rows"
+          ],
+          "description": "nrpahgasratio.nrHPCategory, 'S'/'L' decoded to 1/2.",
+          "update": {
+            "kind": "data",
+            "source": "db_nrpahgasratio",
+            "from": {
+              "file_variable": "nrHPCategory",
+              "codes": {
+                "map": {
+                  "S": 1,
+                  "L": 2
+                }
+              }
+            }
+          }
+        },
+        "pahg_atRatio": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "nrpahgasratio_rows"
+          ],
+          "description": "nrpahgasratio.atratio: the gaseous PAH as a multiple of VOC.",
+          "update": {
+            "kind": "data",
+            "source": "db_nrpahgasratio",
+            "from": {
+              "file_variable": "atratio"
+            }
+          }
+        },
+        "pahp_pollutantID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "nrpahparticleratio_rows"
+          ],
+          "description": "nrpahparticleratio.pollutantID: the toxic the row produces.",
+          "update": {
+            "kind": "data",
+            "source": "db_nrpahparticleratio",
+            "from": {
+              "file_variable": "pollutantID"
+            }
+          }
+        },
+        "pahp_processID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "nrpahparticleratio_rows"
+          ],
+          "description": "nrpahparticleratio.processid -- lower case in the file.",
+          "update": {
+            "kind": "data",
+            "source": "db_nrpahparticleratio",
+            "from": {
+              "file_variable": "processid"
+            }
+          }
+        },
+        "pahp_fuelTypeID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "nrpahparticleratio_rows"
+          ],
+          "description": "nrpahparticleratio.fuelTypeID, in the NONROAD namespace the equipment point's `nrscc` row uses.",
+          "update": {
+            "kind": "data",
+            "source": "db_nrpahparticleratio",
+            "from": {
+              "file_variable": "fuelTypeID"
+            }
+          }
+        },
+        "pahp_engTechID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "nrpahparticleratio_rows"
+          ],
+          "description": "nrpahparticleratio.engTechID.",
+          "update": {
+            "kind": "data",
+            "source": "db_nrpahparticleratio",
+            "from": {
+              "file_variable": "engTechID"
+            }
+          }
+        },
+        "pahp_nrHPCategory": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "nrpahparticleratio_rows"
+          ],
+          "description": "nrpahparticleratio.nrHPCategory, 'S'/'L' decoded to 1/2.",
+          "update": {
+            "kind": "data",
+            "source": "db_nrpahparticleratio",
+            "from": {
+              "file_variable": "nrHPCategory",
+              "codes": {
+                "map": {
+                  "S": 1,
+                  "L": 2
+                }
+              }
+            }
+          }
+        },
+        "pahp_atRatio": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "nrpahparticleratio_rows"
+          ],
+          "description": "nrpahparticleratio.atratio: the particulate PAH as a multiple of PM2.5.",
+          "update": {
+            "kind": "data",
+            "source": "db_nrpahparticleratio",
+            "from": {
+              "file_variable": "atratio"
+            }
+          }
+        },
+        "diox_pollutantID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "nrdioxinemissionrate_rows"
+          ],
+          "description": "nrdioxinemissionrate.pollutantID: the toxic the row produces.",
+          "update": {
+            "kind": "data",
+            "source": "db_nrdioxinemissionrate",
+            "from": {
+              "file_variable": "pollutantID"
+            }
+          }
+        },
+        "diox_processID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "nrdioxinemissionrate_rows"
+          ],
+          "description": "nrdioxinemissionrate.processID.",
+          "update": {
+            "kind": "data",
+            "source": "db_nrdioxinemissionrate",
+            "from": {
+              "file_variable": "processID"
+            }
+          }
+        },
+        "diox_fuelTypeID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "nrdioxinemissionrate_rows"
+          ],
+          "description": "nrdioxinemissionrate.fuelTypeID, in the NONROAD namespace the equipment point's `nrscc` row uses.",
+          "update": {
+            "kind": "data",
+            "source": "db_nrdioxinemissionrate",
+            "from": {
+              "file_variable": "fuelTypeID"
+            }
+          }
+        },
+        "diox_engTechID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "nrdioxinemissionrate_rows"
+          ],
+          "description": "nrdioxinemissionrate.engtechID -- `engtech` in lower case in the file.",
+          "update": {
+            "kind": "data",
+            "source": "db_nrdioxinemissionrate",
+            "from": {
+              "file_variable": "engtechID"
+            }
+          }
+        },
+        "diox_nrHPCategory": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "nrdioxinemissionrate_rows"
+          ],
+          "description": "nrdioxinemissionrate.nrHPCategory, 'S'/'L' decoded to 1/2.",
+          "update": {
+            "kind": "data",
+            "source": "db_nrdioxinemissionrate",
+            "from": {
+              "file_variable": "nrHPCategory",
+              "codes": {
+                "map": {
+                  "S": 1,
+                  "L": 2
+                }
+              }
+            }
+          }
+        },
+        "diox_meanBaseRate": {
+          "type": "parameter",
+          "units": "g/gal",
+          "default": 0.0,
+          "shape": [
+            "nrdioxinemissionrate_rows"
+          ],
+          "description": "nrdioxinemissionrate.meanBaseRate: the dioxin or furan congener in grams per GALLON of fuel.",
+          "update": {
+            "kind": "data",
+            "source": "db_nrdioxinemissionrate",
+            "from": {
+              "file_variable": "meanBaseRate"
+            }
+          }
+        },
+        "metal_pollutantID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "nrmetalemissionrate_rows"
+          ],
+          "description": "nrmetalemissionrate.pollutantID: the toxic the row produces.",
+          "update": {
+            "kind": "data",
+            "source": "db_nrmetalemissionrate",
+            "from": {
+              "file_variable": "pollutantID"
+            }
+          }
+        },
+        "metal_processID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "nrmetalemissionrate_rows"
+          ],
+          "description": "nrmetalemissionrate.processID.",
+          "update": {
+            "kind": "data",
+            "source": "db_nrmetalemissionrate",
+            "from": {
+              "file_variable": "processID"
+            }
+          }
+        },
+        "metal_fuelTypeID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "nrmetalemissionrate_rows"
+          ],
+          "description": "nrmetalemissionrate.fuelTypeID, in the NONROAD namespace the equipment point's `nrscc` row uses.",
+          "update": {
+            "kind": "data",
+            "source": "db_nrmetalemissionrate",
+            "from": {
+              "file_variable": "fuelTypeID"
+            }
+          }
+        },
+        "metal_engTechID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "nrmetalemissionrate_rows"
+          ],
+          "description": "nrmetalemissionrate.engTechID.",
+          "update": {
+            "kind": "data",
+            "source": "db_nrmetalemissionrate",
+            "from": {
+              "file_variable": "engTechID"
+            }
+          }
+        },
+        "metal_nrHPCategory": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "nrmetalemissionrate_rows"
+          ],
+          "description": "nrmetalemissionrate.nrHPCategory, 'S'/'L' decoded to 1/2.",
+          "update": {
+            "kind": "data",
+            "source": "db_nrmetalemissionrate",
+            "from": {
+              "file_variable": "nrHPCategory",
+              "codes": {
+                "map": {
+                  "S": 1,
+                  "L": 2
+                }
+              }
+            }
+          }
+        },
+        "metal_meanBaseRate": {
+          "type": "parameter",
+          "units": "g/gal",
+          "default": 0.0,
+          "shape": [
+            "nrmetalemissionrate_rows"
+          ],
+          "description": "nrmetalemissionrate.meanBaseRate: the metal in grams per GALLON of fuel.",
+          "update": {
+            "kind": "data",
+            "source": "db_nrmetalemissionrate",
+            "from": {
+              "file_variable": "meanBaseRate"
+            }
+          }
+        },
+        "isp_pollutantID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "nrintegratedspecies_rows"
+          ],
+          "description": "nrintegratedspecies.pollutantID: the species NonHAPTOG subtracts from NMOG. Fourteen nationally; a species counts only when the run selects it, because only a needed species is produced (`apply_ratio_details`), which is why the execution database's copy held the nine this run selects.",
+          "update": {
+            "kind": "data",
+            "source": "db_nrintegratedspecies",
+            "from": {
+              "file_variable": "pollutantID"
+            }
+          }
+        },
+        "hcat_code": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "hp_category_rows"
+          ],
+          "description": "The two `nrHPCategory` codes, 'S' and 'L' as the tables decode them. An axis rather than a per-(point, technology) value, because a join key must be one column: the speciation is computed per (technology, category) and gathered onto the point through `tech_isHPCategory`."
+        },
+        "run_processID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "run_scope_rows"
+          ],
+          "description": "Running exhaust, the one process this model computes, as a join key: every speciation and toxic row is read at it."
+        },
+        "run_nmogPollutantID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "run_scope_rows"
+          ],
+          "description": "NMOG (80), the `nrhcspeciation` rows NMOG reads, as a join key."
+        },
+        "run_vocPollutantID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "run_scope_rows"
+          ],
+          "description": "VOC (87), the `nrhcspeciation` rows VOC reads, as a join key."
+        },
+        "rpp_runningPollutantID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecpollutantprocess_rows"
+          ],
+          "description": "The selected pollutant at running exhaust, and 0 at any other process: the key every ratio table is read on. `nr-pleasure-craft-state` selects benzene at three permeation processes, which no calculator here speciates, and a 0 matches no table row."
+        },
+        "epp_ratedPolProcessID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "emitted_pp_rows"
+          ],
+          "description": "The RATED pollutant-process each emitted one is a multiple of: itself for the five NONROAD writes, THC for the five hydrocarbon species and NonHAPTOG, PM10 for PM2.5, and the BSFC carrier 9901 for fuel consumption. Its rate, deterioration, adjustment and per-technology clamp are the root's (`rpp_ratedPolProcessID`)."
+        },
+        "epp_directShare": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "emitted_pp_rows"
+          ],
+          "description": "1 for the five NONROAD writes itself, each its own root."
+        },
+        "epp_methaneShare": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "emitted_pp_rows"
+          ],
+          "description": "1 for methane (5): THC x CH4THCRatio."
+        },
+        "epp_nmhcShare": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "emitted_pp_rows"
+          ],
+          "description": "1 for NMHC (79): THC x (1 - CH4THCRatio)."
+        },
+        "epp_nmogShare": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "emitted_pp_rows"
+          ],
+          "description": "1 for NMOG (80): NMHC x the NMOG speciation constant."
+        },
+        "epp_vocShare": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "emitted_pp_rows"
+          ],
+          "description": "1 for VOC (87): NMHC x the VOC speciation constant."
+        },
+        "epp_togShare": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "emitted_pp_rows"
+          ],
+          "description": "1 for TOG (86): NMOG + methane, each counted only when it is selected."
+        },
+        "epp_nonHapTogShare": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "emitted_pp_rows"
+          ],
+          "description": "1 for NonHAPTOG (88): NMOG less the selected integrated species."
+        },
+        "epp_pm25Share": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "emitted_pp_rows"
+          ],
+          "description": "1 for PM2.5 (110): PM10 x the loader's per-fuel fraction."
+        },
+        "epp_fuelShare": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "emitted_pp_rows"
+          ],
+          "description": "1 for fuel consumption (99): the BSFC product in grams."
+        },
+        "epp_isSelected": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "emitted_pp_rows"
+          ],
+          "description": "1 for an emitted pollutant-process the RunSpec selects."
+        },
+        "run_methaneIsSelected": {
+          "type": "unknown",
+          "units": "1",
+          "description": "1 when the run selects methane (5). NONROAD's needed set IS the selection (`flagRequiredPollutantProcesses` returns early for it), and a block that is not needed is not produced, so nothing downstream of methane (5) can be either."
+        },
+        "run_nmogIsSelected": {
+          "type": "unknown",
+          "units": "1",
+          "description": "1 when the run selects NMOG (80). NONROAD's needed set IS the selection (`flagRequiredPollutantProcesses` returns early for it), and a block that is not needed is not produced, so nothing downstream of NMOG (80) can be either."
+        },
+        "run_vocIsSelected": {
+          "type": "unknown",
+          "units": "1",
+          "description": "1 when the run selects VOC (87). NONROAD's needed set IS the selection (`flagRequiredPollutantProcesses` returns early for it), and a block that is not needed is not produced, so nothing downstream of VOC (87) can be either."
+        },
+        "run_pm25IsSelected": {
+          "type": "unknown",
+          "units": "1",
+          "description": "1 when the run selects PM2.5 (110). NONROAD's needed set IS the selection (`flagRequiredPollutantProcesses` returns early for it), and a block that is not needed is not produced, so nothing downstream of PM2.5 (110) can be either."
+        },
+        "run_fuelIsSelected": {
+          "type": "unknown",
+          "units": "1",
+          "description": "1 when the run selects fuel consumption (99). NONROAD's needed set IS the selection (`flagRequiredPollutantProcesses` returns early for it), and a block that is not needed is not produced, so nothing downstream of fuel consumption (99) can be either."
+        },
+        "rpp_isNamed": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecpollutantprocess_rows"
+          ],
+          "description": "1 for a selection in the emitted relation."
+        },
+        "rpp_namedRatedPolProcessID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecpollutantprocess_rows"
+          ],
+          "description": "The rated root of a selection in the emitted relation, 0 elsewhere."
+        },
+        "rpp_isVocToxic": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecpollutantprocess_rows"
+          ],
+          "description": "1 for a selection `nrATRatio` or `nrPAHGasRatio` derives from VOC."
+        },
+        "rpp_isPm25Toxic": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecpollutantprocess_rows"
+          ],
+          "description": "1 for a selection `nrPAHParticleRatio` derives from PM2.5."
+        },
+        "rpp_isFuelToxic": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecpollutantprocess_rows"
+          ],
+          "description": "1 for a selection `nrDioxinEmissionRate` or `nrMetalEmissionRate` derives from fuel consumption."
+        },
+        "rpp_ratedPolProcessID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecpollutantprocess_rows"
+          ],
+          "description": "The RATED pollutant-process whose rate, deterioration, adjustment and per-technology clamp this selection takes: its own for the five NONROAD writes and for anything no calculator here produces, the emitted relation's root for a named species, THC for a toxic from VOC, PM10 for one from PM2.5, and 9901 for one from fuel. The five ratio tables' output sets are disjoint, so the order of the tests decides nothing. Off the air-toxics run it is `rpp_polProcessID` on every row, which is why the eleven other runs did not move."
+        },
+        "nft_pm25Fraction": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "nrfueltype_rows"
+          ],
+          "description": "PM2.5 as a fraction of PM10 for the fuel type: `NonroadOutputDataLoader.java:454-481`'s 0.92 for gasoline, 0.97 for diesel, 1 for CNG and LPG."
+        },
+        "nft_gallonsFactor": {
+          "type": "unknown",
+          "units": "gal/g",
+          "shape": [
+            "nrfueltype_rows"
+          ],
+          "description": "`NRAirToxicsCalculator`'s grams-to-gallons factor for the fuel type, `(1/453.592)/density` -- two divisions, and the calculator's densities, not the engine's."
+        },
+        "run_fuelGramsFactor": {
+          "type": "unknown",
+          "units": "1",
+          "description": "Pollutant 99 in grams per BSFC unit: the engine's division by CMFGAS = 6.237 lb/gal and the loader's multiplication by 6.237 and 453.592 g/lb (`NonroadOutputDataLoader.java:1052`), written as the round trip because the toxics path converts back with a different density. It is the GASOLINE engine density, the only fuel a run here selects fuel consumption for; the pair cancels at any density. Its value IN g/lb, a bare number, because `tech_meanBaseRate` carries the lb/hp-hr BSFC rate under the g/(hp*h) every rated row is declared in."
+        },
+        "point_NRHPRangeBinID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "equipment_point_rows"
+          ],
+          "description": "The point's hp bin, gathered from `nrsourceusetype`."
+        },
+        "tech_isHPCategory": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "equipment_point_rows",
+            "engine_tech_rows",
+            "hp_category_rows"
+          ],
+          "description": "1 where `nrhpcategory` gives this (point's hp bin, technology) this category. A pair with no row has no category, which the Go carries into every lookup as the zero value and so matches nothing: the point's technology then produces no species at all."
+        },
+        "fst_runShare": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "nrfuelsubtype_rows"
+          ],
+          "description": "The subtype's market share in the run's nonroad fuel supply. `mworeader.go` fans each worker row out into one emission per supply entry, scaled by its share, and the speciation keys on the entry's subtype, so the species is the share-weighted mean over subtypes. Washtenaw's gasoline is 9114 (E10, subtype 12) at 1.0 and 9414 (subtype 10) at 0.0."
+        },
+        "sub_isSpeciated": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "engine_tech_rows",
+            "hp_category_rows",
+            "nrfuelsubtype_rows"
+          ],
+          "description": "1 where `nrMethaneTHCRatio` has a row. Without one the Go `continue`s past the emission: no methane, NMHC, NMOG, VOC, TOG or toxic from VOC."
+        },
+        "sub_ch4ThcRatio": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "engine_tech_rows",
+            "hp_category_rows",
+            "nrfuelsubtype_rows"
+          ],
+          "description": "nrMethaneTHCRatio.CH4THCRatio at the (technology, category, subtype)."
+        },
+        "sub_nmogConstant": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "engine_tech_rows",
+            "hp_category_rows",
+            "nrfuelsubtype_rows"
+          ],
+          "description": "The NMOG speciation constant, and 0 where `nrHCSpeciation` has no row: the Go emits an explicit ZERO NMOG then, not no row."
+        },
+        "sub_vocConstant": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "engine_tech_rows",
+            "hp_category_rows",
+            "nrfuelsubtype_rows"
+          ],
+          "description": "The VOC speciation constant, and 0 where `nrHCSpeciation` has no row: the Go emits an explicit ZERO VOC then, not no row."
+        },
+        "sub_atRatio": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "engine_tech_rows",
+            "hp_category_rows",
+            "nrfuelsubtype_rows",
+            "runspecpollutantprocess_rows"
+          ],
+          "description": "nrATRatio.atRatio for the selected toxic at the (technology, category, subtype)."
+        },
+        "fsp_methaneShare": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "engine_tech_rows",
+            "hp_category_rows",
+            "nrfueltype_rows"
+          ],
+          "description": "Methane per unit THC: the supply-weighted CH4THCRatio."
+        },
+        "fsp_nmhcShare": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "engine_tech_rows",
+            "hp_category_rows",
+            "nrfueltype_rows"
+          ],
+          "description": "NMHC per unit THC."
+        },
+        "fsp_nmogShare": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "engine_tech_rows",
+            "hp_category_rows",
+            "nrfueltype_rows"
+          ],
+          "description": "NMOG per unit THC."
+        },
+        "fsp_vocShare": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "engine_tech_rows",
+            "hp_category_rows",
+            "nrfueltype_rows"
+          ],
+          "description": "VOC per unit THC."
+        },
+        "fsp_atRatio": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "engine_tech_rows",
+            "hp_category_rows",
+            "nrfueltype_rows",
+            "runspecpollutantprocess_rows"
+          ],
+          "description": "An `nrATRatio` toxic per unit THC: VOC x atRatio per subtype, supply-weighted, because the ratio keys on the formulation's subtype."
+        },
+        "fsp_pahGasRatio": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "engine_tech_rows",
+            "hp_category_rows",
+            "nrfueltype_rows",
+            "runspecpollutantprocess_rows"
+          ],
+          "description": "nrPAHGasRatio.atratio for the selected toxic. Keyed by the point's fuel TYPE, so it needs no subtype weighting."
+        },
+        "fsp_pahParticleRatio": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "engine_tech_rows",
+            "hp_category_rows",
+            "nrfueltype_rows",
+            "runspecpollutantprocess_rows"
+          ],
+          "description": "nrPAHParticleRatio.atratio for the selected toxic. Keyed by the point's fuel TYPE, so it needs no subtype weighting."
+        },
+        "fsp_dioxinRate": {
+          "type": "unknown",
+          "units": "g/gal",
+          "shape": [
+            "engine_tech_rows",
+            "hp_category_rows",
+            "nrfueltype_rows",
+            "runspecpollutantprocess_rows"
+          ],
+          "description": "nrDioxinEmissionRate.meanBaseRate, g/gal, for the selected toxic. Keyed by the point's fuel TYPE, so it needs no subtype weighting."
+        },
+        "fsp_metalRate": {
+          "type": "unknown",
+          "units": "g/gal",
+          "shape": [
+            "engine_tech_rows",
+            "hp_category_rows",
+            "nrfueltype_rows",
+            "runspecpollutantprocess_rows"
+          ],
+          "description": "nrMetalEmissionRate.meanBaseRate, g/gal, for the selected toxic. Keyed by the point's fuel TYPE, so it needs no subtype weighting."
+        },
+        "fsp_vocToxicShare": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "engine_tech_rows",
+            "hp_category_rows",
+            "nrfueltype_rows",
+            "runspecpollutantprocess_rows"
+          ],
+          "description": "A toxic derived from VOC, per unit THC: the `nrATRatio` toxics and VOC x the `nrPAHGasRatio` ones."
+        },
+        "fsp_integratedShare": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "engine_tech_rows",
+            "hp_category_rows",
+            "nrfueltype_rows"
+          ],
+          "description": "The selected integrated species per unit THC -- all of them VOC-derived -- which NonHAPTOG subtracts."
+        },
+        "fsp_hcSpeciesMultiplier": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "engine_tech_rows",
+            "hp_category_rows",
+            "nrfueltype_rows",
+            "runspecpollutantprocess_rows"
+          ],
+          "description": "A named hydrocarbon species per unit THC, read off the emitted relation's share columns (docs/esm-conventions.md §33.3): methane, NMHC, NMOG, VOC, TOG = NMOG + methane, and NonHAPTOG = NMOG - the integrated species. TOG sums only the SELECTED summands (`nrhcspeciation.rs` :580), and NonHAPTOG's NMOG and its integrated species are blocks that exist only when selected (`non_hap_tog_block`)."
+        },
+        "fsp_toxicMultiplier": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "engine_tech_rows",
+            "hp_category_rows",
+            "nrfueltype_rows",
+            "runspecpollutantprocess_rows"
+          ],
+          "description": "A toxic per unit of its ROOT (`rpp_ratedPolProcessID`): from VOC per THC; from PM2.5 per PM10, through the fuel type's PM2.5 fraction; from fuel per BSFC unit, `rate_scaled` -- grams x (rate x gallonsFactor), the Go's association. Each path needs its input block selected. Nothing branches on the pollutant: a selection is in at most one of the five tables."
+        },
+        "point_pm25Fraction": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "equipment_point_rows"
+          ],
+          "description": "The point's fuel type's PM2.5 fraction of PM10."
+        },
+        "pp_directMultiplier": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "equipment_point_rows",
+            "runspecpollutantprocess_rows"
+          ],
+          "description": "The part of a selection's multiple of its root that no speciation table reads: 1 for the five NONROAD writes, the PM2.5 fraction for PM2.5, the grams factor for fuel consumption, 0 for every species. Exactly 1 off the air-toxics run."
+        },
+        "tech_speciatedMultiplier": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "equipment_point_rows",
+            "runspecpollutantprocess_rows",
+            "engine_tech_rows"
+          ],
+          "description": "The speciated part of a selection's multiple of its root, per point and TECHNOLOGY: NRHCSpeciation and NRAirToxics key on the worker row's engTechID and hp category, so the species is applied inside the technology contraction and a cohort's species is a population-weighted blend (docs/nr-airtoxics-lawn-garden-county.md §2.4). Exactly 0 off the air-toxics run."
         },
         "cell_emissionQuant": {
           "type": "unknown",
@@ -10334,7 +11693,7 @@
               {
                 "on": [
                   [
-                    "rpp_polProcessID",
+                    "rpp_ratedPolProcessID",
                     "adj_polProcessID"
                   ]
                 ]
@@ -10384,7 +11743,7 @@
                     {
                       "op": "index",
                       "args": [
-                        "rpp_polProcessID",
+                        "rpp_ratedPolProcessID",
                         "q"
                       ]
                     },
@@ -10455,29 +11814,73 @@
           "rhs": {
             "op": "faq",
             "args": [],
-            "semiring": "bool_and_or",
+            "semiring": "sum_product",
             "output_idx": [
               "q"
             ],
             "ranges": {
               "q": {
                 "from": "runspecpollutantprocess_rows"
-              },
-              "p": {
-                "from": "emitted_pp_rows"
               }
             },
-            "join": [
-              {
-                "on": [
-                  [
-                    "rpp_polProcessID",
-                    "epp_polProcessID"
+            "expr": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "row_is_present",
+              "bindings": {
+                "match_count": {
+                  "op": "+",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "rpp_isNamed",
+                        "q"
+                      ]
+                    },
+                    {
+                      "op": "*",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "rpp_isVocToxic",
+                            "q"
+                          ]
+                        },
+                        "run_vocIsSelected"
+                      ]
+                    },
+                    {
+                      "op": "*",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "rpp_isPm25Toxic",
+                            "q"
+                          ]
+                        },
+                        "run_pm25IsSelected"
+                      ]
+                    },
+                    {
+                      "op": "*",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "rpp_isFuelToxic",
+                            "q"
+                          ]
+                        },
+                        "run_fuelIsSelected"
+                      ]
+                    }
                   ]
-                ]
+                }
               }
-            ],
-            "expr": 1.0
+            }
           }
         },
         {
@@ -10538,7 +11941,7 @@
               {
                 "on": [
                   [
-                    "rpp_polProcessID",
+                    "rpp_ratedPolProcessID",
                     "adj_polProcessID"
                   ]
                 ]
@@ -13562,6 +14965,54 @@
                   5,
                   5
                 ]
+              ],
+              [
+                [
+                  6,
+                  6
+                ]
+              ],
+              [
+                [
+                  7,
+                  7
+                ]
+              ],
+              [
+                [
+                  8,
+                  8
+                ]
+              ],
+              [
+                [
+                  9,
+                  9
+                ]
+              ],
+              [
+                [
+                  10,
+                  10
+                ]
+              ],
+              [
+                [
+                  11,
+                  11
+                ]
+              ],
+              [
+                [
+                  12,
+                  12
+                ]
+              ],
+              [
+                [
+                  13,
+                  13
+                ]
               ]
             ],
             "values": [
@@ -13659,6 +15110,174 @@
                     "args": [
                       "pollutant",
                       "PrimaryExhaustPM10Total"
+                    ]
+                  },
+                  "process_id": {
+                    "op": "enum",
+                    "args": [
+                      "process",
+                      "RunningExhaust"
+                    ]
+                  }
+                }
+              },
+              {
+                "op": "apply_expression_template",
+                "args": [],
+                "name": "pol_process_id",
+                "bindings": {
+                  "pollutant_id": {
+                    "op": "enum",
+                    "args": [
+                      "pollutant",
+                      "Methane"
+                    ]
+                  },
+                  "process_id": {
+                    "op": "enum",
+                    "args": [
+                      "process",
+                      "RunningExhaust"
+                    ]
+                  }
+                }
+              },
+              {
+                "op": "apply_expression_template",
+                "args": [],
+                "name": "pol_process_id",
+                "bindings": {
+                  "pollutant_id": {
+                    "op": "enum",
+                    "args": [
+                      "pollutant",
+                      "NonMethaneHydrocarbons"
+                    ]
+                  },
+                  "process_id": {
+                    "op": "enum",
+                    "args": [
+                      "process",
+                      "RunningExhaust"
+                    ]
+                  }
+                }
+              },
+              {
+                "op": "apply_expression_template",
+                "args": [],
+                "name": "pol_process_id",
+                "bindings": {
+                  "pollutant_id": {
+                    "op": "enum",
+                    "args": [
+                      "pollutant",
+                      "NonMethaneOrganicGases"
+                    ]
+                  },
+                  "process_id": {
+                    "op": "enum",
+                    "args": [
+                      "process",
+                      "RunningExhaust"
+                    ]
+                  }
+                }
+              },
+              {
+                "op": "apply_expression_template",
+                "args": [],
+                "name": "pol_process_id",
+                "bindings": {
+                  "pollutant_id": {
+                    "op": "enum",
+                    "args": [
+                      "pollutant",
+                      "TotalOrganicGases"
+                    ]
+                  },
+                  "process_id": {
+                    "op": "enum",
+                    "args": [
+                      "process",
+                      "RunningExhaust"
+                    ]
+                  }
+                }
+              },
+              {
+                "op": "apply_expression_template",
+                "args": [],
+                "name": "pol_process_id",
+                "bindings": {
+                  "pollutant_id": {
+                    "op": "enum",
+                    "args": [
+                      "pollutant",
+                      "VolatileOrganicCompounds"
+                    ]
+                  },
+                  "process_id": {
+                    "op": "enum",
+                    "args": [
+                      "process",
+                      "RunningExhaust"
+                    ]
+                  }
+                }
+              },
+              {
+                "op": "apply_expression_template",
+                "args": [],
+                "name": "pol_process_id",
+                "bindings": {
+                  "pollutant_id": {
+                    "op": "enum",
+                    "args": [
+                      "pollutant",
+                      "NonHAPTOG"
+                    ]
+                  },
+                  "process_id": {
+                    "op": "enum",
+                    "args": [
+                      "process",
+                      "RunningExhaust"
+                    ]
+                  }
+                }
+              },
+              {
+                "op": "apply_expression_template",
+                "args": [],
+                "name": "pol_process_id",
+                "bindings": {
+                  "pollutant_id": {
+                    "op": "enum",
+                    "args": [
+                      "pollutant",
+                      "BrakeSpecificFuelConsumption"
+                    ]
+                  },
+                  "process_id": {
+                    "op": "enum",
+                    "args": [
+                      "process",
+                      "RunningExhaust"
+                    ]
+                  }
+                }
+              },
+              {
+                "op": "apply_expression_template",
+                "args": [],
+                "name": "pol_process_id",
+                "bindings": {
+                  "pollutant_id": {
+                    "op": "enum",
+                    "args": [
+                      "pollutant",
+                      "PrimaryExhaustPM25Total"
                     ]
                   },
                   "process_id": {
@@ -15824,7 +17443,7 @@
               {
                 "on": [
                   [
-                    "rpp_polProcessID",
+                    "rpp_ratedPolProcessID",
                     "rtd_polProcessID"
                   ]
                 ]
@@ -16150,7 +17769,7 @@
               {
                 "on": [
                   [
-                    "rpp_polProcessID",
+                    "rpp_ratedPolProcessID",
                     "rtd_polProcessID"
                   ]
                 ]
@@ -16627,7 +18246,7 @@
                                 {
                                   "op": "index",
                                   "args": [
-                                    "rpp_polProcessID",
+                                    "rpp_ratedPolProcessID",
                                     "q"
                                   ]
                                 },
@@ -16716,7 +18335,7 @@
                                 {
                                   "op": "index",
                                   "args": [
-                                    "rpp_polProcessID",
+                                    "rpp_ratedPolProcessID",
                                     "q"
                                   ]
                                 },
@@ -16857,6 +18476,3489 @@
           }
         },
         {
+          "lhs": "hcat_code",
+          "rhs": {
+            "op": "makearray",
+            "args": [],
+            "regions": [
+              [
+                [
+                  1,
+                  1
+                ]
+              ],
+              [
+                [
+                  2,
+                  2
+                ]
+              ]
+            ],
+            "values": [
+              {
+                "op": "apply_expression_template",
+                "args": [],
+                "name": "nr_hp_category_small",
+                "bindings": {}
+              },
+              {
+                "op": "apply_expression_template",
+                "args": [],
+                "name": "nr_hp_category_large",
+                "bindings": {}
+              }
+            ]
+          }
+        },
+        {
+          "lhs": "run_processID",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "n"
+            ],
+            "ranges": {
+              "n": {
+                "from": "run_scope_rows"
+              }
+            },
+            "expr": {
+              "op": "enum",
+              "args": [
+                "process",
+                "RunningExhaust"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "run_nmogPollutantID",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "n"
+            ],
+            "ranges": {
+              "n": {
+                "from": "run_scope_rows"
+              }
+            },
+            "expr": {
+              "op": "enum",
+              "args": [
+                "pollutant",
+                "NonMethaneOrganicGases"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "run_vocPollutantID",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "n"
+            ],
+            "ranges": {
+              "n": {
+                "from": "run_scope_rows"
+              }
+            },
+            "expr": {
+              "op": "enum",
+              "args": [
+                "pollutant",
+                "VolatileOrganicCompounds"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rpp_runningPollutantID",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "q"
+            ],
+            "ranges": {
+              "q": {
+                "from": "runspecpollutantprocess_rows"
+              }
+            },
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                {
+                  "op": "==",
+                  "args": [
+                    {
+                      "op": "apply_expression_template",
+                      "args": [],
+                      "name": "process_id_of",
+                      "bindings": {
+                        "pol_process_id": {
+                          "op": "index",
+                          "args": [
+                            "rpp_polProcessID",
+                            "q"
+                          ]
+                        }
+                      }
+                    },
+                    {
+                      "op": "enum",
+                      "args": [
+                        "process",
+                        "RunningExhaust"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "op": "apply_expression_template",
+                  "args": [],
+                  "name": "pollutant_id_of",
+                  "bindings": {
+                    "pol_process_id": {
+                      "op": "index",
+                      "args": [
+                        "rpp_polProcessID",
+                        "q"
+                      ]
+                    }
+                  }
+                },
+                0
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "epp_ratedPolProcessID",
+          "rhs": {
+            "op": "makearray",
+            "args": [],
+            "regions": [
+              [
+                [
+                  1,
+                  1
+                ]
+              ],
+              [
+                [
+                  2,
+                  2
+                ]
+              ],
+              [
+                [
+                  3,
+                  3
+                ]
+              ],
+              [
+                [
+                  4,
+                  4
+                ]
+              ],
+              [
+                [
+                  5,
+                  5
+                ]
+              ],
+              [
+                [
+                  6,
+                  6
+                ]
+              ],
+              [
+                [
+                  7,
+                  7
+                ]
+              ],
+              [
+                [
+                  8,
+                  8
+                ]
+              ],
+              [
+                [
+                  9,
+                  9
+                ]
+              ],
+              [
+                [
+                  10,
+                  10
+                ]
+              ],
+              [
+                [
+                  11,
+                  11
+                ]
+              ],
+              [
+                [
+                  12,
+                  12
+                ]
+              ],
+              [
+                [
+                  13,
+                  13
+                ]
+              ]
+            ],
+            "values": [
+              {
+                "op": "apply_expression_template",
+                "args": [],
+                "name": "pol_process_id",
+                "bindings": {
+                  "pollutant_id": {
+                    "op": "enum",
+                    "args": [
+                      "pollutant",
+                      "TotalGaseousHydrocarbons"
+                    ]
+                  },
+                  "process_id": {
+                    "op": "enum",
+                    "args": [
+                      "process",
+                      "RunningExhaust"
+                    ]
+                  }
+                }
+              },
+              {
+                "op": "apply_expression_template",
+                "args": [],
+                "name": "pol_process_id",
+                "bindings": {
+                  "pollutant_id": {
+                    "op": "enum",
+                    "args": [
+                      "pollutant",
+                      "CarbonMonoxide"
+                    ]
+                  },
+                  "process_id": {
+                    "op": "enum",
+                    "args": [
+                      "process",
+                      "RunningExhaust"
+                    ]
+                  }
+                }
+              },
+              {
+                "op": "apply_expression_template",
+                "args": [],
+                "name": "pol_process_id",
+                "bindings": {
+                  "pollutant_id": {
+                    "op": "enum",
+                    "args": [
+                      "pollutant",
+                      "OxidesOfNitrogen"
+                    ]
+                  },
+                  "process_id": {
+                    "op": "enum",
+                    "args": [
+                      "process",
+                      "RunningExhaust"
+                    ]
+                  }
+                }
+              },
+              {
+                "op": "apply_expression_template",
+                "args": [],
+                "name": "pol_process_id",
+                "bindings": {
+                  "pollutant_id": {
+                    "op": "enum",
+                    "args": [
+                      "pollutant",
+                      "SulfurDioxide"
+                    ]
+                  },
+                  "process_id": {
+                    "op": "enum",
+                    "args": [
+                      "process",
+                      "RunningExhaust"
+                    ]
+                  }
+                }
+              },
+              {
+                "op": "apply_expression_template",
+                "args": [],
+                "name": "pol_process_id",
+                "bindings": {
+                  "pollutant_id": {
+                    "op": "enum",
+                    "args": [
+                      "pollutant",
+                      "PrimaryExhaustPM10Total"
+                    ]
+                  },
+                  "process_id": {
+                    "op": "enum",
+                    "args": [
+                      "process",
+                      "RunningExhaust"
+                    ]
+                  }
+                }
+              },
+              {
+                "op": "apply_expression_template",
+                "args": [],
+                "name": "pol_process_id",
+                "bindings": {
+                  "pollutant_id": {
+                    "op": "enum",
+                    "args": [
+                      "pollutant",
+                      "TotalGaseousHydrocarbons"
+                    ]
+                  },
+                  "process_id": {
+                    "op": "enum",
+                    "args": [
+                      "process",
+                      "RunningExhaust"
+                    ]
+                  }
+                }
+              },
+              {
+                "op": "apply_expression_template",
+                "args": [],
+                "name": "pol_process_id",
+                "bindings": {
+                  "pollutant_id": {
+                    "op": "enum",
+                    "args": [
+                      "pollutant",
+                      "TotalGaseousHydrocarbons"
+                    ]
+                  },
+                  "process_id": {
+                    "op": "enum",
+                    "args": [
+                      "process",
+                      "RunningExhaust"
+                    ]
+                  }
+                }
+              },
+              {
+                "op": "apply_expression_template",
+                "args": [],
+                "name": "pol_process_id",
+                "bindings": {
+                  "pollutant_id": {
+                    "op": "enum",
+                    "args": [
+                      "pollutant",
+                      "TotalGaseousHydrocarbons"
+                    ]
+                  },
+                  "process_id": {
+                    "op": "enum",
+                    "args": [
+                      "process",
+                      "RunningExhaust"
+                    ]
+                  }
+                }
+              },
+              {
+                "op": "apply_expression_template",
+                "args": [],
+                "name": "pol_process_id",
+                "bindings": {
+                  "pollutant_id": {
+                    "op": "enum",
+                    "args": [
+                      "pollutant",
+                      "TotalGaseousHydrocarbons"
+                    ]
+                  },
+                  "process_id": {
+                    "op": "enum",
+                    "args": [
+                      "process",
+                      "RunningExhaust"
+                    ]
+                  }
+                }
+              },
+              {
+                "op": "apply_expression_template",
+                "args": [],
+                "name": "pol_process_id",
+                "bindings": {
+                  "pollutant_id": {
+                    "op": "enum",
+                    "args": [
+                      "pollutant",
+                      "TotalGaseousHydrocarbons"
+                    ]
+                  },
+                  "process_id": {
+                    "op": "enum",
+                    "args": [
+                      "process",
+                      "RunningExhaust"
+                    ]
+                  }
+                }
+              },
+              {
+                "op": "apply_expression_template",
+                "args": [],
+                "name": "pol_process_id",
+                "bindings": {
+                  "pollutant_id": {
+                    "op": "enum",
+                    "args": [
+                      "pollutant",
+                      "TotalGaseousHydrocarbons"
+                    ]
+                  },
+                  "process_id": {
+                    "op": "enum",
+                    "args": [
+                      "process",
+                      "RunningExhaust"
+                    ]
+                  }
+                }
+              },
+              {
+                "op": "apply_expression_template",
+                "args": [],
+                "name": "pol_process_id",
+                "bindings": {
+                  "pollutant_id": {
+                    "op": "enum",
+                    "args": [
+                      "pollutant",
+                      "BrakeSpecificFuelConsumption"
+                    ]
+                  },
+                  "process_id": {
+                    "op": "enum",
+                    "args": [
+                      "process",
+                      "RunningExhaust"
+                    ]
+                  }
+                }
+              },
+              {
+                "op": "apply_expression_template",
+                "args": [],
+                "name": "pol_process_id",
+                "bindings": {
+                  "pollutant_id": {
+                    "op": "enum",
+                    "args": [
+                      "pollutant",
+                      "PrimaryExhaustPM10Total"
+                    ]
+                  },
+                  "process_id": {
+                    "op": "enum",
+                    "args": [
+                      "process",
+                      "RunningExhaust"
+                    ]
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "lhs": "epp_directShare",
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0
+            ]
+          }
+        },
+        {
+          "lhs": "epp_methaneShare",
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0
+            ]
+          }
+        },
+        {
+          "lhs": "epp_nmhcShare",
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0
+            ]
+          }
+        },
+        {
+          "lhs": "epp_nmogShare",
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0
+            ]
+          }
+        },
+        {
+          "lhs": "epp_vocShare",
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0
+            ]
+          }
+        },
+        {
+          "lhs": "epp_togShare",
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0
+            ]
+          }
+        },
+        {
+          "lhs": "epp_nonHapTogShare",
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0
+            ]
+          }
+        },
+        {
+          "lhs": "epp_pm25Share",
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "lhs": "epp_fuelShare",
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0
+            ]
+          }
+        },
+        {
+          "lhs": "epp_isSelected",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "row_is_present",
+            "bindings": {
+              "match_count": {
+                "op": "faq",
+                "args": [],
+                "semiring": "sum_product",
+                "output_idx": [
+                  "z"
+                ],
+                "ranges": {
+                  "z": {
+                    "from": "emitted_pp_rows"
+                  },
+                  "q": {
+                    "from": "runspecpollutantprocess_rows"
+                  }
+                },
+                "join": [
+                  {
+                    "on": [
+                      [
+                        "epp_polProcessID",
+                        "rpp_polProcessID"
+                      ]
+                    ]
+                  }
+                ],
+                "expr": 1.0
+              }
+            }
+          }
+        },
+        {
+          "lhs": "run_methaneIsSelected",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [],
+            "ranges": {
+              "z": {
+                "from": "emitted_pp_rows"
+              }
+            },
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "epp_isSelected",
+                    "z"
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "epp_methaneShare",
+                    "z"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "run_nmogIsSelected",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [],
+            "ranges": {
+              "z": {
+                "from": "emitted_pp_rows"
+              }
+            },
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "epp_isSelected",
+                    "z"
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "epp_nmogShare",
+                    "z"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "run_vocIsSelected",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [],
+            "ranges": {
+              "z": {
+                "from": "emitted_pp_rows"
+              }
+            },
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "epp_isSelected",
+                    "z"
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "epp_vocShare",
+                    "z"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "run_pm25IsSelected",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [],
+            "ranges": {
+              "z": {
+                "from": "emitted_pp_rows"
+              }
+            },
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "epp_isSelected",
+                    "z"
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "epp_pm25Share",
+                    "z"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "run_fuelIsSelected",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [],
+            "ranges": {
+              "z": {
+                "from": "emitted_pp_rows"
+              }
+            },
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "epp_isSelected",
+                    "z"
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "epp_fuelShare",
+                    "z"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rpp_isNamed",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "row_is_present",
+            "bindings": {
+              "match_count": {
+                "op": "faq",
+                "args": [],
+                "semiring": "sum_product",
+                "output_idx": [
+                  "q"
+                ],
+                "ranges": {
+                  "q": {
+                    "from": "runspecpollutantprocess_rows"
+                  },
+                  "z": {
+                    "from": "emitted_pp_rows"
+                  }
+                },
+                "join": [
+                  {
+                    "on": [
+                      [
+                        "rpp_polProcessID",
+                        "epp_polProcessID"
+                      ]
+                    ]
+                  }
+                ],
+                "expr": 1.0
+              }
+            }
+          }
+        },
+        {
+          "lhs": "rpp_namedRatedPolProcessID",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "q"
+            ],
+            "ranges": {
+              "q": {
+                "from": "runspecpollutantprocess_rows"
+              },
+              "z": {
+                "from": "emitted_pp_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rpp_polProcessID",
+                    "epp_polProcessID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "epp_ratedPolProcessID",
+                "z"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rpp_isVocToxic",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "row_is_present",
+            "bindings": {
+              "match_count": {
+                "op": "+",
+                "args": [
+                  {
+                    "op": "faq",
+                    "args": [],
+                    "semiring": "sum_product",
+                    "output_idx": [
+                      "q"
+                    ],
+                    "ranges": {
+                      "q": {
+                        "from": "runspecpollutantprocess_rows"
+                      },
+                      "n": {
+                        "from": "run_scope_rows"
+                      },
+                      "x": {
+                        "from": "nratratio_rows"
+                      }
+                    },
+                    "join": [
+                      {
+                        "on": [
+                          [
+                            "rpp_runningPollutantID",
+                            "atr_pollutantID"
+                          ]
+                        ]
+                      },
+                      {
+                        "on": [
+                          [
+                            "run_processID",
+                            "atr_processID"
+                          ]
+                        ]
+                      }
+                    ],
+                    "expr": 1.0
+                  },
+                  {
+                    "op": "faq",
+                    "args": [],
+                    "semiring": "sum_product",
+                    "output_idx": [
+                      "q"
+                    ],
+                    "ranges": {
+                      "q": {
+                        "from": "runspecpollutantprocess_rows"
+                      },
+                      "n": {
+                        "from": "run_scope_rows"
+                      },
+                      "x": {
+                        "from": "nrpahgasratio_rows"
+                      }
+                    },
+                    "join": [
+                      {
+                        "on": [
+                          [
+                            "rpp_runningPollutantID",
+                            "pahg_pollutantID"
+                          ]
+                        ]
+                      },
+                      {
+                        "on": [
+                          [
+                            "run_processID",
+                            "pahg_processID"
+                          ]
+                        ]
+                      }
+                    ],
+                    "expr": 1.0
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "lhs": "rpp_isPm25Toxic",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "row_is_present",
+            "bindings": {
+              "match_count": {
+                "op": "faq",
+                "args": [],
+                "semiring": "sum_product",
+                "output_idx": [
+                  "q"
+                ],
+                "ranges": {
+                  "q": {
+                    "from": "runspecpollutantprocess_rows"
+                  },
+                  "n": {
+                    "from": "run_scope_rows"
+                  },
+                  "x": {
+                    "from": "nrpahparticleratio_rows"
+                  }
+                },
+                "join": [
+                  {
+                    "on": [
+                      [
+                        "rpp_runningPollutantID",
+                        "pahp_pollutantID"
+                      ]
+                    ]
+                  },
+                  {
+                    "on": [
+                      [
+                        "run_processID",
+                        "pahp_processID"
+                      ]
+                    ]
+                  }
+                ],
+                "expr": 1.0
+              }
+            }
+          }
+        },
+        {
+          "lhs": "rpp_isFuelToxic",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "row_is_present",
+            "bindings": {
+              "match_count": {
+                "op": "+",
+                "args": [
+                  {
+                    "op": "faq",
+                    "args": [],
+                    "semiring": "sum_product",
+                    "output_idx": [
+                      "q"
+                    ],
+                    "ranges": {
+                      "q": {
+                        "from": "runspecpollutantprocess_rows"
+                      },
+                      "n": {
+                        "from": "run_scope_rows"
+                      },
+                      "x": {
+                        "from": "nrdioxinemissionrate_rows"
+                      }
+                    },
+                    "join": [
+                      {
+                        "on": [
+                          [
+                            "rpp_runningPollutantID",
+                            "diox_pollutantID"
+                          ]
+                        ]
+                      },
+                      {
+                        "on": [
+                          [
+                            "run_processID",
+                            "diox_processID"
+                          ]
+                        ]
+                      }
+                    ],
+                    "expr": 1.0
+                  },
+                  {
+                    "op": "faq",
+                    "args": [],
+                    "semiring": "sum_product",
+                    "output_idx": [
+                      "q"
+                    ],
+                    "ranges": {
+                      "q": {
+                        "from": "runspecpollutantprocess_rows"
+                      },
+                      "n": {
+                        "from": "run_scope_rows"
+                      },
+                      "x": {
+                        "from": "nrmetalemissionrate_rows"
+                      }
+                    },
+                    "join": [
+                      {
+                        "on": [
+                          [
+                            "rpp_runningPollutantID",
+                            "metal_pollutantID"
+                          ]
+                        ]
+                      },
+                      {
+                        "on": [
+                          [
+                            "run_processID",
+                            "metal_processID"
+                          ]
+                        ]
+                      }
+                    ],
+                    "expr": 1.0
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "lhs": "rpp_ratedPolProcessID",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "q"
+            ],
+            "ranges": {
+              "q": {
+                "from": "runspecpollutantprocess_rows"
+              }
+            },
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                {
+                  "op": ">",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "rpp_isNamed",
+                        "q"
+                      ]
+                    },
+                    0
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "rpp_namedRatedPolProcessID",
+                    "q"
+                  ]
+                },
+                {
+                  "op": "ifelse",
+                  "args": [
+                    {
+                      "op": ">",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "rpp_isVocToxic",
+                            "q"
+                          ]
+                        },
+                        0
+                      ]
+                    },
+                    {
+                      "op": "apply_expression_template",
+                      "args": [],
+                      "name": "pol_process_id",
+                      "bindings": {
+                        "pollutant_id": {
+                          "op": "enum",
+                          "args": [
+                            "pollutant",
+                            "TotalGaseousHydrocarbons"
+                          ]
+                        },
+                        "process_id": {
+                          "op": "enum",
+                          "args": [
+                            "process",
+                            "RunningExhaust"
+                          ]
+                        }
+                      }
+                    },
+                    {
+                      "op": "ifelse",
+                      "args": [
+                        {
+                          "op": ">",
+                          "args": [
+                            {
+                              "op": "index",
+                              "args": [
+                                "rpp_isPm25Toxic",
+                                "q"
+                              ]
+                            },
+                            0
+                          ]
+                        },
+                        {
+                          "op": "apply_expression_template",
+                          "args": [],
+                          "name": "pol_process_id",
+                          "bindings": {
+                            "pollutant_id": {
+                              "op": "enum",
+                              "args": [
+                                "pollutant",
+                                "PrimaryExhaustPM10Total"
+                              ]
+                            },
+                            "process_id": {
+                              "op": "enum",
+                              "args": [
+                                "process",
+                                "RunningExhaust"
+                              ]
+                            }
+                          }
+                        },
+                        {
+                          "op": "ifelse",
+                          "args": [
+                            {
+                              "op": ">",
+                              "args": [
+                                {
+                                  "op": "index",
+                                  "args": [
+                                    "rpp_isFuelToxic",
+                                    "q"
+                                  ]
+                                },
+                                0
+                              ]
+                            },
+                            {
+                              "op": "apply_expression_template",
+                              "args": [],
+                              "name": "pol_process_id",
+                              "bindings": {
+                                "pollutant_id": {
+                                  "op": "enum",
+                                  "args": [
+                                    "pollutant",
+                                    "BrakeSpecificFuelConsumption"
+                                  ]
+                                },
+                                "process_id": {
+                                  "op": "enum",
+                                  "args": [
+                                    "process",
+                                    "RunningExhaust"
+                                  ]
+                                }
+                              }
+                            },
+                            {
+                              "op": "index",
+                              "args": [
+                                "rpp_polProcessID",
+                                "q"
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "nft_pm25Fraction",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "ft"
+            ],
+            "ranges": {
+              "ft": {
+                "from": "nrfueltype_rows"
+              }
+            },
+            "expr": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "nonroad_pm25_fraction_of_pm10",
+              "bindings": {
+                "fuel_type_id": {
+                  "op": "index",
+                  "args": [
+                    "nft_fuelTypeID",
+                    "ft"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "lhs": "nft_gallonsFactor",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "ft"
+            ],
+            "ranges": {
+              "ft": {
+                "from": "nrfueltype_rows"
+              }
+            },
+            "expr": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "grams_to_gallons_factor",
+              "bindings": {
+                "fuel_density": {
+                  "op": "apply_expression_template",
+                  "args": [],
+                  "name": "air_toxics_fuel_density",
+                  "bindings": {
+                    "fuel_type_id": {
+                      "op": "index",
+                      "args": [
+                        "nft_fuelTypeID",
+                        "ft"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "lhs": "run_fuelGramsFactor",
+          "rhs": {
+            "op": "/",
+            "args": [
+              {
+                "op": "apply_expression_template",
+                "args": [],
+                "name": "gallons_to_grams",
+                "bindings": {
+                  "gallons": {
+                    "op": "apply_expression_template",
+                    "args": [],
+                    "name": "nonroad_fuel_gallons",
+                    "bindings": {
+                      "bsfc": 1.0,
+                      "load_factor": 1.0,
+                      "hp_avg": 1.0,
+                      "fuel_density": {
+                        "op": "apply_expression_template",
+                        "args": [],
+                        "name": "nonroad_engine_gasoline_density",
+                        "bindings": {}
+                      }
+                    }
+                  },
+                  "fuel_density": {
+                    "op": "apply_expression_template",
+                    "args": [],
+                    "name": "nonroad_engine_gasoline_density",
+                    "bindings": {}
+                  }
+                }
+              },
+              {
+                "op": "const",
+                "args": [],
+                "value": 1.0,
+                "units": "g/lb"
+              }
+            ]
+          }
+        },
+        {
+          "lhs": "point_NRHPRangeBinID",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "r"
+            ],
+            "ranges": {
+              "r": {
+                "from": "equipment_point_rows"
+              },
+              "u": {
+                "from": "nrsourceusetype_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "sut_sourceTypeID",
+                    "point_sourceTypeID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "sut_NRHPRangeBinID",
+                "u"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "tech_isHPCategory",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "row_is_present",
+            "bindings": {
+              "match_count": {
+                "op": "faq",
+                "args": [],
+                "semiring": "sum_product",
+                "output_idx": [
+                  "r",
+                  "cc",
+                  "h"
+                ],
+                "ranges": {
+                  "r": {
+                    "from": "equipment_point_rows"
+                  },
+                  "cc": {
+                    "from": "engine_tech_rows"
+                  },
+                  "h": {
+                    "from": "hp_category_rows"
+                  },
+                  "x": {
+                    "from": "nrhpcategory_rows"
+                  }
+                },
+                "join": [
+                  {
+                    "on": [
+                      [
+                        "point_NRHPRangeBinID",
+                        "hpc_nrhprangebinid"
+                      ]
+                    ]
+                  },
+                  {
+                    "on": [
+                      [
+                        "tech_engTechID",
+                        "hpc_engtechid"
+                      ]
+                    ]
+                  },
+                  {
+                    "on": [
+                      [
+                        "hcat_code",
+                        "hpc_nrHPCategory"
+                      ]
+                    ]
+                  }
+                ],
+                "expr": 1.0
+              }
+            }
+          }
+        },
+        {
+          "lhs": "fst_runShare",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b"
+            ],
+            "ranges": {
+              "b": {
+                "from": "nrfuelsubtype_rows"
+              },
+              "s": {
+                "from": "run_supply_rows"
+              },
+              "o": {
+                "from": "fuelformulation_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rsu_formulationID",
+                    "form_fuelFormulationID"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "form_fuelSubtypeID",
+                    "fst_fuelSubtypeID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "rsu_marketShare",
+                "s"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "sub_isSpeciated",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "row_is_present",
+            "bindings": {
+              "match_count": {
+                "op": "faq",
+                "args": [],
+                "semiring": "sum_product",
+                "output_idx": [
+                  "cc",
+                  "h",
+                  "b"
+                ],
+                "ranges": {
+                  "cc": {
+                    "from": "engine_tech_rows"
+                  },
+                  "h": {
+                    "from": "hp_category_rows"
+                  },
+                  "b": {
+                    "from": "nrfuelsubtype_rows"
+                  },
+                  "n": {
+                    "from": "run_scope_rows"
+                  },
+                  "m": {
+                    "from": "nrmethanethcratio_rows"
+                  }
+                },
+                "join": [
+                  {
+                    "on": [
+                      [
+                        "tech_engTechID",
+                        "mth_engTechID"
+                      ]
+                    ]
+                  },
+                  {
+                    "on": [
+                      [
+                        "hcat_code",
+                        "mth_nrHPCategory"
+                      ]
+                    ]
+                  },
+                  {
+                    "on": [
+                      [
+                        "fst_fuelSubtypeID",
+                        "mth_fuelSubtypeID"
+                      ]
+                    ]
+                  },
+                  {
+                    "on": [
+                      [
+                        "run_processID",
+                        "mth_processID"
+                      ]
+                    ]
+                  }
+                ],
+                "expr": 1.0
+              }
+            }
+          }
+        },
+        {
+          "lhs": "sub_ch4ThcRatio",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "cc",
+              "h",
+              "b"
+            ],
+            "ranges": {
+              "cc": {
+                "from": "engine_tech_rows"
+              },
+              "h": {
+                "from": "hp_category_rows"
+              },
+              "b": {
+                "from": "nrfuelsubtype_rows"
+              },
+              "n": {
+                "from": "run_scope_rows"
+              },
+              "m": {
+                "from": "nrmethanethcratio_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "tech_engTechID",
+                    "mth_engTechID"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "hcat_code",
+                    "mth_nrHPCategory"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "fst_fuelSubtypeID",
+                    "mth_fuelSubtypeID"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "run_processID",
+                    "mth_processID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "mth_ch4ThcRatio",
+                "m"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "sub_nmogConstant",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "cc",
+              "h",
+              "b"
+            ],
+            "ranges": {
+              "cc": {
+                "from": "engine_tech_rows"
+              },
+              "h": {
+                "from": "hp_category_rows"
+              },
+              "b": {
+                "from": "nrfuelsubtype_rows"
+              },
+              "n": {
+                "from": "run_scope_rows"
+              },
+              "s": {
+                "from": "nrhcspeciation_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "run_nmogPollutantID",
+                    "hcs_pollutantID"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "tech_engTechID",
+                    "hcs_engTechID"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "hcat_code",
+                    "hcs_nrHPCategory"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "fst_fuelSubtypeID",
+                    "hcs_fuelSubtypeID"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "run_processID",
+                    "hcs_processID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "hcs_speciationConstant",
+                "s"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "sub_vocConstant",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "cc",
+              "h",
+              "b"
+            ],
+            "ranges": {
+              "cc": {
+                "from": "engine_tech_rows"
+              },
+              "h": {
+                "from": "hp_category_rows"
+              },
+              "b": {
+                "from": "nrfuelsubtype_rows"
+              },
+              "n": {
+                "from": "run_scope_rows"
+              },
+              "s": {
+                "from": "nrhcspeciation_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "run_vocPollutantID",
+                    "hcs_pollutantID"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "tech_engTechID",
+                    "hcs_engTechID"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "hcat_code",
+                    "hcs_nrHPCategory"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "fst_fuelSubtypeID",
+                    "hcs_fuelSubtypeID"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "run_processID",
+                    "hcs_processID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "hcs_speciationConstant",
+                "s"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "sub_atRatio",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "cc",
+              "h",
+              "b",
+              "q"
+            ],
+            "ranges": {
+              "cc": {
+                "from": "engine_tech_rows"
+              },
+              "h": {
+                "from": "hp_category_rows"
+              },
+              "b": {
+                "from": "nrfuelsubtype_rows"
+              },
+              "q": {
+                "from": "runspecpollutantprocess_rows"
+              },
+              "n": {
+                "from": "run_scope_rows"
+              },
+              "a": {
+                "from": "nratratio_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rpp_runningPollutantID",
+                    "atr_pollutantID"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "tech_engTechID",
+                    "atr_engTechID"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "hcat_code",
+                    "atr_nrHPCategory"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "fst_fuelSubtypeID",
+                    "atr_fuelSubtypeID"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "run_processID",
+                    "atr_processID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "atr_atRatio",
+                "a"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "fsp_methaneShare",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "cc",
+              "h",
+              "ft"
+            ],
+            "ranges": {
+              "cc": {
+                "from": "engine_tech_rows"
+              },
+              "h": {
+                "from": "hp_category_rows"
+              },
+              "ft": {
+                "from": "nrfueltype_rows"
+              },
+              "b": {
+                "from": "nrfuelsubtype_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "fst_fuelTypeID",
+                    "nft_fuelTypeID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "ratio_scaled",
+              "bindings": {
+                "input_quant": {
+                  "op": "index",
+                  "args": [
+                    "fst_runShare",
+                    "b"
+                  ]
+                },
+                "ratio": {
+                  "op": "index",
+                  "args": [
+                    "sub_ch4ThcRatio",
+                    "cc",
+                    "h",
+                    "b"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "lhs": "fsp_nmhcShare",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "cc",
+              "h",
+              "ft"
+            ],
+            "ranges": {
+              "cc": {
+                "from": "engine_tech_rows"
+              },
+              "h": {
+                "from": "hp_category_rows"
+              },
+              "ft": {
+                "from": "nrfueltype_rows"
+              },
+              "b": {
+                "from": "nrfuelsubtype_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "fst_fuelTypeID",
+                    "nft_fuelTypeID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "ratio_scaled",
+              "bindings": {
+                "input_quant": {
+                  "op": "*",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "fst_runShare",
+                        "b"
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "sub_isSpeciated",
+                        "cc",
+                        "h",
+                        "b"
+                      ]
+                    }
+                  ]
+                },
+                "ratio": {
+                  "op": "apply_expression_template",
+                  "args": [],
+                  "name": "nmhc_share",
+                  "bindings": {
+                    "ch4_thc_ratio": {
+                      "op": "index",
+                      "args": [
+                        "sub_ch4ThcRatio",
+                        "cc",
+                        "h",
+                        "b"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "lhs": "fsp_nmogShare",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "cc",
+              "h",
+              "ft"
+            ],
+            "ranges": {
+              "cc": {
+                "from": "engine_tech_rows"
+              },
+              "h": {
+                "from": "hp_category_rows"
+              },
+              "ft": {
+                "from": "nrfueltype_rows"
+              },
+              "b": {
+                "from": "nrfuelsubtype_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "fst_fuelTypeID",
+                    "nft_fuelTypeID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "ratio_scaled",
+              "bindings": {
+                "input_quant": {
+                  "op": "apply_expression_template",
+                  "args": [],
+                  "name": "ratio_scaled",
+                  "bindings": {
+                    "input_quant": {
+                      "op": "*",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "fst_runShare",
+                            "b"
+                          ]
+                        },
+                        {
+                          "op": "index",
+                          "args": [
+                            "sub_isSpeciated",
+                            "cc",
+                            "h",
+                            "b"
+                          ]
+                        }
+                      ]
+                    },
+                    "ratio": {
+                      "op": "apply_expression_template",
+                      "args": [],
+                      "name": "nmhc_share",
+                      "bindings": {
+                        "ch4_thc_ratio": {
+                          "op": "index",
+                          "args": [
+                            "sub_ch4ThcRatio",
+                            "cc",
+                            "h",
+                            "b"
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                "ratio": {
+                  "op": "index",
+                  "args": [
+                    "sub_nmogConstant",
+                    "cc",
+                    "h",
+                    "b"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "lhs": "fsp_vocShare",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "cc",
+              "h",
+              "ft"
+            ],
+            "ranges": {
+              "cc": {
+                "from": "engine_tech_rows"
+              },
+              "h": {
+                "from": "hp_category_rows"
+              },
+              "ft": {
+                "from": "nrfueltype_rows"
+              },
+              "b": {
+                "from": "nrfuelsubtype_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "fst_fuelTypeID",
+                    "nft_fuelTypeID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "ratio_scaled",
+              "bindings": {
+                "input_quant": {
+                  "op": "apply_expression_template",
+                  "args": [],
+                  "name": "ratio_scaled",
+                  "bindings": {
+                    "input_quant": {
+                      "op": "*",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "fst_runShare",
+                            "b"
+                          ]
+                        },
+                        {
+                          "op": "index",
+                          "args": [
+                            "sub_isSpeciated",
+                            "cc",
+                            "h",
+                            "b"
+                          ]
+                        }
+                      ]
+                    },
+                    "ratio": {
+                      "op": "apply_expression_template",
+                      "args": [],
+                      "name": "nmhc_share",
+                      "bindings": {
+                        "ch4_thc_ratio": {
+                          "op": "index",
+                          "args": [
+                            "sub_ch4ThcRatio",
+                            "cc",
+                            "h",
+                            "b"
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                "ratio": {
+                  "op": "index",
+                  "args": [
+                    "sub_vocConstant",
+                    "cc",
+                    "h",
+                    "b"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "lhs": "fsp_atRatio",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "cc",
+              "h",
+              "ft",
+              "q"
+            ],
+            "ranges": {
+              "cc": {
+                "from": "engine_tech_rows"
+              },
+              "h": {
+                "from": "hp_category_rows"
+              },
+              "ft": {
+                "from": "nrfueltype_rows"
+              },
+              "q": {
+                "from": "runspecpollutantprocess_rows"
+              },
+              "b": {
+                "from": "nrfuelsubtype_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "fst_fuelTypeID",
+                    "nft_fuelTypeID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "ratio_scaled",
+              "bindings": {
+                "input_quant": {
+                  "op": "apply_expression_template",
+                  "args": [],
+                  "name": "ratio_scaled",
+                  "bindings": {
+                    "input_quant": {
+                      "op": "apply_expression_template",
+                      "args": [],
+                      "name": "ratio_scaled",
+                      "bindings": {
+                        "input_quant": {
+                          "op": "*",
+                          "args": [
+                            {
+                              "op": "index",
+                              "args": [
+                                "fst_runShare",
+                                "b"
+                              ]
+                            },
+                            {
+                              "op": "index",
+                              "args": [
+                                "sub_isSpeciated",
+                                "cc",
+                                "h",
+                                "b"
+                              ]
+                            }
+                          ]
+                        },
+                        "ratio": {
+                          "op": "apply_expression_template",
+                          "args": [],
+                          "name": "nmhc_share",
+                          "bindings": {
+                            "ch4_thc_ratio": {
+                              "op": "index",
+                              "args": [
+                                "sub_ch4ThcRatio",
+                                "cc",
+                                "h",
+                                "b"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "ratio": {
+                      "op": "index",
+                      "args": [
+                        "sub_vocConstant",
+                        "cc",
+                        "h",
+                        "b"
+                      ]
+                    }
+                  }
+                },
+                "ratio": {
+                  "op": "index",
+                  "args": [
+                    "sub_atRatio",
+                    "cc",
+                    "h",
+                    "b",
+                    "q"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "lhs": "fsp_pahGasRatio",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "cc",
+              "h",
+              "ft",
+              "q"
+            ],
+            "ranges": {
+              "cc": {
+                "from": "engine_tech_rows"
+              },
+              "h": {
+                "from": "hp_category_rows"
+              },
+              "ft": {
+                "from": "nrfueltype_rows"
+              },
+              "q": {
+                "from": "runspecpollutantprocess_rows"
+              },
+              "n": {
+                "from": "run_scope_rows"
+              },
+              "x": {
+                "from": "nrpahgasratio_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rpp_runningPollutantID",
+                    "pahg_pollutantID"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "run_processID",
+                    "pahg_processID"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "nft_fuelTypeID",
+                    "pahg_fuelTypeID"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "tech_engTechID",
+                    "pahg_engTechID"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "hcat_code",
+                    "pahg_nrHPCategory"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "pahg_atRatio",
+                "x"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "fsp_pahParticleRatio",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "cc",
+              "h",
+              "ft",
+              "q"
+            ],
+            "ranges": {
+              "cc": {
+                "from": "engine_tech_rows"
+              },
+              "h": {
+                "from": "hp_category_rows"
+              },
+              "ft": {
+                "from": "nrfueltype_rows"
+              },
+              "q": {
+                "from": "runspecpollutantprocess_rows"
+              },
+              "n": {
+                "from": "run_scope_rows"
+              },
+              "x": {
+                "from": "nrpahparticleratio_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rpp_runningPollutantID",
+                    "pahp_pollutantID"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "run_processID",
+                    "pahp_processID"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "nft_fuelTypeID",
+                    "pahp_fuelTypeID"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "tech_engTechID",
+                    "pahp_engTechID"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "hcat_code",
+                    "pahp_nrHPCategory"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "pahp_atRatio",
+                "x"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "fsp_dioxinRate",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "cc",
+              "h",
+              "ft",
+              "q"
+            ],
+            "ranges": {
+              "cc": {
+                "from": "engine_tech_rows"
+              },
+              "h": {
+                "from": "hp_category_rows"
+              },
+              "ft": {
+                "from": "nrfueltype_rows"
+              },
+              "q": {
+                "from": "runspecpollutantprocess_rows"
+              },
+              "n": {
+                "from": "run_scope_rows"
+              },
+              "x": {
+                "from": "nrdioxinemissionrate_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rpp_runningPollutantID",
+                    "diox_pollutantID"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "run_processID",
+                    "diox_processID"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "nft_fuelTypeID",
+                    "diox_fuelTypeID"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "tech_engTechID",
+                    "diox_engTechID"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "hcat_code",
+                    "diox_nrHPCategory"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "diox_meanBaseRate",
+                "x"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "fsp_metalRate",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "cc",
+              "h",
+              "ft",
+              "q"
+            ],
+            "ranges": {
+              "cc": {
+                "from": "engine_tech_rows"
+              },
+              "h": {
+                "from": "hp_category_rows"
+              },
+              "ft": {
+                "from": "nrfueltype_rows"
+              },
+              "q": {
+                "from": "runspecpollutantprocess_rows"
+              },
+              "n": {
+                "from": "run_scope_rows"
+              },
+              "x": {
+                "from": "nrmetalemissionrate_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rpp_runningPollutantID",
+                    "metal_pollutantID"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "run_processID",
+                    "metal_processID"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "nft_fuelTypeID",
+                    "metal_fuelTypeID"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "tech_engTechID",
+                    "metal_engTechID"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "hcat_code",
+                    "metal_nrHPCategory"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "metal_meanBaseRate",
+                "x"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "fsp_vocToxicShare",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "cc",
+              "h",
+              "ft",
+              "q"
+            ],
+            "ranges": {
+              "cc": {
+                "from": "engine_tech_rows"
+              },
+              "h": {
+                "from": "hp_category_rows"
+              },
+              "ft": {
+                "from": "nrfueltype_rows"
+              },
+              "q": {
+                "from": "runspecpollutantprocess_rows"
+              }
+            },
+            "expr": {
+              "op": "+",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "fsp_atRatio",
+                    "cc",
+                    "h",
+                    "ft",
+                    "q"
+                  ]
+                },
+                {
+                  "op": "apply_expression_template",
+                  "args": [],
+                  "name": "ratio_scaled",
+                  "bindings": {
+                    "input_quant": {
+                      "op": "index",
+                      "args": [
+                        "fsp_vocShare",
+                        "cc",
+                        "h",
+                        "ft"
+                      ]
+                    },
+                    "ratio": {
+                      "op": "index",
+                      "args": [
+                        "fsp_pahGasRatio",
+                        "cc",
+                        "h",
+                        "ft",
+                        "q"
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "fsp_integratedShare",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "cc",
+              "h",
+              "ft"
+            ],
+            "ranges": {
+              "cc": {
+                "from": "engine_tech_rows"
+              },
+              "h": {
+                "from": "hp_category_rows"
+              },
+              "ft": {
+                "from": "nrfueltype_rows"
+              },
+              "q": {
+                "from": "runspecpollutantprocess_rows"
+              },
+              "i": {
+                "from": "nrintegratedspecies_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rpp_runningPollutantID",
+                    "isp_pollutantID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "fsp_vocToxicShare",
+                "cc",
+                "h",
+                "ft",
+                "q"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "fsp_hcSpeciesMultiplier",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "cc",
+              "h",
+              "ft",
+              "q"
+            ],
+            "ranges": {
+              "cc": {
+                "from": "engine_tech_rows"
+              },
+              "h": {
+                "from": "hp_category_rows"
+              },
+              "ft": {
+                "from": "nrfueltype_rows"
+              },
+              "q": {
+                "from": "runspecpollutantprocess_rows"
+              },
+              "z": {
+                "from": "emitted_pp_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rpp_polProcessID",
+                    "epp_polProcessID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "+",
+              "args": [
+                {
+                  "op": "*",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "epp_methaneShare",
+                        "z"
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "fsp_methaneShare",
+                        "cc",
+                        "h",
+                        "ft"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "op": "*",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "epp_nmhcShare",
+                        "z"
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "fsp_nmhcShare",
+                        "cc",
+                        "h",
+                        "ft"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "op": "*",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "epp_nmogShare",
+                        "z"
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "fsp_nmogShare",
+                        "cc",
+                        "h",
+                        "ft"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "op": "*",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "epp_vocShare",
+                        "z"
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "fsp_vocShare",
+                        "cc",
+                        "h",
+                        "ft"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "op": "*",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "epp_togShare",
+                        "z"
+                      ]
+                    },
+                    {
+                      "op": "apply_expression_template",
+                      "args": [],
+                      "name": "total_organic_gases",
+                      "bindings": {
+                        "nmog": {
+                          "op": "*",
+                          "args": [
+                            {
+                              "op": "index",
+                              "args": [
+                                "fsp_nmogShare",
+                                "cc",
+                                "h",
+                                "ft"
+                              ]
+                            },
+                            "run_nmogIsSelected"
+                          ]
+                        },
+                        "methane": {
+                          "op": "*",
+                          "args": [
+                            {
+                              "op": "index",
+                              "args": [
+                                "fsp_methaneShare",
+                                "cc",
+                                "h",
+                                "ft"
+                              ]
+                            },
+                            "run_methaneIsSelected"
+                          ]
+                        }
+                      }
+                    }
+                  ]
+                },
+                {
+                  "op": "*",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "epp_nonHapTogShare",
+                        "z"
+                      ]
+                    },
+                    {
+                      "op": "apply_expression_template",
+                      "args": [],
+                      "name": "non_hap_tog",
+                      "bindings": {
+                        "nmog": {
+                          "op": "*",
+                          "args": [
+                            {
+                              "op": "index",
+                              "args": [
+                                "fsp_nmogShare",
+                                "cc",
+                                "h",
+                                "ft"
+                              ]
+                            },
+                            "run_nmogIsSelected"
+                          ]
+                        },
+                        "integrated_species_sum": {
+                          "op": "*",
+                          "args": [
+                            {
+                              "op": "index",
+                              "args": [
+                                "fsp_integratedShare",
+                                "cc",
+                                "h",
+                                "ft"
+                              ]
+                            },
+                            "run_vocIsSelected"
+                          ]
+                        }
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "fsp_toxicMultiplier",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "cc",
+              "h",
+              "ft",
+              "q"
+            ],
+            "ranges": {
+              "cc": {
+                "from": "engine_tech_rows"
+              },
+              "h": {
+                "from": "hp_category_rows"
+              },
+              "ft": {
+                "from": "nrfueltype_rows"
+              },
+              "q": {
+                "from": "runspecpollutantprocess_rows"
+              }
+            },
+            "expr": {
+              "op": "+",
+              "args": [
+                {
+                  "op": "*",
+                  "args": [
+                    "run_vocIsSelected",
+                    {
+                      "op": "index",
+                      "args": [
+                        "fsp_vocToxicShare",
+                        "cc",
+                        "h",
+                        "ft",
+                        "q"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "op": "*",
+                  "args": [
+                    "run_pm25IsSelected",
+                    {
+                      "op": "apply_expression_template",
+                      "args": [],
+                      "name": "ratio_scaled",
+                      "bindings": {
+                        "input_quant": {
+                          "op": "index",
+                          "args": [
+                            "nft_pm25Fraction",
+                            "ft"
+                          ]
+                        },
+                        "ratio": {
+                          "op": "index",
+                          "args": [
+                            "fsp_pahParticleRatio",
+                            "cc",
+                            "h",
+                            "ft",
+                            "q"
+                          ]
+                        }
+                      }
+                    }
+                  ]
+                },
+                {
+                  "op": "*",
+                  "args": [
+                    "run_fuelIsSelected",
+                    {
+                      "op": "apply_expression_template",
+                      "args": [],
+                      "name": "rate_scaled",
+                      "bindings": {
+                        "input_quant": "run_fuelGramsFactor",
+                        "mean_base_rate": {
+                          "op": "+",
+                          "args": [
+                            {
+                              "op": "index",
+                              "args": [
+                                "fsp_dioxinRate",
+                                "cc",
+                                "h",
+                                "ft",
+                                "q"
+                              ]
+                            },
+                            {
+                              "op": "index",
+                              "args": [
+                                "fsp_metalRate",
+                                "cc",
+                                "h",
+                                "ft",
+                                "q"
+                              ]
+                            }
+                          ]
+                        },
+                        "unit_factor": {
+                          "op": "index",
+                          "args": [
+                            "nft_gallonsFactor",
+                            "ft"
+                          ]
+                        }
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "point_pm25Fraction",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "r"
+            ],
+            "ranges": {
+              "r": {
+                "from": "equipment_point_rows"
+              },
+              "ft": {
+                "from": "nrfueltype_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "point_nonroadFuelTypeID",
+                    "nft_fuelTypeID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "nft_pm25Fraction",
+                "ft"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "pp_directMultiplier",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "r",
+              "q"
+            ],
+            "ranges": {
+              "r": {
+                "from": "equipment_point_rows"
+              },
+              "q": {
+                "from": "runspecpollutantprocess_rows"
+              },
+              "z": {
+                "from": "emitted_pp_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rpp_polProcessID",
+                    "epp_polProcessID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "+",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "epp_directShare",
+                    "z"
+                  ]
+                },
+                {
+                  "op": "*",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "epp_pm25Share",
+                        "z"
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "point_pm25Fraction",
+                        "r"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "op": "*",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "epp_fuelShare",
+                        "z"
+                      ]
+                    },
+                    "run_fuelGramsFactor"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "tech_speciatedMultiplier",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "r",
+              "q",
+              "cc"
+            ],
+            "ranges": {
+              "r": {
+                "from": "equipment_point_rows"
+              },
+              "q": {
+                "from": "runspecpollutantprocess_rows"
+              },
+              "cc": {
+                "from": "engine_tech_rows"
+              },
+              "h": {
+                "from": "hp_category_rows"
+              },
+              "ft": {
+                "from": "nrfueltype_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "point_nonroadFuelTypeID",
+                    "nft_fuelTypeID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "tech_isHPCategory",
+                    "r",
+                    "cc",
+                    "h"
+                  ]
+                },
+                {
+                  "op": "+",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "fsp_hcSpeciesMultiplier",
+                        "cc",
+                        "h",
+                        "ft",
+                        "q"
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "fsp_toxicMultiplier",
+                        "cc",
+                        "h",
+                        "ft",
+                        "q"
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
           "_comment": "clcems.f's product, contracted over the technologies the mix carries, for ONE equipment point and one model-year cohort. The equipment point is a join and not a contraction: summing over the six points here would add three different SCCs into one number. The factors stay in the reference's order and in one flat product, so the runtime's associativity choice is the only thing that separates this from clcems.f (tolerance.toml).",
           "lhs": "cell_emissionQuant",
           "rhs": {
@@ -16954,6 +22056,28 @@
                     "tech_fraction",
                     "c",
                     "cc"
+                  ]
+                },
+                {
+                  "op": "+",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "pp_directMultiplier",
+                        "r",
+                        "q"
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "tech_speciatedMultiplier",
+                        "r",
+                        "q",
+                        "cc"
+                      ]
+                    }
                   ]
                 }
               ]

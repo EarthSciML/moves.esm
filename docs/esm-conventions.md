@@ -8244,3 +8244,40 @@ warns at.
 **Then port it or except it, by cost.** A precision artifact the format can replicate exactly and cheaply is ported, and the gate stays strict (the sulfur window, the SEASON file's `%10.3f`, the POP file's `%17.1f`). One the format cannot express gets a `cell_exception` in `tolerance.toml`. It names the cohort's key, carries the measurement in a comment and the cause in `why`, and is refused once it matches nothing. Never a per-fixture `rel`, which would loosen thousands of cells to cover four. The railroad's binary32 population sum is the first: it crosses a `.POP` rounding boundary, and the format has no binary64-to-binary32 conversion (EarthSciAST#536).
 
 **A cancellation turns ulps into percent.** agedist.f's newest cohort is a residual, `totpop/baspop - frcsum`. Where sales fall, both terms are about 1.32 and their difference is about 0.001, so one ulp of the minuend is 1e-4 of the cohort. A cohort that is off alone, by one factor across all its pollutants, in a year when its equipment's growth turned negative, is that residual. Look at the fold's inputs (`baspop`, the growth factors), not at the fold (§87).
+
+## 91. A derived pollutant is a root and a multiplier, and the multiplier is exactly 1 where it does not apply **[PLAN.md step 7e; `nr-airtoxics-lawn-garden-county` 14,036 of 14,036 on the port's first run, the other runs unchanged to the byte]**
+
+**Redirect the lookup, not the pipeline.** NONROAD's two speciation calculators
+scale three rated blocks -- THC, PM10, and fuel consumption -- into twenty-five
+more pollutants. The dense layout already computes a rated block per (cohort,
+selection, technology), clamped per technology record (§89). So a derived
+selection does not get its own chain. It reads its ROOT's rate, deterioration,
+adjustment and clamp (`rpp_ratedPolProcessID`), and its record is multiplied by
+`pp_directMultiplier + tech_speciatedMultiplier`. Seven existing equations
+changed one variable name, and nothing else in the rated chain moved.
+
+**Make the identity exact, not approximate.** For every selection the chain
+already emitted, the root is the selection itself, the direct part is a `1.0`
+from a share column, and the speciated part is a sum of products with a `0.0`
+coefficient. In binary32 `x × (1 + 0)` is `x` bit for bit, so a document serving
+twelve runs takes the new chain without moving the eleven that don't use it.
+Check that by the bytes of the emitted CSV, not by tolerance: a refactor that is
+right within 2e-5 can still be wrong.
+
+**A key that is per (point, technology) becomes an AXIS.** `nrHPCategory` is
+looked up by (hp bin, technology), and every ratio table joins on it. A
+`join.on` key has to be one column, and a 2-D value cannot be one. The category
+is therefore a two-row axis (`hp_category_rows`). The tables are read per
+(technology, category, subtype), the supply shares fold the subtype into a fuel
+type, and the point gathers through a presence mask (`tech_isHPCategory`). A
+pair with no category row then matches nothing. That is the Go's zero value,
+written as a value and not as a branch.
+
+**The needed set is the selection, so gate on it where the source does.**
+`flagRequiredPollutantProcesses` returns early for NONROAD, and a block that is
+not needed is never produced. TOG sums only the selected summands, NonHAPTOG
+subtracts only the selected integrated species, and a toxic needs its input
+block selected. Each gate is a selection flag on the term it governs
+(`run_*IsSelected`), not a branch on the output pollutant. One consequence is
+that the national `nrIntegratedSpecies` has 14 rows where the execution copy had
+9: the five extras are unselected and subtract nothing.

@@ -2,7 +2,7 @@
   "esm": "1.2.0",
   "metadata": {
     "name": "moves.nonroad_speciation",
-    "description": "Template library: the FORMS the two NONROAD speciation calculators share, factored away from the six tables that supply their coefficients (docs/esm-conventions.md §24, docs/nr-airtoxics-lawn-garden-county.md §4). `NRHCSpeciationCalculator` and `NRAirToxicsCalculator` between them read nrMethaneTHCRatio, nrHCSpeciation, nrATRatio, nrPAHGasRatio, nrPAHParticleRatio, nrDioxinEmissionRate and nrMetalEmissionRate -- 11,000-odd rows over five different key shapes -- and every one of them scales an upstream emission by a tabulated number. There are exactly TWO forms: `ratio_scaled`, which the four ratio tables and both speciation constants take, and `rate_scaled`, which the two g/gal rate tables take because their multiplier is a rate times a unit conversion. The tables stay tables; the arithmetic lives here once.\n\n`rate_scaled` is deliberately NOT `ratio_scaled` with a pre-multiplied ratio. The Go computes `atRatio*gallonsFactor` as one product and then scales the emission by it (calc/nrairtoxics/nrairtoxics.go, ported at crates/moves-calculators/src/calculators/nrairtoxics.rs `apply_ratio_details`), so `input x (rate x unit)` and `(input x rate) x unit` are two different associations of the same product and this file records which one the reference uses.\n\n`grams_to_gallons_factor` is the one place a fidelity detail would otherwise be invisible: the Go writes `gallonsFactor := 1.0/453.592` and then `gallonsFactor /= density`, TWO SEQUENTIAL DIVISIONS, not the algebraically equal `1.0/(453.592*density)`. Measured in binary64 at the gasoline density: 0.000357313520289105 against 0.00035731352028910493, a difference of 5.421010862427522e-20, which is one unit in the last place. components/nr_air_toxics.esm asserts both and their difference, because nothing downstream of it could.\n\nTHE TWO GASOLINE DENSITIES ARE DIFFERENT AND BOTH ARE RIGHT. The NONROAD engine converts fuel consumption to gallons with CMFGAS = 6.237 lb/gal (crates/moves-nonroad/src/emissions/exhaust.rs:265) and NonroadOutputDataLoader.java:1052 converts back with the same 6.237, so the pair cancels and pollutant 99 is the lb-valued product times `grams_per_pound`. `NRAirToxicsCalculator` then converts those grams BACK to gallons with its own hard-coded 6.17. They are named separately here so that a reader meets the discrepancy as a fact about MOVES rather than as a typo.\n\n`nr_hp_category_small` and `nr_hp_category_large` are the two values of the one-character `nrHPCategory` column ('S' and 'L'), as zero-parameter constant-fragment templates (esm-spec §9.6.1) rather than an `enums` block, because an `enums` block is file-local and does not cross an import edge (docs/esm-conventions.md §6, finding F3). A document that ingests the column decodes it with the same two numbers through a `codes` map on the `from` binding. `grams_per_pound` declares `g/lb` and both gasoline densities `lb/gal` on their constants (docs/esm-conventions.md §57); the two densities share a unit and not a value, which is the discrepancy above stated once more.",
+    "description": "Template library: the FORMS the two NONROAD speciation calculators share, factored away from the six tables that supply their coefficients (docs/esm-conventions.md §24, docs/nr-airtoxics-lawn-garden-county.md §4). `NRHCSpeciationCalculator` and `NRAirToxicsCalculator` between them read nrMethaneTHCRatio, nrHCSpeciation, nrATRatio, nrPAHGasRatio, nrPAHParticleRatio, nrDioxinEmissionRate and nrMetalEmissionRate -- 11,000-odd rows over five different key shapes -- and every one of them scales an upstream emission by a tabulated number. There are exactly TWO forms: `ratio_scaled`, which the four ratio tables and both speciation constants take, and `rate_scaled`, which the two g/gal rate tables take because their multiplier is a rate times a unit conversion. The tables stay tables; the arithmetic lives here once.\n\n`rate_scaled` is deliberately NOT `ratio_scaled` with a pre-multiplied ratio. The Go computes `atRatio*gallonsFactor` as one product and then scales the emission by it (calc/nrairtoxics/nrairtoxics.go, ported at crates/moves-calculators/src/calculators/nrairtoxics.rs `apply_ratio_details`), so `input x (rate x unit)` and `(input x rate) x unit` are two different associations of the same product and this file records which one the reference uses.\n\n`grams_to_gallons_factor` is the one place a fidelity detail would otherwise be invisible: the Go writes `gallonsFactor := 1.0/453.592` and then `gallonsFactor /= density`, TWO SEQUENTIAL DIVISIONS, not the algebraically equal `1.0/(453.592*density)`. Measured in binary64 at the gasoline density: 0.000357313520289105 against 0.00035731352028910493, a difference of 5.421010862427522e-20, which is one unit in the last place. components/nr_air_toxics.esm asserts both and their difference, because nothing downstream of it could.\n\nTHE TWO GASOLINE DENSITIES ARE DIFFERENT AND BOTH ARE RIGHT. The NONROAD engine converts fuel consumption to gallons with CMFGAS = 6.237 lb/gal (crates/moves-nonroad/src/emissions/exhaust.rs:265) and NonroadOutputDataLoader.java:1052 converts back with the same 6.237, so the pair cancels and pollutant 99 is the lb-valued product times `grams_per_pound`. `NRAirToxicsCalculator` then converts those grams BACK to gallons with its own hard-coded 6.17. They are named separately here so that a reader meets the discrepancy as a fact about MOVES rather than as a typo.\n\n`nr_hp_category_small` and `nr_hp_category_large` are the two values of the one-character `nrHPCategory` column ('S' and 'L'), as zero-parameter constant-fragment templates (esm-spec §9.6.1) rather than an `enums` block, because an `enums` block is file-local and does not cross an import edge (docs/esm-conventions.md §6, finding F3). A document that ingests the column decodes it with the same two numbers through a `codes` map on the `from` binding. `grams_per_pound` declares `g/lb` and both gasoline densities `lb/gal` on their constants (docs/esm-conventions.md §57); the two densities share a unit and not a value, which is the discrepancy above stated once more.\n\nTHE PER-FUEL FORMS. `air_toxics_fuel_density` is the Go `gallons_factor` density switch -- gasoline 6.17, CNG 0.0061, LPG 4.507, diesel 7.1 for the nonroad diesels 23 and 24 -- over the five `nrFuelType` rows a NONROAD point can carry, so the Go default of an identity factor for any other fuel type cannot arise. `nonroad_pm25_fraction_of_pm10` is NonroadOutputDataLoader.java:454-481: 0.92 for gasoline, 0.97 for diesel, 1 for CNG and LPG. nonroad/model.esm reads both per fuel type; only the gasoline arms are evaluated by a RunSpec here.",
     "authors": ["EarthSciML Authors and Contributors"],
     "tags": ["moves", "nonroad", "speciation", "air-toxics", "template-library"]
   },
@@ -13,7 +13,54 @@
 
     "air_toxics_gasoline_density": { "params": [], "body": { "op": "const", "args": [], "value": 6.17, "units": "lb/gal" } },
 
+    "air_toxics_diesel_density": { "params": [], "body": { "op": "const", "args": [], "value": 7.1, "units": "lb/gal" } },
+
+    "air_toxics_cng_density": { "params": [], "body": { "op": "const", "args": [], "value": 0.0061, "units": "lb/gal" } },
+
+    "air_toxics_lpg_density": { "params": [], "body": { "op": "const", "args": [], "value": 4.507, "units": "lb/gal" } },
+
+    "air_toxics_fuel_density": {
+      "params": ["fuel_type_id"],
+      "body": {
+        "op": "ifelse",
+        "args": [
+          { "op": "==", "args": ["fuel_type_id", 1] },
+          { "op": "apply_expression_template", "args": [], "name": "air_toxics_gasoline_density", "bindings": {} },
+          { "op": "ifelse", "args": [
+            { "op": "==", "args": ["fuel_type_id", 3] },
+            { "op": "apply_expression_template", "args": [], "name": "air_toxics_cng_density", "bindings": {} },
+            { "op": "ifelse", "args": [
+              { "op": "==", "args": ["fuel_type_id", 4] },
+              { "op": "apply_expression_template", "args": [], "name": "air_toxics_lpg_density", "bindings": {} },
+              { "op": "apply_expression_template", "args": [], "name": "air_toxics_diesel_density", "bindings": {} }
+            ] }
+          ] }
+        ]
+      }
+    },
+
     "nonroad_pm25_fraction_of_pm10_gasoline": { "params": [], "body": 0.92 },
+
+    "nonroad_pm25_fraction_of_pm10_diesel": { "params": [], "body": 0.97 },
+
+    "nonroad_pm25_fraction_of_pm10": {
+      "params": ["fuel_type_id"],
+      "body": {
+        "op": "ifelse",
+        "args": [
+          { "op": "==", "args": ["fuel_type_id", 1] },
+          { "op": "apply_expression_template", "args": [], "name": "nonroad_pm25_fraction_of_pm10_gasoline", "bindings": {} },
+          { "op": "ifelse", "args": [
+            { "op": "or", "args": [
+              { "op": "==", "args": ["fuel_type_id", 3] },
+              { "op": "==", "args": ["fuel_type_id", 4] }
+            ] },
+            1.0,
+            { "op": "apply_expression_template", "args": [], "name": "nonroad_pm25_fraction_of_pm10_diesel", "bindings": {} }
+          ] }
+        ]
+      }
+    },
 
     "nr_hp_category_small": { "params": [], "body": 1 },
     "nr_hp_category_large": { "params": [], "body": 2 },
