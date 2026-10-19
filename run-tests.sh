@@ -1571,7 +1571,7 @@ mapfile -t RUNSPECS < <(find runspecs -maxdepth 1 -name '*.esm' -not -name '.*' 
 mapfile -t RUNSPECS_PENDING < <(find runspecs/pending -maxdepth 1 -name '*.esm' -not -name '.*' 2>/dev/null | sort)
 
 if [[ ! -e movesdb ]]; then
-  skip "7c' default database" "no ./movesdb (symlink the §7.3.1 conversion there)"
+  skip "7c' default database" "no ./movesdb (run ./build-movesdb.sh)"
 elif [[ ! -f "$C7_BASE" ]]; then
   skip "7c' default database" "the fixture stage produced no $C7_BASE to compare against"
 elif [[ ${#c7_obs[@]} -eq 0 ]]; then
@@ -1771,7 +1771,7 @@ NR_SHAPE_OBS=(--observed run_equipmentPointsSelected --observed run_equipmentPoi
               --observed run_extraScopeRows --observed run_mixSetsOffOne)
 
 if [[ ! -e movesdb ]]; then
-  skip "7e default database" "no ./movesdb (symlink the §7.3.1 conversion there)"
+  skip "7e default database" "no ./movesdb (run ./build-movesdb.sh)"
 elif [[ ! -d "$SNAPSHOTS" ]]; then
   skip "7e default database" "no snapshots at $SNAPSHOTS (set SNAPSHOTS=...)"
 elif [[ ${#nr_obs[@]} -eq 0 ]]; then

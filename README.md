@@ -15,6 +15,7 @@ language cannot.
 
 ```sh
 ./build-esm.sh     # build ./esm from the sibling EarthSciAST checkout
+./build-movesdb.sh # convert the MOVES default database to Parquet and link ./movesdb
 ./run-tests.sh     # the whole suite
 ```
 
@@ -25,6 +26,18 @@ their version numbers are identical, so the version number alone identifies
 nothing.
 
 The binary itself, `./esm`, is deliberately untracked.
+
+`build-movesdb.sh` drives `../moves.rs`'s own conversion (PLAN.md §7.3.1):
+MariaDB inside the canonical-moves SIF dumps `movesdb20241112` to TSV, and the
+`moves-default-db-convert` crate writes 237 monolithic Parquet tables. It keeps
+the ~500 MB result in `../movesdb-parquet/` (the dump itself goes to
+`/scratch.local` and is deleted), checks that every `./movesdb/...` file a
+document names exists, and only then points the `./movesdb` symlink at it.
+`--verify-only` checks the current link. The SIF it needs is
+`../moves.rs/characterization/apptainer/canonical-moves.sif`; `build-sif.sh`
+verifies it against moves.rs's `canonical-image.lock` and builds it if it is
+missing (`--force` rebuilds, which rewrites that lock). The database, the SIF
+and the snapshots are all large and none of them is checked in.
 
 ## Layout
 
