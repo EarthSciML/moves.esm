@@ -39,6 +39,8 @@ asserts the four counts the chain keeps of what it could not reach:
     run_rateRowsWithoutPhysics == 0
     run_chainDepthExceeded == 0
     run_offNetworkLinkCount == 0
+    run_domainUnported == 0
+    run_selectionUnported == 0
 
 The last four lines are a different KIND of check from the four above them.
 The first two declared numbers are extents: too small and the document emits
@@ -92,6 +94,15 @@ plausible number rather than none, so the model counts them, together with a
 DEFAULT-domain run that carries a linkSourceTypeHour row only ProjectTAG reads,
 and this asserts the count is 0.
 
+`run_selectionUnported` is a SIXTH kind, and it guards the run's SELECTION
+rather than its domain (PLAN.md §7.3.41). The activity relation has no
+road-type axis, so a run is computed on ONE on-network road type; the four
+`-single` RunSpecs select road type 1 beside 4, which is right for the
+off-network processes they ask for and would not be for running exhaust, whose
+off-network idle MOVES then also writes. So the model counts a second on-network
+road type, an on-road pollutant-process beside road type 1, and a hotelling
+process in a run that pre-aggregates time, and this asserts the count is 0.
+
 The cohort key gained its source type at 7d, and the third line is what says so:
 `runspecs/expand-fueltype-diesel.esm` emits 125 cohorts under source type 21 and
 123 under 32, and (modelYearID, fuelTypeID) alone counts 164 of them -- the union
@@ -133,6 +144,7 @@ def main(emitted_path, shape_path):
     undeep = int(float(shape[0]["run_chainDepthExceeded"]))
     offnet = int(float(shape[0]["run_offNetworkLinkCount"]))
     unported = int(float(shape[0]["run_domainUnported"]))
+    unselected = int(float(shape[0]["run_selectionUnported"]))
 
     def distinct(*cols):
         return {tuple(r[c] for c in cols) for r in rows}
@@ -191,6 +203,12 @@ def main(emitted_path, shape_path):
                         "exactly one link, a second county, an emitted process "
                         "other than running exhaust or an out-of-bounds bracket, "
                         "or outside it a linkSourceTypeHour row" % unported)
+    if unselected:
+        problems.append("%d thing(s) this run SELECTS that the model does not "
+                        "compute (run_selectionUnported): a second on-network "
+                        "road type, an on-road pollutant-process beside the "
+                        "off-network road type 1, or a hotelling process in a "
+                        "run that aggregates hours or day types" % unselected)
     if problems:
         for p in problems:
             print(p)

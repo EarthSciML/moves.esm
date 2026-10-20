@@ -1,0 +1,199 @@
+{
+  "esm": "1.2.0",
+  "metadata": {
+    "name": "washtenaw-county-hotelling",
+    "description": "PLAN.md §7.3.41, step 7f: the SINGLE-county input database of `process-extended-idle-single`, `process-apu-single` and `process-crankcase-extidle-single`, as the onroad chain mounts it. Like `inputs/washtenaw-project.esm` it is the scale-input-database half of a run's catalogue: it declares the run's DOMAIN and the domain-owned tables and mounts `onroad/default-database.esm` for the rest.\n\nWHAT THE DATABASE IS. moves.rs builds `washtenaw_cdb` in MariaDB from `characterization/county-inputs/washtenaw-county/setup-hotelling.sql` and captures only the execution database MOVES merges it into. The SQL states rows for seven tables by literal INSERT -- `state`, `county`, `zone`, `zoneRoadType`, `roadTypeDistribution` (source type 62), `year`, `sourceTypeYear` -- and two hotelling tables, `hotellingHoursPerDay` (2 rows) and `hotellingActivityDistribution` (12 rows, zone 261610, diesel); creates `hotellingHourFraction`, `hotellingAgeFraction` and `hotellingMonthAdjust` EMPTY; and copies `sourceTypeAgeDistribution`, `HPMSVtypeYear` and `fuelSupply` from the default database by `INSERT ... SELECT`, because MOVES does not copy those three from the default at SINGLE scale (InputDataManager.java:1435, :2834-2846). tools/build-scale-input-db.py writes the stated and the empty tables to `inputs/washtenaw-county-hotelling/`, typed by the default database's schemas, with the RunSpec's SINGLE.\n\nTHE MERGE, TABLE BY TABLE, each measured against the default database at the run's keys (PLAN.md §7.3.41):\n\n* `zoneRoadType` -- a ROW MERGE whose input rows DIFFER: the four allocation factors are the default's truncated to twelve decimal places, up to 5.75e-10 relative, and the execution database holds the truncated ones. Declared here as `db_input_zoneroadtype`; the model writes the precedence (`zrt_mergedSHOAllocFactor`).\n* `hotellingActivityDistribution` -- a ROW MERGE whose input rows ADD keys: zone 261610's twelve rows beside the default's 36 at 990000. Declared here as `db_input_hotellingactivitydistribution`; the model writes the precedence (`had_isMerged`) and MOVES's choice of zone (`hot_activityZoneID`, 261610 here). It is not the default's distribution: the county states 3% shore power for model years 2010 and later where the default states none, and no CNG row at all.\n* `hotellingHoursPerDay` -- a row merge whose default side is EMPTY, so it is this table: declared whole.\n* `hotellingHourFraction`, `hotellingAgeFraction`, `hotellingMonthAdjust` -- empty on both sides, declared so that `run_domainUnported` would count a row.\n* `state`, `county`, `roadTypeDistribution`, `year`, `sourceTypeYear` -- row merges over the default's own rows, IDENTICAL at every value (measured, 0 relative), read from the default database by the joins that already select them (docs/esm-conventions.md 92).\n* `zone` -- truncated like `zoneRoadType`, but no hotelling calculation reads it.\n* `sourceTypeAgeDistribution`, `HPMSVtypeYear`, `fuelSupply` -- REPLACED at SINGLE scale, by copies of the default's rows at the run's year and fuel region; identical at every key the model reads, so read from the default database, as `washtenaw-project` reads its `fuelSupply` and `IMCoverage`. `IMCoverage` is replaced by nothing (the county database has none), and the default's has no row for county 26161 in any year.\n* `link` and `linkSourceTypeHour` -- not domain-specific at SINGLE scale: MOVES copies the default's national `Link` into every domain but PROJECT, so this document declares the default's, as `moves-onroad.esm` does.\n\nIT DOES NOT LOAD ALONE, like `moves-onroad.esm`: it names no runspec.",
+    "authors": [
+      "EarthSciML Authors and Contributors"
+    ],
+    "tags": [
+      "onroad",
+      "domain",
+      "single-county-domain",
+      "scale-input-database"
+    ]
+  },
+  "data_sources": {
+    "db_link": {
+      "kind": "static",
+      "source": {
+        "url_template": "../movesdb/Link.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_link"
+      },
+      "metadata": {
+        "tags": [
+          "scope",
+          "output",
+          "domain"
+        ],
+        "note": "Link, the default database's national table: MOVES merges it into every domain but PROJECT (InputDataManager.java:1432), so a SINGLE-county run reads the same 22,610 synthetic links a DEFAULT one does, and selects county 26161's on-network and off-network ones by its joins.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_linksourcetypehour": {
+      "kind": "static",
+      "source": {
+        "url_template": "../movesdb/linkSourceTypeHour.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_linksourcetypehour"
+      },
+      "metadata": {
+        "tags": [
+          "domain",
+          "activity"
+        ],
+        "note": "linkSourceTypeHour, the default database's: 0 rows, and the county database has none. Only ProjectTAG reads it.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecdomain": {
+      "kind": "static",
+      "source": {
+        "url_template": "./washtenaw-county-hotelling/runspecdomain.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecdomain"
+      },
+      "metadata": {
+        "tags": [
+          "scope",
+          "domain"
+        ],
+        "note": "1 row, modelDomain SINGLE, read by tools/build-scale-input-db.py from the RunSpec XML's `<modeldomain value=\"SINGLE\"/>` -- ModelDomain.java's SINGLE_COUNTY.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_input_zoneroadtype": {
+      "kind": "static",
+      "source": {
+        "url_template": "./washtenaw-county-hotelling/ZoneRoadType.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_inputzoneroadtype"
+      },
+      "metadata": {
+        "tags": [
+          "domain",
+          "activity"
+        ],
+        "note": "The county's ZoneRoadType: 4 rows at zone 261610, road types 2-5, each the default's SHOAllocFactor TRUNCATED to twelve decimal places (setup-hotelling.sql's literal INSERTs; up to 5.75e-10 relative). The input side of a row merge: these win over the default's rows at the same key.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_input_hotellingactivitydistribution": {
+      "kind": "static",
+      "source": {
+        "url_template": "./washtenaw-county-hotelling/hotellingActivityDistribution.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_inputhotellingactivitydistribution"
+      },
+      "metadata": {
+        "tags": [
+          "domain",
+          "hotelling"
+        ],
+        "note": "The county's hotellingActivityDistribution: 12 rows at zone 261610, diesel only, in three model-year bands (1950-2009, 2010-2020, 2021-9999). The input side of a row merge; the default's 36 rows are all at 990000, so the merge ADDS these, and zone 261610 is then the best match for a Washtenaw run.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_hotellinghoursperday": {
+      "kind": "static",
+      "source": {
+        "url_template": "./washtenaw-county-hotelling/hotellingHoursPerDay.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_hotellinghoursperday"
+      },
+      "metadata": {
+        "tags": [
+          "domain",
+          "hotelling"
+        ],
+        "note": "The county's hotellingHoursPerDay: 2 rows, zone 261610, 2020, weekend 1952.303918 and weekday 2237.479224 -- the default's own daily totals, which AdjustHotelling rescales by a ratio of 1 within 1.3e-10.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_hotellinghourfraction": {
+      "kind": "static",
+      "source": {
+        "url_template": "./washtenaw-county-hotelling/hotellingHourFraction.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_hotellinghourfraction"
+      },
+      "metadata": {
+        "tags": [
+          "domain",
+          "hotelling"
+        ],
+        "note": "The county's hotellingHourFraction: created and not filled, 0 rows.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_hotellingagefraction": {
+      "kind": "static",
+      "source": {
+        "url_template": "./washtenaw-county-hotelling/hotellingAgeFraction.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_hotellingagefraction"
+      },
+      "metadata": {
+        "tags": [
+          "domain",
+          "hotelling"
+        ],
+        "note": "The county's hotellingAgeFraction: created and not filled, 0 rows.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_hotellingmonthadjust": {
+      "kind": "static",
+      "source": {
+        "url_template": "./washtenaw-county-hotelling/hotellingMonthAdjust.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_hotellingmonthadjust"
+      },
+      "metadata": {
+        "tags": [
+          "domain",
+          "hotelling"
+        ],
+        "note": "The county's hotellingMonthAdjust: created and not filled, 0 rows.",
+        "esio_format": "parquet"
+      }
+    }
+  },
+  "metaparameters": {
+    "n_outputRate": {
+      "type": "integer",
+      "default": 375,
+      "description": "How many (pollutant-process, cohort) PAIRS reach MOVESOutput, summed over the run's emitted blocks. Declared here as well as in the model it mounts for the reason the numbers around it are (docs/esm-conventions.md §49.1): this is the relay that lets a per-fixture document set it. It replaces `n_outputCohort` and `n_outputPolProcess`, which between them could describe only a rectangle. 375 is `process-tirewear`'s, three blocks of 125; a run with one emitted block of 125 needs 125, `expand-fueltype-diesel` 248, `expand-sourcetype` 430 and `expand-criteria` 372. `rateSurvivorCount` recomputes it, so it is a CHECKED declaration."
+    },
+    "n_sourceBin": {
+      "type": "integer",
+      "default": 1,
+      "description": "How many source bins the widest cohort of the run holds. Declared here as well as in the model it mounts for the reason the two numbers above it are (docs/esm-conventions.md §49.1): this is the relay that lets a per-fixture document set it. 1 is right for a run whose cohorts are single-binned -- a passenger car's are, and so the bin relation is that run's cohort relation row for row -- and a run that selects a light commercial truck needs 2, a refuse truck 8. `run_sourceBinsDropped` recomputes whether the value is enough, so it is a CHECKED declaration."
+    },
+    "n_physicsRow": {
+      "type": "integer",
+      "default": 1,
+      "description": "How many rows of `sourceusetypephysics` the run's source types select between them -- the width of the drive-cycle axis. Declared here as well as in the model it mounts for the reason the three numbers above it are (docs/esm-conventions.md §49.1): this is the relay that lets a per-fixture document set it. The vehicle a drive cycle is computed for is keyed by (sourceTypeID, regClassID, model-year range), so 1 is right for a motorcycle or a passenger car, a light commercial truck alone needs 3, source types 21 and 32 together 4, and the five of `expand-sourcetype` 40. `run_physicsRowsSelected` recomputes it and `run_physicsRowsDropped` says whether it is enough, so it is a CHECKED declaration."
+    }
+  },
+  "models": {
+    "Onroad": {
+      "ref": "../onroad/default-database.esm",
+      "bindings": {
+        "n_outputRate": "n_outputRate",
+        "n_sourceBin": "n_sourceBin",
+        "n_physicsRow": "n_physicsRow"
+      }
+    }
+  }
+}

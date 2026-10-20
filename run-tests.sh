@@ -1603,6 +1603,17 @@ C7P_DOMAIN=moves-onroad.esm
 # all 125 cells at 9.123e-06 on its first run, and `run_domainUnported` --
 # checked for every document here -- is what says the run asked the domain for
 # nothing the model does not do.
+# `process-extended-idle-single` is the first SINGLE-county run (PLAN.md
+# §7.3.41, conventions §93). It mounts `inputs/washtenaw-county-hotelling.esm`,
+# whose county database row-merges with the default in two ways: its
+# `zoneRoadType` SHADOWS the default's rows (truncated values, the input wins)
+# and its `hotellingActivityDistribution` ADDS rows at zone 261610 beside the
+# default's at 990000. The activity is hotelling hours, not SHO, and the rows
+# live on road type 1, which the RunSpec selects beside 4.
+# `run_selectionUnported` -- checked for every document here -- counts what a
+# run SELECTS that the model does not compute: a second on-network road type,
+# an on-road process beside road type 1, a hotelling process under time
+# aggregation.
 mapfile -t RUNSPECS < <(find runspecs -maxdepth 1 -name '*.esm' -not -name '.*' 2>/dev/null | sort)
 mapfile -t RUNSPECS_PENDING < <(find runspecs/pending -maxdepth 1 -name '*.esm' -not -name '.*' 2>/dev/null | sort)
 
@@ -1673,6 +1684,7 @@ else
          --observed run_chainDepthExceeded \
          --observed run_offNetworkLinkCount \
          --observed run_domainUnported \
+         --observed run_selectionUnported \
          --output "$RS_SHAPE" >/dev/null 2>&1; then
       if out=$("$PYTHON" tools/check-runspec-shape.py "$RS_CSV" "$RS_SHAPE" 2>&1); then
         pass "$rsname — the emitted shape is what the chain recomputes: $out"
@@ -1746,6 +1758,7 @@ else
          --observed run_chainDepthExceeded \
          --observed run_offNetworkLinkCount \
          --observed run_domainUnported \
+         --observed run_selectionUnported \
             --output "$RUNDIR/$pname.probe.shape.csv" >/dev/null 2>&1 \
        && cmp -s "$RUNDIR/$prun.runspec.csv" "$RUNDIR/$pname.probe.csv" \
        && "$PYTHON" tools/check-runspec-shape.py \

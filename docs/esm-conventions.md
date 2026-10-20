@@ -8325,3 +8325,42 @@ emits a plausible number.
 **A probe that does not evaluate has measured nothing.** `no-link-join` had read
 a compile failure as "the numbers moved" since 7c′. A probe is now required to
 evaluate before its difference counts.
+
+## 93. A county database is two kinds of row merge, and a merge that ADDS keys is read as a union **[PLAN.md step 7f; `process-extended-idle-single` 50 of 50 at 6.529e-06]**
+
+§92 said a row merge is both sources read with the precedence written in the
+model. A county database showed that there are two kinds, and they are read
+differently.
+
+**A merge whose input rows SHADOW default rows** -- Washtenaw's `zoneRoadType`,
+whose four allocation factors are the default's truncated to twelve decimals -- is
+computed on the default side's axis: per default row, does an input row share its
+whole key, and if so take the input's value (`zrt_mergedSHOAllocFactor`). Every
+DEFAULT-domain run mounts the input side empty, so every default value survives
+bit for bit. An input row whose key the default lacks would be ADDED, which a
+relation on the default axis cannot see, so it is counted (`run_zoneRoadTypeRowsAdded`,
+into `run_domainUnported`).
+
+**A merge whose input rows ADD keys** -- the county's `hotellingActivityDistribution`
+at zone 261610 beside the default's at 990000 -- cannot be computed on either axis
+alone. It is read as a UNION inside every aggregate that consumes it: one `faq` over
+the input rows plus one over the default rows that survive (`had_isMerged`: not
+shadowed, and not a PROJECT run, into which MOVES copies no default rows of this
+table). No variable is shaped by the input axis, because it is mounted empty in
+most catalogues (F56); only reductions range over it.
+
+**Precedence is sometimes MOVES's own logic, not the merge's.** Which zone's
+distribution a hotelling run reads is not the merge: it is
+`findHotellingActivityDistributionZoneIDToUse`'s merit order over the MERGED table
+(own zone, state, nation), and it picks ONE zone for every fuel type. Write the
+merge and the choice as separate steps, because a county database that states
+diesel alone leaves CNG unscaled rather than falling back to the national row --
+and the oracle says so.
+
+**Measure which kind a table is before declaring it.** Of `washtenaw_cdb`'s fifteen
+tables, five are identical copies (read from the default, §92), three are
+REPLACE-by-copy (identical at every key read), two shadow, one adds keys, and four
+merge over an empty default side and are simply the domain's tables. The diff that
+says which is the execution database against the default database at the run's
+keys, at full precision: nine significant digits called the truncated allocation
+factors identical.
