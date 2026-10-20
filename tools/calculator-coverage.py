@@ -356,12 +356,13 @@ def ladder(dag, live, covered):
     the output shows it contributed nothing there, which is also why those
     fixtures match 100 % of their rows without implementing it.
 
-    Reading the output also disposes of the zero-row snapshots without a
-    special case: process-extended-idle, both process-apu and all four
-    process-crankcase-{start,extidle}* have an empty MOVESOutput AND an empty
-    MOVESWorkerOutput, so they emit no pairs and unlock nothing. They are
-    structural gates over the run scope, not verification rungs -- a fixture
-    cannot be checked against no rows.
+    Reading the output also disposes of a zero-row snapshot without a
+    special case: an empty MOVESOutput emits no pairs and unlocks nothing, so
+    it is a structural gate over the run scope, not a verification rung -- a
+    fixture cannot be checked against no rows. The eight process-apu*,
+    process-extended-idle* and process-crankcase-{start,extidle}* snapshots
+    were all of that kind until they were recaptured non-empty (2026-10-19 and
+    -20, PLAN.md §7.3.41-§7.3.42).
 
     Row counts and pairs come from the output parquet: the count from the
     footer via `read_metadata`, the pairs from the two key columns only.

@@ -142,9 +142,11 @@ rc=0
 # do not depend on the database it was dumped from.
 for n in "${NAMES[@]}"; do
   d="$OUT_ABS/$n/tables"; [[ -d $d ]] || continue
-  # the token is everything between `db__movesexecution` and the next `__`
+  # the token is everything between `db__movesexecution` and the next `__`;
+  # `|| true` because a snapshot no tracked document names yet matches no line,
+  # and under pipefail that grep would end the script before verify runs
   want=$(referenced_paths | grep "^characterization/snapshots/$n/tables/db__movesexecution" \
-           | sed -E 's#.*/db__movesexecution##; s#__.*##' | sort -u | head -1)
+           | sed -E 's#.*/db__movesexecution##; s#__.*##' | sort -u | head -1 || true)
   have=$(ls "$d" | grep '^db__movesexecution' | sed -E 's#^db__movesexecution##; s#__.*##' | sort -u | head -1)
   [[ -n $want && -n $have && $want != "$have" ]] || continue
   echo "  $n: renaming host token $have -> $want"
