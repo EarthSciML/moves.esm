@@ -1621,6 +1621,10 @@ C7P_DOMAIN=moves-onroad.esm
 # `process-crankcase-extidle-single` chains crankcase extended idle (17) to
 # extended idle (90); a chained pollutant-process now lives on its PARENTS'
 # road type, here 1, where it used to take the run's (PLAN.md §7.3.41).
+# `process-crankcase-start-single` is the first START-exhaust run: AdjustStarts'
+# starts as the activity, startsOpModeDistribution's weights, StartTempAdjustment's
+# additive term and the start criteria ratio, under the starts county database
+# `inputs/washtenaw-county-starts.esm`.
 mapfile -t RUNSPECS < <(find runspecs -maxdepth 1 -name '*.esm' -not -name '.*' 2>/dev/null | sort)
 mapfile -t RUNSPECS_PENDING < <(find runspecs/pending -maxdepth 1 -name '*.esm' -not -name '.*' 2>/dev/null | sort)
 
