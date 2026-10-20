@@ -90,39 +90,62 @@ def no_link_join(logic, fixture):
 
 
 def no_road_type_filter(logic, fixture):
+    # Since step 7f the rule lives in `rspp_ratedRoadTypeID` -- where a
+    # pollutant-process's base rates are WRITTEN -- and `rspp_rateRoadTypeID`
+    # is the chained fixed point over it (`rspp_chainRoadTypeID1..3`), so a
+    # chained process takes its parents' road type. The narrowing this probe
+    # deletes is the inner `occursOnRealRoads` choice.
     for eq in logic["models"]["Onroad"]["equations"]:
-        if eq["lhs"] == "rspp_rateRoadTypeID":
-            rhs = eq["rhs"]
-            assert rhs["expr"]["op"] == "ifelse", rhs["expr"]["op"]
+        if eq["lhs"] == "rspp_ratedRoadTypeID":
+            outer = eq["rhs"]["expr"]
+            assert outer["op"] == "ifelse", outer["op"]
+            inner = outer["args"][1]
+            assert inner["op"] == "ifelse" and "rspp_occursOnRealRoads" in json.dumps(inner["args"][0]), \
+                "rspp_ratedRoadTypeID no longer chooses on occursOnRealRoads"
             # the `then` arm alone: every pollutant-process's rates on the run's
             # own road type, which is what the model assumed before 7d.
-            rhs["expr"] = rhs["expr"]["args"][1]
+            outer["args"][1] = inner["args"][1]
             return
-    sys.exit("rspp_rateRoadTypeID not found")
+    sys.exit("rspp_ratedRoadTypeID not found")
+
+
+def _faqs(node):
+    """Every faq in an expression, including those under `+`: since step 7f an
+    output column is a sum of blocks (rates, hotelling, starts), each its own faq."""
+    if isinstance(node, dict):
+        if node.get("op") == "faq":
+            yield node
+        for v in node.values():
+            yield from _faqs(v)
+    elif isinstance(node, list):
+        for v in node:
+            yield from _faqs(v)
 
 
 def no_county_join(logic, fixture):
     pair = ["outCountyOrdinal", "rsc_ordinal"]
     dropped = 0
     for eq in logic["models"]["Onroad"]["equations"]:
-        rhs = eq["rhs"]
-        if not isinstance(rhs, dict) or "join" not in rhs:
-            continue
-        for clause in list(rhs["join"]):
-            if pair in clause["on"]:
-                clause["on"].remove(pair)
-                dropped += 1
-                if not clause["on"]:
-                    # the three identity columns joined on nothing else, so the
-                    # whole clause goes -- which is the shape they had before
-                    # the county was an axis.
-                    rhs["join"].remove(clause)
-                    if not rhs["join"]:
-                        del rhs["join"]
-    # 10 since step 7f: `out_zoneID` and `out_linkID` select their county the
-    # same way, for a PROJECT run's link-level geography (PLAN.md §7.3.40).
-    if dropped != 10:
-        sys.exit("expected 10 county key pairs, dropped %d" % dropped)
+        for rhs in _faqs(eq["rhs"]):
+            if "join" not in rhs:
+                continue
+            for clause in list(rhs["join"]):
+                if pair in clause["on"]:
+                    clause["on"].remove(pair)
+                    dropped += 1
+                    if not clause["on"]:
+                        # the identity columns joined on nothing else, so the
+                        # whole clause goes -- which is the shape they had
+                        # before the county was an axis.
+                        rhs["join"].remove(clause)
+                        if not rhs["join"]:
+                            del rhs["join"]
+    # 13 since the `-single` runs (PLAN.md §7.3.41): the four emission columns
+    # each sum a rate block and an activity block, and each block selects its
+    # county; `out_zoneID` and `out_linkID` select it for a PROJECT run's
+    # link-level geography (§7.3.40).
+    if dropped != 13:
+        sys.exit("expected 13 county key pairs, dropped %d" % dropped)
 
 
 def no_source_type_join(logic, fixture):
