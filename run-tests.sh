@@ -1625,6 +1625,13 @@ C7P_DOMAIN=moves-onroad.esm
 # starts as the activity, startsOpModeDistribution's weights, StartTempAdjustment's
 # additive term and the start criteria ratio, under the starts county database
 # `inputs/washtenaw-county-starts.esm`.
+# `process-apu`, `process-extended-idle`, `process-crankcase-start` and
+# `process-crankcase-extidle` are the four `-single` runs' DEFAULT-domain twins
+# (PLAN.md §7.3.42): the same selections mounted on `moves-onroad.esm`, so
+# hotelling and starts come from the default database's arms -- no
+# hotellingHoursPerDay or startsPerDay, hotellingActivityDistribution at zone
+# 990000. They reproduced with no model change; `process-extended-idle` adds
+# Atmospheric CO2 (9090) on extended idle through the CO2AE edge list.
 mapfile -t RUNSPECS < <(find runspecs -maxdepth 1 -name '*.esm' -not -name '.*' 2>/dev/null | sort)
 mapfile -t RUNSPECS_PENDING < <(find runspecs/pending -maxdepth 1 -name '*.esm' -not -name '.*' 2>/dev/null | sort)
 
