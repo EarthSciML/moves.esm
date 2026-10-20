@@ -168,7 +168,8 @@ fixture: all 27 onroad fixtures select `runspecroadtype = {4}`, while
 `roadTypeID` 1, so `BaseRateCalculator`'s join to `runSpecRoadType`
 (`baseratecalculator/mod.rs:773-781`) discards all of them. The same join is why
 the eight zero-output-row fixtures (`process-apu*`, `process-extended-idle*`,
-`process-crankcase-extidle*`, `process-crankcase-start*`) are zero. A slice with
+`process-crankcase-extidle*`, `process-crankcase-start*`) were zero, until all eight
+selected road type 1 and were recaptured (2026-10-19 and -20, PLAN.md §7.3.41-§7.3.42). A slice with
 nothing to check against is not the cheapest available; it is the only kind that
 cannot be checked at all.
 

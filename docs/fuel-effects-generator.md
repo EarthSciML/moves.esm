@@ -67,7 +67,10 @@ so the predicate the oracle asserts is
 
 and it decides all 42 correctly. `process-crankcase-start` selects 16 alone and does not
 load it; `process-apu` selects 91 alone and does not; `process-extended-idle`
-selects 90 alone and does.
+selects 90 alone and does. (Since the 2026-10-20 recapture, PLAN.md §7.3.42,
+`process-crankcase-start` selects its start-exhaust parents and
+`process-crankcase-extidle` its extended-idle ones, so both now load it, as the
+predicate says: `./run-fuel-effects-oracle.sh` reports 43 snapshots, 0 disagreeing.)
 
 **Three of the fourteen declared processes are never selected alone**, so
 nothing here decides them: 15 appears only in `process-crankcase-running`

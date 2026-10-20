@@ -8386,3 +8386,27 @@ share of the total: the own block's contraction drops the retagged modes and a
 parallel contraction keeps only them, through the same adjustment tail written once
 as a template. A share computed after the fact would be the same number only while
 every adjustment is multiplicative and mode-independent, which A/C is not.
+
+## 95. A domain twin is a differential test of the merge, and a chained pollutant needs its parent selected **[PLAN.md step 7f; the four DEFAULT-domain `process-*` twins, 91, 100, 684 and 300 rows, on their first runs and with no model change]**
+
+§92 and §93 say every merge is written with both sides read and the input side
+mounted empty in a DEFAULT-domain catalogue. A RunSpec whose selections are a
+`-single` run's, mounted on `moves-onroad.esm` instead of a county document, runs
+every one of those merges at its DEFAULT arm, and its oracle against the county
+twin's says where the county database matters. For the four twins the DEFAULT/`-single`
+ratio is 1 (within the six-digit rendering) on every diesel cell, 0 on the 50
+shore-power cells and 0.800 on the CNG extended-idle cells -- exactly the rows where
+`washtenaw_cdb` states something the default does not (3% shore power from 2010, no
+CNG row). Compute that ratio before diagnosing a twin: a residual where the ratio is 1
+is not the merge's, and a ratio other than 1 where the two databases agree is a key
+the merge drops.
+
+**A selection the reference expects to be expanded is the RunSpec's to supply.**
+Atmospheric CO2 at extended idle (9090) alone emitted nothing: CO2AE converts the
+energy BaseRateCalculator writes, BaseRateGenerator builds rates only for selected
+pollutant-processes, and the default database has no 9090 rate. Nothing in MOVES adds
+9190 for it, so the fixture names 9190 beside 9090, and the model needs nothing new:
+the edge is the CO2AE edge list's (§77), not a `runspecchainedto` row. Before
+concluding that a process emits nothing, check that every calculator upstream of it
+has a selected pollutant-process to run on (§81 is the converse: a prerequisite the
+execution database carries that the RunSpec did not ask for).
