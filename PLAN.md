@@ -4414,8 +4414,9 @@ scheduling predicate holds on all 43 snapshots. `build-snapshots.sh` exited 1 un
 does.
 
 **Unchanged runs.** Nothing under `onroad/`, `lib/`, `components/` or `inputs/`
-changed, so no earlier RunSpec's numbers can move; `process-extended-idle-single` was
-re-run from the clone and reproduces at 6.529e-06 as before.
+changed, so no earlier RunSpec's numbers can move. The four `-single` runs were re-run
+against their own snapshots, which the recapture did not touch: 50, 91, 684 and 300
+rows at 6.529e-06, 5.848e-06, 8.250e-06 and 5.275e-06, the worst cells §7.3.41 records.
 
 ### 7.4 Upstream asks
 
