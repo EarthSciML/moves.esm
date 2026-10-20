@@ -8281,3 +8281,47 @@ block selected. Each gate is a selection flag on the term it governs
 (`run_*IsSelected`), not a branch on the output pollutant. One consequence is
 that the national `nrIntegratedSpecies` has 14 rows where the execution copy had
 9: the five extras are unselected and subtract nothing.
+
+## 92. A run's DOMAIN is a layer of its catalogue, and each table's merge rule is stated where it is declared **[PLAN.md step 7f; `scale-project` 125 of 125 at 9.123e-06 on its first run, the twenty DEFAULT-domain runs unchanged to the byte]**
+
+**The input database is the domain's, so the domain is a document.** MOVES reads
+a scale-input database only for a SINGLE-county or PROJECT run, and merges it
+before the default database. A mounting document cannot override a mounted one's
+`data_sources` (§59.4), so any table whose merged content depends on the domain
+has to be declared ABOVE the default database. The chain is therefore four
+documents, not three: the RunSpec, its domain (`moves-onroad.esm` for DEFAULT, one
+per scale-input database in `inputs/`), `onroad/default-database.esm`, and the
+model. The domain document also declares the RunSpec's `<modeldomain>`
+(`db_runspecdomain`), because MOVES pairs the two. Twenty RunSpecs kept their
+`ref` and their bytes.
+
+**Two kinds of merge, two places to write them.** Where MOVES does not copy the
+default table at all in a domain (`Link` in PROJECT; `FuelSupply`, `IMCoverage` in
+SINGLE and PROJECT; `sourceTypeYear` and `sourceTypeAgeDistribution` in SINGLE),
+the merge is a REPLACE, and the domain document declares the domain's file. That
+is MOVES's rule written as a choice of file, not a shortcut. Where it copies both
+and the input wins by primary key, the merge is a ROW MERGE. Then both sources are
+read and the precedence is written in the model. Every computed variable goes on
+the DEFAULT side's axis, because the input side's axis is mounted with zero rows
+in every DEFAULT-domain catalogue, and a computed relation over it is F56.
+
+**A row merge over identical rows needs no declaration, and that is measured.**
+39 of `washtenaw-project`'s 45 tables are `INSERT ... SELECT` copies of default
+rows at the run's keys. The model reads them from the default database through
+the joins that already select them. That holds only while the copies ARE the
+default's rows. The first scale-input database that changes one has to move the
+table's declaration into its domain document. The measurement that licenses it is
+a diff of the execution database against the default at nine significant digits.
+
+**The domain switches the model in one variable, and a guard counts what it does
+not switch.** `run_isProjectDomain` selects ProjectTAG's SHO, the link's own
+operating-mode distribution, and link-level output columns. Each one is an
+`ifelse` whose other arm is the old expression, so a DEFAULT run computes exactly
+what it did. `run_domainUnported` counts every PROJECT-domain path the model does
+not take: a second link or county, a non-running process, an out-of-bounds
+bracket. The shape check asserts it 0. None of those would fail on its own: each
+emits a plausible number.
+
+**A probe that does not evaluate has measured nothing.** `no-link-join` had read
+a compile failure as "the numbers moved" since 7c′. A probe is now required to
+evaluate before its difference counts.

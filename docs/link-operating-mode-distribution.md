@@ -35,7 +35,7 @@ of the arithmetic decisions are decided by the corpus rather than argued.
 | Output | **no `MOVESOutput` rows at all** — it is a generator, and its product is an execution-database table |
 | Calculator path | **`LinkOperatingModeDistributionGenerator`** — a generator with the project-scale `BaseRateCalculator` chain downstream of it, outside this slice |
 | Rows | 122 `OpModeDistribution` + 21 `RatesOpModeDistribution`, in one snapshot (§7.1) |
-| Ported by | `lib/drive_cycle.esm` (the VSP and op-mode shapes), `components/link_operating_mode_distribution.esm` |
+| Ported by | `lib/drive_cycle.esm` (the VSP and op-mode shapes), `components/link_operating_mode_distribution.esm`; and since 2026-10-19 in the onroad chain itself, `onroad/model.esm`'s `lomd_*`, which `runspecs/scale-project.esm` exercises end to end (PLAN.md §7.3.40) |
 | Java | `.../ghg/LinkOperatingModeDistributionGenerator.java` (1,184 lines), `.../ghg/SourceTypePhysics.java` for the model-year offset |
 | Rust | `../moves.rs/crates/moves-calculators/src/generators/link_op_mode_distribution.rs` |
 
