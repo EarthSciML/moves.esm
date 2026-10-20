@@ -515,6 +515,16 @@
       "type": "integer",
       "default": 0,
       "description": "Rows in evapRVPTemperatureAdjustment: 8 nationally, process 12's cubic at RVP knots 7, 8, 9 and 10 for fuel types 1 and 5."
+    },
+    "n_linksourcetypehour": {
+      "type": "integer",
+      "default": 0,
+      "description": "Rows in linkSourceTypeHour: the run's DOMAIN's table, declared by the document that mounts the default database (moves-onroad.esm for a DEFAULT-domain run, where it is the default database's own and has 0 rows; a project database's in inputs/). Never a computed axis: it is 0 in every DEFAULT-domain catalogue, and a variable shaped over it would be F56."
+    },
+    "n_runspecdomain": {
+      "type": "integer",
+      "default": 0,
+      "description": "Rows in runspecdomain: 1, the RunSpec's `<modeldomain>`. `run_domainUnported` asserts the 1."
     }
   },
   "index_sets": {
@@ -1107,6 +1117,14 @@
     "refuelingneedinput_rows": {
       "kind": "interval",
       "size": 3
+    },
+    "linksourcetypehour_rows": {
+      "kind": "interval",
+      "size": "n_linksourcetypehour"
+    },
+    "runspecdomain_rows": {
+      "kind": "interval",
+      "size": "n_runspecdomain"
     }
   },
   "enums": {
@@ -1158,6 +1176,11 @@
     "humidity_equation": {
       "CFR86": 86,
       "CFR1065": 1065
+    },
+    "model_domain": {
+      "Default": 1,
+      "SingleCounty": 2,
+      "Project": 3
     }
   },
   "models": {
@@ -1184,7 +1207,8 @@
             "ev_energy_divisor",
             "kilojoules_per_million_btu",
             "is_energy_pollutant",
-            "energy_unit_divisor"
+            "energy_unit_divisor",
+            "link_travel_hours_share"
           ]
         },
         {
@@ -1194,7 +1218,10 @@
             "per_schedule_second",
             "vehicle_specific_power",
             "in_half_open_range",
-            "bracket_low_fraction"
+            "bracket_low_fraction",
+            "grade_acceleration",
+            "grade_specific_power",
+            "op_mode_rectangle_contains"
           ]
         },
         {
@@ -1212,7 +1239,9 @@
         {
           "ref": "../lib/keys.esm",
           "only": [
-            "model_year_in_range"
+            "model_year_in_range",
+            "row_is_present",
+            "latest_at_or_before_key"
           ]
         },
         {
@@ -1308,6 +1337,12 @@
           "ref": "../lib/conversion.esm",
           "only": [
             "hours_per_day"
+          ]
+        },
+        {
+          "ref": "../lib/operating_mode.esm",
+          "only": [
+            "link_op_mode_fraction"
           ]
         }
       ],
@@ -11180,7 +11215,7 @@
             "operating_mode_rows",
             "physicsrow_rows"
           ],
-          "description": "W, and IT IS KEYED BY THE POLLUTANT-PROCESS HERE -- the one structural difference between this fixture and `process-brakewear`. `BaseRateGenerator` is invoked per process and `RatesOpModeDistribution` is written by two different generators: for Running Exhaust and Brakewear it drives the drive cycles itself (mod.rs:156-161, `should_process_drive_cycles = process_id == 1 || process_id == 9`), and for Tirewear it reads what `AverageSpeedOperatingModeDistributionGenerator` wrote (avg_speed_op_mode_distribution.rs:110-116, `TIREWEAR_PROCESS = ProcessId(10)`). Both give the same shape -- Sum over the speed bins of avgSpeedFraction x opModeFraction, aggregate.rs:365-417 -- and differ only in which mode fraction they carry, so this is ONE aggregate with the mode fraction selected per pollutant-process rather than two relations and a branch downstream."
+          "description": "The operating-mode weights the rate rows are summed under: `pp_WSpeedBins` in every DEFAULT-domain run, and for a PROJECT run's running exhaust the project link's own distribution `lomd_W` -- BaseRateGenerator's core path over the RatesOpModeDistribution LinkOperatingModeDistributionGenerator wrote, with no average-speed weighting (baserategenerator/mod.rs:158 and :242, `!is_project`)."
         },
         "pp_WTotal": {
           "type": "unknown",
@@ -11449,7 +11484,7 @@
             "runspecsourcetype_rows",
             "runspecmonth_rows"
           ],
-          "description": "S8 and S9. S8 is a LEFT JOIN whose miss gives SHO = 0 with the VMT intact, which is the diagnostic signature of a missing speed row. The county is the second axis: the VMT above it is NATIONAL and `zoneRoadType.SHOAllocFactor` is what makes it a county's."
+          "description": "S8 and S9. S8 is a LEFT JOIN whose miss gives SHO = 0 with the VMT intact, which is the diagnostic signature of a missing speed row. The county is the second axis: the VMT above it is NATIONAL and `zoneRoadType.SHOAllocFactor` is what makes it a county's. PROJECT domain replaces the whole product with `act_projectSho` (ProjectTAG), selected by `run_isProjectDomain`."
         },
         "act_sourceHours": {
           "type": "unknown",
@@ -11951,7 +11986,7 @@
           "shape": [
             "output_rows"
           ],
-          "description": "One of the seven identity columns MOVESOutput leaves NULL on this run, emitted as NaN through one template."
+          "description": "MOVESOutput.zoneID: NULL outside PROJECT domain, and the run's selected zone in it."
         },
         "out_linkID": {
           "type": "unknown",
@@ -11959,7 +11994,7 @@
           "shape": [
             "output_rows"
           ],
-          "description": "NULL on this run."
+          "description": "MOVESOutput.linkID: NULL outside PROJECT domain, and the run's selected link in it."
         },
         "out_regClassID": {
           "type": "unknown",
@@ -15509,6 +15544,579 @@
             "output_rows"
           ],
           "description": "S18: Million BTU for pollutant 91 and grams for 107 and 117. THE compared column."
+        },
+        "lnk_linkLength": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "link_rows"
+          ],
+          "description": "link.linkLength, miles. A PROJECT link's length; NULL on every default-database link, which is read only behind `run_isProjectDomain`.",
+          "update": {
+            "kind": "data",
+            "source": "db_link",
+            "from": {
+              "file_variable": "linkLength"
+            }
+          }
+        },
+        "lnk_linkVolume": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "link_rows"
+          ],
+          "description": "link.linkVolume, vehicles per hour. A PROJECT link's traffic volume, the root of `ProjectTAG`'s SHO; NULL on every default-database link.",
+          "update": {
+            "kind": "data",
+            "source": "db_link",
+            "from": {
+              "file_variable": "linkVolume"
+            }
+          }
+        },
+        "lnk_linkAvgSpeed": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "link_rows"
+          ],
+          "description": "link.linkAvgSpeed, mph. A PROJECT link's average speed: it brackets the link between two drive schedules and divides its length into hours. NULL on every default-database link.",
+          "update": {
+            "kind": "data",
+            "source": "db_link",
+            "from": {
+              "file_variable": "linkAvgSpeed"
+            }
+          }
+        },
+        "lnk_linkAvgGrade": {
+          "type": "parameter",
+          "units": "percent",
+          "default": 0.0,
+          "shape": [
+            "link_rows"
+          ],
+          "description": "link.linkAvgGrade, per cent. A PROJECT link's grade, copied onto every second of both bracketing schedules. NULL on every default-database link.",
+          "update": {
+            "kind": "data",
+            "source": "db_link",
+            "from": {
+              "file_variable": "linkAvgGrade"
+            }
+          }
+        },
+        "lsth_linkID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "linksourcetypehour_rows"
+          ],
+          "description": "linkSourceTypeHour.linkID.",
+          "update": {
+            "kind": "data",
+            "source": "db_linksourcetypehour",
+            "from": {
+              "file_variable": "linkID"
+            }
+          }
+        },
+        "lsth_sourceTypeID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "linksourcetypehour_rows"
+          ],
+          "description": "linkSourceTypeHour.sourceTypeID.",
+          "update": {
+            "kind": "data",
+            "source": "db_linksourcetypehour",
+            "from": {
+              "file_variable": "sourceTypeID"
+            }
+          }
+        },
+        "lsth_sourceTypeHourFraction": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "linksourcetypehour_rows"
+          ],
+          "description": "linkSourceTypeHour.sourceTypeHourFraction: the share of a project link's volume that is this source type. Despite the name it carries no hour.",
+          "update": {
+            "kind": "data",
+            "source": "db_linksourcetypehour",
+            "from": {
+              "file_variable": "sourceTypeHourFraction"
+            }
+          }
+        },
+        "rsdom_modelDomain": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "runspecdomain_rows"
+          ],
+          "description": "The RunSpec's `<modeldomain value>`, decoded by a `codes` map onto the `model_domain` enum. NATIONAL is ModelDomain.java's deprecated spelling of DEFAULT and decodes the same.",
+          "update": {
+            "kind": "data",
+            "source": "db_runspecdomain",
+            "from": {
+              "file_variable": "modelDomain",
+              "codes": {
+                "map": {
+                  "DEFAULT": 1,
+                  "NATIONAL": 1,
+                  "SINGLE": 2,
+                  "PROJECT": 3
+                },
+                "case_insensitive": true
+              }
+            }
+          }
+        },
+        "run_isProjectDomain": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "run_rows"
+          ],
+          "description": "1 when the RunSpec's domain is PROJECT. It is the one switch the domain throws in this model, and it throws three things: SHO is ProjectTAG's link-volume product rather than TotalActivityGenerator's VMT allocation (`act_sho`), a running-exhaust pollutant-process weights its operating modes by the LINK's distribution rather than the average-speed bins' (`pp_W`), and MOVESOutput carries zone and link (`out_zoneID`, `out_linkID`). Which LINK table the run reads is not switched here: the domain document declares it (moves-onroad.esm and inputs/)."
+        },
+        "run_domainRowCount": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "run_rows"
+          ],
+          "description": "Rows in runspecdomain. Exactly 1, asserted through `run_domainUnported`: a sum over two domain rows would be a domain no RunSpec has."
+        },
+        "run_linkLength": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspeccounty_rows"
+          ],
+          "description": "The selected link's linkLength in each county -- selected the way `run_linkID` is -- and 0 outside PROJECT domain, where the default database's link carries NULL here and nothing reads it."
+        },
+        "run_linkVolume": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspeccounty_rows"
+          ],
+          "description": "The selected link's linkVolume in each county -- selected the way `run_linkID` is -- and 0 outside PROJECT domain, where the default database's link carries NULL here and nothing reads it."
+        },
+        "run_linkAvgSpeed": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspeccounty_rows"
+          ],
+          "description": "The selected link's linkAvgSpeed in each county -- selected the way `run_linkID` is -- and 0 outside PROJECT domain, where the default database's link carries NULL here and nothing reads it."
+        },
+        "run_linkAvgGrade": {
+          "type": "unknown",
+          "units": "percent",
+          "shape": [
+            "runspeccounty_rows"
+          ],
+          "description": "The selected link's linkAvgGrade in each county -- selected the way `run_linkID` is -- and 0 outside PROJECT domain, where the default database's link carries NULL here and nothing reads it."
+        },
+        "run_linkCount": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspeccounty_rows"
+          ],
+          "description": "How many links the county/road-type join selects in each county. 1 on every run here. The four `run_link*` columns are SUMS over this join, right while it selects one row; a project of two links on one road type would add their ids, so `run_domainUnported` counts a county where it is not 1."
+        },
+        "run_projectLinkSpeed": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "run_rows"
+          ],
+          "description": "The project link's average speed, summed over the run's one county."
+        },
+        "run_projectLinkGrade": {
+          "type": "unknown",
+          "units": "percent",
+          "shape": [
+            "run_rows"
+          ],
+          "description": "The project link's grade, summed over the run's one county."
+        },
+        "act_projectSho": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "activity_rows",
+            "runspeccounty_rows",
+            "runspecsourcetype_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "ProjectTAG.allocateTotalActivityBasis's SHO (ProjectTAG.java:354-385): linkVolume x sourceTypeHourFraction x noOfRealDays x ageFraction x least(linkLength/linkAvgSpeed, 1), in the SQL's association. It reads no VMT, no road-type distribution and no SHO allocation factor -- a project's activity is its links' volumes -- and the month is a label it carries rather than a factor. 0 in a DEFAULT-domain run, whose linkSourceTypeHour is empty."
+        },
+        "lomd_gradeAcceleration": {
+          "type": "unknown",
+          "units": "mi/(h*s)",
+          "shape": [
+            "run_rows"
+          ],
+          "description": "9.81/0.44704 x sin(atan(grade/100)): the acceleration-equivalent of the project link's grade, added to every one of the three accelerations the braking test reads (LinkOperatingModeDistributionGenerator.java:1006-1009). 0 at grade 0, which is the corpus's only grade."
+        },
+        "lomd_at0": {
+          "type": "unknown",
+          "units": "mi/(h*s)",
+          "shape": [
+            "drive_second_rows"
+          ],
+          "description": "At0 = coalesce((speed[t] - speed[t-1]) + grade, 0.0), java:1006. A BACKWARD difference only: a schedule's first second has no predecessor and gets 0, where `dss_acceleration` copies its successor's -- the Java's @algorithm comment claims the forward fallback and its SQL does not have it (docs/link-operating-mode-distribution.md 2.3)."
+        },
+        "lomd_at1": {
+          "type": "unknown",
+          "units": "mi/(h*s)",
+          "shape": [
+            "drive_second_rows"
+          ],
+          "description": "At1 = coalesce((speed[t-1] - speed[t-2]) + grade, 0.0): NULL, and so 0, unless both seconds exist."
+        },
+        "lomd_at2": {
+          "type": "unknown",
+          "units": "mi/(h*s)",
+          "shape": [
+            "drive_second_rows"
+          ],
+          "description": "At2 = coalesce((speed[t-2] - speed[t-3]) + grade, 0.0)."
+        },
+        "lomd_isBraking": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "drive_second_rows"
+          ],
+          "description": "At0 <= -2 or (At0 < -1 and At1 < -1 and At2 < -1), the CASE's third arm. The thresholds are READ from operatingMode's Braking row, as `dss_isBraking` reads them; the SQL writes the same -2 and -1 as literals. Unlike the base-rate path there is no presence requirement: a missing neighbour is a 0 acceleration, which is not below -1."
+        },
+        "lomd_accelerationMs": {
+          "type": "unknown",
+          "units": "m/s^2",
+          "shape": [
+            "drive_second_rows"
+          ],
+          "description": "coalesce(speed[t] - speed[t-1], 0.0) x 0.44704, the acceleration term of the link generator's VSP: the converted DIFFERENCE, with no grade and no forward fallback."
+        },
+        "lomd_vsp": {
+          "type": "unknown",
+          "units": "kW/tonne",
+          "shape": [
+            "drive_second_rows",
+            "physicsrow_rows"
+          ],
+          "description": "java:1010-1015: the road-load polynomial `vehicle_specific_power` carries, with the link's acceleration, plus `grade_specific_power` for the grade. lib/drive_cycle.esm measures why one polynomial serves both generators."
+        },
+        "lomd_binnedModeID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "drive_second_rows",
+            "physicsrow_rows"
+          ],
+          "description": "buildOpModeClause's rectangles (java:241-300) as a sum: opModeID 1..99 less 26 and 36 is `om_isBinnedRunningMode`'s set plus mode 1, whose -1 <= speed < 1 rectangle the idle arm has always claimed first, so the two sets assign the same mode to every second."
+        },
+        "lomd_binnedModeMatches": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "drive_second_rows",
+            "physicsrow_rows"
+          ],
+          "description": "The same sum without the id: 1 on a second some rectangle admits, 0 on one the SQL's CASE sends to -1, which is still counted in the schedule's total."
+        },
+        "lomd_isStopped": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "drive_second_rows"
+          ],
+          "description": "speed = 0, the CASE's first arm, mode 501. It folds into mode 1 for every pollutant-process but brake-wear PM, AFTER each was divided by the schedule's total and rounded -- so its seconds are counted apart from the idle ones, and the two five-decimal quotients are added."
+        },
+        "lomd_opModeID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "drive_second_rows",
+            "physicsrow_rows"
+          ],
+          "description": "The second's mode in the CASE's order: stopped or idle (speed < 1), then braking, then the rectangles."
+        },
+        "lomd_hasOpMode": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "drive_second_rows",
+            "physicsrow_rows"
+          ],
+          "description": "Whether any arm of the CASE but the -1 fallback took the second."
+        },
+        "lomd_totalSeconds": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "drive_schedule_assoc_rows",
+            "physicsrow_rows"
+          ],
+          "description": "secondTotal = count(*) over the schedule (java:1060): EVERY second, the first and the unassigned ones included -- where `dsa_totalSeconds` counts only seconds after 0 that took a mode."
+        },
+        "lomd_stoppedSeconds": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "drive_schedule_assoc_rows",
+            "physicsrow_rows"
+          ],
+          "description": "Seconds of the schedule at speed 0, mode 501."
+        },
+        "lomd_modeSeconds": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "drive_schedule_assoc_rows",
+            "operating_mode_rows",
+            "physicsrow_rows"
+          ],
+          "description": "secondCount per mode, the stopped seconds left out (they are mode 501, not mode 1, until after the quotient)."
+        },
+        "lomd_modeFraction": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "drive_schedule_assoc_rows",
+            "operating_mode_rows",
+            "physicsrow_rows"
+          ],
+          "description": "secondCount * 1.0 / secondTotal, a DECIMAL rounded half-up at FIVE places (lib/operating_mode.esm's `link_op_mode_fraction`; docs/link-operating-mode-distribution.md 2.4), with mode 501's own quotient added to mode 1's -- the `group by ... sum(opModeFraction)` of the fold. MOVES then stores it in a FLOAT column, which this does not model: binary32 moves a fraction by at most 6e-8 of itself, and the run's cells are compared at 2e-5."
+        },
+        "lomd_hasAtOrBelow": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecsourcetype_rows"
+          ],
+          "description": "Whether the source type has a candidate schedule for the greatest averageSpeed AT OR BELOW the link's: the low bracket."
+        },
+        "lomd_atOrBelowSpeed": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecsourcetype_rows"
+          ],
+          "description": "The greatest averageSpeed AT OR BELOW the link's: the low bracket."
+        },
+        "lomd_hasAbove": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecsourcetype_rows"
+          ],
+          "description": "Whether the source type has a candidate schedule for the least averageSpeed strictly ABOVE the link's: the low bracket's out-of-bounds fallback."
+        },
+        "lomd_aboveSpeed": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecsourcetype_rows"
+          ],
+          "description": "The least averageSpeed strictly ABOVE the link's: the low bracket's out-of-bounds fallback."
+        },
+        "lomd_hasAtOrAbove": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecsourcetype_rows"
+          ],
+          "description": "Whether the source type has a candidate schedule for the least averageSpeed AT OR ABOVE the link's: the high bracket."
+        },
+        "lomd_atOrAboveSpeed": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecsourcetype_rows"
+          ],
+          "description": "The least averageSpeed AT OR ABOVE the link's: the high bracket."
+        },
+        "lomd_hasBelow": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecsourcetype_rows"
+          ],
+          "description": "Whether the source type has a candidate schedule for the greatest averageSpeed strictly BELOW the link's: the high bracket's out-of-bounds fallback."
+        },
+        "lomd_belowSpeed": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecsourcetype_rows"
+          ],
+          "description": "The greatest averageSpeed strictly BELOW the link's: the high bracket's out-of-bounds fallback."
+        },
+        "lomd_lowSpeed": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecsourcetype_rows"
+          ],
+          "description": "The low bracket's speed: at or below the link's if any schedule is, else the fallback."
+        },
+        "lomd_highSpeed": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecsourcetype_rows"
+          ],
+          "description": "The high bracket's speed: the same precedence, mirrored -- at or above the link's if any schedule is, else the fastest below it."
+        },
+        "lomd_outOfBoundsCount": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecsourcetype_rows"
+          ],
+          "description": "isOutOfBoundsLow + isOutOfBoundsHigh. Either one is a MOVES terminal error unless ALLOW_DRIVE_CYCLE_EXTRAPOLATION, so a run that reaches one is not a run this model reproduces; `run_domainUnported` counts it."
+        },
+        "lomd_lowScheduleID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecsourcetype_rows"
+          ],
+          "description": "The low bracket's schedule: max(driveScheduleID) among the candidates at its speed, which is how the SQL breaks a tie."
+        },
+        "lomd_highScheduleID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecsourcetype_rows"
+          ],
+          "description": "The high bracket's schedule: max(driveScheduleID) among the candidates at its speed, which is how the SQL breaks a tie."
+        },
+        "lomd_factor": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecsourcetype_rows"
+          ],
+          "description": "(linkAvgSpeed - low) / (high - low), and 0 when one schedule brackets both sides (java:690)."
+        },
+        "lomd_lowFraction": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "operating_mode_rows",
+            "physicsrow_rows"
+          ],
+          "description": "The low bracket's distribution, per vehicle."
+        },
+        "lomd_highFraction": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "operating_mode_rows",
+            "physicsrow_rows"
+          ],
+          "description": "The high bracket's distribution, per vehicle."
+        },
+        "lomd_W": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "operating_mode_rows",
+            "physicsrow_rows"
+          ],
+          "description": "low + (high - low) x factor over EVERY mode, a mode one bracket never entered reading 0, and the non-positive ones dropped (java:700-720) -- the project link's operating-mode distribution, at the BASE mode: `SourceTypePhysics` lifts it to opModeID + 1000 and lifts the same vehicles' emission rates with it, and the chain here keys both on the base mode and the physics row, as it does at every other scale."
+        },
+        "rspp_usesLinkModes": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecpollutantprocess_rows"
+          ],
+          "description": "Whether a PROJECT run weights this pollutant-process by the link's operating-mode distribution: Running Exhaust. Brake wear reads it too in MOVES, keeping mode 501 for its PM, and that arm is not ported -- `run_domainUnported` counts an emitted pollutant-process this leaves out."
+        },
+        "pp_WSpeedBins": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecpollutantprocess_rows",
+            "runspecday_rows",
+            "operating_mode_rows",
+            "physicsrow_rows"
+          ],
+          "description": "W, and IT IS KEYED BY THE POLLUTANT-PROCESS HERE -- the one structural difference between this fixture and `process-brakewear`. `BaseRateGenerator` is invoked per process and `RatesOpModeDistribution` is written by two different generators: for Running Exhaust and Brakewear it drives the drive cycles itself (mod.rs:156-161, `should_process_drive_cycles = process_id == 1 || process_id == 9`), and for Tirewear it reads what `AverageSpeedOperatingModeDistributionGenerator` wrote (avg_speed_op_mode_distribution.rs:110-116, `TIREWEAR_PROCESS = ProcessId(10)`). Both give the same shape -- Sum over the speed bins of avgSpeedFraction x opModeFraction, aggregate.rs:365-417 -- and differ only in which mode fraction they carry, so this is ONE aggregate with the mode fraction selected per pollutant-process rather than two relations and a branch downstream."
+        },
+        "run_domainUnported": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "run_rows"
+          ],
+          "description": "How many things this run asks of its DOMAIN that the model does not do: 0, asserted by tools/check-runspec-shape.py, and the licence for every PROJECT-domain number. It counts a runspecdomain that is not one row; in PROJECT domain, a county whose join selects other than one link, a second county, an emitted pollutant-process other than running exhaust (brake wear's mode-501 arm, tire wear's and the evaporative and start processes' project generators are not ported), and a bracketing schedule out of bounds (a MOVES terminal error); and outside it, any linkSourceTypeHour row, which only ProjectTAG reads. None of those fail loudly on their own -- each would emit a plausible wrong number -- which is why they are counted rather than trusted."
+        },
+        "run_projectShortfall": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "run_rows"
+          ],
+          "description": "The PROJECT-domain half of `run_domainUnported`."
+        },
+        "run_linkCountMismatches": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "run_rows"
+          ],
+          "description": "Counties whose county/road-type join selects other than exactly one link."
+        },
+        "run_countyCount": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "run_rows"
+          ],
+          "description": "Counties the run selects."
+        },
+        "run_unportedProjectProcesses": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "run_rows"
+          ],
+          "description": "Emitted pollutant-processes whose PROJECT-domain operating modes this model does not compute."
+        },
+        "run_bracketsOutOfBounds": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "run_rows"
+          ],
+          "description": "Out-of-bounds bracket flags over the run's source types."
+        },
+        "run_linkSourceTypeHourRows": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "run_rows"
+          ],
+          "description": "Rows in the domain's linkSourceTypeHour."
         }
       },
       "equations": [
@@ -15949,6 +16557,420 @@
               "args": [
                 "lnk_roadTypeID",
                 "l"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "run_isProjectDomain",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "n"
+            ],
+            "ranges": {
+              "n": {
+                "from": "run_rows"
+              },
+              "d": {
+                "from": "runspecdomain_rows"
+              }
+            },
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                {
+                  "op": "==",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "rsdom_modelDomain",
+                        "d"
+                      ]
+                    },
+                    {
+                      "op": "enum",
+                      "args": [
+                        "model_domain",
+                        "Project"
+                      ]
+                    }
+                  ]
+                },
+                1.0,
+                0.0
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "run_domainRowCount",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "n"
+            ],
+            "ranges": {
+              "n": {
+                "from": "run_rows"
+              },
+              "d": {
+                "from": "runspecdomain_rows"
+              }
+            },
+            "expr": 1.0
+          }
+        },
+        {
+          "lhs": "run_linkLength",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "c"
+            ],
+            "ranges": {
+              "l": {
+                "from": "link_rows"
+              },
+              "c": {
+                "from": "runspeccounty_rows"
+              },
+              "w": {
+                "from": "runspecroadtype_rows"
+              },
+              "n": {
+                "from": "run_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "lnk_countyID",
+                    "rsc_countyID"
+                  ],
+                  [
+                    "lnk_roadTypeID",
+                    "rsr_roadTypeID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                {
+                  "op": ">",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "run_isProjectDomain",
+                        "n"
+                      ]
+                    },
+                    0.5
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "lnk_linkLength",
+                    "l"
+                  ]
+                },
+                0.0
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "run_linkVolume",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "c"
+            ],
+            "ranges": {
+              "l": {
+                "from": "link_rows"
+              },
+              "c": {
+                "from": "runspeccounty_rows"
+              },
+              "w": {
+                "from": "runspecroadtype_rows"
+              },
+              "n": {
+                "from": "run_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "lnk_countyID",
+                    "rsc_countyID"
+                  ],
+                  [
+                    "lnk_roadTypeID",
+                    "rsr_roadTypeID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                {
+                  "op": ">",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "run_isProjectDomain",
+                        "n"
+                      ]
+                    },
+                    0.5
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "lnk_linkVolume",
+                    "l"
+                  ]
+                },
+                0.0
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "run_linkAvgSpeed",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "c"
+            ],
+            "ranges": {
+              "l": {
+                "from": "link_rows"
+              },
+              "c": {
+                "from": "runspeccounty_rows"
+              },
+              "w": {
+                "from": "runspecroadtype_rows"
+              },
+              "n": {
+                "from": "run_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "lnk_countyID",
+                    "rsc_countyID"
+                  ],
+                  [
+                    "lnk_roadTypeID",
+                    "rsr_roadTypeID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                {
+                  "op": ">",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "run_isProjectDomain",
+                        "n"
+                      ]
+                    },
+                    0.5
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "lnk_linkAvgSpeed",
+                    "l"
+                  ]
+                },
+                0.0
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "run_linkAvgGrade",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "c"
+            ],
+            "ranges": {
+              "l": {
+                "from": "link_rows"
+              },
+              "c": {
+                "from": "runspeccounty_rows"
+              },
+              "w": {
+                "from": "runspecroadtype_rows"
+              },
+              "n": {
+                "from": "run_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "lnk_countyID",
+                    "rsc_countyID"
+                  ],
+                  [
+                    "lnk_roadTypeID",
+                    "rsr_roadTypeID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                {
+                  "op": ">",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "run_isProjectDomain",
+                        "n"
+                      ]
+                    },
+                    0.5
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "lnk_linkAvgGrade",
+                    "l"
+                  ]
+                },
+                0.0
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "run_linkCount",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "c"
+            ],
+            "ranges": {
+              "l": {
+                "from": "link_rows"
+              },
+              "c": {
+                "from": "runspeccounty_rows"
+              },
+              "w": {
+                "from": "runspecroadtype_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "lnk_countyID",
+                    "rsc_countyID"
+                  ],
+                  [
+                    "lnk_roadTypeID",
+                    "rsr_roadTypeID"
+                  ]
+                ]
+              }
+            ],
+            "expr": 1.0
+          }
+        },
+        {
+          "lhs": "run_projectLinkSpeed",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "n"
+            ],
+            "ranges": {
+              "n": {
+                "from": "run_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              }
+            },
+            "expr": {
+              "op": "index",
+              "args": [
+                "run_linkAvgSpeed",
+                "g"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "run_projectLinkGrade",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "n"
+            ],
+            "ranges": {
+              "n": {
+                "from": "run_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              }
+            },
+            "expr": {
+              "op": "index",
+              "args": [
+                "run_linkAvgGrade",
+                "g"
               ]
             }
           }
@@ -17116,6 +18138,273 @@
           }
         },
         {
+          "lhs": "run_domainUnported",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "n"
+            ],
+            "ranges": {
+              "n": {
+                "from": "run_rows"
+              }
+            },
+            "expr": {
+              "op": "+",
+              "args": [
+                {
+                  "op": "ifelse",
+                  "args": [
+                    {
+                      "op": "==",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "run_domainRowCount",
+                            "n"
+                          ]
+                        },
+                        1.0
+                      ]
+                    },
+                    0.0,
+                    1.0
+                  ]
+                },
+                {
+                  "op": "+",
+                  "args": [
+                    {
+                      "op": "*",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "run_isProjectDomain",
+                            "n"
+                          ]
+                        },
+                        {
+                          "op": "index",
+                          "args": [
+                            "run_projectShortfall",
+                            "n"
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "op": "*",
+                      "args": [
+                        {
+                          "op": "-",
+                          "args": [
+                            1.0,
+                            {
+                              "op": "index",
+                              "args": [
+                                "run_isProjectDomain",
+                                "n"
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "op": "index",
+                          "args": [
+                            "run_linkSourceTypeHourRows",
+                            "n"
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "run_projectShortfall",
+          "rhs": {
+            "op": "+",
+            "args": [
+              {
+                "op": "+",
+                "args": [
+                  "run_linkCountMismatches",
+                  {
+                    "op": "-",
+                    "args": [
+                      "run_countyCount",
+                      1.0
+                    ]
+                  }
+                ]
+              },
+              {
+                "op": "+",
+                "args": [
+                  "run_unportedProjectProcesses",
+                  "run_bracketsOutOfBounds"
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "lhs": "run_linkCountMismatches",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "n"
+            ],
+            "ranges": {
+              "n": {
+                "from": "run_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              }
+            },
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                {
+                  "op": "==",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "run_linkCount",
+                        "g"
+                      ]
+                    },
+                    1.0
+                  ]
+                },
+                0.0,
+                1.0
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "run_countyCount",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "n"
+            ],
+            "ranges": {
+              "n": {
+                "from": "run_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              }
+            },
+            "expr": 1.0
+          }
+        },
+        {
+          "lhs": "run_unportedProjectProcesses",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "n"
+            ],
+            "ranges": {
+              "n": {
+                "from": "run_rows"
+              },
+              "p": {
+                "from": "runspecpollutantprocess_rows"
+              }
+            },
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "rspp_isEmitted",
+                    "p"
+                  ]
+                },
+                {
+                  "op": "-",
+                  "args": [
+                    1.0,
+                    {
+                      "op": "index",
+                      "args": [
+                        "rspp_usesLinkModes",
+                        "p"
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "run_bracketsOutOfBounds",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "n"
+            ],
+            "ranges": {
+              "n": {
+                "from": "run_rows"
+              },
+              "s": {
+                "from": "runspecsourcetype_rows"
+              }
+            },
+            "expr": {
+              "op": "index",
+              "args": [
+                "lomd_outOfBoundsCount",
+                "s"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "run_linkSourceTypeHourRows",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "n"
+            ],
+            "ranges": {
+              "n": {
+                "from": "run_rows"
+              },
+              "y": {
+                "from": "linksourcetypehour_rows"
+              }
+            },
+            "expr": 1.0
+          }
+        },
+        {
           "lhs": "rspp_ordinal",
           "rhs": {
             "op": "faq",
@@ -17473,6 +18762,29 @@
                     "args": [
                       "process",
                       "Tirewear"
+                    ]
+                  }
+                ]
+              },
+              1.0,
+              0.0
+            ]
+          }
+        },
+        {
+          "lhs": "rspp_usesLinkModes",
+          "rhs": {
+            "op": "ifelse",
+            "args": [
+              {
+                "op": "==",
+                "args": [
+                  "rspp_processID",
+                  {
+                    "op": "enum",
+                    "args": [
+                      "process",
+                      "RunningExhaust"
                     ]
                   }
                 ]
@@ -21689,7 +23001,7 @@
         },
         {
           "_comment": "W. aggregate.rs:365-417's inner sum over avgSpeedBinID, keyed by the run's hour-day, the operating mode AND the pollutant-process. The pollutant-process axis is what this fixture adds: `BaseRateGenerator` runs once per process and takes its RatesOpModeDistribution from a different generator for tire wear than for running exhaust, so the mode fraction -- and only the mode fraction -- is selected per pollutant-process. Everything else about the weight, including the speed-bin weighting itself, is shared.",
-          "lhs": "pp_W",
+          "lhs": "pp_WSpeedBins",
           "rhs": {
             "op": "faq",
             "args": [],
@@ -21778,6 +23090,2371 @@
                   ]
                 }
               ]
+            }
+          }
+        },
+        {
+          "_comment": "BaseRateGenerator.java's isProjectDomain override: the drive-cycle fast path and the avgSpeedFraction weighting are both off for processes 1, 9 and 10 in PROJECT domain.",
+          "lhs": "pp_W",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "p",
+              "k",
+              "m",
+              "r"
+            ],
+            "ranges": {
+              "p": {
+                "from": "runspecpollutantprocess_rows"
+              },
+              "k": {
+                "from": "runspecday_rows"
+              },
+              "m": {
+                "from": "operating_mode_rows"
+              },
+              "r": {
+                "from": "physicsrow_rows"
+              },
+              "n": {
+                "from": "run_rows"
+              }
+            },
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                {
+                  "op": "and",
+                  "args": [
+                    {
+                      "op": ">",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "run_isProjectDomain",
+                            "n"
+                          ]
+                        },
+                        0.5
+                      ]
+                    },
+                    {
+                      "op": ">",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "rspp_usesLinkModes",
+                            "p"
+                          ]
+                        },
+                        0.5
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "lomd_W",
+                    "m",
+                    "r"
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "pp_WSpeedBins",
+                    "p",
+                    "k",
+                    "m",
+                    "r"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "lomd_gradeAcceleration",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "grade_acceleration",
+            "bindings": {
+              "grade_percent": "run_projectLinkGrade"
+            }
+          }
+        },
+        {
+          "lhs": "lomd_at0",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "i"
+            ],
+            "ranges": {
+              "i": {
+                "from": "drive_second_rows"
+              },
+              "n": {
+                "from": "run_rows"
+              }
+            },
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                {
+                  "op": ">",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "dss_priorPresent",
+                        "i"
+                      ]
+                    },
+                    0.5
+                  ]
+                },
+                {
+                  "op": "+",
+                  "args": [
+                    {
+                      "op": "apply_expression_template",
+                      "args": [],
+                      "name": "per_schedule_second",
+                      "bindings": {
+                        "speed_change": {
+                          "op": "-",
+                          "args": [
+                            {
+                              "op": "index",
+                              "args": [
+                                "dss_speed",
+                                "i"
+                              ]
+                            },
+                            {
+                              "op": "index",
+                              "args": [
+                                "dss_priorSpeed",
+                                "i"
+                              ]
+                            }
+                          ]
+                        }
+                      }
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "lomd_gradeAcceleration",
+                        "n"
+                      ]
+                    }
+                  ]
+                },
+                0.0
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "lomd_at1",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "i"
+            ],
+            "ranges": {
+              "i": {
+                "from": "drive_second_rows"
+              },
+              "n": {
+                "from": "run_rows"
+              }
+            },
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                {
+                  "op": "and",
+                  "args": [
+                    {
+                      "op": ">",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "dss_priorPresent",
+                            "i"
+                          ]
+                        },
+                        0.5
+                      ]
+                    },
+                    {
+                      "op": ">",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "dss_prior2Present",
+                            "i"
+                          ]
+                        },
+                        0.5
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "op": "+",
+                  "args": [
+                    {
+                      "op": "apply_expression_template",
+                      "args": [],
+                      "name": "per_schedule_second",
+                      "bindings": {
+                        "speed_change": {
+                          "op": "-",
+                          "args": [
+                            {
+                              "op": "index",
+                              "args": [
+                                "dss_priorSpeed",
+                                "i"
+                              ]
+                            },
+                            {
+                              "op": "index",
+                              "args": [
+                                "dss_prior2Speed",
+                                "i"
+                              ]
+                            }
+                          ]
+                        }
+                      }
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "lomd_gradeAcceleration",
+                        "n"
+                      ]
+                    }
+                  ]
+                },
+                0.0
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "lomd_at2",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "i"
+            ],
+            "ranges": {
+              "i": {
+                "from": "drive_second_rows"
+              },
+              "n": {
+                "from": "run_rows"
+              }
+            },
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                {
+                  "op": "and",
+                  "args": [
+                    {
+                      "op": ">",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "dss_prior2Present",
+                            "i"
+                          ]
+                        },
+                        0.5
+                      ]
+                    },
+                    {
+                      "op": ">",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "dss_prior3Present",
+                            "i"
+                          ]
+                        },
+                        0.5
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "op": "+",
+                  "args": [
+                    {
+                      "op": "apply_expression_template",
+                      "args": [],
+                      "name": "per_schedule_second",
+                      "bindings": {
+                        "speed_change": {
+                          "op": "-",
+                          "args": [
+                            {
+                              "op": "index",
+                              "args": [
+                                "dss_prior2Speed",
+                                "i"
+                              ]
+                            },
+                            {
+                              "op": "index",
+                              "args": [
+                                "dss_prior3Speed",
+                                "i"
+                              ]
+                            }
+                          ]
+                        }
+                      }
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "lomd_gradeAcceleration",
+                        "n"
+                      ]
+                    }
+                  ]
+                },
+                0.0
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "lomd_isBraking",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "i"
+            ],
+            "ranges": {
+              "i": {
+                "from": "drive_second_rows"
+              },
+              "k": {
+                "from": "run_rows"
+              }
+            },
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                {
+                  "op": "or",
+                  "args": [
+                    {
+                      "op": "<=",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "lomd_at0",
+                            "i"
+                          ]
+                        },
+                        {
+                          "op": "index",
+                          "args": [
+                            "run_brakeRate1Sec",
+                            "k"
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "op": "and",
+                      "args": [
+                        {
+                          "op": "<",
+                          "args": [
+                            {
+                              "op": "index",
+                              "args": [
+                                "lomd_at0",
+                                "i"
+                              ]
+                            },
+                            {
+                              "op": "index",
+                              "args": [
+                                "run_brakeRate3Sec",
+                                "k"
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "op": "and",
+                          "args": [
+                            {
+                              "op": "<",
+                              "args": [
+                                {
+                                  "op": "index",
+                                  "args": [
+                                    "lomd_at1",
+                                    "i"
+                                  ]
+                                },
+                                {
+                                  "op": "index",
+                                  "args": [
+                                    "run_brakeRate3Sec",
+                                    "k"
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "op": "<",
+                              "args": [
+                                {
+                                  "op": "index",
+                                  "args": [
+                                    "lomd_at2",
+                                    "i"
+                                  ]
+                                },
+                                {
+                                  "op": "index",
+                                  "args": [
+                                    "run_brakeRate3Sec",
+                                    "k"
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                1.0,
+                0.0
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "lomd_accelerationMs",
+          "rhs": {
+            "op": "*",
+            "args": [
+              {
+                "op": "apply_expression_template",
+                "args": [],
+                "name": "per_schedule_second",
+                "bindings": {
+                  "speed_change": {
+                    "op": "ifelse",
+                    "args": [
+                      {
+                        "op": ">",
+                        "args": [
+                          "dss_priorPresent",
+                          0.5
+                        ]
+                      },
+                      {
+                        "op": "-",
+                        "args": [
+                          "dss_speed",
+                          "dss_priorSpeed"
+                        ]
+                      },
+                      0.0
+                    ]
+                  }
+                }
+              },
+              {
+                "op": "apply_expression_template",
+                "args": [],
+                "name": "mph_to_meters_per_second",
+                "bindings": {}
+              }
+            ]
+          }
+        },
+        {
+          "lhs": "lomd_vsp",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "i",
+              "r"
+            ],
+            "ranges": {
+              "i": {
+                "from": "drive_second_rows"
+              },
+              "r": {
+                "from": "physicsrow_rows"
+              },
+              "n": {
+                "from": "run_rows"
+              }
+            },
+            "expr": {
+              "op": "+",
+              "args": [
+                {
+                  "op": "apply_expression_template",
+                  "args": [],
+                  "name": "vehicle_specific_power",
+                  "bindings": {
+                    "rolling_term_a": {
+                      "op": "index",
+                      "args": [
+                        "phy_rollingTermA",
+                        "r"
+                      ]
+                    },
+                    "rotating_term_b": {
+                      "op": "index",
+                      "args": [
+                        "phy_rotatingTermB",
+                        "r"
+                      ]
+                    },
+                    "drag_term_c": {
+                      "op": "index",
+                      "args": [
+                        "phy_dragTermC",
+                        "r"
+                      ]
+                    },
+                    "source_mass": {
+                      "op": "index",
+                      "args": [
+                        "phy_sourceMass",
+                        "r"
+                      ]
+                    },
+                    "fixed_mass_factor": {
+                      "op": "index",
+                      "args": [
+                        "phy_fixedMassFactor",
+                        "r"
+                      ]
+                    },
+                    "speed_ms": {
+                      "op": "index",
+                      "args": [
+                        "dss_speedMs",
+                        "i"
+                      ]
+                    },
+                    "acceleration_ms": {
+                      "op": "index",
+                      "args": [
+                        "lomd_accelerationMs",
+                        "i"
+                      ]
+                    }
+                  }
+                },
+                {
+                  "op": "apply_expression_template",
+                  "args": [],
+                  "name": "grade_specific_power",
+                  "bindings": {
+                    "source_mass": {
+                      "op": "index",
+                      "args": [
+                        "phy_sourceMass",
+                        "r"
+                      ]
+                    },
+                    "fixed_mass_factor": {
+                      "op": "index",
+                      "args": [
+                        "phy_fixedMassFactor",
+                        "r"
+                      ]
+                    },
+                    "grade_percent": {
+                      "op": "index",
+                      "args": [
+                        "run_projectLinkGrade",
+                        "n"
+                      ]
+                    },
+                    "speed_ms": {
+                      "op": "index",
+                      "args": [
+                        "dss_speedMs",
+                        "i"
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "lomd_binnedModeID",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "i",
+              "r"
+            ],
+            "ranges": {
+              "i": {
+                "from": "drive_second_rows"
+              },
+              "m": {
+                "from": "operating_mode_rows"
+              },
+              "r": {
+                "from": "physicsrow_rows"
+              }
+            },
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "om_opModeID",
+                    "m"
+                  ]
+                },
+                {
+                  "op": "*",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "om_isBinnedRunningMode",
+                        "m"
+                      ]
+                    },
+                    {
+                      "op": "apply_expression_template",
+                      "args": [],
+                      "name": "op_mode_rectangle_contains",
+                      "bindings": {
+                        "vsp": {
+                          "op": "index",
+                          "args": [
+                            "lomd_vsp",
+                            "i",
+                            "r"
+                          ]
+                        },
+                        "speed": {
+                          "op": "index",
+                          "args": [
+                            "dss_speed",
+                            "i"
+                          ]
+                        },
+                        "vsp_lower": {
+                          "op": "index",
+                          "args": [
+                            "om_VSPLower",
+                            "m"
+                          ]
+                        },
+                        "vsp_upper": {
+                          "op": "index",
+                          "args": [
+                            "om_VSPUpper",
+                            "m"
+                          ]
+                        },
+                        "speed_lower": {
+                          "op": "index",
+                          "args": [
+                            "om_speedLower",
+                            "m"
+                          ]
+                        },
+                        "speed_upper": {
+                          "op": "index",
+                          "args": [
+                            "om_speedUpper",
+                            "m"
+                          ]
+                        }
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "lomd_binnedModeMatches",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "i",
+              "r"
+            ],
+            "ranges": {
+              "i": {
+                "from": "drive_second_rows"
+              },
+              "m": {
+                "from": "operating_mode_rows"
+              },
+              "r": {
+                "from": "physicsrow_rows"
+              }
+            },
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "om_isBinnedRunningMode",
+                    "m"
+                  ]
+                },
+                {
+                  "op": "apply_expression_template",
+                  "args": [],
+                  "name": "op_mode_rectangle_contains",
+                  "bindings": {
+                    "vsp": {
+                      "op": "index",
+                      "args": [
+                        "lomd_vsp",
+                        "i",
+                        "r"
+                      ]
+                    },
+                    "speed": {
+                      "op": "index",
+                      "args": [
+                        "dss_speed",
+                        "i"
+                      ]
+                    },
+                    "vsp_lower": {
+                      "op": "index",
+                      "args": [
+                        "om_VSPLower",
+                        "m"
+                      ]
+                    },
+                    "vsp_upper": {
+                      "op": "index",
+                      "args": [
+                        "om_VSPUpper",
+                        "m"
+                      ]
+                    },
+                    "speed_lower": {
+                      "op": "index",
+                      "args": [
+                        "om_speedLower",
+                        "m"
+                      ]
+                    },
+                    "speed_upper": {
+                      "op": "index",
+                      "args": [
+                        "om_speedUpper",
+                        "m"
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "lomd_isStopped",
+          "rhs": {
+            "op": "ifelse",
+            "args": [
+              {
+                "op": "==",
+                "args": [
+                  "dss_speed",
+                  0.0
+                ]
+              },
+              1.0,
+              0.0
+            ]
+          }
+        },
+        {
+          "lhs": "lomd_opModeID",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "i",
+              "r"
+            ],
+            "ranges": {
+              "i": {
+                "from": "drive_second_rows"
+              },
+              "k": {
+                "from": "run_rows"
+              },
+              "r": {
+                "from": "physicsrow_rows"
+              }
+            },
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                {
+                  "op": ">",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "dss_isIdling",
+                        "i"
+                      ]
+                    },
+                    0.5
+                  ]
+                },
+                {
+                  "op": "enum",
+                  "args": [
+                    "operating_mode",
+                    "Idling"
+                  ]
+                },
+                {
+                  "op": "ifelse",
+                  "args": [
+                    {
+                      "op": ">",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "lomd_isBraking",
+                            "i"
+                          ]
+                        },
+                        0.5
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "run_brakingOpModeID",
+                        "k"
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "lomd_binnedModeID",
+                        "i",
+                        "r"
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "lomd_hasOpMode",
+          "rhs": {
+            "op": "ifelse",
+            "args": [
+              {
+                "op": "or",
+                "args": [
+                  {
+                    "op": ">",
+                    "args": [
+                      "dss_isIdling",
+                      0.5
+                    ]
+                  },
+                  {
+                    "op": "or",
+                    "args": [
+                      {
+                        "op": ">",
+                        "args": [
+                          "lomd_isBraking",
+                          0.5
+                        ]
+                      },
+                      {
+                        "op": ">",
+                        "args": [
+                          "lomd_binnedModeMatches",
+                          0.5
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              1.0,
+              0.0
+            ]
+          }
+        },
+        {
+          "lhs": "lomd_totalSeconds",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "a",
+              "r"
+            ],
+            "ranges": {
+              "a": {
+                "from": "drive_schedule_assoc_rows"
+              },
+              "i": {
+                "from": "drive_second_rows"
+              },
+              "r": {
+                "from": "physicsrow_rows"
+              },
+              "n": {
+                "from": "run_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "dsa_driveScheduleID",
+                    "dss_driveScheduleID"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "dsa_sourceTypeID",
+                    "phy_sourceTypeID"
+                  ],
+                  [
+                    "dsa_roadTypeID",
+                    "run_roadTypeID"
+                  ]
+                ]
+              }
+            ],
+            "expr": 1.0
+          }
+        },
+        {
+          "lhs": "lomd_stoppedSeconds",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "a",
+              "r"
+            ],
+            "ranges": {
+              "a": {
+                "from": "drive_schedule_assoc_rows"
+              },
+              "i": {
+                "from": "drive_second_rows"
+              },
+              "r": {
+                "from": "physicsrow_rows"
+              },
+              "n": {
+                "from": "run_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "dsa_driveScheduleID",
+                    "dss_driveScheduleID"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "dsa_sourceTypeID",
+                    "phy_sourceTypeID"
+                  ],
+                  [
+                    "dsa_roadTypeID",
+                    "run_roadTypeID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "lomd_isStopped",
+                "i"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "lomd_modeSeconds",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "a",
+              "m",
+              "r"
+            ],
+            "ranges": {
+              "a": {
+                "from": "drive_schedule_assoc_rows"
+              },
+              "i": {
+                "from": "drive_second_rows"
+              },
+              "r": {
+                "from": "physicsrow_rows"
+              },
+              "n": {
+                "from": "run_rows"
+              },
+              "m": {
+                "from": "operating_mode_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "dsa_driveScheduleID",
+                    "dss_driveScheduleID"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "dsa_sourceTypeID",
+                    "phy_sourceTypeID"
+                  ],
+                  [
+                    "dsa_roadTypeID",
+                    "run_roadTypeID"
+                  ]
+                ]
+              }
+            ],
+            "filter": {
+              "op": "==",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "om_opModeID",
+                    "m"
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "lomd_opModeID",
+                    "i",
+                    "r"
+                  ]
+                }
+              ]
+            },
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "lomd_hasOpMode",
+                    "i",
+                    "r"
+                  ]
+                },
+                {
+                  "op": "-",
+                  "args": [
+                    1.0,
+                    {
+                      "op": "index",
+                      "args": [
+                        "lomd_isStopped",
+                        "i"
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "lomd_modeFraction",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "a",
+              "m",
+              "r"
+            ],
+            "ranges": {
+              "a": {
+                "from": "drive_schedule_assoc_rows"
+              },
+              "m": {
+                "from": "operating_mode_rows"
+              },
+              "r": {
+                "from": "physicsrow_rows"
+              }
+            },
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                {
+                  "op": ">",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "lomd_totalSeconds",
+                        "a",
+                        "r"
+                      ]
+                    },
+                    0.0
+                  ]
+                },
+                {
+                  "op": "+",
+                  "args": [
+                    {
+                      "op": "apply_expression_template",
+                      "args": [],
+                      "name": "link_op_mode_fraction",
+                      "bindings": {
+                        "second_count": {
+                          "op": "index",
+                          "args": [
+                            "lomd_modeSeconds",
+                            "a",
+                            "m",
+                            "r"
+                          ]
+                        },
+                        "second_total": {
+                          "op": "index",
+                          "args": [
+                            "lomd_totalSeconds",
+                            "a",
+                            "r"
+                          ]
+                        }
+                      }
+                    },
+                    {
+                      "op": "ifelse",
+                      "args": [
+                        {
+                          "op": "==",
+                          "args": [
+                            {
+                              "op": "index",
+                              "args": [
+                                "om_opModeID",
+                                "m"
+                              ]
+                            },
+                            {
+                              "op": "enum",
+                              "args": [
+                                "operating_mode",
+                                "Idling"
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "op": "apply_expression_template",
+                          "args": [],
+                          "name": "link_op_mode_fraction",
+                          "bindings": {
+                            "second_count": {
+                              "op": "index",
+                              "args": [
+                                "lomd_stoppedSeconds",
+                                "a",
+                                "r"
+                              ]
+                            },
+                            "second_total": {
+                              "op": "index",
+                              "args": [
+                                "lomd_totalSeconds",
+                                "a",
+                                "r"
+                              ]
+                            }
+                          }
+                        },
+                        0.0
+                      ]
+                    }
+                  ]
+                },
+                0.0
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "lomd_hasAtOrBelow",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "row_is_present",
+            "bindings": {
+              "match_count": {
+                "op": "faq",
+                "args": [],
+                "semiring": "sum_product",
+                "output_idx": [
+                  "s"
+                ],
+                "ranges": {
+                  "a": {
+                    "from": "drive_schedule_assoc_rows"
+                  },
+                  "s": {
+                    "from": "runspecsourcetype_rows"
+                  },
+                  "n": {
+                    "from": "run_rows"
+                  }
+                },
+                "filter": {
+                  "op": "and",
+                  "args": [
+                    {
+                      "op": ">",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "dsa_isSelected",
+                            "a",
+                            "s"
+                          ]
+                        },
+                        0.5
+                      ]
+                    },
+                    {
+                      "op": "<=",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "dsa_averageSpeed",
+                            "a"
+                          ]
+                        },
+                        {
+                          "op": "index",
+                          "args": [
+                            "run_projectLinkSpeed",
+                            "n"
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                "expr": 1.0
+              }
+            }
+          }
+        },
+        {
+          "lhs": "lomd_atOrBelowSpeed",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "max_product",
+            "output_idx": [
+              "s"
+            ],
+            "ranges": {
+              "a": {
+                "from": "drive_schedule_assoc_rows"
+              },
+              "s": {
+                "from": "runspecsourcetype_rows"
+              },
+              "n": {
+                "from": "run_rows"
+              }
+            },
+            "filter": {
+              "op": "and",
+              "args": [
+                {
+                  "op": ">",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "dsa_isSelected",
+                        "a",
+                        "s"
+                      ]
+                    },
+                    0.5
+                  ]
+                },
+                {
+                  "op": "<=",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "dsa_averageSpeed",
+                        "a"
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "run_projectLinkSpeed",
+                        "n"
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            "expr": {
+              "op": "index",
+              "args": [
+                "dsa_averageSpeed",
+                "a"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "lomd_hasAbove",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "row_is_present",
+            "bindings": {
+              "match_count": {
+                "op": "faq",
+                "args": [],
+                "semiring": "sum_product",
+                "output_idx": [
+                  "s"
+                ],
+                "ranges": {
+                  "a": {
+                    "from": "drive_schedule_assoc_rows"
+                  },
+                  "s": {
+                    "from": "runspecsourcetype_rows"
+                  },
+                  "n": {
+                    "from": "run_rows"
+                  }
+                },
+                "filter": {
+                  "op": "and",
+                  "args": [
+                    {
+                      "op": ">",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "dsa_isSelected",
+                            "a",
+                            "s"
+                          ]
+                        },
+                        0.5
+                      ]
+                    },
+                    {
+                      "op": ">",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "dsa_averageSpeed",
+                            "a"
+                          ]
+                        },
+                        {
+                          "op": "index",
+                          "args": [
+                            "run_projectLinkSpeed",
+                            "n"
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                "expr": 1.0
+              }
+            }
+          }
+        },
+        {
+          "lhs": "lomd_aboveSpeed",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "min_sum",
+            "output_idx": [
+              "s"
+            ],
+            "ranges": {
+              "a": {
+                "from": "drive_schedule_assoc_rows"
+              },
+              "s": {
+                "from": "runspecsourcetype_rows"
+              },
+              "n": {
+                "from": "run_rows"
+              }
+            },
+            "filter": {
+              "op": "and",
+              "args": [
+                {
+                  "op": ">",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "dsa_isSelected",
+                        "a",
+                        "s"
+                      ]
+                    },
+                    0.5
+                  ]
+                },
+                {
+                  "op": ">",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "dsa_averageSpeed",
+                        "a"
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "run_projectLinkSpeed",
+                        "n"
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            "expr": {
+              "op": "index",
+              "args": [
+                "dsa_averageSpeed",
+                "a"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "lomd_hasAtOrAbove",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "row_is_present",
+            "bindings": {
+              "match_count": {
+                "op": "faq",
+                "args": [],
+                "semiring": "sum_product",
+                "output_idx": [
+                  "s"
+                ],
+                "ranges": {
+                  "a": {
+                    "from": "drive_schedule_assoc_rows"
+                  },
+                  "s": {
+                    "from": "runspecsourcetype_rows"
+                  },
+                  "n": {
+                    "from": "run_rows"
+                  }
+                },
+                "filter": {
+                  "op": "and",
+                  "args": [
+                    {
+                      "op": ">",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "dsa_isSelected",
+                            "a",
+                            "s"
+                          ]
+                        },
+                        0.5
+                      ]
+                    },
+                    {
+                      "op": ">=",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "dsa_averageSpeed",
+                            "a"
+                          ]
+                        },
+                        {
+                          "op": "index",
+                          "args": [
+                            "run_projectLinkSpeed",
+                            "n"
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                "expr": 1.0
+              }
+            }
+          }
+        },
+        {
+          "lhs": "lomd_atOrAboveSpeed",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "min_sum",
+            "output_idx": [
+              "s"
+            ],
+            "ranges": {
+              "a": {
+                "from": "drive_schedule_assoc_rows"
+              },
+              "s": {
+                "from": "runspecsourcetype_rows"
+              },
+              "n": {
+                "from": "run_rows"
+              }
+            },
+            "filter": {
+              "op": "and",
+              "args": [
+                {
+                  "op": ">",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "dsa_isSelected",
+                        "a",
+                        "s"
+                      ]
+                    },
+                    0.5
+                  ]
+                },
+                {
+                  "op": ">=",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "dsa_averageSpeed",
+                        "a"
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "run_projectLinkSpeed",
+                        "n"
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            "expr": {
+              "op": "index",
+              "args": [
+                "dsa_averageSpeed",
+                "a"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "lomd_hasBelow",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "row_is_present",
+            "bindings": {
+              "match_count": {
+                "op": "faq",
+                "args": [],
+                "semiring": "sum_product",
+                "output_idx": [
+                  "s"
+                ],
+                "ranges": {
+                  "a": {
+                    "from": "drive_schedule_assoc_rows"
+                  },
+                  "s": {
+                    "from": "runspecsourcetype_rows"
+                  },
+                  "n": {
+                    "from": "run_rows"
+                  }
+                },
+                "filter": {
+                  "op": "and",
+                  "args": [
+                    {
+                      "op": ">",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "dsa_isSelected",
+                            "a",
+                            "s"
+                          ]
+                        },
+                        0.5
+                      ]
+                    },
+                    {
+                      "op": "<",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "dsa_averageSpeed",
+                            "a"
+                          ]
+                        },
+                        {
+                          "op": "index",
+                          "args": [
+                            "run_projectLinkSpeed",
+                            "n"
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                "expr": 1.0
+              }
+            }
+          }
+        },
+        {
+          "lhs": "lomd_belowSpeed",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "max_product",
+            "output_idx": [
+              "s"
+            ],
+            "ranges": {
+              "a": {
+                "from": "drive_schedule_assoc_rows"
+              },
+              "s": {
+                "from": "runspecsourcetype_rows"
+              },
+              "n": {
+                "from": "run_rows"
+              }
+            },
+            "filter": {
+              "op": "and",
+              "args": [
+                {
+                  "op": ">",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "dsa_isSelected",
+                        "a",
+                        "s"
+                      ]
+                    },
+                    0.5
+                  ]
+                },
+                {
+                  "op": "<",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "dsa_averageSpeed",
+                        "a"
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "run_projectLinkSpeed",
+                        "n"
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            "expr": {
+              "op": "index",
+              "args": [
+                "dsa_averageSpeed",
+                "a"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "lomd_lowSpeed",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "latest_at_or_before_key",
+            "bindings": {
+              "has_at_or_before": {
+                "op": ">",
+                "args": [
+                  "lomd_hasAtOrBelow",
+                  0.5
+                ]
+              },
+              "latest_at_or_before": "lomd_atOrBelowSpeed",
+              "earliest_after": "lomd_aboveSpeed"
+            }
+          }
+        },
+        {
+          "lhs": "lomd_highSpeed",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "latest_at_or_before_key",
+            "bindings": {
+              "has_at_or_before": {
+                "op": ">",
+                "args": [
+                  "lomd_hasAtOrAbove",
+                  0.5
+                ]
+              },
+              "latest_at_or_before": "lomd_atOrAboveSpeed",
+              "earliest_after": "lomd_belowSpeed"
+            }
+          }
+        },
+        {
+          "lhs": "lomd_outOfBoundsCount",
+          "rhs": {
+            "op": "+",
+            "args": [
+              {
+                "op": "-",
+                "args": [
+                  1.0,
+                  "lomd_hasAtOrBelow"
+                ]
+              },
+              {
+                "op": "-",
+                "args": [
+                  1.0,
+                  "lomd_hasAtOrAbove"
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "lhs": "lomd_lowScheduleID",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "max_product",
+            "output_idx": [
+              "s"
+            ],
+            "ranges": {
+              "a": {
+                "from": "drive_schedule_assoc_rows"
+              },
+              "s": {
+                "from": "runspecsourcetype_rows"
+              }
+            },
+            "filter": {
+              "op": "and",
+              "args": [
+                {
+                  "op": ">",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "dsa_isSelected",
+                        "a",
+                        "s"
+                      ]
+                    },
+                    0.5
+                  ]
+                },
+                {
+                  "op": "==",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "dsa_averageSpeed",
+                        "a"
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "lomd_lowSpeed",
+                        "s"
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            "expr": {
+              "op": "index",
+              "args": [
+                "dsa_driveScheduleID",
+                "a"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "lomd_highScheduleID",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "max_product",
+            "output_idx": [
+              "s"
+            ],
+            "ranges": {
+              "a": {
+                "from": "drive_schedule_assoc_rows"
+              },
+              "s": {
+                "from": "runspecsourcetype_rows"
+              }
+            },
+            "filter": {
+              "op": "and",
+              "args": [
+                {
+                  "op": ">",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "dsa_isSelected",
+                        "a",
+                        "s"
+                      ]
+                    },
+                    0.5
+                  ]
+                },
+                {
+                  "op": "==",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "dsa_averageSpeed",
+                        "a"
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "lomd_highSpeed",
+                        "s"
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            "expr": {
+              "op": "index",
+              "args": [
+                "dsa_driveScheduleID",
+                "a"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "lomd_factor",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "s"
+            ],
+            "ranges": {
+              "s": {
+                "from": "runspecsourcetype_rows"
+              },
+              "n": {
+                "from": "run_rows"
+              }
+            },
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                {
+                  "op": "<",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "lomd_lowSpeed",
+                        "s"
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "lomd_highSpeed",
+                        "s"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "op": "/",
+                  "args": [
+                    {
+                      "op": "-",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "run_projectLinkSpeed",
+                            "n"
+                          ]
+                        },
+                        {
+                          "op": "index",
+                          "args": [
+                            "lomd_lowSpeed",
+                            "s"
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "op": "-",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "lomd_highSpeed",
+                            "s"
+                          ]
+                        },
+                        {
+                          "op": "index",
+                          "args": [
+                            "lomd_lowSpeed",
+                            "s"
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                0.0
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "lomd_lowFraction",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "m",
+              "r"
+            ],
+            "ranges": {
+              "a": {
+                "from": "drive_schedule_assoc_rows"
+              },
+              "m": {
+                "from": "operating_mode_rows"
+              },
+              "r": {
+                "from": "physicsrow_rows"
+              },
+              "s": {
+                "from": "runspecsourcetype_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "dsa_sourceTypeID",
+                    "phy_sourceTypeID"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "phy_sourceTypeOrdinal",
+                    "rst_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "filter": {
+              "op": "and",
+              "args": [
+                {
+                  "op": ">",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "dsa_isSelected",
+                        "a",
+                        "s"
+                      ]
+                    },
+                    0.5
+                  ]
+                },
+                {
+                  "op": "==",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "dsa_driveScheduleID",
+                        "a"
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "lomd_lowScheduleID",
+                        "s"
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            "expr": {
+              "op": "index",
+              "args": [
+                "lomd_modeFraction",
+                "a",
+                "m",
+                "r"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "lomd_highFraction",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "m",
+              "r"
+            ],
+            "ranges": {
+              "a": {
+                "from": "drive_schedule_assoc_rows"
+              },
+              "m": {
+                "from": "operating_mode_rows"
+              },
+              "r": {
+                "from": "physicsrow_rows"
+              },
+              "s": {
+                "from": "runspecsourcetype_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "dsa_sourceTypeID",
+                    "phy_sourceTypeID"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "phy_sourceTypeOrdinal",
+                    "rst_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "filter": {
+              "op": "and",
+              "args": [
+                {
+                  "op": ">",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "dsa_isSelected",
+                        "a",
+                        "s"
+                      ]
+                    },
+                    0.5
+                  ]
+                },
+                {
+                  "op": "==",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "dsa_driveScheduleID",
+                        "a"
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "lomd_highScheduleID",
+                        "s"
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            "expr": {
+              "op": "index",
+              "args": [
+                "lomd_modeFraction",
+                "a",
+                "m",
+                "r"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "lomd_W",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "m",
+              "r"
+            ],
+            "ranges": {
+              "m": {
+                "from": "operating_mode_rows"
+              },
+              "r": {
+                "from": "physicsrow_rows"
+              },
+              "s": {
+                "from": "runspecsourcetype_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "phy_sourceTypeOrdinal",
+                    "rst_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "positive_else_zero",
+              "bindings": {
+                "value": {
+                  "op": "+",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "lomd_lowFraction",
+                        "m",
+                        "r"
+                      ]
+                    },
+                    {
+                      "op": "*",
+                      "args": [
+                        {
+                          "op": "-",
+                          "args": [
+                            {
+                              "op": "index",
+                              "args": [
+                                "lomd_highFraction",
+                                "m",
+                                "r"
+                              ]
+                            },
+                            {
+                              "op": "index",
+                              "args": [
+                                "lomd_lowFraction",
+                                "m",
+                                "r"
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "op": "index",
+                          "args": [
+                            "lomd_factor",
+                            "s"
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
             }
           }
         },
@@ -23077,7 +26754,152 @@
           }
         },
         {
-          "_comment": "S8 and S9 (J15, J16). S8 is a LEFT JOIN whose miss gives SHO = 0 with the VMT intact.",
+          "_comment": "ProjectTAG.java:354-385. The three clauses are the link the run selects, that link's source-type share, and the day type the activity row is for.",
+          "lhs": "act_projectSho",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "r",
+              "g",
+              "s",
+              "m"
+            ],
+            "ranges": {
+              "r": {
+                "from": "activity_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "s": {
+                "from": "runspecsourcetype_rows"
+              },
+              "m": {
+                "from": "runspecmonth_rows"
+              },
+              "l": {
+                "from": "link_rows"
+              },
+              "w": {
+                "from": "runspecroadtype_rows"
+              },
+              "y": {
+                "from": "linksourcetypehour_rows"
+              },
+              "k": {
+                "from": "runspecday_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "lnk_countyID",
+                    "rsc_countyID"
+                  ],
+                  [
+                    "lnk_roadTypeID",
+                    "rsr_roadTypeID"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "lsth_linkID",
+                    "lnk_linkID"
+                  ],
+                  [
+                    "lsth_sourceTypeID",
+                    "rst_sourceTypeID"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "act_dayOrdinal",
+                    "day_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "*",
+                  "args": [
+                    {
+                      "op": "*",
+                      "args": [
+                        {
+                          "op": "*",
+                          "args": [
+                            {
+                              "op": "index",
+                              "args": [
+                                "lnk_linkVolume",
+                                "l"
+                              ]
+                            },
+                            {
+                              "op": "index",
+                              "args": [
+                                "lsth_sourceTypeHourFraction",
+                                "y"
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "op": "index",
+                          "args": [
+                            "day_noOfRealDays",
+                            "k"
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "act_ageFraction",
+                        "r",
+                        "s"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "op": "apply_expression_template",
+                  "args": [],
+                  "name": "link_travel_hours_share",
+                  "bindings": {
+                    "link_length": {
+                      "op": "index",
+                      "args": [
+                        "lnk_linkLength",
+                        "l"
+                      ]
+                    },
+                    "link_avg_speed": {
+                      "op": "index",
+                      "args": [
+                        "lnk_linkAvgSpeed",
+                        "l"
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "_comment": "S8 and S9 (J15, J16). S8 is a LEFT JOIN whose miss gives SHO = 0 with the VMT intact. In PROJECT domain it is `act_projectSho` instead: MOVESInstantiator replaces TotalActivityGenerator with ProjectTAG there, and the two never both write SHO.",
           "lhs": "act_sho",
           "rhs": {
             "op": "faq",
@@ -23101,58 +26923,89 @@
               },
               "m": {
                 "from": "runspecmonth_rows"
+              },
+              "n": {
+                "from": "run_rows"
               }
             },
             "expr": {
-              "op": "*",
+              "op": "ifelse",
               "args": [
                 {
-                  "op": "ifelse",
+                  "op": ">",
                   "args": [
                     {
-                      "op": ">",
+                      "op": "index",
+                      "args": [
+                        "run_isProjectDomain",
+                        "n"
+                      ]
+                    },
+                    0.5
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "act_projectSho",
+                    "r",
+                    "g",
+                    "s",
+                    "m"
+                  ]
+                },
+                {
+                  "op": "*",
+                  "args": [
+                    {
+                      "op": "ifelse",
                       "args": [
                         {
-                          "op": "index",
+                          "op": ">",
                           "args": [
-                            "act_averageSpeed",
-                            "r",
-                            "s"
+                            {
+                              "op": "index",
+                              "args": [
+                                "act_averageSpeed",
+                                "r",
+                                "s"
+                              ]
+                            },
+                            0.0
+                          ]
+                        },
+                        {
+                          "op": "/",
+                          "args": [
+                            {
+                              "op": "index",
+                              "args": [
+                                "act_vmt",
+                                "r",
+                                "s",
+                                "m"
+                              ]
+                            },
+                            {
+                              "op": "index",
+                              "args": [
+                                "act_averageSpeed",
+                                "r",
+                                "s"
+                              ]
+                            }
                           ]
                         },
                         0.0
                       ]
                     },
                     {
-                      "op": "/",
+                      "op": "index",
                       "args": [
-                        {
-                          "op": "index",
-                          "args": [
-                            "act_vmt",
-                            "r",
-                            "s",
-                            "m"
-                          ]
-                        },
-                        {
-                          "op": "index",
-                          "args": [
-                            "act_averageSpeed",
-                            "r",
-                            "s"
-                          ]
-                        }
+                        "run_shoAllocFactor",
+                        "g"
                       ]
-                    },
-                    0.0
-                  ]
-                },
-                {
-                  "op": "index",
-                  "args": [
-                    "run_shoAllocFactor",
-                    "g"
+                    }
                   ]
                 }
               ]
@@ -58313,24 +62166,66 @@
           }
         },
         {
-          "_comment": "The seven identity columns MOVESOutput leaves NULL on this run, emitted as NaN through one template so the claim is made in one place.",
+          "_comment": "NULL outside PROJECT domain, where MOVESOutput's geography stops at the county; a PROJECT run's output is at LINK detail, which the domain fixes (the GUI offers no other), so the zone and the link are the selected ones.",
           "lhs": "out_zoneID",
           "rhs": {
             "op": "faq",
             "args": [],
+            "semiring": "sum_product",
             "output_idx": [
               "o"
             ],
             "ranges": {
               "o": {
                 "from": "output_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "n": {
+                "from": "run_rows"
               }
             },
+            "join": [
+              {
+                "on": [
+                  [
+                    "outCountyOrdinal",
+                    "rsc_ordinal"
+                  ]
+                ]
+              }
+            ],
             "expr": {
-              "op": "apply_expression_template",
-              "args": [],
-              "name": "null_output_column",
-              "bindings": {}
+              "op": "ifelse",
+              "args": [
+                {
+                  "op": ">",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "run_isProjectDomain",
+                        "n"
+                      ]
+                    },
+                    0.5
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "run_zoneID",
+                    "g"
+                  ]
+                },
+                {
+                  "op": "apply_expression_template",
+                  "args": [],
+                  "name": "null_output_column",
+                  "bindings": {}
+                }
+              ]
             }
           }
         },
@@ -58339,21 +62234,64 @@
           "rhs": {
             "op": "faq",
             "args": [],
+            "semiring": "sum_product",
             "output_idx": [
               "o"
             ],
             "ranges": {
               "o": {
                 "from": "output_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "n": {
+                "from": "run_rows"
               }
             },
+            "join": [
+              {
+                "on": [
+                  [
+                    "outCountyOrdinal",
+                    "rsc_ordinal"
+                  ]
+                ]
+              }
+            ],
             "expr": {
-              "op": "apply_expression_template",
-              "args": [],
-              "name": "null_output_column",
-              "bindings": {}
+              "op": "ifelse",
+              "args": [
+                {
+                  "op": ">",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "run_isProjectDomain",
+                        "n"
+                      ]
+                    },
+                    0.5
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "run_linkID",
+                    "g"
+                  ]
+                },
+                {
+                  "op": "apply_expression_template",
+                  "args": [],
+                  "name": "null_output_column",
+                  "bindings": {}
+                }
+              ]
             }
-          }
+          },
+          "_comment": "NULL outside PROJECT domain, where MOVESOutput's geography stops at the county; a PROJECT run's output is at LINK detail, which the domain fixes (the GUI offers no other), so the zone and the link are the selected ones."
         },
         {
           "lhs": "out_regClassID",

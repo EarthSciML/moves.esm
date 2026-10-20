@@ -1,0 +1,97 @@
+{
+  "esm": "1.2.0",
+  "metadata": {
+    "name": "washtenaw-project",
+    "description": "PLAN.md §7.3.40, step 7f: the PROJECT-domain input database of `scale-project`, as the onroad chain mounts it. It is the scale-input-database half of a run's catalogue: it declares the run's DOMAIN and the domain-owned tables, and mounts `onroad/default-database.esm` for the rest, exactly as `moves-onroad.esm` does for a DEFAULT-domain run. A RunSpec document mounts this one instead of `moves-onroad.esm`, and that choice is the whole of what makes it a project run.\n\nWHAT THE DATABASE IS. moves.rs builds it in MariaDB from `characterization/county-inputs/washtenaw-project/setup-project.sql` (database `washtenaw_cdb`) and captures only the EXECUTION database MOVES merges it into. The SQL builds 44 tables. 41 are `INSERT ... SELECT` copies of the default database filtered to Washtenaw County, August 2020, hour 8 and weekdays; 2 are created EMPTY on purpose (`opModeDistribution`, so the generator computes the link's distribution, and `driveScheduleSecondLink`, so it takes the average-speed path); and 3 hold the only rows the SQL states, because a project IS its links: one 1-mile urban-restricted link at 1,000 vehicles per hour and 30 mph on level grade, all of it passenger cars, and 1,000 cars parked off-network. tools/build-scale-input-db.py writes those three to `inputs/washtenaw-project/`, typed by the default database's own schemas, with the RunSpec's `<modeldomain>`.\n\nWHAT THIS DOCUMENT DECLARES, AND WHY ONLY THAT. A mounting document cannot override a mounted one's `data_sources` (docs/esm-conventions.md §59.4), so a table whose merged content depends on the domain has to be declared ABOVE the default database rather than in it. MOVES merges the input database first and the default database after it, by primary key (MasterLoop.java:203-250), except for the tables it does not copy from the default at all in this domain (InputDataManager.java:1432-1435 and :2799-2846). Three tables matter to this run, each measured against the execution database MOVES built:\n\n* `link` -- NOT copied from the default in PROJECT domain, so it is the project's one row and nothing else. The default's 22,610 synthetic links would otherwise match the same county and road type.\n* `linkSourceTypeHour` -- row-merged, and the default's has 0 rows, so the merge is the project's one row.\n* `runspecdomain` -- the RunSpec's PROJECT.\n\nEVERY OTHER TABLE OF THE DATABASE IS A DEFAULT-ROW COPY, and is read from the default database by the joins that already select it: the 41 copies hold the default's own rows at the run's keys, and merging them over the default changes no row (PLAN.md §7.3.40 has the table-by-table measurement, including `fuelSupply` and `IMCoverage`, which MOVES takes from the input database alone in this domain and which are the default's rows for this county's fuel region and year). `offNetworkLink` is written and not read: only start exhaust and the evaporative processes read it, and they live on the off-network road type, which this run does not select. The first project database whose copy of a default table is NOT the default's rows has to move that table's declaration up here, beside `link`.\n\nIT DOES NOT LOAD ALONE, like `moves-onroad.esm`: it names no runspec.",
+    "authors": [
+      "EarthSciML Authors and Contributors"
+    ],
+    "tags": [
+      "onroad",
+      "domain",
+      "project-domain",
+      "scale-input-database"
+    ]
+  },
+  "data_sources": {
+    "db_link": {
+      "kind": "static",
+      "source": {
+        "url_template": "./washtenaw-project/Link.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_link"
+      },
+      "metadata": {
+        "tags": [
+          "scope",
+          "output",
+          "domain"
+        ],
+        "note": "The project's Link: 1 row, link 1, county 26161, zone 261610, road type 4, 1.0 mi, 1,000 veh/h, 30 mph, grade 0 (setup-project.sql's invented row 1 of 3). MOVES does not merge the default database's Link into a PROJECT run, so this is the whole table; the execution database's `link` is this row and no other.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_linksourcetypehour": {
+      "kind": "static",
+      "source": {
+        "url_template": "./washtenaw-project/linkSourceTypeHour.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_linksourcetypehour"
+      },
+      "metadata": {
+        "tags": [
+          "domain",
+          "activity"
+        ],
+        "note": "1 row: link 1, source type 21, fraction 1.0 (invented row 2 of 3). The default database's has 0 rows, so MOVES's row merge is this table.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecdomain": {
+      "kind": "static",
+      "source": {
+        "url_template": "./washtenaw-project/runspecdomain.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecdomain"
+      },
+      "metadata": {
+        "tags": [
+          "scope",
+          "domain"
+        ],
+        "note": "1 row, modelDomain PROJECT, read by tools/build-scale-input-db.py from scale-project.xml's `<modeldomain value=\"PROJECT\"/>`.",
+        "esio_format": "parquet"
+      }
+    }
+  },
+  "metaparameters": {
+    "n_outputRate": {
+      "type": "integer",
+      "default": 375,
+      "description": "How many (pollutant-process, cohort) PAIRS reach MOVESOutput, summed over the run's emitted blocks. Declared here as well as in the model it mounts for the reason the numbers around it are (docs/esm-conventions.md §49.1): this is the relay that lets a per-fixture document set it. It replaces `n_outputCohort` and `n_outputPolProcess`, which between them could describe only a rectangle. 375 is `process-tirewear`'s, three blocks of 125; a run with one emitted block of 125 needs 125, `expand-fueltype-diesel` 248, `expand-sourcetype` 430 and `expand-criteria` 372. `rateSurvivorCount` recomputes it, so it is a CHECKED declaration."
+    },
+    "n_sourceBin": {
+      "type": "integer",
+      "default": 1,
+      "description": "How many source bins the widest cohort of the run holds. Declared here as well as in the model it mounts for the reason the two numbers above it are (docs/esm-conventions.md §49.1): this is the relay that lets a per-fixture document set it. 1 is right for a run whose cohorts are single-binned -- a passenger car's are, and so the bin relation is that run's cohort relation row for row -- and a run that selects a light commercial truck needs 2, a refuse truck 8. `run_sourceBinsDropped` recomputes whether the value is enough, so it is a CHECKED declaration."
+    },
+    "n_physicsRow": {
+      "type": "integer",
+      "default": 1,
+      "description": "How many rows of `sourceusetypephysics` the run's source types select between them -- the width of the drive-cycle axis. Declared here as well as in the model it mounts for the reason the three numbers above it are (docs/esm-conventions.md §49.1): this is the relay that lets a per-fixture document set it. The vehicle a drive cycle is computed for is keyed by (sourceTypeID, regClassID, model-year range), so 1 is right for a motorcycle or a passenger car, a light commercial truck alone needs 3, source types 21 and 32 together 4, and the five of `expand-sourcetype` 40. `run_physicsRowsSelected` recomputes it and `run_physicsRowsDropped` says whether it is enough, so it is a CHECKED declaration."
+    }
+  },
+  "models": {
+    "Onroad": {
+      "ref": "../onroad/default-database.esm",
+      "bindings": {
+        "n_outputRate": "n_outputRate",
+        "n_sourceBin": "n_sourceBin",
+        "n_physicsRow": "n_physicsRow"
+      }
+    }
+  }
+}
