@@ -81,6 +81,17 @@ short declaration. It is zero for every (source type, regulatory class) pair the
 default database's `samplevehiclepopulation` carries, and a county database that
 added a regulatory class would find out here rather than in a low number.
 
+`run_domainUnported` is a FIFTH kind, and it guards the run's DOMAIN (PLAN.md
+§7.3.40). A PROJECT-domain run takes its SHO from its links and its running
+operating modes from the link's own drive-schedule blend, and the model does
+that for one link in one county, for running exhaust, inside the drive
+schedules' speed range. Every way past those limits -- two links on one road
+type, a second county, brake wear or tire wear or a start or evaporative process
+on a project, an out-of-bounds bracket MOVES itself refuses -- would emit a
+plausible number rather than none, so the model counts them, together with a
+DEFAULT-domain run that carries a linkSourceTypeHour row only ProjectTAG reads,
+and this asserts the count is 0.
+
 The cohort key gained its source type at 7d, and the third line is what says so:
 `runspecs/expand-fueltype-diesel.esm` emits 125 cohorts under source type 21 and
 123 under 32, and (modelYearID, fuelTypeID) alone counts 164 of them -- the union
@@ -121,6 +132,7 @@ def main(emitted_path, shape_path):
     unphysical = int(float(shape[0]["run_rateRowsWithoutPhysics"]))
     undeep = int(float(shape[0]["run_chainDepthExceeded"]))
     offnet = int(float(shape[0]["run_offNetworkLinkCount"]))
+    unported = int(float(shape[0]["run_domainUnported"]))
 
     def distinct(*cols):
         return {tuple(r[c] for c in cols) for r in rows}
@@ -172,6 +184,13 @@ def main(emitted_path, shape_path):
                         "OFF-NETWORK road type, where SourceHours is SHP and "
                         "not SHO: the evaporative fractionOfOperating is "
                         "dividing SHO by a copy of itself" % offnet)
+    if unported:
+        problems.append("%d thing(s) this run asks of its DOMAIN that the model "
+                        "does not do (run_domainUnported): a runspecdomain that "
+                        "is not one row, or in PROJECT domain a county without "
+                        "exactly one link, a second county, an emitted process "
+                        "other than running exhaust or an out-of-bounds bracket, "
+                        "or outside it a linkSourceTypeHour row" % unported)
     if problems:
         for p in problems:
             print(p)

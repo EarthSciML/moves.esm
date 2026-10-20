@@ -49,11 +49,15 @@ so.
                           pollutant-process claims an output block and the three
                           collide in the one that exists.
 
-THREE FILES PER PROBE, because the chain is three documents and each carries
-relative paths that have to keep resolving: the model beside its original (its
-`expression_template_imports`), the domain document at the repo root (it names
-`./movesdb/`) and the per-fixture document beside its original (its snapshot
-URLs). They are generated rather than checked in for the reason
+ONE FILE PER DOCUMENT OF THE CHAIN, because each carries relative paths that
+have to keep resolving: the model beside its original (its
+`expression_template_imports`), every document between the per-fixture one and
+the model beside ITS original -- since step 7f that is two, the run's domain
+document (`moves-onroad.esm` at the root, or a scale-input database's in
+`inputs/`) and `onroad/default-database.esm`, which names `../movesdb/` -- and
+the per-fixture document beside its original (its snapshot URLs). The chain is
+walked from the per-fixture document's `ref` rather than named here, so a run
+that mounts a different domain document is probed through its own. They are generated rather than checked in for the reason
 `tools/make-index-set-probe.py` gives: a probe is defined by its DIFFERENCE from
 the real document, and a checked-in copy drifts from the thing it differs from.
 """
@@ -61,7 +65,6 @@ import json, os, sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 LOGIC = os.path.join(ROOT, "onroad", "model.esm")
-DOMAIN = os.path.join(ROOT, "moves-onroad.esm")
 
 LINK_EQUATIONS = ("run_linkID", "run_countyID", "run_zoneID", "run_linkRoadTypeID")
 
@@ -73,16 +76,17 @@ def no_link_join(logic, fixture):
             rhs = eq["rhs"]
             assert rhs["join"][0]["on"][0] == ["lnk_countyID", "rsc_countyID"], eq["lhs"]
             del rhs["join"]
-            del rhs["ranges"]["c"]
             del rhs["ranges"]["w"]
             dropped += 1
     if dropped != len(LINK_EQUATIONS):
         sys.exit("expected %d link equations, edited %d" % (len(LINK_EQUATIONS), dropped))
-    # rsc_countyID is now read by nothing, and an ingesting document may not
-    # declare a source no variable reads -- so the probe drops the variable too,
-    # which is exactly the state this document was in before 7c'.
-    del logic["models"]["Onroad"]["variables"]["rsc_countyID"]
-    del fixture["data_sources"]["db_runspeccounty"]
+    # The county range `c` and `rsc_countyID` STAY. Until 2026-10-19 this probe
+    # deleted both, which left the four equations an output index with no range
+    # and every other join on the county id -- the barometric pressure's, and
+    # since step 7f the project link's -- unresolvable, so the probe document
+    # did not compile and "moved" the run by not evaluating it (PLAN.md
+    # §7.3.40). Without the join each county's row sums the national table,
+    # which is the defect the probe exists to show.
 
 
 def no_road_type_filter(logic, fixture):
@@ -148,7 +152,6 @@ PROBES = {"no-link-join": no_link_join,
 
 def main(which, runspec, out_path):
     logic = json.load(open(LOGIC))
-    domain = json.load(open(DOMAIN))
     # A runspec lives in `runspecs/` or, if its model work is not finished, in
     # `runspecs/pending/`. The probe is written beside whichever one it copies,
     # so the snapshot URLs keep resolving.
@@ -162,21 +165,37 @@ def main(which, runspec, out_path):
 
     PROBES[which](logic, fixture)
 
-    base = os.path.basename(out_path)
-    logic_path = os.path.join(ROOT, "onroad", "." + base.lstrip(".").replace(".esm", "_logic.esm"))
-    domain_path = os.path.join(ROOT, "." + base.lstrip(".").replace(".esm", "_domain.esm"))
-
+    base = os.path.basename(out_path).lstrip(".").replace(".esm", "")
+    logic_path = os.path.join(ROOT, "onroad", ".%s_logic.esm" % base)
     json.dump(logic, open(logic_path, "w"), indent=2)
-    # Re-point the ref and NOTHING else: a `bindings` block dropped here would
-    # silently reshape the probe's output and the comparison would report the
-    # wrong difference.
-    domain["models"]["Onroad"]["ref"] = "./onroad/" + os.path.basename(logic_path)
-    json.dump(domain, open(domain_path, "w"), indent=2)
-    fixture["models"]["Onroad"]["ref"] = os.path.relpath(
-        domain_path, os.path.dirname(os.path.abspath(out_path)))
+    written = [logic_path]
+
+    # The documents between the fixture and the model, outermost first.
+    chain = []
+    here = os.path.abspath(candidate)
+    doc = fixture
+    while True:
+        ref = os.path.normpath(os.path.join(os.path.dirname(here), doc["models"]["Onroad"]["ref"]))
+        if ref == os.path.abspath(LOGIC):
+            break
+        here = ref
+        doc = json.load(open(ref))
+        chain.append((ref, doc))
+    # Innermost first, so each copy's ref can name the copy below it. Re-point
+    # the ref and NOTHING else: a `bindings` block dropped here would silently
+    # reshape the probe's output and the comparison would report the wrong
+    # difference.
+    below = logic_path
+    for i, (orig, doc) in reversed(list(enumerate(chain))):
+        copy = os.path.join(os.path.dirname(orig), ".%s_chain%d.esm" % (base, i))
+        doc["models"]["Onroad"]["ref"] = os.path.relpath(below, os.path.dirname(copy))
+        json.dump(doc, open(copy, "w"), indent=2)
+        written.append(copy)
+        below = copy
+    fixture["models"]["Onroad"]["ref"] = os.path.relpath(below, os.path.dirname(os.path.abspath(out_path)))
     json.dump(fixture, open(out_path, "w"), indent=2)
-    print(logic_path)
-    print(domain_path)
+    for path in written:
+        print(path)
 
 
 if __name__ == "__main__":

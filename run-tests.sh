@@ -136,6 +136,13 @@ COVERAGE_DAG=../moves.rs/characterization/calculator-chains/calculator-dag.json
 # `moves-nonroad.esm` and `nonroad/` are excluded for the same reason, and the
 # 7e stage asserts both refusals the same way.
 #
+# `inputs/` is excluded for it too. Since step 7f a run's catalogue is two
+# layers -- its DOMAIN (the domain-owned tables and the RunSpec's
+# `<modeldomain>`) above `onroad/default-database.esm` -- and `moves-onroad.esm`
+# is the DEFAULT domain's; a scale-input database's document in `inputs/` is a
+# SINGLE-county or PROJECT one's. Each names the runspec sources it does not
+# declare, and the 7c'/7d stage asserts every refusal.
+#
 # `runspecs/` is NOT excluded: a per-fixture document is the complete chain and
 # validates alone, which is the whole point of the split. `runspecs/pending/` is
 # not excluded either, and for the same reason: a RunSpec whose model work is
@@ -145,6 +152,7 @@ mapfile -t DOCS < <(find . -name '*.esm' -not -name '.*' \
   -not -path './.fixtures-run/*' -not -path './spikes/*' \
   -not -path './onroad/*' \
   -not -path './moves-onroad.esm' \
+  -not -path './inputs/*' \
   -not -path './nonroad/*' \
   -not -path './moves-nonroad.esm' \
   | sort)
@@ -1583,6 +1591,18 @@ C7P_DOMAIN=moves-onroad.esm
 # computed exactly-zero on an on-network link; the shape check's
 # `run_offNetworkLinkCount` is what turns its absence into a failure the day a
 # RunSpec selects road type 1. All 64 cells at 7.517e-06 on the first run.
+# `scale-project` is the first run whose input is NOT the default database
+# alone (step 7f, PLAN.md §7.3.40). It mounts `inputs/washtenaw-project.esm`,
+# its PROJECT database, where every other document here mounts
+# `moves-onroad.esm`; both declare the run's domain and the tables MOVES merges
+# differently by domain (`link`, which a PROJECT run does not take from the
+# default database at all, and `linkSourceTypeHour`) and mount
+# `onroad/default-database.esm` for the rest. The model switches three things
+# on the domain: ProjectTAG's SHO, the link's own operating-mode distribution
+# for running exhaust, and LINK-level geography in the output. It reproduced
+# all 125 cells at 9.123e-06 on its first run, and `run_domainUnported` --
+# checked for every document here -- is what says the run asked the domain for
+# nothing the model does not do.
 mapfile -t RUNSPECS < <(find runspecs -maxdepth 1 -name '*.esm' -not -name '.*' 2>/dev/null | sort)
 mapfile -t RUNSPECS_PENDING < <(find runspecs/pending -maxdepth 1 -name '*.esm' -not -name '.*' 2>/dev/null | sort)
 
@@ -1600,16 +1620,22 @@ elif [[ ${#RUNSPECS[@]} -eq 0 ]]; then
 else
   # 1. The data-open control, two-sided like 7c's. The domain document must NOT
   #    validate alone: the day it does, it has acquired a runspec of its own and
-  #    the per-fixture documents have stopped being what configure it.
-  out=$("$ESM" validate "$C7P_DOMAIN" 2>&1)
-  if [[ $? -eq 0 ]]; then
-    fail "7c' data-open control — $C7P_DOMAIN now validates ALONE. It has acquired a runspec, and the per-fixture documents below stop being what configure it"
-  elif grep -q "names data source 'db_runspec" <<<"$out"; then
-    pass "7c' — the domain document is data-open: it declares no runspec"
-  else
-    fail "7c' data-open control — $C7P_DOMAIN was refused, but not for its missing runspec sources"
-    sed 's/^/       /' <<<"$out" | head -4
-  fi
+  #    the per-fixture documents have stopped being what configure it. Since
+  #    step 7f there is one domain document per DOMAIN -- `moves-onroad.esm` for
+  #    a DEFAULT-domain run and one per scale-input database in `inputs/` -- and
+  #    each is held to the same refusal.
+  mapfile -t C7P_DOMAINS < <(echo "$C7P_DOMAIN"; find inputs -maxdepth 1 -name '*.esm' -not -name '.*' 2>/dev/null | sort)
+  for dom in "${C7P_DOMAINS[@]}"; do
+    out=$("$ESM" validate "$dom" 2>&1)
+    if [[ $? -eq 0 ]]; then
+      fail "7c' data-open control — $dom now validates ALONE. It has acquired a runspec, and the per-fixture documents below stop being what configure it"
+    elif grep -q "names data source 'db_runspec" <<<"$out"; then
+      pass "7c' — $dom is data-open: it declares no runspec"
+    else
+      fail "7c' data-open control — $dom was refused, but not for its missing runspec sources"
+      sed 's/^/       /' <<<"$out" | head -4
+    fi
+  done
 
   # Each document validates and round-trips under stages 1 and 4 already --
   # `runspecs/` is in DOCS, unlike the `spikes/7c/` copy this stage used to
@@ -1646,6 +1672,7 @@ else
          --observed run_rateRowsWithoutPhysics \
          --observed run_chainDepthExceeded \
          --observed run_offNetworkLinkCount \
+         --observed run_domainUnported \
          --output "$RS_SHAPE" >/dev/null 2>&1; then
       if out=$("$PYTHON" tools/check-runspec-shape.py "$RS_CSV" "$RS_SHAPE" 2>&1); then
         pass "$rsname — the emitted shape is what the chain recomputes: $out"
@@ -1703,15 +1730,22 @@ else
       fail "$pname probe — could not write it"
       continue
     fi
-    if "$ESM" simulate "$RS_PROBE" --time 0 --format csv "${c7_obs[@]}" \
-         --output "$RUNDIR/$pname.probe.csv" >/dev/null 2>&1 \
-       && "$ESM" simulate "$RS_PROBE" --time 0 --format csv \
+    # A probe that does not EVALUATE has not moved anything, and until
+    # 2026-10-19 `no-link-join` did not: it deleted the county id the other
+    # joins on it still named, the document refused to compile, and the check
+    # below read the refusal as a move (PLAN.md §7.3.40). So evaluation is
+    # required first, and only then is a moved relation a pass.
+    if ! "$ESM" simulate "$RS_PROBE" --time 0 --format csv "${c7_obs[@]}" \
+         --output "$RUNDIR/$pname.probe.csv" >/dev/null 2>&1; then
+      fail "$pname probe — the probe document does not evaluate, so it measures nothing about $prun"
+    elif "$ESM" simulate "$RS_PROBE" --time 0 --format csv \
             --observed rateSurvivorCount --observed outputPolProcessCount --observed cohortSurvivorCount \
             --observed run_sourceBinsDropped \
             --observed run_physicsRowsDropped \
             --observed run_rateRowsWithoutPhysics \
          --observed run_chainDepthExceeded \
          --observed run_offNetworkLinkCount \
+         --observed run_domainUnported \
             --output "$RUNDIR/$pname.probe.shape.csv" >/dev/null 2>&1 \
        && cmp -s "$RUNDIR/$prun.runspec.csv" "$RUNDIR/$pname.probe.csv" \
        && "$PYTHON" tools/check-runspec-shape.py \
@@ -1721,7 +1755,7 @@ else
       pass "$pname — deleting it moves $prun"
     fi
     rm -f "$RUNDIR/$pname.probe.csv" "$RUNDIR/$pname.probe.shape.csv"
-    # shellcheck disable=SC2086 -- two newline-separated paths, neither with spaces
+    # shellcheck disable=SC2086 -- newline-separated paths (the model and each document between it and the run), none with spaces
     rm -f "$RS_PROBE" $RS_EXTRA
   done
 
