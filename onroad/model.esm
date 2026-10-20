@@ -1210,6 +1210,22 @@
     "hotellingzonecandidate_rows": {
       "kind": "interval",
       "size": 3
+    },
+    "shorepowercohort_rows": {
+      "kind": "interval",
+      "size": {
+        "op": "*",
+        "args": [
+          "n_runspecpollutantprocess",
+          {
+            "op": "*",
+            "args": [
+              "n_agecategory",
+              "n_runspecsourcefueltype"
+            ]
+          }
+        ]
+      }
     }
   },
   "enums": {
@@ -1229,7 +1245,8 @@
       "RefuelingDisplacementLoss": 18,
       "RefuelingSpillageLoss": 19,
       "EvapPermeation": 11,
-      "EvapFuelVaporVenting": 12
+      "EvapFuelVaporVenting": 12,
+      "HotellingShorePower": 93
     },
     "fuel_type": {
       "Electricity": 9,
@@ -1324,7 +1341,8 @@
             "nox_humidity_cfr86",
             "nox_humidity_cfr1065",
             "nox_temperature_adjustment",
-            "quadratic_temperature_adjustment"
+            "quadratic_temperature_adjustment",
+            "adjusted_mean_base_rate"
           ]
         },
         {
@@ -10769,7 +10787,7 @@
           "shape": [
             "run_rows"
           ],
-          "description": "3, computed from the chain, so `n_outputPolProcess` is a CHECKED declaration rather than a transcription -- the companion of `cohortSurvivorCount` on the other output axis."
+          "description": "3, computed from the chain, so `n_outputPolProcess` is a CHECKED declaration rather than a transcription -- the companion of `cohortSurvivorCount` on the other output axis. A process-93 block a retagging pollutant-process adds is a block."
         },
         "sta_ageFraction": {
           "type": "unknown",
@@ -15449,7 +15467,7 @@
           "shape": [
             "ratecohort_rows"
           ],
-          "description": "Does ANY rate row of this (pollutant-process, cohort) pair put a number in MOVESOutput? The OR over the cohort's source bins of `rt_emits`. It is NOT the same question as whether the pair is emitted: six of `expand-criteria`'s eight selected pollutant-processes have rate rows that emit and only three of them happen on a road, so this counts 744 pairs where the run emits 372."
+          "description": "Does ANY rate row of this (pollutant-process, cohort) pair put a number in MOVESOutput? The OR over the cohort's source bins of `rt_emits`. It is NOT the same question as whether the pair is emitted: six of `expand-criteria`'s eight selected pollutant-processes have rate rows that emit and only three of them happen on a road, so this counts 744 pairs where the run emits 372. On a retagging pollutant-process it asks of the modes the block keeps (`rt_ownBlockEmits`)."
         },
         "pcoh_emits": {
           "type": "unknown",
@@ -15489,7 +15507,7 @@
           "shape": [
             "run_rows"
           ],
-          "description": "How many (pollutant-process, cohort) pairs emit, computed from the chain, so `n_outputRate` is a CHECKED declaration rather than a transcription. It equals `outputPolProcessCount` x `cohortSurvivorCount` exactly when the run is a rectangle, and is LESS when a chained block is narrower than its parent; run-tests.sh prints which."
+          "description": "How many (pollutant-process, cohort) pairs emit, computed from the chain, so `n_outputRate` is a CHECKED declaration rather than a transcription. It equals `outputPolProcessCount` x `cohortSurvivorCount` exactly when the run is a rectangle, and is LESS when a chained block is narrower than its parent; run-tests.sh prints which. It counts the process-93 pairs a retagging pollutant-process adds (`spc_emits`) as well."
         },
         "rt_outputOrdinal": {
           "type": "unknown",
@@ -15593,7 +15611,7 @@
           "shape": [
             "output_rows"
           ],
-          "description": "Its process: 1 or 9. A KEY column is read from the relation that OWNS it -- this one from the cohort relation through the rank, not from the rate relation through `rt_outputOrdinal` -- because since 7e several rate rows can share an output row and a `sum_product` over them would add their keys together. The VALUE columns below keep the rate join, where that sum is the point."
+          "description": "Its process: 1 or 9. A KEY column is read from the relation that OWNS it -- this one from the cohort relation through the rank, not from the rate relation through `rt_outputOrdinal` -- because since 7e several rate rows can share an output row and a `sum_product` over them would add their keys together. The VALUE columns below keep the rate join, where that sum is the point. On a shore-power row it is 93, which the calculator wrote and the RunSpec never selected."
         },
         "out_meanBaseRate": {
           "type": "unknown",
@@ -17037,6 +17055,210 @@
             "run_rows"
           ],
           "description": "hotellingHourFraction, hotellingAgeFraction and hotellingMonthAdjust rows at the run's zones, in a run that selects a hotelling process: AdjustHotelling.sql's three other adjustments, which this model does not port. 0 everywhere here -- all three tables are empty in every database the corpus has."
+        },
+        "rspp_retagsShorePower": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecpollutantprocess_rows"
+          ],
+          "description": "Whether this pollutant-process's SHORE-POWER rates are reported under another process: auxiliary power (91). baseratecalculator.go:1021-1037 rewrites a process-91 block at operating mode 203 to process 93, 'Hotelling Shore Power', so that the output for that mode is not aggregated together with the APU's 201 -- and leaves its polProcessID at 91's, so every lookup the block makes afterwards is the APU pollutant-process's. The RunSpec never selects 93; the calculator writes it."
+        },
+        "hot_isShorePowerMode": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecpollutantprocess_rows",
+            "operating_mode_rows"
+          ],
+          "description": "1 at shore power (203) on a pollutant-process that retags it: the modes whose rates leave the pollutant-process's own block for process 93's."
+        },
+        "rtDay_meanBaseRateShorePower": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows",
+            "runspecday_rows",
+            "runspeccounty_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "The SHORE-POWER part of the rate row's collapsed base rate: the shore-power modes `rtDay_meanBaseRate` leaves out, under the same hotelling weights and the same hourFractionAdjust (opModeFraction of 203). 0 on every rate row whose pollutant-process does not retag. Per month only so that it sits on the axes the rest of the rate path does."
+        },
+        "rtDay_meanBaseRateACAdjShorePower": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows",
+            "runspecday_rows",
+            "runspeccounty_rows"
+          ],
+          "description": "The shore-power part of the incremental A/C load. Zero in every database here -- fullACAdjustment is 1 at 9191 -- and computed rather than assumed, because the Go adds A/C to a process-93 block as to any block not at process 2."
+        },
+        "rtDay_adjustedMeanBaseRateShorePower": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows",
+            "runspecday_rows",
+            "runspeccounty_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "S15 on the shore-power part, with the rate row's own factors: the Go keeps the block's polProcessID at the APU's, so every adjustment it looks up afterwards is the APU pollutant-process's."
+        },
+        "rtDay_quantShorePower": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows",
+            "runspecday_rows",
+            "runspeccounty_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "S17 and S18 on the shore-power part: rate x the same hotelling activity, in the output's units. What process 93's rows carry."
+        },
+        "rt_shorePowerRateRows": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "How many rows of either rate table carry this rate row's source bin at shore power (203)."
+        },
+        "rt_otherModeRateRows": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "How many carry it at any other mode."
+        },
+        "rt_retagsShorePower": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "Whether the rate row's pollutant-process retags its shore-power rates."
+        },
+        "rt_ownBlockEmits": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "Whether the rate row puts a number in its OWN pollutant-process's block: `rt_emits`, and on a retagging pollutant-process only where it has a rate at a mode the retag leaves -- a CNG truck's APU rates are all shore power, so it has a process-93 row and no process-91 one."
+        },
+        "rt_shorePowerEmits": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "Whether the rate row puts a number in a process-93 block: a retagging pollutant-process's row that is selected and rated at shore power."
+        },
+        "spc_polProcOrdinal": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "shorepowercohort_rows"
+          ],
+          "description": "THE SHORE-POWER PAIR RELATION: (pollutant-process, cohort) like `ratecohort_rows`, one row per pair that COULD carry a process-93 block. A separate relation rather than a second slot of `ratecohort_rows`, so that no rank an existing RunSpec emits can move. Which pollutant-process."
+        },
+        "spc_cohortOrdinal": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "shorepowercohort_rows"
+          ],
+          "description": "Which cohort candidate."
+        },
+        "spc_emittingRateRows": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "shorepowercohort_rows"
+          ],
+          "description": "How many of the pair's rate rows emit at shore power."
+        },
+        "rspp_shorePowerKept": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecpollutantprocess_rows"
+          ],
+          "description": "Whether the pollutant-process's process-93 block is kept: it happens on a selected road type and is a selection, the two tests `rspp_isEmitted` makes beside the rate test."
+        },
+        "spc_emits": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "shorepowercohort_rows"
+          ],
+          "description": "Does the pair emit a process-93 row?"
+        },
+        "spc_prefixEmits": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "shorepowercohort_rows"
+          ],
+          "description": "Inclusive prefix count of `spc_emits` (docs/esm-conventions.md 22)."
+        },
+        "ownRateSurvivorCount": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "run_rows"
+          ],
+          "description": "The own blocks' emitted pairs: what `rateSurvivorCount` was before shore power, and the offset the process-93 pairs are ranked after."
+        },
+        "spc_rateOrdinal": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "shorepowercohort_rows"
+          ],
+          "description": "The pair's dense rank in the output relation, AFTER every own-block pair, and 0 for a pair that does not emit."
+        },
+        "spc_outputBlockOrdinal": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "shorepowercohort_rows"
+          ],
+          "description": "The block of the pollutant-process the pair retags from, as the own pairs carry it: the output's pollutant and road type are its."
+        },
+        "spc_cohortRank": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "shorepowercohort_rows"
+          ],
+          "description": "The cohort's global rank, as `pcoh_cohortRank`."
+        },
+        "rt_shorePowerOutputOrdinal": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "Where the rate row's shore-power part lands in the output relation, 0 if nowhere."
+        },
+        "rspp_shorePowerPairs": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecpollutantprocess_rows"
+          ],
+          "description": "How many process-93 pairs the pollutant-process emits."
+        },
+        "outIsShorePower": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "output_rows"
+          ],
+          "description": "1 on a process-93 row."
         }
       },
       "equations": [
@@ -19985,6 +20207,29 @@
                           "AuxiliaryPowerExhaust"
                         ]
                       }
+                    ]
+                  }
+                ]
+              },
+              1.0,
+              0.0
+            ]
+          }
+        },
+        {
+          "lhs": "rspp_retagsShorePower",
+          "rhs": {
+            "op": "ifelse",
+            "args": [
+              {
+                "op": "==",
+                "args": [
+                  "rspp_processID",
+                  {
+                    "op": "enum",
+                    "args": [
+                      "process",
+                      "AuxiliaryPowerExhaust"
                     ]
                   }
                 ]
@@ -38274,10 +38519,22 @@
               "op": "*",
               "args": [
                 {
-                  "op": "index",
+                  "op": "max",
                   "args": [
-                    "rt_emits",
-                    "b"
+                    {
+                      "op": "index",
+                      "args": [
+                        "rt_emits",
+                        "b"
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "rt_shorePowerEmits",
+                        "b"
+                      ]
+                    }
                   ]
                 },
                 {
@@ -40366,27 +40623,62 @@
         {
           "lhs": "outputPolProcessCount",
           "rhs": {
-            "op": "faq",
-            "args": [],
-            "semiring": "sum_product",
-            "output_idx": [
-              "k"
-            ],
-            "ranges": {
-              "k": {
-                "from": "run_rows"
+            "op": "+",
+            "args": [
+              {
+                "op": "faq",
+                "args": [],
+                "semiring": "sum_product",
+                "output_idx": [
+                  "k"
+                ],
+                "ranges": {
+                  "k": {
+                    "from": "run_rows"
+                  },
+                  "p": {
+                    "from": "runspecpollutantprocess_rows"
+                  }
+                },
+                "expr": {
+                  "op": "index",
+                  "args": [
+                    "rspp_isEmitted",
+                    "p"
+                  ]
+                }
               },
-              "p": {
-                "from": "runspecpollutantprocess_rows"
+              {
+                "op": "faq",
+                "args": [],
+                "semiring": "sum_product",
+                "output_idx": [
+                  "k"
+                ],
+                "ranges": {
+                  "k": {
+                    "from": "run_rows"
+                  },
+                  "p": {
+                    "from": "runspecpollutantprocess_rows"
+                  }
+                },
+                "expr": {
+                  "op": "apply_expression_template",
+                  "args": [],
+                  "name": "row_is_present",
+                  "bindings": {
+                    "match_count": {
+                      "op": "index",
+                      "args": [
+                        "rspp_shorePowerPairs",
+                        "p"
+                      ]
+                    }
+                  }
+                }
               }
-            },
-            "expr": {
-              "op": "index",
-              "args": [
-                "rspp_isEmitted",
-                "p"
-              ]
-            }
+            ]
           }
         },
         {
@@ -40697,20 +40989,39 @@
                               "op": "*",
                               "args": [
                                 {
-                                  "op": "index",
+                                  "op": "*",
                                   "args": [
-                                    "hot_modeWeight",
-                                    "p",
-                                    "m"
+                                    {
+                                      "op": "index",
+                                      "args": [
+                                        "hot_modeWeight",
+                                        "p",
+                                        "m"
+                                      ]
+                                    },
+                                    {
+                                      "op": "index",
+                                      "args": [
+                                        "cohMode_hotellingWeight",
+                                        "c",
+                                        "m",
+                                        "g"
+                                      ]
+                                    }
                                   ]
                                 },
                                 {
-                                  "op": "index",
+                                  "op": "-",
                                   "args": [
-                                    "cohMode_hotellingWeight",
-                                    "c",
-                                    "m",
-                                    "g"
+                                    1.0,
+                                    {
+                                      "op": "index",
+                                      "args": [
+                                        "hot_isShorePowerMode",
+                                        "p",
+                                        "m"
+                                      ]
+                                    }
                                   ]
                                 }
                               ]
@@ -40882,20 +41193,39 @@
                           "op": "*",
                           "args": [
                             {
-                              "op": "index",
+                              "op": "*",
                               "args": [
-                                "hot_modeWeight",
-                                "p",
-                                "m"
+                                {
+                                  "op": "index",
+                                  "args": [
+                                    "hot_modeWeight",
+                                    "p",
+                                    "m"
+                                  ]
+                                },
+                                {
+                                  "op": "index",
+                                  "args": [
+                                    "cohMode_hotellingWeight",
+                                    "c",
+                                    "m",
+                                    "g"
+                                  ]
+                                }
                               ]
                             },
                             {
-                              "op": "index",
+                              "op": "-",
                               "args": [
-                                "cohMode_hotellingWeight",
-                                "c",
-                                "m",
-                                "g"
+                                1.0,
+                                {
+                                  "op": "index",
+                                  "args": [
+                                    "hot_isShorePowerMode",
+                                    "p",
+                                    "m"
+                                  ]
+                                }
                               ]
                             }
                           ]
@@ -56041,108 +56371,85 @@
               }
             },
             "expr": {
-              "op": "/",
-              "args": [
-                {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "adjusted_mean_base_rate",
+              "bindings": {
+                "mean_base_rate": {
+                  "op": "index",
+                  "args": [
+                    "rtDay_meanBaseRate",
+                    "b",
+                    "k",
+                    "g",
+                    "m"
+                  ]
+                },
+                "ac_factor": {
+                  "op": "index",
+                  "args": [
+                    "rt_acFactor",
+                    "b",
+                    "g",
+                    "m"
+                  ]
+                },
+                "mean_base_rate_ac_adj": {
+                  "op": "index",
+                  "args": [
+                    "rtDay_meanBaseRateACAdj",
+                    "b",
+                    "k",
+                    "g"
+                  ]
+                },
+                "fuel_effect_ratio": {
                   "op": "*",
                   "args": [
                     {
-                      "op": "*",
+                      "op": "index",
                       "args": [
-                        {
-                          "op": "*",
-                          "args": [
-                            {
-                              "op": "+",
-                              "args": [
-                                {
-                                  "op": "index",
-                                  "args": [
-                                    "rtDay_meanBaseRate",
-                                    "b",
-                                    "k",
-                                    "g",
-                                    "m"
-                                  ]
-                                },
-                                {
-                                  "op": "*",
-                                  "args": [
-                                    {
-                                      "op": "index",
-                                      "args": [
-                                        "rt_acFactor",
-                                        "b",
-                                        "g",
-                                        "m"
-                                      ]
-                                    },
-                                    {
-                                      "op": "index",
-                                      "args": [
-                                        "rtDay_meanBaseRateACAdj",
-                                        "b",
-                                        "k",
-                                        "g"
-                                      ]
-                                    }
-                                  ]
-                                }
-                              ]
-                            },
-                            {
-                              "op": "*",
-                              "args": [
-                                {
-                                  "op": "index",
-                                  "args": [
-                                    "rt_criteriaRatio",
-                                    "b",
-                                    "g",
-                                    "m"
-                                  ]
-                                },
-                                {
-                                  "op": "index",
-                                  "args": [
-                                    "rt_baseFuelRatio",
-                                    "b",
-                                    "g",
-                                    "m"
-                                  ]
-                                }
-                              ]
-                            }
-                          ]
-                        },
-                        {
-                          "op": "index",
-                          "args": [
-                            "rt_temperatureFactor",
-                            "b",
-                            "g",
-                            "m"
-                          ]
-                        }
+                        "rt_criteriaRatio",
+                        "b",
+                        "g",
+                        "m"
                       ]
                     },
                     {
                       "op": "index",
                       "args": [
-                        "rt_emissionRateAdjustment",
-                        "b"
+                        "rt_baseFuelRatio",
+                        "b",
+                        "g",
+                        "m"
                       ]
                     }
                   ]
                 },
-                {
+                "temperature_factor": {
+                  "op": "index",
+                  "args": [
+                    "rt_temperatureFactor",
+                    "b",
+                    "g",
+                    "m"
+                  ]
+                },
+                "emission_rate_adjustment": {
+                  "op": "index",
+                  "args": [
+                    "rt_emissionRateAdjustment",
+                    "b"
+                  ]
+                },
+                "ev_energy_divisor": {
                   "op": "index",
                   "args": [
                     "rt_evEnergyDivisor",
                     "b"
                   ]
                 }
-              ]
+              }
             }
           },
           "_comment": "S15's tail, in `baseratecalculator/adjust.rs`'s own order: the criteria fuel-effect ratio (:477-493) -- which scales `meanBaseRate` and `meanBaseRateACAdj` alike, so one factor over the sum is the same number -- then the temperature factor (:495-535) and the A/C addition (:536-568) are the parenthesised sum -- the temperature step scales the A/C term too, so one factor over the sum is the same number -- then J56's model-year factor (:586-603), then the EV efficiency divisor (:611-616). J56 is the LAST of those to be ported and the only one no fixture could see: its table is keyed on the regulatory class as well as the source type, and until `expand-sourcetype` every cohort in this tree missed it."
@@ -62022,7 +62329,7 @@
             "expr": {
               "op": "index",
               "args": [
-                "rt_emits",
+                "rt_ownBlockEmits",
                 "b"
               ]
             }
@@ -62133,27 +62440,55 @@
         {
           "lhs": "rateSurvivorCount",
           "rhs": {
-            "op": "faq",
-            "args": [],
-            "semiring": "sum_product",
-            "output_idx": [
-              "n"
-            ],
-            "ranges": {
-              "n": {
-                "from": "run_rows"
+            "op": "+",
+            "args": [
+              {
+                "op": "faq",
+                "args": [],
+                "semiring": "sum_product",
+                "output_idx": [
+                  "n"
+                ],
+                "ranges": {
+                  "n": {
+                    "from": "run_rows"
+                  },
+                  "r": {
+                    "from": "ratecohort_rows"
+                  }
+                },
+                "expr": {
+                  "op": "index",
+                  "args": [
+                    "pcoh_emits",
+                    "r"
+                  ]
+                }
               },
-              "r": {
-                "from": "ratecohort_rows"
+              {
+                "op": "faq",
+                "args": [],
+                "semiring": "sum_product",
+                "output_idx": [
+                  "n"
+                ],
+                "ranges": {
+                  "n": {
+                    "from": "run_rows"
+                  },
+                  "r": {
+                    "from": "shorepowercohort_rows"
+                  }
+                },
+                "expr": {
+                  "op": "index",
+                  "args": [
+                    "spc_emits",
+                    "r"
+                  ]
+                }
               }
-            },
-            "expr": {
-              "op": "index",
-              "args": [
-                "pcoh_emits",
-                "r"
-              ]
-            }
+            ]
           }
         },
         {
@@ -62199,37 +62534,75 @@
         {
           "lhs": "outPolProcOrdinal",
           "rhs": {
-            "op": "faq",
-            "args": [],
-            "semiring": "sum_product",
-            "output_idx": [
-              "o"
-            ],
-            "ranges": {
-              "o": {
-                "from": "output_rows"
-              },
-              "r": {
-                "from": "ratecohort_rows"
-              }
-            },
-            "join": [
+            "op": "+",
+            "args": [
               {
-                "on": [
-                  [
-                    "outRateOrdinal",
-                    "pcoh_rateOrdinal"
+                "op": "faq",
+                "args": [],
+                "semiring": "sum_product",
+                "output_idx": [
+                  "o"
+                ],
+                "ranges": {
+                  "o": {
+                    "from": "output_rows"
+                  },
+                  "r": {
+                    "from": "ratecohort_rows"
+                  }
+                },
+                "join": [
+                  {
+                    "on": [
+                      [
+                        "outRateOrdinal",
+                        "pcoh_rateOrdinal"
+                      ]
+                    ]
+                  }
+                ],
+                "expr": {
+                  "op": "index",
+                  "args": [
+                    "pcoh_outputBlockOrdinal",
+                    "r"
                   ]
-                ]
+                }
+              },
+              {
+                "op": "faq",
+                "args": [],
+                "semiring": "sum_product",
+                "output_idx": [
+                  "o"
+                ],
+                "ranges": {
+                  "o": {
+                    "from": "output_rows"
+                  },
+                  "r": {
+                    "from": "shorepowercohort_rows"
+                  }
+                },
+                "join": [
+                  {
+                    "on": [
+                      [
+                        "outRateOrdinal",
+                        "spc_rateOrdinal"
+                      ]
+                    ]
+                  }
+                ],
+                "expr": {
+                  "op": "index",
+                  "args": [
+                    "spc_outputBlockOrdinal",
+                    "r"
+                  ]
+                }
               }
-            ],
-            "expr": {
-              "op": "index",
-              "args": [
-                "pcoh_outputBlockOrdinal",
-                "r"
-              ]
-            }
+            ]
           }
         },
         {
@@ -62481,37 +62854,75 @@
         {
           "lhs": "outCohortRank",
           "rhs": {
-            "op": "faq",
-            "args": [],
-            "semiring": "sum_product",
-            "output_idx": [
-              "o"
-            ],
-            "ranges": {
-              "o": {
-                "from": "output_rows"
-              },
-              "r": {
-                "from": "ratecohort_rows"
-              }
-            },
-            "join": [
+            "op": "+",
+            "args": [
               {
-                "on": [
-                  [
-                    "outRateOrdinal",
-                    "pcoh_rateOrdinal"
+                "op": "faq",
+                "args": [],
+                "semiring": "sum_product",
+                "output_idx": [
+                  "o"
+                ],
+                "ranges": {
+                  "o": {
+                    "from": "output_rows"
+                  },
+                  "r": {
+                    "from": "ratecohort_rows"
+                  }
+                },
+                "join": [
+                  {
+                    "on": [
+                      [
+                        "outRateOrdinal",
+                        "pcoh_rateOrdinal"
+                      ]
+                    ]
+                  }
+                ],
+                "expr": {
+                  "op": "index",
+                  "args": [
+                    "pcoh_cohortRank",
+                    "r"
                   ]
-                ]
+                }
+              },
+              {
+                "op": "faq",
+                "args": [],
+                "semiring": "sum_product",
+                "output_idx": [
+                  "o"
+                ],
+                "ranges": {
+                  "o": {
+                    "from": "output_rows"
+                  },
+                  "r": {
+                    "from": "shorepowercohort_rows"
+                  }
+                },
+                "join": [
+                  {
+                    "on": [
+                      [
+                        "outRateOrdinal",
+                        "spc_rateOrdinal"
+                      ]
+                    ]
+                  }
+                ],
+                "expr": {
+                  "op": "index",
+                  "args": [
+                    "spc_cohortRank",
+                    "r"
+                  ]
+                }
               }
-            ],
-            "expr": {
-              "op": "index",
-              "args": [
-                "pcoh_cohortRank",
-                "r"
-              ]
-            }
+            ]
           }
         },
         {
@@ -62626,37 +63037,56 @@
         {
           "lhs": "out_processID",
           "rhs": {
-            "op": "faq",
-            "args": [],
-            "semiring": "sum_product",
-            "output_idx": [
-              "o"
-            ],
-            "ranges": {
-              "o": {
-                "from": "output_rows"
-              },
-              "p": {
-                "from": "runspecpollutantprocess_rows"
-              }
-            },
-            "join": [
+            "op": "ifelse",
+            "args": [
               {
-                "on": [
-                  [
-                    "outPolProcOrdinal",
-                    "rspp_outputOrdinal"
-                  ]
+                "op": ">",
+                "args": [
+                  "outIsShorePower",
+                  0.5
                 ]
+              },
+              {
+                "op": "enum",
+                "args": [
+                  "process",
+                  "HotellingShorePower"
+                ]
+              },
+              {
+                "op": "faq",
+                "args": [],
+                "semiring": "sum_product",
+                "output_idx": [
+                  "o"
+                ],
+                "ranges": {
+                  "o": {
+                    "from": "output_rows"
+                  },
+                  "p": {
+                    "from": "runspecpollutantprocess_rows"
+                  }
+                },
+                "join": [
+                  {
+                    "on": [
+                      [
+                        "outPolProcOrdinal",
+                        "rspp_outputOrdinal"
+                      ]
+                    ]
+                  }
+                ],
+                "expr": {
+                  "op": "index",
+                  "args": [
+                    "rspp_processID",
+                    "p"
+                  ]
+                }
               }
-            ],
-            "expr": {
-              "op": "index",
-              "args": [
-                "rspp_processID",
-                "p"
-              ]
-            }
+            ]
           }
         },
         {
@@ -62935,241 +63365,489 @@
         {
           "lhs": "out_meanBaseRate",
           "rhs": {
-            "op": "faq",
-            "args": [],
-            "semiring": "sum_product",
-            "output_idx": [
-              "o"
-            ],
-            "ranges": {
-              "o": {
-                "from": "output_rows"
-              },
-              "b": {
-                "from": "rate_rows"
-              },
-              "k": {
-                "from": "runspecday_rows"
-              },
-              "g": {
-                "from": "runspeccounty_rows"
-              },
-              "m": {
-                "from": "runspecmonth_rows"
-              }
-            },
-            "join": [
+            "op": "+",
+            "args": [
               {
-                "on": [
-                  [
-                    "outRateOrdinal",
-                    "rt_outputOrdinal"
-                  ],
-                  [
-                    "outDayOrdinal",
-                    "day_ordinal"
-                  ],
-                  [
-                    "outCountyOrdinal",
-                    "rsc_ordinal"
-                  ],
-                  [
-                    "outMonthOrdinal",
-                    "month_ordinal"
+                "op": "faq",
+                "args": [],
+                "semiring": "sum_product",
+                "output_idx": [
+                  "o"
+                ],
+                "ranges": {
+                  "o": {
+                    "from": "output_rows"
+                  },
+                  "b": {
+                    "from": "rate_rows"
+                  },
+                  "k": {
+                    "from": "runspecday_rows"
+                  },
+                  "g": {
+                    "from": "runspeccounty_rows"
+                  },
+                  "m": {
+                    "from": "runspecmonth_rows"
+                  }
+                },
+                "join": [
+                  {
+                    "on": [
+                      [
+                        "outRateOrdinal",
+                        "rt_outputOrdinal"
+                      ],
+                      [
+                        "outDayOrdinal",
+                        "day_ordinal"
+                      ],
+                      [
+                        "outCountyOrdinal",
+                        "rsc_ordinal"
+                      ],
+                      [
+                        "outMonthOrdinal",
+                        "month_ordinal"
+                      ]
+                    ]
+                  }
+                ],
+                "expr": {
+                  "op": "index",
+                  "args": [
+                    "rtDay_meanBaseRate",
+                    "b",
+                    "k",
+                    "g",
+                    "m"
                   ]
-                ]
+                }
+              },
+              {
+                "op": "faq",
+                "args": [],
+                "semiring": "sum_product",
+                "output_idx": [
+                  "o"
+                ],
+                "ranges": {
+                  "o": {
+                    "from": "output_rows"
+                  },
+                  "b": {
+                    "from": "rate_rows"
+                  },
+                  "k": {
+                    "from": "runspecday_rows"
+                  },
+                  "g": {
+                    "from": "runspeccounty_rows"
+                  },
+                  "m": {
+                    "from": "runspecmonth_rows"
+                  }
+                },
+                "join": [
+                  {
+                    "on": [
+                      [
+                        "outRateOrdinal",
+                        "rt_shorePowerOutputOrdinal"
+                      ],
+                      [
+                        "outDayOrdinal",
+                        "day_ordinal"
+                      ],
+                      [
+                        "outCountyOrdinal",
+                        "rsc_ordinal"
+                      ],
+                      [
+                        "outMonthOrdinal",
+                        "month_ordinal"
+                      ]
+                    ]
+                  }
+                ],
+                "expr": {
+                  "op": "index",
+                  "args": [
+                    "rtDay_meanBaseRateShorePower",
+                    "b",
+                    "k",
+                    "g",
+                    "m"
+                  ]
+                }
               }
-            ],
-            "expr": {
-              "op": "index",
-              "args": [
-                "rtDay_meanBaseRate",
-                "b",
-                "k",
-                "g",
-                "m"
-              ]
-            }
+            ]
           }
         },
         {
           "lhs": "out_adjustedMeanBaseRate",
           "rhs": {
-            "op": "faq",
-            "args": [],
-            "semiring": "sum_product",
-            "output_idx": [
-              "o"
-            ],
-            "ranges": {
-              "o": {
-                "from": "output_rows"
-              },
-              "b": {
-                "from": "rate_rows"
-              },
-              "k": {
-                "from": "runspecday_rows"
-              },
-              "g": {
-                "from": "runspeccounty_rows"
-              },
-              "m": {
-                "from": "runspecmonth_rows"
-              }
-            },
-            "join": [
+            "op": "+",
+            "args": [
               {
-                "on": [
-                  [
-                    "outRateOrdinal",
-                    "rt_outputOrdinal"
-                  ],
-                  [
-                    "outDayOrdinal",
-                    "day_ordinal"
-                  ],
-                  [
-                    "outCountyOrdinal",
-                    "rsc_ordinal"
-                  ],
-                  [
-                    "outMonthOrdinal",
-                    "month_ordinal"
+                "op": "faq",
+                "args": [],
+                "semiring": "sum_product",
+                "output_idx": [
+                  "o"
+                ],
+                "ranges": {
+                  "o": {
+                    "from": "output_rows"
+                  },
+                  "b": {
+                    "from": "rate_rows"
+                  },
+                  "k": {
+                    "from": "runspecday_rows"
+                  },
+                  "g": {
+                    "from": "runspeccounty_rows"
+                  },
+                  "m": {
+                    "from": "runspecmonth_rows"
+                  }
+                },
+                "join": [
+                  {
+                    "on": [
+                      [
+                        "outRateOrdinal",
+                        "rt_outputOrdinal"
+                      ],
+                      [
+                        "outDayOrdinal",
+                        "day_ordinal"
+                      ],
+                      [
+                        "outCountyOrdinal",
+                        "rsc_ordinal"
+                      ],
+                      [
+                        "outMonthOrdinal",
+                        "month_ordinal"
+                      ]
+                    ]
+                  }
+                ],
+                "expr": {
+                  "op": "index",
+                  "args": [
+                    "rtDay_adjustedMeanBaseRate",
+                    "b",
+                    "k",
+                    "g",
+                    "m"
                   ]
-                ]
+                }
+              },
+              {
+                "op": "faq",
+                "args": [],
+                "semiring": "sum_product",
+                "output_idx": [
+                  "o"
+                ],
+                "ranges": {
+                  "o": {
+                    "from": "output_rows"
+                  },
+                  "b": {
+                    "from": "rate_rows"
+                  },
+                  "k": {
+                    "from": "runspecday_rows"
+                  },
+                  "g": {
+                    "from": "runspeccounty_rows"
+                  },
+                  "m": {
+                    "from": "runspecmonth_rows"
+                  }
+                },
+                "join": [
+                  {
+                    "on": [
+                      [
+                        "outRateOrdinal",
+                        "rt_shorePowerOutputOrdinal"
+                      ],
+                      [
+                        "outDayOrdinal",
+                        "day_ordinal"
+                      ],
+                      [
+                        "outCountyOrdinal",
+                        "rsc_ordinal"
+                      ],
+                      [
+                        "outMonthOrdinal",
+                        "month_ordinal"
+                      ]
+                    ]
+                  }
+                ],
+                "expr": {
+                  "op": "index",
+                  "args": [
+                    "rtDay_adjustedMeanBaseRateShorePower",
+                    "b",
+                    "k",
+                    "g",
+                    "m"
+                  ]
+                }
               }
-            ],
-            "expr": {
-              "op": "index",
-              "args": [
-                "rtDay_adjustedMeanBaseRate",
-                "b",
-                "k",
-                "g",
-                "m"
-              ]
-            }
+            ]
           }
         },
         {
           "lhs": "out_emissionQuantDirect",
           "rhs": {
-            "op": "faq",
-            "args": [],
-            "semiring": "sum_product",
-            "output_idx": [
-              "o"
-            ],
-            "ranges": {
-              "o": {
-                "from": "output_rows"
-              },
-              "b": {
-                "from": "rate_rows"
-              },
-              "k": {
-                "from": "runspecday_rows"
-              },
-              "g": {
-                "from": "runspeccounty_rows"
-              },
-              "m": {
-                "from": "runspecmonth_rows"
-              }
-            },
-            "join": [
+            "op": "+",
+            "args": [
               {
-                "on": [
-                  [
-                    "outRateOrdinal",
-                    "rt_outputOrdinal"
-                  ],
-                  [
-                    "outDayOrdinal",
-                    "day_ordinal"
-                  ],
-                  [
-                    "outCountyOrdinal",
-                    "rsc_ordinal"
-                  ],
-                  [
-                    "outMonthOrdinal",
-                    "month_ordinal"
+                "op": "faq",
+                "args": [],
+                "semiring": "sum_product",
+                "output_idx": [
+                  "o"
+                ],
+                "ranges": {
+                  "o": {
+                    "from": "output_rows"
+                  },
+                  "b": {
+                    "from": "rate_rows"
+                  },
+                  "k": {
+                    "from": "runspecday_rows"
+                  },
+                  "g": {
+                    "from": "runspeccounty_rows"
+                  },
+                  "m": {
+                    "from": "runspecmonth_rows"
+                  }
+                },
+                "join": [
+                  {
+                    "on": [
+                      [
+                        "outRateOrdinal",
+                        "rt_outputOrdinal"
+                      ],
+                      [
+                        "outDayOrdinal",
+                        "day_ordinal"
+                      ],
+                      [
+                        "outCountyOrdinal",
+                        "rsc_ordinal"
+                      ],
+                      [
+                        "outMonthOrdinal",
+                        "month_ordinal"
+                      ]
+                    ]
+                  }
+                ],
+                "expr": {
+                  "op": "index",
+                  "args": [
+                    "rtDay_quantDirect",
+                    "b",
+                    "k",
+                    "g",
+                    "m"
                   ]
-                ]
+                }
+              },
+              {
+                "op": "faq",
+                "args": [],
+                "semiring": "sum_product",
+                "output_idx": [
+                  "o"
+                ],
+                "ranges": {
+                  "o": {
+                    "from": "output_rows"
+                  },
+                  "b": {
+                    "from": "rate_rows"
+                  },
+                  "k": {
+                    "from": "runspecday_rows"
+                  },
+                  "g": {
+                    "from": "runspeccounty_rows"
+                  },
+                  "m": {
+                    "from": "runspecmonth_rows"
+                  }
+                },
+                "join": [
+                  {
+                    "on": [
+                      [
+                        "outRateOrdinal",
+                        "rt_shorePowerOutputOrdinal"
+                      ],
+                      [
+                        "outDayOrdinal",
+                        "day_ordinal"
+                      ],
+                      [
+                        "outCountyOrdinal",
+                        "rsc_ordinal"
+                      ],
+                      [
+                        "outMonthOrdinal",
+                        "month_ordinal"
+                      ]
+                    ]
+                  }
+                ],
+                "expr": {
+                  "op": "index",
+                  "args": [
+                    "rtDay_quantShorePower",
+                    "b",
+                    "k",
+                    "g",
+                    "m"
+                  ]
+                }
               }
-            ],
-            "expr": {
-              "op": "index",
-              "args": [
-                "rtDay_quantDirect",
-                "b",
-                "k",
-                "g",
-                "m"
-              ]
-            }
+            ]
           }
         },
         {
           "lhs": "out_emissionQuant",
           "rhs": {
-            "op": "faq",
-            "args": [],
-            "semiring": "sum_product",
-            "output_idx": [
-              "o"
-            ],
-            "ranges": {
-              "o": {
-                "from": "output_rows"
-              },
-              "b": {
-                "from": "rate_rows"
-              },
-              "k": {
-                "from": "runspecday_rows"
-              },
-              "g": {
-                "from": "runspeccounty_rows"
-              },
-              "m": {
-                "from": "runspecmonth_rows"
-              }
-            },
-            "join": [
+            "op": "+",
+            "args": [
               {
-                "on": [
-                  [
-                    "outRateOrdinal",
-                    "rt_outputOrdinal"
-                  ],
-                  [
-                    "outDayOrdinal",
-                    "day_ordinal"
-                  ],
-                  [
-                    "outCountyOrdinal",
-                    "rsc_ordinal"
-                  ],
-                  [
-                    "outMonthOrdinal",
-                    "month_ordinal"
+                "op": "faq",
+                "args": [],
+                "semiring": "sum_product",
+                "output_idx": [
+                  "o"
+                ],
+                "ranges": {
+                  "o": {
+                    "from": "output_rows"
+                  },
+                  "b": {
+                    "from": "rate_rows"
+                  },
+                  "k": {
+                    "from": "runspecday_rows"
+                  },
+                  "g": {
+                    "from": "runspeccounty_rows"
+                  },
+                  "m": {
+                    "from": "runspecmonth_rows"
+                  }
+                },
+                "join": [
+                  {
+                    "on": [
+                      [
+                        "outRateOrdinal",
+                        "rt_outputOrdinal"
+                      ],
+                      [
+                        "outDayOrdinal",
+                        "day_ordinal"
+                      ],
+                      [
+                        "outCountyOrdinal",
+                        "rsc_ordinal"
+                      ],
+                      [
+                        "outMonthOrdinal",
+                        "month_ordinal"
+                      ]
+                    ]
+                  }
+                ],
+                "expr": {
+                  "op": "index",
+                  "args": [
+                    "rtDay_quant",
+                    "b",
+                    "k",
+                    "g",
+                    "m"
                   ]
-                ]
+                }
+              },
+              {
+                "op": "faq",
+                "args": [],
+                "semiring": "sum_product",
+                "output_idx": [
+                  "o"
+                ],
+                "ranges": {
+                  "o": {
+                    "from": "output_rows"
+                  },
+                  "b": {
+                    "from": "rate_rows"
+                  },
+                  "k": {
+                    "from": "runspecday_rows"
+                  },
+                  "g": {
+                    "from": "runspeccounty_rows"
+                  },
+                  "m": {
+                    "from": "runspecmonth_rows"
+                  }
+                },
+                "join": [
+                  {
+                    "on": [
+                      [
+                        "outRateOrdinal",
+                        "rt_shorePowerOutputOrdinal"
+                      ],
+                      [
+                        "outDayOrdinal",
+                        "day_ordinal"
+                      ],
+                      [
+                        "outCountyOrdinal",
+                        "rsc_ordinal"
+                      ],
+                      [
+                        "outMonthOrdinal",
+                        "month_ordinal"
+                      ]
+                    ]
+                  }
+                ],
+                "expr": {
+                  "op": "index",
+                  "args": [
+                    "rtDay_quantShorePower",
+                    "b",
+                    "k",
+                    "g",
+                    "m"
+                  ]
+                }
               }
-            ],
-            "expr": {
-              "op": "index",
-              "args": [
-                "rtDay_quant",
-                "b",
-                "k",
-                "g",
-                "m"
-              ]
-            }
+            ]
           }
         },
         {
@@ -66828,6 +67506,1360 @@
                 ]
               }
             ]
+          }
+        },
+        {
+          "lhs": "hot_isShorePowerMode",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "p",
+              "m"
+            ],
+            "ranges": {
+              "p": {
+                "from": "runspecpollutantprocess_rows"
+              },
+              "m": {
+                "from": "operating_mode_rows"
+              }
+            },
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "rspp_retagsShorePower",
+                    "p"
+                  ]
+                },
+                {
+                  "op": "ifelse",
+                  "args": [
+                    {
+                      "op": "==",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "om_opModeID",
+                            "m"
+                          ]
+                        },
+                        {
+                          "op": "enum",
+                          "args": [
+                            "operating_mode",
+                            "ShorePower"
+                          ]
+                        }
+                      ]
+                    },
+                    1.0,
+                    0.0
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rtDay_meanBaseRateShorePower",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b",
+              "k",
+              "g",
+              "n"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "k": {
+                "from": "runspecday_rows"
+              },
+              "m": {
+                "from": "operating_mode_rows"
+              },
+              "p": {
+                "from": "runspecpollutantprocess_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "c": {
+                "from": "cohort_rows"
+              },
+              "n": {
+                "from": "runspecmonth_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rt_polProcOrdinal",
+                    "rspp_ordinal"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "rt_cohortOrdinal",
+                    "coh_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "*",
+                  "args": [
+                    {
+                      "op": "*",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "hot_modeWeight",
+                            "p",
+                            "m"
+                          ]
+                        },
+                        {
+                          "op": "index",
+                          "args": [
+                            "cohMode_hotellingWeight",
+                            "c",
+                            "m",
+                            "g"
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "hot_isShorePowerMode",
+                        "p",
+                        "m"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "rtMode_weightedRate",
+                    "b",
+                    "m",
+                    "g"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rtDay_meanBaseRateACAdjShorePower",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b",
+              "k",
+              "g"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "k": {
+                "from": "runspecday_rows"
+              },
+              "m": {
+                "from": "operating_mode_rows"
+              },
+              "p": {
+                "from": "runspecpollutantprocess_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "c": {
+                "from": "cohort_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rt_polProcOrdinal",
+                    "rspp_ordinal"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "rt_cohortOrdinal",
+                    "coh_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "*",
+                  "args": [
+                    {
+                      "op": "*",
+                      "args": [
+                        {
+                          "op": "*",
+                          "args": [
+                            {
+                              "op": "index",
+                              "args": [
+                                "hot_modeWeight",
+                                "p",
+                                "m"
+                              ]
+                            },
+                            {
+                              "op": "index",
+                              "args": [
+                                "cohMode_hotellingWeight",
+                                "c",
+                                "m",
+                                "g"
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "op": "index",
+                          "args": [
+                            "hot_isShorePowerMode",
+                            "p",
+                            "m"
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "rtMode_weightedRate",
+                        "b",
+                        "m",
+                        "g"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "rtMode_acIncrement",
+                    "b",
+                    "m"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rtDay_adjustedMeanBaseRateShorePower",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b",
+              "k",
+              "g",
+              "m"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "k": {
+                "from": "runspecday_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "m": {
+                "from": "runspecmonth_rows"
+              }
+            },
+            "expr": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "adjusted_mean_base_rate",
+              "bindings": {
+                "mean_base_rate": {
+                  "op": "index",
+                  "args": [
+                    "rtDay_meanBaseRateShorePower",
+                    "b",
+                    "k",
+                    "g",
+                    "m"
+                  ]
+                },
+                "ac_factor": {
+                  "op": "index",
+                  "args": [
+                    "rt_acFactor",
+                    "b",
+                    "g",
+                    "m"
+                  ]
+                },
+                "mean_base_rate_ac_adj": {
+                  "op": "index",
+                  "args": [
+                    "rtDay_meanBaseRateACAdjShorePower",
+                    "b",
+                    "k",
+                    "g"
+                  ]
+                },
+                "fuel_effect_ratio": {
+                  "op": "*",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "rt_criteriaRatio",
+                        "b",
+                        "g",
+                        "m"
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "rt_baseFuelRatio",
+                        "b",
+                        "g",
+                        "m"
+                      ]
+                    }
+                  ]
+                },
+                "temperature_factor": {
+                  "op": "index",
+                  "args": [
+                    "rt_temperatureFactor",
+                    "b",
+                    "g",
+                    "m"
+                  ]
+                },
+                "emission_rate_adjustment": {
+                  "op": "index",
+                  "args": [
+                    "rt_emissionRateAdjustment",
+                    "b"
+                  ]
+                },
+                "ev_energy_divisor": {
+                  "op": "index",
+                  "args": [
+                    "rt_evEnergyDivisor",
+                    "b"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "lhs": "rtDay_quantShorePower",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b",
+              "k",
+              "g",
+              "m"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "k": {
+                "from": "runspecday_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "m": {
+                "from": "runspecmonth_rows"
+              }
+            },
+            "expr": {
+              "op": "/",
+              "args": [
+                {
+                  "op": "*",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "rtDay_adjustedMeanBaseRateShorePower",
+                        "b",
+                        "k",
+                        "g",
+                        "m"
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "rtDay_activity",
+                        "b",
+                        "k",
+                        "g",
+                        "m"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "rt_unitDivisor",
+                    "b"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rt_shorePowerRateRows",
+          "rhs": {
+            "op": "+",
+            "args": [
+              {
+                "op": "faq",
+                "args": [],
+                "semiring": "sum_product",
+                "output_idx": [
+                  "b"
+                ],
+                "ranges": {
+                  "b": {
+                    "from": "rate_rows"
+                  },
+                  "a": {
+                    "from": "emissionrate_rows"
+                  }
+                },
+                "join": [
+                  {
+                    "on": [
+                      [
+                        "rt_polProcessID",
+                        "er_polProcessID"
+                      ],
+                      [
+                        "rt_shortModYrGroupID",
+                        "er_shortModYrGroupID"
+                      ],
+                      [
+                        "rt_rateRegClassID",
+                        "er_regClassID"
+                      ],
+                      [
+                        "rt_engTechID",
+                        "er_engTechID"
+                      ],
+                      [
+                        "rt_fuelTypeID",
+                        "er_fuelTypeID"
+                      ]
+                    ]
+                  }
+                ],
+                "expr": {
+                  "op": "ifelse",
+                  "args": [
+                    {
+                      "op": "==",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "er_opModeID",
+                            "a"
+                          ]
+                        },
+                        {
+                          "op": "enum",
+                          "args": [
+                            "operating_mode",
+                            "ShorePower"
+                          ]
+                        }
+                      ]
+                    },
+                    1.0,
+                    0.0
+                  ]
+                }
+              },
+              {
+                "op": "faq",
+                "args": [],
+                "semiring": "sum_product",
+                "output_idx": [
+                  "b"
+                ],
+                "ranges": {
+                  "b": {
+                    "from": "rate_rows"
+                  },
+                  "a": {
+                    "from": "emissionratebyage_rows"
+                  }
+                },
+                "join": [
+                  {
+                    "on": [
+                      [
+                        "rt_polProcessID",
+                        "erba_polProcessID"
+                      ],
+                      [
+                        "rt_shortModYrGroupID",
+                        "erba_shortModYrGroupID"
+                      ],
+                      [
+                        "rt_rateRegClassID",
+                        "erba_regClassID"
+                      ],
+                      [
+                        "rt_engTechID",
+                        "erba_engTechID"
+                      ],
+                      [
+                        "rt_fuelTypeID",
+                        "erba_fuelTypeID"
+                      ],
+                      [
+                        "rt_ageGroupID",
+                        "erba_ageGroupID"
+                      ]
+                    ]
+                  }
+                ],
+                "expr": {
+                  "op": "ifelse",
+                  "args": [
+                    {
+                      "op": "==",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "erba_opModeID",
+                            "a"
+                          ]
+                        },
+                        {
+                          "op": "enum",
+                          "args": [
+                            "operating_mode",
+                            "ShorePower"
+                          ]
+                        }
+                      ]
+                    },
+                    1.0,
+                    0.0
+                  ]
+                }
+              }
+            ]
+          }
+        },
+        {
+          "lhs": "rt_otherModeRateRows",
+          "rhs": {
+            "op": "+",
+            "args": [
+              {
+                "op": "faq",
+                "args": [],
+                "semiring": "sum_product",
+                "output_idx": [
+                  "b"
+                ],
+                "ranges": {
+                  "b": {
+                    "from": "rate_rows"
+                  },
+                  "a": {
+                    "from": "emissionrate_rows"
+                  }
+                },
+                "join": [
+                  {
+                    "on": [
+                      [
+                        "rt_polProcessID",
+                        "er_polProcessID"
+                      ],
+                      [
+                        "rt_shortModYrGroupID",
+                        "er_shortModYrGroupID"
+                      ],
+                      [
+                        "rt_rateRegClassID",
+                        "er_regClassID"
+                      ],
+                      [
+                        "rt_engTechID",
+                        "er_engTechID"
+                      ],
+                      [
+                        "rt_fuelTypeID",
+                        "er_fuelTypeID"
+                      ]
+                    ]
+                  }
+                ],
+                "expr": {
+                  "op": "ifelse",
+                  "args": [
+                    {
+                      "op": "!=",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "er_opModeID",
+                            "a"
+                          ]
+                        },
+                        {
+                          "op": "enum",
+                          "args": [
+                            "operating_mode",
+                            "ShorePower"
+                          ]
+                        }
+                      ]
+                    },
+                    1.0,
+                    0.0
+                  ]
+                }
+              },
+              {
+                "op": "faq",
+                "args": [],
+                "semiring": "sum_product",
+                "output_idx": [
+                  "b"
+                ],
+                "ranges": {
+                  "b": {
+                    "from": "rate_rows"
+                  },
+                  "a": {
+                    "from": "emissionratebyage_rows"
+                  }
+                },
+                "join": [
+                  {
+                    "on": [
+                      [
+                        "rt_polProcessID",
+                        "erba_polProcessID"
+                      ],
+                      [
+                        "rt_shortModYrGroupID",
+                        "erba_shortModYrGroupID"
+                      ],
+                      [
+                        "rt_rateRegClassID",
+                        "erba_regClassID"
+                      ],
+                      [
+                        "rt_engTechID",
+                        "erba_engTechID"
+                      ],
+                      [
+                        "rt_fuelTypeID",
+                        "erba_fuelTypeID"
+                      ],
+                      [
+                        "rt_ageGroupID",
+                        "erba_ageGroupID"
+                      ]
+                    ]
+                  }
+                ],
+                "expr": {
+                  "op": "ifelse",
+                  "args": [
+                    {
+                      "op": "!=",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "erba_opModeID",
+                            "a"
+                          ]
+                        },
+                        {
+                          "op": "enum",
+                          "args": [
+                            "operating_mode",
+                            "ShorePower"
+                          ]
+                        }
+                      ]
+                    },
+                    1.0,
+                    0.0
+                  ]
+                }
+              }
+            ]
+          }
+        },
+        {
+          "lhs": "rt_retagsShorePower",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "p": {
+                "from": "runspecpollutantprocess_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rt_polProcOrdinal",
+                    "rspp_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "rspp_retagsShorePower",
+                "p"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rt_ownBlockEmits",
+          "rhs": {
+            "op": "ifelse",
+            "args": [
+              {
+                "op": ">",
+                "args": [
+                  "rt_retagsShorePower",
+                  0.5
+                ]
+              },
+              {
+                "op": "*",
+                "args": [
+                  "rt_emits",
+                  {
+                    "op": "apply_expression_template",
+                    "args": [],
+                    "name": "row_is_present",
+                    "bindings": {
+                      "match_count": "rt_otherModeRateRows"
+                    }
+                  }
+                ]
+              },
+              "rt_emits"
+            ]
+          }
+        },
+        {
+          "lhs": "rt_shorePowerEmits",
+          "rhs": {
+            "op": "*",
+            "args": [
+              {
+                "op": "*",
+                "args": [
+                  "rt_retagsShorePower",
+                  "rt_survives"
+                ]
+              },
+              {
+                "op": "apply_expression_template",
+                "args": [],
+                "name": "row_is_present",
+                "bindings": {
+                  "match_count": "rt_shorePowerRateRows"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "lhs": "spc_polProcOrdinal",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "r"
+            ],
+            "ranges": {
+              "r": {
+                "from": "shorepowercohort_rows"
+              }
+            },
+            "expr": {
+              "op": "+",
+              "args": [
+                {
+                  "op": "floor",
+                  "args": [
+                    {
+                      "op": "/",
+                      "args": [
+                        {
+                          "op": "-",
+                          "args": [
+                            "r",
+                            1
+                          ]
+                        },
+                        {
+                          "op": "*",
+                          "args": [
+                            "n_agecategory",
+                            "n_runspecsourcefueltype"
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                1
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "spc_cohortOrdinal",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "r"
+            ],
+            "ranges": {
+              "r": {
+                "from": "shorepowercohort_rows"
+              }
+            },
+            "expr": {
+              "op": "+",
+              "args": [
+                {
+                  "op": "-",
+                  "args": [
+                    {
+                      "op": "-",
+                      "args": [
+                        "r",
+                        1
+                      ]
+                    },
+                    {
+                      "op": "*",
+                      "args": [
+                        {
+                          "op": "*",
+                          "args": [
+                            "n_agecategory",
+                            "n_runspecsourcefueltype"
+                          ]
+                        },
+                        {
+                          "op": "floor",
+                          "args": [
+                            {
+                              "op": "/",
+                              "args": [
+                                {
+                                  "op": "-",
+                                  "args": [
+                                    "r",
+                                    1
+                                  ]
+                                },
+                                {
+                                  "op": "*",
+                                  "args": [
+                                    "n_agecategory",
+                                    "n_runspecsourcefueltype"
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                1
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "spc_emittingRateRows",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "r"
+            ],
+            "ranges": {
+              "r": {
+                "from": "shorepowercohort_rows"
+              },
+              "b": {
+                "from": "rate_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "spc_polProcOrdinal",
+                    "rt_polProcOrdinal"
+                  ],
+                  [
+                    "spc_cohortOrdinal",
+                    "rt_cohortOrdinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "rt_shorePowerEmits",
+                "b"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rspp_shorePowerKept",
+          "rhs": {
+            "op": "*",
+            "args": [
+              {
+                "op": "*",
+                "args": [
+                  "rspp_retagsShorePower",
+                  "rspp_occursOnSelectedRoad"
+                ]
+              },
+              {
+                "op": "-",
+                "args": [
+                  1.0,
+                  "rspp_isSilentlyRequired"
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "lhs": "spc_emits",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "r"
+            ],
+            "ranges": {
+              "r": {
+                "from": "shorepowercohort_rows"
+              },
+              "p": {
+                "from": "runspecpollutantprocess_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "spc_polProcOrdinal",
+                    "rspp_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "apply_expression_template",
+                  "args": [],
+                  "name": "row_is_present",
+                  "bindings": {
+                    "match_count": {
+                      "op": "index",
+                      "args": [
+                        "spc_emittingRateRows",
+                        "r"
+                      ]
+                    }
+                  }
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "rspp_shorePowerKept",
+                    "p"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "spc_prefixEmits",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "r"
+            ],
+            "ranges": {
+              "r": {
+                "from": "shorepowercohort_rows"
+              },
+              "x": {
+                "from": "shorepowercohort_rows"
+              }
+            },
+            "filter": {
+              "op": "<=",
+              "args": [
+                "x",
+                "r"
+              ]
+            },
+            "expr": {
+              "op": "index",
+              "args": [
+                "spc_emits",
+                "x"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "ownRateSurvivorCount",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "n"
+            ],
+            "ranges": {
+              "n": {
+                "from": "run_rows"
+              },
+              "r": {
+                "from": "ratecohort_rows"
+              }
+            },
+            "expr": {
+              "op": "index",
+              "args": [
+                "pcoh_emits",
+                "r"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "spc_rateOrdinal",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "r"
+            ],
+            "ranges": {
+              "r": {
+                "from": "shorepowercohort_rows"
+              },
+              "n": {
+                "from": "run_rows"
+              }
+            },
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "spc_emits",
+                    "r"
+                  ]
+                },
+                {
+                  "op": "+",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "ownRateSurvivorCount",
+                        "n"
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "spc_prefixEmits",
+                        "r"
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "spc_outputBlockOrdinal",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "r"
+            ],
+            "ranges": {
+              "r": {
+                "from": "shorepowercohort_rows"
+              },
+              "p": {
+                "from": "runspecpollutantprocess_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "spc_polProcOrdinal",
+                    "rspp_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "rspp_outputOrdinal",
+                "p"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "spc_cohortRank",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "r"
+            ],
+            "ranges": {
+              "r": {
+                "from": "shorepowercohort_rows"
+              },
+              "c": {
+                "from": "cohort_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "spc_cohortOrdinal",
+                    "coh_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "coh_rank",
+                "c"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rt_shorePowerOutputOrdinal",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "r": {
+                "from": "shorepowercohort_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rt_polProcOrdinal",
+                    "spc_polProcOrdinal"
+                  ],
+                  [
+                    "rt_cohortOrdinal",
+                    "spc_cohortOrdinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "spc_rateOrdinal",
+                "r"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rspp_shorePowerPairs",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "p"
+            ],
+            "ranges": {
+              "p": {
+                "from": "runspecpollutantprocess_rows"
+              },
+              "r": {
+                "from": "shorepowercohort_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rspp_ordinal",
+                    "spc_polProcOrdinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "spc_emits",
+                "r"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "outIsShorePower",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "o"
+            ],
+            "ranges": {
+              "o": {
+                "from": "output_rows"
+              },
+              "r": {
+                "from": "shorepowercohort_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "outRateOrdinal",
+                    "spc_rateOrdinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": 1.0
           }
         }
       ],

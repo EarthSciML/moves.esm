@@ -8364,3 +8364,25 @@ merge over an empty default side and are simply the domain's tables. The diff th
 says which is the execution database against the default database at the run's
 keys, at full precision: nine significant digits called the truncated allocation
 factors identical.
+
+## 94. A process the calculator writes is a block with its own pair relation **[PLAN.md step 7f; `process-apu-single` 91 of 91 at 5.848e-06, on its first run]**
+
+The RunSpec selects auxiliary power (91); MOVES emits auxiliary power AND shore
+power (93), because its calculator relabels the shore-power mode's block. The
+selection is not the output's pollutant-process set, as §81's prerequisites showed
+from the other side.
+
+Three ways were priced. Adding 93 to the pollutant-process axis would re-key every
+`rspp_*` relation on a data-bound extent. A second slot on `ratecohort_rows` would
+quadruple its O(n²) prefix count and put every existing rank one rewrite away from
+moving. The one taken is a SEPARATE pair relation for the calculator's blocks,
+ranked after the selected blocks' pairs, with the output's key and value columns
+reading each relation through its own rank. Every RunSpec that writes no such block
+leaves that relation entirely non-emitting, which is what keeps the 21 others
+byte-identical without having to argue it.
+
+The split itself is at the operating mode, where the reference makes it, and not a
+share of the total: the own block's contraction drops the retagged modes and a
+parallel contraction keeps only them, through the same adjustment tail written once
+as a template. A share computed after the fact would be the same number only while
+every adjustment is multiplicative and mode-independent, which A/C is not.

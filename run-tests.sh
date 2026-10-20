@@ -1614,6 +1614,10 @@ C7P_DOMAIN=moves-onroad.esm
 # run SELECTS that the model does not compute: a second on-network road type,
 # an on-road process beside road type 1, a hotelling process under time
 # aggregation.
+# `process-apu-single` selects one pollutant-process and emits two processes:
+# the calculator retags auxiliary power's shore-power mode (203) to process 93,
+# whose pairs are ranked in their own relation after the selected blocks'
+# (conventions 94).
 mapfile -t RUNSPECS < <(find runspecs -maxdepth 1 -name '*.esm' -not -name '.*' 2>/dev/null | sort)
 mapfile -t RUNSPECS_PENDING < <(find runspecs/pending -maxdepth 1 -name '*.esm' -not -name '.*' 2>/dev/null | sort)
 
