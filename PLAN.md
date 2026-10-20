@@ -4181,7 +4181,7 @@ joins and emits county 710047702 as its comment always said, the harness fails a
 probe that does not evaluate, and `tools/make-runspec-probe.py` walks the mount
 chain instead of naming `moves-onroad.esm`.
 
-**Unchanged runs.** Measured in progress: `process-tirewear` and the 7c spike are byte-identical, relation and shape.
+**Unchanged runs, all twenty.** Every DEFAULT-domain RunSpec in `runspecs/` was emitted at the pre-change commit and again on the branch: the out_* relation is byte-identical on all 20, the eight recomputed shape numbers are identical, and `run_domainUnported` is 0 on each. The 7c spike is byte-identical too, and peak memory moved by under 0.3% (`expand-sourcetype` peaks at 62 GB before and after, which is the pre-existing high-water mark of the corpus and not this change's). All three runspec probes evaluate and move their run: `no-link-join` emits county 710047702, `no-county-join` county 49229 at SHO 10960.9 (it now drops 10 county key pairs, `out_zoneID` and `out_linkID` being two more), and `no-road-type-filter` moves the shape. The Python binding loads `scale-project` and `process-tirewear` too.
 
 ### 7.4 Upstream asks
 

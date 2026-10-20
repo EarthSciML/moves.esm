@@ -119,8 +119,10 @@ def no_county_join(logic, fixture):
                     rhs["join"].remove(clause)
                     if not rhs["join"]:
                         del rhs["join"]
-    if dropped != 8:
-        sys.exit("expected 8 county key pairs, dropped %d" % dropped)
+    # 10 since step 7f: `out_zoneID` and `out_linkID` select their county the
+    # same way, for a PROJECT run's link-level geography (PLAN.md §7.3.40).
+    if dropped != 10:
+        sys.exit("expected 10 county key pairs, dropped %d" % dropped)
 
 
 def no_source_type_join(logic, fixture):
