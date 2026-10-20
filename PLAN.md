@@ -4354,7 +4354,9 @@ road type 4 alone (the 90/91/start rates are written on road type 1), crankcase 
 and 17 with no parent, and `process-crankcase-extidle` selecting the gasoline
 passenger car, which never extended-idles. moves.rs `7c0f11cd` selects road type 1
 beside 4, THC/CO/NOx at processes 2 and 90 as the crankcase parents, and source type
-62; `dbda2695` recaptures them with the pinned SIF (`4f92c593`).
+62; `dbda2695` recaptures them with the pinned SIF (`4f92c593`); `f22146a1` quarantines
+them in moves.rs's own gate, where the port is off as on the `-single` twins (crankcase
+start x2.000, APU x26.6 without shore power, extended idle +59%).
 
 **`process-extended-idle` still emitted nothing, and the reason is a prerequisite.**
 It selects Atmospheric CO2 at extended idle (9090), the one RunSpec that runs
