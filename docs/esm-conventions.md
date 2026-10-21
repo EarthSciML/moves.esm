@@ -8524,3 +8524,103 @@ construct GenericImporter (its Swing parts need `libharfbuzz.so.0`), which logs 
 `ERROR:` during domain-database validation and is then skipped; MOVES runs to
 completion. Establish completeness with one validation-ON run, read for "Done
 performing domain database validation.", and capture with validation skipped.
+
+## 101. A road type folds into the rate relation's block and is appended to the activity, because a road type is where a process happens **[PLAN.md §7.3.46; `expand-roadtypes` 729 of 729 at 1.009e-05 on the promotion's first run, the 33 earlier runs unchanged to the byte]**
+
+§98's rule decided it -- fold the new key into a relation whose rows already move
+with it, append it to one whose rows do not -- and the road type is the first key
+it splits down the middle.
+
+1. **The rate relation already had a road type, one per pollutant-process.**
+   `rspp_rateRoadTypeID` put every pollutant-process on exactly one road type, and
+   the output's blocks were pollutant-processes. Running energy on five road types
+   is one pollutant-process on five, so the BLOCK becomes a (pollutant-process,
+   road type) pair, `polprocroad_rows`, and the rate relation's leading factor is
+   the pair. It is road-type-FASTEST: at one selected road type the pair relation
+   is the pollutant-process relation row for row, and on the eight runs that select
+   road types 1 and 4, where each pollutant-process has one live block, every
+   emitted block keeps its rank. The old per-pollutant-process ordinal becomes a
+   gather through the block (`rt_polProcOrdinal`), so the twenty rate readers of
+   `rspp_*` kept their joins; only what is per block -- the operating-mode weights,
+   the activity, the emitted rank, the shore-power keep -- moved.
+2. **A block is live where its pollutant-process lives.** `rspp_rateRoadTypeID`
+   still classes a pollutant-process -- road type 1, or the run's on-network road
+   types, which it names by a representative (`run_roadTypeID`, now the lowest
+   selected one) -- and `ppr_occursOnRoad` expands the class onto the axis: an
+   off-network process on road type 1, an on-network one on every selected
+   on-network road type, running exhaust on road type 1 as well when that block is
+   off-network idle. The three-rung chain closure needed no change, which is what a
+   class buys over a value.
+3. **The activity is not folded, because it is not the rate's to fold.** The
+   activity relation carries SHO, starts and hotelling hours, and only SHO has a
+   road type. Folding the axis into `activity_rows` would have made every per-day
+   and per-year SUM over activity rows -- the start totals, the hotelling totals,
+   the evaporative SHO totals -- count each road type once: the too-wide join of
+   the memory rule, with nothing to see but a number four times too big on a run
+   that selects four. So the VMT-to-SHO chain (`run_roadTypeVMTFraction`,
+   `run_shoAllocFactor`, `act_*`) and the speed-bin stack under the operating-mode
+   weights (`asd_*`, `asb_*`) take a trailing `runspecroadtype_rows` axis by name,
+   and their readers index it at the block's road type.
+4. **A row that already carries the key needs no axis.** A `driveScheduleAssoc` row
+   HAS a road type, so `dsa_*` stayed two-dimensional and its selection became "a
+   road type the run selects"; the bracketing above it (`asb_*`) reads the row's
+   own road type through a key pair. The same is true of the zone: it is a
+   county's, found in `Zone` by county, not through the county's link on one road
+   type. That cut is what made the price 165 equations of a 284-equation closure,
+   and the edit 69 changed and 30 added.
+5. **Self-joins pair by the new key, again.** The chain generations, NonHAPTOG, the
+   SPM splits and the four presence passes join rate rows to rate rows by bin or
+   cohort; without `rt_roadTypeOrdinal` in each pair, road type 1's parent feeds
+   road type 4's child. Eleven clauses, one rule (§98 item 4).
+6. **A per-pollutant-process count over rate rows now counts blocks.**
+   `pp_selectedBinCount` and `pp_rateBinCount` read the first road type, since the
+   rate selection does not vary with it; the run-level presence tests became ORs
+   over a pollutant-process's blocks. A label the comparator does not read can
+   still move a byte-identical CSV: `out_SHO` on a start row read the run's one
+   on-network SHO, and on the runs that select road types 1 and 4 it would have
+   read road type 1's off-network idle instead. It keeps the label it had, and the
+   description says why.
+
+The shape check's block key gained the road type: `expand-roadtypes` emits six
+blocks of two (pollutantID, processID) pairs.
+
+## 102. Off-network idle is a sum across the road-type axis, and a run can select road types it does not name **[PLAN.md §7.3.46; `expand-roadtypes`' road type 1, 125 of 125 at 8e-06; `scale-county` 729 of 729]**
+
+**ONI is TotalActivityGenerator step 190c**, written after the axis because it reads
+the axis whole. Per activity row, county, source type and month,
+
+    SHO(1) = max( S (tif - SD/S) / (1 - tif), 0 ),    tif < 1 and S > 0, else 0
+
+with `S` the on-network SHO summed over the selected road types, `SD` the same
+weighted by each road type's driving-idle fraction, and `tif` `totalIdleFraction`
+at the county's state's idle region, the county type, the source type, month, day
+type and model-year window (`lib/onroad_activity.esm` `off_network_idle_sho`).
+
+* **The driving-idle fraction is a contraction of what the rate side already
+  computes.** BaseRateGenerator's `drivingIdleFraction` is the idle share of a road
+  type's speed-weighted operating-mode distribution (`drivecycle.rs:427-492`), so it
+  is `asd_effectiveFraction x asb_modeFraction` summed over speed bins and the
+  source type's vehicles, at mode 1 over all modes. The Java counts modes 1 and 501;
+  no drive-cycle second is 501. A road type with no fraction drops out of both sums,
+  as the SQL's inner join does.
+* **Its rate is the idle mode alone.** BaseRateGenerator writes running exhaust's
+  road-1 rates as opMode 1 at fraction 1 and avgSpeedFraction 1, for process 1 only
+  (`drivecycle.rs:511-541`), so on an off-network idle block `pp_W` is 1 at Idling
+  and the rest of the chain is unchanged -- the A/C adjustment included.
+* **Selected or all, answered from the source.** The SQL sums `SHO` over the
+  zone's links with `roadTypeID <> 1` in the EXECUTION database
+  (`TotalActivityGenerator.java`, the step-190 insert into `SHO`, inventory and
+  rates branches alike), and the execution `Link` is cut to the run's road types:
+  the SELECTED ones. But `ExecutionRunSpec.getRoadTypes()` adds every road type
+  whenever a non-project run selects road type 1 and running exhaust ("Off-Network
+  Idle requires all roadtypes", `ExecutionRunSpec.java` ~980-1004), so the sum is
+  over all four in every run that has ONI. The model sums the selected ones, which
+  is the SQL, and reads the selection from the execution database (§81, §100).
+* **What it does not port is counted.** AdjustTotalIdleFraction.sql replaces
+  `totalIdleFraction` from `idleModelYearGrouping` and scales it by `idleMonthAdjust`
+  and `idleDayAdjust`; all three are empty in the default database and in
+  Washtenaw's county database, are mounted, and their rows are counted by
+  `run_domainUnported` on a run that computes ONI. An evaporative process beside
+  road type 1 (MOVES writes SHP rows there) and one on a second on-network road type
+  stay in `run_selectionUnported`; `run_offNetworkLinkCount` now counts evaporative
+  BLOCKS on road type 1, the only ones that would read SHP.
