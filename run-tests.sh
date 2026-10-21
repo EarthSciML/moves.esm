@@ -1657,7 +1657,13 @@ C7P_DOMAIN=moves-onroad.esm
 # `expand-multifuel` selects CNG beside gasoline for a passenger car, which has
 # no CNG population: the first selected source-fuel pair with no cohort, and
 # cell for cell `expand-day`'s weekday block.
-mapfile -t RUNSPECS < <(find runspecs -maxdepth 1 -name '*.esm' -not -name '.*' 2>/dev/null | sort)
+# `scale-rates` and `rates-minimal` are one Rates-scale RunSpec under two names
+# (PLAN.md §7.3.47, conventions §103, §104): MOVESOutput is empty and the oracle
+# is RatePerDistance, so the emitted relation is `rpd_*` -- the output relation
+# times the 16 speed bins, each bin its own link -- and the comparator reads
+# tolerance.toml's [oracle_table.rateperdistance]. The two snapshots differ in
+# one cell, MOVES's own run-to-run noise, and both reproduce.
+mapfile -t RUNSPECS <<(find runspecs -maxdepth 1 -name '*.esm' -not -name '.*' 2>/dev/null | sort)
 mapfile -t RUNSPECS_PENDING < <(find runspecs/pending -maxdepth 1 -name '*.esm' -not -name '.*' 2>/dev/null | sort)
 
 if [[ ! -e movesdb ]]; then
@@ -1694,23 +1700,50 @@ else
   # Each document validates and round-trips under stages 1 and 4 already --
   # `runspecs/` is in DOCS, unlike the `spikes/7c/` copy this stage used to
   # name -- so those two checks are not repeated here.
+  # A run's ORACLE is the output-database table its `oracle` source points at
+  # (PLAN.md §7.3.47). Every inventory run's is MOVESOutput and the model's
+  # `out_*` relation is what is emitted for it; a Rates-scale run's is
+  # RatePerDistance, whose relation is `rpd_*`. The table name goes to the
+  # comparator, which takes that table's column contract from tolerance.toml.
+  rpd_obs=()
+  while read -r f; do rpd_obs+=(--observed "$f"); done < <("$PYTHON" -c '
+import json, sys
+for m in json.load(open(sys.argv[1])).get("models", {}).values():
+    for n in (m.get("variables") or {}):
+        if n.startswith("rpd_"):
+            print(n)' "$C7_LOGIC")
   for rs in "${RUNSPECS[@]}"; do
     rsname=$(basename "$rs" .esm)
+    RS_TABLE=$("$PYTHON" -c '
+import json, sys
+srcs = json.load(open(sys.argv[1])).get("data_sources", {}).values()
+urls = [s["source"]["url_template"] for s in srcs if "oracle" in s.get("metadata", {}).get("tags", [])]
+print(urls[0].rsplit("__", 1)[1].split(".")[0] if len(urls) == 1 else "")' "$rs")
+    case "$RS_TABLE" in
+      movesoutput)     RS_OBS=("${c7_obs[@]}");  RS_PREFIX=out_; RS_ORACLE=MOVESOutput ;;
+      rateperdistance) RS_OBS=("${rpd_obs[@]}"); RS_PREFIX=rpd_; RS_ORACLE=RatePerDistance ;;
+      *) fail "7c'/7d $rsname — it names no oracle table this stage can emit (got '${RS_TABLE}'): exactly one \`oracle\` source, MOVESOutput or RatePerDistance"
+         continue ;;
+    esac
+    if [[ ${#RS_OBS[@]} -eq 0 ]]; then
+      fail "7c'/7d $rsname — its oracle is $RS_ORACLE, and $C7_LOGIC declares no ${RS_PREFIX}* relation to emit for it"
+      continue
+    fi
 
-    # 2. The numbers, against that run's own recorded MOVESOutput, through the
+    # 2. The numbers, against that run's own recorded oracle table, through the
     #    same comparator and the same tolerance.toml the fixture stage uses.
     RS_CSV="$RUNDIR/$rsname.runspec.csv"
     RS_ACTUAL="$RUNDIR/$rsname.runspec.actual.csv"
     if ! out=$("$ESM" simulate "$rs" --time 0 --format csv \
-                 "${c7_obs[@]}" --output "$RS_CSV" 2>&1); then
+                 "${RS_OBS[@]}" --output "$RS_CSV" 2>&1); then
       fail "7c'/7d $rsname — the default-database chain does not evaluate"
       sed 's/^/       /' <<<"$out" | tail -5
       continue
     fi
-    sed '1s/out_//g' "$RS_CSV" > "$RS_ACTUAL"
+    sed "1s/${RS_PREFIX}//g" "$RS_CSV" > "$RS_ACTUAL"
     if out=$("$PYTHON" compare-output.py --fixture "$rsname" --actual "$RS_ACTUAL" \
-               --snapshots "$SNAPSHOTS" 2>&1); then
-      pass "$rsname — the default database reproduces the run's MOVESOutput, complete"
+               --table "$RS_TABLE" --snapshots "$SNAPSHOTS" 2>&1); then
+      pass "$rsname — the default database reproduces the run's $RS_ORACLE, complete"
       sed 's/^/       /' <<<"$out" | tail -4
     else
       fail "7c'/7d $rsname — it evaluates from the default database, but not to the run's numbers"

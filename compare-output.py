@@ -57,8 +57,20 @@ comparison has of it — how much absolute difference the reference is unable to
 record. Both versions are read, because the corpus migrates one branch at a
 time and a checkout that can only judge one of them can only test one of them.
 
+WHICH TABLE is the oracle is a property of the run, not of this script.
+Every inventory run's is `MOVESOutput`, and its column contract is
+`tolerance.toml`'s `[compare]`. A Rates-scale run leaves `MOVESOutput` empty
+and is judged on `RatePerDistance` instead (PLAN.md 7.3.47): `--table` names
+the output-database table, the parquet is `db__<database>__<table>.parquet`,
+and the contract is `[oracle_table.<table>]`, with the same three keys. Every
+gate below is the same for both; only which columns are values, which are
+ignored and which one keys the per-pollutant sums comes from the table's
+section, and a table with no section is refused rather than compared under
+MOVESOutput's columns.
+
 Usage:
     compare-output.py --fixture nr-logging-county --actual out.csv
+    compare-output.py --fixture scale-rates --table rateperdistance --actual rpd.csv
     compare-output.py --self-test
 """
 
@@ -262,11 +274,26 @@ def load_tolerance(path: pathlib.Path) -> dict:
     return parse_toml_subset(path.read_text())
 
 
-def snapshot_output_path(snapshots: pathlib.Path, fixture: str) -> pathlib.Path:
+DEFAULT_TABLE = "movesoutput"
+
+
+def compare_config(tol: dict, table: str = DEFAULT_TABLE) -> dict:
+    """The column contract for an oracle table: `[compare]` for MOVESOutput,
+    `[oracle_table.<table>]` for any other. A table with no contract is refused."""
+    if table == DEFAULT_TABLE:
+        return tol["compare"]
+    cfg = tol.get("oracle_table", {}).get(table)
+    if not cfg:
+        raise Failure(f"tolerance.toml has no [oracle_table.{table}] column contract")
+    return cfg
+
+
+def snapshot_output_path(snapshots: pathlib.Path, fixture: str,
+                         table: str = DEFAULT_TABLE) -> pathlib.Path:
     """The expected-output table for a fixture.
 
     A snapshot's output database is named in its `provenance.json` as
-    `output_database`; the table file is `db__<database>__movesoutput.parquet`.
+    `output_database`; the table file is `db__<database>__<table>.parquet`.
     Reading the name rather than deriving it keeps this correct for a fixture
     whose database name is not just the fixture name with dashes swapped.
     """
@@ -276,9 +303,9 @@ def snapshot_output_path(snapshots: pathlib.Path, fixture: str) -> pathlib.Path:
     if not prov.exists():
         raise Failure(f"no snapshot for fixture {fixture!r} at {prov.parent}")
     db = json.loads(prov.read_text())["output_database"]
-    p = snapshots / fixture / "tables" / f"db__{db}__movesoutput.parquet"
+    p = snapshots / fixture / "tables" / f"db__{db}__{table}.parquet"
     if not p.exists():
-        raise Failure(f"snapshot {fixture!r} has no MOVESOutput at {p}")
+        raise Failure(f"snapshot {fixture!r} has no {table} at {p}")
     return p
 
 
@@ -352,15 +379,15 @@ def relerr(actual: float, expected: float) -> float:
 
 
 def compare(expected: list[dict], actual: list[dict], tol: dict, fixture: str,
-            encoding: FloatEncoding | None = None) -> list[str]:
+            encoding: FloatEncoding | None = None, table: str = DEFAULT_TABLE) -> list[str]:
     """Return a list of report lines. Raises `Failure` with the report on a diff."""
-    cfg = tol["compare"]
+    cfg = compare_config(tol, table)
     structure = tol.get("structure", {})
     value_cols = cfg["value_columns"]
     pol_col = cfg["pollutant_column"]
 
     if not expected:
-        raise Failure("the snapshot's MOVESOutput is empty; nothing to compare")
+        raise Failure(f"the snapshot's {table} is empty; nothing to compare")
 
     report: list[str] = []
     problems: list[str] = []
@@ -685,6 +712,11 @@ def _self_test_toml() -> int:
                           ("structure", "require_exact_row_count"),
                           ("compare", "value_columns")]:
             check(f"tolerance.toml has [{sect}] {key}", key in t.get(sect, {}))
+        rpd = t.get("oracle_table", {}).get("rateperdistance", {})
+        check("reads [oracle_table.rateperdistance]",
+              rpd.get("value_columns", [None])[0] == "ratePerDistance"
+              and rpd.get("pollutant_column") == "pollutantID"
+              and "MOVESScenarioID" in rpd.get("ignored_columns", []), rpd)
 
     # A quoted sub-table header, as a per-fixture override would use.
     t2 = parse_toml_subset('[fixtures."nr-x"]\nrel = 2e-2\nwhy = "because"\n')
@@ -983,6 +1015,43 @@ def _self_test() -> int:
         if not ok:
             extra_failures += 1
 
+    # --- an oracle table other than MOVESOutput ------------------------------
+    #
+    # A Rates run is judged on RatePerDistance, whose value column is not
+    # emissionQuant and whose speed bin is a key. Its contract is its own
+    # section; the gates are the same ones. A rate row wrong at one bin must
+    # fail, a table with no section must be refused, and the MOVESOutput
+    # contract must not be what judges it.
+    rtol = dict(tol, oracle_table={"rateperdistance": {
+        "value_columns": ["ratePerDistance"],
+        "ignored_columns": ["MOVESRunID"],
+        "pollutant_column": "pollutantID"}})
+
+    def rrows(*specs):
+        return [{"MOVESRunID": 1, "pollutantID": 91, "modelYearID": m, "avgSpeedBinID": b,
+                 "ratePerDistance": v} for m, b, v in specs]
+
+    rbase = rrows((2020, 1, "0.03"), (2020, 2, "0.02"), (2021, 1, "0.01"))
+    for name, act, t_, table, should_pass in [
+        ("oracle table: identical rows pass", rbase, rtol, "rateperdistance", True),
+        ("oracle table: a rate wrong at one bin fails",
+         rrows((2020, 1, "0.03"), (2020, 2, "0.021"), (2021, 1, "0.01")), rtol,
+         "rateperdistance", False),
+        ("oracle table: a bin moved to another bin fails on the key set",
+         rrows((2020, 1, "0.03"), (2020, 3, "0.02"), (2021, 1, "0.01")), rtol,
+         "rateperdistance", False),
+        ("oracle table: a table with no contract is refused", rbase, rtol, "rateperhour", False),
+        ("oracle table: MOVESOutput's contract does not judge it", rbase, rtol, "movesoutput", False),
+    ]:
+        try:
+            compare(rbase, act, t_, "self-test", table=table)
+            ok = True
+        except (Failure, KeyError):
+            ok = False
+        print(f"  {'ok  ' if ok == should_pass else 'FAIL'} {name}")
+        if ok != should_pass:
+            extra_failures += 1
+
     # a duplicate key is a bug, not a tie
     cases.append(("duplicate key", base, base + [dict(base[0])], False))
 
@@ -1021,6 +1090,8 @@ def main(argv=None) -> int:
     ap.add_argument("--fixture", help="snapshot fixture name, e.g. nr-logging-county")
     ap.add_argument("--actual", type=pathlib.Path, help="CSV of the rows this repo produced")
     ap.add_argument("--expected", type=pathlib.Path, help="override the snapshot parquet path")
+    ap.add_argument("--table", default=DEFAULT_TABLE,
+                    help="the output-database table that is the oracle (default movesoutput)")
     ap.add_argument("--snapshots", type=pathlib.Path, default=DEFAULT_SNAPSHOTS)
     ap.add_argument("--tolerance", type=pathlib.Path, default=HERE / "tolerance.toml")
     ap.add_argument("--self-test", action="store_true", help="falsify every check and exit")
@@ -1034,11 +1105,11 @@ def main(argv=None) -> int:
 
     try:
         tol = load_tolerance(args.tolerance)
-        exp_path = args.expected or snapshot_output_path(args.snapshots, args.fixture)
+        exp_path = args.expected or snapshot_output_path(args.snapshots, args.fixture, args.table)
         meta = exp_path.with_suffix("").with_suffix(".meta.json")
         report = compare(
             read_expected(exp_path), read_actual(args.actual), tol, args.fixture,
-            encoding=read_float_encoding(meta),
+            encoding=read_float_encoding(meta), table=args.table,
         )
     except Failure as exc:
         print(f"FAIL {args.fixture}", file=sys.stderr)
