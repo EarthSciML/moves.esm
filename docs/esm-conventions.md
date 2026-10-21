@@ -8422,9 +8422,9 @@ as it does for an out-of-range `<day key>`, so the run has eleven months, and ke
 January, was never in the XML. Measure that before explaining it: every month-keyed
 table MOVES cut to the run (`runspecmonth`, `zoneMonthHour`, `SHO`, `starts`,
 `totalIdleFraction` and ten more) carries 2..12, and only the three not cut to it
-(`monthOfAnyYear` and two nonroad month allocations) carry 1..12. A month missing from the OUTPUT can be a dropped output row or a month
-never selected, and the execution database tells the two apart; the oracle alone does
-not.
+(`monthOfAnyYear` and two nonroad month allocations) carry 1..12. A month missing
+from the OUTPUT can be a dropped output row or a month never selected, and the
+execution database tells the two apart; the oracle alone does not.
 
 **A wider selection on an axis the model already has costs only its selections.**
 Seven counties in seven fuel regions and eleven months reproduced on their first runs
