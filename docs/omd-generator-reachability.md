@@ -26,9 +26,9 @@ Java classes MOVES loaded for that run.
 
 > **The brief for this work said the evidence is a `kind: "generator"` entry in
 > `java_classes`. There is no such entry anywhere in the corpus.** Rolled over
-> all 43 traces, `java_classes[*].kind` takes exactly five values —
-> `common` (2,660), `framework` (2,750), `master` (2,013), `utils` (92) and
-> `worker` (43). Generators are `kind: "master"` (or `framework`, for the
+> all 44 traces, `java_classes[*].kind` takes exactly five values —
+> `common` (2,738), `framework` (2,838), `master` (2,131), `utils` (94) and
+> `worker` (44). Generators are `kind: "master"` (or `framework`, for the
 > abstract `Generator` base). The signal that works is the class NAME.
 
 ```
@@ -67,10 +67,11 @@ that key is `(roadTypeID, avgSpeedBinID)`, and
 What the intersection buys is that a generator nothing loaded can no longer be
 credited with a sibling's rows.
 
-The corpus as measured: **44 snapshot directories, 43 with an
+The corpus as measured: **45 snapshot directories, 44 with an
 `execution-trace.json`** (`mixed-onroad-nonroad` carries `tables/` only), at
-`moves.rs` commit `dbda2695` (the four DEFAULT-domain `process-*` runs recaptured
-non-empty on 2026-10-20, PLAN.md §7.3.42). It was 41 and 40 when this note was first
+`moves.rs` commit `cadac923` (`scale-county` captured on 2026-10-20 with a complete
+county database, PLAN.md §7.3.45, after the four DEFAULT-domain `process-*` runs were
+recaptured non-empty at `dbda2695`, §7.3.42). It was 41 and 40 when this note was first
 written. Every count below moves when the corpus does; that is what §35.5 is
 about, and writing the date down turned out not to be enough — see "Keeping
 these numbers honest".
@@ -119,15 +120,15 @@ which three of these rows share.
 
 | generator | class-loaded in | writes | snapshots with rows | reachable? |
 |---|---:|---|---:|---|
-| `RatesOperatingModeDistributionGenerator` | **31** / 43 | `RatesOpModeDistribution` | **19** | **yes** |
-| `StartOperatingModeDistributionGenerator` | **12** / 43 | `StartOpModeDistribution` | **11** | **yes** |
-| `LinkOperatingModeDistributionGenerator` | **1** / 43 | `OpModeDistribution` | **1** | **yes, since 2026-09-10** |
-| `OperatingModeDistributionGenerator` | 0 / 43 | `OpModeDistribution` | 0 | no — dead code |
-| `MesoscaleLookupOperatingModeDistributionGenerator` | 0 / 43 | `OpModeDistribution` | 0 | no — dead code |
-| `MesoscaleLookupTotalActivityGenerator` | 0 / 43 | `SourceHours`, `SHO` | 0 | no — dead code |
-| `NewTvvYearGenerator` | 0 / 43 | — | — | no — no such class |
+| `RatesOperatingModeDistributionGenerator` | **32** / 44 | `RatesOpModeDistribution` | **20** | **yes** |
+| `StartOperatingModeDistributionGenerator` | **13** / 44 | `StartOpModeDistribution` | **12** | **yes** |
+| `LinkOperatingModeDistributionGenerator` | **1** / 44 | `OpModeDistribution` | **1** | **yes, since 2026-09-10** |
+| `OperatingModeDistributionGenerator` | 0 / 44 | `OpModeDistribution` | 0 | no — dead code |
+| `MesoscaleLookupOperatingModeDistributionGenerator` | 0 / 44 | `OpModeDistribution` | 0 | no — dead code |
+| `MesoscaleLookupTotalActivityGenerator` | 0 / 44 | `SourceHours`, `SHO` | 0 | no — dead code |
+| `NewTvvYearGenerator` | 0 / 44 | — | — | no — no such class |
 
-`FuelEffectsGenerator` (29 / 43) is the eighth unported generator and belongs to
+`FuelEffectsGenerator` (30 / 44) is the eighth unported generator and belongs to
 a parallel rung; it is listed here only so the eight add up. It has since been
 ported (`docs/fuel-effects-generator.md`), as have the first two rows of the
 table (`docs/operating-mode-distribution.md`).
@@ -139,7 +140,7 @@ all three of the generators that write it.
 
 ### Which snapshots, exactly
 
-`RatesOpModeDistribution` is non-empty in 19 snapshots:
+`RatesOpModeDistribution` is non-empty in 20 snapshots:
 
 | snapshot | rows | | snapshot | rows |
 |---|---:|---|---|---:|
@@ -151,8 +152,8 @@ all three of the generators that write it.
 | `expand-sourcetype` | 46 | | `process-refueling` | 9 |
 | `mixed-onroad` | 9 | | `process-tirewear` | 16 |
 | `process-apu` | 3 | | `sample-runspec` | 9 |
-| `process-apu-single` | 3 | | `scale-project` | 22 |
-| `process-crankcase-extidle` | 3 | | | |
+| `process-apu-single` | 3 | | `scale-county` | 9 |
+| `process-crankcase-extidle` | 3 | | `scale-project` | 22 |
 
 **`scale-project`'s 22 are not all the same generator's**, and that is the
 sharpest illustration in the corpus of why the `writes` column cannot be read
@@ -164,7 +165,7 @@ freshly-computed `OpModeDistribution` across —
 `LinkOperatingModeDistributionGenerator.java:448-458`. Four generators write
 this table and `(roadTypeID, avgSpeedBinID)` is what separates them.
 
-`StartOpModeDistribution` is non-empty in 11:
+`StartOpModeDistribution` is non-empty in 12:
 
 | snapshot | rows | | snapshot | rows |
 |---|---:|---|---|---:|
@@ -173,18 +174,18 @@ this table and `(roadTypeID, avgSpeedBinID)` is what separates them.
 | `expand-day` | 9 | | `process-crankcase-start-single` | 5 |
 | `expand-fueltype-diesel` | 12 | | `process-refueling` | 5 |
 | `expand-month` | 8 | | `sample-runspec` | 4 |
-| `expand-sourcetype` | 29 | | | |
+| `expand-sourcetype` | 29 | | `scale-county` | 5 |
 
-The same 11 are the only ones carrying `SOMDGOpModes` (the generator's own
+The same 12 are the only ones carrying `SOMDGOpModes` (the generator's own
 working table) and a populated `StartOpMode` input table — three independent
 corroborations of one predicate.
 
-**Those 11 are no longer the same as the snapshots that LOAD the generator.**
+**Those 12 are no longer the same as the snapshots that LOAD the generator.**
 Until `scale-project` they were, and this note said so ("set-equal, not merely
 equinumerous"). `scale-project` class-loads
 `StartOperatingModeDistributionGenerator` and leaves `StartOpModeDistribution`
-**empty**, so the load set is one larger than the row set -- 12 and 11 since
-the four DEFAULT-domain `process-*` runs were recaptured. The generator
+**empty**, so the load set is one larger than the row set -- 13 and 12 since
+`scale-county` joined the corpus. The generator
 did run — its All-Starts row is in `RatesOpModeDistribution` — but in PROJECT
 domain its step 400 takes a different branch that reads `OpModeDistribution`
 instead of `startsOpModeDistribution`
@@ -194,7 +195,7 @@ among `StartOpModeDistribution`, `SOMDGOpModes` and `StartOpMode` still holds
 exactly; it is the fourth set, class-loading, that has separated from them.
 
 **`RatesOperatingModeDistributionGenerator` is the case the brief warned about:
-31 loaded, 19 with rows.** Loading it and running it are different events, and
+32 loaded, 20 with rows.** Loading it and running it are different events, and
 twelve of the loads produce nothing. Its subscription list (processes 1, 90 and 91)
 is what decides which; process 1's contribution is delegated to the external
 `SourceTypePhysics` generator, so this module's own live output is the
