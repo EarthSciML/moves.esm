@@ -32,7 +32,7 @@ asserts the four counts the chain keeps of what it could not reach:
 
     rows == rateSurvivorCount x counties x months x day types
     distinct (pollutantID, processID) == outputPolProcessCount
-    distinct (sourceTypeID, fuelTypeID, modelYearID) == cohortSurvivorCount
+    distinct (yearID, sourceTypeID, fuelTypeID, modelYearID) == cohortSurvivorCount
     rateSurvivorCount <= outputPolProcessCount x cohortSurvivorCount
     run_sourceBinsDropped == 0
     run_physicsRowsDropped == 0
@@ -109,6 +109,12 @@ The cohort key gained its source type at 7d, and the third line is what says so:
 of two overlapping sets, which would match no declaration and hide the fact that
 a per-source-type count is a SUM.
 
+It gained the calendar year at PLAN.md §7.3.44 for the same reason. A cohort is
+an AGE at a YEAR, so `runspecs/expand-multiyear.esm`'s 241 cohorts -- 116 at
+2015 and 125 at 2020 -- share most of their model years, and (sourceTypeID,
+fuelTypeID, modelYearID) alone counts 135 of them. The year is not a factor of
+the row count: it is already in the pairs, because the cohort grid carries it.
+
 The county, month and day-type factors are counted from the output's own key
 columns rather than recomputed, because all three are runtime-discovered extents
 of a runspec source and no declaration stands behind them to check. What they DO
@@ -153,7 +159,7 @@ def main(emitted_path, shape_path):
     months = distinct("out_monthID")
     counties = distinct("out_countyID")
     pairs = distinct("out_pollutantID", "out_processID")
-    cohort_keys = distinct("out_sourceTypeID", "out_fuelTypeID", "out_modelYearID")
+    cohort_keys = distinct("out_yearID", "out_sourceTypeID", "out_fuelTypeID", "out_modelYearID")
 
     problems = []
     expected = pairs_emitted * len(counties) * len(months) * len(days)
@@ -169,7 +175,7 @@ def main(emitted_path, shape_path):
         problems.append("%d (pollutantID, processID) pairs emitted, but "
                         "outputPolProcessCount is %d" % (len(pairs), blocks))
     if len(cohort_keys) != cohorts:
-        problems.append("%d (sourceTypeID, fuelTypeID, modelYearID) cohorts "
+        problems.append("%d (yearID, sourceTypeID, fuelTypeID, modelYearID) cohorts "
                         "emitted, but cohortSurvivorCount is %d"
                         % (len(cohort_keys), cohorts))
     if dropped:
