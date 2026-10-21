@@ -149,9 +149,11 @@ def no_county_join(logic, fixture):
     # 13 since the `-single` runs (PLAN.md §7.3.41): the four emission columns
     # each sum a rate block and an activity block, and each block selects its
     # county; `out_zoneID` and `out_linkID` select it for a PROJECT run's
-    # link-level geography (§7.3.40).
-    if dropped != 13:
-        sys.exit("expected 13 county key pairs, dropped %d" % dropped)
+    # link-level geography (§7.3.40). 17 since Rates scale (§7.3.47): the
+    # rate-per-distance relation reads its zone, meteorology and rate at the
+    # output row's county too, four more pairs on the same `outCountyOrdinal`.
+    if dropped != 17:
+        sys.exit("expected 17 county key pairs, dropped %d" % dropped)
 
 
 def no_source_type_join(logic, fixture):

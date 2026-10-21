@@ -8624,3 +8624,83 @@ type and model-year window (`lib/onroad_activity.esm` `off_network_idle_sho`).
   road type 1 (MOVES writes SHP rows there) and one on a second on-network road type
   stay in `run_selectionUnported`; `run_offNetworkLinkCount` now counts evaporative
   BLOCKS on road type 1, the only ones that would read SHP.
+
+## 103. A second output table is a second relation over the first, and the scale that asks for it is a declaration whose default is the inventory **[PLAN.md §7.3.47; `scale-rates` and `rates-minimal` 2000 of 2000 at 1.163e-05 on the first run, the 35 earlier runs unchanged to the byte]**
+
+MOVES's Rates scale (MESOSCALE_LOOKUP) writes no MOVESOutput a run keeps; it writes
+`RatePerDistance`, a rate per mile per (cohort, speed bin). Three rules came out of
+porting it.
+
+1. **The scale is a RunSpec declaration, not a mode.** `<modelscale>` is stated in
+   no table, so a Rates RunSpec binds `n_ratesScale` = 1 beside `n_outputRate`, and
+   the default 0 is every other run. The rate relation is ADDED, never switched
+   into: `out_*` is computed as before and is simply not the oracle at Rates
+   scale. The memory rule "a second mode is a per-run selection" holds in its
+   strongest form -- the inventory computes nothing differently, so the 35 runs
+   that do not set it are the byte-for-byte check of the refactor that the new
+   relation needed (`pp_WSpeedBins` now reads a factored `pp_WBin`).
+2. **Size the new axis to ONE outside its mode, never to zero.** The speed-bin
+   axis is `1 + n_ratesScale x (n_avgspeedbin - 1)`: the 16 discovered bins at
+   Rates scale and a single bin otherwise, so an inventory run computes the rate
+   relation over one bin it never emits instead of over an empty axis (F56). The
+   cost at inventory scale is one more rate-row-sized relation; the wall clock and
+   peak RSS of the 35 runs are in PLAN.md §7.3.47.
+3. **A second output table reads its keys from the first.** `rateoutput_rows` is
+   the output relation with the bin fastest; every column MOVES copies from
+   BaseRateOutput is the output row's own and is read through one ordinal join
+   (`lib/rates.esm`'s `rate_output_column`), so the rate table cannot disagree with
+   the inventory about which cohorts, blocks, months and days exist. Only what is
+   NEW is computed: the link MOVES synthesizes for the bin
+   (`mesoscale_lookup_link_id`, `(zoneID*10 + roadTypeID)*100 + avgSpeedBinID`,
+   `ExecutionRunSpec.createMesoscaleLookupLinks`), the bin, the hour's
+   meteorology, BaseRateOutput's `regClassID` 0, and the rate.
+
+**The harness names a run's oracle by its table.** A runspec's `oracle` source
+points at the output-database table it is judged on; `run-tests.sh` reads the
+table name off that url, emits `out_*` for `movesoutput` and `rpd_*` for
+`rateperdistance`, and passes `--table` to `compare-output.py`, which takes the
+table's column contract from `tolerance.toml` -- `[compare]` for MOVESOutput,
+`[oracle_table.<table>]` otherwise, refusing a table with none. Every gate is the
+same. The shape check reads the prefix off the emitted header and, for a rate
+table, multiplies by the bins, takes the ZONE from the link (the table has no
+county column) and asserts each link's last two digits are its bin.
+
+**What Rates scale does not port is counted** (`run_ratesUnported`, inside
+`run_selectionUnported`): any emitted block but a directly rated running-exhaust
+block on an on-network road type -- starts, evaporative and hotelling processes,
+brake and tire wear, chained pollutants and off-network idle write RatePerStart,
+RatePerVehicle, RatePerProfile, RatePerHour or a chained BaseRateOutput, none of
+which is built -- a PROJECT domain, and any time aggregation. Distance units other
+than miles are a RunSpec setting no table records.
+
+## 104. At Rates scale a rate is per vehicle of its own fuel, and the measurement that found it was a ratio that had to be constant **[PLAN.md §7.3.47]**
+
+`BaseRateGenerator` step 008 divides the source-bin-weighted rate by
+`SUM(sbd.SourceBinActivityFraction)` at Rates scale and by 1 at inventory scale,
+and turns off `sumSBD` for running exhaust: an inventory rate is the cohort's SHARE
+of the source type's fleet, a Rates rate is the rate of a vehicle OF THAT FUEL.
+
+* **The normalizer is the SQL's group, over its inner join.**
+  `rtMode_activityFractionSum` sums the used fractions of the rate row's siblings
+  -- same block, cohort and regulatory class, the GROUP BY -- that have a rate at
+  the operating mode (`rtMode_rateRows`), because a bin with no rate row at a mode
+  is not in that mode's sum. On this corpus' passenger cars every cohort is one
+  source bin, so the normalized rate is that bin's rate; the general form is what
+  the SQL says and costs one self-join.
+* **Found by a ratio, before porting.** Against `expand-day`'s weekday --
+  same county, year, month, hour, source type and road type --
+  `emissionQuant / (N x Sum_bin avgSpeedFraction x avgBinSpeed x ratePerDistance)`
+  had to be the same for every fuel type of a model year if the rate were the
+  inventory's rate normalized by `N`; it was, to 5e-06, and the port reproduced on
+  its first run. A ratio that is constant along the axis a hypothesis says it
+  should be is a cheaper test than a reimplementation, and it pins the units too
+  (Million BTU, then per mile).
+* **Two snapshots of one RunSpec disagree in one cell, and the model cannot be
+  asked to pick.** `scale-rates` and `rates-minimal` agree in 1999 of 2000 cells;
+  diesel, model year 2016, at link 261610412 (55 mph) is 0.00299941 in one and
+  0.00299940 in the other, exactly one unit of the sixth significant digit a MySQL
+  FLOAT is rendered to (3.3e-06 relative). It is MOVES's own run-to-run noise --
+  most likely its float32 accumulations in a different order (the worker bundles and their GROUP BY sums are not ordered) landing on the other side of a
+  display boundary -- and the model's 0.0029994027 sits between them, 9.1e-07 from
+  one and 2.4e-06 from the other. Both runs are kept and both reproduce; a
+  tolerance that could tell them apart would be testing MOVES's scheduling.
