@@ -2,7 +2,7 @@
   "esm": "1.2.0",
   "metadata": {
     "name": "scale-county-runspec",
-    "description": "PENDING (PLAN.md §7.3.45, step 7f). `scale-county`: Total Energy (91) for the gasoline passenger car at Washtenaw County SINGLE scale, August 2020, weekday, hour 7, from the default database plus Washtenaw's COMPLETE county database (`inputs/washtenaw-county.esm`, built from moves.rs `setup-county.sql`). MOVESOutput is 729 rows: running exhaust (9101) on road types 1 to 5, 125 rows each, and start exhaust (9102) on road type 1, 104 rows. The RunSpec also names petroleum and fossil energy (92, 93) and well-to-pump (99), which are not MOVES5 pollutant-processes, and extended idle (9190), which a passenger car never emits. It does NOT reproduce yet. `n_outputRate` is bound to what THIS chain computes (104, start exhaust's block) so the document runs and says where it stops; `run_selectionUnported` is 4.\n\nTHE COUNTY DATABASE IS NOT WHAT IT WAITS ON, MEASURED 2026-10-20. Every one of the 729 MOVESOutput rows equals the DEFAULT-domain `expand-roadtypes` snapshot's row at the same key, at the six-digit rendering (same county, year, month, hour and vehicle; that RunSpec selects road types 1 to 5 explicitly). The two execution databases differ only in MOVES's SINGLE-scale REPLACE tables, which hold the 2020 rows the run reads, in `avft`, which leaves `sampleVehiclePopulation` the default's, and in the 9190 selection. And the domain document is checked on its own: `process-crankcase-start`'s selections mounted on `inputs/washtenaw-county.esm` emit a relation byte-identical to the DEFAULT run's, and reproduce `process-crankcase-start-single`'s oracle at its worst cell, 8.250e-06 (1.3e-10 to 2.1e-10 from the starts county database, its twelve-decimal truncation).\n\nWHAT IT WAITS ON is the road type as an AXIS, which `expand-roadtypes` waits on identically:\n\n* Running exhaust on FOUR on-network road types. Selecting road type 1 beside a running process makes MOVES select every road type (\"Off-Network Idle requires all roadtypes\"), so `runspecroadtype` holds 1 to 5. The model has one on-network road type, `run_roadTypeID`, a scalar: summed over four rows it reads 14, the zone and county joins find nothing, and every row comes out at county 0. `run_selectionUnported` counts it (3 for the extra on-network road types, 1 for an on-road process beside road type 1). The activity (SHO by road type: VMT x roadTypeVMTFraction over the road's speed) and the rate (the average-speed operating-mode distribution, `pp_W`, per road type) both need the axis; the forward closure of `run_roadTypeID` is 283 of `onroad/model.esm`'s 1,036 equations.\n* OFF-NETWORK IDLE, running exhaust on road type 1 (TotalActivityGenerator step 190c): per age, ONI SHO = max(S x (totalIdleFraction - SD/S) / (1 - totalIdleFraction), 0), with S the on-network SHO summed over road types 2-5 and SD the same weighted by each road's `drivingIdleFraction`. Reproduced in pandas from the execution database's `sho`, `drivingidlefraction` and `totalidlefraction` (idle region 103, county type 1): 41 of 41 ages at 3.9e-06. `drivingIdleFraction` is operating mode 1's share of the road's speed-weighted operating-mode distribution (moves.rs baserategenerator/drivecycle.rs:427-492), so it is a contraction of the per-road `pp_W` the first item builds; `totalIdleFraction` is a default table this model does not yet mount.\n* A pollutant-process emitted on SEVERAL road types. The output relation's blocks are pollutant-processes, each on ONE road type (`rspp_rateRoadTypeID`); running energy here is one pollutant-process on five, so a block becomes a (pollutant-process, road type) pair.\n\n`db_movesoutput` is DECLARED AND CONSUMED BY NOTHING, as in every RunSpec here.",
+    "description": "PLAN.md §7.3.45-§7.3.46, step 7f. `scale-county`: Total Energy (91) for the gasoline passenger car at Washtenaw County SINGLE scale, August 2020, weekday, hour 7, from the default database plus Washtenaw's COMPLETE county database (`inputs/washtenaw-county.esm`, built from moves.rs `setup-county.sql`). MOVESOutput is 729 rows: running exhaust (9101) on road types 1 to 5, 125 rows each, and start exhaust (9102) on road type 1, 104 rows. The RunSpec also names petroleum and fossil energy (92, 93) and well-to-pump (99), which are not MOVES5 pollutant-processes, and extended idle (9190), which a passenger car never emits.\n\nWHAT IT DISCRIMINATES is the county database, against a twin. Every one of the 729 MOVESOutput rows equals the DEFAULT-domain `expand-roadtypes` snapshot's row at the same key (same county, year, month, hour and vehicle), and the two execution databases differ only in MOVES's SINGLE-scale REPLACE tables, which hold the 2020 rows the run reads, in `avft`, which leaves `sampleVehiclePopulation` the default's, and in the 9190 selection. So this run is `expand-roadtypes` with the county database's row merges in the path -- `zone` and `zoneRoadType` shadowing the default's rows with the default's own values -- and with a RunSpec that names road types 1 and 4 and gets all five, because ExecutionRunSpec selects every road type when road type 1 and running exhaust are both selected (\"Off-Network Idle requires all roadtypes\", conventions §100). `totalIdleFraction` is a whole-table copy in the county database (3,120 rows) and the three idle adjustment tables are empty there as in the default, so off-network idle reads the default's.\n\n729 of 729 with no model change beyond `expand-roadtypes`' -- the road type as an axis and off-network idle (PLAN.md §7.3.46) -- key set exact. `n_outputRate` is bound to 729, recomputed as `rateSurvivorCount`.\n\n`db_movesoutput` is DECLARED AND CONSUMED BY NOTHING, as in every RunSpec here.",
     "authors": [
       "EarthSciML Authors and Contributors"
     ],
@@ -11,7 +11,6 @@
       "onroad",
       "default-database",
       "single-county-domain",
-      "pending",
       "road-type-axis",
       "off-network-idle"
     ]
@@ -20,7 +19,7 @@
     "db_runspecyear": {
       "kind": "static",
       "source": {
-        "url_template": "../../../moves.rs/characterization/snapshots/scale-county/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspecyear.parquet"
+        "url_template": "../../moves.rs/characterization/snapshots/scale-county/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspecyear.parquet"
       },
       "extent": {
         "metaparameter": "n_runspecyear"
@@ -36,7 +35,7 @@
     "db_runspecmonth": {
       "kind": "static",
       "source": {
-        "url_template": "../../../moves.rs/characterization/snapshots/scale-county/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspecmonth.parquet"
+        "url_template": "../../moves.rs/characterization/snapshots/scale-county/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspecmonth.parquet"
       },
       "extent": {
         "metaparameter": "n_runspecmonth"
@@ -52,7 +51,7 @@
     "db_runspechour": {
       "kind": "static",
       "source": {
-        "url_template": "../../../moves.rs/characterization/snapshots/scale-county/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspechour.parquet"
+        "url_template": "../../moves.rs/characterization/snapshots/scale-county/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspechour.parquet"
       },
       "extent": {
         "metaparameter": "n_runspechour"
@@ -68,7 +67,7 @@
     "db_aggregationhour": {
       "kind": "static",
       "source": {
-        "url_template": "../../../moves.rs/characterization/snapshots/scale-county/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspechour.parquet"
+        "url_template": "../../moves.rs/characterization/snapshots/scale-county/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspechour.parquet"
       },
       "extent": {
         "metaparameter": "n_aggregationhour"
@@ -84,7 +83,7 @@
     "db_runspecday": {
       "kind": "static",
       "source": {
-        "url_template": "../../../moves.rs/characterization/snapshots/scale-county/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspecday.parquet"
+        "url_template": "../../moves.rs/characterization/snapshots/scale-county/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspecday.parquet"
       },
       "extent": {
         "metaparameter": "n_runspecday"
@@ -100,7 +99,7 @@
     "db_rateday": {
       "kind": "static",
       "source": {
-        "url_template": "../../../moves.rs/characterization/snapshots/scale-county/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspecday.parquet"
+        "url_template": "../../moves.rs/characterization/snapshots/scale-county/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspecday.parquet"
       },
       "extent": {
         "metaparameter": "n_rateday"
@@ -116,7 +115,7 @@
     "db_actday": {
       "kind": "static",
       "source": {
-        "url_template": "../../../moves.rs/characterization/snapshots/scale-county/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspecday.parquet"
+        "url_template": "../../moves.rs/characterization/snapshots/scale-county/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspecday.parquet"
       },
       "extent": {
         "metaparameter": "n_actday"
@@ -132,7 +131,7 @@
     "db_runspecsourcetype": {
       "kind": "static",
       "source": {
-        "url_template": "../../../moves.rs/characterization/snapshots/scale-county/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspecsourcetype.parquet"
+        "url_template": "../../moves.rs/characterization/snapshots/scale-county/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspecsourcetype.parquet"
       },
       "extent": {
         "metaparameter": "n_runspecsourcetype"
@@ -148,7 +147,7 @@
     "db_runspecroadtype": {
       "kind": "static",
       "source": {
-        "url_template": "../../../moves.rs/characterization/snapshots/scale-county/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspecroadtype.parquet"
+        "url_template": "../../moves.rs/characterization/snapshots/scale-county/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspecroadtype.parquet"
       },
       "extent": {
         "metaparameter": "n_runspecroadtype"
@@ -164,7 +163,7 @@
     "db_runspecsourcefueltype": {
       "kind": "static",
       "source": {
-        "url_template": "../../../moves.rs/characterization/snapshots/scale-county/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspecsourcefueltype.parquet"
+        "url_template": "../../moves.rs/characterization/snapshots/scale-county/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspecsourcefueltype.parquet"
       },
       "extent": {
         "metaparameter": "n_runspecsourcefueltype"
@@ -181,7 +180,7 @@
     "db_movesoutput": {
       "kind": "static",
       "source": {
-        "url_template": "../../../moves.rs/characterization/snapshots/scale-county/tables/db__out_scale_county__movesoutput.parquet"
+        "url_template": "../../moves.rs/characterization/snapshots/scale-county/tables/db__out_scale_county__movesoutput.parquet"
       },
       "reader_options": {
         "float_columns": [
@@ -200,7 +199,7 @@
     "db_runspecpollutantprocess": {
       "kind": "static",
       "source": {
-        "url_template": "../../../moves.rs/characterization/snapshots/scale-county/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspecpollutantprocess.parquet"
+        "url_template": "../../moves.rs/characterization/snapshots/scale-county/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspecpollutantprocess.parquet"
       },
       "extent": {
         "metaparameter": "n_runspecpollutantprocess"
@@ -216,7 +215,7 @@
     "db_runspecchainedto": {
       "kind": "static",
       "source": {
-        "url_template": "../../../moves.rs/characterization/snapshots/scale-county/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspecchainedto.parquet"
+        "url_template": "../../moves.rs/characterization/snapshots/scale-county/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspecchainedto.parquet"
       },
       "extent": {
         "metaparameter": "n_runspecchainedto"
@@ -233,7 +232,7 @@
     "db_runspeccounty": {
       "kind": "static",
       "source": {
-        "url_template": "../../../moves.rs/characterization/snapshots/scale-county/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspeccounty.parquet"
+        "url_template": "../../moves.rs/characterization/snapshots/scale-county/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspeccounty.parquet"
       },
       "extent": {
         "metaparameter": "n_runspeccounty"
@@ -249,9 +248,9 @@
   },
   "models": {
     "Onroad": {
-      "ref": "../../inputs/washtenaw-county.esm",
+      "ref": "../inputs/washtenaw-county.esm",
       "bindings": {
-        "n_outputRate": 104,
+        "n_outputRate": 729,
         "n_sourceBin": 2,
         "n_physicsRow": 1
       }

@@ -1533,9 +1533,9 @@ C7P_DOMAIN=moves-onroad.esm
 # gives mode 300 its weight is `greatest(0, 1 - SUM(soaking))` and not
 # `fractionOfOperating`. A document that wrote the soak weight as zero would
 # agree here and be wrong at the first off-network link, which is why
-# `run_offNetworkLinkCount` joined the shape check: an off-network run would
-# divide `SHO` by a copy of itself where MOVES divided it by `SHP`, and nothing
-# else in this harness could see it. It reproduced all 64 cells at 7.294e-06 on
+# `run_offNetworkLinkCount` joined the shape check: an evaporative block on the
+# off-network road type would divide `SHO` by a copy of itself where MOVES
+# divided it by `SHP`, and nothing else in this harness could see it. It reproduced all 64 cells at 7.294e-06 on
 # its first run, the same worst cell as the independent pandas reproduction.
 # `process-refueling` is the first run whose selection is not what its execution
 # database records. `runspecpollutantprocess` carries seven pollutant-processes
@@ -1589,8 +1589,8 @@ C7P_DOMAIN=moves-onroad.esm
 # high-ethanol substitution (E85 would weather to 7.61 psi without it, and is 7.7).
 # The cold-soak insert, TVV-2 to TVV-7, writes mode 151 and is weighted by a
 # computed exactly-zero on an on-network link; the shape check's
-# `run_offNetworkLinkCount` is what turns its absence into a failure the day a
-# RunSpec selects road type 1. All 64 cells at 7.517e-06 on the first run.
+# `run_offNetworkLinkCount` is what turns its absence into a failure the day an
+# evaporative block lands on road type 1. All 64 cells at 7.517e-06 on the first run.
 # `scale-project` is the first run whose input is NOT the default database
 # alone (step 7f, PLAN.md §7.3.40). It mounts `inputs/washtenaw-project.esm`,
 # its PROJECT database, where every other document here mounts
@@ -1611,8 +1611,9 @@ C7P_DOMAIN=moves-onroad.esm
 # default's at 990000. The activity is hotelling hours, not SHO, and the rows
 # live on road type 1, which the RunSpec selects beside 4.
 # `run_selectionUnported` -- checked for every document here -- counts what a
-# run SELECTS that the model does not compute: a second on-network road type,
-# an on-road process beside road type 1, a hotelling process under time
+# run SELECTS that the model does not compute: an evaporative process on a
+# second on-network road type, an on-road process other than running exhaust
+# beside road type 1, a hotelling, start or off-network idle block under time
 # aggregation.
 # `process-apu-single` selects one pollutant-process and emits two processes:
 # the calculator retags auxiliary power's shore-power mode (203) to process 93,
@@ -1637,14 +1638,18 @@ C7P_DOMAIN=moves-onroad.esm
 # regions -- and reproduced with no model change (PLAN.md §7.3.43). Eleven and
 # not twelve: `<month key>` is a 0-based index, so the XML's key 12 selects
 # nothing, and the execution database's month tables say 2..12 (conventions 96).
-# `runspecs/pending/expand-roadtypes.esm` is the first run with several on-network
-# road types and running exhaust beside road type 1; it waits on a road-type axis
-# and off-network idle, priced in its WHAT IT WAITS ON.
-# `runspecs/pending/scale-county.esm` is the county-scale inventory over
-# `inputs/washtenaw-county.esm`, a COMPLETE county database of the default's own
-# rows (PLAN.md §7.3.45). Its oracle equals `expand-roadtypes`' on all 729 rows;
-# it waits on the road type as an axis (off-network idle selects road types 1-5),
-# so 3b holds it to loading and naming what it waits on.
+# `expand-roadtypes` is the first run with several on-network road types and
+# running exhaust beside road type 1 (PLAN.md §7.3.46, conventions §101, §102):
+# the road type is an axis -- the rate relation's leading factor is a
+# (pollutant-process, road type) block, the VMT-to-SHO chain carries it as a
+# trailing axis -- and road type 1's running exhaust is off-network idle, a sum
+# across that axis. The output is RAGGED on it: running energy on five road
+# types, start energy on one, six blocks, which is why the shape check keys a
+# block by (pollutantID, processID, roadTypeID).
+# `scale-county` is the county-scale inventory over `inputs/washtenaw-county.esm`,
+# a COMPLETE county database of the default's own rows (PLAN.md §7.3.45); its
+# oracle equals `expand-roadtypes`' on all 729 rows, and it reproduced with no
+# change beyond its selections.
 # `expand-multiyear` is the first run at two calendar years (PLAN.md §7.3.44,
 # conventions §98): the year is the cohort grid's and the activity relation's
 # slowest factor and a trailing axis of every other per-year relation, so the
@@ -1758,7 +1763,8 @@ else
   #    probe: the narrowing it removes is no longer what narrows.
   #
   #    `no-link-join` moves the NUMBERS -- the four run-level geography columns
-  #    sum a national table again. `no-county-join` moves them the same way one
+  #    sum a national table again (`Zone` for the zone and county since PLAN.md
+  #    §7.3.46, `Link` for the project link). `no-county-join` moves them the same way one
   #    axis up: without the output relation's county key pair every row sums all
   #    three counties, `out_countyID` comes back 49229 and SHO 10960.9 instead
   #    of 8364.2, 2336.7 and 260.1.
