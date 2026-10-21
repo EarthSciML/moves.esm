@@ -4865,6 +4865,111 @@ evaporative processes on several road types, and every on-road process but runni
 exhaust beside road type 1, stay counted. The model sums ONI over the SELECTED
 on-network road types, which no run here can tell from all four.
 
+#### 7.3.47 Rates scale: a rate per mile at each speed bin, and the output is a different table
+
+2026-10-21. `scale-rates` and `rates-minimal` are the corpus' two Rates-scale
+RunSpecs (`<modelscale value="Rates"/>`, MOVES's MESOSCALE_LOOKUP, DEFAULT
+domain) -- one RunSpec under two names. Their `MOVESOutput` is EMPTY; the oracle is
+the output database's `RatePerDistance`, 2000 rows: running Total Energy (91/1)
+for the 125 (model year, fuel type) cohorts of passenger cars on road type 4,
+at each of the 16 average-speed bins. This section is written in two passes: the
+measurement, the design and the price, committed before `onroad/model.esm` was
+touched, and then what was done.
+
+**What MOVES does, from its source** (the pinned SIF's `/opt/moves`):
+
+* *A speed bin is a link.* `ExecutionRunSpec.createMesoscaleLookupLinks`
+  (`ExecutionRunSpec.java`, called for MESOSCALE_LOOKUP outside PROJECT) deletes
+  `Link` and writes one link per (zone, road type, speed bin), `linkID =
+  (zoneID*10 + roadTypeID)*100 + avgSpeedBinID`, and one per (zone, road type 1)
+  without the bin. The snapshot's execution `link` is exactly those 16 rows,
+  261610401..261610416, with `linkAverageSpeed` the bin's `avgBinSpeed`.
+* *The rate is the bin's, not the road type's.* `BaseRateGenerator.generateBaseRates`
+  sets `applyAvgSpeedDistribution` only at MACROSCALE, so at Rates scale running
+  exhaust keeps `avgSpeedBinID` (`useAvgSpeedBin`) and divides by `avgBinSpeed`
+  (`emissionRate = sum(MeanBaseRate)/avgBinSpeed`); `BaseRateCalculator.sql`'s
+  `Rates`/`NotProject` section selects `avgSpeedBinID = mod(linkID,100)`.
+* *The source-bin weighting is NORMALIZED* (step 008): at Rates scale
+  `SBWeightedEmissionRate` divides by `SUM(sbd.SourceBinActivityFraction)` over
+  the (source type, pollutant-process, model year, fuel type, operating mode, age
+  group, regulatory class) group the inner join on the rate table leaves, and
+  `applySourceBinDistribution` (`sumSBD`) is off for running exhaust. A rate is per
+  vehicle OF THAT FUEL, not a share of the fleet.
+* *The output table.* `MesoscaleLookupPostProcessor` runs
+  `RatePostProcessorRatesFirst.sql` after unit conversion: `RatePerDistance` is
+  `BaseRateOutput.emissionRate` for processes 1, 9, 10, 15 (and 11-13, 18, 19 off
+  road type 1), with `dayID`/`hourID` unpacked from `hourDayID`, and
+  `temperature`/`relHumidity` from `ZoneMonthHour` at the zone, month and hour.
+  `regClassID` is BaseRateOutput's 0. `MOVESOutput` is then deleted by the
+  "truncate MOVESOutput" performance setting (`OutputProcessor.java`).
+
+**Measured before porting, in pandas against the snapshots.** (1) The snapshot's
+own `baserate_1_2020` (rates, per bin and mode) and `expand-day`'s (inventory,
+collapsed) agree as `inventory = sumSBD x Sum_bin avgSpeedFraction x Sum_mode
+rates`, 125 of 125 cohorts within 5e-06. (2) End to end, `expand-day`'s day-5
+`MOVESOutput` against this run's `RatePerDistance` -- same county, year, month,
+hour, source type and road type -- satisfies `emissionQuant(c) / (N(c) x
+Sum_bin avgSpeedFraction x avgBinSpeed x ratePerDistance(bin, c))` constant across
+each model year's fuel types to 5e-06, with `N(c)` the sum of the run's
+`sourceBinDistributionFuelUsage` fractions over the cohort. The units are the
+inventory's (Million BTU, then per mile), the meteorology is the inventory's,
+and every adjustment the inventory applies is linear in the rate and applies
+unchanged (`baseratecalculator/adjust.rs` treats `emissionRate` and `meanBaseRate`
+alike). So the rate is what the model already computes, at a one-bin speed
+distribution, divided by `N` and by the bin speed.
+
+**The design: the scale is a selection, and the rate relation is a second output
+relation.** Rates scale switches nothing the inventory computes; it ADDS a
+relation, and the corpus' 35 runs are its degenerate case.
+
+* *The datum.* `<modelscale>` is stated in no table, so it is a RunSpec
+  declaration, `n_ratesScale` (0 at inventory scale, the default; a Rates RunSpec
+  binds 1), beside `n_outputRate`. It sizes `ratespeedbin_rows`, `1 + n_ratesScale
+  x (n_avgspeedbin - 1)`: the 16 discovered bins at Rates scale and ONE bin
+  otherwise, so an inventory run computes the new relation over a single bin it
+  never emits rather than over an empty axis (F56).
+* *The weights per bin.* `pp_WSpeedBins` is `Sum_bin asd_effectiveFraction x
+  modeFraction(bin)`; the per-bin factor becomes `pp_WBin` and `pp_WSpeedBins`
+  reads it -- the same products in the same order, so the inventory's bytes do
+  not move.
+* *The normalization.* `rtMode_activityFractionSum` is the SQL's denominator: the
+  used fractions of the rate row's siblings -- same block, cohort and regulatory
+  class -- that have a rate at the mode (`rtMode_rateRows`); `rtMode_normalizedRate`
+  divides `rtMode_weightedRate` by it.
+* *The rate, per bin.* `rtBin_meanBaseRate` and `rtBin_meanBaseRateACAdj` contract
+  the mode against `pp_WBin` at the bin; `rtBin_adjustedMeanBaseRate` is the same
+  `adjusted_mean_base_rate` template the inventory uses.
+* *The relation.* `rateoutput_rows` is the output relation times the bins
+  (bin fastest), so every key column is read from `out_*` through one ordinal
+  join (`lib/rates.esm`'s `rate_output_column`), and the new columns are
+  `rpd_linkID` (the link formula, also in `lib/rates.esm`), `rpd_avgSpeedBinID`,
+  `rpd_temperature`, `rpd_relHumidity`, `rpd_regClassID` (0) and
+  `rpd_ratePerDistance` (the per-bin rate over the bin speed and the unit
+  divisor, summed over the output row's rate rows). `out_*` keeps its meaning and
+  is not compared at Rates scale.
+* *What is counted, not ported* (`run_ratesUnported`, inside
+  `run_selectionUnported`): at Rates scale, any emitted block other than a
+  directly rated running-exhaust block on an on-network road type (a start, an
+  evaporative or hotelling process, brake or tire wear, a chained pollutant, or
+  off-network idle: `RatePerStart`, `RatePerVehicle`, `RatePerProfile` and
+  `RatePerHour` are not built), PROJECT domain (its rate is per link speed), and a
+  run that aggregates hours or day types. Distance units other than miles are a
+  RunSpec setting no table records; the model writes per mile.
+
+**The harness.** A runspec names its oracle by the table its `oracle` source
+points at; `run-tests.sh` reads it, emits `rpd_*` for `rateperdistance` and
+`out_*` otherwise, and `compare-output.py --table` takes the table's column contract
+from `tolerance.toml` (`[oracle_table.rateperdistance]`; `[compare]` stays
+MOVESOutput's). The shape check reads the prefix off the emitted header and, for
+a rate table, adds the bin factor.
+
+**The price.** No axis is promoted: 1 equation changed (`pp_WSpeedBins`, to read
+`pp_WBin`) plus `run_selectionUnported`'s new term, about 30 added (`pp_WBin`, 2
+normalization, 3 per-bin rate, 5 ordinals, 17 `rpd_*` columns,
+`run_ratesUnported`), 1 metaparameter, 2 index sets and one template file. The
+forward closure of the change into the existing 35 runs' emitted relations is
+`pp_WSpeedBins` alone.
+
 ### 7.4 Upstream asks
 
 **None is blocking.** This section has said "still none", "already exists,
