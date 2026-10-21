@@ -26,9 +26,9 @@ Java classes MOVES loaded for that run.
 
 > **The brief for this work said the evidence is a `kind: "generator"` entry in
 > `java_classes`. There is no such entry anywhere in the corpus.** Rolled over
-> all 44 traces, `java_classes[*].kind` takes exactly five values —
-> `common` (2,738), `framework` (2,838), `master` (2,131), `utils` (94) and
-> `worker` (44). Generators are `kind: "master"` (or `framework`, for the
+> all 51 traces, `java_classes[*].kind` takes exactly five values —
+> `common` (3,227), `framework` (3,283), `master` (2,464), `utils` (108) and
+> `worker` (51). Generators are `kind: "master"` (or `framework`, for the
 > abstract `Generator` base). The signal that works is the class NAME.
 
 ```
@@ -67,11 +67,13 @@ that key is `(roadTypeID, avgSpeedBinID)`, and
 What the intersection buys is that a generator nothing loaded can no longer be
 credited with a sibling's rows.
 
-The corpus as measured: **45 snapshot directories, 44 with an
+The corpus as measured: **52 snapshot directories, 51 with an
 `execution-trace.json`** (`mixed-onroad-nonroad` carries `tables/` only), at
-`moves.rs` commit `cadac923` (`scale-county` captured on 2026-10-20 with a complete
-county database, PLAN.md §7.3.45, after the four DEFAULT-domain `process-*` runs were
-recaptured non-empty at `dbda2695`, §7.3.42). It was 41 and 40 when this note was first
+`moves.rs` commit `74fa85af` (2026-10-20: five `expand-*` runs — `expand-roadtypes`,
+`expand-multiyear`, `expand-multifuel`, `expand-fullyear`, `expand-counties-large` —
+and the two Rates-scale runs `scale-rates` and `rates-minimal` captured, after
+`scale-county` at `cadac923` the same day, PLAN.md §7.3.45, and the four DEFAULT-domain
+`process-*` runs recaptured non-empty at `dbda2695`, §7.3.42). It was 41 and 40 when this note was first
 written. Every count below moves when the corpus does; that is what §35.5 is
 about, and writing the date down turned out not to be enough — see "Keeping
 these numbers honest".
@@ -90,8 +92,9 @@ of it, exactly as §35.5 asks.
 
 So the date is not the mechanism. `tools/check-reachability-counts.py` is: it
 parses the figures out of THIS FILE and re-derives each one from the corpus,
-and `run-tests.sh` stage 2c fails when they disagree. 58 claims, covering the
-corpus-size sentence, the `kind` histogram, every count in the table below,
+and `run-tests.sh` stage 2c fails when they disagree. 77 claims on 2026-10-20
+(58 when the checker was written; the grids' per-snapshot row counts grow with the
+corpus), covering the corpus-size sentence, the `kind` histogram, every count in the table below,
 `FuelEffectsGenerator`'s count in the prose under it, both per-snapshot grids
 (membership and every row count), and the three-way set equality this note
 calls its corroboration.
@@ -120,15 +123,15 @@ which three of these rows share.
 
 | generator | class-loaded in | writes | snapshots with rows | reachable? |
 |---|---:|---|---:|---|
-| `RatesOperatingModeDistributionGenerator` | **32** / 44 | `RatesOpModeDistribution` | **20** | **yes** |
-| `StartOperatingModeDistributionGenerator` | **13** / 44 | `StartOpModeDistribution` | **12** | **yes** |
-| `LinkOperatingModeDistributionGenerator` | **1** / 44 | `OpModeDistribution` | **1** | **yes, since 2026-09-10** |
-| `OperatingModeDistributionGenerator` | 0 / 44 | `OpModeDistribution` | 0 | no — dead code |
-| `MesoscaleLookupOperatingModeDistributionGenerator` | 0 / 44 | `OpModeDistribution` | 0 | no — dead code |
-| `MesoscaleLookupTotalActivityGenerator` | 0 / 44 | `SourceHours`, `SHO` | 0 | no — dead code |
-| `NewTvvYearGenerator` | 0 / 44 | — | — | no — no such class |
+| `RatesOperatingModeDistributionGenerator` | **39** / 51 | `RatesOpModeDistribution` | **27** | **yes** |
+| `StartOperatingModeDistributionGenerator` | **20** / 51 | `StartOpModeDistribution` | **19** | **yes** |
+| `LinkOperatingModeDistributionGenerator` | **1** / 51 | `OpModeDistribution` | **1** | **yes, since 2026-09-10** |
+| `OperatingModeDistributionGenerator` | 0 / 51 | `OpModeDistribution` | 0 | no — dead code |
+| `MesoscaleLookupOperatingModeDistributionGenerator` | 0 / 51 | `OpModeDistribution` | 0 | no — dead code |
+| `MesoscaleLookupTotalActivityGenerator` | 0 / 51 | `SourceHours`, `SHO` | 0 | no — dead code |
+| `NewTvvYearGenerator` | 0 / 51 | — | — | no — no such class |
 
-`FuelEffectsGenerator` (30 / 44) is the eighth unported generator and belongs to
+`FuelEffectsGenerator` (37 / 51) is the eighth unported generator and belongs to
 a parallel rung; it is listed here only so the eight add up. It has since been
 ported (`docs/fuel-effects-generator.md`), as have the first two rows of the
 table (`docs/operating-mode-distribution.md`).
@@ -140,20 +143,24 @@ all three of the generators that write it.
 
 ### Which snapshots, exactly
 
-`RatesOpModeDistribution` is non-empty in 20 snapshots:
+`RatesOpModeDistribution` is non-empty in 27 snapshots:
 
 | snapshot | rows | | snapshot | rows |
 |---|---:|---|---|---:|
-| `expand-counties` | 9 | | `process-crankcase-extidle-single` | 3 |
+| `expand-counties` | 9 | | `process-crankcase-extidle` | 3 |
+| `expand-counties-large` | 9 | | `process-crankcase-extidle-single` | 3 |
 | `expand-criteria` | 33 | | `process-crankcase-start` | 49 |
 | `expand-day` | 18 | | `process-crankcase-start-single` | 49 |
 | `expand-fueltype-diesel` | 18 | | `process-extended-idle` | 2 |
-| `expand-month` | 9 | | `process-extended-idle-single` | 1 |
-| `expand-sourcetype` | 46 | | `process-refueling` | 9 |
-| `mixed-onroad` | 9 | | `process-tirewear` | 16 |
-| `process-apu` | 3 | | `sample-runspec` | 9 |
-| `process-apu-single` | 3 | | `scale-county` | 9 |
-| `process-crankcase-extidle` | 3 | | `scale-project` | 22 |
+| `expand-fullyear` | 9 | | `process-extended-idle-single` | 1 |
+| `expand-month` | 9 | | `process-refueling` | 9 |
+| `expand-multifuel` | 9 | | `process-tirewear` | 16 |
+| `expand-multiyear` | 9 | | `rates-minimal` | 9 |
+| `expand-roadtypes` | 9 | | `sample-runspec` | 9 |
+| `expand-sourcetype` | 46 | | `scale-county` | 9 |
+| `mixed-onroad` | 9 | | `scale-project` | 22 |
+| `process-apu` | 3 | | `scale-rates` | 9 |
+| `process-apu-single` | 3 | | | |
 
 **`scale-project`'s 22 are not all the same generator's**, and that is the
 sharpest illustration in the corpus of why the `writes` column cannot be read
@@ -165,27 +172,31 @@ freshly-computed `OpModeDistribution` across —
 `LinkOperatingModeDistributionGenerator.java:448-458`. Four generators write
 this table and `(roadTypeID, avgSpeedBinID)` is what separates them.
 
-`StartOpModeDistribution` is non-empty in 12:
+`StartOpModeDistribution` is non-empty in 19:
 
 | snapshot | rows | | snapshot | rows |
 |---|---:|---|---|---:|
-| `expand-counties` | 5 | | `mixed-onroad` | 7 |
+| `expand-counties` | 5 | | `expand-sourcetype` | 29 |
+| `expand-counties-large` | 5 | | `mixed-onroad` | 7 |
 | `expand-criteria` | 5 | | `process-crankcase-start` | 5 |
 | `expand-day` | 9 | | `process-crankcase-start-single` | 5 |
 | `expand-fueltype-diesel` | 12 | | `process-refueling` | 5 |
+| `expand-fullyear` | 8 | | `rates-minimal` | 5 |
 | `expand-month` | 8 | | `sample-runspec` | 4 |
-| `expand-sourcetype` | 29 | | `scale-county` | 5 |
+| `expand-multifuel` | 5 | | `scale-county` | 5 |
+| `expand-multiyear` | 5 | | `scale-rates` | 5 |
+| `expand-roadtypes` | 5 | | | |
 
-The same 12 are the only ones carrying `SOMDGOpModes` (the generator's own
+The same 19 are the only ones carrying `SOMDGOpModes` (the generator's own
 working table) and a populated `StartOpMode` input table — three independent
 corroborations of one predicate.
 
-**Those 12 are no longer the same as the snapshots that LOAD the generator.**
+**Those 19 are no longer the same as the snapshots that LOAD the generator.**
 Until `scale-project` they were, and this note said so ("set-equal, not merely
 equinumerous"). `scale-project` class-loads
 `StartOperatingModeDistributionGenerator` and leaves `StartOpModeDistribution`
-**empty**, so the load set is one larger than the row set -- 13 and 12 since
-`scale-county` joined the corpus. The generator
+**empty**, so the load set is one larger than the row set -- 20 and 19 since
+the seven 2026-10-20 captures joined the corpus. The generator
 did run — its All-Starts row is in `RatesOpModeDistribution` — but in PROJECT
 domain its step 400 takes a different branch that reads `OpModeDistribution`
 instead of `startsOpModeDistribution`
@@ -195,7 +206,7 @@ among `StartOpModeDistribution`, `SOMDGOpModes` and `StartOpMode` still holds
 exactly; it is the fourth set, class-loading, that has separated from them.
 
 **`RatesOperatingModeDistributionGenerator` is the case the brief warned about:
-32 loaded, 20 with rows.** Loading it and running it are different events, and
+39 loaded, 27 with rows.** Loading it and running it are different events, and
 twelve of the loads produce nothing. Its subscription list (processes 1, 90 and 91)
 is what decides which; process 1's contribution is delegated to the external
 `SourceTypePhysics` generator, so this module's own live output is the
@@ -238,6 +249,18 @@ the corpus selects the project or mesoscale-lookup domain. That was true, and
 it was the wrong level of explanation. `scale-project` supplied the missing
 project RunSpec and only ONE of the four moved. The other three would not move
 for any RunSpec, because **canonical MOVES does not instantiate them at all**.
+
+That is now measured as well as read. `scale-rates` and `rates-minimal`
+(2026-10-20) are the corpus' first Rates-scale RunSpecs — `<modelscale
+value="Rates"/>`, i.e. MESOSCALE_LOOKUP, in the DEFAULT domain, `MOVESOutput`
+empty and 2,000 rows in `rateperdistance` each — the very scale the two
+`MesoscaleLookup*` swaps below exist for. Neither class-loads either
+`MesoscaleLookup*` generator. The only `Mesoscale` class either trace contains
+is `MesoscaleLookupPostProcessor`, and their `*Generator` list is exactly the
+inventory runs': `RatesOperatingModeDistributionGenerator`,
+`StartOperatingModeDistributionGenerator`, `FuelEffectsGenerator`,
+`MeteorologyGenerator`, `SourceBinDistributionGenerator`, `TotalActivityGenerator`
+and `BaseRateGenerator`.
 
 ### Three are dead code under `DO_RATES_FIRST`
 
