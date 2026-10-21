@@ -1,0 +1,255 @@
+{
+  "esm": "1.2.0",
+  "metadata": {
+    "name": "expand-multifuel-runspec",
+    "description": "PLAN.md §7.3.44: the `expand-multifuel` run computed from the DEFAULT DATABASE through `moves-onroad.esm`. Its RunSpec selects four fuels for the passenger car -- gasoline, diesel, CNG and electricity -- where every other passenger-car run in this tree selects gasoline alone. MOVES expands either selection before writing `runspecsourcefueltype`, which is the table the model reads: gasoline alone became gasoline, diesel, E85 and electricity, and these four become those four and CNG.\n\nWHAT IT DISCRIMINATES, which §23 asks for before a dimension is called covered, and the honest answer is: one row of one table, and none of the numbers.\n\n* A SELECTED SOURCE-FUEL PAIR WITH NO VEHICLES. `runspecsourcefueltype` is 5 rows here, (21, 1), (21, 2), (21, 3), (21, 5) and (21, 9), against 4 in `expand-day`. The default `sampleVehiclePopulation` has no passenger car on CNG at any model year, so the fifth candidate in the cohort grid finds no `svp` row and emits nothing. It is the first run in the tree whose `runspecsourcefueltype` names a pair with no population (every other one's pairs all have rows, checked over the twenty-nine), so a cohort grid that ranked its fuels by selection rather than by surviving cohort, or that emitted a zero row for a selected fuel, passed the whole suite until now.\n\n* NOTHING ELSE. `MOVESOutput` is 125 rows of running-exhaust Total Energy, fuelTypeID 1, 2, 5 and 9 -- the same 125 keys as `expand-day`'s weekday block and `process-tirewear`'s 91-01 block, and EQUAL to both at every cell (compared from the three oracles as floats, max relative difference 0). Start exhaust (9102) is selected and discarded on road type 4 as in `expand-day`. So this is a regression on the empty candidate and not a test of anything fuel-specific; a CNG passenger car would need a source type with CNG population (the transit bus, 42) or an input database.\n\nTHE THIRTEEN SELECTIONS, ONE BINDING AND THE ORACLE are everything this document carries: `runspecs/expand-day.esm` with its sources pointed at this snapshot. `n_outputRate` is 125, one emitted block.",
+    "authors": [
+      "EarthSciML Authors and Contributors"
+    ],
+    "tags": [
+      "runspec",
+      "onroad",
+      "default-database",
+      "expand-multifuel"
+    ]
+  },
+  "data_sources": {
+    "db_runspecyear": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/expand-multifuel/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspecyear.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecyear"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, yearID 2020. The scope comes from these tables and never from the RunSpec XML, whose @key attributes are 0-based indices into sorted ID lists (docs/mixed-onroad.md §0.1).",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecmonth": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/expand-multifuel/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspecmonth.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecmonth"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, monthID 8.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspechour": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/expand-multifuel/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspechour.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspechour"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, hourID 7 -- 6am-7am, colder than `mixed-onroad`'s 9. The heat index is 59.5 degF against 66.9, which crosses the EV temperature quadratic's nearer zero at 63.964 degF and reaches the regClassID-0 wildcard row of `temperatureadjustment` on every electricity row (docs/expand-day.md).",
+        "esio_format": "parquet"
+      }
+    },
+    "db_aggregationhour": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/expand-multifuel/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspechour.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_aggregationhour"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "The hours the run aggregates over. This run does not set `aggregateBy`, so it is `runspechour` itself and the same file.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecday": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/expand-multifuel/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspecday.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecday"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, dayID 5 (weekday).",
+        "esio_format": "parquet"
+      }
+    },
+    "db_rateday": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/expand-multifuel/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspecday.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_rateday"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "The day types the RATE-side time pre-aggregation is scoped to. This run does not set `aggregateBy`, so it is `runspecday` itself and the same file: the pre-aggregation averages over one cell and returns the table's own value. A run that aggregates points this somewhere else, because MOVES overwrites `runspecday` with the synthesized output day AFTER the pre-aggregation has run.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_actday": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/expand-multifuel/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspecday.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_actday"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "The day types the output day's ACTIVITY covers. This run does not set `aggregateBy`, so it is `runspecday` itself and the same file, and `noOfRealDays` is that one day type's.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecsourcetype": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/expand-multifuel/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspecsourcetype.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecsourcetype"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, sourceTypeID 21.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecroadtype": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/expand-multifuel/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspecroadtype.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecroadtype"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, roadTypeID 4. `BaseRateCalculator` joins its rate rows to `runSpecRoadType` and start exhaust writes its rates on the off-network road type 1, so 9102 is discarded entire and `MOVESOutput` carries the running-exhaust block alone (docs/mixed-onroad.md §0.2), as in `expand-day`.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecsourcefueltype": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/expand-multifuel/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspecsourcefueltype.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecsourcefueltype"
+      },
+      "metadata": {
+        "tags": [
+          "scope",
+          "cohorts"
+        ],
+        "note": "5 ROWS, AND THAT IS WHY THIS RUN IS HERE: gasoline, diesel, CNG, E85 and electricity for the passenger car. The default `sampleVehiclePopulation` has no (21, CNG) row at any model year, so the CNG candidate of the cohort grid finds no vehicle and the run emits the same four fuels as a gasoline-only one. The second factor of the cohort candidate grid, and the first in the tree with a member that yields no cohort.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecpollutantprocess": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/expand-multifuel/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspecpollutantprocess.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecpollutantprocess"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "2 rows: 9101 and 9102 -- Total Energy Consumption on running exhaust and start exhaust. Start exhaust writes its rates on road type 1, which this run does not select, so only 9101 emits.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecchainedto": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/expand-multifuel/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspecchainedto.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecchainedto"
+      },
+      "metadata": {
+        "tags": [
+          "scope",
+          "chain"
+        ],
+        "note": "0 rows: nothing in this run is chained. `process-tirewear` has one (10710 <- 11710) and this has none, so the left join onto it returns the additive identity for every pollutant-process and the chain term vanishes without a branch.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspeccounty": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/expand-multifuel/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspeccounty.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspeccounty"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, countyID 26161. What narrows the national `Link`'s 22,610 rows to this run's one, together with the road type (PLAN.md §7.3.3).",
+        "esio_format": "parquet"
+      }
+    },
+    "db_movesoutput": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/expand-multifuel/tables/db__out_expand_multifuel__movesoutput.parquet"
+      },
+      "reader_options": {
+        "float_columns": [
+          "emissionQuant"
+        ]
+      },
+      "metadata": {
+        "tags": [
+          "oracle",
+          "expected-output"
+        ],
+        "note": "The 125-row expected output: running-exhaust Total Energy Consumption for 125 (modelYearID, fuelTypeID) cohorts, fuels 1, 2, 5 and 9 and no CNG. Equal at every cell to `expand-day`'s weekday block. DECLARED AND CONSUMED BY NOTHING -- reading it would transcribe the answer and its extent would transcribe the answer's shape. compare-output.py reads it directly under tolerance.toml.",
+        "esio_format": "parquet"
+      }
+    }
+  },
+  "models": {
+    "Onroad": {
+      "ref": "../moves-onroad.esm",
+      "bindings": {
+        "n_outputRate": 125
+      }
+    }
+  }
+}
