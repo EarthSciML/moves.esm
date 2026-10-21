@@ -10,12 +10,17 @@ default database made necessary and re-runs the chain; if the emitted relation
 is unchanged, that narrowing has stopped being what narrows and the suite says
 so.
 
-  no-link-join            `link`'s county/road-type join, against
-                          `runspecs/process-tirewear.esm`. The execution copy of
-                          `Link` has one row, so the four run-level geography
-                          columns SUMMED it and summing one row is reading it.
-                          The national table has 22,610 and the sum reads county
-                          710047702.
+  no-link-join            the geography's county joins, against
+                          `runspecs/process-tirewear.esm`. The execution copies
+                          of `Link` and `Zone` have one row, so the run-level
+                          geography columns SUMMED them and summing one row is
+                          reading it. The national tables have 22,610 and 3,232
+                          rows and the sums read counties nobody selected. Since
+                          PLAN.md §7.3.46 the zone and the county are found in
+                          `Zone` by county and only the project link in `Link`
+                          by county and road type; the probe deletes the county
+                          join from all four, as it did when all four read
+                          `Link`.
 
   no-county-join          the output relation's county key pair, against
                           `runspecs/expand-counties.esm`. The output relation is
@@ -67,6 +72,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 LOGIC = os.path.join(ROOT, "onroad", "model.esm")
 
 LINK_EQUATIONS = ("run_linkID", "run_countyID", "run_zoneID", "run_linkRoadTypeID")
+COUNTY_KEYS = (["lnk_countyID", "rsc_countyID"], ["zn_countyID", "rsc_countyID"])
 
 
 def no_link_join(logic, fixture):
@@ -74,9 +80,9 @@ def no_link_join(logic, fixture):
     for eq in logic["models"]["Onroad"]["equations"]:
         if eq["lhs"] in LINK_EQUATIONS:
             rhs = eq["rhs"]
-            assert rhs["join"][0]["on"][0] == ["lnk_countyID", "rsc_countyID"], eq["lhs"]
+            assert rhs["join"][0]["on"][0] in COUNTY_KEYS, eq["lhs"]
             del rhs["join"]
-            del rhs["ranges"]["w"]
+            rhs["ranges"].pop("w", None)
             dropped += 1
     if dropped != len(LINK_EQUATIONS):
         sys.exit("expected %d link equations, edited %d" % (len(LINK_EQUATIONS), dropped))

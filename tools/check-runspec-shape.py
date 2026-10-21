@@ -31,7 +31,7 @@ chain's recomputation, and the KEYS actually present in the output -- and then
 asserts the four counts the chain keeps of what it could not reach:
 
     rows == rateSurvivorCount x counties x months x day types
-    distinct (pollutantID, processID) == outputPolProcessCount
+    distinct (pollutantID, processID, roadTypeID) == outputPolProcessCount
     distinct (yearID, sourceTypeID, fuelTypeID, modelYearID) == cohortSurvivorCount
     rateSurvivorCount <= outputPolProcessCount x cohortSurvivorCount
     run_sourceBinsDropped == 0
@@ -69,12 +69,14 @@ than a width. `TotalActivityGenerator` copies `SHO` into `SourceHours` row for
 row at an on-network link and takes it from `SHP` -- a table this model does not
 have -- at the off-network road type 1. The evaporative operating-mode
 distribution divides the first by the second, so on every run here that ratio is
-exactly 1 and the soaking modes are weighted exactly 0. A run that selected road
-type 1 would not lose a row or emit a zero: it would divide `SHO` by a copy of
-itself where MOVES divided it by something else, and every evaporative number
+exactly 1 and the soaking modes are weighted exactly 0. An evaporative block on
+road type 1 would not lose a row or emit a zero: it would divide `SHO` by a copy
+of itself where MOVES divided it by something else, and every evaporative number
 would be wrong by whatever the two differ by. Nothing downstream could see it,
-so the model counts the counties whose link is off-network and this asserts none
-is.
+so the model counts the evaporative blocks on road type 1 and this asserts there
+are none. (Until PLAN.md §7.3.46 it counted counties whose one link was
+off-network; with the road type an axis, road type 1 is a block of its own, and
+running exhaust's off-network idle lives there legitimately.)
 
 `run_rateRowsWithoutPhysics` is the same failure reached from the other side: a
 rate row whose (source type, regulatory class, model year) matches no
@@ -95,13 +97,20 @@ DEFAULT-domain run that carries a linkSourceTypeHour row only ProjectTAG reads,
 and this asserts the count is 0.
 
 `run_selectionUnported` is a SIXTH kind, and it guards the run's SELECTION
-rather than its domain (PLAN.md §7.3.41). The activity relation has no
-road-type axis, so a run is computed on ONE on-network road type; the four
-`-single` RunSpecs select road type 1 beside 4, which is right for the
-off-network processes they ask for and would not be for running exhaust, whose
-off-network idle MOVES then also writes. So the model counts a second on-network
-road type, an on-road pollutant-process beside road type 1, and a hotelling
-process in a run that pre-aggregates time, and this asserts the count is 0.
+rather than its domain (PLAN.md §7.3.41). Since PLAN.md §7.3.46 the road type is
+an axis and running exhaust's off-network idle is computed, so what is left is
+an evaporative process on a second on-network road type (its SourceHours are
+per link in MOVES and summed here), an on-road pollutant-process other than
+running exhaust beside road type 1 (evaporative SHP rows, which this model does
+not write), and a hotelling, start or off-network idle block in a run that
+pre-aggregates time; this asserts the count is 0.
+
+The pollutant-process key gained the road type at PLAN.md §7.3.46. An output
+BLOCK is a (pollutant-process, road type) pair: `expand-roadtypes` emits running
+energy on five road types and start energy on one, six blocks of two
+(pollutantID, processID) pairs, ragged across the road type because a start
+happens on road type 1 alone. `out_roadTypeID` is a key here even though the
+comparator ignores it, because the SCC that carries it is compared.
 
 The cohort key gained its source type at 7d, and the third line is what says so:
 `runspecs/expand-fueltype-diesel.esm` emits 125 cohorts under source type 21 and
@@ -158,7 +167,7 @@ def main(emitted_path, shape_path):
     days = distinct("out_dayID")
     months = distinct("out_monthID")
     counties = distinct("out_countyID")
-    pairs = distinct("out_pollutantID", "out_processID")
+    pairs = distinct("out_pollutantID", "out_processID", "out_roadTypeID")
     cohort_keys = distinct("out_yearID", "out_sourceTypeID", "out_fuelTypeID", "out_modelYearID")
 
     problems = []
@@ -172,7 +181,7 @@ def main(emitted_path, shape_path):
                         "than the %d blocks x %d cohorts they can be drawn from"
                         % (pairs_emitted, blocks, cohorts))
     if len(pairs) != blocks:
-        problems.append("%d (pollutantID, processID) pairs emitted, but "
+        problems.append("%d (pollutantID, processID, roadTypeID) blocks emitted, but "
                         "outputPolProcessCount is %d" % (len(pairs), blocks))
     if len(cohort_keys) != cohorts:
         problems.append("%d (yearID, sourceTypeID, fuelTypeID, modelYearID) cohorts "
@@ -198,7 +207,7 @@ def main(emitted_path, shape_path):
                         "model unrolls, and its deepest species are emitting 0 "
                         "or not emitting at all" % undeep)
     if offnet:
-        problems.append("%d of this run's counties put their link on the "
+        problems.append("%d evaporative block(s) of this run lie on the "
                         "OFF-NETWORK road type, where SourceHours is SHP and "
                         "not SHO: the evaporative fractionOfOperating is "
                         "dividing SHO by a copy of itself" % offnet)
@@ -211,10 +220,12 @@ def main(emitted_path, shape_path):
                         "or outside it a linkSourceTypeHour row" % unported)
     if unselected:
         problems.append("%d thing(s) this run SELECTS that the model does not "
-                        "compute (run_selectionUnported): a second on-network "
-                        "road type, an on-road pollutant-process beside the "
-                        "off-network road type 1, or a hotelling process in a "
-                        "run that aggregates hours or day types" % unselected)
+                        "compute (run_selectionUnported): an evaporative "
+                        "process on a second on-network road type, an on-road "
+                        "pollutant-process other than running exhaust beside the "
+                        "off-network road type 1, or a hotelling, start or "
+                        "off-network idle block in a run that aggregates hours "
+                        "or day types" % unselected)
     if problems:
         for p in problems:
             print(p)
