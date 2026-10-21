@@ -1663,7 +1663,7 @@ C7P_DOMAIN=moves-onroad.esm
 # times the 16 speed bins, each bin its own link -- and the comparator reads
 # tolerance.toml's [oracle_table.rateperdistance]. The two snapshots differ in
 # one cell, MOVES's own run-to-run noise, and both reproduce.
-mapfile -t RUNSPECS <<(find runspecs -maxdepth 1 -name '*.esm' -not -name '.*' 2>/dev/null | sort)
+mapfile -t RUNSPECS < <(find runspecs -maxdepth 1 -name '*.esm' -not -name '.*' 2>/dev/null | sort)
 mapfile -t RUNSPECS_PENDING < <(find runspecs/pending -maxdepth 1 -name '*.esm' -not -name '.*' 2>/dev/null | sort)
 
 if [[ ! -e movesdb ]]; then
