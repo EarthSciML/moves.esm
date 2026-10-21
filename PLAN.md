@@ -4508,6 +4508,89 @@ re-run with the memory-fix `esm` is byte-identical to its output from the 2026-1
 suite run. The suite's runspecs stage picks the two new documents up by `find` and the
 pending one by `runspecs/pending/`, so `run-tests.sh` needed only its commentary.
 
+#### 7.3.44 The calendar year is an axis, and `expand-multifuel` discriminates one empty candidate
+
+2026-10-20. Two new snapshots, `expand-multiyear` (241 rows) and `expand-multifuel`
+(125 rows), both `expand-day`'s weekday run with one selection widened.
+
+**`expand-multifuel` changes one row of one table and none of the numbers.** Its
+RunSpec selects gasoline, diesel, CNG and electricity for the passenger car; MOVES
+expands that to five `runspecsourcefueltype` rows, the four every gasoline-only run
+here already carries (1, 2, 5, 9) and CNG. The default `sampleVehiclePopulation` has
+no (21, CNG) row at any model year, so the fifth candidate of the cohort grid finds
+no vehicle. `MOVESOutput` holds fuels 1, 2, 5 and 9, and compared from the oracles
+as floats it equals `expand-day`'s weekday block and `process-tirewear`'s 91/1 block
+at all 125 cells (maximum relative difference 0). What it discriminates is that
+candidate: it is the first run of the 31 whose `runspecsourcefueltype` names a pair
+with no population, so a grid that ranked by selection rather than by surviving
+cohort, or emitted a zero row per selected fuel, passed the suite until now. It is a
+regression, not a fuel test; a CNG cohort needs a source type that has one (42) or an
+input database. 125 of 125 on its first run with no model change, worst cell
+7.106e-06.
+
+**`expand-multiyear` needed the year, and the year was the run's last scalar.**
+`run_yearID` was a `run_rows` faq SUMMING `rsy_yearID` -- 2020 at one year, 4035 at
+two -- and the run emitted 241 rows keyed yearID 4035 and model year 658460. Conventions
+§65 called the month the last scalar; it was the last one any RunSpec had widened.
+
+**The price, measured before it was paid.** The forward closure from `run_yearID`
+reaches **395 of the model's 1,036 equations**, against the month's 32 and the source
+type's 125 of 262 when those were priced (§7.3.4). It is that large because the cohort
+is an AGE at a YEAR: `coh_modelYearID` is year less age, so every rate keyed by model
+year, and the fuel year, the age distribution, the population and the VMT, all move
+with it. The closure over-counts by the 199 cohort-shaped equations that inherit an
+axis the cohort grid carries without a textual edit, and by the run-level presence
+counts (`cohortSurvivorCount`, `rspp_isEmitted`, ...) that are ORs over rates of any
+year. What was edited is **160 equations changed and 9 added, 119 variables
+reshaped** (conventions §98):
+
+* the cohort grid and the activity relation take the year as their SLOWEST factor
+  (`cohort_rows`, `sourcebin_rows`, `rate_rows`, `ratecohort_rows`,
+  `shorepowercohort_rows`, `activity_rows`), so at one year each is the relation it
+  was row for row; `coh_yearOrdinal`, `act_yearOrdinal` and their gathers carry it;
+* 114 per-year relations that are neither -- the fuel supply and every fuel-effects
+  term built on it, the tank-fuel and venting chain, the evaporative weights, the
+  hotelling and start totals, the population, the VMT and the age distribution --
+  gain a trailing `runspecyear_rows` axis, and the four run-level carriers
+  (`run_yearID`, `run_fuelYearID`, `run_baseYearIsAnalysisYear`,
+  `run_fuelYearMultiplicity`) move from `run_rows` onto it;
+* `run_fuelRegionID` lives on a (county, year) pair relation, because `regionCounty`
+  is keyed by FUEL year and 528 of the default database's 3,232 counties change region
+  between fuel years; on the county relation at two years it would be a rank-2 join
+  key, and the fuel-supply joins read only rank-1 keys;
+* the 28 rate-side readers of a per-year relation join it at `rt_yearOrdinal`; the
+  fuel-usage self-join pairs bins by year as well, because model year 2012 is age 3 at
+  2015 and age 8 at 2020 and the two bins are not the same vehicle.
+
+`tools/check-runspec-shape.py`'s cohort key gains `out_yearID`: 135 distinct
+(sourceTypeID, fuelTypeID, modelYearID) triples hold the 241 cohorts.
+
+| run | rows | reproduced | key set | worst cell | per-pollutant sum |
+|---|---:|---:|---|---:|---:|
+| `expand-multifuel` | 125 | 125 | exact | 7.106e-06 | 1.3e-07 |
+| `expand-multiyear` | 241 (2015: 116, 2020: 125) | 241 | exact | 8.277e-06 | 2.6e-09 |
+
+**`expand-multiyear` reproduced on the promotion's first run.** Its 2020 block equals
+`expand-day`'s weekday block at every cell in the oracles, so the 116 rows at 2015 are
+what it adds. It does not discriminate the growth folds (2015 is a base year, §15), and
+it selects energy on running exhaust alone, so most of the 114 per-year relations --
+the evaporative, hotelling, start and fuel-effects ones -- are computed at two years
+and checked only by the single-year runs staying put.
+
+**Unchanged runs, byte for byte.** Every runspec in `runspecs/` -- the 29 that
+reproduced before and `expand-multifuel` -- was emitted against the commit before the
+promotion and again after it, the out_* relation and the recomputed shape both: all 60
+CSVs are identical (`cmp`). `spikes/7c/tirewear_mount.esm`'s relation equals
+`process-tirewear`'s, the three selection probes still move their runs, the four
+domain documents are still data-open, and the Python binding still loads
+`expand-day`. `expand-multiyear` runs in 65 s at 1.98 GB peak RSS against
+`expand-day`'s 49 s and 1.87 GB; `expand-multifuel` in 49 s at 1.87 GB.
+
+**Left open.** `run_evTemperatureIsSuppressed` reads `rst_sourceTypeID` at the
+one-row `run_rows` symbol rather than at the source type, so under several source
+types it tests the first one's; it cannot fire while no run's heat index exceeds 67
+degF, and it is left as found (conventions §98 item 2).
+
 #### 7.3.45 `scale-county`: a complete county database, and a run that waits on the road type
 
 2026-10-20. `scale-county` is the corpus's county-scale INVENTORY: Washtenaw

@@ -8446,6 +8446,52 @@ by the road-type count. Off-network idle is then a sum ACROSS that axis, not a v
 on it: road type 1's running-exhaust SHO is computed from the on-network road types'
 SHO and driving-idle fractions, so it needs the axis before it can be written.
 
+## 98. A year is folded into the relation that already varies with it, and appended to the ones that do not **[PLAN.md §7.3.44; `expand-multiyear` 241 of 241 at 8.277e-06 on the promotion's first run, the single-year runs unchanged]**
+
+The forward closure from `run_yearID` reached 395 of 1,036 equations, three times the
+source type's, and the edit was 160. The difference is a choice about WHERE a new
+axis goes, and the rule is one line: **a relation whose rows already depend on the new
+key takes it as a factor of its own row index; a relation that does not takes it as a
+trailing axis.**
+
+1. **Fold it where the rows already move.** A cohort is an age at a year, so the
+   cohort grid's model year is year less age and every rate keyed by model year moves
+   with the year. Making the year the grid's SLOWEST factor -- `n_agecategory x
+   n_runspecsourcefueltype x n_runspecyear`, decoded by `coh_yearOrdinal` -- gives the
+   199 cohort-shaped equations their year without a textual edit, and at one year the
+   grid is the old one row for row, so no earlier run can see it (§64.5). The
+   activity relation is folded the same way and for the same reason
+   (`act_modelYearID`).
+2. **Append it everywhere else, by name.** The fuel supply, the evaporative weights,
+   the hotelling and start totals and the population are per year but not per cohort.
+   They gain `runspecyear_rows` as their LAST axis, so an elementwise equation over
+   them needs only its `shape` edited (operands align by index-set name), and a faq
+   gains one output index, one range and one trailing argument on each promoted read.
+   That part is regular enough to apply with a refactoring pass and to check with an
+   axis checker -- every index read compared against the index set its symbol ranges
+   over -- which found one pre-existing misread (`run_evTemperatureIsSuppressed` reads
+   `rst_sourceTypeID` at the one-row `run_rows` symbol; harmless while no run's heat
+   index reaches 67 degF, and left as found).
+3. **A key that would become rank 2 gets a pair relation.** A join key is a rank-1
+   column. `run_fuelRegionID` is keyed by county AND fuel year, so appending the year
+   would make it a rank-2 key that fourteen fuel-supply joins read; it moves instead
+   onto `runspeccountyyear_rows`, county-fastest, and the joins reach it through
+   `rcy_countyOrdinal` and `rcy_yearOrdinal`. Folding the activity relation (item 1)
+   is the same rule seen from the other side: `act_modelYearID` is a join key.
+4. **Readers join at their row's year, and a self-join pairs by it.** Each of the 28
+   rate-side readers of a per-year relation adds `rt_yearOrdinal <-> year_ordinal`;
+   each per-year SUM over activity rows adds `act_yearOrdinal <-> year_ordinal`.
+   Self-joins are where a forgotten year is silent: the fuel-usage join pairs a bin
+   with the bins of the same vehicle by (source type, model year, engine technology,
+   regulatory class), and model year 2012 is age 3 at 2015 and age 8 at 2020. Without
+   `bin_yearOrdinal` in that key the two years' bins would pair with each other. Scan
+   every join whose two sides are both cohort-derived on a non-ordinal key; this was
+   the only one.
+
+A check that counts DISTINCT output keys has to count by the new axis too: 241
+cohorts are 135 (source type, fuel, model year) triples, and
+`tools/check-runspec-shape.py`'s cohort key gained `out_yearID`.
+
 ## 100. A county database of the default's own rows is a differential test, and a RunSpec can select more than it names **[PLAN.md step 7f; `scale-county` pending, its oracle equal to `expand-roadtypes`' on all 729 rows]**
 
 **Build a county database from the default's rows, and the SINGLE run becomes the
