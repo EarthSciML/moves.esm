@@ -1,0 +1,260 @@
+{
+  "esm": "1.2.0",
+  "metadata": {
+    "name": "scale-county-runspec",
+    "description": "PENDING (PLAN.md §7.3.45, step 7f). `scale-county`: Total Energy (91) for the gasoline passenger car at Washtenaw County SINGLE scale, August 2020, weekday, hour 7, from the default database plus Washtenaw's COMPLETE county database (`inputs/washtenaw-county.esm`, built from moves.rs `setup-county.sql`). MOVESOutput is 729 rows: running exhaust (9101) on road types 1 to 5, 125 rows each, and start exhaust (9102) on road type 1, 104 rows. The RunSpec also names petroleum and fossil energy (92, 93) and well-to-pump (99), which are not MOVES5 pollutant-processes, and extended idle (9190), which a passenger car never emits. It does NOT reproduce yet. `n_outputRate` is bound to what THIS chain computes (104, start exhaust's block) so the document runs and says where it stops; `run_selectionUnported` is 4.\n\nTHE COUNTY DATABASE IS NOT WHAT IT WAITS ON, MEASURED 2026-10-20. Every one of the 729 MOVESOutput rows equals the DEFAULT-domain `expand-roadtypes` snapshot's row at the same key, at the six-digit rendering (same county, year, month, hour and vehicle; that RunSpec selects road types 1 to 5 explicitly). The two execution databases differ only in MOVES's SINGLE-scale REPLACE tables, which hold the 2020 rows the run reads, in `avft`, which leaves `sampleVehiclePopulation` the default's, and in the 9190 selection. And the domain document is checked on its own: `process-crankcase-start`'s selections mounted on `inputs/washtenaw-county.esm` emit a relation byte-identical to the DEFAULT run's, and reproduce `process-crankcase-start-single`'s oracle at its worst cell, 8.250e-06 (1.3e-10 to 2.1e-10 from the starts county database, its twelve-decimal truncation).\n\nWHAT IT WAITS ON is the road type as an AXIS, which `expand-roadtypes` waits on identically:\n\n* Running exhaust on FOUR on-network road types. Selecting road type 1 beside a running process makes MOVES select every road type (\"Off-Network Idle requires all roadtypes\"), so `runspecroadtype` holds 1 to 5. The model has one on-network road type, `run_roadTypeID`, a scalar: summed over four rows it reads 14, the zone and county joins find nothing, and every row comes out at county 0. `run_selectionUnported` counts it (3 for the extra on-network road types, 1 for an on-road process beside road type 1). The activity (SHO by road type: VMT x roadTypeVMTFraction over the road's speed) and the rate (the average-speed operating-mode distribution, `pp_W`, per road type) both need the axis; the forward closure of `run_roadTypeID` is 283 of `onroad/model.esm`'s 1,036 equations.\n* OFF-NETWORK IDLE, running exhaust on road type 1 (TotalActivityGenerator step 190c): per age, ONI SHO = max(S x (totalIdleFraction - SD/S) / (1 - totalIdleFraction), 0), with S the on-network SHO summed over road types 2-5 and SD the same weighted by each road's `drivingIdleFraction`. Reproduced in pandas from the execution database's `sho`, `drivingidlefraction` and `totalidlefraction` (idle region 103, county type 1): 41 of 41 ages at 3.9e-06. `drivingIdleFraction` is operating mode 1's share of the road's speed-weighted operating-mode distribution (moves.rs baserategenerator/drivecycle.rs:427-492), so it is a contraction of the per-road `pp_W` the first item builds; `totalIdleFraction` is a default table this model does not yet mount.\n* A pollutant-process emitted on SEVERAL road types. The output relation's blocks are pollutant-processes, each on ONE road type (`rspp_rateRoadTypeID`); running energy here is one pollutant-process on five, so a block becomes a (pollutant-process, road type) pair.\n\n`db_movesoutput` is DECLARED AND CONSUMED BY NOTHING, as in every RunSpec here.",
+    "authors": [
+      "EarthSciML Authors and Contributors"
+    ],
+    "tags": [
+      "fixture",
+      "onroad",
+      "default-database",
+      "single-county-domain",
+      "pending",
+      "road-type-axis",
+      "off-network-idle"
+    ]
+  },
+  "data_sources": {
+    "db_runspecyear": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../../moves.rs/characterization/snapshots/scale-county/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspecyear.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecyear"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, yearID 2020. The scope comes from these tables and never from the RunSpec XML, whose @key attributes are 0-based indices into sorted ID lists (docs/mixed-onroad.md §0.1).",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecmonth": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../../moves.rs/characterization/snapshots/scale-county/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspecmonth.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecmonth"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, monthID 8.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspechour": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../../moves.rs/characterization/snapshots/scale-county/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspechour.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspechour"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, hourID 7. `<beginhour key=\"6\">` is a 0-based index into the sorted hour list (docs/mixed-onroad.md 0.1).",
+        "esio_format": "parquet"
+      }
+    },
+    "db_aggregationhour": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../../moves.rs/characterization/snapshots/scale-county/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspechour.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_aggregationhour"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "The hours the run aggregates over. This run does not set `aggregateBy`, so it is `runspechour` itself and the same file.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecday": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../../moves.rs/characterization/snapshots/scale-county/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspecday.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecday"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, dayID 5 (weekday). The second factor of the activity axis and of the output axis, and its extent is one in this run: `<day id=\"5\">` selects one day type where the earlier `<day key=\"5\">` was an out-of-range INDEX and fell back to both (moves.rs PR #55).",
+        "esio_format": "parquet"
+      }
+    },
+    "db_rateday": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../../moves.rs/characterization/snapshots/scale-county/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspecday.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_rateday"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "The day types the RATE-side time pre-aggregation is scoped to. This run does not set `aggregateBy`, so it is `runspecday` itself and the same file: the pre-aggregation averages over one cell and returns the table's own value. A run that aggregates points this somewhere else, because MOVES overwrites `runspecday` with the synthesized output day AFTER the pre-aggregation has run.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_actday": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../../moves.rs/characterization/snapshots/scale-county/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspecday.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_actday"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "The day types the output day's ACTIVITY covers. This run does not set `aggregateBy`, so it is `runspecday` itself and the same file, and `noOfRealDays` is that one day type's.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecsourcetype": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../../moves.rs/characterization/snapshots/scale-county/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspecsourcetype.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecsourcetype"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, sourceTypeID 21 (passenger car).",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecroadtype": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../../moves.rs/characterization/snapshots/scale-county/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspecroadtype.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecroadtype"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "5 rows, road types 1 to 5. The RunSpec selects 1 and 4; MOVES adds 2, 3 and 5 because off-network idle (running exhaust on road type 1) is computed from every on-network road type's SHO.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecsourcefueltype": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../../moves.rs/characterization/snapshots/scale-county/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspecsourcefueltype.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecsourcefueltype"
+      },
+      "metadata": {
+        "tags": [
+          "scope",
+          "cohorts"
+        ],
+        "note": "4 rows: source type 21 with gasoline, diesel, E85 and electricity (MOVES adds the three the RunSpec does not name).",
+        "esio_format": "parquet"
+      }
+    },
+    "db_movesoutput": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../../moves.rs/characterization/snapshots/scale-county/tables/db__out_scale_county__movesoutput.parquet"
+      },
+      "reader_options": {
+        "float_columns": [
+          "emissionQuant"
+        ]
+      },
+      "metadata": {
+        "tags": [
+          "oracle",
+          "expected-output"
+        ],
+        "note": "The 729-row expected output: Total Energy (91) at running exhaust on road types 1-5 (125 rows each; SCC ...0101 to ...0501) and at start exhaust on road type 1 (104 rows), source type 21, four fuel types. Equal row for row to `expand-roadtypes`' at the six-digit rendering.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecpollutantprocess": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../../moves.rs/characterization/snapshots/scale-county/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspecpollutantprocess.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecpollutantprocess"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "3 rows: 9101, 9102 and 9190 (Total Energy at running, start and extended idle exhaust). 92, 93 and 99 are not MOVES5 pollutant-processes: seven \"Invalid PollutantProcessAssociation\" warnings.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecchainedto": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../../moves.rs/characterization/snapshots/scale-county/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspecchainedto.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecchainedto"
+      },
+      "metadata": {
+        "tags": [
+          "scope",
+          "chain"
+        ],
+        "note": "0 rows: Total Energy is chained to nothing.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspeccounty": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../../moves.rs/characterization/snapshots/scale-county/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspeccounty.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspeccounty"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, countyID 26161, Washtenaw.",
+        "esio_format": "parquet"
+      }
+    }
+  },
+  "models": {
+    "Onroad": {
+      "ref": "../../inputs/washtenaw-county.esm",
+      "bindings": {
+        "n_outputRate": 104,
+        "n_sourceBin": 2,
+        "n_physicsRow": 1
+      }
+    }
+  }
+}

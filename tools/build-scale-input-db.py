@@ -67,6 +67,23 @@ def default_schema(movesdb, table):
     sys.exit("no default-database table matches %r" % table)
 
 
+def schema_only(movesdb, table):
+    """True when the default database has `table` only as `<t>.schema.json`."""
+    names = {n.lower() for n in os.listdir(movesdb)}
+    return (table.lower() + ".schema.json" in names
+            and table.lower() + ".parquet" not in names)
+
+
+# Tables a scale-input database may hold that are not model inputs at all:
+# MOVES's importers read them during domain-database validation and the merge
+# never copies them into the execution database (InputDataManager copies only
+# default-schema tables). `auditLog` carries the County Data Manager's
+# "No data needed" flags (setup-county.sql's "No I/M Program"). They are
+# skipped by name, so any OTHER table without a default-database counterpart
+# still stops the tool.
+BOOKKEEPING_TABLES = {"auditlog"}
+
+
 def literal(text):
     text = text.strip()
     if text.upper() == "NULL":
@@ -175,8 +192,17 @@ def main(sql_path, xml_path, movesdb, outdir, copy=()):
     os.makedirs(outdir, exist_ok=True)
     sql = open(sql_path).read()
     for table, (cols, rows) in stated_rows(sql).items():
+        if table.lower() in BOOKKEEPING_TABLES:
+            print("%-30s %d row(s), not a model input: skipped" % (table, len(rows)))
+            continue
         write_rows(movesdb, outdir, table, cols, rows)
     for table in never_filled(sql):
+        if schema_only(movesdb, table):
+            # The default database ships this table with no rows and no Parquet
+            # (only `<t>.schema.json`), so a created-empty copy is empty on both
+            # sides and there is no schema file to type it by: nothing to mount.
+            print("%-30s 0 row(s), schema-only in the default: skipped" % table)
+            continue
         write_rows(movesdb, outdir, table, [], [])
     for table, (name, data) in copied_rows(sql, movesdb, copy).items():
         pq.write_table(data, os.path.join(outdir, name + ".parquet"))
