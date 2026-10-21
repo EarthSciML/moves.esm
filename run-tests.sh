@@ -1632,6 +1632,14 @@ C7P_DOMAIN=moves-onroad.esm
 # hotellingHoursPerDay or startsPerDay, hotellingActivityDistribution at zone
 # 990000. They reproduced with no model change; `process-extended-idle` adds
 # Atmospheric CO2 (9090) on extended idle through the CO2AE edge list.
+# `expand-fullyear` and `expand-counties-large` widen two axes the model already
+# has -- eleven months under `aggregateBy = Month`, seven counties in seven fuel
+# regions -- and reproduced with no model change (PLAN.md §7.3.43). Eleven and
+# not twelve: `<month key>` is a 0-based index, so the XML's key 12 selects
+# nothing, and the execution database's month tables say 2..12 (conventions 96).
+# `runspecs/pending/expand-roadtypes.esm` is the first run with several on-network
+# road types and running exhaust beside road type 1; it waits on a road-type axis
+# and off-network idle, priced in its WHAT IT WAITS ON.
 mapfile -t RUNSPECS < <(find runspecs -maxdepth 1 -name '*.esm' -not -name '.*' 2>/dev/null | sort)
 mapfile -t RUNSPECS_PENDING < <(find runspecs/pending -maxdepth 1 -name '*.esm' -not -name '.*' 2>/dev/null | sort)
 
