@@ -8410,3 +8410,38 @@ the edge is the CO2AE edge list's (§77), not a `runspecchainedto` row. Before
 concluding that a process emits nothing, check that every calculator upstream of it
 has a selected pollutant-process to run on (§81 is the converse: a prerequisite the
 execution database carries that the RunSpec did not ask for).
+
+## 96. An index is not an identifier, an out-of-range index selects nothing, and a road type is a location **[PLAN.md step 7d; `expand-fullyear` 1375 of 1375 at 1.056e-05 and `expand-counties-large` 875 of 875 at 1.140e-05, no model change; `expand-roadtypes` pending]**
+
+§81 and §16.5 say a RunSpec XML's `<month key>` is a 0-based index into the sorted
+`MonthOfAnyYear` IDs, so a document reads the execution database's `runspecmonth` and
+never the XML. `expand-fullyear` is the run where that rule changes the COUNT and not
+just the labels: its XML lists keys 1 to 12, which are monthIDs 2 to 12 and an index
+past the twelve-row list. Canonical resolves that index to nothing and adds no month,
+as it does for an out-of-range `<day key>`, so the run has eleven months, and key 0,
+January, was never in the XML. Measure that before explaining it: every month-keyed
+table MOVES cut to the run (`runspecmonth`, `zoneMonthHour`, `SHO`, `starts`,
+`totalIdleFraction` and ten more) carries 2..12, and only the two tables not cut to it
+carry 1..12. A month missing from the OUTPUT can be a dropped output row or a month
+never selected, and the execution database tells the two apart; the oracle alone does
+not.
+
+**A wider selection on an axis the model already has costs only its selections.**
+Seven counties in seven fuel regions and eleven months reproduced on their first runs
+with fourteen `url_template`s each, because `n_runspeccounty` and `n_runspecmonth` are
+discovered extents and nothing in the model names three counties or four months. A
+document that needed a binding change to go from three counties to seven would have
+been carrying a width in the model.
+
+**A road type is a location, not a selection of rates.** In MOVES the geography is the
+LINK, a (county, road type) pair, and the model keys its location by county and reads
+one on-network road type per run (`run_roadTypeID` over `run_rows`). Price the
+promotion by forward closure (PLAN.md §7.3.43): 284 of 1517 variables reach
+`run_roadTypeID`, and 119 of them only through the geography ids the county already
+determines (`run_zoneID`, `run_stateID`, ...), so keying those by county and adding the
+road type only where it varies -- the drive-cycle operating-mode stack, the activity
+VMT and speed, the SHO allocation, the output blocks -- is 165 equations where a
+link-keyed location would be 284 and would multiply the tank-temperature trip relation
+by the road-type count. Off-network idle is then a sum ACROSS that axis, not a value
+on it: road type 1's running-exhaust SHO is computed from the on-network road types'
+SHO and driving-idle fractions, so it needs the axis before it can be written.
