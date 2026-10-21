@@ -1632,6 +1632,13 @@ C7P_DOMAIN=moves-onroad.esm
 # hotellingHoursPerDay or startsPerDay, hotellingActivityDistribution at zone
 # 990000. They reproduced with no model change; `process-extended-idle` adds
 # Atmospheric CO2 (9090) on extended idle through the CO2AE edge list.
+# `expand-multiyear` is the first run at two calendar years (PLAN.md §7.3.44,
+# conventions §98): the year is the cohort grid's and the activity relation's
+# slowest factor and a trailing axis of every other per-year relation, so the
+# shape check counts cohorts by (yearID, sourceTypeID, fuelTypeID, modelYearID).
+# `expand-multifuel` selects CNG beside gasoline for a passenger car, which has
+# no CNG population: the first selected source-fuel pair with no cohort, and
+# cell for cell `expand-day`'s weekday block.
 mapfile -t RUNSPECS < <(find runspecs -maxdepth 1 -name '*.esm' -not -name '.*' 2>/dev/null | sort)
 mapfile -t RUNSPECS_PENDING < <(find runspecs/pending -maxdepth 1 -name '*.esm' -not -name '.*' 2>/dev/null | sort)
 
