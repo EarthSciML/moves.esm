@@ -8445,3 +8445,36 @@ link-keyed location would be 284 and would multiply the tank-temperature trip re
 by the road-type count. Off-network idle is then a sum ACROSS that axis, not a value
 on it: road type 1's running-exhaust SHO is computed from the on-network road types'
 SHO and driving-idle fractions, so it needs the axis before it can be written.
+
+## 100. A county database of the default's own rows is a differential test, and a RunSpec can select more than it names **[PLAN.md step 7f; `scale-county` pending, its oracle equal to `expand-roadtypes`' on all 729 rows]**
+
+**Build a county database from the default's rows, and the SINGLE run becomes the
+DEFAULT run's twin.** §95 made the twin from the RunSpec side, the same selections at
+the other domain. `scale-county` makes it from the database side: every County Data
+Manager table is a `LIKE` + `SELECT` copy of the default's rows at the run's keys, and
+the oracle then equals the DEFAULT run's at every cell. That turns the county
+database's document into something checkable without its own run: mount it under a
+RunSpec that already reproduces (`process-crankcase-start`) and its relation must be
+byte-identical. It was. The diff that says which tables a domain changes is still the
+execution database against the default's (§93); against a twin's execution database it
+is shorter, because the run's own selections cancel.
+
+**Copy the alternative the default populates.** Several importers accept one of a set
+of tables and refuse two: Starts, StartsPerDay or StartsPerDayPerVehicle;
+totalIdleFraction or the idle adjustments; HPMSVtypeYear or the daily and source-type
+VMT forms. The member the default database fills is the one whose branch MOVES takes at
+DEFAULT scale, so copying any other changes the arithmetic, not just the input.
+
+**A RunSpec can select more than it names, and the execution database says what.**
+Road type 1 beside a running process makes MOVES select every road type, because
+off-network idle is computed from all of them: `runspecroadtype` holds five rows for a
+RunSpec that names two, and the output has running rows on all five. And it can name
+less than it appears to: 92, 93 and 99 are not MOVES5 pollutant-processes, and
+`runspecpollutantprocess` holds only 9101, 9102 and 9190. As §81 says of
+prerequisites, read the run's scope from the execution database, never the XML.
+
+**A validation error can be the harness's and not the run's.** The pinned SIF cannot
+construct GenericImporter (its Swing parts need `libharfbuzz.so.0`), which logs an
+`ERROR:` during domain-database validation and is then skipped; MOVES runs to
+completion. Establish completeness with one validation-ON run, read for "Done
+performing domain database validation.", and capture with validation skipped.

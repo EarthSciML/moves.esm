@@ -1640,6 +1640,11 @@ C7P_DOMAIN=moves-onroad.esm
 # `runspecs/pending/expand-roadtypes.esm` is the first run with several on-network
 # road types and running exhaust beside road type 1; it waits on a road-type axis
 # and off-network idle, priced in its WHAT IT WAITS ON.
+# `runspecs/pending/scale-county.esm` is the county-scale inventory over
+# `inputs/washtenaw-county.esm`, a COMPLETE county database of the default's own
+# rows (PLAN.md §7.3.45). Its oracle equals `expand-roadtypes`' on all 729 rows;
+# it waits on the road type as an axis (off-network idle selects road types 1-5),
+# so 3b holds it to loading and naming what it waits on.
 mapfile -t RUNSPECS < <(find runspecs -maxdepth 1 -name '*.esm' -not -name '.*' 2>/dev/null | sort)
 mapfile -t RUNSPECS_PENDING < <(find runspecs/pending -maxdepth 1 -name '*.esm' -not -name '.*' 2>/dev/null | sort)
 
