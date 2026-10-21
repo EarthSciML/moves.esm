@@ -640,6 +640,11 @@
       "type": "integer",
       "default": 0,
       "description": "Rows in the mounted table; a discovered extent."
+    },
+    "n_ratesScale": {
+      "type": "integer",
+      "default": 0,
+      "description": "THE RUNSPEC'S `<modelscale>`: 1 when it is `Rates` (MOVES's MESOSCALE_LOOKUP), 0 at inventory scale (`Inv`, MACROSCALE), which is the default and every RunSpec in this tree but `scale-rates` and `rates-minimal`. No table states it -- MOVES reads it off the RunSpec and synthesizes the run's links from it (`ExecutionRunSpec.createMesoscaleLookupLinks`) -- so a Rates RunSpec binds it beside `n_outputRate`. It sizes `ratespeedbin_rows` and switches nothing the inventory computes: Rates scale ADDS the rate-per-distance relation (PLAN.md §7.3.47)."
     }
   },
   "index_sets": {
@@ -1426,6 +1431,74 @@
     "idledayadjust_rows": {
       "kind": "interval",
       "size": "n_idledayadjust"
+    },
+    "ratespeedbin_rows": {
+      "kind": "interval",
+      "size": {
+        "op": "+",
+        "args": [
+          1,
+          {
+            "op": "*",
+            "args": [
+              "n_ratesScale",
+              {
+                "op": "-",
+                "args": [
+                  "n_avgspeedbin",
+                  1
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "rateoutput_rows": {
+      "kind": "interval",
+      "size": {
+        "op": "*",
+        "args": [
+          "n_outputRate",
+          {
+            "op": "*",
+            "args": [
+              {
+                "op": "*",
+                "args": [
+                  {
+                    "op": "*",
+                    "args": [
+                      "n_runspeccounty",
+                      "n_runspecmonth"
+                    ]
+                  },
+                  "n_runspecday"
+                ]
+              },
+              {
+                "op": "+",
+                "args": [
+                  1,
+                  {
+                    "op": "*",
+                    "args": [
+                      "n_ratesScale",
+                      {
+                        "op": "-",
+                        "args": [
+                          "n_avgspeedbin",
+                          1
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
     }
   },
   "enums": {
@@ -1555,7 +1628,9 @@
           "only": [
             "model_year_in_range",
             "row_is_present",
-            "latest_at_or_before_key"
+            "latest_at_or_before_key",
+            "flat_relation_major",
+            "flat_relation_minor"
           ]
         },
         {
@@ -1660,6 +1735,13 @@
             "link_op_mode_fraction",
             "national_hotelling_activity_zone",
             "state_hotelling_activity_zone"
+          ]
+        },
+        {
+          "ref": "../lib/rates.esm",
+          "only": [
+            "rate_output_column",
+            "mesoscale_lookup_link_id"
           ]
         }
       ],
@@ -17514,7 +17596,7 @@
           "shape": [
             "run_rows"
           ],
-          "description": "How many things this run SELECTS that the model does not compute, beside its domain (`run_domainUnported`): 0, asserted by tools/check-runspec-shape.py. It counts an evaporative process on a second on-network road type (`run_evapRoadTypeExcess`); an on-road pollutant-process other than running exhaust (`occursOnRealRoads` = Y) in a run that also selects road type 1, where MOVES writes evaporative SHP rows this model does not -- running exhaust's off-network idle it does write, since PLAN.md §7.3.46; and a hotelling process in a run that aggregates hours or day types, whose hotelling hours AdjustHotelling would rescale before the aggregation. None of these fails loudly -- each emits a plausible number or none. And a chained pollutant-process with parents on both an on-network road type and road type 1 (`run_mixedRoadChains`)."
+          "description": "How many things this run SELECTS that the model does not compute, beside its domain (`run_domainUnported`): 0, asserted by tools/check-runspec-shape.py. It counts an evaporative process on a second on-network road type (`run_evapRoadTypeExcess`); an on-road pollutant-process other than running exhaust (`occursOnRealRoads` = Y) in a run that also selects road type 1, where MOVES writes evaporative SHP rows this model does not -- running exhaust's off-network idle it does write, since PLAN.md §7.3.46; and a hotelling process in a run that aggregates hours or day types, whose hotelling hours AdjustHotelling would rescale before the aggregation. None of these fails loudly -- each emits a plausible number or none. And a chained pollutant-process with parents on both an on-network road type and road type 1 (`run_mixedRoadChains`). At Rates scale it also counts `run_ratesUnported`, everything the RatePerDistance relation does not compute (PLAN.md §7.3.47)."
         },
         "run_onRoadPollutantProcessCount": {
           "type": "unknown",
@@ -19072,6 +19154,252 @@
             "shorepowercohort_rows"
           ],
           "description": "Which block the process-93 pair is drawn from."
+        },
+        "pp_WBin": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "polprocroad_rows",
+            "avgspeedbin_rows",
+            "operating_mode_rows",
+            "physicsrow_rows"
+          ],
+          "description": "The operating-mode weights of ONE average-speed bin, per block and vehicle: the bin's drive-schedule blend (`asb_modeFraction`) for running exhaust and brake wear, its one tire-wear mode for tire wear. Inventory scale sums these under the speed distribution (`pp_WSpeedBins`); Rates scale reads each bin alone, because every bin is a link with a single-bin distribution (`BaseRateGenerator`'s `useAvgSpeedBin`, PLAN.md §7.3.47)."
+        },
+        "rtMode_activityFractionSum": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows",
+            "operating_mode_rows",
+            "runspeccounty_rows"
+          ],
+          "description": "The denominator Rates scale divides the source-bin-weighted rate by (`BaseRateGenerator` step 008, `SUM(sbd.SourceBinActivityFraction)`): the used fractions of the rate row's siblings -- same block, cohort and regulatory class, the SQL's GROUP BY -- that HAVE a rate at the mode, because the SQL's sum runs over its inner join on the rate table. Per county, through the fuel-usage rebase, like the numerator."
+        },
+        "rtMode_normalizedRate": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows",
+            "operating_mode_rows",
+            "runspeccounty_rows"
+          ],
+          "description": "`rtMode_weightedRate` over `rtMode_activityFractionSum`: the rate per vehicle of the cohort's own fuel rather than a share of the fleet. Where the denominator is 0 so is the numerator, and the divisor is 1 there so both arms stay finite (docs/esm-conventions.md 68.4)."
+        },
+        "rtBin_meanBaseRate": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows",
+            "ratespeedbin_rows",
+            "runspeccounty_rows"
+          ],
+          "description": "S14 at ONE speed bin: the operating mode contracted against the bin's own weights (`pp_WBin`) and the NORMALIZED source-bin rate -- `baserate_1_2020.meanBaseRate` summed over the modes of one `avgSpeedBinID`, which a Rates run's execution database holds per bin. No day axis: a drive schedule is not per day."
+        },
+        "rtBin_meanBaseRateACAdj": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows",
+            "ratespeedbin_rows",
+            "runspeccounty_rows"
+          ],
+          "description": "The same contraction of the incremental A/C load, at one speed bin."
+        },
+        "rtBin_adjustedMeanBaseRate": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows",
+            "ratespeedbin_rows",
+            "runspeccounty_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "S15 at one speed bin, through the inventory's own template and factors: `adjust.rs` adjusts `emissionRate` exactly as it adjusts `meanBaseRate`, so the rate per distance is this over the bin speed."
+        },
+        "asb_ordinal": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "avgspeedbin_rows"
+          ],
+          "description": "The speed bin's position in `avgSpeedBin`, the key `ratespeedbin_rows` joins it on."
+        },
+        "rsb_ordinal": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "ratespeedbin_rows"
+          ],
+          "description": "The position of a bin the run writes a rate at: every `avgSpeedBin` row at Rates scale, the first alone otherwise."
+        },
+        "outOrdinal": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "output_rows"
+          ],
+          "description": "The output row's own position, the key the rate-per-distance relation reads every MOVESOutput column through."
+        },
+        "rpdOutputOrdinal": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rateoutput_rows"
+          ],
+          "description": "The output row a rate-per-distance row belongs to: the relation is the output relation with the speed bin fastest."
+        },
+        "rpdSpeedBinOrdinal": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rateoutput_rows"
+          ],
+          "description": "Its speed bin's position in `ratespeedbin_rows`."
+        },
+        "rpd_yearID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rateoutput_rows"
+          ],
+          "description": "RatePerDistance.yearID."
+        },
+        "rpd_monthID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rateoutput_rows"
+          ],
+          "description": "RatePerDistance.monthID."
+        },
+        "rpd_dayID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rateoutput_rows"
+          ],
+          "description": "RatePerDistance.dayID, unpacked from BaseRateOutput's hourDayID."
+        },
+        "rpd_hourID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rateoutput_rows"
+          ],
+          "description": "RatePerDistance.hourID, unpacked from BaseRateOutput's hourDayID."
+        },
+        "rpd_pollutantID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rateoutput_rows"
+          ],
+          "description": "RatePerDistance.pollutantID."
+        },
+        "rpd_processID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rateoutput_rows"
+          ],
+          "description": "RatePerDistance.processID."
+        },
+        "rpd_sourceTypeID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rateoutput_rows"
+          ],
+          "description": "RatePerDistance.sourceTypeID."
+        },
+        "rpd_SCC": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rateoutput_rows"
+          ],
+          "description": "RatePerDistance.SCC."
+        },
+        "rpd_fuelTypeID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rateoutput_rows"
+          ],
+          "description": "RatePerDistance.fuelTypeID."
+        },
+        "rpd_modelYearID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rateoutput_rows"
+          ],
+          "description": "RatePerDistance.modelYearID."
+        },
+        "rpd_roadTypeID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rateoutput_rows"
+          ],
+          "description": "RatePerDistance.roadTypeID."
+        },
+        "rpd_linkID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rateoutput_rows"
+          ],
+          "description": "RatePerDistance.linkID: the link MOVES synthesizes for the bin, `(zoneID*10 + roadTypeID)*100 + avgSpeedBinID` (`ExecutionRunSpec.createMesoscaleLookupLinks`)."
+        },
+        "rpd_avgSpeedBinID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rateoutput_rows"
+          ],
+          "description": "RatePerDistance.avgSpeedBinID: the bin's id, `mod(linkID,100)` in the SQL."
+        },
+        "rpd_regClassID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rateoutput_rows"
+          ],
+          "description": "RatePerDistance.regClassID: BaseRateOutput's 0, the regulatory class summed away."
+        },
+        "rpd_temperature": {
+          "type": "unknown",
+          "units": "degF",
+          "shape": [
+            "rateoutput_rows"
+          ],
+          "description": "RatePerDistance.temperature: `ZoneMonthHour` at the zone, month and hour, the same cell-weighted mean the temperature adjustment reads."
+        },
+        "rpd_relHumidity": {
+          "type": "unknown",
+          "units": "percent",
+          "shape": [
+            "rateoutput_rows"
+          ],
+          "description": "RatePerDistance.relHumidity, likewise."
+        },
+        "rpd_ratePerDistance": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rateoutput_rows"
+          ],
+          "description": "RatePerDistance.ratePerDistance: the output row's adjusted rate at the bin over the bin speed -- per mile -- in the run's mass or energy unit. THE compared column at Rates scale."
+        },
+        "run_ratesUnported": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "run_rows"
+          ],
+          "description": "At Rates scale, how many things the run asks for that the rate-per-distance relation does not compute: every emitted block other than a directly rated running-exhaust block on an on-network road type (starts, evaporative and hotelling processes, brake and tire wear, chained pollutants and off-network idle write RatePerStart, RatePerVehicle, RatePerProfile, RatePerHour or a chained BaseRateOutput, none of which is built), a PROJECT domain (whose rate is per link speed), and a run that aggregates hours or day types. 0 at inventory scale by construction. Part of `run_selectionUnported`."
         }
       },
       "equations": [
@@ -27421,6 +27749,38 @@
           }
         },
         {
+          "lhs": "asb_ordinal",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "output_idx": [
+              "v"
+            ],
+            "ranges": {
+              "v": {
+                "from": "avgspeedbin_rows"
+              }
+            },
+            "expr": "v"
+          }
+        },
+        {
+          "lhs": "rsb_ordinal",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "output_idx": [
+              "j"
+            ],
+            "ranges": {
+              "j": {
+                "from": "ratespeedbin_rows"
+              }
+            },
+            "expr": "j"
+          }
+        },
+        {
           "_comment": "W. aggregate.rs:365-417's inner sum over avgSpeedBinID, keyed by the run's hour-day, the operating mode AND the pollutant-process. The pollutant-process axis is what this fixture adds: `BaseRateGenerator` runs once per process and takes its RatesOpModeDistribution from a different generator for tire wear than for running exhaust, so the mode fraction -- and only the mode fraction -- is selected per pollutant-process. Everything else about the weight, including the speed-bin weighting itself, is shared.",
           "lhs": "pp_WSpeedBins",
           "rhs": {
@@ -27452,9 +27812,6 @@
               "s": {
                 "from": "runspecsourcetype_rows"
               },
-              "p": {
-                "from": "runspecpollutantprocess_rows"
-              },
               "rd": {
                 "from": "runspecroadtype_rows"
               }
@@ -27465,14 +27822,6 @@
                   [
                     "phy_sourceTypeID",
                     "rst_sourceTypeID"
-                  ]
-                ]
-              },
-              {
-                "on": [
-                  [
-                    "ppr_ppOrdinal",
-                    "rspp_ordinal"
                   ]
                 ]
               },
@@ -27499,39 +27848,102 @@
                   ]
                 },
                 {
-                  "op": "ifelse",
+                  "op": "index",
+                  "args": [
+                    "pp_WBin",
+                    "q",
+                    "b",
+                    "m",
+                    "r"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "_comment": "W at one speed bin: the mode fraction is selected per pollutant-process, exactly as `pp_WSpeedBins` selected it before the speed-bin weighting was factored out of it.",
+          "lhs": "pp_WBin",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "q",
+              "b",
+              "m",
+              "r"
+            ],
+            "ranges": {
+              "q": {
+                "from": "polprocroad_rows"
+              },
+              "b": {
+                "from": "avgspeedbin_rows"
+              },
+              "m": {
+                "from": "operating_mode_rows"
+              },
+              "r": {
+                "from": "physicsrow_rows"
+              },
+              "p": {
+                "from": "runspecpollutantprocess_rows"
+              },
+              "rd": {
+                "from": "runspecroadtype_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "ppr_ppOrdinal",
+                    "rspp_ordinal"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "ppr_roadTypeOrdinal",
+                    "rsr_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                {
+                  "op": ">",
                   "args": [
                     {
-                      "op": ">",
-                      "args": [
-                        {
-                          "op": "index",
-                          "args": [
-                            "rspp_usesAvgSpeedModes",
-                            "p"
-                          ]
-                        },
-                        0.5
-                      ]
-                    },
-                    {
                       "op": "index",
                       "args": [
-                        "asb_tireModeFraction",
-                        "b",
-                        "m"
+                        "rspp_usesAvgSpeedModes",
+                        "p"
                       ]
                     },
-                    {
-                      "op": "index",
-                      "args": [
-                        "asb_modeFraction",
-                        "b",
-                        "m",
-                        "r",
-                        "rd"
-                      ]
-                    }
+                    0.5
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "asb_tireModeFraction",
+                    "b",
+                    "m"
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "asb_modeFraction",
+                    "b",
+                    "m",
+                    "r",
+                    "rd"
                   ]
                 }
               ]
@@ -45038,6 +45450,107 @@
           }
         },
         {
+          "_comment": "BaseRateGenerator.java step 008 at Rates scale: the sum the source-bin weighting is normalized by, over the SQL's own group.",
+          "lhs": "rtMode_activityFractionSum",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b",
+              "m",
+              "g"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "b2": {
+                "from": "rate_rows"
+              },
+              "m": {
+                "from": "operating_mode_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              }
+            },
+            "join": [
+              {
+                "syms": [
+                  "b",
+                  "b2"
+                ],
+                "on": [
+                  [
+                    "rt_blockOrdinal",
+                    "rt_blockOrdinal"
+                  ],
+                  [
+                    "rt_cohortOrdinal",
+                    "rt_cohortOrdinal"
+                  ],
+                  [
+                    "rt_regClassID",
+                    "rt_regClassID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "rt_usedFraction",
+                    "b2",
+                    "g"
+                  ]
+                },
+                {
+                  "op": "apply_expression_template",
+                  "args": [],
+                  "name": "row_is_present",
+                  "bindings": {
+                    "match_count": {
+                      "op": "index",
+                      "args": [
+                        "rtMode_rateRows",
+                        "b2",
+                        "m"
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rtMode_normalizedRate",
+          "rhs": {
+            "op": "/",
+            "args": [
+              "rtMode_weightedRate",
+              {
+                "op": "ifelse",
+                "args": [
+                  {
+                    "op": ">",
+                    "args": [
+                      "rtMode_activityFractionSum",
+                      0.0
+                    ]
+                  },
+                  "rtMode_activityFractionSum",
+                  1.0
+                ]
+              }
+            ]
+          }
+        },
+        {
           "_comment": "S14's collapse of opModeID, now reading the weights of the rate row's OWN pollutant-process, from the family that pollutant-process belongs to. J37's key pair again -- the rate relation's pollutant-process factor -- so nothing here restates which family of operating modes tire wear lives on. THE TWO FAMILIES ARE ALTERNATIVES AND NOT A SUM: `BaseRateGenerator` takes a rated pollutant-process's `RatesOpModeDistribution` from one of two generators, and an evaporative one does not appear in either -- `EvaporativeEmissionsOperatingModeDistributionGenerator` writes its distribution over soaking and running instead. The month comes in here because that distribution is keyed on the month through `soakActivityFraction`, and the source type through the vehicle already joined, so neither is a new lookup.",
           "lhs": "rtDay_meanBaseRate",
           "rhs": {
@@ -45596,6 +46109,192 @@
                       "op": "index",
                       "args": [
                         "rtMode_weightedRate",
+                        "b",
+                        "m",
+                        "g"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "rtMode_acIncrement",
+                    "b",
+                    "m"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "_comment": "BaseRateGenerator at Rates scale (`useAvgSpeedBin`, no avgSpeedFraction) and BaseRateCalculator.sql's Rates/NotProject section (`avgSpeedBinID = mod(linkID,100)`): one link per bin, one bin per link.",
+          "lhs": "rtBin_meanBaseRate",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b",
+              "j",
+              "g"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "j": {
+                "from": "ratespeedbin_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "m": {
+                "from": "operating_mode_rows"
+              },
+              "r": {
+                "from": "physicsrow_rows"
+              },
+              "q": {
+                "from": "polprocroad_rows"
+              },
+              "v": {
+                "from": "avgspeedbin_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rt_physicsOrdinal",
+                    "phy_ordinal"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "rt_blockOrdinal",
+                    "ppr_ordinal"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "rsb_ordinal",
+                    "asb_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "pp_WBin",
+                    "q",
+                    "v",
+                    "m",
+                    "r"
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "rtMode_normalizedRate",
+                    "b",
+                    "m",
+                    "g"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rtBin_meanBaseRateACAdj",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b",
+              "j",
+              "g"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "j": {
+                "from": "ratespeedbin_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "m": {
+                "from": "operating_mode_rows"
+              },
+              "r": {
+                "from": "physicsrow_rows"
+              },
+              "q": {
+                "from": "polprocroad_rows"
+              },
+              "v": {
+                "from": "avgspeedbin_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rt_physicsOrdinal",
+                    "phy_ordinal"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "rt_blockOrdinal",
+                    "ppr_ordinal"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "rsb_ordinal",
+                    "asb_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "*",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "pp_WBin",
+                        "q",
+                        "v",
+                        "m",
+                        "r"
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "rtMode_normalizedRate",
                         "b",
                         "m",
                         "g"
@@ -63922,6 +64621,115 @@
           "_comment": "S15's tail, in `baseratecalculator/adjust.rs`'s own order: the criteria fuel-effect ratio (:477-493) -- which scales `meanBaseRate` and `meanBaseRateACAdj` alike, so one factor over the sum is the same number -- then the temperature factor (:495-535) and the A/C addition (:536-568) are the parenthesised sum -- the temperature step scales the A/C term too, so one factor over the sum is the same number -- then J56's model-year factor (:586-603), then the EV efficiency divisor (:611-616). J56 is the LAST of those to be ported and the only one no fixture could see: its table is keyed on the regulatory class as well as the source type, and until `expand-sourcetype` every cohort in this tree missed it."
         },
         {
+          "_comment": "S15's tail at one speed bin, the inventory's template and factors unchanged.",
+          "lhs": "rtBin_adjustedMeanBaseRate",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b",
+              "j",
+              "g",
+              "n"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "j": {
+                "from": "ratespeedbin_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "n": {
+                "from": "runspecmonth_rows"
+              }
+            },
+            "expr": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "adjusted_mean_base_rate",
+              "bindings": {
+                "mean_base_rate": {
+                  "op": "index",
+                  "args": [
+                    "rtBin_meanBaseRate",
+                    "b",
+                    "j",
+                    "g"
+                  ]
+                },
+                "ac_factor": {
+                  "op": "index",
+                  "args": [
+                    "rt_acFactor",
+                    "b",
+                    "g",
+                    "n"
+                  ]
+                },
+                "mean_base_rate_ac_adj": {
+                  "op": "index",
+                  "args": [
+                    "rtBin_meanBaseRateACAdj",
+                    "b",
+                    "j",
+                    "g"
+                  ]
+                },
+                "fuel_effect_ratio": {
+                  "op": "*",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "rt_criteriaRatio",
+                        "b",
+                        "g",
+                        "n"
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "rt_baseFuelRatio",
+                        "b",
+                        "g",
+                        "n"
+                      ]
+                    }
+                  ]
+                },
+                "temperature_factor": {
+                  "op": "index",
+                  "args": [
+                    "rt_temperatureFactor",
+                    "b",
+                    "g",
+                    "n"
+                  ]
+                },
+                "emission_rate_adjustment": {
+                  "op": "index",
+                  "args": [
+                    "rt_emissionRateAdjustment",
+                    "b"
+                  ]
+                },
+                "ev_energy_divisor": {
+                  "op": "index",
+                  "args": [
+                    "rt_evEnergyDivisor",
+                    "b"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
           "lhs": "rtDay_activityBasis",
           "rhs": {
             "op": "faq",
@@ -72193,29 +73001,41 @@
                               "op": "+",
                               "args": [
                                 {
-                                  "op": "index",
-                                  "args": [
-                                    "run_evapRoadTypeExcess",
-                                    "n"
-                                  ]
-                                },
-                                {
-                                  "op": "*",
+                                  "op": "+",
                                   "args": [
                                     {
                                       "op": "index",
                                       "args": [
-                                        "run_offNetworkSelected",
+                                        "run_evapRoadTypeExcess",
                                         "n"
                                       ]
                                     },
                                     {
-                                      "op": "index",
+                                      "op": "*",
                                       "args": [
-                                        "run_onRoadPollutantProcessCount",
-                                        "n"
+                                        {
+                                          "op": "index",
+                                          "args": [
+                                            "run_offNetworkSelected",
+                                            "n"
+                                          ]
+                                        },
+                                        {
+                                          "op": "index",
+                                          "args": [
+                                            "run_onRoadPollutantProcessCount",
+                                            "n"
+                                          ]
+                                        }
                                       ]
                                     }
+                                  ]
+                                },
+                                {
+                                  "op": "index",
+                                  "args": [
+                                    "hot_aggregationUnported",
+                                    "n"
                                   ]
                                 }
                               ]
@@ -72223,7 +73043,7 @@
                             {
                               "op": "index",
                               "args": [
-                                "hot_aggregationUnported",
+                                "run_mixedRoadChains",
                                 "n"
                               ]
                             }
@@ -72232,7 +73052,7 @@
                         {
                           "op": "index",
                           "args": [
-                            "run_mixedRoadChains",
+                            "run_startModeAgeVariation",
                             "n"
                           ]
                         }
@@ -72241,7 +73061,7 @@
                     {
                       "op": "index",
                       "args": [
-                        "run_startModeAgeVariation",
+                        "run_startPMSelected",
                         "n"
                       ]
                     }
@@ -72250,12 +73070,229 @@
                 {
                   "op": "index",
                   "args": [
-                    "run_startPMSelected",
+                    "run_ratesUnported",
                     "n"
                   ]
                 }
               ]
             }
+          }
+        },
+        {
+          "_comment": "PLAN.md §7.3.47: the Rates-scale relation is running exhaust's RatePerDistance, and everything else a Rates run could ask for is counted here rather than emitted wrong.",
+          "lhs": "run_ratesUnported",
+          "rhs": {
+            "op": "+",
+            "args": [
+              {
+                "op": "faq",
+                "args": [],
+                "semiring": "sum_product",
+                "output_idx": [
+                  "n"
+                ],
+                "ranges": {
+                  "n": {
+                    "from": "run_rows"
+                  }
+                },
+                "expr": {
+                  "op": "*",
+                  "args": [
+                    "n_ratesScale",
+                    {
+                      "op": "+",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "run_isProjectDomain",
+                            "n"
+                          ]
+                        },
+                        {
+                          "op": "ifelse",
+                          "args": [
+                            {
+                              "op": "and",
+                              "args": [
+                                {
+                                  "op": "==",
+                                  "args": [
+                                    {
+                                      "op": "index",
+                                      "args": [
+                                        "run_aggregationHourCount",
+                                        "n"
+                                      ]
+                                    },
+                                    {
+                                      "op": "index",
+                                      "args": [
+                                        "run_hourCount",
+                                        "n"
+                                      ]
+                                    }
+                                  ]
+                                },
+                                {
+                                  "op": "==",
+                                  "args": [
+                                    {
+                                      "op": "index",
+                                      "args": [
+                                        "run_actDayCount",
+                                        "n"
+                                      ]
+                                    },
+                                    {
+                                      "op": "index",
+                                      "args": [
+                                        "run_dayCount",
+                                        "n"
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            0.0,
+                            1.0
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              },
+              {
+                "op": "faq",
+                "args": [],
+                "semiring": "sum_product",
+                "output_idx": [
+                  "n"
+                ],
+                "ranges": {
+                  "n": {
+                    "from": "run_rows"
+                  },
+                  "q": {
+                    "from": "polprocroad_rows"
+                  },
+                  "p": {
+                    "from": "runspecpollutantprocess_rows"
+                  }
+                },
+                "join": [
+                  {
+                    "on": [
+                      [
+                        "ppr_ppOrdinal",
+                        "rspp_ordinal"
+                      ]
+                    ]
+                  }
+                ],
+                "expr": {
+                  "op": "*",
+                  "args": [
+                    {
+                      "op": "*",
+                      "args": [
+                        "n_ratesScale",
+                        {
+                          "op": "index",
+                          "args": [
+                            "ppr_isEmitted",
+                            "q"
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "op": "ifelse",
+                      "args": [
+                        {
+                          "op": "and",
+                          "args": [
+                            {
+                              "op": "and",
+                              "args": [
+                                {
+                                  "op": "==",
+                                  "args": [
+                                    {
+                                      "op": "index",
+                                      "args": [
+                                        "rspp_processID",
+                                        "p"
+                                      ]
+                                    },
+                                    {
+                                      "op": "enum",
+                                      "args": [
+                                        "process",
+                                        "RunningExhaust"
+                                      ]
+                                    }
+                                  ]
+                                },
+                                {
+                                  "op": ">",
+                                  "args": [
+                                    {
+                                      "op": "index",
+                                      "args": [
+                                        "rspp_hasBaseRateTableRow",
+                                        "p"
+                                      ]
+                                    },
+                                    0.5
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "op": "and",
+                              "args": [
+                                {
+                                  "op": ">",
+                                  "args": [
+                                    {
+                                      "op": "index",
+                                      "args": [
+                                        "ppr_roadTypeID",
+                                        "q"
+                                      ]
+                                    },
+                                    1.5
+                                  ]
+                                },
+                                {
+                                  "op": "<",
+                                  "args": [
+                                    {
+                                      "op": "index",
+                                      "args": [
+                                        "ppr_isOffNetworkIdle",
+                                        "q"
+                                      ]
+                                    },
+                                    0.5
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        0.0,
+                        1.0
+                      ]
+                    }
+                  ]
+                }
+              }
+            ]
           }
         },
         {
@@ -76948,6 +77985,613 @@
               }
             ],
             "expr": 1.0
+          }
+        },
+        {
+          "lhs": "outOrdinal",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "output_idx": [
+              "o"
+            ],
+            "ranges": {
+              "o": {
+                "from": "output_rows"
+              }
+            },
+            "expr": "o"
+          }
+        },
+        {
+          "lhs": "rpdOutputOrdinal",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "output_idx": [
+              "x"
+            ],
+            "ranges": {
+              "x": {
+                "from": "rateoutput_rows"
+              }
+            },
+            "expr": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "flat_relation_major",
+              "bindings": {
+                "position": "x",
+                "block_size": {
+                  "op": "+",
+                  "args": [
+                    1,
+                    {
+                      "op": "*",
+                      "args": [
+                        "n_ratesScale",
+                        {
+                          "op": "-",
+                          "args": [
+                            "n_avgspeedbin",
+                            1
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "lhs": "rpdSpeedBinOrdinal",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "output_idx": [
+              "x"
+            ],
+            "ranges": {
+              "x": {
+                "from": "rateoutput_rows"
+              }
+            },
+            "expr": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "flat_relation_minor",
+              "bindings": {
+                "position": "x",
+                "block_size": {
+                  "op": "+",
+                  "args": [
+                    1,
+                    {
+                      "op": "*",
+                      "args": [
+                        "n_ratesScale",
+                        {
+                          "op": "-",
+                          "args": [
+                            "n_avgspeedbin",
+                            1
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "_comment": "The output row's own year, read through the ordinal join.",
+          "lhs": "rpd_yearID",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "rate_output_column",
+            "bindings": {
+              "value": "out_yearID"
+            }
+          }
+        },
+        {
+          "lhs": "rpd_monthID",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "rate_output_column",
+            "bindings": {
+              "value": "out_monthID"
+            }
+          }
+        },
+        {
+          "_comment": "`mod(hourDayID,10)` in the SQL: the output row's day type.",
+          "lhs": "rpd_dayID",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "rate_output_column",
+            "bindings": {
+              "value": "out_dayID"
+            }
+          }
+        },
+        {
+          "_comment": "`floor(hourDayID/10)` in the SQL: the run's hour.",
+          "lhs": "rpd_hourID",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "rate_output_column",
+            "bindings": {
+              "value": "out_hourID"
+            }
+          }
+        },
+        {
+          "lhs": "rpd_pollutantID",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "rate_output_column",
+            "bindings": {
+              "value": "out_pollutantID"
+            }
+          }
+        },
+        {
+          "lhs": "rpd_processID",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "rate_output_column",
+            "bindings": {
+              "value": "out_processID"
+            }
+          }
+        },
+        {
+          "lhs": "rpd_sourceTypeID",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "rate_output_column",
+            "bindings": {
+              "value": "out_sourceTypeID"
+            }
+          }
+        },
+        {
+          "_comment": "The output row's SCC; MOVES's `isSCC` replacement leaves it as BaseRateOutput carries it.",
+          "lhs": "rpd_SCC",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "rate_output_column",
+            "bindings": {
+              "value": "out_SCC"
+            }
+          }
+        },
+        {
+          "lhs": "rpd_fuelTypeID",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "rate_output_column",
+            "bindings": {
+              "value": "out_fuelTypeID"
+            }
+          }
+        },
+        {
+          "lhs": "rpd_modelYearID",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "rate_output_column",
+            "bindings": {
+              "value": "out_modelYearID"
+            }
+          }
+        },
+        {
+          "lhs": "rpd_roadTypeID",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "rate_output_column",
+            "bindings": {
+              "value": "out_roadTypeID"
+            }
+          }
+        },
+        {
+          "lhs": "rpd_linkID",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "x"
+            ],
+            "ranges": {
+              "x": {
+                "from": "rateoutput_rows"
+              },
+              "o": {
+                "from": "output_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "v": {
+                "from": "avgspeedbin_rows"
+              },
+              "j": {
+                "from": "ratespeedbin_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rpdOutputOrdinal",
+                    "outOrdinal"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "outCountyOrdinal",
+                    "rsc_ordinal"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "rpdSpeedBinOrdinal",
+                    "rsb_ordinal"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "rsb_ordinal",
+                    "asb_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "mesoscale_lookup_link_id",
+              "bindings": {
+                "zone_id": {
+                  "op": "index",
+                  "args": [
+                    "run_zoneID",
+                    "g"
+                  ]
+                },
+                "road_type_id": {
+                  "op": "index",
+                  "args": [
+                    "out_roadTypeID",
+                    "o"
+                  ]
+                },
+                "avg_speed_bin_id": {
+                  "op": "index",
+                  "args": [
+                    "asb_avgSpeedBinID",
+                    "v"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "lhs": "rpd_avgSpeedBinID",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "x"
+            ],
+            "ranges": {
+              "x": {
+                "from": "rateoutput_rows"
+              },
+              "v": {
+                "from": "avgspeedbin_rows"
+              },
+              "j": {
+                "from": "ratespeedbin_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rpdSpeedBinOrdinal",
+                    "rsb_ordinal"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "rsb_ordinal",
+                    "asb_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "asb_avgSpeedBinID",
+                "v"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rpd_regClassID",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "output_idx": [
+              "x"
+            ],
+            "ranges": {
+              "x": {
+                "from": "rateoutput_rows"
+              }
+            },
+            "expr": 0.0
+          }
+        },
+        {
+          "lhs": "rpd_temperature",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "x"
+            ],
+            "ranges": {
+              "x": {
+                "from": "rateoutput_rows"
+              },
+              "o": {
+                "from": "output_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "n": {
+                "from": "runspecmonth_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rpdOutputOrdinal",
+                    "outOrdinal"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "outCountyOrdinal",
+                    "rsc_ordinal"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "outMonthOrdinal",
+                    "month_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "run_temperature",
+                "g",
+                "n"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rpd_relHumidity",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "x"
+            ],
+            "ranges": {
+              "x": {
+                "from": "rateoutput_rows"
+              },
+              "o": {
+                "from": "output_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "n": {
+                "from": "runspecmonth_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rpdOutputOrdinal",
+                    "outOrdinal"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "outCountyOrdinal",
+                    "rsc_ordinal"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "outMonthOrdinal",
+                    "month_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "run_relHumidity",
+                "g",
+                "n"
+              ]
+            }
+          }
+        },
+        {
+          "_comment": "RatePostProcessorRatesFirst.sql: `o.emissionRate as ratePerDistance` from BaseRateOutput, whose emissionRate is BaseRateGenerator's `sum(MeanBaseRate)/avgBinSpeed` carried through BaseRateCalculator's adjustments and the output unit conversion. Summed over the output row's rate rows -- its source bins -- as `out_emissionQuant` is.",
+          "lhs": "rpd_ratePerDistance",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "x"
+            ],
+            "ranges": {
+              "x": {
+                "from": "rateoutput_rows"
+              },
+              "o": {
+                "from": "output_rows"
+              },
+              "b": {
+                "from": "rate_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "n": {
+                "from": "runspecmonth_rows"
+              },
+              "j": {
+                "from": "ratespeedbin_rows"
+              },
+              "v": {
+                "from": "avgspeedbin_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rpdOutputOrdinal",
+                    "outOrdinal"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "outRateOrdinal",
+                    "rt_outputOrdinal"
+                  ],
+                  [
+                    "outCountyOrdinal",
+                    "rsc_ordinal"
+                  ],
+                  [
+                    "outMonthOrdinal",
+                    "month_ordinal"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "rpdSpeedBinOrdinal",
+                    "rsb_ordinal"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "rsb_ordinal",
+                    "asb_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "/",
+              "args": [
+                {
+                  "op": "/",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "rtBin_adjustedMeanBaseRate",
+                        "b",
+                        "j",
+                        "g",
+                        "n"
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "asb_avgBinSpeed",
+                        "v"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "rt_unitDivisor",
+                    "b"
+                  ]
+                }
+              ]
+            }
           }
         },
         {

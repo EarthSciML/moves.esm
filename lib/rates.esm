@@ -1,0 +1,87 @@
+{
+  "esm": "1.2.0",
+  "metadata": {
+    "name": "moves.rates",
+    "description": "Template library: the two shapes of MOVES's Rates scale (MESOSCALE_LOOKUP) that `onroad/model.esm`'s rate-per-distance relation repeats (PLAN.md §7.3.47, docs/esm-conventions.md §103).\n\n`rate_output_column` reads one MOVESOutput column onto the RatePerDistance relation. That relation is the output relation with the speed bin fastest -- `rateoutput_rows`, decoded by `rpdOutputOrdinal` and `rpdSpeedBinOrdinal` -- so every key MOVES copies from BaseRateOutput (year, month, day, hour, pollutant, process, source type, SCC, fuel type, model year, road type) is the output row's own and is read through ONE ordinal join rather than recomputed. Eleven columns use it; written out they would be eleven copies of the same join, and a twelfth could get it wrong. The body names the onroad model's index sets and ordinals by design: it is that relation's projection, not a general gather.\n\n`mesoscale_lookup_link_id` is the link MOVES synthesizes for a speed bin, `ExecutionRunSpec.createMesoscaleLookupLinks`: `(zoneID*10 + roadTypeID)*100 + avgSpeedBinID`. At Rates scale outside PROJECT domain MOVES deletes `Link` and writes one link per (zone, road type, speed bin) -- and one per (zone, road type 1) without the bin -- so a bin's rate is its link's, and `mod(linkID,100)` is how `BaseRateCalculator.sql` and `RatePostProcessorRatesFirst.sql` read the bin back. Washtenaw's zone 261610 on road type 4 gives links 261610401..261610416.",
+    "authors": [
+      "EarthSciML Authors and Contributors"
+    ],
+    "tags": [
+      "templates",
+      "onroad",
+      "rates"
+    ]
+  },
+  "expression_templates": {
+    "rate_output_column": {
+      "params": [
+        "value"
+      ],
+      "body": {
+        "op": "faq",
+        "args": [],
+        "semiring": "sum_product",
+        "output_idx": [
+          "x"
+        ],
+        "ranges": {
+          "x": {
+            "from": "rateoutput_rows"
+          },
+          "o": {
+            "from": "output_rows"
+          }
+        },
+        "join": [
+          {
+            "on": [
+              [
+                "rpdOutputOrdinal",
+                "outOrdinal"
+              ]
+            ]
+          }
+        ],
+        "expr": {
+          "op": "index",
+          "args": [
+            "value",
+            "o"
+          ]
+        }
+      }
+    },
+    "mesoscale_lookup_link_id": {
+      "params": [
+        "zone_id",
+        "road_type_id",
+        "avg_speed_bin_id"
+      ],
+      "body": {
+        "op": "+",
+        "args": [
+          {
+            "op": "*",
+            "args": [
+              {
+                "op": "+",
+                "args": [
+                  {
+                    "op": "*",
+                    "args": [
+                      "zone_id",
+                      10
+                    ]
+                  },
+                  "road_type_id"
+                ]
+              },
+              100
+            ]
+          },
+          "avg_speed_bin_id"
+        ]
+      }
+    }
+  }
+}

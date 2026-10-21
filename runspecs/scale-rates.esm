@@ -1,0 +1,259 @@
+{
+  "esm": "1.2.0",
+  "metadata": {
+    "name": "scale-rates-runspec",
+    "description": "PLAN.md §7.3.47: the `scale-rates` run computed from the DEFAULT DATABASE through `moves-onroad.esm` at RATES SCALE -- `<modelscale value=\"Rates\"/>`, MOVES's MESOSCALE_LOOKUP, DEFAULT domain. `rates-minimal` is the same RunSpec under another name (only the description and the output database differ): the two snapshots agree in 1999 of 2000 cells, and the one that differs is MOVES's own run-to-run noise (PLAN.md §7.3.47).\n\nWHAT IT DISCRIMINATES. Every other RunSpec in this tree is at inventory scale and its oracle is MOVESOutput. This one's MOVESOutput is EMPTY -- MOVES deletes it after the rates post-processor has read it -- and its oracle is `RatePerDistance`: one row per (cohort, speed bin) with the rate per MILE at that bin, a link per bin (`linkID = (zoneID*10 + roadTypeID)*100 + avgSpeedBinID`), and the hour's temperature and humidity. The selections are `expand-day`'s weekday, so the same rates the inventory weights by `avgSpeedDistribution` are here one bin at a time, normalized by the cohort's own source-bin fractions instead of weighted by them (BaseRateGenerator step 008).\n\nTHE BINDINGS. `n_ratesScale` = 1 is the RunSpec's `<modelscale>`, which no table states; it sizes the speed-bin axis of the rate relation to the 16 discovered bins. `n_outputRate` = 125 is the (pollutant-process, cohort) pairs, checked by `rateSurvivorCount` as everywhere else.",
+    "authors": [
+      "EarthSciML Authors and Contributors"
+    ],
+    "tags": [
+      "runspec",
+      "onroad",
+      "default-database",
+      "rates",
+      "scale-rates"
+    ]
+  },
+  "data_sources": {
+    "db_runspecyear": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/scale-rates/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspecyear.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecyear"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, yearID 2020.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecmonth": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/scale-rates/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspecmonth.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecmonth"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, monthID 8 -- the XML's `<month key=\"7\"/>` is a 0-based index (docs/mixed-onroad.md §0.1).",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspechour": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/scale-rates/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspechour.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspechour"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, hourID 7 -- `<beginhour key=\"6\"/>`, likewise an index. 59.5 degF and 90.4 % relative humidity, the two values every RatePerDistance row carries.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_aggregationhour": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/scale-rates/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspechour.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_aggregationhour"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "The hours the run aggregates over. It does not set `aggregateBy`, so it is `runspechour` itself and the same file.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecday": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/scale-rates/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspecday.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecday"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, dayID 5 (weekday).",
+        "esio_format": "parquet"
+      }
+    },
+    "db_rateday": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/scale-rates/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspecday.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_rateday"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "The day types the rate-side time pre-aggregation is scoped to: `runspecday` itself, as the run does not aggregate.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_actday": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/scale-rates/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspecday.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_actday"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "The day types the output day's activity covers: `runspecday` itself. A rate per distance reads no activity, but the output relation it is laid over still has its day level.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecsourcetype": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/scale-rates/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspecsourcetype.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecsourcetype"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, sourceTypeID 21.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecroadtype": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/scale-rates/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspecroadtype.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecroadtype"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, roadTypeID 4. Road type 1 is not selected, so start exhaust has no block and RatePerStart is empty, as it is in the snapshot.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecsourcefueltype": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/scale-rates/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspecsourcefueltype.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecsourcefueltype"
+      },
+      "metadata": {
+        "tags": [
+          "scope",
+          "cohorts"
+        ],
+        "note": "4 rows: gasoline, diesel, E85 and electricity -- the XML names gasoline alone, and the execution database is the authority. RatePerDistance carries all four fuel types' cohorts.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecpollutantprocess": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/scale-rates/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspecpollutantprocess.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecpollutantprocess"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "2 rows: 9101 and 9102, Total Energy on running and start exhaust. The XML's Fossil Fuel Energy (93) rows are not in it. 9102 emits nothing: its rates are written on the unselected road type 1.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecchainedto": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/scale-rates/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspecchainedto.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecchainedto"
+      },
+      "metadata": {
+        "tags": [
+          "scope",
+          "chain"
+        ],
+        "note": "0 rows: nothing is chained.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspeccounty": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/scale-rates/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspeccounty.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspeccounty"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, countyID 26161, zone 261610: the zone the 16 links are synthesized in.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_rateperdistance": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/scale-rates/tables/db__out_scale_rates__rateperdistance.parquet"
+      },
+      "reader_options": {
+        "float_columns": [
+          "ratePerDistance",
+          "temperature",
+          "relHumidity"
+        ]
+      },
+      "metadata": {
+        "tags": [
+          "oracle",
+          "expected-output"
+        ],
+        "note": "The 2000-row expected output, and it is NOT MOVESOutput, which a Rates run leaves empty: RatePerDistance, running Total Energy in Million BTU per mile for 125 (model year, fuel type) cohorts at each of 16 speed-bin links. DECLARED AND CONSUMED BY NOTHING; run-tests.sh reads the table name off this source, emits the model's `rpd_*` relation for it, and compare-output.py --table rateperdistance compares it under tolerance.toml's [oracle_table.rateperdistance].",
+        "esio_format": "parquet"
+      }
+    }
+  },
+  "models": {
+    "Onroad": {
+      "ref": "../moves-onroad.esm",
+      "bindings": {
+        "n_outputRate": 125,
+        "n_ratesScale": 1
+      }
+    }
+  }
+}
