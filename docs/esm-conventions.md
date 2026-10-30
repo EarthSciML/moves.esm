@@ -235,7 +235,7 @@ component still declares the enums IT uses. Of the two routes the defect forced,
 one is gone and one was never a workaround:
 
 * a **library declares the codes it branches on** — `lib/conversion.esm`'s
-  `emission_unit` and `activity_unit`. They were zero-parameter
+  `activity_unit` (and `emission_unit` until §105). They were zero-parameter
   constant-fragment templates (§9.6.1) until PR #341; they are an `enums` block
   now, still READ through templates of the same names, because the call sites
   pass a code by name and never a literal. **A library's `enum` op resolves in
@@ -363,7 +363,7 @@ template-library files grouped by the stage of the chain that reaches for them:
 | `lib/keys.esm` | `scc_equipment_chain_key`, `scc_lookup_ladder_key`, `state_default_precedence` (§4.5, §4.6) |
 | `lib/emission_factors.esm` | `deterioration_age`, `deterioration_factor` (§4.1), `carbon_balance_ef` (§4.8) |
 | `lib/adjustments.esm` | `exhaust_temperature_adjustment` (§4.2), `oxygenate_adjustment` (§4.3), `im_blend` |
-| `lib/conversion.esm` | `unit_conversion` (§4.4), `temporal_scale` (§4.7), `annual_activity_hours`, the unit codes, `CVTTON` and its inverse |
+| `lib/conversion.esm` | `hp_hour_unit_conversion` and `gallon_unit_conversion` (§4.4, one template per `unitcf.f` arm, §105), `temporal_scale` (§4.7), `annual_activity_hours`, the activity-unit codes, `CVTTON` and its inverse |
 | `lib/population.esm` **[Phase 2]** | `pop_file_rounding`, `truncate_toward_zero`, `linear_series_interpolation`, `annualized_growth_factor`, `median_life_years`, `year_over_year_scrap_fraction`, `scrappage_sales_growth`, `surviving_equipment` |
 
 A component imports the two or three it uses, with `only` naming them, so the
@@ -393,10 +393,11 @@ import edge documents the dependency.
   with it whether a model year exists. They live in `lib/` under their own
   names so that a reader meets them as rules rather than as stray arithmetic.
 * **Two namespaces that look alike get different prefixes** **[Phase 2]**. An
-  EMISSION-rate unit (`emission_unit_g_per_hp_hr`) is what `unitcf.f` selects
-  on; an ACTIVITY unit (`activity_unit_hours_per_year`) is what `modyr.f`
-  selects on; the `g/gallon` branch reads both. Phase 1 named the first pair
-  `activity_unit_*`, which was wrong and is renamed.
+  EMISSION-rate unit is what `unitcf.f` selects on; an ACTIVITY unit
+  (`activity_unit_hours_per_year`) is what `modyr.f` selects on; the `g/gallon`
+  arm reads both. Phase 1 named the first pair `activity_unit_*`, which was
+  wrong and was renamed `emission_unit_*`; since §105 the emission-rate code is
+  not a value at all but the CHOICE of template at the call site.
 * **`lib/` holds template-library files and nothing else** (§9.7.1) **[checked]**.
 
 ## 7. Discrete time is an index-set axis, and `t` is never a loop symbol
@@ -5658,6 +5659,10 @@ year never cancels.
 
 ### 58.3 An `ifelse` takes the units of its FIRST branch, and never looks at the rest
 
+**Superseded by §105.** esm-spec §4.8.6 checks every branch, so the multi-unit
+selector this section describes is a mismatch, and both templates it names were
+rewritten.
+
 Measured on `8ac536bf0` with a three-line probe: `ifelse(c, hp_avg·lf, dens)` with
 `dens` declared `kg/m^3` validates with the left-hand side declared `hp` and is
 refused declared `kg/m^3` or `m`. So a branch that disagrees is not a conflict; it
@@ -8704,3 +8709,49 @@ of the source type's fleet, a Rates rate is the rate of a vehicle OF THAT FUEL.
   display boundary -- and the model's 0.0029994027 sits between them, 9.1e-07 from
   one and 2.4e-06 from the other. Both runs are kept and both reproduce; a
   tolerance that could tell them apart would be testing MOVES's scheduling.
+
+## 105. A bare literal is a pure number, so a selection's branches share one unit and a unit hidden in a number is written down **[EarthSciAST esm-spec §4.8.6; PR #1, the `units_dimensionless_literal_mismatch` warnings, 69 to 0]**
+
+esm-spec §4.8.6 reads a bare nonzero literal as dimensionless. Today that is a
+warning, `units_dimensionless_literal_mismatch`; at the next major esm version it
+is an error. The repository carried 69 warning sites, nearly all of them one of
+six `lib/` templates seen through the documents that mount them. Each was a
+real statement the document had not made, and each fix is `× 1.0` or `/ 1.0`
+in binary64, so no number moved.
+
+* **A unit hidden in a fitted constant is written on a `const` of value 1.**
+  The Goff-Gratch polynomial is log10(e / 1 kPa), so `saturation_vapor_pressure`
+  multiplies its power of ten by `const(1.0, "kPa")`. Before §4.8.6 a symbolic
+  power was undeterminable and `PH2O` validated declared `kPa`, `degF` or `K`
+  alike; now it is checked.
+* **A selection's branches share one unit, so a code-dispatched conversion is
+  one template per arm.** §58.3's rule, the unit at the call site and never on
+  the template, relied on an `ifelse` that only looked at its first branch.
+  `unitcf.f` returns `hp`, `gal/h` or a pure 1 depending on the emission-rate
+  code, and no single template can type all three. So `lib/conversion.esm` has
+  `hp_hour_unit_conversion` and `gallon_unit_conversion`, the pass-throughs are
+  the identity, and the call site, which already knew its code, picks one.
+  Every call site in the repository was g/hp-hr and had bound placeholders, such
+  as the median life as the fuel density, to the arm it never reached; those
+  bindings are gone.
+* **A source's own dimensional quirk is ported as the reading it makes.**
+  NONROAD's gallons arm of `acttmp` is 1/(2*uselif), a reciprocal of hours
+  that the Fortran then uses as hours. `annual_activity_hours` writes it
+  `1 h / (2 × (uselif / 1 h))`, the number it computes in the unit it is used
+  as, so all three arms are `h` and the selection is checked.
+* **A pure number with a polymorphic consumer stays a number; a typed
+  consumer gets a typed twin.** `kilojoules_per_million_btu` is divided into
+  `rspp_unitDivisor`-style selections whose other arm is 1, so it stays
+  unitless. `million_btu_energy` is the same number times one kJ, for the two
+  callers whose numerator is declared `kJ`.
+* **A column that holds two units gets its unit where the row kind is known**
+  (§57.8). `NrAirToxics`' `run_gallonsFactor` is `gal/g`, as `nft_gallonsFactor`
+  in nonroad/model.esm already was. `rat_multiplier` holds a g/gal rate on a rate
+  row and a ratio on a ratio row, so `tox_unitFactor`'s rate arm multiplies by
+  `const(1.0, "g/gal")`.
+* **A threshold is named once.** The codemod's mechanical rewrite put
+  `const(-1.0, "mi/(h*s)")` in three places and `const(72.0, "degF")` in two.
+  Those values are now `brakeRate1Sec`, `brakeRate3Sec` and `idleCeilingMph`,
+  the names onroad/model.esm reads them under, and lib/adjustments.esm's
+  `ev_temperature_reference`. The EV temperature quadratic was the standard one
+  about a different reference, so both are now `centred_quadratic_adjustment`.

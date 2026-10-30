@@ -48,12 +48,21 @@
       "expression_template_imports": [
         { "ref": "../lib/identifiers.esm", "only": ["pol_process_id", "null_output_column"] },
         { "ref": "../lib/onroad_activity.esm",
-          "only": ["onroad_scc", "ev_energy_divisor", "kilojoules_per_million_btu"] }
+          "only": ["onroad_scc", "ev_energy_divisor", "million_btu_energy"] },
+        { "ref": "../lib/adjustments.esm", "only": ["ev_temperature_adjustment"] }
       ],
 
       "tolerance": { "rel": 1e-12 },
 
       "variables": {
+        "evTemperatureTermA": {
+          "type": "parameter", "units": "1/degF", "default": 0.00225,
+          "description": "temperatureadjustment.tempAdjustTermA on its only 9101 row (fuelTypeID 9, pollutant 91, process 1). A quadratic in one temperature fixes its coefficients' units from that temperature's (lib/adjustments.esm, UNITS)."
+        },
+        "evTemperatureTermB": {
+          "type": "parameter", "units": "1/degF^2", "default": 0.00028,
+          "description": "temperatureadjustment.tempAdjustTermB on the same row."
+        },
         "ambientHeatIndex": {
           "type": "parameter", "units": "degF", "default": 66.900001525879,
           "description": "The same value as `run_heatIndex`, as an overridable scalar. It exists only so the two clamp tests can move it: a `parameter_overrides` entry is keyed by bare local name and reaches a `parameter`, not the left-hand side of a `const` equation, so a document whose only copy of a number is a `const` cannot test the other arm of a branch that turns on it."
@@ -194,7 +203,7 @@
         },
         "out_emissionQuant": {
           "type": "unknown", "shape": ["output_rows"], "units": "1",
-          "description": "S18: kilojoules / (1055.0559e6/1000). MOVESOutput.emissionQuant in Million BTU. Unitless by declaration because no factor in the product carries a unit — `hp`, `mi h-1` and `kJ h-1` are all outside the registry (docs/esm-conventions.md §11) — and because pretending otherwise would be worse than saying so."
+          "description": "S18: kilojoules / (1055.0559e6/1000). MOVESOutput.emissionQuant in Million BTU, declared `1` because it is a COUNT of million BTU: `out_emissionQuantKilojoules` is `kJ` and `million_btu_energy` (lib/onroad_activity.esm) is the energy of one million BTU in `kJ`, so the quotient is a pure number by the unit algebra, and checked."
         },
         "out_SCC": {
           "type": "unknown", "shape": ["output_rows"], "units": "1",
@@ -396,17 +405,13 @@
                           "is_electric": "out_isElectric" } }
         },
         {
-          "_comment": "adjust.rs:108, before the clamp. termA 0.00225 and termB 0.00028 are temperatureadjustment's only 9101 row, which is fuelTypeID 9; the reference temperature is 72 degF here and 75 degF in the standard quadratic, which is not a typo in either place.",
+          "_comment": "adjust.rs:108, before the clamp. termA and termB are temperatureadjustment's only 9101 row, which is fuelTypeID 9; the 72 degF reference is `ev_temperature_reference`, against the standard quadratic's 75.",
           "lhs": "out_evTemperatureAdjustRaw",
           "rhs": { "op": "faq", "args": [], "semiring": "sum_product", "output_idx": ["r"],
             "ranges": { "r": { "from": "output_rows" }, "n": { "from": "run_rows" } },
-            "expr": { "op": "*", "args": [
-              { "op": "-", "args": [{ "op": "index", "args": ["run_heatIndex", "n"] }, {"op": "const", "args": [], "value": 72.0, "units": "degF"}] },
-              { "op": "+", "args": [
-                {"op": "const", "args": [], "value": 0.00225, "units": "1/degF"},
-                { "op": "*", "args": [
-                  {"op": "const", "args": [], "value": 0.00028, "units": "1/degF^2"},
-                  { "op": "-", "args": [{ "op": "index", "args": ["run_heatIndex", "n"] }, {"op": "const", "args": [], "value": 72.0, "units": "degF"}] }] }] }] } }
+            "expr": { "op": "apply_expression_template", "args": [], "name": "ev_temperature_adjustment",
+              "bindings": { "term_a": "evTemperatureTermA", "term_b": "evTemperatureTermB",
+                            "temperature": { "op": "index", "args": ["run_heatIndex", "n"] } } } }
         },
         {
           "lhs": "out_evTemperatureSuppressed",
@@ -499,7 +504,7 @@
           "lhs": "out_emissionQuant",
           "rhs": { "op": "/", "args": [
             "out_emissionQuantKilojoules",
-            { "op": "apply_expression_template", "args": [], "name": "kilojoules_per_million_btu",
+            { "op": "apply_expression_template", "args": [], "name": "million_btu_energy",
               "bindings": {} }] }
         },
         {
