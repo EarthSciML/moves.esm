@@ -2,7 +2,7 @@
   "esm": "1.2.0",
   "metadata": {
     "name": "expand-day fixture",
-    "description": "The `expand-day` fixture: the run's EXECUTION database -- the snapshot's own tables, cut from the default database for this RunSpec and holding its generators' intermediate tables -- mounted on `onroad/model.esm`. It holds no logic: its `data_sources` are the catalogue under the names the model reads, and its one `{ref}` binds the run's declared counts. run-tests.sh's fixture stage emits the model's `out_*` relation and compares it with the snapshot's MOVESOutput; a mounted model's inline tests do not run (finding F47), so that comparison is its whole check. `runspecs/expand-day.esm` reproduces the same run from the DEFAULT database through the same model, so the pair is a differential test of the execution-database cut: one model, one oracle, two catalogues.\n\nUntil 2026-10-30 this file inlined its own copy of the onroad model (14603 lines, frozen at the commit that last touched it), so the logic every fixture shared was written fourteen times. PLAN.md §7.1, docs/esm-conventions.md §106."
+    "description": "The `expand-day` fixture: the run's EXECUTION database -- the snapshot's own tables, cut from the default database for this RunSpec and holding its generators' intermediate tables -- mounted on `onroad/model.esm`. It holds no logic: its `data_sources` are the catalogue under the names the model reads, and its one model, `Fixture`, mounts the domain model as a SUBSYSTEM, binds the run's declared counts, and carries the run's inline tests: assertions on the mounted model's intermediate values (`Onroad.*` / `Nonroad.*`) against this snapshot. A test written inside a `{ref}`'d model does not run (finding F47), so the assertions live here, in the document that supplies the data they are about (esm-spec §6.6; conventions §106). run-tests.sh's fixture stage runs them, then emits the model's `out_*` relation and compares it with the snapshot's MOVESOutput. `runspecs/expand-day.esm` reproduces the same run from the DEFAULT database through the same model, so the pair is a differential test of the execution-database cut: one model, one oracle, two catalogues.\n\nUntil 2026-10-30 this file inlined its own copy of the onroad model (14603 lines, frozen at the commit that last touched it), so the logic every fixture shared was written fourteen times. PLAN.md §7.1, docs/esm-conventions.md §106."
   },
   "data_sources": {
     "db_runspecyear": {
@@ -2356,10 +2356,438 @@
     }
   },
   "models": {
-    "Onroad": {
-      "ref": "../onroad/model.esm",
-      "bindings": {
-        "n_outputRate": 125
+    "Fixture": {
+      "subsystems": {
+        "Onroad": {
+          "ref": "../onroad/model.esm",
+          "bindings": {
+            "n_outputRate": 125
+          }
+        }
+      },
+      "variables": {},
+      "equations": [],
+      "tests": [
+        {
+          "id": "the_run_scope_comes_from_the_execution_database",
+          "description": "Year 2020, August, 7am, source type 21, road type 4, county 26161, zone 261610, polProcessID 9101 built from the two enums, and 2020 flagged as a base year so §1.5's two folds are the empty product.\n\nTHE HOUR IS 7 AND NOT `mixed-onroad`'s 9, and that is the whole of the scope difference between the two runs apart from the day set. It is not cosmetic: the heat index at hour 7 is 59.5 degF against hour 9's 66.9, which moves both of §2.3's clamps -- the A/C activity term further below zero and the EV temperature term ABOVE it. `the_temperature_lookup_reaches_the_regClassID_zero_wildcard` asserts the arms that changes.\n\nThe day set is NOT asserted here. It has a test of its own, `the_day_axis_is_exercised_at_both_of_its_values`, because it is the reason this fixture exists (docs/esm-conventions.md §42.5).",
+          "time_span": {
+            "start": 0.0,
+            "end": 0.0
+          },
+          "assertions": [
+            {
+              "variable": "Onroad.run_hourID",
+              "time": 0.0,
+              "expected": 7.0,
+              "coords": {
+                "run_rows": 1
+              }
+            },
+            {
+              "variable": "Onroad.run_roadTypeID",
+              "time": 0.0,
+              "expected": 4.0,
+              "coords": {
+                "run_rows": 1
+              }
+            }
+          ]
+        },
+        {
+          "id": "the_drive_cycle_scaffolding_is_a_single_physics_row_and_two_data_thresholds",
+          "description": "The three facts W's correctness rests on that are not W itself: the braking thresholds are READ from operatingmode's Braking row rather than written as drivecycle.rs's -2.0 and -1.0 literals; exactly one physics-mapping row is selected, so dss_vsp is one polynomial and not a sum of several; and every average-speed bin's bracketing weights sum to 1, which is what catches a duplicated bracket speed or a bin with no bracket. None of the four is day-keyed, which is why this test is identical to `mixed-onroad`'s: the drive cycle SCAFFOLDING is shared by the two day types and only the avgSpeedFraction weighting on top of it is not.",
+          "time_span": {
+            "start": 0.0,
+            "end": 0.0
+          },
+          "assertions": [
+            {
+              "variable": "Onroad.run_brakeRate1Sec",
+              "time": 0.0,
+              "expected": -2.0,
+              "coords": {
+                "run_rows": 1
+              }
+            },
+            {
+              "variable": "Onroad.run_brakeRate3Sec",
+              "time": 0.0,
+              "expected": -1.0,
+              "coords": {
+                "run_rows": 1
+              }
+            },
+            {
+              "variable": "Onroad.run_physicsRowsSelected",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "run_rows": 1
+              }
+            },
+            {
+              "variable": "Onroad.run_fuelUsageWildcardCount",
+              "time": 0.0,
+              "expected": 5.0,
+              "coords": {
+                "run_rows": 1
+              }
+            },
+            {
+              "variable": "Onroad.asb_scheduleFractionTotal",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "avgspeedbin_rows": 1
+              }
+            },
+            {
+              "variable": "Onroad.asb_scheduleFractionTotal",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "avgspeedbin_rows": 8
+              }
+            },
+            {
+              "variable": "Onroad.asb_scheduleFractionTotal",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "avgspeedbin_rows": 16
+              }
+            }
+          ]
+        },
+        {
+          "id": "the_cohort_row_rule_admits_exactly_the_snapshots_cohorts",
+          "description": "125 of the 164 candidates survive `stmyFraction > 0`, and every one of them has an emissionrate row -- so the two suppression mechanisms agree here, which is the fact that distinguishes this slice from process-evap-leaks, where the rate table's absence takes 125 down to 64. n_outputCohort is checked against this, not the other way round.\n\nTHE COHORT GRID IS DAY-FREE, and that is a claim and not an omission. `cohort_rows` is n_agecategory x n_runspecsourcefueltype and stays 164 whichever day types the run selects; the day enters one level down, at `cohDay_*`. So the 250 output rows are 125 cohorts x 2 days and not 250 cohorts, and this count staying at 125 while the output doubles is what says the factorisation is the right one. This snapshot's `emissionrate` carries 69,688 rows against `mixed-onroad`'s 69,200 -- the extra ones are polProcessID 9190, extended idle, which J27 discards on road type -- and the surviving count is unmoved by them.",
+          "time_span": {
+            "start": 0.0,
+            "end": 0.0
+          },
+          "assertions": [
+            {
+              "variable": "Onroad.cohortSurvivorCount",
+              "time": 0.0,
+              "expected": 125.0,
+              "coords": {
+                "run_rows": 1
+              }
+            }
+          ]
+        },
+        {
+          "id": "the_activity_chain_reproduces_the_worked_examples",
+          "description": "docs/expand-day.md §6.1 and §6.2, at the stages a wrong factor shows up at, and at BOTH day types wherever the stage has a day.\n\ntravelFraction is day-INDEPENDENT and is asserted once: [21, 40] normalised over the whole HPMS group is 1.609175e-03; over source type 21 alone it is 4.10e-03 and every row is 2.55x high. Its two ordinals are in the day-2 block and its values are `mixed-onroad`'s unchanged, which is the control on the re-addressing -- a stage with no day cannot move when the day set does.\n\naverageSpeed is the ARITHMETIC mean and it HAS a day: 67.0416879 at hourDayID 72 and 56.3611908 at hourDayID 75, against the reference `averagespeed` table's own 6.70417e+01 and 5.63612e+01. The harmonic means are 51.62 and 40.79, and S8 divides by the result. The weekend figure is one of the three docs/esm-conventions.md §42.4 records as DELETED when the corpus was corrected; it is restored here against the same reference column it was read from.\n\n`act_sho` is asserted at three ages on each day -- the snapshot's own `sho` table, to its stored digits. The day-2 and day-5 values at the same age differ by a factor of 10.51 and that factor is the whole day axis of S6-S9 in one number: 27.33 / 260.057 = 0.105093 = (0.237635 / 0.762365) x (0.0184304 / 0.0459565) x (56.3611908 / 67.0416879), i.e. dayVMTFraction x hourVMTFraction x 1/averageSpeed and nothing else. Omitting weeksPerMonth multiplies all six by 4.428571.",
+          "time_span": {
+            "start": 0.0,
+            "end": 0.0
+          },
+          "tolerance": {
+            "rel": 2e-06
+          },
+          "assertions": [
+            {
+              "variable": "Onroad.act_travelFraction",
+              "time": 0.0,
+              "expected": 0.001609174853309,
+              "coords": {
+                "activity_rows": 41
+              }
+            },
+            {
+              "variable": "Onroad.act_travelFraction",
+              "time": 0.0,
+              "expected": 0.01804420293236,
+              "coords": {
+                "activity_rows": 1
+              }
+            },
+            {
+              "variable": "Onroad.act_averageSpeed",
+              "time": 0.0,
+              "expected": 67.0416879,
+              "coords": {
+                "activity_rows": 1
+              }
+            },
+            {
+              "variable": "Onroad.act_averageSpeed",
+              "time": 0.0,
+              "expected": 56.3611908,
+              "coords": {
+                "activity_rows": 42
+              }
+            },
+            {
+              "variable": "Onroad.act_sho",
+              "time": 0.0,
+              "expected": 27.33,
+              "coords": {
+                "activity_rows": 1
+              }
+            },
+            {
+              "variable": "Onroad.act_sho",
+              "time": 0.0,
+              "expected": 8.78839,
+              "coords": {
+                "activity_rows": 21
+              }
+            },
+            {
+              "variable": "Onroad.act_sho",
+              "time": 0.0,
+              "expected": 2.43728,
+              "coords": {
+                "activity_rows": 41
+              }
+            },
+            {
+              "variable": "Onroad.act_sho",
+              "time": 0.0,
+              "expected": 260.057,
+              "coords": {
+                "activity_rows": 42
+              }
+            },
+            {
+              "variable": "Onroad.act_sho",
+              "time": 0.0,
+              "expected": 83.6255,
+              "coords": {
+                "activity_rows": 62
+              }
+            },
+            {
+              "variable": "Onroad.act_sho",
+              "time": 0.0,
+              "expected": 23.1918,
+              "coords": {
+                "activity_rows": 82
+              }
+            }
+          ]
+        },
+        {
+          "id": "the_four_worked_examples_reach_MOVESOutput",
+          "description": "docs/expand-day.md §6.1-§6.4, asserted against the numbers MOVESOutput stores rather than against this document's own. FOUR COHORTS x TWO DAY TYPES, which is the shape the day correction took away from every other fixture in this tree: A (MY 1980, gasoline) is the largest rate and shows every factor at once, B (MY 2020, gasoline) is the largest activity, C (MY 2000, electricity) exercises the EV efficiency divisor at its largest -- 22.1% -- and D (MY 2020, electricity) at the other end of the age-group ladder.\n\nEACH PAIR IS THE SAME COHORT ON THE TWO DAYS, so the pair pins a RATIO that no single-day fixture can state. For A it is 1.46683 / 0.452942 = 3.2384, and it factorises exactly: (333651 / 392141) x (23.1918 / 2.43728) x (2 / 5) -- base rate, source hours and the RECIPROCAL of noOfRealDays. A port that hardcoded noOfRealDays = 5 leaves the day-5 half of this test green and multiplies the day-2 half by 2.5; a port that dropped the divisor entirely leaves neither.\n\n`output_rows` is (day, cohort) with the day OUTERMOST -- measured, per docs/esm-conventions.md §42.3, by emitting out_dayID down the ordinals rather than derived -- so ordinals 1-125 are dayID 2 and 126-250 are dayID 5, and each pair here is o and o+125. The tolerance is the fixture's own per-cell gate, because MOVESOutput stores six significant figures and §7.1 attributes every residual here to that. The three SCCs are exact integers and are asserted exactly: an SCC off by one digit relabels a whole fuel type and still passes a per-pollutant sum.",
+          "time_span": {
+            "start": 0.0,
+            "end": 0.0
+          },
+          "tolerance": {
+            "rel": 2e-05
+          },
+          "assertions": [
+            {
+              "variable": "Onroad.out_emissionQuant",
+              "time": 0.0,
+              "expected": 2.69396,
+              "coords": {
+                "output_rows": 1
+              }
+            },
+            {
+              "variable": "Onroad.out_emissionQuant",
+              "time": 0.0,
+              "expected": 0.000396237,
+              "coords": {
+                "output_rows": 250
+              }
+            },
+            {
+              "variable": "Onroad.out_fuelTypeID",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "output_rows": 41
+              },
+              "tolerance": {
+                "rel": 1e-12
+              }
+            },
+            {
+              "variable": "Onroad.out_modelYearID",
+              "time": 0.0,
+              "expected": 2000.0,
+              "coords": {
+                "output_rows": 250
+              },
+              "tolerance": {
+                "rel": 1e-12
+              }
+            },
+            {
+              "variable": "Onroad.out_fuelTypeID",
+              "time": 0.0,
+              "expected": 9.0,
+              "coords": {
+                "output_rows": 250
+              },
+              "tolerance": {
+                "rel": 1e-12
+              }
+            },
+            {
+              "variable": "Onroad.out_SCC",
+              "time": 0.0,
+              "expected": 2201210401.0,
+              "coords": {
+                "output_rows": 41
+              },
+              "tolerance": {
+                "rel": 1e-12
+              }
+            }
+          ]
+        },
+        {
+          "id": "the_day_axis_is_exercised_at_both_of_its_values",
+          "description": "THE REASON THIS FIXTURE EXISTS. docs/esm-conventions.md §42.5: the `<day key=>` correction left every two-valued day factor in this repository exercised at exactly ONE value -- noOfRealDays always 5, hourDayID always 75, dayVMTFraction four rows and not eight -- so a port that hardcoded any of them passed all twelve remaining fixtures. `expand-day` is the one snapshot in the corpus that still carries both day types, and this test is where that is spent.\n\nFIVE DAY-KEYED QUANTITIES, EACH AT BOTH VALUES, in the order the chain reaches them:\n\n  1. the key      day_hourDayID {72, 75} -- LOOKED UP from (dayID, hourID) through `hourday`, never composed as hourID x 10 + dayID\n  2. S7's shares  act_dayVMTFraction {0.237635, 0.762365} and act_hourVMTFraction {0.0184304, 0.0459565}\n  3. the layout   act_dayID and act_hourDayID at the first and last row of each block of `activity_rows`\n  4. the output   out_dayID and outHourDayID at the first and last row of each block of `output_rows`\n  5. S16's divisor  outNoOfRealDays {2, 5} on both output blocks\n\nEVERY ONE IS A COMPUTED VARIABLE AND NONE IS AN INGESTED COLUMN, which is forced rather than chosen: an assertion naming a `kind: data` parameter -- `rsd_dayID`, `dow_dayID`, `dow_noOfRealDays`, and every other column this document ingests -- fails at evaluation with `array state '...' has no cells in var_map` (finding F43). So `dayofanyweek.noOfRealDays` cannot be pinned where it is READ; it is pinned at `outNoOfRealDays`, where it is USED, which is the stronger of the two claims anyway -- a divisor that arrives correctly and is then not applied fails the second and not the first.\n\nWHAT EACH WOULD CATCH, stated as the failure and not as the property, because a claim nobody can falsify is decoration:\n\n  * noOfRealDays hardcoded to 5, or the divisor dropped: the 125 `outNoOfRealDays` cells of the day-2 block go red here, and the four day-2 emissionQuant cells of `the_four_worked_examples_reach_MOVESOutput` go red at exactly 2.5x. Measured: the day-2 rows land 2.5x high with the divisor dropped and 2.5x high with it pinned at 5 -- the same wrong answer twice, which is why the OUTPUT assertions and these structural ones are both needed.\n  * the day index dropped from `hourday`, so both blocks read hourDayID 75: `day_hourDayID[1]`, `act_hourDayID[1]` and `outHourDayID[1]` go red, and behind them `act_sho`, `dc_W` and every `cohDay_*` day-2 cell, because 72 and 75 are what `sho` and `avgspeeddistribution` are keyed on.\n  * dayVMTFraction or hourVMTFraction taken from whichever row matches first rather than by day: the two shares are 0.237635/0.762365 and 0.0184304/0.0459565, so a first-match join reads the day-2 value into both blocks and `act_sho`'s day-5 rows fall by 3.2x and 2.5x.\n  * the two blocks transposed: every id assertion here is asserted at BOTH ends -- ordinals 1 and 125 of the day-2 block, 126 and 250 of the day-5 one -- so a layout that interleaved the days instead of blocking them fails on the interior ordinals even where it happens to agree at the edges. The layout was MEASURED and not assumed (§42.3).\n\nThe values are exact stored decimals in the snapshot's own tables, so the gate is the document's own 1e-9 rather than the reference's six-figure storage: nothing here is computed, everything is read and carried, and a carried number that has drifted at 1e-9 has been through an arithmetic step it should not have been through.",
+          "time_span": {
+            "start": 0.0,
+            "end": 0.0
+          },
+          "tolerance": {
+            "rel": 1e-09
+          },
+          "assertions": [
+            {
+              "variable": "Onroad.day_hourDayID",
+              "time": 0.0,
+              "expected": 72.0,
+              "coords": {
+                "runspecday_rows": 1
+              }
+            },
+            {
+              "variable": "Onroad.day_hourDayID",
+              "time": 0.0,
+              "expected": 75.0,
+              "coords": {
+                "runspecday_rows": 2
+              }
+            },
+            {
+              "variable": "Onroad.act_hourDayID",
+              "time": 0.0,
+              "expected": 72.0,
+              "coords": {
+                "activity_rows": 1
+              }
+            },
+            {
+              "variable": "Onroad.act_hourDayID",
+              "time": 0.0,
+              "expected": 75.0,
+              "coords": {
+                "activity_rows": 42
+              }
+            },
+            {
+              "variable": "Onroad.out_dayID",
+              "time": 0.0,
+              "expected": 2.0,
+              "coords": {
+                "output_rows": 1
+              }
+            },
+            {
+              "variable": "Onroad.out_dayID",
+              "time": 0.0,
+              "expected": 2.0,
+              "coords": {
+                "output_rows": 125
+              }
+            },
+            {
+              "variable": "Onroad.out_dayID",
+              "time": 0.0,
+              "expected": 5.0,
+              "coords": {
+                "output_rows": 126
+              }
+            },
+            {
+              "variable": "Onroad.out_dayID",
+              "time": 0.0,
+              "expected": 5.0,
+              "coords": {
+                "output_rows": 250
+              }
+            },
+            {
+              "variable": "Onroad.outHourDayID",
+              "time": 0.0,
+              "expected": 72.0,
+              "coords": {
+                "output_rows": 1
+              }
+            },
+            {
+              "variable": "Onroad.outHourDayID",
+              "time": 0.0,
+              "expected": 72.0,
+              "coords": {
+                "output_rows": 125
+              }
+            },
+            {
+              "variable": "Onroad.outHourDayID",
+              "time": 0.0,
+              "expected": 75.0,
+              "coords": {
+                "output_rows": 126
+              }
+            },
+            {
+              "variable": "Onroad.outHourDayID",
+              "time": 0.0,
+              "expected": 75.0,
+              "coords": {
+                "output_rows": 250
+              }
+            },
+            {
+              "variable": "Onroad.outNoOfRealDays",
+              "time": 0.0,
+              "expected": 2.0,
+              "coords": {
+                "output_rows": 1
+              }
+            },
+            {
+              "variable": "Onroad.outNoOfRealDays",
+              "time": 0.0,
+              "expected": 2.0,
+              "coords": {
+                "output_rows": 125
+              }
+            },
+            {
+              "variable": "Onroad.outNoOfRealDays",
+              "time": 0.0,
+              "expected": 5.0,
+              "coords": {
+                "output_rows": 126
+              }
+            },
+            {
+              "variable": "Onroad.outNoOfRealDays",
+              "time": 0.0,
+              "expected": 5.0,
+              "coords": {
+                "output_rows": 250
+              }
+            }
+          ]
+        }
+      ],
+      "tolerance": {
+        "rel": 1e-09
       }
     }
   }

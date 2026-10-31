@@ -303,8 +303,8 @@ fi
 # a zero-length axis PANICS rather than coming back empty (finding F56).
 # `esm validate` refuses the same document cleanly, naming the sources it does
 # not declare, and the 7c and 7c' stages check that refusal two-sided. The
-# model's own eleven `tests` blocks do not run in a mount either (F47), so
-# nothing is lost here that was ever gained.
+# domain models carry no `tests` -- an assertion about them needs data, so it
+# lives on the fixture that mounts them (7c's step 4 holds them to that).
 mapfile -t TEST_TARGETS < <(find . -maxdepth 1 -mindepth 1 -type d \
   -not -name '.*' -not -name 'target' -not -name 'gates' -not -name 'docs' \
   -not -name 'tools' -not -name 'fixtures' -not -name 'spikes' \
@@ -841,21 +841,17 @@ else
 
     run="$f"
 
-    # A fixture is a snapshot CATALOGUE that mounts the domain model by `{ref}`
-    # (PLAN.md §7.1, the spikes/7c shape): its own `data_sources` are the run's
-    # execution database, and the logic is onroad/model.esm's or
-    # nonroad/model.esm's and nowhere else. A mounted model's inline tests are
-    # not run (F47), so such a fixture has no assertions of its own and is
-    # verified by the comparison below alone.
-    if [[ "$("$PYTHON" -c '
-import json, sys
-m = json.load(open(sys.argv[1])).get("models") or {}
-print("mount" if m and all(isinstance(v, dict) and "ref" in v and "variables" not in v for v in m.values()) else "inline")' "$run")" == mount ]]; then
-      pass "$name — a snapshot catalogue mounting the domain model; verified by its comparison"
-    # The fixture's own inline assertions, against the real tables. Every one
-    # names a value out of docs/nonroad-logging-county.md §6, so a source that
-    # silently delivered its `default` fails here rather than at the comparison.
-    elif out=$("$ESM" test "$run" 2>&1); then
+    # A fixture is a snapshot CATALOGUE whose one model, `Fixture`, mounts the
+    # domain model as a SUBSYSTEM (PLAN.md §7.1; conventions §106): its own
+    # `data_sources` are the run's execution database, and the logic is
+    # onroad/model.esm's or nonroad/model.esm's and nowhere else. The tests
+    # live on `Fixture` and assert on the mounted model's values
+    # (`Onroad.rspp_pollutantID`) -- a test written inside a `{ref}`'d model is
+    # not run (F47), and the mounted model is data-open anyway, so the document
+    # that supplies the data is where an assertion about it can run. A source
+    # that silently delivered its `default` fails here rather than at the
+    # comparison.
+    if out=$("$ESM" test "$run" 2>&1); then
       pass "$name — inline assertions against the snapshot parquet"
       sed -n 's/^ *TOTAL */       assertions: /p' <<<"$out"
     else
@@ -878,20 +874,23 @@ print("mount" if m and all(isinstance(v, dict) and "ref" in v and "variables" no
     # resolved a relative `ref` against the process working directory (F7); that
     # is fixed, so the document is run where it lives.
     #
-    # For a mounting fixture the fields are read through its `{ref}` chain, out
-    # of the model it mounts.
+    # The fields are read through the fixture's subsystem `{ref}`, out of the
+    # model it mounts, and named by their full path (`Fixture.Onroad.out_x`);
+    # the header is cut back to the bare `out_x` once emitted, below.
     mapfile -t FIELDS < <("$PYTHON" - "$run" <<'PYEOF'
 import json, os, sys
-def fields(path):
-    doc = json.load(open(path))
-    for model in doc.get("models", {}).values():
-        if "ref" in model and "variables" not in model:
-            yield from fields(os.path.join(os.path.dirname(path), model["ref"]))
-        for name in (model.get("variables") or {}):
-            if name.startswith("out_"):
-                yield name
-for name in fields(sys.argv[1]):
-    print(name)
+def fields(path, model, prefix):
+    for sub, edge in (model.get("subsystems") or {}).items():
+        if "ref" in edge:
+            leaf = os.path.join(os.path.dirname(path), edge["ref"])
+            for m in json.load(open(leaf)).get("models", {}).values():
+                yield from fields(leaf, m, prefix + sub + ".")
+    for name in (model.get("variables") or {}):
+        if name.startswith("out_"):
+            yield prefix + name
+for key, model in json.load(open(sys.argv[1])).get("models", {}).items():
+    for name in fields(sys.argv[1], model, key + "."):
+        print(name)
 PYEOF
 )
     if [[ ${#FIELDS[@]} -eq 0 ]]; then
@@ -909,6 +908,10 @@ PYEOF
       sed 's/^/       /' <<<"$out" | tail -5
       continue
     fi
+    # Cut the subsystem path off the header (`Fixture.Onroad.out_x` -> `out_x`),
+    # so the emitted relation is spelled as the model spells it -- and as the
+    # 7c stage, which mounts the model directly, emits it.
+    sed -i '1s/[A-Za-z0-9_]*\.//g' "$raw"
 
     # The document names its output relation's columns `out_<MOVESOutput
     # column>`, per the relation-prefix convention (docs/esm-conventions.md §2);
@@ -1250,17 +1253,23 @@ PYEOF
     fail "7c — the per-fixture document has grown ($thick). It was 12 lines once F13 was retired; say why it needs more before accepting it"
   fi
 
-  # 4. F47, two-sided, as the 7a stage does it: a mounted component's inline
-  #    tests are not run, so this document discovers no assertions. The logic
-  #    half carries all eleven of the fixture's `tests` blocks; the day they
-  #    run, this stage says so instead of the byte comparison quietly staying
-  #    the only check.
-  out=$("$ESM" test "$C7_MOUNT" 2>&1)
-  if grep -qE '^Assertions: +0$' <<<"$out"; then
-    pass "F47 watch: the eleven mounted tests are still not run"
+  # 4. The domain models carry no inline tests. A test written there would
+  #    not run: the model is data-open alone, and a mounted model's tests are
+  #    not run (F47, watched by the 7a stage). Assertions about the model's
+  #    values live on the fixtures, which mount it as a subsystem and supply
+  #    the data (conventions §106) -- process-tirewear holds the twelve that
+  #    were written here and never ran.
+  if stray=$("$PYTHON" - onroad/model.esm nonroad/model.esm <<'PYEOF'
+import json, sys
+n = {p: sum(len(m.get("tests") or []) for m in json.load(open(p)).get("models", {}).values())
+     for p in sys.argv[1:]}
+print(", ".join("%s has %d" % kv for kv in n.items() if kv[1]))
+sys.exit(1 if any(n.values()) else 0)
+PYEOF
+); then
+    pass "the domain models carry no tests; their assertions run on the fixtures"
   else
-    fail "F47 watch — \`esm test $C7_MOUNT\` now discovers assertions. Replace the byte comparison above with the logic half's own eleven tests, and retire F47"
-    sed 's/^/       /' <<<"$out" | head -8
+    fail "a domain model carries inline tests that cannot run ($stray). Move them onto the fixture that supplies their data"
   fi
 
   # 5. `bindings` cannot introduce a name. The mount declares the extent names

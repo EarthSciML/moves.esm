@@ -2,7 +2,7 @@
   "esm": "1.2.0",
   "metadata": {
     "name": "chain-so2-co2e-mechanism fixture",
-    "description": "The `chain-so2-co2e-mechanism` fixture: the run's EXECUTION database -- the snapshot's own tables, cut from the default database for this RunSpec and holding its generators' intermediate tables -- mounted on `onroad/model.esm`. It holds no logic: its `data_sources` are the catalogue under the names the model reads, and its one `{ref}` binds the run's declared counts. run-tests.sh's fixture stage emits the model's `out_*` relation and compares it with the snapshot's MOVESOutput; a mounted model's inline tests do not run (finding F47), so that comparison is its whole check. `runspecs/chain-so2-co2e-mechanism.esm` reproduces the same run from the DEFAULT database through the same model, so the pair is a differential test of the execution-database cut: one model, one oracle, two catalogues.\n\nUntil 2026-10-30 this file inlined its own copy of the onroad model (27918 lines, frozen at the commit that last touched it), so the logic every fixture shared was written fourteen times. PLAN.md §7.1, docs/esm-conventions.md §106."
+    "description": "The `chain-so2-co2e-mechanism` fixture: the run's EXECUTION database -- the snapshot's own tables, cut from the default database for this RunSpec and holding its generators' intermediate tables -- mounted on `onroad/model.esm`. It holds no logic: its `data_sources` are the catalogue under the names the model reads, and its one model, `Fixture`, mounts the domain model as a SUBSYSTEM, binds the run's declared counts, and carries the run's inline tests: assertions on the mounted model's intermediate values (`Onroad.*` / `Nonroad.*`) against this snapshot. A test written inside a `{ref}`'d model does not run (finding F47), so the assertions live here, in the document that supplies the data they are about (esm-spec §6.6; conventions §106). run-tests.sh's fixture stage runs them, then emits the model's `out_*` relation and compares it with the snapshot's MOVESOutput. `runspecs/chain-so2-co2e-mechanism.esm` reproduces the same run from the DEFAULT database through the same model, so the pair is a differential test of the execution-database cut: one model, one oracle, two catalogues.\n\nUntil 2026-10-30 this file inlined its own copy of the onroad model (27918 lines, frozen at the commit that last touched it), so the logic every fixture shared was written fourteen times. PLAN.md §7.1, docs/esm-conventions.md §106."
   },
   "data_sources": {
     "db_runspecyear": {
@@ -2356,10 +2356,1294 @@
     }
   },
   "models": {
-    "Onroad": {
-      "ref": "../onroad/model.esm",
-      "bindings": {
-        "n_outputRate": 2767
+    "Fixture": {
+      "subsystems": {
+        "Onroad": {
+          "ref": "../onroad/model.esm",
+          "bindings": {
+            "n_outputRate": 2767
+          }
+        }
+      },
+      "variables": {},
+      "equations": [],
+      "tests": [
+        {
+          "id": "the_run_scope_comes_from_the_execution_database",
+          "description": "Year 2020, August, hour 7, source type 21, road type 4, county 26161, zone 261610 -- byte for byte `process-crankcase-running`'s scope, and its THC block of MOVESOutput is byte-identical to this one's, so the whole activity half and the whole criteria-pollutant parent are already checked end to end by that fixture. The RunSpec XML says month 7 and hour 6; the execution database says 8 and 7, and it is the authority (docs/process-airtoxics.md 0.1). Four run-level numbers are pinned besides: `GPAFract` is 0, so both fuel-effect blends select their normal arm; the temperature is 59.5 degF and reaches both arms of the temperature branch; the A/C activity quadratic is negative and clamps to 0; and `run_e10FuelSubtypeID` is the 12 the altTHC path's two lookups key on. `specificHumidity` and `molWaterFraction` are NOT read by this fixture and have no variable: pollutant 1 never enters the NOx humidity arm.",
+          "time_span": {
+            "start": 0.0,
+            "end": 0.0
+          },
+          "assertions": [
+            {
+              "variable": "Onroad.run_hourID",
+              "time": 0.0,
+              "expected": 7.0,
+              "coords": {
+                "run_rows": 1
+              }
+            },
+            {
+              "variable": "Onroad.run_roadTypeID",
+              "time": 0.0,
+              "expected": 4.0,
+              "coords": {
+                "run_rows": 1
+              }
+            },
+            {
+              "variable": "Onroad.run_regClassWildcardID",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "run_rows": 1
+              }
+            }
+          ]
+        },
+        {
+          "id": "the_twenty_six_pollutant_processes_are_three_roots_a_chain_and_three_sums",
+          "description": "The run's whole scope, unpacked from `runspecpollutantprocess`, `runspecchainedto` and the three calculator constants rather than written down. THREE ROOTS: 101 (THC) and 601 (N2O) and 9101 (Total Energy Consumption) each carry a rate of their own, and 101's comes off `emissionratebyage` while the other two come off `emissionrate`. THREE CHAIN DEPTHS off 101: 501 (methane) and 7901 (NMHC) at depth 1, 8001 (NMOG) and 8701 (VOC) at 2, and the fourteen toxics at 3. TWO at depth 1 off 9101: 3101 (SO2), which MOVES declares in `runspecchainedto`, and 9001 (Atmospheric CO2), which it does not -- CO2AE carries its input pollutant as a Java constant and `run_chainDeclarationOverlap` asserts the two declarations never disagree. THREE SUMS -- 8601, 8801 and 9801 -- which have no multiplicative parent at all and are held out of the root resolution, because 8601 is the one pollutant-process in this run with TWO `runspecchainedto` rows and the parent join would otherwise sum 8001 and 501 into the nonsense id 8501. The twenty-seventh row, polProcessID 300001, is the mechanism pseudo-pollutant 3000: it is selected, it has no rate, no ratio and no summand, and it emits nothing.",
+          "time_span": {
+            "start": 0.0,
+            "end": 0.0
+          },
+          "assertions": [
+            {
+              "variable": "Onroad.rt_polProcessID",
+              "time": 0.0,
+              "expected": 101.0,
+              "coords": {
+                "rate_rows": 1
+              }
+            },
+            {
+              "variable": "Onroad.rt_polProcessID",
+              "time": 0.0,
+              "expected": 2001.0,
+              "coords": {
+                "rate_rows": 493
+              }
+            },
+            {
+              "variable": "Onroad.rt_polProcessID",
+              "time": 0.0,
+              "expected": 2401.0,
+              "coords": {
+                "rate_rows": 821
+              }
+            },
+            {
+              "variable": "Onroad.rt_polProcessID",
+              "time": 0.0,
+              "expected": 2501.0,
+              "coords": {
+                "rate_rows": 985
+              }
+            },
+            {
+              "variable": "Onroad.rt_polProcessID",
+              "time": 0.0,
+              "expected": 7901.0,
+              "coords": {
+                "rate_rows": 2789
+              }
+            },
+            {
+              "variable": "Onroad.rt_polProcessID",
+              "time": 0.0,
+              "expected": 8701.0,
+              "coords": {
+                "rate_rows": 3281
+              }
+            },
+            {
+              "variable": "Onroad.rspp_pollutantID",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "runspecpollutantprocess_rows": 1
+              }
+            },
+            {
+              "variable": "Onroad.rspp_pollutantID",
+              "time": 0.0,
+              "expected": 20.0,
+              "coords": {
+                "runspecpollutantprocess_rows": 4
+              }
+            },
+            {
+              "variable": "Onroad.rspp_pollutantID",
+              "time": 0.0,
+              "expected": 24.0,
+              "coords": {
+                "runspecpollutantprocess_rows": 6
+              }
+            },
+            {
+              "variable": "Onroad.rspp_pollutantID",
+              "time": 0.0,
+              "expected": 25.0,
+              "coords": {
+                "runspecpollutantprocess_rows": 7
+              }
+            },
+            {
+              "variable": "Onroad.rspp_pollutantID",
+              "time": 0.0,
+              "expected": 79.0,
+              "coords": {
+                "runspecpollutantprocess_rows": 18
+              }
+            },
+            {
+              "variable": "Onroad.rspp_pollutantID",
+              "time": 0.0,
+              "expected": 87.0,
+              "coords": {
+                "runspecpollutantprocess_rows": 21
+              }
+            },
+            {
+              "variable": "Onroad.rspp_processID",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "runspecpollutantprocess_rows": 1
+              }
+            },
+            {
+              "variable": "Onroad.rspp_processID",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "runspecpollutantprocess_rows": 4
+              }
+            },
+            {
+              "variable": "Onroad.rspp_processID",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "runspecpollutantprocess_rows": 6
+              }
+            },
+            {
+              "variable": "Onroad.rspp_processID",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "runspecpollutantprocess_rows": 7
+              }
+            },
+            {
+              "variable": "Onroad.rspp_processID",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "runspecpollutantprocess_rows": 18
+              }
+            },
+            {
+              "variable": "Onroad.rspp_processID",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "runspecpollutantprocess_rows": 21
+              }
+            }
+          ]
+        },
+        {
+          "id": "the_drive_cycle_scaffolding_is_a_single_physics_row_and_two_data_thresholds",
+          "description": "Unchanged from `docs/mixed-onroad.md`: the braking thresholds are READ from the Braking row of `operatingmode` rather than written into the classifier, one physics-mapping row is selected, all five `fuelusagefraction` rows carry the modelYearGroupID 0 wildcard, and the two bracketing schedules of every speed bin carry a total weight of 1.",
+          "time_span": {
+            "start": 0.0,
+            "end": 0.0
+          },
+          "assertions": [
+            {
+              "variable": "Onroad.run_brakeRate1Sec",
+              "time": 0.0,
+              "expected": -2.0,
+              "coords": {
+                "run_rows": 1
+              }
+            },
+            {
+              "variable": "Onroad.run_brakeRate3Sec",
+              "time": 0.0,
+              "expected": -1.0,
+              "coords": {
+                "run_rows": 1
+              }
+            },
+            {
+              "variable": "Onroad.run_physicsRowsSelected",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "run_rows": 1
+              }
+            },
+            {
+              "variable": "Onroad.run_fuelUsageWildcardCount",
+              "time": 0.0,
+              "expected": 5.0,
+              "coords": {
+                "run_rows": 1
+              }
+            },
+            {
+              "variable": "Onroad.asb_scheduleFractionTotal",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "avgspeedbin_rows": 1
+              }
+            },
+            {
+              "variable": "Onroad.asb_scheduleFractionTotal",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "avgspeedbin_rows": 8
+              }
+            },
+            {
+              "variable": "Onroad.asb_scheduleFractionTotal",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "avgspeedbin_rows": 16
+              }
+            }
+          ]
+        },
+        {
+          "id": "the_activity_chain_reproduces_the_reference_sho_table",
+          "description": "S1-S9, against the four corners of the snapshot's own 82-row `sho` table -- which is byte-identical to `process-tirewear`'s and `process-brakewear`'s, so this is a cross-check between three fixtures as well as against the reference. `activity_rows` is day-major over 41 ages and this run has one day type, so it is 41 rows: row 1 is age 0 and row 41 age 40. It was 82 rows with the weekend block first, which is why every ordinal above 41 moved down by 41 (docs/esm-conventions.md 42).",
+          "time_span": {
+            "start": 0.0,
+            "end": 0.0
+          },
+          "assertions": [
+            {
+              "variable": "Onroad.act_travelFraction",
+              "time": 0.0,
+              "expected": 0.01804420293236,
+              "coords": {
+                "activity_rows": 1
+              }
+            },
+            {
+              "variable": "Onroad.act_travelFraction",
+              "time": 0.0,
+              "expected": 0.001609174853309,
+              "coords": {
+                "activity_rows": 41
+              }
+            },
+            {
+              "variable": "Onroad.act_averageSpeed",
+              "time": 0.0,
+              "expected": 56.361205525,
+              "coords": {
+                "activity_rows": 1
+              }
+            },
+            {
+              "variable": "Onroad.act_sho",
+              "time": 0.0,
+              "expected": 260.057,
+              "coords": {
+                "activity_rows": 1
+              },
+              "tolerance": {
+                "rel": 1e-05
+              }
+            },
+            {
+              "variable": "Onroad.act_sho",
+              "time": 0.0,
+              "expected": 23.1918,
+              "coords": {
+                "activity_rows": 41
+              },
+              "tolerance": {
+                "rel": 1e-05
+              }
+            }
+          ]
+        },
+        {
+          "id": "124_cohorts_are_rated_and_every_species_block_is_the_same_104",
+          "description": "THE STRUCTURAL CLAIM OF THIS RUNG, and no row count can make it: 5,534 rows is equally consistent with many other block splits. S10 selects 125 of the 164 candidates for every pollutant-process `pollutantprocessmodelyear` covers and NONE for the others, which costs nothing because a chained row's existence never consults `rt_isSelected`. 124 of the 125 THC candidates are rated: model year 2000 electricity has no `emissionratebyage` ageGroup-2099 row for fuel type 9 and is dropped, while 2001-2020 electricity are rated at exactly zero. Total Energy keeps all 125 -- `emissionrate` is not keyed by age group, so the row that killed THC's 2000 electricity cohort does not exist to be missed -- and that ONE cohort is the whole difference between the 125-row blocks (91, 90, 98) and the 124-row ones (1, 6). Each HC species and toxic block is 104, the 124 minus every electricity cohort, and they are the SAME 104 because all of them fail on the one missing `methanethcratio` row for fuel subtype 90. Ethanol (21) is the exception at 64: its two ratio paths cover gasoline and E85 and no diesel. 2,767 rate rows emit, which is what `n_outputRateRow` declares and `run_outputRateRowCount` recomputes.",
+          "time_span": {
+            "start": 0.0,
+            "end": 0.0
+          },
+          "assertions": [
+            {
+              "variable": "Onroad.cohortSurvivorCount",
+              "time": 0.0,
+              "expected": 125.0,
+              "coords": {
+                "run_rows": 1
+              }
+            },
+            {
+              "variable": "Onroad.rt_survives",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "rate_rows": 124
+              }
+            },
+            {
+              "variable": "Onroad.rt_emits",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "rate_rows": 124
+              }
+            },
+            {
+              "variable": "Onroad.rt_hasRate",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "rate_rows": 124
+              }
+            },
+            {
+              "variable": "Onroad.rt_isSelected",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "rate_rows": 124
+              }
+            },
+            {
+              "variable": "Onroad.rt_isSelected",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "rate_rows": 144
+              }
+            },
+            {
+              "variable": "Onroad.rt_hasRate",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "rate_rows": 144
+              }
+            },
+            {
+              "variable": "Onroad.rt_survives",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "rate_rows": 144
+              }
+            },
+            {
+              "variable": "Onroad.rt_emits",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "rate_rows": 144
+              }
+            },
+            {
+              "variable": "Onroad.rt_hasChainRatio",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "rate_rows": 2912
+              }
+            },
+            {
+              "variable": "Onroad.rt_emits",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "rate_rows": 2912
+              }
+            },
+            {
+              "variable": "Onroad.rt_emits",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "rate_rows": 3404
+              }
+            },
+            {
+              "variable": "Onroad.rt_emits",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "rate_rows": 616
+              }
+            },
+            {
+              "variable": "Onroad.rt_survives",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "rate_rows": 493
+              }
+            }
+          ]
+        },
+        {
+          "id": "the_collapsed_base_rate_reproduces_baseRateByAge_and_reaches_every_species_row",
+          "description": "S13 and S14 against `baseRateByAge_1_2020`, the reference's own generator output, at both day types and all four fuel types. `emissionratebyage` carries polProcessID 101 alone, so only the 124 THC rate rows take their rate from it; `rtDay_rootRate` is the self-join that carries that rate to the twenty pollutant-processes chained off it, and it is asserted at an NMHC and a VOC row against the SAME reference number as the THC row it comes from. Its temperature factor is 1, so the root rate and the reference base rate are equal to the reference's own six significant figures. Electricity is rated at exactly zero and the row exists.",
+          "time_span": {
+            "start": 0.0,
+            "end": 0.0
+          },
+          "tolerance": {
+            "rel": 2e-05
+          },
+          "assertions": [
+            {
+              "variable": "Onroad.rtDay_meanBaseRate",
+              "time": 0.0,
+              "expected": 76.7493,
+              "coords": {
+                "rate_rows": 41,
+                "runspecday_rows": 1
+              }
+            },
+            {
+              "variable": "Onroad.rtDay_meanBaseRateACAdj",
+              "time": 0.0,
+              "expected": 17.0848,
+              "coords": {
+                "rate_rows": 41,
+                "runspecday_rows": 1
+              }
+            },
+            {
+              "variable": "Onroad.rtDay_meanBaseRate",
+              "time": 0.0,
+              "expected": 0.486717,
+              "coords": {
+                "rate_rows": 1,
+                "runspecday_rows": 1
+              }
+            },
+            {
+              "variable": "Onroad.rtDay_meanBaseRateACAdj",
+              "time": 0.0,
+              "expected": 0.110039,
+              "coords": {
+                "rate_rows": 1,
+                "runspecday_rows": 1
+              }
+            },
+            {
+              "variable": "Onroad.rtDay_meanBaseRate",
+              "time": 0.0,
+              "expected": 0.000162308,
+              "coords": {
+                "rate_rows": 83,
+                "runspecday_rows": 1
+              }
+            },
+            {
+              "variable": "Onroad.rtDay_meanBaseRate",
+              "time": 0.0,
+              "expected": 0.115987,
+              "coords": {
+                "rate_rows": 71,
+                "runspecday_rows": 1
+              }
+            },
+            {
+              "variable": "Onroad.rtDay_meanBaseRate",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "rate_rows": 124,
+                "runspecday_rows": 1
+              }
+            },
+            {
+              "variable": "Onroad.rtDay_meanBaseRateACAdj",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "rate_rows": 124,
+                "runspecday_rows": 1
+              }
+            },
+            {
+              "variable": "Onroad.rtDay_meanBaseRate",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "rate_rows": 2829,
+                "runspecday_rows": 1
+              }
+            }
+          ]
+        },
+        {
+          "id": "the_temperature_stage_takes_both_arms_and_the_air_conditioning_arm_is_dead",
+          "description": "S15's temperature arm, adjust.rs:87-142, with TWO of its four branches live in one document. Electricity Total Energy on running exhaust takes the EV quadratic about 72 degF; every other rate row takes the fall-through quadratic about 75 degF. The PM branch needs pollutant 118 or 112 and the NOx branch pollutant 3, and neither is selected -- `noxhumidityadjust` is populated in this snapshot and is read by nothing, which is why this fixture has no humidity variables at all. `temperatureadjustment` has exactly ONE row, polProcessID 9101 / fuelTypeID 9 / regClassID 0, so the wildcard arm of `exact_else_wildcard` is the only one that ever fires and every rate row outside the EV branch has A and B at the additive identity and a factor of exactly 1. The EV row's raw adjustment is +0.015625 at 59.5 degF, above the max(., 0) clamp, and the heat-index suppression is reachable (source type 21 is light duty) and does not fire at 7.5 degF of margin. The A/C arm is live in its table and dead in its result: `fullacadjustment` carries real polProcessID 101 and 9101 rows and `rtDay_meanBaseRateACAdj` is a real number, but the activity quadratic clamps to 0 at this heat index so none of it reaches an emitted cell.",
+          "time_span": {
+            "start": 0.0,
+            "end": 0.0
+          },
+          "assertions": [
+            {
+              "variable": "Onroad.rt_hasTempAdjustExact",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "rate_rows": 1
+              }
+            },
+            {
+              "variable": "Onroad.rt_hasTempAdjustExact",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "rate_rows": 41
+              }
+            },
+            {
+              "variable": "Onroad.rt_tempAdjustTermA",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "rate_rows": 1
+              }
+            },
+            {
+              "variable": "Onroad.rt_tempAdjustTermB",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "rate_rows": 1
+              }
+            },
+            {
+              "variable": "Onroad.rt_tempAdjustTermA",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "rate_rows": 71
+              }
+            },
+            {
+              "variable": "Onroad.rt_tempAdjustTermA",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "rate_rows": 493
+              }
+            },
+            {
+              "variable": "Onroad.rt_temperatureFactor",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "rate_rows": 1
+              }
+            },
+            {
+              "variable": "Onroad.rt_temperatureFactor",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "rate_rows": 41
+              }
+            },
+            {
+              "variable": "Onroad.rt_temperatureFactor",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "rate_rows": 71
+              }
+            },
+            {
+              "variable": "Onroad.rt_temperatureFactor",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "rate_rows": 124
+              }
+            },
+            {
+              "variable": "Onroad.rt_temperatureFactor",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "rate_rows": 3281
+              }
+            },
+            {
+              "variable": "Onroad.rt_acFactor",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "rate_rows": 1
+              }
+            },
+            {
+              "variable": "Onroad.rt_acFactor",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "rate_rows": 41
+              }
+            },
+            {
+              "variable": "Onroad.rtMode_hasACAdjustment",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "rate_rows": 1,
+                "operating_mode_rows": 2
+              }
+            }
+          ]
+        },
+        {
+          "id": "the_two_HC_speciation_lookups_key_on_the_fuel_subtype_and_on_the_output_pollutant_process_and_serve_four_species",
+          "description": "`HCSpeciationCalculator`'s two tables, and the two different things their keys do. `methanethcratio` is keyed by (processID, fuelSubtypeID, regClassID) and a model-year band, and it fires on EVERY rate row of this run because all twenty-six share process 1 -- what selects the methane and NMHC rows is `rt_isMethane` and `rt_isNMHC`, the two pollutants this document names here, because hcspeciation.rs names 5 and 79 as constants too; methane takes the ratio and NMHC its complement, out of the same row. `hcspeciation` is keyed by the OUTPUT pollutant-process, so joining a rate row's own `polProcessID` to it both finds the constants AND identifies which rows are NMOG and VOC rows: neither 80 nor 87 is written anywhere in this document, and the table carries 8001 and 8701 where `process-airtoxics`'s carried 8701 alone, so NMOG needed no new equation at all. Both lookups are INNER, and fuel subtype 90 is in neither table -- that single absence is every species block's twenty missing cohorts. `oxySpeciation` is 0 on all 272 rows, so `speciation_factor` never leaves its constant.",
+          "time_span": {
+            "start": 0.0,
+            "end": 0.0
+          },
+          "assertions": [
+            {
+              "variable": "Onroad.rt_isNMHC",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "rate_rows": 2789
+              }
+            },
+            {
+              "variable": "Onroad.rt_isNMHC",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "rate_rows": 3281
+              }
+            },
+            {
+              "variable": "Onroad.rt_isNMHC",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "rate_rows": 1
+              }
+            }
+          ]
+        },
+        {
+          "id": "the_E85_altTHC_branch_speciates_VOC_from_a_different_fuel_than_it_burns",
+          "description": "adjust.rs:625-692 and hcspeciation.rs:715-760, and it is worth a factor of 3.85. On an ethanol cohort of model year 2001 or later, MOVES duplicates the THC block of the supplied E85 formulation, scales the copy by `altRatio / ratio` -- 1.037215919005 / 1.044099696019 = 0.99340697 at model year 2020 -- and speciates THAT into VOC using fuel subtype 12's ratios, while the emitted NMHC still comes from the ordinary block and subtype 51's ratio of 0.822. So the VOC multiplier on this cohort's THC is 0.99340697 x (1 - 0.338) x 0.974 = 0.6405369, where the ordinary path would have given (1 - 0.822) x 0.934 = 0.1662520. The five conditions are asserted separately from the arithmetic, and the model year 2000 ethanol cohort -- which has no `altcriteriaratio` row and takes the ordinary path -- is asserted beside it, because a branch that fired everywhere and a branch that fired nowhere would both be wrong and only one of them would look it.",
+          "time_span": {
+            "start": 0.0,
+            "end": 0.0
+          },
+          "assertions": [
+            {
+              "variable": "Onroad.rt_speciationConstantE10",
+              "time": 0.0,
+              "expected": 0.974,
+              "coords": {
+                "rate_rows": 3363
+              }
+            }
+          ]
+        },
+        {
+          "id": "the_four_air_toxic_paths_and_the_worked_examples_reach_MOVESOutput",
+          "description": "`AirToxicsCalculator`'s FOUR live paths and the end of the multiplicative chain. ATRatioGas1 keys on the emission's fuel FORMULATION and on an ageID that resolves the model year -- gasoline at ageID 40 takes 0.037092331652 and at ageID 0 takes 0.047131980205, out of two windows that partition the run's model years -- and ATRatioNonGas keys on the fuel SUBTYPE and a self-described model-year group. The two cover pollutants 20, 21, 24, 25, 26 and 27 and are disjoint on every emitted cohort, so `rtSup_atRatio` is a sum of one term there; the sum is written because the Go APPENDS every path. Ethanol (21) is the one output BOTH reach, on disjoint fuel types -- gasoline through ATRatioGas1 and E85 through ATRatioNonGas -- which is why its block is 64 cohorts and not 104. The two paths this snapshot adds are minorHAPRatio, on the fuel subtype, for pollutants 40 to 46, and pahGasRatio, on the BLOCK's fuel type, for naphthalene gas (185). A zero RATIO and a missing one are different and both are asserted: 1,3-butadiene on gasoline model year 2020 has a row whose value is 0 and is emitted at 0, while every species on electricity has no row and is not emitted at all. Then twenty-five `MOVESOutput` cells, all four fuels, both day types and both ends of the model-year range, including the E85 rows the altTHC branch decides and the four cells that are exactly zero. `output_rows` is rate-major over the 2,767 emitting rate rows in blocks of two day types.",
+          "time_span": {
+            "start": 0.0,
+            "end": 0.0
+          },
+          "tolerance": {
+            "rel": 2e-05
+          },
+          "assertions": [
+            {
+              "variable": "Onroad.rt_ageID",
+              "time": 0.0,
+              "expected": 40.0,
+              "coords": {
+                "rate_rows": 533
+              }
+            },
+            {
+              "variable": "Onroad.rt_ageID",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "rate_rows": 493
+              }
+            },
+            {
+              "variable": "Onroad.out_emissionQuant",
+              "time": 0.0,
+              "expected": 326.02,
+              "coords": {
+                "output_rows": 41
+              }
+            },
+            {
+              "variable": "Onroad.out_emissionQuant",
+              "time": 0.0,
+              "expected": 278.421,
+              "coords": {
+                "output_rows": 1809
+              }
+            },
+            {
+              "variable": "Onroad.out_emissionQuant",
+              "time": 0.0,
+              "expected": 280.649,
+              "coords": {
+                "output_rows": 2121
+              }
+            },
+            {
+              "variable": "Onroad.out_emissionQuant",
+              "time": 0.0,
+              "expected": 10.4099,
+              "coords": {
+                "output_rows": 393
+              }
+            },
+            {
+              "variable": "Onroad.out_emissionQuant",
+              "time": 0.0,
+              "expected": 1.60654,
+              "coords": {
+                "output_rows": 561
+              }
+            },
+            {
+              "variable": "Onroad.out_emissionQuant",
+              "time": 0.0,
+              "expected": 4.01813,
+              "coords": {
+                "output_rows": 665
+              }
+            },
+            {
+              "variable": "Onroad.out_emissionQuant",
+              "time": 0.0,
+              "expected": 26.2569,
+              "coords": {
+                "output_rows": 1
+              }
+            },
+            {
+              "variable": "Onroad.out_emissionQuant",
+              "time": 0.0,
+              "expected": 17.3821,
+              "coords": {
+                "output_rows": 1769
+              }
+            },
+            {
+              "variable": "Onroad.out_emissionQuant",
+              "time": 0.0,
+              "expected": 16.9302,
+              "coords": {
+                "output_rows": 2081
+              }
+            },
+            {
+              "variable": "Onroad.out_emissionQuant",
+              "time": 0.0,
+              "expected": 0.797952,
+              "coords": {
+                "output_rows": 353
+              }
+            },
+            {
+              "variable": "Onroad.out_emissionQuant",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "output_rows": 521
+              }
+            },
+            {
+              "variable": "Onroad.out_emissionQuant",
+              "time": 0.0,
+              "expected": 0.255359,
+              "coords": {
+                "output_rows": 625
+              }
+            },
+            {
+              "variable": "Onroad.out_emissionQuant",
+              "time": 0.0,
+              "expected": 0.00881415,
+              "coords": {
+                "output_rows": 82
+              }
+            },
+            {
+              "variable": "Onroad.out_emissionQuant",
+              "time": 0.0,
+              "expected": 0.00156892,
+              "coords": {
+                "output_rows": 1850
+              }
+            },
+            {
+              "variable": "Onroad.out_emissionQuant",
+              "time": 0.0,
+              "expected": 0.00564579,
+              "coords": {
+                "output_rows": 2162
+              }
+            },
+            {
+              "variable": "Onroad.out_emissionQuant",
+              "time": 0.0,
+              "expected": 0.00017754,
+              "coords": {
+                "output_rows": 434
+              }
+            },
+            {
+              "variable": "Onroad.out_emissionQuant",
+              "time": 0.0,
+              "expected": 0.0189347,
+              "coords": {
+                "output_rows": 104
+              }
+            },
+            {
+              "variable": "Onroad.out_emissionQuant",
+              "time": 0.0,
+              "expected": 0.00423908,
+              "coords": {
+                "output_rows": 2182
+              }
+            },
+            {
+              "variable": "Onroad.out_emissionQuant",
+              "time": 0.0,
+              "expected": 0.28515,
+              "coords": {
+                "output_rows": 70
+              }
+            },
+            {
+              "variable": "Onroad.out_emissionQuant",
+              "time": 0.0,
+              "expected": 0.326496,
+              "coords": {
+                "output_rows": 2150
+              }
+            },
+            {
+              "variable": "Onroad.out_emissionQuant",
+              "time": 0.0,
+              "expected": 0.00255824,
+              "coords": {
+                "output_rows": 422
+              }
+            },
+            {
+              "variable": "Onroad.out_emissionQuant",
+              "time": 0.0,
+              "expected": 0.0162025,
+              "coords": {
+                "output_rows": 675
+              }
+            },
+            {
+              "variable": "Onroad.out_emissionQuant",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "output_rows": 403
+              }
+            },
+            {
+              "variable": "Onroad.out_emissionQuant",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "output_rows": 105
+              }
+            },
+            {
+              "variable": "Onroad.out_emissionQuant",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "output_rows": 124
+              }
+            },
+            {
+              "variable": "Onroad.out_pollutantID",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "output_rows": 41
+              }
+            },
+            {
+              "variable": "Onroad.out_modelYearID",
+              "time": 0.0,
+              "expected": 1980.0,
+              "coords": {
+                "output_rows": 41
+              }
+            },
+            {
+              "variable": "Onroad.out_fuelTypeID",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "output_rows": 41
+              }
+            },
+            {
+              "variable": "Onroad.out_dayID",
+              "time": 0.0,
+              "expected": 5.0,
+              "coords": {
+                "output_rows": 41
+              }
+            },
+            {
+              "variable": "Onroad.out_pollutantID",
+              "time": 0.0,
+              "expected": 20.0,
+              "coords": {
+                "output_rows": 422
+              }
+            },
+            {
+              "variable": "Onroad.out_fuelTypeID",
+              "time": 0.0,
+              "expected": 2.0,
+              "coords": {
+                "output_rows": 422
+              }
+            },
+            {
+              "variable": "Onroad.out_modelYearID",
+              "time": 0.0,
+              "expected": 1991.0,
+              "coords": {
+                "output_rows": 422
+              }
+            },
+            {
+              "variable": "Onroad.out_dayID",
+              "time": 0.0,
+              "expected": 5.0,
+              "coords": {
+                "output_rows": 422
+              }
+            },
+            {
+              "variable": "Onroad.out_pollutantID",
+              "time": 0.0,
+              "expected": 87.0,
+              "coords": {
+                "output_rows": 2162
+              }
+            },
+            {
+              "variable": "Onroad.out_fuelTypeID",
+              "time": 0.0,
+              "expected": 5.0,
+              "coords": {
+                "output_rows": 2162
+              }
+            },
+            {
+              "variable": "Onroad.out_SCC",
+              "time": 0.0,
+              "expected": 2205210401.0,
+              "coords": {
+                "output_rows": 2162
+              }
+            },
+            {
+              "variable": "Onroad.out_SCC",
+              "time": 0.0,
+              "expected": 2202210401.0,
+              "coords": {
+                "output_rows": 422
+              }
+            },
+            {
+              "variable": "Onroad.out_processID",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "output_rows": 2162
+              }
+            },
+            {
+              "variable": "Onroad.out_dayID",
+              "time": 0.0,
+              "expected": 5.0,
+              "coords": {
+                "output_rows": 2162
+              }
+            }
+          ]
+        },
+        {
+          "id": "so2_is_the_fuel_sulfur_burned_scaled_by_the_energy_consumed",
+          "description": "`SO2Calculator`, end to end. so2_calculator.rs:2079: SO2 = meanBaseRate x WsulfurLevel x energy / energyContent, where the first factor is `sulfateemissionrate` and the middle two are `SO2FuelCalculation1`'s market-share-weighted means over the county's fuel supply. Every number below except `rt_so2Factor` is a cell of an INPUT table or of MOVESOutput; `rt_so2Factor` is the port's own arithmetic and is asserted as such.\n\nThe three sulfate rates are the whole of the model-year dependence: gasoline and ethanol carry 1.99378e-06 at every model year of this run, and diesel steps from 1.89735e-06 to 1.76298e-06 at 2007 -- which is a self-described `modelYearGroupID` band, 19502006 and 20072050, decoded rather than transcribed.\n\nELECTRICITY FAILS TWICE AND BOTH FAILURES ARE ASSERTED, because either one alone would produce the same 104-cohort block and a fixture that checked one could not tell which MOVES used. `sulfateemissionrate` has no fuelTypeID 9 row, so `rt_hasSulfateRate` is 0; and fuel subtype 90's `energyContent` is NULL, so `rt_supplyEnergyContent` is 0 and the division MariaDB would evaluate as NULL is guarded. Neither is inferred from the other.\n\nThe worked example: model year 2010 gasoline on the weekday. Total Energy is 10.7536 Million BTU, which is 10.7536 x 1,055,055.9 = 1.13466e+07 kJ, and 1.13466e+07 x 3.41892e-07 = 3.879 g of SO2 -- the reference's own figure to all six digits it stores.\n\nASSERTION BY ASSERTION.\n[1] rt_supplySulfurLevel: fuelformulation 9114's `sulfurLevel`, at market share 1.0. Reference table.\n[2] rt_supplySulfurLevel: The biodiesel blend 25003's 6.0 ppm. Reference table.\n[3] rt_supplyEnergyContent: fuelsubtype 12's `energyContent`. Reference table.\n[4] rt_supplyEnergyContent: fuelsubtype 21's. Reference table.\n[5] rt_supplyEnergyContent: Subtype 90's `energyContent` is NULL and arrives as NaN; this is the port's reading of it, not the reference's, and it is what stops the SO2 division.\n[6] rt_sulfateBaseRate: Gasoline, band 19502050. Reference table.\n[7] rt_sulfateBaseRate: Diesel model year 2000, band 19502006.\n[8] rt_sulfateBaseRate: Diesel model year 2010, band 20072050 -- the step the band decoding has to find.\n[9] rt_hasSulfateRate: No fuelTypeID 9 row anywhere in `sulfateemissionrate`. The FIRST of electricity's two failures.\n[11] rt_hasSo2Factor: No SO2 row for electricity, which is what makes the block 104 cohorts and not 125.\n[12] rt_so2Factor: 1.99378e-06 x 7.15 / 41.696. THE PORT'S OWN ARITHMETIC -- MOVES materialises this in a temporary table it drops, so the snapshot does not carry it and this assertion faces this document only (docs/esm-conventions.md 35.4).\n[13] out_emissionQuant: Model year 2010 gasoline, weekday. MOVESOutput.\n[14] out_emissionQuant: Model year 2000 diesel, weekday -- the cell that reads the 19502006 band. MOVESOutput.\n[15] out_emissionQuant: The Total Energy Consumption the cell above is computed from, in Million BTU. It is asserted here because the SO2 factor is dimensionless in kilojoules and a reader has to see both ends of the conversion to check the example by hand.",
+          "time_span": {
+            "start": 0.0,
+            "end": 0.0
+          },
+          "tolerance": {
+            "rel": 2e-05
+          },
+          "assertions": [
+            {
+              "variable": "Onroad.rt_supplySulfurLevel",
+              "time": 0.0,
+              "expected": 7.15,
+              "coords": {
+                "rate_rows": 1487
+              }
+            },
+            {
+              "variable": "Onroad.rt_supplySulfurLevel",
+              "time": 0.0,
+              "expected": 6.0,
+              "coords": {
+                "rate_rows": 1528
+              }
+            },
+            {
+              "variable": "Onroad.rt_supplyEnergyContent",
+              "time": 0.0,
+              "expected": 41.696,
+              "coords": {
+                "rate_rows": 1487
+              }
+            },
+            {
+              "variable": "Onroad.rt_supplyEnergyContent",
+              "time": 0.0,
+              "expected": 42.7,
+              "coords": {
+                "rate_rows": 1528
+              }
+            },
+            {
+              "variable": "Onroad.out_emissionQuant",
+              "time": 0.0,
+              "expected": 3.879,
+              "coords": {
+                "output_rows": 947
+              }
+            },
+            {
+              "variable": "Onroad.out_emissionQuant",
+              "time": 0.0,
+              "expected": 0.00381515,
+              "coords": {
+                "output_rows": 997
+              }
+            },
+            {
+              "variable": "Onroad.out_emissionQuant",
+              "time": 0.0,
+              "expected": 10.7536,
+              "coords": {
+                "output_rows": 2424
+              }
+            }
+          ]
+        },
+        {
+          "id": "atmospheric_co2_and_co2_equivalent_are_two_ORDERED_steps_of_one_calculator",
+          "description": "`CO2AERunningStartExtendedIdleCalculator`, both steps, and the ORDER between them is the point. Step 1a turns Total Energy into Atmospheric CO2; step 2 then reads `MOVESWorkerOutput` back -- INCLUDING the rows step 1a has just inserted -- and sums Atmospheric CO2, methane and N2O weighted by `globalWarmingPotential`. A port that ran step 2 off the energy would get the same three summands' weights and the wrong answer.\n\nTHE CARBON CHEMISTRY IS CHECKED AGAINST MOVES'S OWN INTERMEDIATE. The snapshot carries `carbonoxidationbyfueltype`, which is the calculator's `CarbonOxidationByFuelType` working table, and this document does not read it: `rt_supplyCarbonContent` and `rt_supplyOxidationFraction` are recomputed from `fuelsupply` and `fuelsubtype`, and the four assertions below are that table's four rows -- 0.01982 / 1 on gasoline, 0.02022 / 1 on diesel, 0.0194 / 1 on ethanol and 0 / 0 on electricity.\n\nELECTRICITY IS EMITTED AT EXACTLY ZERO, which is the opposite of SO2's behaviour on the same cohort and is the one place the two stages can be told apart: `carbonContent` and `oxidationFraction` are REAL zeros rather than absent rows, so `rt_hasCo2Factor` is 1, the row exists, and the Atmospheric CO2 block is 125 cohorts where SO2's is 104. All 42 of those rows are zero and so are their CO2 Equivalent twins, because electricity has no methane row either.\n\nThe worked example: model year 2010 gasoline on the weekday. 1.13466e+07 kJ x 0.01982 x 1 x 44/12 = 824,529 g of CO2; then 1 x 824,529 + 28 x 20.5384 + 265 x 1.43409 = 825,484 g of CO2 Equivalent, which is MOVESOutput's figure to all six digits it stores. The methane and N2O terms are 0.07 % and 0.05 % of the total, so the sum is checked against the reference and each summand separately -- a CO2 Equivalent that had dropped both would still be within 0.12 % of the right answer.\n\nASSERTION BY ASSERTION.\n[1] rt_supplyCarbonContent: `carbonoxidationbyfueltype.sumcarbonContent` for fuel type 1, recomputed. Reference intermediate.\n[2] rt_supplyCarbonContent: Fuel type 2's row of the same table.\n[3] rt_supplyCarbonContent: Fuel type 5's.\n[4] rt_supplyCarbonContent: Fuel type 9's -- a REAL zero, not a missing row.\n[7] rt_co2Factor: 0.01982 x 1 x 44/12, on the EXACT ratio. THE PORT'S OWN ARITHMETIC. The MariaDB decimal 3.6667 would give 0.07268, and the whole of the difference is docs/chain-so2-co2e-mechanism.md 7.1's measurement.\n[8] rt_hasCo2Factor: The electricity CO2 row EXISTS, at zero. Contrast `rt_hasSo2Factor` at the same cohort.\n[9] pol_co2EquivalentWeight: Atmospheric CO2's globalWarmingPotential.\n[10] pol_co2EquivalentWeight: Methane's.\n[11] pol_co2EquivalentWeight: N2O's.\n[12] pol_co2EquivalentWeight: CO2 Equivalent's OWN globalWarmingPotential is NULL, so its weight is 0 and step 2 does not sum itself. This is the assertion that checks the NaN guard: a flag-times-value spelling would have produced 0 x NaN = NaN here.\n[13] out_emissionQuant: Atmospheric CO2, model year 2010 gasoline, weekday. MOVESOutput.\n[14] out_emissionQuant: Atmospheric CO2, model year 2010 electricity: emitted, and zero.\n[15] out_emissionQuant: CO2 Equivalent for the same gasoline cell. MOVESOutput.\n[16] out_emissionQuant: CO2 Equivalent, electricity.\n[17] out_emissionQuant: The methane summand of that CO2 Equivalent. MOVESOutput.\n[18] out_emissionQuant: The N2O summand. MOVESOutput.",
+          "time_span": {
+            "start": 0.0,
+            "end": 0.0
+          },
+          "tolerance": {
+            "rel": 2e-05
+          },
+          "assertions": [
+            {
+              "variable": "Onroad.rt_supplyCarbonContent",
+              "time": 0.0,
+              "expected": 0.01982,
+              "coords": {
+                "rate_rows": 3619
+              }
+            },
+            {
+              "variable": "Onroad.rt_supplyCarbonContent",
+              "time": 0.0,
+              "expected": 0.02022,
+              "coords": {
+                "rate_rows": 3660
+              }
+            },
+            {
+              "variable": "Onroad.rt_supplyCarbonContent",
+              "time": 0.0,
+              "expected": 0.0194,
+              "coords": {
+                "rate_rows": 3701
+              }
+            },
+            {
+              "variable": "Onroad.rt_supplyCarbonContent",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "rate_rows": 3742
+              }
+            },
+            {
+              "variable": "Onroad.rt_supplyOxidationFraction",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "rate_rows": 3619
+              }
+            },
+            {
+              "variable": "Onroad.rt_supplyOxidationFraction",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "rate_rows": 3742
+              }
+            },
+            {
+              "variable": "Onroad.out_emissionQuant",
+              "time": 0.0,
+              "expected": 824529.0,
+              "coords": {
+                "output_rows": 2299
+              }
+            },
+            {
+              "variable": "Onroad.out_emissionQuant",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "output_rows": 2403
+              }
+            },
+            {
+              "variable": "Onroad.out_emissionQuant",
+              "time": 0.0,
+              "expected": 825484.0,
+              "coords": {
+                "output_rows": 2549
+              }
+            },
+            {
+              "variable": "Onroad.out_emissionQuant",
+              "time": 0.0,
+              "expected": 0.0,
+              "coords": {
+                "output_rows": 2653
+              }
+            },
+            {
+              "variable": "Onroad.out_emissionQuant",
+              "time": 0.0,
+              "expected": 20.5384,
+              "coords": {
+                "output_rows": 135
+              }
+            },
+            {
+              "variable": "Onroad.out_emissionQuant",
+              "time": 0.0,
+              "expected": 1.43409,
+              "coords": {
+                "output_rows": 239
+              }
+            }
+          ]
+        },
+        {
+          "id": "nonhaptog_is_nmog_minus_the_mechanisms_integrated_species",
+          "description": "`TOGSpeciationCalculator`, and the two things about it a passing comparison would not say.\n\nFIRST, WHAT MAKES THIS SNAPSHOT THE ONE. The calculator is class-loaded in ALL 42 snapshots of the corpus, because `ExecutionRunSpec` calls its static `needsFinalAggregation()`, so loading is no evidence at all that it ran. What discriminates is `integratedspeciesset`: 14 rows here and ZERO in every other snapshot, including the one named `chain-tog-speciation`. Its fourteen pollutants are exactly this run's fourteen air toxics, and `run_integratedSpeciesMechanismSpread` pins that they are all one mechanism -- which is also the LIMIT of this fixture, because the per-(mechanism, set) fan-out of togspeciation.rs's step 2 has one member here and a second mechanism would double-count if the join were wrong.\n\nSECOND, THE CLAMP IS NOT CHECKED HERE. `greatest(sum(...), 0)` is the calculator's whole protection against a speciation that over-subtracts, and on all 208 emitted cells of this run the residual is positive: the fourteen species take between 16.1 % and 48.6 % of NMOG. `rtDay_nonHapTogRaw` is asserted equal to `rtDay_nonHapTogQuant` at the smallest residual in the run, which is the honest statement that the clamp is a no-op here (docs/esm-conventions.md 23).\n\nThe worked example: model year 2010 gasoline on the weekday. NMOG is 41.7547 g, the fourteen species sum to 10.853 g, and NonHAPTOG is 30.9017 g -- MOVESOutput's figure. TOG is checked in the same test because it is the other sum this document forms and it shares the machinery: 41.7547 + 20.5384 = 62.2932 g, NMOG plus methane, and on the twenty ethanol cohorts of model year 2001 or later those two summands come from different blocks.\n\nASSERTION BY ASSERTION.\n[1] run_integratedSpeciesMechanismSpread: One mechanism. The number that says what this fixture does NOT check.\n[2] run_integratedSpeciesMechanismMax: `integratedspeciesset.mechanismID`, the CB05 mechanism 5.\n[4] rt_isTotalOrganicGases: The three summed pollutants are disjoint.\n[5] rtDay_nonHapTogNmog: The POSITIVE term: the NMOG row of the same cell, which the SQL synthesises into the integrated-species set with a + sign. MOVESOutput's NMOG figure.\n[6] rtDay_nonHapTogSpecies: The fourteen species subtracted. It is a DIFFERENCE of two MOVESOutput figures -- 41.7547 - 30.9017 -- so it carries only four significant digits of the reference and its tolerance says so rather than pretending to six.\n[7] rtDay_nonHapTogRaw: Before the clamp.\n[8] rtDay_nonHapTogQuant: After it, and EQUAL, because no cell of this run is negative. The clamp is written because the source writes it and is checked nowhere here.\n[9] out_emissionQuant: NonHAPTOG, model year 2010 gasoline, weekday. MOVESOutput.\n[10] out_emissionQuant: Its NMOG parent. MOVESOutput.\n[11] out_emissionQuant: TOG for the same cell: NMOG 41.7547 + methane 20.5384. MOVESOutput.\n[12] out_emissionQuant: The methane half of that TOG. MOVESOutput.",
+          "time_span": {
+            "start": 0.0,
+            "end": 0.0
+          },
+          "tolerance": {
+            "rel": 2e-05
+          },
+          "assertions": [
+            {
+              "variable": "Onroad.rt_isNonHapTog",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "rate_rows": 3455
+              }
+            },
+            {
+              "variable": "Onroad.out_emissionQuant",
+              "time": 0.0,
+              "expected": 30.9017,
+              "coords": {
+                "output_rows": 2195
+              }
+            },
+            {
+              "variable": "Onroad.out_emissionQuant",
+              "time": 0.0,
+              "expected": 41.7547,
+              "coords": {
+                "output_rows": 1883
+              }
+            },
+            {
+              "variable": "Onroad.out_emissionQuant",
+              "time": 0.0,
+              "expected": 62.2932,
+              "coords": {
+                "output_rows": 1987
+              }
+            },
+            {
+              "variable": "Onroad.out_emissionQuant",
+              "time": 0.0,
+              "expected": 20.5384,
+              "coords": {
+                "output_rows": 135
+              }
+            }
+          ]
+        }
+      ],
+      "tolerance": {
+        "rel": 1e-09
       }
     }
   }

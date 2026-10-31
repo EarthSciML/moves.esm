@@ -2,7 +2,7 @@
   "esm": "1.2.0",
   "metadata": {
     "name": "process-evap-leaks fixture",
-    "description": "The `process-evap-leaks` fixture: the run's EXECUTION database -- the snapshot's own tables, cut from the default database for this RunSpec and holding its generators' intermediate tables -- mounted on `onroad/model.esm`. It holds no logic: its `data_sources` are the catalogue under the names the model reads, and its one `{ref}` binds the run's declared counts. run-tests.sh's fixture stage emits the model's `out_*` relation and compares it with the snapshot's MOVESOutput; a mounted model's inline tests do not run (finding F47), so that comparison is its whole check. `runspecs/process-evap-leaks.esm` reproduces the same run from the DEFAULT database through the same model, so the pair is a differential test of the execution-database cut: one model, one oracle, two catalogues.\n\nUntil 2026-10-30 this file inlined its own copy of the onroad model (1809 lines, frozen at the commit that last touched it), so the logic every fixture shared was written fourteen times. PLAN.md §7.1, docs/esm-conventions.md §106."
+    "description": "The `process-evap-leaks` fixture: the run's EXECUTION database -- the snapshot's own tables, cut from the default database for this RunSpec and holding its generators' intermediate tables -- mounted on `onroad/model.esm`. It holds no logic: its `data_sources` are the catalogue under the names the model reads, and its one model, `Fixture`, mounts the domain model as a SUBSYSTEM, binds the run's declared counts, and carries the run's inline tests: assertions on the mounted model's intermediate values (`Onroad.*` / `Nonroad.*`) against this snapshot. A test written inside a `{ref}`'d model does not run (finding F47), so the assertions live here, in the document that supplies the data they are about (esm-spec §6.6; conventions §106). run-tests.sh's fixture stage runs them, then emits the model's `out_*` relation and compares it with the snapshot's MOVESOutput. `runspecs/process-evap-leaks.esm` reproduces the same run from the DEFAULT database through the same model, so the pair is a differential test of the execution-database cut: one model, one oracle, two catalogues.\n\nUntil 2026-10-30 this file inlined its own copy of the onroad model (1809 lines, frozen at the commit that last touched it), so the logic every fixture shared was written fourteen times. PLAN.md §7.1, docs/esm-conventions.md §106."
   },
   "data_sources": {
     "db_runspecyear": {
@@ -2356,10 +2356,291 @@
     }
   },
   "models": {
-    "Onroad": {
-      "ref": "../onroad/model.esm",
-      "bindings": {
-        "n_outputRate": 64
+    "Fixture": {
+      "subsystems": {
+        "Onroad": {
+          "ref": "../onroad/model.esm",
+          "bindings": {
+            "n_outputRate": 64
+          }
+        }
+      },
+      "variables": {},
+      "equations": [],
+      "tests": [
+        {
+          "id": "the_run_scope_comes_from_the_execution_database",
+          "description": "The scope every join in this document is filtered by, read from the `runspec*` tables and the link. Month 8, hour 7, source type 21, road type 4, county 26161, zone 261610, link road type 4, and polProcessID 113 built from the two enums. What breaks if this is wrong: the RunSpec XML says `<month key=\"7\">` and `<beginhour key=\"6\">`, which are 0-based INDICES into sorted ID lists and not identifiers (moves.rs, xml_format.rs:600-626), and `<day key=\"5\">` is out of range for the sorted DayOfAnyWeek list and falls back to both day types (default_db_setup.rs:2504-2540). All 27 onroad fixtures show the same three offsets. A document scoped from the XML emits 128 rows with the wrong month and hour in every one -- which the exact-key-set gate rejects wholesale, the good failure -- or, worse, reads the XML for one dimension only and quietly emits 64 rows. docs/evap-leaks.md 0.1.",
+          "time_span": {
+            "start": 0.0,
+            "end": 0.0
+          },
+          "assertions": [
+            {
+              "variable": "Onroad.run_hourID",
+              "time": 0.0,
+              "expected": 7.0,
+              "coords": {
+                "run_rows": 1
+              }
+            },
+            {
+              "variable": "Onroad.run_roadTypeID",
+              "time": 0.0,
+              "expected": 4.0,
+              "coords": {
+                "run_rows": 1
+              }
+            }
+          ]
+        },
+        {
+          "id": "the_derived_axes_are_measured_and_the_declared_one_is_checked",
+          "description": "The activity relation is n_agecategory x n_runspecday = 82 rows and the cohort relation n_agecategory x n_runspecsourcefueltype = 164, both from extents the runtime discovers; the ordinals below prove the block structure those sizes imply. The ONE declared number, `n_outputCohort` = 64, is checked here against `cohortSurvivorCount`, which counts the cohorts the chain itself keeps: C2's `stmyFraction > 0` and the presence of any rate row for the cohort's bin. What breaks if this is wrong: a chain that produced 63 or 65 survivors would emit 128 rows against a 126- or 130-row truth and the comparator would report it as missing and extra keys with no attribution. Asserting the count here makes the declaration a checked one, which is the difference between declaring a shape and transcribing an answer (docs/evap-leaks.md 7.5).",
+          "time_span": {
+            "start": 0.0,
+            "end": 0.0
+          },
+          "assertions": [
+            {
+              "variable": "Onroad.act_dayOrdinal",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "activity_rows": 41
+              }
+            },
+            {
+              "variable": "Onroad.act_ageOrdinal",
+              "time": 0.0,
+              "expected": 41.0,
+              "coords": {
+                "activity_rows": 41
+              }
+            },
+            {
+              "variable": "Onroad.coh_ageOrdinal",
+              "time": 0.0,
+              "expected": 19.0,
+              "coords": {
+                "cohort_rows": 101
+              }
+            },
+            {
+              "variable": "Onroad.cohortSurvivorCount",
+              "time": 0.0,
+              "expected": 64.0,
+              "coords": {
+                "run_rows": 1
+              }
+            }
+          ]
+        },
+        {
+          "id": "the_activity_chain_reproduces_the_reference",
+          "description": "A1 through A10 at the three ages docs/evap-leaks.md 6.0 tabulates, in both day types. The snapshot's own `sho` table -- which this document does not read -- stores 27.33, 2.43728, 260.057 and 23.1918 against the values pinned here; the differences are 6.7e-08 to 1.2e-06, which is that column's six-significant-figure storage (7.1). What breaks if this is wrong: every factor of A5 through A9 is in these four numbers. A6 as the harmonic mean instead of the arithmetic one is 24% and 58% low and A8 divides by it; omitting A7's weeksPerMonth divisor is 4.43x; normalising A3 over the run's source type instead of its HPMS group is 2.55x. The independent reproduction in 6.5 reaches the same four values to the last bit, from the same tables by a different route.",
+          "time_span": {
+            "start": 0.0,
+            "end": 0.0
+          },
+          "assertions": [
+            {
+              "variable": "Onroad.act_averageSpeed",
+              "time": 0.0,
+              "expected": 56.361205525,
+              "coords": {
+                "activity_rows": 1
+              }
+            },
+            {
+              "variable": "Onroad.act_sourceHours",
+              "time": 0.0,
+              "expected": 260.05730384453915,
+              "coords": {
+                "activity_rows": 1
+              }
+            },
+            {
+              "variable": "Onroad.act_sourceHours",
+              "time": 0.0,
+              "expected": 23.19180710506584,
+              "coords": {
+                "activity_rows": 41
+              }
+            }
+          ]
+        },
+        {
+          "id": "the_age_group_join_selects_one_rate_of_seven",
+          "description": "L8 at operating mode 300 for the four cohorts docs/evap-leaks.md 6 works through. `emissionratebyage` carries seven age-group rates per (bin, mode) -- for the 2020 gasoline bin they are 0.1304 four times, then 0.3626, 1.1174 and 3.4536 -- and K12 picks the one whose group contains `runYear - modelYearID`. What breaks if this is wrong: dropping the age-group pair from the key sums all seven, 5.4552 instead of 0.1304, which is 41.83x on this cohort and 9.44x on the fixture total (7.2, measured by ablating the oracle). It is the largest single-factor error in the slice -- larger than the activity stage's 4.43x -- and every one of the seven candidates is a plausible emission rate.",
+          "time_span": {
+            "start": 0.0,
+            "end": 0.0
+          },
+          "assertions": [
+            {
+              "variable": "Onroad.coh_ageGroupID",
+              "time": 0.0,
+              "expected": 3.0,
+              "coords": {
+                "cohort_rows": 1
+              }
+            },
+            {
+              "variable": "Onroad.coh_ageGroupID",
+              "time": 0.0,
+              "expected": 2099.0,
+              "coords": {
+                "cohort_rows": 41
+              }
+            }
+          ]
+        },
+        {
+          "id": "the_worked_examples_reach_movesoutput",
+          "description": "L9 and O1 at the eight cells docs/evap-leaks.md 6.1 to 6.3 derive by hand, in both day types. The snapshot stores 1.70768, 8.43008, 4.92007, 0.00120038, 6.49975, 32.0866, 18.7267 and 0.00456889 against the values pinned here; the worst difference is 3.7e-06, which is the reference's six-significant-figure storage of its own intermediates and not accumulated error (7.1 attributes each residual to a specific stored column). What breaks if this is wrong: every factor of the whole chain is in these numbers. The independent reproduction in 6.5 reaches the same eight values to the last bit from the same tables by a different route, which is what makes a disagreement here attributable to the document rather than to the specification.",
+          "time_span": {
+            "start": 0.0,
+            "end": 0.0
+          },
+          "assertions": [
+            {
+              "variable": "Onroad.out_emissionQuant",
+              "time": 0.0,
+              "expected": 6.499756445219468,
+              "coords": {
+                "output_rows": 1
+              }
+            },
+            {
+              "variable": "Onroad.out_emissionQuant",
+              "time": 0.0,
+              "expected": 32.08648156876684,
+              "coords": {
+                "output_rows": 19
+              }
+            },
+            {
+              "variable": "Onroad.out_emissionQuant",
+              "time": 0.0,
+              "expected": 18.726686295997105,
+              "coords": {
+                "output_rows": 41
+              }
+            },
+            {
+              "variable": "Onroad.out_emissionQuant",
+              "time": 0.0,
+              "expected": 0.004568856674062831,
+              "coords": {
+                "output_rows": 60
+              }
+            }
+          ]
+        },
+        {
+          "id": "the_output_row_carries_its_keys_and_leaves_the_absent_ones_absent",
+          "description": "O1, O2 and O3 on the same eight rows' keys. The day type, fuel type and model year come from joins to the day and cohort relations on their ordinals, not from a literal; the SCC is computed as 22e8 + fuel x 1e6 + sourceType x 1e4 + roadType x 1e2 + process, giving 2201210413 for gasoline and 2205210413 for E85; and `regClassID` is absent, which the indicator reads as 1 while the same template on the present `emissionQuant` reads 0. What breaks if this is wrong: the SCC is COMPUTED and the `scc` table's 14,976 rows are read by nothing, so a hard-coded value would be right for the 82 gasoline rows and wrong for the 46 E85 ones -- and the comparator treats SCC as an identity column, so those 46 come back as 46 missing plus 46 extra keys rather than as a wrong number. Emitting 0 for `regClassID` would claim regulatory class zero; the absence cannot be pinned directly because `Assertion.expected` is a JSON number and a NaN actual fails every tolerance form, so the indicator is the assertion (docs/esm-conventions.md 18.2).",
+          "time_span": {
+            "start": 0.0,
+            "end": 0.0
+          },
+          "assertions": [
+            {
+              "variable": "Onroad.out_dayID",
+              "time": 0.0,
+              "expected": 5.0,
+              "coords": {
+                "output_rows": 41
+              }
+            },
+            {
+              "variable": "Onroad.out_fuelTypeID",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "output_rows": 41
+              }
+            },
+            {
+              "variable": "Onroad.out_fuelTypeID",
+              "time": 0.0,
+              "expected": 5.0,
+              "coords": {
+                "output_rows": 60
+              }
+            },
+            {
+              "variable": "Onroad.out_modelYearID",
+              "time": 0.0,
+              "expected": 1980.0,
+              "coords": {
+                "output_rows": 41
+              }
+            },
+            {
+              "variable": "Onroad.out_modelYearID",
+              "time": 0.0,
+              "expected": 2002.0,
+              "coords": {
+                "output_rows": 60
+              }
+            },
+            {
+              "variable": "Onroad.out_modelYearID",
+              "time": 0.0,
+              "expected": 2020.0,
+              "coords": {
+                "output_rows": 1
+              }
+            },
+            {
+              "variable": "Onroad.out_SCC",
+              "time": 0.0,
+              "expected": 2201210413.0,
+              "coords": {
+                "output_rows": 41
+              }
+            },
+            {
+              "variable": "Onroad.out_SCC",
+              "time": 0.0,
+              "expected": 2205210413.0,
+              "coords": {
+                "output_rows": 60
+              }
+            },
+            {
+              "variable": "Onroad.out_roadTypeID",
+              "time": 0.0,
+              "expected": 4.0,
+              "coords": {
+                "output_rows": 41
+              }
+            }
+          ]
+        },
+        {
+          "id": "the_im_blend_is_the_identity_because_the_program_table_is_empty",
+          "description": "L1 and L9's trailing UPDATE. `imcoverage` has zero rows, so its discovered axis is zero-length, the aggregate over it reads the additive identity, and `im_blend` returns the unblended quantity -- which is the SQL's `a row with no matching cell keeps its value unchanged`, as a measured 0 rather than an assumption. What breaks if this is wrong: `pollutantprocessassoc` marks polProcessID 113 `isAffectedByEvapIM = 'Y'`, so this is an absent PROGRAM and not a structural exclusion, and a county with an evap I/M program would blend. The blend's argument order is unobservable at a zero fraction -- measured on the component, swapping the two rate arguments sends every non-probe row to exactly 0 rather than perturbing it -- so components/liquid_leaking_emissions.esm carries the probe row that pins the order, and this test pins only that the fraction really is zero and that the row count it comes from really is zero.",
+          "time_span": {
+            "start": 0.0,
+            "end": 0.0
+          },
+          "assertions": [
+            {
+              "variable": "Onroad.out_emissionQuant",
+              "time": 0.0,
+              "expected": 18.726686295997105,
+              "coords": {
+                "output_rows": 41
+              }
+            }
+          ]
+        }
+      ],
+      "tolerance": {
+        "rel": 1e-12
       }
     }
   }

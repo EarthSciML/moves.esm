@@ -72,6 +72,8 @@ import csv, json, math, os, struct, subprocess, sys, tempfile
 ASSEMBLY = "runs/nr_logging_county_run.esm"
 LEAF = "components/age_distribution.esm"
 FIXTURE = "fixtures/nr-logging-county.esm"
+# The fixture mounts nonroad/model.esm as a subsystem of its `Fixture` model.
+FIXTURE_PATH = "Fixture.Nonroad."
 TEST_ID = "the_chain_reproduces_the_worked_examples_2020_rows"
 LEAF_TEST_ID = "the_grown_fractions_sum_to_the_cumulative_growth_ratio"
 ACTIVITY_TEST_ID = "the_activity_stage_supplies_what_the_rollup_multiplies"
@@ -149,14 +151,16 @@ def assembly_month_day_factor():
 
 
 def emit(variable):
-    """One variable of the fixture, as the binary under test computes it."""
+    """One variable of the fixture's mounted model, as the binary under test
+    computes it, with the column named bare (`point_SCC`, not its path)."""
     with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as tmp:
         out = tmp.name
     try:
         subprocess.run([ESM, "simulate", FIXTURE, "--time", "0", "--format", "csv",
-                        "--observed", variable, "--output", out],
+                        "--observed", FIXTURE_PATH + variable, "--output", out],
                        check=True, capture_output=True)
-        return list(csv.DictReader(open(out)))
+        return [{k.removeprefix(FIXTURE_PATH): v for k, v in r.items()}
+                for r in csv.DictReader(open(out))]
     finally:
         os.unlink(out)
 
@@ -192,11 +196,11 @@ def fixture_grown_fraction(point):
     another precision" -- the mechanism the docstring already predicted rather
     than a new one, so the normalisation is still exactly the right treatment.
 
-    SINCE 2026-10-30 THE FIXTURE CARRIES NO ASSERTIONS -- it is a catalogue
-    mounting nonroad/model.esm, and a mounted model's tests do not run (F47) --
-    so the number is EMITTED from it rather than read from a test. That is the
-    stronger reading: it is what the fixture computes today, not what someone
-    transcribed. The equipment point is chosen by its SCC, not by position.
+    SINCE 2026-10-30 THE FIXTURE IS A CATALOGUE mounting nonroad/model.esm,
+    and the number is EMITTED from it rather than read from one of its tests.
+    That is the stronger reading: it is what the fixture computes today, not
+    what someone transcribed. The equipment point is chosen by its SCC, not by
+    position.
     """
     got = [float(r["slot_grownModelYearFraction"]) for r in emit("slot_grownModelYearFraction")
            if r["i1"] == point and r["i2"] == "1"]

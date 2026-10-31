@@ -1440,7 +1440,11 @@ mount — so the fixture has nowhere to put an inline `tests` block beside
 it, and `"tests"` as a sibling of the `ref` is refused outright. A mounted
 child's own inline tests never run either (F47). So a fixture is verified by
 **emitting its relation and comparing** — exactly what `run-tests.sh`'s
-fixture stage already does — not by an assertion. And because a mounted
+fixture stage already does — not by an assertion. *(Superseded 2026-10-31:
+since EarthSciAST PR #612 the one model can mount the domain model as a
+`subsystems` `{ref}` and carry `tests` naming `Onroad.*`, so every fixture
+now does both — asserts its intermediate values and compares its relation.
+Conventions §106 point 3.)* And because a mounted
 document whose models reference each other cannot itself be mounted,
 **`moves-onroad.esm` must be a single model**, composed internally through
 expression templates rather than nested mounts.

@@ -2,7 +2,7 @@
   "esm": "1.2.0",
   "metadata": {
     "name": "nr-airtoxics-lawn-garden-county fixture",
-    "description": "The `nr-airtoxics-lawn-garden-county` fixture: the run's EXECUTION database -- the snapshot's own tables, cut from the default database for this RunSpec and holding its generators' intermediate tables -- mounted on `nonroad/model.esm`. It holds no logic: its `data_sources` are the catalogue under the names the model reads, and its one `{ref}` binds the run's declared counts. run-tests.sh's fixture stage emits the model's `out_*` relation and compares it with the snapshot's MOVESOutput; a mounted model's inline tests do not run (finding F47), so that comparison is its whole check. `runspecs/nonroad/nr-airtoxics-lawn-garden-county.esm` reproduces the same run from the DEFAULT database through the same model, so the pair is a differential test of the execution-database cut: one model, one oracle, two catalogues.\n\nUntil 2026-10-30 this file inlined its own copy of the nonroad model (17658 lines, frozen at the commit that last touched it), so the logic every fixture shared was written fourteen times. PLAN.md §7.1, docs/esm-conventions.md §106. The execution database stores decimals as text, so each table's text-typed numeric columns are listed in `float_columns`."
+    "description": "The `nr-airtoxics-lawn-garden-county` fixture: the run's EXECUTION database -- the snapshot's own tables, cut from the default database for this RunSpec and holding its generators' intermediate tables -- mounted on `nonroad/model.esm`. It holds no logic: its `data_sources` are the catalogue under the names the model reads, and its one model, `Fixture`, mounts the domain model as a SUBSYSTEM, binds the run's declared counts, and carries the run's inline tests: assertions on the mounted model's intermediate values (`Onroad.*` / `Nonroad.*`) against this snapshot. A test written inside a `{ref}`'d model does not run (finding F47), so the assertions live here, in the document that supplies the data they are about (esm-spec §6.6; conventions §106). run-tests.sh's fixture stage runs them, then emits the model's `out_*` relation and compares it with the snapshot's MOVESOutput. `runspecs/nonroad/nr-airtoxics-lawn-garden-county.esm` reproduces the same run from the DEFAULT database through the same model, so the pair is a differential test of the execution-database cut: one model, one oracle, two catalogues.\n\nUntil 2026-10-30 this file inlined its own copy of the nonroad model (17658 lines, frozen at the commit that last touched it), so the logic every fixture shared was written fourteen times. PLAN.md §7.1, docs/esm-conventions.md §106. The execution database stores decimals as text, so each table's text-typed numeric columns are listed in `float_columns`."
   },
   "data_sources": {
     "db_nremissionrate": {
@@ -846,12 +846,77 @@
     }
   },
   "models": {
-    "Nonroad": {
-      "ref": "../nonroad/model.esm",
-      "bindings": {
-        "n_equipmentPoint": 97,
-        "n_outputCohort": 484,
-        "n_outputPolProcess": 29
+    "Fixture": {
+      "subsystems": {
+        "Nonroad": {
+          "ref": "../nonroad/model.esm",
+          "bindings": {
+            "n_equipmentPoint": 97,
+            "n_outputCohort": 484,
+            "n_outputPolProcess": 29
+          }
+        }
+      },
+      "variables": {},
+      "equations": [],
+      "tests": [
+        {
+          "id": "the_technology_mix_and_the_hp_category_are_both_discriminating",
+          "description": "Two structural claims that the emitted numbers cannot make. tech_fractionTotal must be 1 on every populated cohort: 2 would mean the strict hp lower bound admitted a second .TECH bin, which is the 1.24-to-1.43x error on SCC 2260004071 that specification 2.1(b) measures, and 0 would mean the equipment chain found no bin at all. And the horse-power category must take BOTH its values -- 1,908 of this run's 2,063 worker cells are 'S' and 155 are 'L' -- because a document that dropped the category from the speciation key would join to the wrong rows on the 155 rather than to none.",
+          "tolerance": {
+            "rel": 1.1920929e-07
+          },
+          "assertions": [
+            {
+              "variable": "Nonroad.tech_fractionTotal",
+              "time": 0.0,
+              "expected": 1.0,
+              "reduce": "max"
+            },
+            {
+              "variable": "Nonroad.hcat_code",
+              "time": 0.0,
+              "expected": 1.0,
+              "coords": {
+                "hp_category_rows": 1
+              }
+            },
+            {
+              "variable": "Nonroad.hcat_code",
+              "time": 0.0,
+              "expected": 2.0,
+              "coords": {
+                "hp_category_rows": 2
+              }
+            }
+          ],
+          "time_span": {
+            "start": 0.0,
+            "end": 0.0
+          }
+        },
+        {
+          "id": "the_largest_emitted_cell_is_the_snapshots_largest",
+          "description": "One value assertion against the reference, at the cell the capture stores best: fuel consumption for SCC 2265004071 model year 2020, which MOVESOutput carries as 4170270 g and which is the largest number in the whole 14,036-row table. It is asserted by a max reduction rather than by an output-row ordinal, because the ordinal is a layout detail and the maximum is a claim about the answer. The tolerance is tolerance.toml's own per-cell gate; the row-by-row comparison is compare-output.py's job and is not duplicated here.",
+          "tolerance": {
+            "rel": 2e-05
+          },
+          "assertions": [
+            {
+              "variable": "Nonroad.out_emissionQuant",
+              "time": 0.0,
+              "expected": 4170270.0,
+              "reduce": "max"
+            }
+          ],
+          "time_span": {
+            "start": 0.0,
+            "end": 0.0
+          }
+        }
+      ],
+      "tolerance": {
+        "rel": 1e-12
       }
     }
   }

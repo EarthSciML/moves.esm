@@ -8769,10 +8769,10 @@ adjustments. A fix to any of them in the model reached none of the fixtures.
 
 **Each fixture is now a catalogue**, the shape §53 measured in `spikes/7c/`:
 its `data_sources` are the snapshot's execution-database tables under the names
-the model reads (`db_*`), and its one model is a `{ref}` to `onroad/model.esm`
-or `nonroad/model.esm` whose `bindings` carry the run's declared counts
-(`n_outputRate`, or NONROAD's three) -- the same numbers its `runspecs/` twin
-binds. Nothing else.
+the model reads (`db_*`), and its one model mounts `onroad/model.esm` or
+`nonroad/model.esm` by `{ref}`, with `bindings` that carry the run's declared
+counts (`n_outputRate`, or NONROAD's three) -- the same numbers its `runspecs/`
+twin binds -- and holds the run's tests (point 3). No logic.
 
 1. **Every table the model reads is in every onroad snapshot.** The model reads
    121 sources; the onroad catalogue is the spike's, with only the snapshot
@@ -8788,12 +8788,40 @@ binds. Nothing else.
    so the catalogue lists exactly those columns in `reader_options.float_columns`
    (§11) -- the ones that are text in the snapshot and numeric nationally, no
    more. Without it the build refuses `atr_atRatio` as a string forcing.
-3. **A mounted model's inline tests do not run (F47)**, so a fixture has no
-   assertions of its own. run-tests.sh's fixture stage recognises a mounting
-   fixture, reads its `out_*` fields through the `{ref}`, and verifies it by
-   the snapshot comparison alone. The fixtures' old inline assertions checked
-   intermediate values of their OWN copies of the logic; the model's copies of
-   those checks live in its `tests` blocks and the components'.
+3. **The fixture's tests sit beside the mount, as a subsystem (since
+   2026-10-31).** As first written here a fixture's one model WAS the `{ref}`,
+   so it had nowhere to put a test, and a mounted model's own tests do not run
+   (F47); it was verified by the snapshot comparison alone. EarthSciAST PR #612
+   made a `subsystems` `{ref}` carry its data and its per-variable precision
+   into the ingesting build, so the fixture's one model is now `Fixture`:
+   `subsystems: {Onroad: {ref, bindings}}`, an empty body, and `tests` that
+   assert on the mounted model's values (`Onroad.rspp_pollutantID`). That is
+   esm-spec §6.6 as written -- an assembly asserts on a subsystem it declares --
+   and it puts each claim in the document that supplies the data it is about.
+   run-tests.sh's fixture stage runs them, then emits `Fixture.Onroad.out_*`
+   and cuts the path off the header, so the emitted relation is byte-identical
+   to the bare mount's (checked on tirewear and nr-logging-county, and by the
+   7c stage on every run).
+
+   **Where the assertions came from.** `onroad/model.esm`'s twelve `tests`
+   blocks were written against the tirewear snapshot and never ran; they moved
+   to `fixtures/process-tirewear.esm`, and all 151 pass after fifteen were
+   brought up to date (eleven named the retired `run_rows` axis, three the
+   removed `rspp_chainInputPolProcessID`, now the edge list's
+   `lnk_outputPolProcessID`/`lnk_inputPolProcessID`, and one asserted the
+   data-fed `rst_sourceTypeID`, which F43 still forbids). The domain models now
+   carry no tests, and the 7c stage holds them to it. The other thirteen
+   fixtures got back the assertions their inline copies carried before §106,
+   retargeted at `Onroad.`/`Nonroad.` and kept only where they PASS against
+   today's model: **1,261 of 2,433**. Of the rest, 950 name one of 239
+   variables the model no longer has, 157 give coordinates on axes it
+   reshaped, 8 assert a data-fed parameter (F43), and 57 expect a value the
+   model has deliberately moved off since -- the printed-decimal month fraction,
+   `cohortSurvivorCount`'s new meaning, the reordered expand-day relation --
+   and each of those fixtures still matches its snapshot. They were not
+   re-derived: a claim about a variable that no longer exists is not a claim
+   about this model. Test descriptions were kept as written, so a partly kept
+   test can describe more than it still asserts.
 4. **Seven library templates had become fixture-only**, and three of them
    named arithmetic the model spelled inline: `rt_co2ChainRatio`'s 44/12 is
    `carbon_to_carbon_dioxide_mass_ratio`, `rt_spmSulfateFraction` and

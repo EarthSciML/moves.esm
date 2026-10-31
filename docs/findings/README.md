@@ -2682,6 +2682,15 @@ With F47 this leaves **a ref'd, data-fed assembly with no inline-test path at
 all**; its only available verification is the fixture stage's emit-and-compare.
 `run-tests.sh`'s 7a stage does that, and watches this finding through the repro.
 
+**2026-10-31: the subsystem half is fixed, and it is the half that mattered.**
+EarthSciAST PR #612 (merged at `d97f0ac28`) carries a `subsystems` `{ref}`'s
+data-fed parameters and its per-variable `element_type` into the ingesting
+build. So the asserting model the costs paragraph wanted can now exist -- as
+the ONE model, mounting the domain model as a subsystem rather than beside it.
+Every fixture is that shape now (conventions §106 point 3), with 1,412 inline
+assertions on `Onroad.*`/`Nonroad.*` between them. The two-models refusal this
+finding is named for is untouched, and the repro still watches it.
+
 ### What would fix it
 
 Build every model in the document, as the scalar path already does, and resolve
@@ -2849,6 +2858,15 @@ which is the only context in which a parent-shaped one can run at all — the
 mount is where its shape is closed and its data arrives. Failing that, permit
 `tests` beside a `{ref}`, or fix F21 so the mounting document can name what it
 mounted.
+
+**2026-10-31: the cost is paid another way.** A mounting document cannot run
+the child's tests, but it can now hold its own about the child: a model whose
+`subsystems` mounts the child by `{ref}` asserts `Child.value` (§6.6), and with
+F45's subsystem half fixed (EarthSciAST PR #612) that works on a data-fed
+assembly. The fixtures carry their claims that way (conventions §106 point 3).
+F47 itself stands -- tests written INSIDE a mounted model still never run -- so
+the domain models carry none; `onroad/model.esm`'s twelve moved to
+`fixtures/process-tirewear.esm`.
 
 ---
 
