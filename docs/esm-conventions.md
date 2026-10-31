@@ -8119,7 +8119,7 @@ selected axis reads them by join; SO2's branch is one `ifelse` in
 `tech_hourlyEmission`, factored so the product associates exactly as it did
 inline and `nr-logging-county` stayed byte-identical.
 
-**The precision is the root's until F60 closes.** The model declares
+**The precision was the root's until F60 closed (2026-10-30; the RunSpecs' duplicate `Float32` declarations are gone).** The model declares
 `Float32` and a mounted leaf's `domain` is ignored, so each RunSpec declares it
 again and `run-tests.sh` requires that deleting it costs `nr-logging-county` its
 four binary64 rows. A run whose rows depend on a residual's sign (`agedist.f`)
@@ -8755,3 +8755,66 @@ in binary64, so no number moved.
   the names onroad/model.esm reads them under, and lib/adjustments.esm's
   `ev_temperature_reference`. The EV temperature quadratic was the standard one
   about a different reference, so both are now `centred_quadratic_adjustment`.
+
+## 106. A fixture is the run's execution database mounted on the domain model, and the logic is written once **[2026-10-30; 14 fixtures, 236k lines of inlined logic removed, every one byte-identical to its own earlier run and inside tolerance of its snapshot]**
+
+Until this section every document in `fixtures/` was a MODEL: its own copy of
+the onroad or nonroad spine, frozen at whichever commit last touched it
+(mostly 2026-09-17), with its own variables, equations, index sets and inline
+tests. Measured before the change, 573 equations appeared verbatim in more than
+one document -- about 825 KB -- and 95% of that was the fixtures restating
+each other and `onroad/model.esm`. The braking rule was written fourteen times;
+so were the activity chain, the drive-cycle operating-mode weights and the rate
+adjustments. A fix to any of them in the model reached none of the fixtures.
+
+**Each fixture is now a catalogue**, the shape §53 measured in `spikes/7c/`:
+its `data_sources` are the snapshot's execution-database tables under the names
+the model reads (`db_*`), and its one model is a `{ref}` to `onroad/model.esm`
+or `nonroad/model.esm` whose `bindings` carry the run's declared counts
+(`n_outputRate`, or NONROAD's three) -- the same numbers its `runspecs/` twin
+binds. Nothing else.
+
+1. **Every table the model reads is in every onroad snapshot.** The model reads
+   121 sources; the onroad catalogue is the spike's, with only the snapshot
+   directory changed. Twelve of twelve onroad fixtures reproduced on the first
+   run once their bindings were set, at the SAME worst cell as their RunSpec
+   twins -- which is the point: one model, one oracle, two catalogues, so a
+   fixture and its twin are a differential test of MOVES's execution-database
+   cut. Without the bindings the output relation is sized by the default 375
+   and emits padding rows with garbage keys (`modelYearID=77603`), which the
+   comparator reports as duplicate keys.
+2. **The NONROAD execution database stores decimals as text.** Every numeric
+   column of the 33 national NONROAD tables is `string` in the snapshot copy,
+   so the catalogue lists exactly those columns in `reader_options.float_columns`
+   (§11) -- the ones that are text in the snapshot and numeric nationally, no
+   more. Without it the build refuses `atr_atRatio` as a string forcing.
+3. **A mounted model's inline tests do not run (F47)**, so a fixture has no
+   assertions of its own. run-tests.sh's fixture stage recognises a mounting
+   fixture, reads its `out_*` fields through the `{ref}`, and verifies it by
+   the snapshot comparison alone. The fixtures' old inline assertions checked
+   intermediate values of their OWN copies of the logic; the model's copies of
+   those checks live in its `tests` blocks and the components'.
+4. **Seven library templates had become fixture-only**, and three of them
+   named arithmetic the model spelled inline: `rt_co2ChainRatio`'s 44/12 is
+   `carbon_to_carbon_dioxide_mass_ratio`, `rt_spmSulfateFraction` and
+   `rt_spmWaterFraction` both spelled `fuel_sulfur_sulfate_adjustment`, and
+   `rt_permeationFuelAdjustment` spelled `gpa_blend`. They now apply the
+   templates. The other four (`model_year_in_group`,
+   `pm_temperature_adjustment`, `speciation_factor`,
+   `global_warming_potential_is_selected`) have no caller; a search of the
+   model for their forms found no inline twin, and they are kept as ports of
+   their MOVES equations.
+
+**What is still repeated is configuration, not logic.** The fourteen
+catalogues differ only in their snapshot directory and their bindings, and a
+`url_template` resolves against the file that declares it (esm-spec §8.2.1) and
+a `ref` is canonicalized, so one shared catalogue cannot be pointed at fourteen
+snapshots. Collapsing them needs a format primitive -- a mount edge that binds
+a `url_template` substitution -- not a document workaround.
+
+The braking rule itself is now `braking_second` in `lib/drive_cycle.esm`,
+applied by the base-rate path (`dss_isBraking`, with its presence requirement
+as `history_complete`), the link path (`lomd_isBraking`, `history_complete`
+bound to `true`) and the standalone link component; `second_op_mode` is the
+Idling-Braking-binned precedence both onroad paths share, and
+`graded_acceleration` is the link path's `At0`-`At2`.

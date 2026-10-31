@@ -3754,7 +3754,9 @@ available outcome, because declaring a scalar and reading it in an aggregate is
 ordinary and nothing in `validate` or the run says a word.
 **Filed upstream: [EarthSciML/EarthSciAST#431](https://github.com/EarthSciML/EarthSciAST/issues/431)**, on `f22139eb1`.
 
-## F60 — a mounted leaf's `domain.element_type` is dropped, and the leaf runs in the root's precision
+## F60 — a mounted leaf's `domain.element_type` is dropped, and the leaf runs in the root's precision **[fixed upstream, retired]**
+
+**Retired 2026-10-30** at EarthSciAST `63d460649`: the 7e stage's two-sided control deleted `nr-logging-county`'s own `Float32` and the run still reproduced all 144 rows, so the leaf's declaration now counts. The twelve RunSpecs' duplicate declarations and the control are gone; `nonroad/model.esm` declares the precision once.
 
 Found 2026-09-23 at PLAN.md step 7e, lifting `fixtures/nr-logging-county.esm`'s
 model into `nonroad/model.esm`. **No repro file, for F46's reason**: the defect

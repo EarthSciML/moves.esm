@@ -147,7 +147,12 @@ COVERAGE_DAG=../moves.rs/characterization/calculator-chains/calculator-dag.json
 # validates alone, which is the whole point of the split. `runspecs/pending/` is
 # not excluded either, and for the same reason: a RunSpec whose model work is
 # not finished still has to load, round-trip and pass the conventions.
-mapfile -t DOCS < <(find . -name '*.esm' -not -name '.*' \
+#
+# `-type f` and `./.*/*` because git names a linked worktree's admin directory
+# after the worktree: a checkout of this repository elsewhere leaves
+# `.git/worktrees/moves.esm/`, a DIRECTORY matching `*.esm`, which this stage
+# used to fail as `cannot read ... Is a directory`.
+mapfile -t DOCS < <(find . -type f -name '*.esm' -not -name '.*' -not -path './.*/*' \
   -not -path './.moves/*' -not -path './target/*' -not -path './docs/findings/*' \
   -not -path './.fixtures-run/*' -not -path './spikes/*' \
   -not -path './onroad/*' \
@@ -836,10 +841,21 @@ else
 
     run="$f"
 
+    # A fixture is a snapshot CATALOGUE that mounts the domain model by `{ref}`
+    # (PLAN.md §7.1, the spikes/7c shape): its own `data_sources` are the run's
+    # execution database, and the logic is onroad/model.esm's or
+    # nonroad/model.esm's and nowhere else. A mounted model's inline tests are
+    # not run (F47), so such a fixture has no assertions of its own and is
+    # verified by the comparison below alone.
+    if [[ "$("$PYTHON" -c '
+import json, sys
+m = json.load(open(sys.argv[1])).get("models") or {}
+print("mount" if m and all(isinstance(v, dict) and "ref" in v and "variables" not in v for v in m.values()) else "inline")' "$run")" == mount ]]; then
+      pass "$name — a snapshot catalogue mounting the domain model; verified by its comparison"
     # The fixture's own inline assertions, against the real tables. Every one
     # names a value out of docs/nonroad-logging-county.md §6, so a source that
     # silently delivered its `default` fails here rather than at the comparison.
-    if out=$("$ESM" test "$run" 2>&1); then
+    elif out=$("$ESM" test "$run" 2>&1); then
       pass "$name — inline assertions against the snapshot parquet"
       sed -n 's/^ *TOTAL */       assertions: /p' <<<"$out"
     else
@@ -861,13 +877,21 @@ else
     # It runs from the repo root. It used to run from $RUNDIR because `simulate`
     # resolved a relative `ref` against the process working directory (F7); that
     # is fixed, so the document is run where it lives.
+    #
+    # For a mounting fixture the fields are read through its `{ref}` chain, out
+    # of the model it mounts.
     mapfile -t FIELDS < <("$PYTHON" - "$run" <<'PYEOF'
-import json, sys
-doc = json.load(open(sys.argv[1]))
-for model in doc.get("models", {}).values():
-    for name in (model.get("variables") or {}):
-        if name.startswith("out_"):
-            print(name)
+import json, os, sys
+def fields(path):
+    doc = json.load(open(path))
+    for model in doc.get("models", {}).values():
+        if "ref" in model and "variables" not in model:
+            yield from fields(os.path.join(os.path.dirname(path), model["ref"]))
+        for name in (model.get("variables") or {}):
+            if name.startswith("out_"):
+                yield name
+for name in fields(sys.argv[1]):
+    print(name)
 PYEOF
 )
     if [[ ${#FIELDS[@]} -eq 0 ]]; then
@@ -1071,8 +1095,11 @@ fi
 #
 # WHAT MAKES IT A REGRESSION TEST AND NOT A DEMONSTRATION. The model began as
 # `fixtures/process-tirewear.esm`'s own text, so the assembly has an exact
-# expected result: the inlined fixture's relation, emitted by the stage above
-# in this same run. The two are compared byte for byte -- 375 rows over 26
+# expected result: the fixture's relation, emitted by the stage above
+# in this same run. (SINCE 2026-10-30 THAT FIXTURE IS ITSELF A CATALOGUE
+# MOUNTING onroad/model.esm over the same tables -- conventions §106 -- so the
+# mount comparison below now checks the spike's copy of the catalogue and the
+# extra mount edge, not an independent inlining.) The two are compared byte for byte -- 375 rows over 26
 # emitted fields -- so a mount that quietly changed a number could not pass. The
 # comparison is against the fixture stage's own output rather than against a
 # recorded CSV on purpose: there is no third file to update when the port
@@ -1182,10 +1209,10 @@ PYEOF
   if out=$("$ESM" simulate "$C7_MOUNT" --time 0 --format csv \
              "${c7_obs[@]}" --output "$C7_CSV" 2>&1); then
     if cmp -s "$C7_BASE" "$C7_CSV"; then
-      pass "7c — the split assembly reproduces the inlined fixture's relation byte for byte"
+      pass "7c — the split assembly reproduces fixtures/process-tirewear.esm's relation byte for byte"
       say "       $(( $(wc -l < "$C7_CSV") - 1 )) rows, ${#C7_FIELDS[@]} emitted fields, from the same snapshot tables"
     else
-      fail "7c — the split assembly evaluates, but not to the inlined fixture's numbers. One of the two documents has changed and the other has not"
+      fail "7c — the split assembly evaluates, but not to fixtures/process-tirewear.esm's numbers. One of the two documents has changed and the other has not"
       diff -u "$C7_BASE" "$C7_CSV" | sed 's/^/       /' | head -12
     fi
   else
@@ -1201,9 +1228,9 @@ PYEOF
   if out=$("$ESM" simulate "$C7_FIXTURE" --time 0 --format csv \
              "${c7_obs[@]}" --output "$C7_FIX_CSV" 2>&1) \
      && cmp -s "$C7_BASE" "$C7_FIX_CSV"; then
-    pass "7c — the thin per-fixture document reproduces the inlined fixture's relation byte for byte, through two mount edges"
+    pass "7c — the thin per-fixture document reproduces fixtures/process-tirewear.esm's relation byte for byte, through two mount edges"
   else
-    fail "7c — the thin per-fixture document does not reproduce the inlined fixture's relation. PLAN.md §7.1's per-fixture shape rests on this, and F50 was retired on it"
+    fail "7c — the thin per-fixture document does not reproduce fixtures/process-tirewear.esm's relation. PLAN.md §7.1's per-fixture shape rests on this, and F50 was retired on it"
     sed 's/^/       /' <<<"$out" | tail -5
   fi
   if thick=$("$PYTHON" - "$C7_FIXTURE" <<'PYEOF'
@@ -1854,10 +1881,10 @@ print(urls[0].rsplit("__", 1)[1].split(".")[0] if len(urls) == 1 else "")' "$rs"
   #    the same comparison the 7c stage makes, and the only one that needs no
   #    recorded CSV to drift against.
   if cmp -s "$C7_BASE" "$RUNDIR/process-tirewear.runspec.csv"; then
-    pass "7c' — the default database reproduces the inlined fixture's relation byte for byte"
+    pass "7c' — the default database reproduces the fixture's relation byte for byte"
     say "       $(( $(wc -l < "$RUNDIR/process-tirewear.runspec.csv") - 1 )) rows from 67 national tables, no execution database"
   else
-    fail "7c' — the default-database chain and the inlined fixture disagree"
+    fail "7c' — the default-database chain and the execution-database fixture disagree"
     diff -u "$C7_BASE" "$RUNDIR/process-tirewear.runspec.csv" | sed 's/^/       /' | head -12
   fi
 fi
@@ -1882,15 +1909,12 @@ fi
 # against the chain's recomputation and the emitted keys, the way
 # check-runspec-shape.py checks onroad's.
 #
-# THE PRECISION IS THE RUNSPEC'S DECLARATION, NOT THE MODEL'S, until F60 is
-# fixed upstream: the pinned toolchain evaluates a mounted leaf in the ROOT's
-# `domain.element_type` and ignores the leaf's, so each document here declares
-# `Float32` itself. Check 3 is the two-sided control. With the declaration
-# deleted `nr-logging-county` must NOT reproduce -- binary64 loses exactly one
-# cohort, 2260007005's model year 2018, the four rows
-# docs/nonroad-logging-county.md 7.3 says it costs -- and the day it DOES
-# reproduce, the leaf's declaration has started to count and the RunSpecs'
-# duplicates can go.
+# THE PRECISION IS THE MODEL'S DECLARATION. Until F60 was fixed upstream the
+# toolchain evaluated a mounted leaf in the ROOT's `domain.element_type`, so
+# each RunSpec here repeated `Float32` and a two-sided control required that
+# deleting it cost `nr-logging-county` its four binary64 rows. At EarthSciAST
+# 63d460649 the control reported the rows reproduced without it; the
+# duplicates and the control were deleted (docs/findings F60, retired).
 head2 "the default database, nonroad (7e)"
 NR_DOMAIN=moves-nonroad.esm
 NR_MODEL=nonroad/model.esm
@@ -1991,32 +2015,6 @@ else
     fi
   done
 
-  # 4. F60, two-sided: the RunSpec's own Float32 is load-bearing.
-  NR_F60="runspecs/nonroad/.p_f60.esm"
-  NR_F60_BASE=runspecs/nonroad/nr-logging-county.esm
-  if [[ ! -f "$NR_F60_BASE" ]]; then
-    fail "7e F60 control — $NR_F60_BASE is gone, and the control reads it"
-  elif ! "$PYTHON" -c "
-import json, sys
-d = json.load(open(sys.argv[1]))
-assert d.pop('domain') == {'element_type': 'Float32'}
-json.dump(d, open(sys.argv[2], 'w'))" "$NR_F60_BASE" "$NR_F60" 2>/dev/null; then
-    fail "7e F60 control — $NR_F60_BASE no longer declares Float32 itself, which it must while F60 holds"
-  elif ! "$ESM" simulate "$NR_F60" --time 0 --format csv "${nr_obs[@]}" --output "$RUNDIR/f60.probe.csv" >/dev/null 2>&1; then
-    fail "7e F60 control — the probe without the RunSpec's domain does not evaluate"
-  else
-    sed '1s/out_//g' "$RUNDIR/f60.probe.csv" > "$RUNDIR/f60.probe.actual.csv"
-    if out=$("$PYTHON" compare-output.py --fixture nr-logging-county --actual "$RUNDIR/f60.probe.actual.csv" \
-               --snapshots "$SNAPSHOTS" 2>&1); then
-      fail "7e F60 control — without its own Float32 nr-logging-county now REPRODUCES: a mounted leaf's domain.element_type counts. F60 is fixed; delete the RunSpecs' duplicate declarations and this control"
-    elif grep -q "^4 key(s) in the snapshot but not emitted:" <<<"$out"; then
-      pass "7e F60 — still open: without the RunSpec's own Float32 the mounted model runs in binary64 and loses exactly one cohort, four rows"
-    else
-      fail "7e F60 control — the probe fails, but not by the four binary64 rows it should"
-      sed 's/^/       /' <<<"$out" | head -6
-    fi
-  fi
-  rm -f "$NR_F60" "$RUNDIR/f60.probe.csv" "$RUNDIR/f60.probe.actual.csv"
 fi
 
 # --- the two chains agree ---------------------------------------------------
@@ -2042,7 +2040,7 @@ if [[ ! -f "$CHAIN_CSV" ]]; then
   skip "chain cross-check" "the fixture stage produced no $CHAIN_CSV"
 else
   if out=$("$PYTHON" tools/cross-check-chain.py "$CHAIN_CSV" 2>&1); then
-    pass "runs/ assembly and fixtures/ agree within 1 ulp of binary32"
+    pass "runs/ assembly and fixtures/ agree within 2 ulps of binary32, the grown fraction and month-day factor divided out"
     sed 's/^/     /' <<<"$out"
   else
     fail "the mounted assembly and the fixture disagree by more than their precision difference explains"

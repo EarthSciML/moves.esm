@@ -43,6 +43,17 @@ normalising: three rows bit-exact and one at exactly one ulp -- the same picture
 as before the leaf started computing the fold, which is the evidence that (b) is
 the whole of the difference.
 
+A THIRD DIFFERENCE APPEARED ON 2026-10-30, when the fixture stopped carrying its
+own copy of the chain and became a catalogue mounting nonroad/model.esm
+(conventions §106). The domain model ports NONROAD's printed-decimal month
+allocation -- each month fraction rounded to three places and renormalised by
+the printed sum, f32(1/12) exactly -- and the components the assembly mounts
+read the table's raw 0.0833333. That is (c), one INPUT again, 3.58e-07
+relative, so it is divided out the same way as (b) and its size held
+two-sidedly; the extra binary32 product it leaves inside the fixture's rows is
+why the row bound is 2 ulps rather than 1. The components could take the
+printed-decimal rule too; until they do, this is the recorded account.
+
 The size of (b) is asserted separately, two-sidedly, so it cannot drift
 unnoticed: it must be LARGER than one binary32 ulp (below that the two routes
 would be using the same fold again and the normalisation would be dead weight
@@ -56,24 +67,34 @@ one grown fraction the two routes get from different places. What it does NOT
 catch: both chains being wrong in the same way -- that is what run-oracle.sh's
 third implementation is for.
 """
-import csv, json, math, struct, sys
+import csv, json, math, os, struct, subprocess, sys, tempfile
 
 ASSEMBLY = "runs/nr_logging_county_run.esm"
 LEAF = "components/age_distribution.esm"
 FIXTURE = "fixtures/nr-logging-county.esm"
 TEST_ID = "the_chain_reproduces_the_worked_examples_2020_rows"
 LEAF_TEST_ID = "the_grown_fractions_sum_to_the_cumulative_growth_ratio"
-FIXTURE_TEST_ID = "the_fold_reproduces_the_reference_fractions_exactly_in_float32"
+ACTIVITY_TEST_ID = "the_activity_stage_supplies_what_the_rollup_multiplies"
 MODEL_YEAR = "2020"
 # The fixture computes six equipment points over three SCCs; the assembly
-# computes one. These name the one they share.
+# computes one. This names the one they share.
 FIXTURE_SCC = "2260007005"
-FIXTURE_POINT = 1
-MAX_ULPS = 1.0
+# The binary run-tests.sh is testing, so the fixture's number is its own.
+ESM = os.environ.get("ESM", "./esm")
+# One ulp of per-operation rounding against a final cast, plus one for the
+# month-day factor: since difference (c) is divided out, it is one more binary32
+# product inside the fixture's rows than inside the normalisation. Measured with
+# both divided out: two rows bit-exact, one at 1 ulp, one at 2.
+MAX_ULPS = 2.0
 # The recorded size of difference (b), in ulps of binary32, two-sided. Measured
 # 8.18; see the module docstring for what each edge means.
 FOLD_GAP_ULPS_MIN = 1.0
 FOLD_GAP_ULPS_MAX = 16.0
+# The recorded size of difference (c), the month-day factor, in ulps of
+# binary32, two-sided: measured 4.34 (the month fraction alone is 3.58e-07
+# relative); the upper edge is twice that, as for (b). See main().
+MONTH_GAP_ULPS_MIN = 1.0
+MONTH_GAP_ULPS_MAX = 9.0
 
 
 def f32(x):
@@ -117,7 +138,45 @@ def assembly_grown_fraction():
     return got[0]
 
 
-def fixture_grown_fraction():
+def assembly_month_day_factor():
+    """The assembly's month-day factor, read from its own assertion."""
+    doc = json.load(open(ASSEMBLY))
+    hit = [t for t in doc["models"]["Chain"]["tests"] if t["id"] == ACTIVITY_TEST_ID]
+    got = [a["expected"] for t in hit for a in t["assertions"] if a["variable"] == "chainMonthDayFactor"]
+    if len(got) != 1:
+        sys.exit(f"{ASSEMBLY}: expected one chainMonthDayFactor assertion in '{ACTIVITY_TEST_ID}', found {len(got)}")
+    return got[0]
+
+
+def emit(variable):
+    """One variable of the fixture, as the binary under test computes it."""
+    with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as tmp:
+        out = tmp.name
+    try:
+        subprocess.run([ESM, "simulate", FIXTURE, "--time", "0", "--format", "csv",
+                        "--observed", variable, "--output", out],
+                       check=True, capture_output=True)
+        return list(csv.DictReader(open(out)))
+    finally:
+        os.unlink(out)
+
+
+def fixture_point():
+    """The fixture's equipment point for FIXTURE_SCC, chosen by SCC, not position."""
+    points = [r["i1"] for r in emit("point_SCC") if r["point_SCC"] == FIXTURE_SCC]
+    if len(points) != 1:
+        sys.exit(f"{FIXTURE}: expected one equipment point with SCC {FIXTURE_SCC}, found {len(points)}")
+    return points[0]
+
+
+def fixture_month_day_factor(point):
+    got = [float(r["point_monthDayFactor"]) for r in emit("point_monthDayFactor") if r["i1"] == point]
+    if len(got) != 1:
+        sys.exit(f"{FIXTURE}: expected one point_monthDayFactor[{point}], found {len(got)}")
+    return got[0]
+
+
+def fixture_grown_fraction(point):
     """`modfrc[2020]` as the fixture COMPUTES it, in the binary32 it declares.
 
     This used to read a `const`, and to exit telling its reader to delete the
@@ -133,21 +192,16 @@ def fixture_grown_fraction():
     another precision" -- the mechanism the docstring already predicted rather
     than a new one, so the normalisation is still exactly the right treatment.
 
-    Read from the fixture's own assertion, symmetrically with the leaf's above,
-    so that neither route's number is restated in this file.
+    SINCE 2026-10-30 THE FIXTURE CARRIES NO ASSERTIONS -- it is a catalogue
+    mounting nonroad/model.esm, and a mounted model's tests do not run (F47) --
+    so the number is EMITTED from it rather than read from a test. That is the
+    stronger reading: it is what the fixture computes today, not what someone
+    transcribed. The equipment point is chosen by its SCC, not by position.
     """
-    doc = json.load(open(FIXTURE))
-    tests = doc["models"]["NrLoggingCounty"]["tests"]
-    hit = [t for t in tests if t["id"] == FIXTURE_TEST_ID]
-    if len(hit) != 1:
-        sys.exit(f"{FIXTURE}: expected exactly one test {FIXTURE_TEST_ID!r}, found {len(hit)}")
-    got = [a["expected"] for a in hit[0]["assertions"]
-           if a["variable"] == "slot_grownModelYearFraction"
-           and a.get("coords", {}).get("equipment_point_rows") == FIXTURE_POINT
-           and a.get("coords", {}).get("age_slot_rows") == 1]
+    got = [float(r["slot_grownModelYearFraction"]) for r in emit("slot_grownModelYearFraction")
+           if r["i1"] == point and r["i2"] == "1"]
     if len(got) != 1:
-        sys.exit(f"{FIXTURE}: expected one slot_grownModelYearFraction"
-                 f"[{FIXTURE_POINT}, 1] assertion in {FIXTURE_TEST_ID!r}, found {len(got)}")
+        sys.exit(f"{FIXTURE}: expected one slot_grownModelYearFraction[{point}, 1], found {len(got)}")
     return got[0]
 
 def fixture_values(csv_path):
@@ -171,7 +225,9 @@ def main():
     if len(sys.argv) != 2:
         sys.exit("usage: cross-check-chain.py <fixture actual .csv>")
 
-    a_mod, f_mod = assembly_grown_fraction(), fixture_grown_fraction()
+    point = fixture_point()
+    a_mod, f_mod = assembly_grown_fraction(), fixture_grown_fraction(point)
+    a_mdf, f_mdf = assembly_month_day_factor(), fixture_month_day_factor(point)
     gap_ulps = abs(a_mod - f_mod) / ulp32(f_mod)
     gap_rel = abs(a_mod - f_mod) / abs(f_mod)
     print(f"  modfrc[2020]: assembly (binary64 fold) {a_mod!r}")
@@ -192,11 +248,27 @@ def main():
               f"script's account of WHY the routes differ is no longer true.")
         return 1
 
+    # Difference (c): the month-day factor. The fixture mounts nonroad/model.esm,
+    # which ports NONROAD's PRINTED-DECIMAL month allocation -- each fraction
+    # rounded to three places and renormalised by their printed sum, which gives
+    # f32(1/12) = 0.0833333283662796 -- where the components the assembly mounts
+    # read the table's raw 0.0833333. Measured 3.58e-07 relative, 3 ulps of
+    # binary32. It is one input, not arithmetic, so like (b) it is divided out
+    # and its size is held two-sidedly.
+    mdf_ulps = abs(a_mdf - f_mdf) / ulp32(f_mdf)
+    print(f"  month-day factor: assembly {a_mdf!r}, fixture {f_mdf!r}: {mdf_ulps:.2f} ulps of binary32")
+    if not (MONTH_GAP_ULPS_MIN <= mdf_ulps <= MONTH_GAP_ULPS_MAX):
+        print(f"FAIL: the month-day factors differ by {mdf_ulps:.2f} ulps, outside the recorded "
+              f"[{MONTH_GAP_ULPS_MIN:.0f}, {MONTH_GAP_ULPS_MAX:.0f}]. Below it the two routes read "
+              f"the month allocation the same way again and this normalisation hides nothing; "
+              f"above it the printed-decimal account is no longer the whole difference.")
+        return 1
+
     # Difference (b) divided out: each route by its own grown fraction. Division
     # by a positive number preserves order, so the sorted pairing below is the
     # same pairing it would have been on the raw values.
-    a = sorted(f32(v / a_mod) for v in assembly_values())
-    b = sorted(f32(v / f_mod) for v in fixture_values(sys.argv[1]))
+    a = sorted(f32(v / (a_mod * a_mdf)) for v in assembly_values())
+    b = sorted(f32(v / (f_mod * f_mdf)) for v in fixture_values(sys.argv[1]))
 
     if len(a) != len(b):
         print(f"FAIL: assembly asserts {len(a)} rows for {MODEL_YEAR}, fixture emitted {len(b)}")
@@ -215,7 +287,7 @@ def main():
 
     bad = 0
     print()
-    print(f"  each row divided by its own route's modfrc[2020]:")
+    print(f"  each row divided by its own route's modfrc[2020] x month-day factor:")
     print(f"  {'assembly / 3.7072705':>22} {'fixture / 3.7072685':>22} {'ulps':>7}")
     for x, y in zip(a, b):
         n = abs(y - x) / ulp32(x)
@@ -227,8 +299,8 @@ def main():
         print(f"FAIL: {bad} of {len(a)} normalised rows differ by more than {MAX_ULPS} ulp of "
               f"binary32. With the one grown fraction the two routes get from different places "
               f"divided out, what is left is per-operation rounding against a final cast, and "
-              f"that is bounded by one ulp -- measured, three rows bit-exact and one at exactly "
-              f"one ulp. A divergence here is arithmetic, not precision.")
+              f"that is bounded by {MAX_ULPS:.0f} ulps -- measured, two rows bit-exact, one at 1 ulp "
+              f"and one at 2. A divergence here is arithmetic, not precision.")
         return 1
     print(f"  all {len(a)} normalised rows agree within {MAX_ULPS} ulp of binary32")
     return 0

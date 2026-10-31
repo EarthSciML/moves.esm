@@ -1422,6 +1422,13 @@ model for a second RunSpec. It is now:
 
 **Since step 7f the catalogue is two documents** (§7.3.40, conventions §92): `onroad/default-database.esm` holds the default database's tables and mounts the model, and the run's DOMAIN document mounts it and declares the tables MOVES merges differently by domain, with the RunSpec's `<modeldomain>`. `moves-onroad.esm` is the DEFAULT domain's and is what every RunSpec but one still mounts; a scale-input database's is in `inputs/`.
 
+**Since 2026-10-30 `fixtures/` has the same shape** (conventions §106): each of
+the fourteen fixtures is its snapshot's execution database under the `db_*`
+names, mounting `onroad/model.esm` or `nonroad/model.esm` with the run's
+declared counts as `bindings`. The inlined copies of the spine they used to
+carry -- 236k lines -- are gone, and all fourteen reproduce their snapshots at
+the same worst cells as before.
+
 The input source keys moved with the file — `tw_link` is `db_link` — because
 the tables are the database's and not one process's. `spikes/7c/` keeps the
 snapshot catalogue and the 12-line fixture that mount the same model, which is

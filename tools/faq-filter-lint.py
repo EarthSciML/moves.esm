@@ -126,7 +126,11 @@ def main(argv):
     roots = [pathlib.Path(a) for a in argv[1:]] or [pathlib.Path(__file__).resolve().parent.parent]
     files = []
     for root in roots:
-        files.extend(sorted(root.rglob("*.esm")) if root.is_dir() else [root])
+        # Files only, and nothing under a hidden directory: a linked worktree
+        # leaves `.git/worktrees/<name>.esm/`, a directory matching the glob.
+        files.extend(sorted(p for p in root.rglob("*.esm")
+                            if p.is_file() and not any(part.startswith(".") for part in p.relative_to(root).parts[:-1]))
+                     if root.is_dir() else [root])
     found = [s for f in files for s in sites(f)]
     for path, model, lhs, outputs, bare in found:
         print(

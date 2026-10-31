@@ -58,6 +58,12 @@ def documents() -> list[pathlib.Path]:
         # missing.
         if p.name.startswith("."):
             continue
+        # Nor is anything under a hidden directory, or anything that is not a
+        # file: git names a linked worktree's admin directory after the
+        # worktree, so a worktree of this repository checked out elsewhere
+        # leaves `.git/worktrees/moves.esm/` -- a DIRECTORY matching `*.esm`.
+        if any(part.startswith(".") for part in rel.split("/")[:-1]) or not p.is_file():
+            continue
         out.append(p)
     return out
 

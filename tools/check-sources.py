@@ -365,9 +365,9 @@ def main() -> int:
     # and the checks below are what stop a wrong column name from reaching the
     # runtime as a silent default.
     docs = [p for p in sorted(HERE.rglob("*.esm"))
-            if not any(part in {".moves", "target", ".fixtures-run"}
-                       for part in p.relative_to(HERE).parts)
-            and '"data_sources"' in p.read_text(encoding="utf-8")]
+            if not any(part in {"target"} or part.startswith(".")
+                       for part in p.relative_to(HERE).parts[:-1])
+            and p.is_file() and '"data_sources"' in p.read_text(encoding="utf-8")]
     if not docs:
         print("  no data_sources catalogs to check")
         return 0
