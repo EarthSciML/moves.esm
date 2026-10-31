@@ -2,17 +2,14 @@
   "esm": "1.2.0",
   "metadata": {
     "name": "moves.conversion",
-    "description": "Template library: the two conversions that stand between an emission FACTOR and an emission MASS — docs/nonroad-logging-county.md §4.4 (`unit_conversion`, unitcf.f) and §4.7 (`temporal_scale`). `unit_conversion` selects on an activity-unit code; only the g/hp-hr branch fires in nr-logging-county, but the other NONROAD sectors use g/gallon and g/day, so the whole shape belongs here rather than being inlined at the one site that needs it today. The codes are this file's own `enums` block, read by zero-parameter constant-fragment templates (esm-spec §9.6.1) that keep the names every call site already uses. The `enum` ops resolve against THIS file's block and never the importer's (esm-spec §9.3, §9.7.5; docs/esm-conventions.md §6, finding F3, retired at EarthSciAST PR #341), so an importer needs no copy of them: one that declares no enums at all, and one that declares `emission_unit` or `activity_unit` with different values, both get the codes below. The VALUES are this file's tags, not canonical ordinals — `activity_unit` is modyr.rs:75-86's ActivityUnits exactly (1-4), but `emission_unit` numbers g/hp-hr 1 and g/gallon 2 where exhaust.rs:163-175 numbers them 2 and 3 (G/HR is 1 there). Nothing in this tree reads the difference, because every producer and consumer of an emission-unit code goes through these two templates and never through a data column; it would matter the first time a real nremissionrate `units` field is mapped in. `temporal_scale` carries a trap worth naming: the 7x and the 1/ndays enter the engine's product SEPARATELY (adjustment_time = 1/ndays inside emstmp, tpltmp2 = mthf*dayf outside), and combining them wrongly double-applies the monthly factor — a ~2.6x error for a 31-day month, spelled out at moves.rs executor.rs:1513-1519. They are one template here so that they are applied once, together, in one place. `short_tons_per_gram` is CVTTON (consts.rs:355), the unit the engine accumulates in, and `grams_per_short_ton` is its inverse, which the output stage applies (nonroad_loader.rs:2177) -- one constant, defined once, so the round trip cannot drift. `annual_activity_hours` is modyr.rs:78-88's acttmp, which converts an activity level to annual hours according to its ACTIVITY-unit code: hours-per-year passes through, hours-per-day multiplies by 365, and either gallons code becomes 1/(2*uselif). Note the two code sets this file carries are different namespaces -- an EMISSION-rate unit (g/hp-hr, g/gallon) is what unitcf.f selects on, an ACTIVITY unit (hours or gallons, per year or per day) is what modyr.f selects on, and the g/gallon branch of unit_conversion reads BOTH. `hours_per_day` is the 24 the hour-of-day axis wraps at: `TankTemperatureGenerator` TTG-1a interpolates hour `h` toward hour `h + 1` and hour 24 toward hour 1, and the wrap is the only place in that step where a literal could be written and be wrong without any test noticing, because hour 24 is one row of 24. It is here rather than in `lib/evaporative.esm` because it is a property of the clock, not of the evaporative chain. `default_month_fraction` and `default_day_fraction` are canonical's defmth = 1/12 and defday = 1/7 (nonroad_loader.rs:2273-2288): the fallbacks when an SCC's ladder finds no allocation row at all, and NOT a neutral 1.0.\n\nTemplate library: the two conversions that stand between an emission FACTOR and an emission MASS — docs/nonroad-logging-county.md §4.4 (`unit_conversion`, unitcf.f) and §4.7 (`temporal_scale`). `unit_conversion` selects on an activity-unit code; only the g/hp-hr branch fires in nr-logging-county, but the other NONROAD sectors use g/gallon and g/day, so the whole shape belongs here rather than being inlined at the one site that needs it today. The codes are zero-parameter constant-fragment templates (esm-spec §9.6.1) rather than an `enums` block, because an `enums` block is file-local and does not cross an import edge (docs/esm-conventions.md §6, finding F3). `temporal_scale` carries a trap worth naming: the 7x and the 1/ndays enter the engine's product SEPARATELY (adjustment_time = 1/ndays inside emstmp, tpltmp2 = mthf*dayf outside), and combining them wrongly double-applies the monthly factor — a ~2.6x error for a 31-day month, spelled out at moves.rs executor.rs:1513-1519. They are one template here so that they are applied once, together, in one place. `short_tons_per_gram` is CVTTON (consts.rs:355), the unit the engine accumulates in, and `grams_per_short_ton` is its inverse, which the output stage applies (nonroad_loader.rs:2177) -- one constant, defined once, so the round trip cannot drift. BOTH DECLARE THEIR UNIT (docs/esm-conventions.md §58): `short_ton/g` on CVTTON, and a `units: \"1\"` on the numerator of its inverse, because `1.0 / const(short_ton/g)` with a BARE one is undeterminable and the inverse would then check nothing -- measured, `out_emissionQuant` declared `short_ton` is silent with the bare one and refused with the declared one. `unit_conversion` returns a DIFFERENT unit on each branch -- `hp` for g/hp-hr (unitcf.f converts g/hp-hr to g/hr by multiplying by hpavg x faclod, exhaust.rs:228-236), `gal/h` for g/gallon, dimensionless for the pass-throughs -- so the unit belongs at the CALL SITE and not on the template, and every call site in this repository binds `emission_unit_g_per_hp_hr` and declares `hp`. `annual_activity_hours` is the same shape: `h` on the hours-per-year branch this port takes, `1/h` on the gallons branch. The three temporal factors are pure numbers and stay `1`: `month_fraction` and `day_fraction` are fractions of an activity total, and the 7 and the days-in-month are COUNTS of days, so their ratio is dimensionless and the annual-to-typical-day scale is a fraction rather than a rate. `annual_activity_hours` is modyr.rs:78-88's acttmp, which converts an activity level to annual hours according to its ACTIVITY-unit code: hours-per-year passes through, hours-per-day multiplies by 365, and either gallons code becomes 1/(2*uselif). Note the two code sets this file carries are different namespaces -- an EMISSION-rate unit (g/hp-hr, g/gallon) is what unitcf.f selects on, an ACTIVITY unit (hours or gallons, per year or per day) is what modyr.f selects on, and the g/gallon branch of unit_conversion reads BOTH. `hours_per_day` is the 24 the hour-of-day axis wraps at: `TankTemperatureGenerator` TTG-1a interpolates hour `h` toward hour `h + 1` and hour 24 toward hour 1, and the wrap is the only place in that step where a literal could be written and be wrong without any test noticing, because hour 24 is one row of 24. It is here rather than in `lib/evaporative.esm` because it is a property of the clock, not of the evaporative chain. `default_month_fraction` and `default_day_fraction` are canonical's defmth = 1/12 and defday = 1/7 (nonroad_loader.rs:2273-2288): the fallbacks when an SCC's ladder finds no allocation row at all, and NOT a neutral 1.0.\n\n`printed_decimal` is a number as MOVES PRINTS it into a NONROAD input file: `%10.3f` is `printed_decimal(x, 1000)`, half-up as Java's `Formatter` rounds. NONROAD reads the printed value, not the table's, so where a file's format has fewer decimals than the table the model reads the printed one -- the SEASON file's monthly fractions are the case that matters (PLAN.md 7.3.37). Evaluated in binary32 it agrees with Java's decimal half-up on every row of both month allocation tables, the three that sit exactly on a half included.",
+    "description": "Template library: the two conversions that stand between an emission FACTOR and an emission MASS — docs/nonroad-logging-county.md §4.4 (unitcf.f) and §4.7 (`temporal_scale`).\n\nunitcf.f dispatches on an EMISSION-rate unit code, and each arm returns a DIFFERENT unit: `hp` for g/hp-hr (it converts g/hp-hr to g/hr by multiplying by hpavg x faclod, exhaust.rs:228-236), `gal/h` for g/gallon (bsfc x faclod x hpavg / density), and a dimensionless 1 for the pass-throughs (g/hr, g/day, MULT, and g/gallon when the ACTIVITY is already in gallons). A single template selecting among them cannot be typed: under esm-spec §4.8.6 every branch of an `ifelse` must agree, and an `hp` arm beside a bare 1 is a mismatch. So each arm that needs arithmetic is its own template and the code is fixed at the call site, which knows it -- every call site in this repository is a g/hp-hr rate and applies `hp_hour_unit_conversion`, typed `hp`. `gallon_unit_conversion` is the g/gallon arm, returning `gal/h` from a `lb/(hp*h)` BSFC and a `lb/gal` density; no RunSpec in this repository reaches it, and it carries unitcf.f's zero-density guard, which returns 0 rather than dividing. A pass-through arm is the identity and needs no template. (docs/esm-conventions.md §105 supersedes §58.3, which put a multi-unit selector here and the unit at the call site.)\n\nThe activity-unit codes are this file's own `enums` block, read by zero-parameter constant-fragment templates (esm-spec §9.6.1). The `enum` ops resolve against THIS file's block and never the importer's (esm-spec §9.3, §9.7.5; docs/esm-conventions.md §6, finding F3, retired at EarthSciAST PR #341), so an importer needs no copy of them. `activity_unit` is modyr.rs:75-86's ActivityUnits exactly (1-4).\n\n`annual_activity_hours` is modyr.rs:78-88's acttmp, which converts an activity level to annual hours according to its ACTIVITY-unit code: hours-per-year passes through, hours-per-day multiplies by 365 (the `per year` and `per day` name an accounting period, so both are `h`), and either gallons code becomes 1/(2*uselif). That last arm is NONROAD's own: a reciprocal of hours that the Fortran then reads as hours. It is written `1 h / (2 x (uselif / 1 h))` -- the number the Fortran computes, stated in the unit it is used as -- so all three arms are `h` and the selection is checked; dividing and multiplying by 1.0 changes no bit.\n\n`temporal_scale` carries a trap worth naming: the 7x and the 1/ndays enter the engine's product SEPARATELY (adjustment_time = 1/ndays inside emstmp, tpltmp2 = mthf*dayf outside), and combining them wrongly double-applies the monthly factor — a ~2.6x error for a 31-day month, spelled out at moves.rs executor.rs:1513-1519. They are one template here so that they are applied once, together, in one place. The three temporal factors are pure numbers and stay `1`: `month_fraction` and `day_fraction` are fractions of an activity total, and the 7 and the days-in-month are COUNTS of days, so their ratio is dimensionless and the annual-to-typical-day scale is a fraction rather than a rate.\n\n`short_tons_per_gram` is CVTTON (consts.rs:355), the unit the engine accumulates in, and `grams_per_short_ton` is its inverse, which the output stage applies (nonroad_loader.rs:2177) -- one constant, defined once, so the round trip cannot drift. BOTH DECLARE THEIR UNIT (docs/esm-conventions.md §58): `short_ton/g` on CVTTON, and a `units: \"1\"` on the numerator of its inverse, because `1.0 / const(short_ton/g)` with a BARE one is undeterminable and the inverse would then check nothing -- measured, `out_emissionQuant` declared `short_ton` is silent with the bare one and refused with the declared one.\n\n`hours_per_day` is the 24 the hour-of-day axis wraps at: `TankTemperatureGenerator` TTG-1a interpolates hour `h` toward hour `h + 1` and hour 24 toward hour 1, and the wrap is the only place in that step where a literal could be written and be wrong without any test noticing, because hour 24 is one row of 24. It is here rather than in `lib/evaporative.esm` because it is a property of the clock, not of the evaporative chain. `default_month_fraction` and `default_day_fraction` are canonical's defmth = 1/12 and defday = 1/7 (nonroad_loader.rs:2273-2288): the fallbacks when an SCC's ladder finds no allocation row at all, and NOT a neutral 1.0.\n\n`printed_decimal` is a number as MOVES PRINTS it into a NONROAD input file: `%10.3f` is `printed_decimal(x, 1000)`, half-up as Java's `Formatter` rounds. NONROAD reads the printed value, not the table's, so where a file's format has fewer decimals than the table the model reads the printed one -- the SEASON file's monthly fractions are the case that matters (PLAN.md 7.3.37). Evaluated in binary32 it agrees with Java's decimal half-up on every row of both month allocation tables, the three that sit exactly on a half included.",
     "authors": ["EarthSciML Authors and Contributors"],
     "tags": ["moves", "nonroad", "units", "temporal", "template-library"]
   },
   "enums": {
-    "emission_unit": { "GramsPerHpHour": 1, "GramsPerGallon": 2 },
     "activity_unit": { "HoursPerYear": 1, "HoursPerDay": 2, "GallonsPerYear": 3, "GallonsPerDay": 4 }
   },
   "expression_templates": {
-    "emission_unit_g_per_hp_hr": { "params": [], "body": { "op": "enum", "args": ["emission_unit", "GramsPerHpHour"] } },
-    "emission_unit_g_per_gallon": { "params": [], "body": { "op": "enum", "args": ["emission_unit", "GramsPerGallon"] } },
     "activity_unit_hours_per_year": { "params": [], "body": { "op": "enum", "args": ["activity_unit", "HoursPerYear"] } },
     "activity_unit_hours_per_day": { "params": [], "body": { "op": "enum", "args": ["activity_unit", "HoursPerDay"] } },
     "activity_unit_gallons_per_year": { "params": [], "body": { "op": "enum", "args": ["activity_unit", "GallonsPerYear"] } },
@@ -50,45 +47,29 @@
                 { "op": "apply_expression_template", "args": [], "name": "activity_unit_hours_per_day", "bindings": {} }] },
               { "op": "*", "args": ["activity_level",
                 { "op": "apply_expression_template", "args": [], "name": "days_per_year", "bindings": {} }] },
-              { "op": "/", "args": [1.0, { "op": "*", "args": [2.0, "median_life_full_load"] }] }
+              { "op": "/", "args": [
+                { "op": "const", "args": [], "value": 1.0, "units": "h" },
+                { "op": "*", "args": [2.0,
+                  { "op": "/", "args": ["median_life_full_load", { "op": "const", "args": [], "value": 1.0, "units": "h" }] }] }] }
             ]
           }
         ]
       }
     },
-    "unit_conversion": {
-      "params": ["unit_code", "hp_avg", "load_factor", "activity_is_volumetric", "fuel_density", "bsfc"],
+    "hp_hour_unit_conversion": {
+      "params": ["hp_avg", "load_factor"],
+      "body": { "op": "*", "args": ["hp_avg", "load_factor"] }
+    },
+    "gallon_unit_conversion": {
+      "params": ["bsfc", "load_factor", "hp_avg", "fuel_density"],
       "body": {
         "op": "ifelse",
         "args": [
-          { "op": "==", "args": ["unit_code",
-            { "op": "apply_expression_template", "args": [], "name": "emission_unit_g_per_hp_hr", "bindings": {} }] },
-          { "op": "*", "args": ["hp_avg", "load_factor"] },
-          {
-            "op": "ifelse",
-            "args": [
-              { "op": "==", "args": ["unit_code",
-                { "op": "apply_expression_template", "args": [], "name": "emission_unit_g_per_gallon", "bindings": {} }] },
-              {
-                "op": "ifelse",
-                "args": [
-                  "activity_is_volumetric",
-                  1.0,
-                  {
-                    "op": "ifelse",
-                    "args": [
-                      { "op": "==", "args": ["fuel_density", 0.0] },
-                      0.0,
-                      { "op": "/", "args": [
-                        { "op": "*", "args": ["bsfc", "load_factor", "hp_avg"] },
-                        "fuel_density"] }
-                    ]
-                  }
-                ]
-              },
-              1.0
-            ]
-          }
+          { "op": "==", "args": ["fuel_density", 0.0] },
+          0.0,
+          { "op": "/", "args": [
+            { "op": "*", "args": ["bsfc", "load_factor", "hp_avg"] },
+            "fuel_density"] }
         ]
       }
     },
