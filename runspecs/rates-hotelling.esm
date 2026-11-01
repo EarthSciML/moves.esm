@@ -1,0 +1,343 @@
+{
+  "esm": "1.2.0",
+  "metadata": {
+    "name": "rates-hotelling-runspec",
+    "description": "PLAN.md §7.3.48: `rates-hotelling`, the Rates-scale twin of `process-crankcase-extidle`, `process-extended-idle` and `process-apu` together -- THC, CO and NOx from EXTENDED IDLE (90) and CRANKCASE EXTENDED IDLE (17), Atmospheric CO2 and Total Energy from extended idle, and Total Energy from the AUXILIARY POWER UNIT (91), which the calculator retags to SHORE POWER (93) for operating mode 203 -- for the diesel combination long-haul truck in Washtenaw County, road types 1 and 4, at `<modelscale value=\"Rates\"/>`.\n\nWHAT IT DISCRIMINATES. Hotelling is rated per hour and MOVES writes it to two tables `scale-rates` does not touch. RatePerHour is BaseRateOutput's emissionRate -- the inventory's adjusted rate over the cohort's source-bin share, per hotelling hour, crankcase extended idle chained from it -- and it is NOT a quotient: shore power's hours and inventory are zero here and its rate is not. RatePerVehicle is MOVESOutput over the cohort's population. Three source bins per cohort and two fuels (diesel and CNG) exercise the share and the regulatory class summed away. Measured in pandas against the three twins before the port: within 1e-05.\n\nTHE BINDINGS. `process-crankcase-extidle`'s `n_sourceBin` and `n_physicsRow`, `n_ratesScale` = 1, and `n_outputRate` the (pollutant-process, cohort) pairs, checked by `rateSurvivorCount`.",
+    "authors": [
+      "EarthSciML Authors and Contributors"
+    ],
+    "tags": [
+      "runspec",
+      "onroad",
+      "default-database",
+      "rates",
+      "rates-hotelling"
+    ]
+  },
+  "data_sources": {
+    "db_runspecyear": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/rates-hotelling/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspecyear.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecyear"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, yearID 2020. The scope comes from these tables and never from the RunSpec XML, whose @key attributes are 0-based indices into sorted ID lists (docs/mixed-onroad.md §0.1).",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecmonth": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/rates-hotelling/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspecmonth.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecmonth"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, monthID 8.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspechour": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/rates-hotelling/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspechour.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspechour"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, hourID 7. `<beginhour key=\"6\">` is a 0-based index into the sorted hour list (docs/mixed-onroad.md 0.1).",
+        "esio_format": "parquet"
+      }
+    },
+    "db_aggregationhour": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/rates-hotelling/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspechour.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_aggregationhour"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "The hours the run aggregates over. This run does not set `aggregateBy`, so it is `runspechour` itself and the same file.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecday": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/rates-hotelling/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspecday.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecday"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, dayID 5 (weekday). The second factor of the activity axis and of the output axis, and its extent is one in this run: `<day id=\"5\">` selects one day type where the earlier `<day key=\"5\">` was an out-of-range INDEX and fell back to both (moves.rs PR #55).",
+        "esio_format": "parquet"
+      }
+    },
+    "db_rateday": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/rates-hotelling/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspecday.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_rateday"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "The day types the RATE-side time pre-aggregation is scoped to. This run does not set `aggregateBy`, so it is `runspecday` itself and the same file: the pre-aggregation averages over one cell and returns the table's own value. A run that aggregates points this somewhere else, because MOVES overwrites `runspecday` with the synthesized output day AFTER the pre-aggregation has run.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_actday": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/rates-hotelling/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspecday.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_actday"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "The day types the output day's ACTIVITY covers. This run does not set `aggregateBy`, so it is `runspecday` itself and the same file, and `noOfRealDays` is that one day type's.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecsourcetype": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/rates-hotelling/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspecsourcetype.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecsourcetype"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, sourceTypeID 62 (combination long-haul truck), the only source type that hotels.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecroadtype": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/rates-hotelling/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspecroadtype.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecroadtype"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "2 rows, road types 1 and 4. Extended idle's rates live on road type 1, and the crankcase rows on their parents'.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecsourcefueltype": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/rates-hotelling/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspecsourcefueltype.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecsourcefueltype"
+      },
+      "metadata": {
+        "tags": [
+          "scope",
+          "cohorts"
+        ],
+        "note": "3 rows: source type 62 with diesel, CNG and electricity. Electricity has no extended-idle rate and emits nothing.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecpollutantprocess": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/rates-hotelling/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspecpollutantprocess.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecpollutantprocess"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "9 rows: 190, 290, 390 (THC, CO, NOx at extended idle), 9090 and 9190 (Atmospheric CO2 and Total Energy at extended idle), 117, 217, 317 (THC, CO, NOx at crankcase extended idle) and 9191 (Total Energy at the APU). Shore power (93) is the calculator's retag of the APU's mode 203, not a selection.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecchainedto": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/rates-hotelling/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspecchainedto.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecchainedto"
+      },
+      "metadata": {
+        "tags": [
+          "scope",
+          "chain"
+        ],
+        "note": "3 rows: 117<-190, 217<-290, 317<-390.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspeccounty": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/rates-hotelling/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspeccounty.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspeccounty"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, countyID 26161, Washtenaw.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_rateperhour": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/rates-hotelling/tables/db__out_rates_hotelling__rateperhour.parquet"
+      },
+      "reader_options": {
+        "float_columns": [
+          "ratePerHour",
+          "temperature",
+          "relHumidity"
+        ]
+      },
+      "metadata": {
+        "tags": [
+          "oracle",
+          "expected-output"
+        ],
+        "note": "The 491-row RatePerHour: processes 17, 90, 91 and 93 on road type 1's link, per hotelling hour.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_ratepervehicle": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/rates-hotelling/tables/db__out_rates_hotelling__ratepervehicle.parquet"
+      },
+      "reader_options": {
+        "float_columns": [
+          "ratePerVehicle",
+          "temperature",
+          "relHumidity"
+        ]
+      },
+      "metadata": {
+        "tags": [
+          "oracle",
+          "expected-output"
+        ],
+        "note": "The 491-row RatePerVehicle: the same rows, per vehicle in the hour.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_rateperdistance": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/rates-hotelling/tables/db__out_rates_hotelling__rateperdistance.parquet"
+      },
+      "reader_options": {
+        "float_columns": [
+          "ratePerDistance",
+          "temperature",
+          "relHumidity"
+        ]
+      },
+      "metadata": {
+        "tags": [
+          "oracle",
+          "expected-output"
+        ],
+        "note": "EMPTY in this run: MOVES writes no row to it, so a row the model emits here is a failure.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_rateperstart": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/rates-hotelling/tables/db__out_rates_hotelling__rateperstart.parquet"
+      },
+      "reader_options": {
+        "float_columns": [
+          "ratePerStart",
+          "temperature",
+          "relHumidity"
+        ]
+      },
+      "metadata": {
+        "tags": [
+          "oracle",
+          "expected-output"
+        ],
+        "note": "EMPTY in this run: MOVES writes no row to it, so a row the model emits here is a failure.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_startspervehicle": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/rates-hotelling/tables/db__out_rates_hotelling__startspervehicle.parquet"
+      },
+      "reader_options": {
+        "float_columns": [
+          "startsPerVehicle"
+        ]
+      },
+      "metadata": {
+        "tags": [
+          "oracle",
+          "expected-output"
+        ],
+        "note": "EMPTY in this run: MOVES writes no row to it, so a row the model emits here is a failure.",
+        "esio_format": "parquet"
+      }
+    }
+  },
+  "models": {
+    "Onroad": {
+      "ref": "../moves-onroad.esm",
+      "bindings": {
+        "n_outputRate": 491,
+        "n_sourceBin": 3,
+        "n_physicsRow": 20,
+        "n_ratesScale": 1
+      }
+    }
+  }
+}

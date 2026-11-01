@@ -377,6 +377,35 @@ def missing(v):
     """A NULL, as the parquet capture spells it (None, or a float NaN)."""
     return v is None or (isinstance(v, float) and v != v)
 
+def sample_vehicle_trips(root, snap):
+    """SampleVehicleTrip as StartOMDG read it.
+
+    TankTemperatureGenerator runs LATER and rewrites the table in place
+    (`flagMarkerTrips`): it adds `tripType` and sets `priorTripID = NULL` on
+    every trip whose predecessor was the vehicle-day's marker trip (keyOnTime
+    and priorTripID both NULL), flagging it 'F'. A snapshot that ran both --
+    `rates-evap` is the first -- captures the rewritten table. The rewrite is
+    invertible: each vehicle-day has at most one marker, and before it no trip
+    with a key-on time lacked a predecessor (0 of 26,958 in `rates-start`'s
+    unrewritten copy), so every 'F' trip's predecessor was its marker.
+    """
+    trips = tab(root, snap, "samplevehicletrip")
+    if trips is None or not trips or "tripType" not in trips[0]:
+        return trips
+    marker = {}
+    for t in trips:
+        if t["tripType"] == "M":
+            assert (t["vehID"], t["dayID"]) not in marker, "two markers in a vehicle-day"
+            marker[(t["vehID"], t["dayID"])] = t["tripID"]
+    restored = []
+    for t in trips:
+        t = {k: v for k, v in t.items() if k != "tripType"} | {"_type": t["tripType"]}
+        if t["_type"] == "F" and missing(t["priorTripID"]) and (t["vehID"], t["dayID"]) in marker:
+            t["priorTripID"] = marker[(t["vehID"], t["dayID"])]
+        del t["_type"]
+        restored.append(t)
+    return restored
+
 # --- the model ---------------------------------------------------------------
 
 def soak_time(key_on_time, prior_key_off_time):
@@ -436,7 +465,7 @@ def start_op_mode_distribution(root, snap, classified):
     hourDayID) after the HourDay / RunSpecHourDay join; StartOpModeDistribution
     divides the per-band count by it.
     """
-    trips = {(t["vehID"], t["tripID"]): t for t in tab(root, snap, "samplevehicletrip")}
+    trips = {(t["vehID"], t["tripID"]): t for t in sample_vehicle_trips(root, snap)}
     source_type = {d["vehID"]: d["sourceTypeID"] for d in tab(root, snap, "samplevehicleday")}
     hour_day = {(h["dayID"], h["hourID"]): h["hourDayID"] for h in tab(root, snap, "hourday")}
     selected = {r["hourDayID"] for r in tab(root, snap, "runspechourday")}
@@ -599,7 +628,7 @@ def main(root):
         reference_som = tab(root, snap, "startopmode")
         if reference_som is not None:
             classified = classify_starts(
-                tab(root, snap, "samplevehicletrip"),
+                sample_vehicle_trips(root, snap),
                 tab(root, snap, "operatingmode", ["opModeID", "minSoakTime", "maxSoakTime"]))
             got = {(r["vehID"], r["tripID"], r["opModeID"]) for r in reference_som}
             pred = set(classified)

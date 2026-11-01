@@ -1499,6 +1499,40 @@
           }
         ]
       }
+    },
+    "startspervehicle_rows": {
+      "kind": "interval",
+      "size": {
+        "op": "*",
+        "args": [
+          {
+            "op": "*",
+            "args": [
+              {
+                "op": "*",
+                "args": [
+                  "n_agecategory",
+                  "n_runspecsourcefueltype"
+                ]
+              },
+              "n_runspecyear"
+            ]
+          },
+          {
+            "op": "*",
+            "args": [
+              {
+                "op": "*",
+                "args": [
+                  "n_runspeccounty",
+                  "n_runspecmonth"
+                ]
+              },
+              "n_runspecday"
+            ]
+          }
+        ]
+      }
     }
   },
   "enums": {
@@ -1520,7 +1554,11 @@
       "EvapPermeation": 11,
       "EvapFuelVaporVenting": 12,
       "HotellingShorePower": 93,
-      "StartExhaust": 2
+      "StartExhaust": 2,
+      "Brakewear": 9,
+      "CrankcaseRunningExhaust": 15,
+      "CrankcaseStartExhaust": 16,
+      "CrankcaseExtendedIdleExhaust": 17
     },
     "fuel_type": {
       "Electricity": 9,
@@ -12091,7 +12129,7 @@
           "shape": [
             "polprocroad_rows"
           ],
-          "description": "Is this pair one of the output's blocks? Its pollutant-process has to occur on the pair's road type, have a rate, and be a selection rather than a prerequisite -- `rspp_isEmitted`'s three tests, the first one per road type."
+          "description": "Is this pair one of the output's blocks? Its pollutant-process has to occur on the pair's road type, have a rate, and be a selection rather than a prerequisite the output strips -- `rspp_isEmitted`'s three tests, the first one per road type."
         },
         "ppr_emittedPrefix": {
           "type": "unknown",
@@ -14444,6 +14482,14 @@
           ],
           "description": "Is this pollutant-process a chain PREREQUISITE the RunSpec never asked for? `ExecutionRunSpec.flagRequiredPollutantProcesses` adds Total Energy Consumption at running, start and extended-idle exhaust whenever a refueling loss is selected, because without it `BaseRate` emits no energy and the chained calculator sees no input; the addition is flagged `silentlyRequired` and the output processor strips it. So `process-refueling` computes 250 energy rows and emits none of them.\n\nIT IS DERIVED FROM `runspecpollutantprocess` AND THE DECLARED NEEDS TABLE, not read: the execution database records the EXPANDED set and not the user's. That is a real limit, and it has exactly one blind spot -- `require()` does not flag a pair the user had already selected, so a RunSpec asking for refueling AND for Total Energy Consumption would keep its energy block and this document would drop it. No run in the corpus does that, and the needs table is refueling-only, which is what makes the rest derivable."
         },
+        "rspp_isStripped": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecpollutantprocess_rows"
+          ],
+          "description": "Is this prerequisite STRIPPED from the output? At inventory scale the output processor removes what `flagRequiredPollutantProcesses` added; at Rates scale the rate post-processor reads BaseRateOutput and MOVESOutput before that, and `rates-evap` writes the refueling run's running and start energy to RatePerDistance and RatePerStart (PLAN.md §7.3.48). A prerequisite is a selection at Rates scale."
+        },
         "rspp_rateRoadTypeID": {
           "type": "unknown",
           "units": "1",
@@ -16303,6 +16349,187 @@
           ],
           "description": "The emitted quantity: its own rate path plus its chain. Every rate row is exactly one of the two, so the sum is a union and not a double count -- `run_chainedRowCount` is the test. Per county, which is the axis the output relation's second level reads it at. Plus NonHAPTOG, which is neither and is zero off pollutant 88."
         },
+        "rt_cohortShare": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows",
+            "runspeccounty_rows"
+          ],
+          "description": "The rate row's cohort's share of its source type, every bin and regulatory class of it: what a per-activity rate at Rates scale is normalized by. The cohort's activity -- its starts, hotelling hours, idle hours -- is the age's times this share, so the inventory's source-bin-weighted rate over it is the rate of a vehicle of that fuel (PLAN.md §7.3.48). Running exhaust's per-bin rate normalizes within each regulatory class instead, by `rtMode_activityFractionSum`, which is BaseRateGenerator step 008's GROUP BY; a row that sums classes is a per-activity row and divides by their sum."
+        },
+        "rt_isBinRated": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "BaseRateGenerator's `useAvgSpeedBin` at Rates scale: running exhaust, brake and tire wear keep the average-speed bin and divide by its speed. Off-network idle has no bin, and every other process is rated per unit of its activity. Not in PROJECT domain, which turns it off (`isProjectDomain && (processID == 1 || 9 || 10)`) and has no bin."
+        },
+        "rt_isLinkSpeedRated": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "Is this a PROJECT-domain row RatePostProcessorRatesFirst.sql converts to a distance basis by the LINK's speed? Its PROJECT branch divides BaseRateOutput's emissionRate by `linkAvgSpeed` for processes 1, 9, 10, 15, 18 and 19; 15, 18 and 19 are chained, so dividing their parents here divides them. Measured on `rates-project`: the inventory's per-hour rate over the link's 30 mph, all 125 cohorts (PLAN.md §7.3.48)."
+        },
+        "rt_isHourlyPerMile": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "Is this an evaporative row on an on-network road type? RatePostProcessorRatesFirst.sql writes it to RatePerDistance as MOVESOutput over the link's distance, and an evaporative rate is per SOURCE HOUR, which at a speed-bin link is distance over the bin speed: so the rate per mile is the hourly rate over the bin speed. Measured, `ratePerDistance x avgBinSpeed` is the same at every bin and road type, and it is the inventory twins' quantity over the cohort's SHO per real day (PLAN.md §7.3.48)."
+        },
+        "rtRate_hotellingMeanBaseRate": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows",
+            "runspecday_rows",
+            "runspeccounty_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "A hotelling row's mean base rate per hour IN ITS OWN MODES -- extended idling for 90, the diesel APU for 91 -- which is `rtDay_meanBaseRate`'s hotelling branch without the cohort's mode fraction. BaseRateCalculator.sql's AdjustExtendedIdleEmissionRate and AdjustAPUEmissionRate scale meanBaseRate by `hourFractionAdjust` and leave emissionRate alone, so RatePerHour is per hour of the mode: measured, the inventory over hotelling hours is 0.8, 0.73 and 0.07 of it (PLAN.md §7.3.48)."
+        },
+        "rtRate_hotellingMeanBaseRateACAdj": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows",
+            "runspecday_rows",
+            "runspeccounty_rows"
+          ],
+          "description": "Its air-conditioning part, likewise."
+        },
+        "rtRate_hotellingAdjustedMeanBaseRate": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows",
+            "runspecday_rows",
+            "runspeccounty_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "The same `adjusted_mean_base_rate` the inventory applies, to the per-mode-hour rate."
+        },
+        "rtRate_shorePowerMeanBaseRate": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows",
+            "runspecday_rows",
+            "runspeccounty_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "Shore power's rate per shore-power hour, as `rtRate_hotellingMeanBaseRate` is the APU's: `rtDay_meanBaseRateShorePower` without the mode fraction. It is not zero where the fraction is, and MOVES writes it."
+        },
+        "rtRate_shorePowerMeanBaseRateACAdj": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows",
+            "runspecday_rows",
+            "runspeccounty_rows"
+          ],
+          "description": "Its air-conditioning part."
+        },
+        "rtRate_shorePowerAdjustedMeanBaseRate": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows",
+            "runspecday_rows",
+            "runspeccounty_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "Adjusted, likewise."
+        },
+        "rtRate_direct": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows",
+            "runspecday_rows",
+            "ratespeedbin_rows",
+            "runspeccounty_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "BaseRateOutput.emissionRate at Rates scale, in the output's units: the normalized rate at the bin over the bin speed -- per mile -- where the bin is kept, and the inventory's adjusted rate over the cohort's share -- per start, per idle hour, per hour of a hotelling mode -- everywhere else, the same at every bin -- and that per-hour rate over the bin speed for an evaporative row on an on-network road type. Exactly zero on a chained pollutant-process. Computed at inventory scale too, over the single bin `ratespeedbin_rows` holds there. In PROJECT domain running exhaust, brake and tire wear are per hour over the link's average speed."
+        },
+        "rtRate_chainGen1": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows",
+            "runspecday_rows",
+            "ratespeedbin_rows",
+            "runspeccounty_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "`rtDay_chainGen1` on the rate: the chain is linear and its ratio is per rate row, so MOVES's chained calculators give a chained emissionRate exactly as they give a chained quantity."
+        },
+        "rtRate_gen1": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows",
+            "runspecday_rows",
+            "ratespeedbin_rows",
+            "runspeccounty_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "The rate after one rung, as `rtDay_quantGen1`."
+        },
+        "rtRate_chainGen2": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows",
+            "runspecday_rows",
+            "ratespeedbin_rows",
+            "runspeccounty_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "The second rung, as `rtDay_chainGen2`."
+        },
+        "rtRate_gen2": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows",
+            "runspecday_rows",
+            "ratespeedbin_rows",
+            "runspeccounty_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "The rate after two rungs, as `rtDay_quantGen2`."
+        },
+        "rtRate_chained": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows",
+            "runspecday_rows",
+            "ratespeedbin_rows",
+            "runspeccounty_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "The third rung, as `rtDay_quantChained`: the chained part of the rate. `run_chainDepthExceeded` covers it with the inventory's."
+        },
+        "rtRate_total": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows",
+            "runspecday_rows",
+            "ratespeedbin_rows",
+            "runspeccounty_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "The rate MOVES writes for the rate row, own and chained. The non-HAP TOG residual and SulfatePMCalculator's species are not carried here; `run_ratesUnported` counts their blocks."
+        },
         "rt_parentEmitsGen4": {
           "type": "unknown",
           "units": "1",
@@ -17615,7 +17842,7 @@
           "shape": [
             "run_rows"
           ],
-          "description": "How many of the run's pollutant-processes occur on a real road and are NOT running exhaust. Read by `run_selectionUnported` only when the run also selects road type 1: MOVES writes off-network idle for running exhaust, which `ppr_isOffNetworkIdle` ports, and evaporative SHP rows on road type 1, which it does not; brake wear has no road-1 rates (`drivecycle.rs:513`) and tire wear's are not ported."
+          "description": "How many of the run's pollutant-processes occur on a real road and are NOT running exhaust or crankcase running. Read by `run_selectionUnported` only when the run also selects road type 1: MOVES writes off-network idle for running exhaust and the crankcase running it chains to, which `ppr_isOffNetworkIdle` ports, and evaporative SHP rows on road type 1, which it does not; brake wear has no road-1 rates (`drivecycle.rs:513`) and tire wear's are not ported."
         },
         "run_evapRoadTypeExcess": {
           "type": "unknown",
@@ -19362,7 +19589,7 @@
           "shape": [
             "rateoutput_rows"
           ],
-          "description": "RatePerDistance.linkID: the link MOVES synthesizes for the bin, `(zoneID*10 + roadTypeID)*100 + avgSpeedBinID` (`ExecutionRunSpec.createMesoscaleLookupLinks`)."
+          "description": "RatePerDistance.linkID: the link MOVES synthesizes for the bin, `(zoneID*10 + roadTypeID)*100 + avgSpeedBinID` (`ExecutionRunSpec.createMesoscaleLookupLinks`). In PROJECT domain it is the project's own link: MOVES synthesizes no links there."
         },
         "rpd_avgSpeedBinID": {
           "type": "unknown",
@@ -19370,7 +19597,7 @@
           "shape": [
             "rateoutput_rows"
           ],
-          "description": "RatePerDistance.avgSpeedBinID: the bin's id, `mod(linkID,100)` in the SQL."
+          "description": "RatePerDistance.avgSpeedBinID: the bin's id, `mod(linkID,100)` in the SQL -- 0 at road type 1, whose one link has no bin. 0 in PROJECT domain too, which writes `if(isProjectDomain>0, 0, mod(linkID,100))`."
         },
         "rpd_regClassID": {
           "type": "unknown",
@@ -19402,7 +19629,315 @@
           "shape": [
             "rateoutput_rows"
           ],
-          "description": "RatePerDistance.ratePerDistance: the output row's adjusted rate at the bin over the bin speed -- per mile -- in the run's mass or energy unit. THE compared column at Rates scale."
+          "description": "RatePerDistance.ratePerDistance: per mile at the bin where MOVES keeps the bin (running exhaust, brake and tire wear and what they chain to), per idle hour for off-network idle, in the run's mass or energy unit. THE compared column at Rates scale."
+        },
+        "rpd_inTable": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rateoutput_rows"
+          ],
+          "description": "Is this row in RatePerDistance? RatePostProcessorRatesFirst.sql assigns by process and road type: 1, 9, 10 and 15 on any road type, 11, 12, 13, 18 and 19 off road type 1. Road type 1 has one link and no bin, so only the first bin's row is kept there. Zero at inventory scale; the harness emits the rows where it is 1. PROJECT domain has no bin either: one row per output row there."
+        },
+        "rto_zoneID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "output_rows"
+          ],
+          "description": "The output row's zone, which every Rates table keyed by zone carries where MOVESOutput at county detail leaves it NULL."
+        },
+        "rto_linkID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "output_rows"
+          ],
+          "description": "The output row's Rates-scale link without a bin, `(zoneID*10 + roadTypeID)*100`: RatePerHour's link, road type 1's."
+        },
+        "rto_regClassID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "output_rows"
+          ],
+          "description": "BaseRateOutput's regulatory class, 0: the class is summed away in every Rates table."
+        },
+        "rto_temperature": {
+          "type": "unknown",
+          "units": "degF",
+          "shape": [
+            "output_rows"
+          ],
+          "description": "`ZoneMonthHour.temperature` at the output row's zone, month and hour: what every Rates table joins on to report."
+        },
+        "rto_relHumidity": {
+          "type": "unknown",
+          "units": "percent",
+          "shape": [
+            "output_rows"
+          ],
+          "description": "`ZoneMonthHour.relHumidity`, likewise."
+        },
+        "rto_ratePerActivity": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "output_rows"
+          ],
+          "description": "The output row's emissionRate per unit of its activity -- per start, per hotelling hour, per idle hour -- own and chained, read at the first bin (a per-activity rate is the same at every bin). Shore power's rows read its own rate, which is not zero where its hours are."
+        },
+        "coh_usedShare": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "cohort_rows",
+            "runspeccounty_rows"
+          ],
+          "description": "The cohort's share of its source type's activity: its bins' fuel-usage-rebased fractions summed. Population by fuel is the age's population times it."
+        },
+        "run_populationAllocFactor": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspeccounty_rows",
+            "runspecsourcetype_rows"
+          ],
+          "description": "ActivityCalculator.sql's `sutFraction`: the zone's share of a source type's population, the road types' SHO allocation factors weighted by the source type's VMT fractions over EVERY road type the zone has a `zoneRoadType` row for, selected or not. Population is not allocated by `startAllocFactor`."
+        },
+        "coh_population": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "cohort_rows",
+            "runspecday_rows",
+            "runspeccounty_rows"
+          ],
+          "description": "MOVESActivityOutput's population (activity type 6), ActivityCalculator.sql: the age's population, times the zone's `sutFraction`, times the cohort's fuel share -- `sourceTypeFuelFraction`, the fuel-usage-rebased share, which is the cohort's bins' used fractions summed."
+        },
+        "rto_population": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "output_rows"
+          ],
+          "description": "The output row's cohort's population: what RatePerVehicle and RatePerProfile divide by."
+        },
+        "rto_isPrerequisite": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "output_rows"
+          ],
+          "description": "Is the output row's block a chain prerequisite? The Rates tables MOVES reads from BaseRateOutput keep it (RatePerDistance, RatePerStart, RatePerHour); MOVESOutput has been stripped of it before the rate post-processor reads it, so RatePerVehicle does not (PLAN.md §7.3.48: `rates-evap` writes 104 start-energy rows to RatePerStart and none to RatePerVehicle)."
+        },
+        "rps_inTable": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "output_rows"
+          ],
+          "description": "Is this output row in RatePerStart? Processes 2 and 16, outside PROJECT domain."
+        },
+        "rps_ratePerStart": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "output_rows"
+          ],
+          "description": "RatePerStart.ratePerStart: emissionRate, per start."
+        },
+        "rph_inTable": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "output_rows"
+          ],
+          "description": "Is this output row in RatePerHour? Processes 17, 90, 91 and 93."
+        },
+        "rph_ratePerHour": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "output_rows"
+          ],
+          "description": "RatePerHour.ratePerHour: emissionRate, per hotelling hour."
+        },
+        "rph_linkID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "output_rows"
+          ],
+          "description": "RatePerHour.linkID: BaseRateOutput's link, road type 1's."
+        },
+        "rpv_inTable": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "output_rows"
+          ],
+          "description": "Is this output row in RatePerVehicle? Processes 2, 16, 17, 90, 91 and 93, and 11, 13, 18 and 19 on road type 1. Not a chain prerequisite: RatePerVehicle reads MOVESOutput, which the output processor has stripped of it."
+        },
+        "rpv_ratePerVehicle": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "output_rows"
+          ],
+          "description": "RatePerVehicle.ratePerVehicle: MOVESOutput over the cohort's population, 0 where there is none -- at Rates scale MOVESOutput is the inventory's quantity, because only meanBaseRate is scaled by the activity."
+        },
+        "spvCohortOrdinal": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "startspervehicle_rows"
+          ],
+          "description": "The cohort a StartsPerVehicle row is for: the relation is the cohort grid, then county, month and day type."
+        },
+        "spvCellOffset": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "startspervehicle_rows"
+          ],
+          "description": "Its position within the cohort's block of counties x months x day types."
+        },
+        "spvCountyOrdinal": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "startspervehicle_rows"
+          ],
+          "description": "Its county."
+        },
+        "spvCountyOffset": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "startspervehicle_rows"
+          ],
+          "description": "Its position within the county's block."
+        },
+        "spvMonthOrdinal": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "startspervehicle_rows"
+          ],
+          "description": "Its month."
+        },
+        "spvDayOrdinal": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "startspervehicle_rows"
+          ],
+          "description": "Its day type."
+        },
+        "spv_population": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "startspervehicle_rows"
+          ],
+          "description": "The cohort's population; a row exists only where it is positive."
+        },
+        "spv_startsPerVehicle": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "startspervehicle_rows"
+          ],
+          "description": "StartsPerVehicle.startsPerVehicle: the cohort's starts in the hour -- the age's, allocated by `startAllocFactor`, times its fuel share -- over its population, allocated by `sutFraction`. The fuel share cancels, so every fuel of a model year carries the same value."
+        },
+        "spv_inTable": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "startspervehicle_rows"
+          ],
+          "description": "Is this row in StartsPerVehicle? At Rates scale outside PROJECT domain, when the run computes starts, for a cohort with population."
+        },
+        "spv_yearID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "startspervehicle_rows"
+          ],
+          "description": "StartsPerVehicle.yearID."
+        },
+        "spv_monthID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "startspervehicle_rows"
+          ],
+          "description": "StartsPerVehicle.monthID."
+        },
+        "spv_dayID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "startspervehicle_rows"
+          ],
+          "description": "StartsPerVehicle.dayID."
+        },
+        "spv_hourID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "startspervehicle_rows"
+          ],
+          "description": "StartsPerVehicle.hourID."
+        },
+        "spv_zoneID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "startspervehicle_rows"
+          ],
+          "description": "StartsPerVehicle.zoneID."
+        },
+        "spv_sourceTypeID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "startspervehicle_rows"
+          ],
+          "description": "StartsPerVehicle.sourceTypeID."
+        },
+        "spv_regClassID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "startspervehicle_rows"
+          ],
+          "description": "StartsPerVehicle.regClassID, 0."
+        },
+        "spv_fuelTypeID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "startspervehicle_rows"
+          ],
+          "description": "StartsPerVehicle.fuelTypeID."
+        },
+        "spv_modelYearID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "startspervehicle_rows"
+          ],
+          "description": "StartsPerVehicle.modelYearID."
+        },
+        "spv_SCC": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "startspervehicle_rows"
+          ],
+          "description": "StartsPerVehicle.SCC: the starts' own, on road type 1 for process 2, as MOVESActivityOutput carries it."
         },
         "run_ratesUnported": {
           "type": "unknown",
@@ -19410,7 +19945,15 @@
           "shape": [
             "run_rows"
           ],
-          "description": "At Rates scale, how many things the run asks for that the rate-per-distance relation does not compute: every emitted block other than a directly rated running-exhaust block on an on-network road type (starts, evaporative and hotelling processes, brake and tire wear, chained pollutants and off-network idle write RatePerStart, RatePerVehicle, RatePerProfile, RatePerHour or a chained BaseRateOutput, none of which is built), a PROJECT domain (whose rate is per link speed), and a run that aggregates hours or day types. 0 at inventory scale by construction. Part of `run_selectionUnported`."
+          "description": "At Rates scale, what is NOT ported: time aggregation, 1 -- MOVES refuses it at Rates scale, so it is an invalid RunSpec rather than unported work (a PROJECT domain is ported, and what a project selects beyond running exhaust is `run_domainUnported`'s); every selected evaporative or refueling pollutant-process on the OFF-NETWORK road type -- a block MOVES writes and the model does not compute -- whose RatePerVehicle and RatePerProfile rows need the soak operating modes and the cold-soak tank temperatures (part C of §7.3.48); and every rate row of SulfatePMCalculator's species or the non-HAP TOG residual, which the per-activity and per-bin rates do not carry. Zero at inventory scale. Inside `run_selectionUnported`."
+        },
+        "run_startBlockCount": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "run_rows"
+          ],
+          "description": "How many start-exhaust blocks the run computes, selected or required: MOVES computes starts, and writes StartsPerVehicle, when any does."
         }
       },
       "equations": [
@@ -22309,7 +22852,7 @@
                 "op": "-",
                 "args": [
                   1.0,
-                  "rspp_isSilentlyRequired"
+                  "rspp_isStripped"
                 ]
               }
             ]
@@ -23868,20 +24411,44 @@
                       "op": "and",
                       "args": [
                         {
-                          "op": "==",
+                          "op": "or",
                           "args": [
                             {
-                              "op": "index",
+                              "op": "==",
                               "args": [
-                                "rspp_processID",
-                                "p"
+                                {
+                                  "op": "index",
+                                  "args": [
+                                    "rspp_processID",
+                                    "p"
+                                  ]
+                                },
+                                {
+                                  "op": "enum",
+                                  "args": [
+                                    "process",
+                                    "RunningExhaust"
+                                  ]
+                                }
                               ]
                             },
                             {
-                              "op": "enum",
+                              "op": "==",
                               "args": [
-                                "process",
-                                "RunningExhaust"
+                                {
+                                  "op": "index",
+                                  "args": [
+                                    "rspp_processID",
+                                    "p"
+                                  ]
+                                },
+                                {
+                                  "op": "enum",
+                                  "args": [
+                                    "process",
+                                    "CrankcaseRunningExhaust"
+                                  ]
+                                }
                               ]
                             }
                           ]
@@ -23925,7 +24492,8 @@
                 0.0
               ]
             }
-          }
+          },
+          "_comment": "Off-network idle is running exhaust on road type 1 when an on-network road type is selected -- and crankcase running with it, because CrankcaseEmissionRatio chains every running row, idle included (PLAN.md §7.3.48)."
         },
         {
           "lhs": "ppr_occursOnRoad",
@@ -24101,7 +24669,7 @@
                     {
                       "op": "index",
                       "args": [
-                        "rspp_isSilentlyRequired",
+                        "rspp_isStripped",
                         "p"
                       ]
                     }
@@ -24210,7 +24778,7 @@
                     {
                       "op": "index",
                       "args": [
-                        "rspp_isSilentlyRequired",
+                        "rspp_isStripped",
                         "p"
                       ]
                     }
@@ -67407,6 +67975,23 @@
           }
         },
         {
+          "_comment": "PLAN.md §7.3.48: measured on `rates-evap`, whose RatePerDistance and RatePerStart carry the energy blocks the inventory strips.",
+          "lhs": "rspp_isStripped",
+          "rhs": {
+            "op": "*",
+            "args": [
+              "rspp_isSilentlyRequired",
+              {
+                "op": "-",
+                "args": [
+                  1.0,
+                  "n_ratesScale"
+                ]
+              }
+            ]
+          }
+        },
+        {
           "_comment": "J105: the union. `runspecchainedto`'s rows first, then the flattened CO2AE edges, then the flattened refueling ones. Two of the three arms are DECLARED rather than read, and both for the same reason: `pollutantprocessassoc.chainedTo1/2` are NULL on 9001, 9801, 118 and 119, and the dependency lives in a calculator's Java (conventions 77).",
           "lhs": "lnk_outputPolProcessID",
           "rhs": {
@@ -70248,6 +70833,1589 @@
           }
         },
         {
+          "lhs": "rt_cohortShare",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b",
+              "g"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "c": {
+                "from": "cohort_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rt_cohortOrdinal",
+                    "coh_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "coh_usedShare",
+                "c",
+                "g"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rt_isBinRated",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "q": {
+                "from": "polprocroad_rows"
+              },
+              "n": {
+                "from": "run_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rt_blockOrdinal",
+                    "ppr_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "ifelse",
+                  "args": [
+                    {
+                      "op": "and",
+                      "args": [
+                        {
+                          "op": "or",
+                          "args": [
+                            {
+                              "op": "or",
+                              "args": [
+                                {
+                                  "op": "==",
+                                  "args": [
+                                    {
+                                      "op": "index",
+                                      "args": [
+                                        "rt_processID",
+                                        "b"
+                                      ]
+                                    },
+                                    {
+                                      "op": "enum",
+                                      "args": [
+                                        "process",
+                                        "RunningExhaust"
+                                      ]
+                                    }
+                                  ]
+                                },
+                                {
+                                  "op": "==",
+                                  "args": [
+                                    {
+                                      "op": "index",
+                                      "args": [
+                                        "rt_processID",
+                                        "b"
+                                      ]
+                                    },
+                                    {
+                                      "op": "enum",
+                                      "args": [
+                                        "process",
+                                        "Brakewear"
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "op": "==",
+                              "args": [
+                                {
+                                  "op": "index",
+                                  "args": [
+                                    "rt_processID",
+                                    "b"
+                                  ]
+                                },
+                                {
+                                  "op": "enum",
+                                  "args": [
+                                    "process",
+                                    "Tirewear"
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "op": ">",
+                          "args": [
+                            {
+                              "op": "index",
+                              "args": [
+                                "ppr_roadTypeID",
+                                "q"
+                              ]
+                            },
+                            1.5
+                          ]
+                        }
+                      ]
+                    },
+                    1.0,
+                    0.0
+                  ]
+                },
+                {
+                  "op": "-",
+                  "args": [
+                    1.0,
+                    {
+                      "op": "index",
+                      "args": [
+                        "run_isProjectDomain",
+                        "n"
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rt_isLinkSpeedRated",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "n": {
+                "from": "run_rows"
+              }
+            },
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "run_isProjectDomain",
+                    "n"
+                  ]
+                },
+                {
+                  "op": "ifelse",
+                  "args": [
+                    {
+                      "op": "or",
+                      "args": [
+                        {
+                          "op": "or",
+                          "args": [
+                            {
+                              "op": "==",
+                              "args": [
+                                {
+                                  "op": "index",
+                                  "args": [
+                                    "rt_processID",
+                                    "b"
+                                  ]
+                                },
+                                {
+                                  "op": "enum",
+                                  "args": [
+                                    "process",
+                                    "RunningExhaust"
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "op": "==",
+                              "args": [
+                                {
+                                  "op": "index",
+                                  "args": [
+                                    "rt_processID",
+                                    "b"
+                                  ]
+                                },
+                                {
+                                  "op": "enum",
+                                  "args": [
+                                    "process",
+                                    "Brakewear"
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "op": "==",
+                          "args": [
+                            {
+                              "op": "index",
+                              "args": [
+                                "rt_processID",
+                                "b"
+                              ]
+                            },
+                            {
+                              "op": "enum",
+                              "args": [
+                                "process",
+                                "Tirewear"
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    1.0,
+                    0.0
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rt_isHourlyPerMile",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "q": {
+                "from": "polprocroad_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rt_blockOrdinal",
+                    "ppr_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                {
+                  "op": "and",
+                  "args": [
+                    {
+                      "op": "or",
+                      "args": [
+                        {
+                          "op": "or",
+                          "args": [
+                            {
+                              "op": "==",
+                              "args": [
+                                {
+                                  "op": "index",
+                                  "args": [
+                                    "rt_processID",
+                                    "b"
+                                  ]
+                                },
+                                {
+                                  "op": "enum",
+                                  "args": [
+                                    "process",
+                                    "EvapPermeation"
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "op": "==",
+                              "args": [
+                                {
+                                  "op": "index",
+                                  "args": [
+                                    "rt_processID",
+                                    "b"
+                                  ]
+                                },
+                                {
+                                  "op": "enum",
+                                  "args": [
+                                    "process",
+                                    "EvapFuelVaporVenting"
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "op": "==",
+                          "args": [
+                            {
+                              "op": "index",
+                              "args": [
+                                "rt_processID",
+                                "b"
+                              ]
+                            },
+                            {
+                              "op": "enum",
+                              "args": [
+                                "process",
+                                "EvapFuelLeaks"
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "op": ">",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "ppr_roadTypeID",
+                            "q"
+                          ]
+                        },
+                        1.5
+                      ]
+                    }
+                  ]
+                },
+                1.0,
+                0.0
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rtRate_hotellingMeanBaseRate",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b",
+              "k",
+              "g",
+              "n"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "k": {
+                "from": "runspecday_rows"
+              },
+              "m": {
+                "from": "operating_mode_rows"
+              },
+              "p": {
+                "from": "runspecpollutantprocess_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "n": {
+                "from": "runspecmonth_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rt_polProcOrdinal",
+                    "rspp_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "*",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "hot_modeWeight",
+                        "p",
+                        "m"
+                      ]
+                    },
+                    {
+                      "op": "-",
+                      "args": [
+                        1.0,
+                        {
+                          "op": "index",
+                          "args": [
+                            "hot_isShorePowerMode",
+                            "p",
+                            "m"
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "rtMode_weightedRate",
+                    "b",
+                    "m",
+                    "g"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rtRate_hotellingMeanBaseRateACAdj",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b",
+              "k",
+              "g"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "k": {
+                "from": "runspecday_rows"
+              },
+              "m": {
+                "from": "operating_mode_rows"
+              },
+              "p": {
+                "from": "runspecpollutantprocess_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rt_polProcOrdinal",
+                    "rspp_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "*",
+                  "args": [
+                    {
+                      "op": "*",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "hot_modeWeight",
+                            "p",
+                            "m"
+                          ]
+                        },
+                        {
+                          "op": "-",
+                          "args": [
+                            1.0,
+                            {
+                              "op": "index",
+                              "args": [
+                                "hot_isShorePowerMode",
+                                "p",
+                                "m"
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "rtMode_weightedRate",
+                        "b",
+                        "m",
+                        "g"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "rtMode_acIncrement",
+                    "b",
+                    "m"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rtRate_hotellingAdjustedMeanBaseRate",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b",
+              "k",
+              "g",
+              "m"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "k": {
+                "from": "runspecday_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "m": {
+                "from": "runspecmonth_rows"
+              }
+            },
+            "expr": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "adjusted_mean_base_rate",
+              "bindings": {
+                "mean_base_rate": {
+                  "op": "index",
+                  "args": [
+                    "rtRate_hotellingMeanBaseRate",
+                    "b",
+                    "k",
+                    "g",
+                    "m"
+                  ]
+                },
+                "ac_factor": {
+                  "op": "index",
+                  "args": [
+                    "rt_acFactor",
+                    "b",
+                    "g",
+                    "m"
+                  ]
+                },
+                "mean_base_rate_ac_adj": {
+                  "op": "index",
+                  "args": [
+                    "rtRate_hotellingMeanBaseRateACAdj",
+                    "b",
+                    "k",
+                    "g"
+                  ]
+                },
+                "fuel_effect_ratio": {
+                  "op": "*",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "rt_criteriaRatio",
+                        "b",
+                        "g",
+                        "m"
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "rt_baseFuelRatio",
+                        "b",
+                        "g",
+                        "m"
+                      ]
+                    }
+                  ]
+                },
+                "temperature_factor": {
+                  "op": "index",
+                  "args": [
+                    "rt_temperatureFactor",
+                    "b",
+                    "g",
+                    "m"
+                  ]
+                },
+                "emission_rate_adjustment": {
+                  "op": "index",
+                  "args": [
+                    "rt_emissionRateAdjustment",
+                    "b"
+                  ]
+                },
+                "ev_energy_divisor": {
+                  "op": "index",
+                  "args": [
+                    "rt_evEnergyDivisor",
+                    "b"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "lhs": "rtRate_shorePowerMeanBaseRate",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b",
+              "k",
+              "g",
+              "n"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "k": {
+                "from": "runspecday_rows"
+              },
+              "m": {
+                "from": "operating_mode_rows"
+              },
+              "p": {
+                "from": "runspecpollutantprocess_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "n": {
+                "from": "runspecmonth_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rt_polProcOrdinal",
+                    "rspp_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "*",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "hot_modeWeight",
+                        "p",
+                        "m"
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "hot_isShorePowerMode",
+                        "p",
+                        "m"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "rtMode_weightedRate",
+                    "b",
+                    "m",
+                    "g"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rtRate_shorePowerMeanBaseRateACAdj",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b",
+              "k",
+              "g"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "k": {
+                "from": "runspecday_rows"
+              },
+              "m": {
+                "from": "operating_mode_rows"
+              },
+              "p": {
+                "from": "runspecpollutantprocess_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rt_polProcOrdinal",
+                    "rspp_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "*",
+                  "args": [
+                    {
+                      "op": "*",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "hot_modeWeight",
+                            "p",
+                            "m"
+                          ]
+                        },
+                        {
+                          "op": "index",
+                          "args": [
+                            "hot_isShorePowerMode",
+                            "p",
+                            "m"
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "rtMode_weightedRate",
+                        "b",
+                        "m",
+                        "g"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "rtMode_acIncrement",
+                    "b",
+                    "m"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rtRate_shorePowerAdjustedMeanBaseRate",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b",
+              "k",
+              "g",
+              "m"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "k": {
+                "from": "runspecday_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "m": {
+                "from": "runspecmonth_rows"
+              }
+            },
+            "expr": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "adjusted_mean_base_rate",
+              "bindings": {
+                "mean_base_rate": {
+                  "op": "index",
+                  "args": [
+                    "rtRate_shorePowerMeanBaseRate",
+                    "b",
+                    "k",
+                    "g",
+                    "m"
+                  ]
+                },
+                "ac_factor": {
+                  "op": "index",
+                  "args": [
+                    "rt_acFactor",
+                    "b",
+                    "g",
+                    "m"
+                  ]
+                },
+                "mean_base_rate_ac_adj": {
+                  "op": "index",
+                  "args": [
+                    "rtRate_shorePowerMeanBaseRateACAdj",
+                    "b",
+                    "k",
+                    "g"
+                  ]
+                },
+                "fuel_effect_ratio": {
+                  "op": "*",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "rt_criteriaRatio",
+                        "b",
+                        "g",
+                        "m"
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "rt_baseFuelRatio",
+                        "b",
+                        "g",
+                        "m"
+                      ]
+                    }
+                  ]
+                },
+                "temperature_factor": {
+                  "op": "index",
+                  "args": [
+                    "rt_temperatureFactor",
+                    "b",
+                    "g",
+                    "m"
+                  ]
+                },
+                "emission_rate_adjustment": {
+                  "op": "index",
+                  "args": [
+                    "rt_emissionRateAdjustment",
+                    "b"
+                  ]
+                },
+                "ev_energy_divisor": {
+                  "op": "index",
+                  "args": [
+                    "rt_evEnergyDivisor",
+                    "b"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "_comment": "BaseRateCalculator scales meanBaseRate by the activity and leaves emissionRate alone (baseratecalculator.go, aggregateAndApplyActivity), so at Rates scale emissionRate is the rate per unit of activity.",
+          "lhs": "rtRate_direct",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b",
+              "k",
+              "j",
+              "g",
+              "m"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "k": {
+                "from": "runspecday_rows"
+              },
+              "j": {
+                "from": "ratespeedbin_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "m": {
+                "from": "runspecmonth_rows"
+              },
+              "v": {
+                "from": "avgspeedbin_rows"
+              }
+            },
+            "join": [
+              {
+                "syms": [
+                  "j",
+                  "v"
+                ],
+                "on": [
+                  [
+                    "rsb_ordinal",
+                    "asb_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "/",
+              "args": [
+                {
+                  "op": "ifelse",
+                  "args": [
+                    {
+                      "op": ">",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "rt_isBinRated",
+                            "b"
+                          ]
+                        },
+                        0.5
+                      ]
+                    },
+                    {
+                      "op": "/",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "rtBin_adjustedMeanBaseRate",
+                            "b",
+                            "j",
+                            "g",
+                            "m"
+                          ]
+                        },
+                        {
+                          "op": "index",
+                          "args": [
+                            "asb_avgBinSpeed",
+                            "v"
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "op": "/",
+                      "args": [
+                        {
+                          "op": "/",
+                          "args": [
+                            {
+                              "op": "ifelse",
+                              "args": [
+                                {
+                                  "op": ">",
+                                  "args": [
+                                    {
+                                      "op": "index",
+                                      "args": [
+                                        "rt_isHotelling",
+                                        "b"
+                                      ]
+                                    },
+                                    0.5
+                                  ]
+                                },
+                                {
+                                  "op": "index",
+                                  "args": [
+                                    "rtRate_hotellingAdjustedMeanBaseRate",
+                                    "b",
+                                    "k",
+                                    "g",
+                                    "m"
+                                  ]
+                                },
+                                {
+                                  "op": "index",
+                                  "args": [
+                                    "rtDay_adjustedMeanBaseRate",
+                                    "b",
+                                    "k",
+                                    "g",
+                                    "m"
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "op": "ifelse",
+                              "args": [
+                                {
+                                  "op": ">",
+                                  "args": [
+                                    {
+                                      "op": "index",
+                                      "args": [
+                                        "rt_cohortShare",
+                                        "b",
+                                        "g"
+                                      ]
+                                    },
+                                    0.0
+                                  ]
+                                },
+                                {
+                                  "op": "index",
+                                  "args": [
+                                    "rt_cohortShare",
+                                    "b",
+                                    "g"
+                                  ]
+                                },
+                                1.0
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "op": "ifelse",
+                          "args": [
+                            {
+                              "op": ">",
+                              "args": [
+                                {
+                                  "op": "index",
+                                  "args": [
+                                    "rt_isHourlyPerMile",
+                                    "b"
+                                  ]
+                                },
+                                0.5
+                              ]
+                            },
+                            {
+                              "op": "index",
+                              "args": [
+                                "asb_avgBinSpeed",
+                                "v"
+                              ]
+                            },
+                            {
+                              "op": "ifelse",
+                              "args": [
+                                {
+                                  "op": ">",
+                                  "args": [
+                                    {
+                                      "op": "index",
+                                      "args": [
+                                        "rt_isLinkSpeedRated",
+                                        "b"
+                                      ]
+                                    },
+                                    0.5
+                                  ]
+                                },
+                                {
+                                  "op": "index",
+                                  "args": [
+                                    "run_linkAvgSpeed",
+                                    "g"
+                                  ]
+                                },
+                                1.0
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "rt_unitDivisor",
+                    "b"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rtRate_chainGen1",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b",
+              "k",
+              "j",
+              "g",
+              "m"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "k": {
+                "from": "runspecday_rows"
+              },
+              "j": {
+                "from": "ratespeedbin_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "m": {
+                "from": "runspecmonth_rows"
+              },
+              "b2": {
+                "from": "rate_rows"
+              },
+              "h": {
+                "from": "chainlink_rows"
+              }
+            },
+            "join": [
+              {
+                "syms": [
+                  "b",
+                  "h"
+                ],
+                "on": [
+                  [
+                    "rt_polProcessID",
+                    "lnk_outputPolProcessID"
+                  ]
+                ]
+              },
+              {
+                "syms": [
+                  "b2",
+                  "h"
+                ],
+                "on": [
+                  [
+                    "rt_polProcessID",
+                    "lnk_inputPolProcessID"
+                  ]
+                ]
+              },
+              {
+                "syms": [
+                  "b",
+                  "b2"
+                ],
+                "on": [
+                  [
+                    "rt_binOrdinal",
+                    "rt_binOrdinal"
+                  ],
+                  [
+                    "rt_roadTypeOrdinal",
+                    "rt_roadTypeOrdinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "*",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "rt_chainRatio",
+                        "b",
+                        "g",
+                        "m"
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "rtRate_direct",
+                        "b2",
+                        "k",
+                        "j",
+                        "g",
+                        "m"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "lnk_weight",
+                    "h"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rtRate_gen1",
+          "rhs": {
+            "op": "+",
+            "args": [
+              "rtRate_direct",
+              "rtRate_chainGen1"
+            ]
+          }
+        },
+        {
+          "lhs": "rtRate_chainGen2",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b",
+              "k",
+              "j",
+              "g",
+              "m"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "k": {
+                "from": "runspecday_rows"
+              },
+              "j": {
+                "from": "ratespeedbin_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "m": {
+                "from": "runspecmonth_rows"
+              },
+              "b2": {
+                "from": "rate_rows"
+              },
+              "h": {
+                "from": "chainlink_rows"
+              }
+            },
+            "join": [
+              {
+                "syms": [
+                  "b",
+                  "h"
+                ],
+                "on": [
+                  [
+                    "rt_polProcessID",
+                    "lnk_outputPolProcessID"
+                  ]
+                ]
+              },
+              {
+                "syms": [
+                  "b2",
+                  "h"
+                ],
+                "on": [
+                  [
+                    "rt_polProcessID",
+                    "lnk_inputPolProcessID"
+                  ]
+                ]
+              },
+              {
+                "syms": [
+                  "b",
+                  "b2"
+                ],
+                "on": [
+                  [
+                    "rt_binOrdinal",
+                    "rt_binOrdinal"
+                  ],
+                  [
+                    "rt_roadTypeOrdinal",
+                    "rt_roadTypeOrdinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "*",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "rt_chainRatio",
+                        "b",
+                        "g",
+                        "m"
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "rtRate_gen1",
+                        "b2",
+                        "k",
+                        "j",
+                        "g",
+                        "m"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "lnk_weight",
+                    "h"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rtRate_gen2",
+          "rhs": {
+            "op": "+",
+            "args": [
+              "rtRate_direct",
+              "rtRate_chainGen2"
+            ]
+          }
+        },
+        {
+          "lhs": "rtRate_chained",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b",
+              "k",
+              "j",
+              "g",
+              "m"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "k": {
+                "from": "runspecday_rows"
+              },
+              "j": {
+                "from": "ratespeedbin_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "m": {
+                "from": "runspecmonth_rows"
+              },
+              "b2": {
+                "from": "rate_rows"
+              },
+              "h": {
+                "from": "chainlink_rows"
+              }
+            },
+            "join": [
+              {
+                "syms": [
+                  "b",
+                  "h"
+                ],
+                "on": [
+                  [
+                    "rt_polProcessID",
+                    "lnk_outputPolProcessID"
+                  ]
+                ]
+              },
+              {
+                "syms": [
+                  "b2",
+                  "h"
+                ],
+                "on": [
+                  [
+                    "rt_polProcessID",
+                    "lnk_inputPolProcessID"
+                  ]
+                ]
+              },
+              {
+                "syms": [
+                  "b",
+                  "b2"
+                ],
+                "on": [
+                  [
+                    "rt_binOrdinal",
+                    "rt_binOrdinal"
+                  ],
+                  [
+                    "rt_roadTypeOrdinal",
+                    "rt_roadTypeOrdinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "*",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "rt_chainRatio",
+                        "b",
+                        "g",
+                        "m"
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "rtRate_gen2",
+                        "b2",
+                        "k",
+                        "j",
+                        "g",
+                        "m"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "lnk_weight",
+                    "h"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rtRate_total",
+          "rhs": {
+            "op": "+",
+            "args": [
+              "rtRate_direct",
+              "rtRate_chained"
+            ]
+          }
+        },
+        {
           "lhs": "rt_parentEmitsGen4",
           "rhs": {
             "op": "faq",
@@ -72907,37 +75075,30 @@
           }
         },
         {
-          "_comment": "PLAN.md §7.3.47: the Rates-scale relation is running exhaust's RatePerDistance, and everything else a Rates run could ask for is counted here rather than emitted wrong.",
+          "_comment": "PLAN.md §7.3.48: what a Rates run could ask for that the Rates tables do not yet carry, counted rather than emitted wrong.",
           "lhs": "run_ratesUnported",
           "rhs": {
             "op": "+",
             "args": [
               {
-                "op": "faq",
-                "args": [],
-                "semiring": "sum_product",
-                "output_idx": [
-                  "n"
-                ],
-                "ranges": {
-                  "n": {
-                    "from": "run_rows"
-                  }
-                },
-                "expr": {
-                  "op": "*",
-                  "args": [
-                    "n_ratesScale",
-                    {
-                      "op": "+",
+                "op": "+",
+                "args": [
+                  {
+                    "op": "faq",
+                    "args": [],
+                    "semiring": "sum_product",
+                    "output_idx": [
+                      "n"
+                    ],
+                    "ranges": {
+                      "n": {
+                        "from": "run_rows"
+                      }
+                    },
+                    "expr": {
+                      "op": "*",
                       "args": [
-                        {
-                          "op": "index",
-                          "args": [
-                            "run_isProjectDomain",
-                            "n"
-                          ]
-                        },
+                        "n_ratesScale",
                         {
                           "op": "ifelse",
                           "args": [
@@ -72990,8 +75151,183 @@
                         }
                       ]
                     }
-                  ]
-                }
+                  },
+                  {
+                    "op": "faq",
+                    "args": [],
+                    "semiring": "sum_product",
+                    "output_idx": [
+                      "n"
+                    ],
+                    "ranges": {
+                      "n": {
+                        "from": "run_rows"
+                      },
+                      "q": {
+                        "from": "polprocroad_rows"
+                      },
+                      "p": {
+                        "from": "runspecpollutantprocess_rows"
+                      }
+                    },
+                    "join": [
+                      {
+                        "on": [
+                          [
+                            "ppr_ppOrdinal",
+                            "rspp_ordinal"
+                          ]
+                        ]
+                      }
+                    ],
+                    "expr": {
+                      "op": "*",
+                      "args": [
+                        "n_ratesScale",
+                        {
+                          "op": "ifelse",
+                          "args": [
+                            {
+                              "op": "and",
+                              "args": [
+                                {
+                                  "op": "or",
+                                  "args": [
+                                    {
+                                      "op": "or",
+                                      "args": [
+                                        {
+                                          "op": "or",
+                                          "args": [
+                                            {
+                                              "op": "or",
+                                              "args": [
+                                                {
+                                                  "op": "==",
+                                                  "args": [
+                                                    {
+                                                      "op": "index",
+                                                      "args": [
+                                                        "rspp_processID",
+                                                        "p"
+                                                      ]
+                                                    },
+                                                    {
+                                                      "op": "enum",
+                                                      "args": [
+                                                        "process",
+                                                        "EvapPermeation"
+                                                      ]
+                                                    }
+                                                  ]
+                                                },
+                                                {
+                                                  "op": "==",
+                                                  "args": [
+                                                    {
+                                                      "op": "index",
+                                                      "args": [
+                                                        "rspp_processID",
+                                                        "p"
+                                                      ]
+                                                    },
+                                                    {
+                                                      "op": "enum",
+                                                      "args": [
+                                                        "process",
+                                                        "EvapFuelVaporVenting"
+                                                      ]
+                                                    }
+                                                  ]
+                                                }
+                                              ]
+                                            },
+                                            {
+                                              "op": "==",
+                                              "args": [
+                                                {
+                                                  "op": "index",
+                                                  "args": [
+                                                    "rspp_processID",
+                                                    "p"
+                                                  ]
+                                                },
+                                                {
+                                                  "op": "enum",
+                                                  "args": [
+                                                    "process",
+                                                    "EvapFuelLeaks"
+                                                  ]
+                                                }
+                                              ]
+                                            }
+                                          ]
+                                        },
+                                        {
+                                          "op": "==",
+                                          "args": [
+                                            {
+                                              "op": "index",
+                                              "args": [
+                                                "rspp_processID",
+                                                "p"
+                                              ]
+                                            },
+                                            {
+                                              "op": "enum",
+                                              "args": [
+                                                "process",
+                                                "RefuelingDisplacementLoss"
+                                              ]
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "op": "==",
+                                      "args": [
+                                        {
+                                          "op": "index",
+                                          "args": [
+                                            "rspp_processID",
+                                            "p"
+                                          ]
+                                        },
+                                        {
+                                          "op": "enum",
+                                          "args": [
+                                            "process",
+                                            "RefuelingSpillageLoss"
+                                          ]
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                },
+                                {
+                                  "op": "<",
+                                  "args": [
+                                    {
+                                      "op": "index",
+                                      "args": [
+                                        "ppr_roadTypeID",
+                                        "q"
+                                      ]
+                                    },
+                                    1.5
+                                  ]
+                                }
+                              ]
+                            },
+                            1.0,
+                            0.0
+                          ]
+                        }
+                      ]
+                    }
+                  }
+                ]
               },
               {
                 "op": "faq",
@@ -73004,19 +75340,19 @@
                   "n": {
                     "from": "run_rows"
                   },
+                  "b": {
+                    "from": "rate_rows"
+                  },
                   "q": {
                     "from": "polprocroad_rows"
-                  },
-                  "p": {
-                    "from": "runspecpollutantprocess_rows"
                   }
                 },
                 "join": [
                   {
                     "on": [
                       [
-                        "ppr_ppOrdinal",
-                        "rspp_ordinal"
+                        "rt_blockOrdinal",
+                        "ppr_ordinal"
                       ]
                     ]
                   }
@@ -73038,89 +75374,79 @@
                       ]
                     },
                     {
-                      "op": "ifelse",
+                      "op": "max",
                       "args": [
                         {
-                          "op": "and",
+                          "op": "index",
                           "args": [
-                            {
-                              "op": "and",
-                              "args": [
-                                {
-                                  "op": "==",
-                                  "args": [
-                                    {
-                                      "op": "index",
-                                      "args": [
-                                        "rspp_processID",
-                                        "p"
-                                      ]
-                                    },
-                                    {
-                                      "op": "enum",
-                                      "args": [
-                                        "process",
-                                        "RunningExhaust"
-                                      ]
-                                    }
-                                  ]
-                                },
-                                {
-                                  "op": ">",
-                                  "args": [
-                                    {
-                                      "op": "index",
-                                      "args": [
-                                        "rspp_hasBaseRateTableRow",
-                                        "p"
-                                      ]
-                                    },
-                                    0.5
-                                  ]
-                                }
-                              ]
-                            },
-                            {
-                              "op": "and",
-                              "args": [
-                                {
-                                  "op": ">",
-                                  "args": [
-                                    {
-                                      "op": "index",
-                                      "args": [
-                                        "ppr_roadTypeID",
-                                        "q"
-                                      ]
-                                    },
-                                    1.5
-                                  ]
-                                },
-                                {
-                                  "op": "<",
-                                  "args": [
-                                    {
-                                      "op": "index",
-                                      "args": [
-                                        "ppr_isOffNetworkIdle",
-                                        "q"
-                                      ]
-                                    },
-                                    0.5
-                                  ]
-                                }
-                              ]
-                            }
+                            "rt_isSPMOutput",
+                            "b"
                           ]
                         },
-                        0.0,
-                        1.0
+                        {
+                          "op": "index",
+                          "args": [
+                            "rt_isNonHapTog",
+                            "b"
+                          ]
+                        }
                       ]
                     }
                   ]
                 }
               }
             ]
+          }
+        },
+        {
+          "lhs": "run_startBlockCount",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "n"
+            ],
+            "ranges": {
+              "n": {
+                "from": "run_rows"
+              },
+              "q": {
+                "from": "polprocroad_rows"
+              },
+              "p": {
+                "from": "runspecpollutantprocess_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "ppr_ppOrdinal",
+                    "rspp_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "ppr_occursOnRoad",
+                    "q"
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "rspp_isStart",
+                    "p"
+                  ]
+                }
+              ]
+            }
           }
         },
         {
@@ -73154,20 +75480,44 @@
                   "op": "ifelse",
                   "args": [
                     {
-                      "op": "==",
+                      "op": "or",
                       "args": [
                         {
-                          "op": "index",
+                          "op": "==",
                           "args": [
-                            "rspp_processID",
-                            "p"
+                            {
+                              "op": "index",
+                              "args": [
+                                "rspp_processID",
+                                "p"
+                              ]
+                            },
+                            {
+                              "op": "enum",
+                              "args": [
+                                "process",
+                                "RunningExhaust"
+                              ]
+                            }
                           ]
                         },
                         {
-                          "op": "enum",
+                          "op": "==",
                           "args": [
-                            "process",
-                            "RunningExhaust"
+                            {
+                              "op": "index",
+                              "args": [
+                                "rspp_processID",
+                                "p"
+                              ]
+                            },
+                            {
+                              "op": "enum",
+                              "args": [
+                                "process",
+                                "CrankcaseRunningExhaust"
+                              ]
+                            }
                           ]
                         }
                       ]
@@ -73178,7 +75528,8 @@
                 }
               ]
             }
-          }
+          },
+          "_comment": "Crankcase running beside road type 1 is not counted: it chains every running row, off-network idle included, and `ppr_isOffNetworkIdle` writes it there (PLAN.md §7.3.48)."
         },
         {
           "lhs": "run_evapRoadTypeExcess",
@@ -78059,11 +80410,8 @@
               "g": {
                 "from": "runspeccounty_rows"
               },
-              "v": {
-                "from": "avgspeedbin_rows"
-              },
-              "j": {
-                "from": "ratespeedbin_rows"
+              "n": {
+                "from": "run_rows"
               }
             },
             "join": [
@@ -78082,51 +80430,60 @@
                     "rsc_ordinal"
                   ]
                 ]
-              },
-              {
-                "on": [
-                  [
-                    "rpdSpeedBinOrdinal",
-                    "rsb_ordinal"
-                  ]
-                ]
-              },
-              {
-                "on": [
-                  [
-                    "rsb_ordinal",
-                    "asb_ordinal"
-                  ]
-                ]
               }
             ],
             "expr": {
-              "op": "apply_expression_template",
-              "args": [],
-              "name": "mesoscale_lookup_link_id",
-              "bindings": {
-                "zone_id": {
+              "op": "ifelse",
+              "args": [
+                {
+                  "op": ">",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "run_isProjectDomain",
+                        "n"
+                      ]
+                    },
+                    0.5
+                  ]
+                },
+                {
                   "op": "index",
                   "args": [
-                    "run_zoneID",
+                    "run_linkID",
                     "g"
                   ]
                 },
-                "road_type_id": {
-                  "op": "index",
-                  "args": [
-                    "out_roadTypeID",
-                    "o"
-                  ]
-                },
-                "avg_speed_bin_id": {
-                  "op": "index",
-                  "args": [
-                    "asb_avgSpeedBinID",
-                    "v"
-                  ]
+                {
+                  "op": "apply_expression_template",
+                  "args": [],
+                  "name": "mesoscale_lookup_link_id",
+                  "bindings": {
+                    "zone_id": {
+                      "op": "index",
+                      "args": [
+                        "run_zoneID",
+                        "g"
+                      ]
+                    },
+                    "road_type_id": {
+                      "op": "index",
+                      "args": [
+                        "out_roadTypeID",
+                        "o"
+                      ]
+                    },
+                    "avg_speed_bin_id": {
+                      "op": "index",
+                      "args": [
+                        "rpd_avgSpeedBinID",
+                        "x"
+                      ]
+                    }
+                  }
                 }
-              }
+              ]
             }
           }
         },
@@ -78143,14 +80500,28 @@
               "x": {
                 "from": "rateoutput_rows"
               },
+              "o": {
+                "from": "output_rows"
+              },
               "v": {
                 "from": "avgspeedbin_rows"
               },
               "j": {
                 "from": "ratespeedbin_rows"
+              },
+              "n": {
+                "from": "run_rows"
               }
             },
             "join": [
+              {
+                "on": [
+                  [
+                    "rpdOutputOrdinal",
+                    "outOrdinal"
+                  ]
+                ]
+              },
               {
                 "on": [
                   [
@@ -78169,10 +80540,47 @@
               }
             ],
             "expr": {
-              "op": "index",
+              "op": "ifelse",
               "args": [
-                "asb_avgSpeedBinID",
-                "v"
+                {
+                  "op": "or",
+                  "args": [
+                    {
+                      "op": "<",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "out_roadTypeID",
+                            "o"
+                          ]
+                        },
+                        1.5
+                      ]
+                    },
+                    {
+                      "op": ">",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "run_isProjectDomain",
+                            "n"
+                          ]
+                        },
+                        0.5
+                      ]
+                    }
+                  ]
+                },
+                0.0,
+                {
+                  "op": "index",
+                  "args": [
+                    "asb_avgSpeedBinID",
+                    "v"
+                  ]
+                }
               ]
             }
           }
@@ -78196,6 +80604,31 @@
         {
           "lhs": "rpd_temperature",
           "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "rate_output_column",
+            "bindings": {
+              "value": "rto_temperature"
+            }
+          },
+          "_comment": "The output row's hour, as every Rates table reads it."
+        },
+        {
+          "lhs": "rpd_relHumidity",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "rate_output_column",
+            "bindings": {
+              "value": "rto_relHumidity"
+            }
+          },
+          "_comment": "Likewise."
+        },
+        {
+          "_comment": "RatePostProcessorRatesFirst.sql: `o.emissionRate as ratePerDistance` from BaseRateOutput -- the rate at the bin, own and chained, summed over the output row's rate rows as `out_emissionQuant` is. At road type 1 it is off-network idle's rate per idle hour, the same at every bin; `rpd_inTable` keeps one.",
+          "lhs": "rpd_ratePerDistance",
+          "rhs": {
             "op": "faq",
             "args": [],
             "semiring": "sum_product",
@@ -78209,10 +80642,19 @@
               "o": {
                 "from": "output_rows"
               },
+              "b": {
+                "from": "rate_rows"
+              },
+              "k": {
+                "from": "runspecday_rows"
+              },
+              "j": {
+                "from": "ratespeedbin_rows"
+              },
               "g": {
                 "from": "runspeccounty_rows"
               },
-              "n": {
+              "m": {
                 "from": "runspecmonth_rows"
               }
             },
@@ -78225,6 +80667,502 @@
                   ]
                 ]
               },
+              {
+                "on": [
+                  [
+                    "outRateOrdinal",
+                    "rt_outputOrdinal"
+                  ],
+                  [
+                    "outDayOrdinal",
+                    "day_ordinal"
+                  ],
+                  [
+                    "outCountyOrdinal",
+                    "rsc_ordinal"
+                  ],
+                  [
+                    "outMonthOrdinal",
+                    "month_ordinal"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "rpdSpeedBinOrdinal",
+                    "rsb_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "rtRate_total",
+                "b",
+                "k",
+                "j",
+                "g",
+                "m"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rpd_inTable",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "x"
+            ],
+            "ranges": {
+              "x": {
+                "from": "rateoutput_rows"
+              },
+              "o": {
+                "from": "output_rows"
+              },
+              "j": {
+                "from": "ratespeedbin_rows"
+              },
+              "n": {
+                "from": "run_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rpdOutputOrdinal",
+                    "outOrdinal"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "rpdSpeedBinOrdinal",
+                    "rsb_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "*",
+              "args": [
+                "n_ratesScale",
+                {
+                  "op": "ifelse",
+                  "args": [
+                    {
+                      "op": "or",
+                      "args": [
+                        {
+                          "op": "or",
+                          "args": [
+                            {
+                              "op": "or",
+                              "args": [
+                                {
+                                  "op": "==",
+                                  "args": [
+                                    {
+                                      "op": "index",
+                                      "args": [
+                                        "out_processID",
+                                        "o"
+                                      ]
+                                    },
+                                    {
+                                      "op": "enum",
+                                      "args": [
+                                        "process",
+                                        "RunningExhaust"
+                                      ]
+                                    }
+                                  ]
+                                },
+                                {
+                                  "op": "==",
+                                  "args": [
+                                    {
+                                      "op": "index",
+                                      "args": [
+                                        "out_processID",
+                                        "o"
+                                      ]
+                                    },
+                                    {
+                                      "op": "enum",
+                                      "args": [
+                                        "process",
+                                        "Brakewear"
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "op": "==",
+                              "args": [
+                                {
+                                  "op": "index",
+                                  "args": [
+                                    "out_processID",
+                                    "o"
+                                  ]
+                                },
+                                {
+                                  "op": "enum",
+                                  "args": [
+                                    "process",
+                                    "Tirewear"
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "op": "==",
+                          "args": [
+                            {
+                              "op": "index",
+                              "args": [
+                                "out_processID",
+                                "o"
+                              ]
+                            },
+                            {
+                              "op": "enum",
+                              "args": [
+                                "process",
+                                "CrankcaseRunningExhaust"
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "op": "ifelse",
+                      "args": [
+                        {
+                          "op": "or",
+                          "args": [
+                            {
+                              "op": "<",
+                              "args": [
+                                {
+                                  "op": "index",
+                                  "args": [
+                                    "out_roadTypeID",
+                                    "o"
+                                  ]
+                                },
+                                1.5
+                              ]
+                            },
+                            {
+                              "op": ">",
+                              "args": [
+                                {
+                                  "op": "index",
+                                  "args": [
+                                    "run_isProjectDomain",
+                                    "n"
+                                  ]
+                                },
+                                0.5
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "op": "ifelse",
+                          "args": [
+                            {
+                              "op": "<",
+                              "args": [
+                                {
+                                  "op": "index",
+                                  "args": [
+                                    "rsb_ordinal",
+                                    "j"
+                                  ]
+                                },
+                                1.5
+                              ]
+                            },
+                            1.0,
+                            0.0
+                          ]
+                        },
+                        1.0
+                      ]
+                    },
+                    {
+                      "op": "ifelse",
+                      "args": [
+                        {
+                          "op": "and",
+                          "args": [
+                            {
+                              "op": "or",
+                              "args": [
+                                {
+                                  "op": "or",
+                                  "args": [
+                                    {
+                                      "op": "or",
+                                      "args": [
+                                        {
+                                          "op": "or",
+                                          "args": [
+                                            {
+                                              "op": "==",
+                                              "args": [
+                                                {
+                                                  "op": "index",
+                                                  "args": [
+                                                    "out_processID",
+                                                    "o"
+                                                  ]
+                                                },
+                                                {
+                                                  "op": "enum",
+                                                  "args": [
+                                                    "process",
+                                                    "EvapPermeation"
+                                                  ]
+                                                }
+                                              ]
+                                            },
+                                            {
+                                              "op": "==",
+                                              "args": [
+                                                {
+                                                  "op": "index",
+                                                  "args": [
+                                                    "out_processID",
+                                                    "o"
+                                                  ]
+                                                },
+                                                {
+                                                  "op": "enum",
+                                                  "args": [
+                                                    "process",
+                                                    "EvapFuelVaporVenting"
+                                                  ]
+                                                }
+                                              ]
+                                            }
+                                          ]
+                                        },
+                                        {
+                                          "op": "==",
+                                          "args": [
+                                            {
+                                              "op": "index",
+                                              "args": [
+                                                "out_processID",
+                                                "o"
+                                              ]
+                                            },
+                                            {
+                                              "op": "enum",
+                                              "args": [
+                                                "process",
+                                                "EvapFuelLeaks"
+                                              ]
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "op": "==",
+                                      "args": [
+                                        {
+                                          "op": "index",
+                                          "args": [
+                                            "out_processID",
+                                            "o"
+                                          ]
+                                        },
+                                        {
+                                          "op": "enum",
+                                          "args": [
+                                            "process",
+                                            "RefuelingDisplacementLoss"
+                                          ]
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                },
+                                {
+                                  "op": "==",
+                                  "args": [
+                                    {
+                                      "op": "index",
+                                      "args": [
+                                        "out_processID",
+                                        "o"
+                                      ]
+                                    },
+                                    {
+                                      "op": "enum",
+                                      "args": [
+                                        "process",
+                                        "RefuelingSpillageLoss"
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "op": ">",
+                              "args": [
+                                {
+                                  "op": "index",
+                                  "args": [
+                                    "out_roadTypeID",
+                                    "o"
+                                  ]
+                                },
+                                1.5
+                              ]
+                            }
+                          ]
+                        },
+                        1.0,
+                        0.0
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rto_zoneID",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "o"
+            ],
+            "ranges": {
+              "o": {
+                "from": "output_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "outCountyOrdinal",
+                    "rsc_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "run_zoneID",
+                "g"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rto_linkID",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "o"
+            ],
+            "ranges": {
+              "o": {
+                "from": "output_rows"
+              }
+            },
+            "expr": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "mesoscale_lookup_link_id",
+              "bindings": {
+                "zone_id": {
+                  "op": "index",
+                  "args": [
+                    "rto_zoneID",
+                    "o"
+                  ]
+                },
+                "road_type_id": {
+                  "op": "index",
+                  "args": [
+                    "out_roadTypeID",
+                    "o"
+                  ]
+                },
+                "avg_speed_bin_id": 0
+              }
+            }
+          }
+        },
+        {
+          "lhs": "rto_regClassID",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "o"
+            ],
+            "ranges": {
+              "o": {
+                "from": "output_rows"
+              }
+            },
+            "expr": 0.0
+          }
+        },
+        {
+          "lhs": "rto_temperature",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "o"
+            ],
+            "ranges": {
+              "o": {
+                "from": "output_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "n": {
+                "from": "runspecmonth_rows"
+              }
+            },
+            "join": [
               {
                 "on": [
                   [
@@ -78253,18 +81191,15 @@
           }
         },
         {
-          "lhs": "rpd_relHumidity",
+          "lhs": "rto_relHumidity",
           "rhs": {
             "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
-              "x"
+              "o"
             ],
             "ranges": {
-              "x": {
-                "from": "rateoutput_rows"
-              },
               "o": {
                 "from": "output_rows"
               },
@@ -78276,14 +81211,6 @@
               }
             },
             "join": [
-              {
-                "on": [
-                  [
-                    "rpdOutputOrdinal",
-                    "outOrdinal"
-                  ]
-                ]
-              },
               {
                 "on": [
                   [
@@ -78312,8 +81239,1158 @@
           }
         },
         {
-          "_comment": "RatePostProcessorRatesFirst.sql: `o.emissionRate as ratePerDistance` from BaseRateOutput, whose emissionRate is BaseRateGenerator's `sum(MeanBaseRate)/avgBinSpeed` carried through BaseRateCalculator's adjustments and the output unit conversion. Summed over the output row's rate rows -- its source bins -- as `out_emissionQuant` is.",
-          "lhs": "rpd_ratePerDistance",
+          "lhs": "rto_ratePerActivity",
+          "rhs": {
+            "op": "+",
+            "args": [
+              {
+                "op": "faq",
+                "args": [],
+                "semiring": "sum_product",
+                "output_idx": [
+                  "o"
+                ],
+                "ranges": {
+                  "o": {
+                    "from": "output_rows"
+                  },
+                  "b": {
+                    "from": "rate_rows"
+                  },
+                  "k": {
+                    "from": "runspecday_rows"
+                  },
+                  "g": {
+                    "from": "runspeccounty_rows"
+                  },
+                  "m": {
+                    "from": "runspecmonth_rows"
+                  }
+                },
+                "join": [
+                  {
+                    "on": [
+                      [
+                        "outRateOrdinal",
+                        "rt_outputOrdinal"
+                      ],
+                      [
+                        "outDayOrdinal",
+                        "day_ordinal"
+                      ],
+                      [
+                        "outCountyOrdinal",
+                        "rsc_ordinal"
+                      ],
+                      [
+                        "outMonthOrdinal",
+                        "month_ordinal"
+                      ]
+                    ]
+                  }
+                ],
+                "expr": {
+                  "op": "index",
+                  "args": [
+                    "rtRate_total",
+                    "b",
+                    "k",
+                    1,
+                    "g",
+                    "m"
+                  ]
+                }
+              },
+              {
+                "op": "faq",
+                "args": [],
+                "semiring": "sum_product",
+                "output_idx": [
+                  "o"
+                ],
+                "ranges": {
+                  "o": {
+                    "from": "output_rows"
+                  },
+                  "b": {
+                    "from": "rate_rows"
+                  },
+                  "k": {
+                    "from": "runspecday_rows"
+                  },
+                  "g": {
+                    "from": "runspeccounty_rows"
+                  },
+                  "m": {
+                    "from": "runspecmonth_rows"
+                  }
+                },
+                "join": [
+                  {
+                    "on": [
+                      [
+                        "outRateOrdinal",
+                        "rt_shorePowerOutputOrdinal"
+                      ],
+                      [
+                        "outDayOrdinal",
+                        "day_ordinal"
+                      ],
+                      [
+                        "outCountyOrdinal",
+                        "rsc_ordinal"
+                      ],
+                      [
+                        "outMonthOrdinal",
+                        "month_ordinal"
+                      ]
+                    ]
+                  }
+                ],
+                "expr": {
+                  "op": "/",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "rtRate_shorePowerAdjustedMeanBaseRate",
+                        "b",
+                        "k",
+                        "g",
+                        "m"
+                      ]
+                    },
+                    {
+                      "op": "*",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "rt_unitDivisor",
+                            "b"
+                          ]
+                        },
+                        {
+                          "op": "ifelse",
+                          "args": [
+                            {
+                              "op": ">",
+                              "args": [
+                                {
+                                  "op": "index",
+                                  "args": [
+                                    "rt_cohortShare",
+                                    "b",
+                                    "g"
+                                  ]
+                                },
+                                0.0
+                              ]
+                            },
+                            {
+                              "op": "index",
+                              "args": [
+                                "rt_cohortShare",
+                                "b",
+                                "g"
+                              ]
+                            },
+                            1.0
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        },
+        {
+          "lhs": "coh_usedShare",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "c",
+              "g"
+            ],
+            "ranges": {
+              "c": {
+                "from": "cohort_rows"
+              },
+              "i": {
+                "from": "sourcebin_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "coh_ordinal",
+                    "bin_cohortOrdinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "bin_usedFraction",
+                "i",
+                "g"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "run_populationAllocFactor",
+          "rhs": {
+            "op": "/",
+            "args": [
+              {
+                "op": "faq",
+                "args": [],
+                "semiring": "sum_product",
+                "output_idx": [
+                  "g",
+                  "s"
+                ],
+                "ranges": {
+                  "g": {
+                    "from": "runspeccounty_rows"
+                  },
+                  "s": {
+                    "from": "runspecsourcetype_rows"
+                  },
+                  "z": {
+                    "from": "zoneroadtype_rows"
+                  },
+                  "w": {
+                    "from": "roadtypedistribution_rows"
+                  }
+                },
+                "join": [
+                  {
+                    "syms": [
+                      "g",
+                      "z"
+                    ],
+                    "on": [
+                      [
+                        "run_zoneID",
+                        "zrt_zoneID"
+                      ]
+                    ]
+                  },
+                  {
+                    "syms": [
+                      "z",
+                      "w"
+                    ],
+                    "on": [
+                      [
+                        "zrt_roadTypeID",
+                        "rtd_roadTypeID"
+                      ]
+                    ]
+                  },
+                  {
+                    "syms": [
+                      "s",
+                      "w"
+                    ],
+                    "on": [
+                      [
+                        "rst_sourceTypeID",
+                        "rtd_sourceTypeID"
+                      ]
+                    ]
+                  }
+                ],
+                "expr": {
+                  "op": "*",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "rtd_roadTypeVMTFraction",
+                        "w"
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "zrt_mergedSHOAllocFactor",
+                        "z"
+                      ]
+                    }
+                  ]
+                }
+              },
+              {
+                "op": "faq",
+                "args": [],
+                "semiring": "sum_product",
+                "output_idx": [
+                  "g",
+                  "s"
+                ],
+                "ranges": {
+                  "g": {
+                    "from": "runspeccounty_rows"
+                  },
+                  "s": {
+                    "from": "runspecsourcetype_rows"
+                  },
+                  "z": {
+                    "from": "zoneroadtype_rows"
+                  },
+                  "w": {
+                    "from": "roadtypedistribution_rows"
+                  }
+                },
+                "join": [
+                  {
+                    "syms": [
+                      "g",
+                      "z"
+                    ],
+                    "on": [
+                      [
+                        "run_zoneID",
+                        "zrt_zoneID"
+                      ]
+                    ]
+                  },
+                  {
+                    "syms": [
+                      "z",
+                      "w"
+                    ],
+                    "on": [
+                      [
+                        "zrt_roadTypeID",
+                        "rtd_roadTypeID"
+                      ]
+                    ]
+                  },
+                  {
+                    "syms": [
+                      "s",
+                      "w"
+                    ],
+                    "on": [
+                      [
+                        "rst_sourceTypeID",
+                        "rtd_sourceTypeID"
+                      ]
+                    ]
+                  }
+                ],
+                "expr": {
+                  "op": "index",
+                  "args": [
+                    "rtd_roadTypeVMTFraction",
+                    "w"
+                  ]
+                }
+              }
+            ]
+          }
+        },
+        {
+          "lhs": "coh_population",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "c",
+              "k",
+              "g"
+            ],
+            "ranges": {
+              "c": {
+                "from": "cohort_rows"
+              },
+              "k": {
+                "from": "runspecday_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "r": {
+                "from": "activity_rows"
+              },
+              "s": {
+                "from": "runspecsourcetype_rows"
+              }
+            },
+            "join": [
+              {
+                "syms": [
+                  "c",
+                  "r"
+                ],
+                "on": [
+                  [
+                    "coh_ageID",
+                    "act_ageID"
+                  ],
+                  [
+                    "coh_yearOrdinal",
+                    "act_yearOrdinal"
+                  ]
+                ]
+              },
+              {
+                "syms": [
+                  "k",
+                  "r"
+                ],
+                "on": [
+                  [
+                    "day_hourDayID",
+                    "act_hourDayID"
+                  ]
+                ]
+              },
+              {
+                "syms": [
+                  "c",
+                  "s"
+                ],
+                "on": [
+                  [
+                    "coh_sourceTypeOrdinal",
+                    "rst_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "*",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "act_population",
+                        "r",
+                        "s"
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "run_populationAllocFactor",
+                        "g",
+                        "s"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "coh_usedShare",
+                    "c",
+                    "g"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rto_population",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "o"
+            ],
+            "ranges": {
+              "o": {
+                "from": "output_rows"
+              },
+              "c": {
+                "from": "cohort_rows"
+              },
+              "k": {
+                "from": "runspecday_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "outCohortRank",
+                    "coh_rank"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "outDayOrdinal",
+                    "day_ordinal"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "outCountyOrdinal",
+                    "rsc_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "coh_population",
+                "c",
+                "k",
+                "g"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rto_isPrerequisite",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "o"
+            ],
+            "ranges": {
+              "o": {
+                "from": "output_rows"
+              },
+              "q": {
+                "from": "polprocroad_rows"
+              },
+              "p": {
+                "from": "runspecpollutantprocess_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "outPolProcOrdinal",
+                    "ppr_outputOrdinal"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "ppr_ppOrdinal",
+                    "rspp_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "rspp_isSilentlyRequired",
+                "p"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rps_inTable",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "o"
+            ],
+            "ranges": {
+              "o": {
+                "from": "output_rows"
+              },
+              "n": {
+                "from": "run_rows"
+              }
+            },
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "*",
+                  "args": [
+                    "n_ratesScale",
+                    {
+                      "op": "-",
+                      "args": [
+                        1.0,
+                        {
+                          "op": "index",
+                          "args": [
+                            "run_isProjectDomain",
+                            "n"
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "op": "ifelse",
+                  "args": [
+                    {
+                      "op": "or",
+                      "args": [
+                        {
+                          "op": "==",
+                          "args": [
+                            {
+                              "op": "index",
+                              "args": [
+                                "out_processID",
+                                "o"
+                              ]
+                            },
+                            {
+                              "op": "enum",
+                              "args": [
+                                "process",
+                                "StartExhaust"
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "op": "==",
+                          "args": [
+                            {
+                              "op": "index",
+                              "args": [
+                                "out_processID",
+                                "o"
+                              ]
+                            },
+                            {
+                              "op": "enum",
+                              "args": [
+                                "process",
+                                "CrankcaseStartExhaust"
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    1.0,
+                    0.0
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rps_ratePerStart",
+          "rhs": "rto_ratePerActivity"
+        },
+        {
+          "lhs": "rph_inTable",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "o"
+            ],
+            "ranges": {
+              "o": {
+                "from": "output_rows"
+              }
+            },
+            "expr": {
+              "op": "*",
+              "args": [
+                "n_ratesScale",
+                {
+                  "op": "ifelse",
+                  "args": [
+                    {
+                      "op": "or",
+                      "args": [
+                        {
+                          "op": "or",
+                          "args": [
+                            {
+                              "op": "or",
+                              "args": [
+                                {
+                                  "op": "==",
+                                  "args": [
+                                    {
+                                      "op": "index",
+                                      "args": [
+                                        "out_processID",
+                                        "o"
+                                      ]
+                                    },
+                                    {
+                                      "op": "enum",
+                                      "args": [
+                                        "process",
+                                        "CrankcaseExtendedIdleExhaust"
+                                      ]
+                                    }
+                                  ]
+                                },
+                                {
+                                  "op": "==",
+                                  "args": [
+                                    {
+                                      "op": "index",
+                                      "args": [
+                                        "out_processID",
+                                        "o"
+                                      ]
+                                    },
+                                    {
+                                      "op": "enum",
+                                      "args": [
+                                        "process",
+                                        "ExtendedIdleExhaust"
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "op": "==",
+                              "args": [
+                                {
+                                  "op": "index",
+                                  "args": [
+                                    "out_processID",
+                                    "o"
+                                  ]
+                                },
+                                {
+                                  "op": "enum",
+                                  "args": [
+                                    "process",
+                                    "AuxiliaryPowerExhaust"
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "op": "==",
+                          "args": [
+                            {
+                              "op": "index",
+                              "args": [
+                                "out_processID",
+                                "o"
+                              ]
+                            },
+                            {
+                              "op": "enum",
+                              "args": [
+                                "process",
+                                "HotellingShorePower"
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    1.0,
+                    0.0
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rph_ratePerHour",
+          "rhs": "rto_ratePerActivity"
+        },
+        {
+          "lhs": "rph_linkID",
+          "rhs": "rto_linkID"
+        },
+        {
+          "lhs": "rpv_inTable",
+          "rhs": {
+            "op": "*",
+            "args": [
+              {
+                "op": "faq",
+                "args": [],
+                "semiring": "sum_product",
+                "output_idx": [
+                  "o"
+                ],
+                "ranges": {
+                  "o": {
+                    "from": "output_rows"
+                  }
+                },
+                "expr": {
+                  "op": "*",
+                  "args": [
+                    "n_ratesScale",
+                    {
+                      "op": "ifelse",
+                      "args": [
+                        {
+                          "op": "or",
+                          "args": [
+                            {
+                              "op": "or",
+                              "args": [
+                                {
+                                  "op": "or",
+                                  "args": [
+                                    {
+                                      "op": "or",
+                                      "args": [
+                                        {
+                                          "op": "or",
+                                          "args": [
+                                            {
+                                              "op": "or",
+                                              "args": [
+                                                {
+                                                  "op": "==",
+                                                  "args": [
+                                                    {
+                                                      "op": "index",
+                                                      "args": [
+                                                        "out_processID",
+                                                        "o"
+                                                      ]
+                                                    },
+                                                    {
+                                                      "op": "enum",
+                                                      "args": [
+                                                        "process",
+                                                        "StartExhaust"
+                                                      ]
+                                                    }
+                                                  ]
+                                                },
+                                                {
+                                                  "op": "==",
+                                                  "args": [
+                                                    {
+                                                      "op": "index",
+                                                      "args": [
+                                                        "out_processID",
+                                                        "o"
+                                                      ]
+                                                    },
+                                                    {
+                                                      "op": "enum",
+                                                      "args": [
+                                                        "process",
+                                                        "CrankcaseStartExhaust"
+                                                      ]
+                                                    }
+                                                  ]
+                                                }
+                                              ]
+                                            },
+                                            {
+                                              "op": "==",
+                                              "args": [
+                                                {
+                                                  "op": "index",
+                                                  "args": [
+                                                    "out_processID",
+                                                    "o"
+                                                  ]
+                                                },
+                                                {
+                                                  "op": "enum",
+                                                  "args": [
+                                                    "process",
+                                                    "CrankcaseExtendedIdleExhaust"
+                                                  ]
+                                                }
+                                              ]
+                                            }
+                                          ]
+                                        },
+                                        {
+                                          "op": "==",
+                                          "args": [
+                                            {
+                                              "op": "index",
+                                              "args": [
+                                                "out_processID",
+                                                "o"
+                                              ]
+                                            },
+                                            {
+                                              "op": "enum",
+                                              "args": [
+                                                "process",
+                                                "ExtendedIdleExhaust"
+                                              ]
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "op": "==",
+                                      "args": [
+                                        {
+                                          "op": "index",
+                                          "args": [
+                                            "out_processID",
+                                            "o"
+                                          ]
+                                        },
+                                        {
+                                          "op": "enum",
+                                          "args": [
+                                            "process",
+                                            "AuxiliaryPowerExhaust"
+                                          ]
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                },
+                                {
+                                  "op": "==",
+                                  "args": [
+                                    {
+                                      "op": "index",
+                                      "args": [
+                                        "out_processID",
+                                        "o"
+                                      ]
+                                    },
+                                    {
+                                      "op": "enum",
+                                      "args": [
+                                        "process",
+                                        "HotellingShorePower"
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "op": "and",
+                              "args": [
+                                {
+                                  "op": "or",
+                                  "args": [
+                                    {
+                                      "op": "or",
+                                      "args": [
+                                        {
+                                          "op": "or",
+                                          "args": [
+                                            {
+                                              "op": "==",
+                                              "args": [
+                                                {
+                                                  "op": "index",
+                                                  "args": [
+                                                    "out_processID",
+                                                    "o"
+                                                  ]
+                                                },
+                                                {
+                                                  "op": "enum",
+                                                  "args": [
+                                                    "process",
+                                                    "EvapPermeation"
+                                                  ]
+                                                }
+                                              ]
+                                            },
+                                            {
+                                              "op": "==",
+                                              "args": [
+                                                {
+                                                  "op": "index",
+                                                  "args": [
+                                                    "out_processID",
+                                                    "o"
+                                                  ]
+                                                },
+                                                {
+                                                  "op": "enum",
+                                                  "args": [
+                                                    "process",
+                                                    "EvapFuelLeaks"
+                                                  ]
+                                                }
+                                              ]
+                                            }
+                                          ]
+                                        },
+                                        {
+                                          "op": "==",
+                                          "args": [
+                                            {
+                                              "op": "index",
+                                              "args": [
+                                                "out_processID",
+                                                "o"
+                                              ]
+                                            },
+                                            {
+                                              "op": "enum",
+                                              "args": [
+                                                "process",
+                                                "RefuelingDisplacementLoss"
+                                              ]
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "op": "==",
+                                      "args": [
+                                        {
+                                          "op": "index",
+                                          "args": [
+                                            "out_processID",
+                                            "o"
+                                          ]
+                                        },
+                                        {
+                                          "op": "enum",
+                                          "args": [
+                                            "process",
+                                            "RefuelingSpillageLoss"
+                                          ]
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                },
+                                {
+                                  "op": "<",
+                                  "args": [
+                                    {
+                                      "op": "index",
+                                      "args": [
+                                        "out_roadTypeID",
+                                        "o"
+                                      ]
+                                    },
+                                    1.5
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        1.0,
+                        0.0
+                      ]
+                    }
+                  ]
+                }
+              },
+              {
+                "op": "-",
+                "args": [
+                  1.0,
+                  "rto_isPrerequisite"
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "lhs": "rpv_ratePerVehicle",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "o"
+            ],
+            "ranges": {
+              "o": {
+                "from": "output_rows"
+              }
+            },
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                {
+                  "op": ">",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "rto_population",
+                        "o"
+                      ]
+                    },
+                    0.0
+                  ]
+                },
+                {
+                  "op": "/",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "out_emissionQuant",
+                        "o"
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "rto_population",
+                        "o"
+                      ]
+                    }
+                  ]
+                },
+                0.0
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "spvCohortOrdinal",
           "rhs": {
             "op": "faq",
             "args": [],
@@ -78323,102 +82400,763 @@
             ],
             "ranges": {
               "x": {
-                "from": "rateoutput_rows"
+                "from": "startspervehicle_rows"
+              }
+            },
+            "expr": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "flat_relation_major",
+              "bindings": {
+                "position": "x",
+                "block_size": {
+                  "op": "*",
+                  "args": [
+                    {
+                      "op": "*",
+                      "args": [
+                        "n_runspeccounty",
+                        "n_runspecmonth"
+                      ]
+                    },
+                    "n_runspecday"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "lhs": "spvCellOffset",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "x"
+            ],
+            "ranges": {
+              "x": {
+                "from": "startspervehicle_rows"
+              }
+            },
+            "expr": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "flat_relation_minor",
+              "bindings": {
+                "position": "x",
+                "block_size": {
+                  "op": "*",
+                  "args": [
+                    {
+                      "op": "*",
+                      "args": [
+                        "n_runspeccounty",
+                        "n_runspecmonth"
+                      ]
+                    },
+                    "n_runspecday"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "lhs": "spvCountyOrdinal",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "flat_relation_major",
+            "bindings": {
+              "position": "spvCellOffset",
+              "block_size": {
+                "op": "*",
+                "args": [
+                  "n_runspecmonth",
+                  "n_runspecday"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "lhs": "spvCountyOffset",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "flat_relation_minor",
+            "bindings": {
+              "position": "spvCellOffset",
+              "block_size": {
+                "op": "*",
+                "args": [
+                  "n_runspecmonth",
+                  "n_runspecday"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "lhs": "spvMonthOrdinal",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "flat_relation_major",
+            "bindings": {
+              "position": "spvCountyOffset",
+              "block_size": "n_runspecday"
+            }
+          }
+        },
+        {
+          "lhs": "spvDayOrdinal",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "flat_relation_minor",
+            "bindings": {
+              "position": "spvCountyOffset",
+              "block_size": "n_runspecday"
+            }
+          }
+        },
+        {
+          "lhs": "spv_population",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "x"
+            ],
+            "ranges": {
+              "x": {
+                "from": "startspervehicle_rows"
               },
-              "o": {
-                "from": "output_rows"
+              "c": {
+                "from": "cohort_rows"
               },
-              "b": {
-                "from": "rate_rows"
+              "k": {
+                "from": "runspecday_rows"
               },
               "g": {
                 "from": "runspeccounty_rows"
-              },
-              "n": {
-                "from": "runspecmonth_rows"
-              },
-              "j": {
-                "from": "ratespeedbin_rows"
-              },
-              "v": {
-                "from": "avgspeedbin_rows"
               }
             },
             "join": [
               {
                 "on": [
                   [
-                    "rpdOutputOrdinal",
-                    "outOrdinal"
+                    "spvCohortOrdinal",
+                    "coh_ordinal"
                   ]
                 ]
               },
               {
                 "on": [
                   [
-                    "outRateOrdinal",
-                    "rt_outputOrdinal"
-                  ],
+                    "spvDayOrdinal",
+                    "day_ordinal"
+                  ]
+                ]
+              },
+              {
+                "on": [
                   [
-                    "outCountyOrdinal",
+                    "spvCountyOrdinal",
                     "rsc_ordinal"
-                  ],
-                  [
-                    "outMonthOrdinal",
-                    "month_ordinal"
-                  ]
-                ]
-              },
-              {
-                "on": [
-                  [
-                    "rpdSpeedBinOrdinal",
-                    "rsb_ordinal"
-                  ]
-                ]
-              },
-              {
-                "on": [
-                  [
-                    "rsb_ordinal",
-                    "asb_ordinal"
                   ]
                 ]
               }
             ],
             "expr": {
-              "op": "/",
+              "op": "index",
+              "args": [
+                "coh_population",
+                "c",
+                "k",
+                "g"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "spv_startsPerVehicle",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "x"
+            ],
+            "ranges": {
+              "x": {
+                "from": "startspervehicle_rows"
+              },
+              "c": {
+                "from": "cohort_rows"
+              },
+              "r": {
+                "from": "activity_rows"
+              },
+              "s": {
+                "from": "runspecsourcetype_rows"
+              },
+              "k": {
+                "from": "runspecday_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "m": {
+                "from": "runspecmonth_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "spvCohortOrdinal",
+                    "coh_ordinal"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "spvDayOrdinal",
+                    "day_ordinal"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "spvCountyOrdinal",
+                    "rsc_ordinal"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "spvMonthOrdinal",
+                    "month_ordinal"
+                  ]
+                ]
+              },
+              {
+                "syms": [
+                  "c",
+                  "r"
+                ],
+                "on": [
+                  [
+                    "coh_ageID",
+                    "act_ageID"
+                  ],
+                  [
+                    "coh_yearOrdinal",
+                    "act_yearOrdinal"
+                  ]
+                ]
+              },
+              {
+                "syms": [
+                  "k",
+                  "r"
+                ],
+                "on": [
+                  [
+                    "day_hourDayID",
+                    "act_hourDayID"
+                  ]
+                ]
+              },
+              {
+                "syms": [
+                  "c",
+                  "s"
+                ],
+                "on": [
+                  [
+                    "coh_sourceTypeOrdinal",
+                    "rst_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "ifelse",
               "args": [
                 {
-                  "op": "/",
+                  "op": ">",
                   "args": [
                     {
                       "op": "index",
                       "args": [
-                        "rtBin_adjustedMeanBaseRate",
-                        "b",
-                        "j",
-                        "g",
-                        "n"
+                        "spv_population",
+                        "x"
+                      ]
+                    },
+                    0.0
+                  ]
+                },
+                {
+                  "op": "/",
+                  "args": [
+                    {
+                      "op": "/",
+                      "args": [
+                        {
+                          "op": "*",
+                          "args": [
+                            {
+                              "op": "index",
+                              "args": [
+                                "st_starts",
+                                "r",
+                                "g",
+                                "s",
+                                "m"
+                              ]
+                            },
+                            {
+                              "op": "index",
+                              "args": [
+                                "coh_usedShare",
+                                "c",
+                                "g"
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "op": "index",
+                          "args": [
+                            "day_noOfRealDays",
+                            "k"
+                          ]
+                        }
                       ]
                     },
                     {
                       "op": "index",
                       "args": [
-                        "asb_avgBinSpeed",
-                        "v"
+                        "spv_population",
+                        "x"
+                      ]
+                    }
+                  ]
+                },
+                0.0
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "spv_inTable",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "x"
+            ],
+            "ranges": {
+              "x": {
+                "from": "startspervehicle_rows"
+              },
+              "n": {
+                "from": "run_rows"
+              }
+            },
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "*",
+                  "args": [
+                    {
+                      "op": "*",
+                      "args": [
+                        "n_ratesScale",
+                        {
+                          "op": "-",
+                          "args": [
+                            1.0,
+                            {
+                              "op": "index",
+                              "args": [
+                                "run_isProjectDomain",
+                                "n"
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "op": "ifelse",
+                      "args": [
+                        {
+                          "op": ">",
+                          "args": [
+                            {
+                              "op": "index",
+                              "args": [
+                                "run_startBlockCount",
+                                "n"
+                              ]
+                            },
+                            0.5
+                          ]
+                        },
+                        1.0,
+                        0.0
                       ]
                     }
                   ]
                 },
                 {
-                  "op": "index",
+                  "op": "ifelse",
                   "args": [
-                    "rt_unitDivisor",
-                    "b"
+                    {
+                      "op": ">",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "spv_population",
+                            "x"
+                          ]
+                        },
+                        0.0
+                      ]
+                    },
+                    1.0,
+                    0.0
                   ]
                 }
               ]
+            }
+          }
+        },
+        {
+          "lhs": "spv_yearID",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "x"
+            ],
+            "ranges": {
+              "x": {
+                "from": "startspervehicle_rows"
+              },
+              "c": {
+                "from": "cohort_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "spvCohortOrdinal",
+                    "coh_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "coh_yearID",
+                "c"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "spv_monthID",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "x"
+            ],
+            "ranges": {
+              "x": {
+                "from": "startspervehicle_rows"
+              },
+              "m": {
+                "from": "runspecmonth_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "spvMonthOrdinal",
+                    "month_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "run_monthID",
+                "m"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "spv_dayID",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "x"
+            ],
+            "ranges": {
+              "x": {
+                "from": "startspervehicle_rows"
+              },
+              "k": {
+                "from": "runspecday_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "spvDayOrdinal",
+                    "day_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "rsd_dayID",
+                "k"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "spv_hourID",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "x"
+            ],
+            "ranges": {
+              "x": {
+                "from": "startspervehicle_rows"
+              },
+              "n": {
+                "from": "run_rows"
+              }
+            },
+            "expr": {
+              "op": "index",
+              "args": [
+                "run_hourID",
+                "n"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "spv_zoneID",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "x"
+            ],
+            "ranges": {
+              "x": {
+                "from": "startspervehicle_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "spvCountyOrdinal",
+                    "rsc_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "run_zoneID",
+                "g"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "spv_sourceTypeID",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "x"
+            ],
+            "ranges": {
+              "x": {
+                "from": "startspervehicle_rows"
+              },
+              "c": {
+                "from": "cohort_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "spvCohortOrdinal",
+                    "coh_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "coh_sourceTypeID",
+                "c"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "spv_regClassID",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "x"
+            ],
+            "ranges": {
+              "x": {
+                "from": "startspervehicle_rows"
+              }
+            },
+            "expr": 0.0
+          }
+        },
+        {
+          "lhs": "spv_fuelTypeID",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "x"
+            ],
+            "ranges": {
+              "x": {
+                "from": "startspervehicle_rows"
+              },
+              "c": {
+                "from": "cohort_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "spvCohortOrdinal",
+                    "coh_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "coh_fuelTypeID",
+                "c"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "spv_modelYearID",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "x"
+            ],
+            "ranges": {
+              "x": {
+                "from": "startspervehicle_rows"
+              },
+              "c": {
+                "from": "cohort_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "spvCohortOrdinal",
+                    "coh_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "coh_modelYearID",
+                "c"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "spv_SCC",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "onroad_scc",
+            "bindings": {
+              "fuel_type_id": "spv_fuelTypeID",
+              "source_type_id": "spv_sourceTypeID",
+              "road_type_id": 1,
+              "process_id": {
+                "op": "enum",
+                "args": [
+                  "process",
+                  "StartExhaust"
+                ]
+              }
             }
           }
         },

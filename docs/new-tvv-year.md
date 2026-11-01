@@ -196,6 +196,22 @@ def num(x):
     return None if x is None else float(x)
 
 
+def decimals_of(root, snap, name):
+    """How the capture stored the table's floats: None for v2's shortest
+    round-trip, where `==` on the double is the claim, or v1's fixed count of
+    decimal places, where the claim is equality at that many places. Read from
+    the sidecar, never assumed (docs/esm-conventions.md §41.1)."""
+    hits = sorted(glob.glob(
+        f"{root}/{snap}/tables/db__movesexecution*__{name.lower()}.meta.json"))
+    meta = json.load(open(hits[0]))
+    enc = meta.get("float_encoding")
+    if enc is not None:
+        assert enc["kind"] == "shortest_round_trip", enc
+        return None
+    assert isinstance(meta.get("float_decimals"), int), meta
+    return meta["float_decimals"]
+
+
 def loaded_classes(root, snap):
     path = f"{root}/{snap}/execution-trace.json"
     if not os.path.isfile(path):
@@ -276,9 +292,18 @@ def new_tvv_year(root, snap, year):
     return fractions, equations, coeffs
 
 
-def compare(predicted, reference, key_of, columns):
-    """(cells, exact, missing, extra) for one table, comparing bit-for-bit."""
+def compare(predicted, reference, key_of, columns, decimals=None):
+    """(cells, exact, missing, extra) for one table, comparing bit-for-bit --
+    or, against a v1 capture that kept `decimals` places, at those places."""
     ref = {key_of(r): r for r in reference}
+    if decimals is None:
+        same = lambda a, b: a == b
+    else:
+        # v1 kept `decimals` places of every input as well as of the output, so
+        # a small fraction carries few significant digits and the rebuild
+        # inherits that: half a storage unit, plus 1e-6 relative for what the
+        # rounded inputs propagate (2.3e-8 measured on `rates-evap`).
+        same = lambda a, b: abs(a - b) <= 0.5 * 10 ** -decimals + 1e-6 * abs(b)
     missing = len(set(ref) - set(predicted))
     extra = len(set(predicted) - set(ref))
     cells = exact = 0
@@ -288,8 +313,8 @@ def compare(predicted, reference, key_of, columns):
             if stored is None:
                 continue
             cells += 1
-            exact += predicted[k].get(col, 0.0) == float(stored) \
-                if isinstance(predicted[k], dict) else predicted[k] == float(stored)
+            exact += same(predicted[k].get(col, 0.0), float(stored)) \
+                if isinstance(predicted[k], dict) else same(predicted[k], float(stored))
     return cells, exact, missing, extra
 
 
@@ -301,6 +326,7 @@ def main(root):
     with_tables = []
     calculator_loaded = []
     cells = exact = missing = extra = 0
+    exact_cells = 0   # cells under v2, where `==` on the double is the claim
     tables_checked = 0
 
     for snap in snaps:
@@ -330,35 +356,42 @@ def main(root):
                 continue
             fractions, equations, coeffs = built
             tables_checked += 3
+            dec = decimals_of(root, snap, f"stmytvvcoeffs{year}")
+            how = "bit-exact" if dec is None else f"equal at v1's {dec}-decimal storage"
 
             c, e, m, x = compare(
                 {k: {"regClassFractionOfSourceTypeModelYearFuel": v}
                  for k, v in fractions.items()},
                 tab(root, snap, f"regclassfractionofstmy{year}"),
                 lambda r: (r["sourceTypeID"], r["modelYearID"], r["fuelTypeID"], r["regClassID"]),
-                ("regClassFractionOfSourceTypeModelYearFuel",))
+                ("regClassFractionOfSourceTypeModelYearFuel",),
+                decimals_of(root, snap, f"regclassfractionofstmy{year}"))
+            exact_cells += c if dec is None else 0
             cells += c; exact += e; missing += m; extra += x
             print(f"  regClassFractionOfSTMY{year}  {len(fractions):4d} rows, "
-                  f"{m} missing / {x} extra, {e} of {c} cells bit-exact")
+                  f"{m} missing / {x} extra, {e} of {c} cells {how}")
 
             c, e, m, x = compare(
                 equations, tab(root, snap, f"stmytvvequations{year}"),
                 lambda r: (r["sourceTypeID"], r["modelYearID"], r["fuelTypeID"],
                            r["polProcessID"], r["regClassID"],
                            r["tvvEquation"], r["leakEquation"]),
-                WEIGHTED + ("regClassFractionOfSourceTypeModelYearFuel",))
+                WEIGHTED + ("regClassFractionOfSourceTypeModelYearFuel",),
+                decimals_of(root, snap, f"stmytvvequations{year}"))
+            exact_cells += c if dec is None else 0
             cells += c; exact += e; missing += m; extra += x
             print(f"  stmyTVVEquations{year}       {len(equations):4d} rows, "
-                  f"{m} missing / {x} extra, {e} of {c} cells bit-exact")
+                  f"{m} missing / {x} extra, {e} of {c} cells {how}")
 
             c, e, m, x = compare(
                 coeffs, tab(root, snap, f"stmytvvcoeffs{year}"),
                 lambda r: (r["sourceTypeID"], r["modelYearID"],
                            r["fuelTypeID"], r["polProcessID"]),
-                WEIGHTED)
+                WEIGHTED, decimals_of(root, snap, f"stmytvvcoeffs{year}"))
+            exact_cells += c if dec is None else 0
             cells += c; exact += e; missing += m; extra += x
             print(f"  stmyTVVCoeffs{year}          {len(coeffs):4d} rows, "
-                  f"{m} missing / {x} extra, {e} of {c} cells bit-exact")
+                  f"{m} missing / {x} extra, {e} of {c} cells {how}")
 
     # ---- the DAG entry's own provenance ----------------------------------
     dag_path = os.path.join(os.path.dirname(root.rstrip("/")),
@@ -392,10 +425,10 @@ def main(root):
         bad.append("only %d of the section's 3 tables were checked" % tables_checked)
     if missing or extra:
         bad.append("key sets: %d missing, %d extra" % (missing, extra))
-    if cells < 1750:
-        bad.append("only %d value cells compared, expected >= 1750" % cells)
+    if exact_cells < 1750:
+        bad.append("only %d bit-exact-capable value cells compared, expected >= 1750" % exact_cells)
     if exact != cells:
-        bad.append("%d of %d value cells are not bit-exact" % (cells - exact, cells))
+        bad.append("%d of %d value cells disagree" % (cells - exact, cells))
     if dag_entry is None:
         bad.append("calculator-dag.json no longer carries a NewTvvYearGenerator module; "
                    "if it was removed, this oracle and the note it serves are done")
@@ -421,11 +454,11 @@ The oracle asserts, over every snapshot in the corpus:
 
 | assertion | measured |
 |---|---|
-| no snapshot class-loads a `NewTvvYear*` class | **0** of 43 traced |
-| the tables exist somewhere | 1 snapshot, `process-evap-fvv` |
-| every snapshot with the tables loads `TankVaporVentingCalculator` | 1 of 1 |
+| no snapshot class-loads a `NewTvvYear*` class | **0** of 57 traced |
+| the tables exist somewhere | 2 snapshots, `process-evap-fvv` and `rates-evap` |
+| every snapshot with the tables loads `TankVaporVentingCalculator` | 2 of 2 |
 | the three tables' key sets | 0 missing / 0 extra |
-| the three tables' values | **1,750 of 1,750 cells bit-exact** |
+| the three tables' values | **1,750 of 1,750 cells bit-exact** (`process-evap-fvv`, a v2 capture), and 1,750 of 1,750 equal at storage precision (`rates-evap`, a v1 capture) |
 | the DAG entry still has no `java_path` and no registration | `''`, 0 |
 
 The value comparison is `==` on the double, not a tolerance, and the row

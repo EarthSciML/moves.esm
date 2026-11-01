@@ -152,8 +152,11 @@ def no_county_join(logic, fixture):
     # link-level geography (§7.3.40). 17 since Rates scale (§7.3.47): the
     # rate-per-distance relation reads its zone, meteorology and rate at the
     # output row's county too, four more pairs on the same `outCountyOrdinal`.
-    if dropped != 17:
-        sys.exit("expected 17 county key pairs, dropped %d" % dropped)
+    # 21 since the rest of Rates scale (§7.3.48): the output row's zone,
+    # meteorology, per-activity rate (two blocks) and population are read once
+    # as `rto_*`, and RatePerDistance's link and rate read their own.
+    if dropped != 21:
+        sys.exit("expected 21 county key pairs, dropped %d" % dropped)
 
 
 def no_source_type_join(logic, fixture):

@@ -387,7 +387,16 @@ def compare(expected: list[dict], actual: list[dict], tol: dict, fixture: str,
     pol_col = cfg["pollutant_column"]
 
     if not expected:
-        raise Failure(f"the snapshot's {table} is empty; nothing to compare")
+        # MOVESOutput is never legitimately empty for a run judged on it, so an
+        # empty one is a capture or a wiring fault. A Rates table is: MOVES writes
+        # a table only for the processes it assigns there (PLAN.md 7.3.48), and a
+        # Rates run names every table so that a row the model emits where MOVES
+        # wrote none is a failure rather than unchecked.
+        if table == DEFAULT_TABLE:
+            raise Failure(f"the snapshot's {table} is empty; nothing to compare")
+        if actual:
+            raise Failure(f"the snapshot's {table} is EMPTY and {len(actual)} rows were emitted for it")
+        return [f"  {table}: empty in the snapshot, and nothing emitted"]
 
     report: list[str] = []
     problems: list[str] = []
@@ -1045,6 +1054,22 @@ def _self_test() -> int:
     ]:
         try:
             compare(rbase, act, t_, "self-test", table=table)
+            ok = True
+        except (Failure, KeyError):
+            ok = False
+        print(f"  {'ok  ' if ok == should_pass else 'FAIL'} {name}")
+        if ok != should_pass:
+            extra_failures += 1
+
+    # An empty Rates table is an answer -- MOVES wrote no row there -- and a row
+    # emitted against it must fail; an empty MOVESOutput is still refused.
+    for name, exp_, act, table, should_pass in [
+        ("empty oracle table, nothing emitted, passes", [], [], "rateperdistance", True),
+        ("empty oracle table, a row emitted, fails", [], rbase[:1], "rateperdistance", False),
+        ("empty MOVESOutput is still refused", [], [], "movesoutput", False),
+    ]:
+        try:
+            compare(exp_, act, rtol, "self-test", table=table)
             ok = True
         except (Failure, KeyError):
             ok = False

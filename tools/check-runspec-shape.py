@@ -135,19 +135,16 @@ the 7c' defect one axis up. The month joined them at 7d, and it is the level
 most likely to collapse silently, because `run_monthID` was a `run_rows` scalar
 until then and a sum over one month is that month (conventions 65).
 
-A RATES-scale run (PLAN.md 7.3.47) emits a different relation, RatePerDistance,
-as `rpd_*` columns, and the prefix of the emitted header says which one this
-is. The checks are the same with one more factor: every (pollutant-process,
-cohort) pair is written at every speed bin, so
+A RATES-scale run (PLAN.md 7.3.47, 7.3.48) is judged on other tables, each a
+subset of the output relation the comparator checks key for key, so the shape
+asserted here is still the OUTPUT relation's -- the run computes it, and it is
+where `n_outputRate` and the blocks and cohorts live. RatePerDistance is passed
+as a third file, and one thing about it is asserted that no key comparison
+would see if the link and the bin moved together: every link carries its bin in
+its last two digits and its road type in the third, `(zoneID*10 + roadTypeID)*100 +
+avgSpeedBinID`, bin 0 at road type 1.
 
-    rows == rateSurvivorCount x zones x months x day types x speed bins
-
-and the table has no county column, so the geography level is the ZONE its
-links are synthesized in, `floor(linkID / 1000)`. A link carries its bin in its
-last two digits (`(zoneID*10 + roadTypeID)*100 + avgSpeedBinID`), and that is
-asserted too: a rate at the right bin on the wrong link would pass every count.
-
-usage: check-runspec-shape.py <emitted.csv> <shape.csv>
+usage: check-runspec-shape.py <emitted out_*.csv> <shape.csv> [<rateperdistance.csv>]
 """
 import csv
 import sys
@@ -158,7 +155,7 @@ def read(path):
         return list(csv.DictReader(f))
 
 
-def main(emitted_path, shape_path):
+def main(emitted_path, shape_path, rpd_path=None):
     rows = read(emitted_path)
     shape = read(shape_path)
     if len(shape) != 1:
@@ -175,9 +172,7 @@ def main(emitted_path, shape_path):
     unported = int(float(shape[0]["run_domainUnported"]))
     unselected = int(float(shape[0]["run_selectionUnported"]))
 
-    header = list(rows[0]) if rows else []
-    rate = any(c.startswith("rpd_") for c in header)
-    pre = "rpd_" if rate else "out_"
+    pre = "out_"
 
     def distinct(*cols):
         return {tuple(r[pre + c] for c in cols) for r in rows}
@@ -188,23 +183,20 @@ def main(emitted_path, shape_path):
     cohort_keys = distinct("yearID", "sourceTypeID", "fuelTypeID", "modelYearID")
 
     problems = []
-    if rate:
-        counties = {int(float(r["rpd_linkID"])) // 1000 for r in rows}
-        bins = distinct("avgSpeedBinID")
-        mislinked = [r for r in rows
-                     if int(float(r["rpd_linkID"])) % 100 != int(float(r["rpd_avgSpeedBinID"]))]
-        if mislinked:
-            problems.append("%d rate row(s) sit on a link whose last two digits are not "
-                            "their speed bin" % len(mislinked))
-    else:
-        counties = distinct("countyID")
-        bins = {None}
-    expected = pairs_emitted * len(counties) * len(months) * len(days) * len(bins)
+    counties = distinct("countyID")
+    expected = pairs_emitted * len(counties) * len(months) * len(days)
     if len(rows) != expected:
-        problems.append("%d rows, but the chain recomputes %d x %d x %d x %d%s = %d"
+        problems.append("%d rows, but the chain recomputes %d x %d x %d x %d = %d"
                         % (len(rows), pairs_emitted, len(counties), len(months),
-                           len(days), " x %d speed bins" % len(bins) if rate else "",
-                           expected))
+                           len(days), expected))
+    rpd = read(rpd_path) if rpd_path else []
+    if rpd:
+        mislinked = [r for r in rpd
+                     if int(float(r["linkID"])) % 100 != int(float(r["avgSpeedBinID"]))
+                     or (int(float(r["linkID"])) // 100) % 10 != int(float(r["roadTypeID"]))]
+        if mislinked:
+            problems.append("%d RatePerDistance row(s) sit on a link whose last three digits "
+                            "are not their road type and speed bin" % len(mislinked))
     if pairs_emitted > blocks * cohorts:
         problems.append("%d (pollutant-process, cohort) pairs emit, which is MORE "
                         "than the %d blocks x %d cohorts they can be drawn from"
@@ -254,10 +246,10 @@ def main(emitted_path, shape_path):
                         "pollutant-process other than running exhaust beside the "
                         "off-network road type 1, or a hotelling, start or "
                         "off-network idle block in a run that aggregates hours "
-                        "or day types, or at Rates scale anything but a directly "
-                        "rated running-exhaust block on an on-network road type, "
-                        "a PROJECT domain or any time aggregation "
-                        "(run_ratesUnported)" % unselected)
+                        "or day types, or at Rates scale an evaporative or "
+                        "refueling block, a kept chain prerequisite, a sulfate-PM "
+                        "or non-HAP TOG row, a PROJECT domain or any time "
+                        "aggregation (run_ratesUnported)" % unselected)
     if problems:
         for p in problems:
             print(p)
@@ -265,21 +257,19 @@ def main(emitted_path, shape_path):
 
     ragged = pairs_emitted != blocks * cohorts
     print("%d rows = %d (pollutant-process, cohort) pair%s x %d %s x %d "
-          "month(s) x %d day type(s)%s; %d block(s) and %d cohort(s), %s; no source "
-          "bin and no vehicle dropped, and the chain converged in three rungs"
+          "month(s) x %d day type(s); %d block(s) and %d cohort(s), %s; no source "
+          "bin and no vehicle dropped, and the chain converged in three rungs%s"
           % (len(rows), pairs_emitted, "" if pairs_emitted == 1 else "s",
-             len(counties),
-             ("zone" if len(counties) == 1 else "zones") if rate
-             else ("county" if len(counties) == 1 else "counties"),
+             len(counties), "county" if len(counties) == 1 else "counties",
              len(months), len(days),
-             " x %d speed bins, each on its own link" % len(bins) if rate else "",
              blocks, cohorts,
              "RAGGED -- a block is narrower than the widest" if ragged
-             else "a rectangle"))
+             else "a rectangle",
+             "; every RatePerDistance row on its road type's and bin's link" if rpd else ""))
     return 0
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 3:
-        sys.exit("usage: check-runspec-shape.py <emitted.csv> <shape.csv>")
-    sys.exit(main(sys.argv[1], sys.argv[2]))
+    if len(sys.argv) not in (3, 4):
+        sys.exit("usage: check-runspec-shape.py <emitted out_*.csv> <shape.csv> [<rateperdistance.csv>]")
+    sys.exit(main(*sys.argv[1:]))

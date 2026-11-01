@@ -8676,7 +8676,10 @@ block on an on-network road type -- starts, evaporative and hotelling processes,
 brake and tire wear, chained pollutants and off-network idle write RatePerStart,
 RatePerVehicle, RatePerProfile, RatePerHour or a chained BaseRateOutput, none of
 which is built -- a PROJECT domain, and any time aggregation. Distance units other
-than miles are a RunSpec setting no table records.
+than miles are a RunSpec setting no table records. (Since §107 most of that list is
+ported; what is still counted is off-network evaporative and refueling, sulfate-PM
+and non-HAP TOG rows, and time aggregation -- which MOVES refuses at Rates scale,
+so it marks an invalid RunSpec rather than unported work.)
 
 ## 104. At Rates scale a rate is per vehicle of its own fuel, and the measurement that found it was a ratio that had to be constant **[PLAN.md §7.3.47]**
 
@@ -8877,3 +8880,76 @@ as `history_complete`), the link path (`lomd_isBraking`, `history_complete`
 bound to `true`) and the standalone link component; `second_op_mode` is the
 Idling-Braking-binned precedence both onroad paths share, and
 `graded_acceleration` is the link path's `At0`-`At2`.
+
+## 107. A Rates table is a flagged subset of a relation the model already has, and its rate is per unit of the activity MOVES divides by **[PLAN.md §7.3.48; `rates-wear` 10,000, `rates-running` 79,625, `rates-start` 684 + 684 + 125, `rates-hotelling` 491 + 491, every table key-exact and within 1.2e-05]**
+
+MOVES's rate post-processor (`RatePostProcessorRatesFirst.sql`) writes six tables
+and assigns a row to each by its PROCESS and ROAD TYPE alone. Four rules came out
+of porting five of them.
+
+1. **A table is a membership flag, not a relation with a declared size.**
+   RatePerDistance is `rateoutput_rows`, RatePerStart, RatePerHour and
+   RatePerVehicle are `output_rows`, and each declares `<prefix>inTable`, the
+   SQL's predicate; `tools/emit-oracle-table.py` keeps the rows where it is 1.
+   The alternative -- a declared and checked row count per table, as
+   `n_outputRate` is -- would bind five more numbers in every RunSpec and rank
+   five relations to carry nothing the predicate does not. The flag is model
+   logic and lives in the model; the filter is mechanical and lives in the
+   harness. StartsPerVehicle is the exception that proves it: its rows are
+   cohorts, not output rows -- a cohort with no start rate still has starts --
+   so it is a relation of its own (`startspervehicle_rows`), flagged likewise.
+2. **Read a shared column, do not copy it.** A table over `output_rows`
+   computes its value and its membership and nothing else. Every other column
+   it carries is read, in order, from `rto_*` -- the output row's Rates-scale
+   view: zone, link without a bin, regulatory class 0, the hour's meteorology,
+   the per-activity rate, the population -- and from `out_*`, by
+   `tools/emit-oracle-table.py`, which names them from the oracle's own header.
+   So RatePerStart and RatePerHour are one variable each over `rto_ratePerActivity`,
+   and `rpd_temperature` reads `rto_temperature` through `rate_output_column`.
+3. **Name every table, the empty ones included.** A Rates RunSpec has one
+   `oracle` source per table MOVES writes, and an EMPTY table is an answer:
+   `compare-output.py` passes it only if nothing was emitted for it, and still
+   refuses an empty MOVESOutput. `scale-rates` selects start exhaust without
+   road type 1, so its RatePerStart is empty, and that is now checked.
+4. **A per-activity rate divides by the activity MOVES divides by.** `emissionRate`
+   is not scaled by activity (`baseratecalculator.go`), so at Rates scale it is
+   the inventory's quantity over the cohort's activity, and three different
+   activities were measured:
+   * *The cohort's, not the regulatory class's.* A start, an idle hour, a
+     hotelling hour of a cohort is the age's times the cohort's fuel share, so
+     the source-bin-weighted rate is divided by the COHORT's share
+     (`rt_cohortShare`, every bin and class of it). §104's per-class normalizer
+     is right for running exhaust's per-bin rate and wrong here: with three bins
+     in two classes, summing per-class rates overstated RatePerHour by up to 69 %.
+   * *The mode's hour, not the hotelling hour.* AdjustExtendedIdleEmissionRate and
+     AdjustAPUEmissionRate scale meanBaseRate by the mode fraction and leave
+     emissionRate alone, so RatePerHour is per hour of extended idling, of the
+     APU, of shore power: the inventory over hotelling hours is 0.8, 0.73 and
+     0.07 of it. It is computed directly (`rtRate_hotellingAdjustedMeanBaseRate`,
+     the hotelling branch without `cohMode_hotellingWeight`) rather than by
+     dividing that fraction back out, because shore power's fraction is zero and
+     its rate is not.
+   * *The zone's population, not the start allocation.* `ActivityCalculator.sql`
+     allocates population by `sutFraction`, the zone's SHO allocation factors
+     weighted by the source type's VMT fractions over every road type the zone
+     has -- 0.0011408 for Washtenaw's passenger cars against a
+     `startAllocFactor` of 0.0011225 -- so `coh_population` carries its own
+     factor (`run_populationAllocFactor`).
+
+**The chain runs on the rate.** A chained calculator acts on BaseRateOutput's
+emissionRate as it does on a quantity, and the chain is linear with a ratio per
+rate row, so `rtRate_*` runs the inventory's three rungs again over
+`[rate row, day, speed bin, county, month]`: per mile at a kept bin (running
+exhaust, brake and tire wear), per unit of activity elsewhere and the same at
+every bin. One relation carries both, so there is one chain copy, and at
+inventory scale its bin axis is the single bin of rule 2 of §103.
+
+**PROJECT domain has no bin, and divides by the link's speed.** BaseRateGenerator
+turns `useAvgSpeedBin` off for a project, MOVES synthesizes no links, and the
+post-processor's PROJECT branch divides emissionRate by `linkAvgSpeed` for
+processes 1, 9, 10, 15, 18 and 19. So running exhaust, brake and tire wear take
+the per-activity path there and divide by `run_linkAvgSpeed`
+(`rt_isLinkSpeedRated`), the chained three follow their parents, and
+RatePerDistance keeps one row per output row at bin 0 on the project's link.
+`rates-project`, 125 of 125 at 5.2e-06. Capturing it needed the execution
+database named literally: the PROJECT branch hardcodes `MOVESExecution.link`.

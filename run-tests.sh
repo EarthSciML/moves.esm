@@ -1705,6 +1705,12 @@ C7P_DOMAIN=moves-onroad.esm
 # times the 16 speed bins, each bin its own link -- and the comparator reads
 # tolerance.toml's [oracle_table.rateperdistance]. The two snapshots differ in
 # one cell, MOVES's own run-to-run noise, and both reproduce.
+# The `rates-*` runs are Rates-scale twins of inventory runs above (PLAN.md
+# §7.3.48, conventions §107): `rates-wear` and `rates-running` chained pollutants
+# per speed bin and off-network idle at bin 0; `rates-start` RatePerStart,
+# RatePerVehicle and StartsPerVehicle; `rates-hotelling` RatePerHour per hour of
+# the hotelling mode and RatePerVehicle. Each names every Rates table, empty ones
+# included, and each table is a membership-flagged relation of the model.
 mapfile -t RUNSPECS < <(find runspecs -maxdepth 1 -name '*.esm' -not -name '.*' 2>/dev/null | sort)
 mapfile -t RUNSPECS_PENDING < <(find runspecs/pending -maxdepth 1 -name '*.esm' -not -name '.*' 2>/dev/null | sort)
 
@@ -1742,57 +1748,72 @@ else
   # Each document validates and round-trips under stages 1 and 4 already --
   # `runspecs/` is in DOCS, unlike the `spikes/7c/` copy this stage used to
   # name -- so those two checks are not repeated here.
-  # A run's ORACLE is the output-database table its `oracle` source points at
-  # (PLAN.md §7.3.47). Every inventory run's is MOVESOutput and the model's
-  # `out_*` relation is what is emitted for it; a Rates-scale run's is
-  # RatePerDistance, whose relation is `rpd_*`. The table name goes to the
-  # comparator, which takes that table's column contract from tolerance.toml.
-  rpd_obs=()
-  while read -r f; do rpd_obs+=(--observed "$f"); done < <("$PYTHON" -c '
-import json, sys
-for m in json.load(open(sys.argv[1])).get("models", {}).values():
-    for n in (m.get("variables") or {}):
-        if n.startswith("rpd_"):
-            print(n)' "$C7_LOGIC")
+  # A run's ORACLE is the output-database tables its `oracle` sources point at
+  # (PLAN.md §7.3.47, §7.3.48). Every inventory run's is MOVESOutput, and the
+  # model's `out_*` relation is emitted for it. A Rates-scale run names every
+  # table MOVES's rate post-processor writes -- RatePerDistance, RatePerStart,
+  # RatePerHour, RatePerVehicle, StartsPerVehicle, the empty ones too, so that a
+  # row the model emits where MOVES wrote none fails -- and each is emitted by
+  # tools/emit-oracle-table.py from its prefix relation, its member rows only.
+  # The table name goes to the comparator, which takes that table's column
+  # contract from tolerance.toml.
   for rs in "${RUNSPECS[@]}"; do
     rsname=$(basename "$rs" .esm)
-    RS_TABLE=$("$PYTHON" -c '
+    mapfile -t RS_TABLES < <("$PYTHON" -c '
 import json, sys
 srcs = json.load(open(sys.argv[1])).get("data_sources", {}).values()
-urls = [s["source"]["url_template"] for s in srcs if "oracle" in s.get("metadata", {}).get("tags", [])]
-print(urls[0].rsplit("__", 1)[1].split(".")[0] if len(urls) == 1 else "")' "$rs")
-    case "$RS_TABLE" in
-      movesoutput)     RS_OBS=("${c7_obs[@]}");  RS_PREFIX=out_; RS_ORACLE=MOVESOutput ;;
-      rateperdistance) RS_OBS=("${rpd_obs[@]}"); RS_PREFIX=rpd_; RS_ORACLE=RatePerDistance ;;
-      *) fail "7c'/7d $rsname — it names no oracle table this stage can emit (got '${RS_TABLE}'): exactly one \`oracle\` source, MOVESOutput or RatePerDistance"
-         continue ;;
-    esac
-    if [[ ${#RS_OBS[@]} -eq 0 ]]; then
-      fail "7c'/7d $rsname — its oracle is $RS_ORACLE, and $C7_LOGIC declares no ${RS_PREFIX}* relation to emit for it"
+for s in srcs:
+    if "oracle" in s.get("metadata", {}).get("tags", []):
+        print(s["source"]["url_template"].rsplit("__", 1)[1].split(".")[0])' "$rs")
+    if [[ ${#RS_TABLES[@]} -eq 0 ]]; then
+      fail "7c'/7d $rsname — it names no \`oracle\` source"
       continue
     fi
 
-    # 2. The numbers, against that run's own recorded oracle table, through the
+    # 2. The numbers, against that run's own recorded oracle tables, through the
     #    same comparator and the same tolerance.toml the fixture stage uses.
     RS_CSV="$RUNDIR/$rsname.runspec.csv"
-    RS_ACTUAL="$RUNDIR/$rsname.runspec.actual.csv"
-    if ! out=$("$ESM" simulate "$rs" --time 0 --format csv \
-                 "${RS_OBS[@]}" --output "$RS_CSV" 2>&1); then
-      fail "7c'/7d $rsname — the default-database chain does not evaluate"
-      sed 's/^/       /' <<<"$out" | tail -5
+    rm -f "$RS_CSV"
+    RS_RPD=""
+    rs_ok=1
+    for RS_TABLE in "${RS_TABLES[@]}"; do
+      RS_ACTUAL="$RUNDIR/$rsname.$RS_TABLE.actual.csv"
+      if [[ "$RS_TABLE" == movesoutput ]]; then
+        if ! out=$("$ESM" simulate "$rs" --time 0 --format csv \
+                     "${c7_obs[@]}" --output "$RS_CSV" 2>&1); then
+          fail "7c'/7d $rsname — the default-database chain does not evaluate"
+          sed 's/^/       /' <<<"$out" | tail -5
+          rs_ok=0; break
+        fi
+        sed "1s/out_//g" "$RS_CSV" > "$RS_ACTUAL"
+      elif ! out=$("$PYTHON" tools/emit-oracle-table.py --esm "$ESM" --runspec "$rs" \
+                     --table "$RS_TABLE" --snapshots "$SNAPSHOTS" --model "$C7_LOGIC" \
+                     --output "$RS_ACTUAL" 2>&1); then
+        fail "7c'/7d $rsname — its $RS_TABLE relation does not emit"
+        sed 's/^/       /' <<<"$out" | tail -5
+        rs_ok=0; continue
+      fi
+      [[ "$RS_TABLE" == rateperdistance ]] && RS_RPD="$RS_ACTUAL"
+      if out=$("$PYTHON" compare-output.py --fixture "$rsname" --actual "$RS_ACTUAL" \
+                 --table "$RS_TABLE" --snapshots "$SNAPSHOTS" 2>&1); then
+        pass "$rsname — the default database reproduces the run's $RS_TABLE, complete"
+        sed 's/^/       /' <<<"$out" | tail -4
+      else
+        fail "7c'/7d $rsname — it evaluates from the default database, but not to the run's $RS_TABLE"
+        sed 's/^/       /' <<<"$out" | tail -8
+      fi
+    done
+    [[ $rs_ok -eq 1 ]] || continue
+
+    # 3. The shape, recomputed by the chain rather than read off the answer. It
+    #    is the OUTPUT relation's shape -- where `n_outputRate` and the blocks and
+    #    cohorts live -- which a Rates run computes too, so a run that is not
+    #    judged on MOVESOutput emits it here for the check alone.
+    if [[ ! -f "$RS_CSV" ]] && ! out=$("$ESM" simulate "$rs" --time 0 --format csv \
+                                         "${c7_obs[@]}" --output "$RS_CSV" 2>&1); then
+      fail "7c'/7d $rsname — its output relation does not evaluate for the shape check"
       continue
     fi
-    sed "1s/${RS_PREFIX}//g" "$RS_CSV" > "$RS_ACTUAL"
-    if out=$("$PYTHON" compare-output.py --fixture "$rsname" --actual "$RS_ACTUAL" \
-               --table "$RS_TABLE" --snapshots "$SNAPSHOTS" 2>&1); then
-      pass "$rsname — the default database reproduces the run's $RS_ORACLE, complete"
-      sed 's/^/       /' <<<"$out" | tail -4
-    else
-      fail "7c'/7d $rsname — it evaluates from the default database, but not to the run's numbers"
-      sed 's/^/       /' <<<"$out" | tail -8
-    fi
-
-    # 3. The shape, recomputed by the chain rather than read off the answer.
     RS_SHAPE="$RUNDIR/$rsname.runspec.shape.csv"
     if "$ESM" simulate "$rs" --time 0 --format csv \
          --observed rateSurvivorCount --observed outputPolProcessCount --observed cohortSurvivorCount \
@@ -1804,7 +1825,7 @@ print(urls[0].rsplit("__", 1)[1].split(".")[0] if len(urls) == 1 else "")' "$rs"
          --observed run_domainUnported \
          --observed run_selectionUnported \
          --output "$RS_SHAPE" >/dev/null 2>&1; then
-      if out=$("$PYTHON" tools/check-runspec-shape.py "$RS_CSV" "$RS_SHAPE" 2>&1); then
+      if out=$("$PYTHON" tools/check-runspec-shape.py "$RS_CSV" "$RS_SHAPE" $RS_RPD 2>&1); then
         pass "$rsname — the emitted shape is what the chain recomputes: $out"
       else
         fail "7c'/7d $rsname — the rows emitted are not the shape the chain recomputes. Either a declared count is wrong, or rspp_isEmitted is, or n_sourceBin is a slot short, or n_physicsRow is a vehicle short"
