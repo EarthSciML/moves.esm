@@ -2379,9 +2379,11 @@ rm -rf $TMPDIR/earthsci-esm-cache        # after any change to ../moves.rs
 python3 tools/check-source-cache.py      # or let stage 2b refuse the run
 ```
 
-## F43 — an ingested parameter is not an assertable variable
+## F43 — an ingested parameter is not an assertable variable **[fixed upstream, retired]**
 
-**Not fixed. Repro: `F43_an_ingested_parameter_is_not_assertable.esm`.**
+**Retired 2026-11-01** at EarthSciAST `040952d1e` (PR #617): a data-fed parameter is assertable in `esm test` and emittable by `esm simulate --observed`, also through a subsystem mount. The repro passed 4/4 and is deleted; `fixtures/process-tirewear.esm` asserts the ingested `Onroad.rst_sourceTypeID` (21) where it arrives. The same PR fixed a worse twin found while fixing this one: in a document with derivatives the SOLVER read a data-fed parameter as its default, 0, while the build-time fields read the data.
+
+**Was: Not fixed. Repro: `F43_an_ingested_parameter_is_not_assertable.esm`.**
 
 An inline assertion naming a variable whose `update` is `kind: data` cannot be
 evaluated. The document loads, `esm validate` passes, the source is read
@@ -2596,9 +2598,11 @@ next rung filing another one.
 
 ---
 
-## F45 — an ingesting document may hold only one model
+## F45 — an ingesting document may hold only one model **[fixed upstream, retired]**
 
-**Not fixed. Repro: `F45_an_ingesting_document_holds_one_model.esm`.** Found
+**Retired 2026-11-01** at EarthSciAST `040952d1e` (PR #616): with no `model_name`, an ingesting document of several models flattens and builds them all, resolving cross-model names as the flattener does. The repro passed 2/2 and is deleted. An explicit `--model X` still builds X alone, so a sibling's names stay unbound there -- kept upstream on purpose, because a test depends on that meaning of `--model`.
+
+**Was: Not fixed. Repro: `F45_an_ingesting_document_holds_one_model.esm`.** Found
 running PLAN.md step 7a, the Phase 7 gate.
 
 A document whose build reads a `data_sources` entry — that is, any document

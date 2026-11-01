@@ -477,8 +477,6 @@ declare -A REPRO_SIGNATURE=(
   [F22b_an_implicit_equation_on_the_array_path]='unsupported_construct: implicit equation'
   [F28_a_data_named_predecessor_is_not_a_recurrence]='recurrence_not_wellfounded'
   [F41_an_assertion_cannot_say_why]='Additional properties are not allowed'
-  [F43_an_ingested_parameter_is_not_assertable]='has no cells in var_map'
-  [F45_an_ingesting_document_holds_one_model]='document holds several models'
   [F56_a_zero_sized_axis_panics]='attempt to calculate the remainder with a divisor of zero'
   [F57_a_wide_join_key_is_dropped]='actual=4 expected=2'
 )
@@ -822,7 +820,9 @@ head2 "fixtures"
 # rather than like a scratch file. Observed: a concurrent benchmark left fifteen
 # `.f17-*.esm` variants in fixtures/, any one of which would have turned the
 # suite red without a fixture being wrong.
-mapfile -t FIXTURES < <(find fixtures -name '*.esm' -not -name '.*' 2>/dev/null | sort)
+# -maxdepth 1: fixtures/catalogues/ holds the shared execution-database
+# catalogues the fixtures mount, which are not fixtures themselves.
+mapfile -t FIXTURES < <(find fixtures -maxdepth 1 -name '*.esm' -not -name '.*' 2>/dev/null | sort)
 
 if [[ ${#FIXTURES[@]} -eq 0 ]]; then
   say "  none"
@@ -874,12 +874,17 @@ else
     # resolved a relative `ref` against the process working directory (F7); that
     # is fixed, so the document is run where it lives.
     #
-    # The fields are read through the fixture's subsystem `{ref}`, out of the
-    # model it mounts, and named by their full path (`Fixture.Onroad.out_x`);
-    # the header is cut back to the bare `out_x` once emitted, below.
+    # The fields are read through the fixture's subsystem `{ref}` -- to the
+    # shared catalogue, and through ITS `{ref}` to the model -- and named by
+    # their full path (`Fixture.Onroad.out_x`); the header is cut back to the
+    # bare `out_x` once emitted, below.
     mapfile -t FIELDS < <("$PYTHON" - "$run" <<'PYEOF'
 import json, os, sys
 def fields(path, model, prefix):
+    if "ref" in model and "variables" not in model:
+        leaf = os.path.join(os.path.dirname(path), model["ref"])
+        for m in json.load(open(leaf)).get("models", {}).values():
+            yield from fields(leaf, m, prefix)
     for sub, edge in (model.get("subsystems") or {}).items():
         if "ref" in edge:
             leaf = os.path.join(os.path.dirname(path), edge["ref"])
@@ -979,11 +984,12 @@ fi
 # make the parent's success prove nothing.
 #
 # WHY THE CHECK IS A CSV DIFF AND NOT AN ASSERTION. It is the only verification
-# the format leaves available for this shape. An asserting model beside the
-# mount makes every assertion in the document error (finding F45), and a mounted
-# component's own inline tests are not run (finding F47). So this stage borrows
-# the fixture stage's emit-and-compare, and watches BOTH findings two-sided: the
-# day either is fixed, it says so instead of quietly staying the weaker check.
+# the format left available for this shape when it was written. An asserting
+# model beside the mount made every assertion in the document error (finding
+# F45, retired 2026-11-01 by EarthSciAST PR #616), and a mounted component's own
+# inline tests are not run (finding F47). So this stage borrows the fixture
+# stage's emit-and-compare, and watches F47 two-sided: the day it is fixed, it
+# says so instead of quietly staying the weaker check.
 #
 # THE DATABASE IS READ IN PLACE and its path is absolute. It is 1.1 GB and is
 # not in this repository, so the document cannot name it relatively the way a

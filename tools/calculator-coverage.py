@@ -259,12 +259,13 @@ def fixtures():
     """snapshot name -> the .esm that reproduces it."""
     d = os.path.join(ROOT, "fixtures")
     out = {}
+    # A fixture is named for its snapshot (run-tests.sh keys on the same
+    # name); since 2026-11-01 the snapshot directory is spelled in the shared
+    # catalogue and bound by `url_substitutions`, not in the fixture's text.
     for name in sorted(os.listdir(d)):
         if not name.endswith(".esm") or name.startswith("."):
             continue
-        with open(os.path.join(d, name)) as fh:
-            for snap in set(re.findall(r"snapshots/([a-z0-9-]+)", fh.read())):
-                out[snap] = "fixtures/" + name
+        out[name[:-4]] = "fixtures/" + name
     return out
 
 
@@ -375,10 +376,7 @@ def ladder(dag, live, covered):
                            set()).add(r["calculator"])
 
     ported = set()
-    for name in os.listdir(os.path.join(ROOT, "fixtures")):
-        if name.endswith(".esm") and not name.startswith("."):
-            with open(os.path.join(ROOT, "fixtures", name)) as fh:
-                ported |= set(re.findall(r"snapshots/([a-z0-9-]+)", fh.read()))
+    ported |= set(fixtures())
 
     rows = []
     for xml in sorted(glob.glob(os.path.join(ch, "fixtures", "*.xml"))):

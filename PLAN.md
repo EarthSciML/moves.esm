@@ -1428,6 +1428,11 @@ names, mounting `onroad/model.esm` or `nonroad/model.esm` with the run's
 declared counts as `bindings`. The inlined copies of the spine they used to
 carry -- 236k lines -- are gone, and all fourteen reproduce their snapshots at
 the same worst cells as before.
+Since 2026-11-01 the execution database itself is written twice, not per
+fixture: `fixtures/catalogues/{onroad,nonroad}-execution-db.esm` hold the tables
+behind a `{snapshot}` placeholder and mount the model, and each fixture mounts
+its catalogue as a subsystem with `url_substitutions: {snapshot}`, its counts
+and its tests (EarthSciAST #616/#617/#618; conventions §106).
 
 The input source keys moved with the file — `tw_link` is `db_link` — because
 the tables are the database's and not one process's. `spikes/7c/` keeps the

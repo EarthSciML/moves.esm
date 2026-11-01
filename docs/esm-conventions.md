@@ -8756,7 +8756,7 @@ in binary64, so no number moved.
   `ev_temperature_reference`. The EV temperature quadratic was the standard one
   about a different reference, so both are now `centred_quadratic_adjustment`.
 
-## 106. A fixture is the run's execution database mounted on the domain model, and the logic is written once **[2026-10-30; 14 fixtures, 236k lines of inlined logic removed, every one byte-identical to its own earlier run and inside tolerance of its snapshot]**
+## 106. A fixture is the run's execution database mounted on the domain model, and the logic is written once **[2026-10-30; 15 fixtures, 236k lines of inlined logic removed, every one byte-identical to its own earlier run and inside tolerance of its snapshot]**
 
 Until this section every document in `fixtures/` was a MODEL: its own copy of
 the onroad or nonroad spine, frozen at whichever commit last touched it
@@ -8805,11 +8805,12 @@ twin binds -- and holds the run's tests (point 3). No logic.
 
    **Where the assertions came from.** `onroad/model.esm`'s twelve `tests`
    blocks were written against the tirewear snapshot and never ran; they moved
-   to `fixtures/process-tirewear.esm`, and all 151 pass after fifteen were
+   to `fixtures/process-tirewear.esm`, and all 152 pass after fifteen were
    brought up to date (eleven named the retired `run_rows` axis, three the
    removed `rspp_chainInputPolProcessID`, now the edge list's
    `lnk_outputPolProcessID`/`lnk_inputPolProcessID`, and one asserted the
-   data-fed `rst_sourceTypeID`, which F43 still forbids). The domain models now
+   data-fed `rst_sourceTypeID`, dropped while F43 forbade it and restored
+   when PR #617 retired it). The domain models now
    carry no tests, and the 7c stage holds them to it. The other fourteen
    fixtures got back the assertions their inline copies carried before §106,
    retargeted at `Onroad.`/`Nonroad.` and kept only where they PASS against
@@ -8822,8 +8823,9 @@ twin binds -- and holds the run's tests (point 3). No logic.
    innermost, so their day-outermost ordinals named other cohorts, and each
    was re-pinned to the row now holding its model year, fuel type and day
    (13 restored; 6 had passed by position). Of the rest, 950 name one of 239
-   variables the model no longer has, 8 assert a data-fed parameter (F43), and
-   43 expect a value the model has deliberately moved off since -- the
+   variables the model no longer has (958 counting eight NONROAD ones that F43's
+   error message, `has no cells in var_map`, had passed off as data-fed --
+   none of their seven variables exists), and 43 expect a value the model has deliberately moved off since -- the
    printed-decimal month fraction, `cohortSurvivorCount`'s new meaning --
    and each of those fixtures still matches its snapshot. They were not
    re-derived: a claim about a variable that no longer exists is not a claim
@@ -8843,12 +8845,31 @@ twin binds -- and holds the run's tests (point 3). No logic.
    model for their forms found no inline twin, and they are kept as ports of
    their MOVES equations.
 
-**What is still repeated is configuration, not logic.** The fourteen
-catalogues differ only in their snapshot directory and their bindings, and a
-`url_template` resolves against the file that declares it (esm-spec §8.2.1) and
-a `ref` is canonicalized, so one shared catalogue cannot be pointed at fourteen
-snapshots. Collapsing them needs a format primitive -- a mount edge that binds
-a `url_template` substitution -- not a document workaround.
+**The catalogue is written twice, not fifteen times (since 2026-11-01).**
+The fifteen catalogues differed only in their snapshot directory -- twelve
+onroad ones in 121 identical sources, two NONROAD ones in 41, plus tirewear's
+oracle-tagged `db_movesoutput` -- and a `url_template` resolves against the
+file that declares it (esm-spec §8.2.1), so one shared catalogue could not be
+pointed at fifteen snapshots. EarthSciAST PR #618 added the primitive: a mount
+edge's `url_substitutions` binds a `{name}` placeholder in the mounted
+document's locations, and a mounted document's `data_sources` merge up at the
+`subsystems` form too, with edge `bindings` reaching through it to the model it
+mounts. So `fixtures/catalogues/onroad-execution-db.esm` and
+`nonroad-execution-db.esm` hold the tables once, each mounting its domain model,
+and every fixture is
+
+```json
+"Fixture": {"subsystems": {"Onroad": {"ref": "catalogues/onroad-execution-db.esm",
+  "url_substitutions": {"snapshot": "process-airtoxics"},
+  "bindings": {"n_outputRate": 644}}}, "tests": [...]}
+```
+
+-- a fixture names its snapshot, its counts and its claims, and nothing else.
+All fifteen emit relations byte-identical to the per-fixture catalogues'.
+`fixtures/` went from ~50.9k lines to ~18.7k, nearly all of it tests. Two
+sibling mounts that contributed the same source name with DIFFERENT entries
+are a load error (`data_source_merge_conflict`), so mounting the catalogue
+twice with two snapshots cannot silently read one of them for both.
 
 The braking rule itself is now `braking_second` in `lib/drive_cycle.esm`,
 applied by the base-rate path (`dss_isBraking`, with its presence requirement
