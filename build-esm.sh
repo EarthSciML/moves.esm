@@ -11,15 +11,26 @@
 #   1. --features esio
 #      `esio` is opt-in. Without it `data_sources` load nothing at all.
 #
-#   2. --config patch.crates-io.earthsciio.path=...
-#      Cargo.toml pins `earthsciio = "0.1.2"` from crates.io. The sibling
-#      EarthSciIO checkout is ALSO version 0.1.2, so cargo has no reason to
-#      prefer it and silently keeps the registry copy -- which has no
-#      parquet.rs. Since every MOVES snapshot table is parquet, that alone
-#      makes every fixture read nothing. Measured: an aggregate over a real
-#      1183-row column summed to 0, with no error.
+#   2. an earthsciio WITH A PARQUET READER
+#      Every MOVES snapshot table is parquet, so an earthsciio without
+#      `src/format/parquet.rs` makes every fixture read nothing. Measured: an
+#      aggregate over a real 1183-row column summed to 0, with no error.
 #
-#      We pass this on the command line rather than editing the crate's
+#      Until 2026-11-01 the crates.io release (0.1.2) had no reader, so this
+#      script ALWAYS patched in a sibling EarthSciIO checkout and refused any
+#      build that did not use it. EarthSciAST now pins `earthsciio = "0.2.0"`,
+#      whose registry copy HAS the reader -- and the always-patch rule then
+#      broke the build, because the sibling checkout sat at 0.1.4 on a
+#      dependabot branch and a version-mismatched patch is simply not used.
+#      The rule had encoded "the registry copy has no parquet" as a fact; the
+#      requirement was only ever "whatever gets linked has a parquet reader".
+#      So that is what is checked now: after the build, `cargo metadata` names
+#      the earthsciio actually resolved, and its source tree must contain the
+#      reader. The registry copy is the default; IO=<EarthSciIO checkout>
+#      patches a local tree in instead (to test an unreleased EarthSciIO), and
+#      then the patch must actually be used.
+#
+#      The patch is passed on the command line rather than in the crate's
 #      checked-in .cargo/config.toml, because a committed relative path would
 #      break the build for anyone without EarthSciIO as a sibling checkout.
 #
@@ -41,47 +52,47 @@ cd "$(dirname "${BASH_SOURCE[0]}")"
 
 AST="${AST:-../EarthSciAST}"
 
-# Relative to the CRATE dir ($AST/pkg/earthsci-ast-rs), per its Cargo.toml
-# comment, so the default resolves to $AST/../EarthSciIO/rust. That is right for
-# a normal sibling checkout and WRONG for a git worktree, where $AST is nested
-# and the path lands somewhere that does not exist -- and this script's whole
-# job is catching build misconfiguration that otherwise fails silently, so it
-# should not have a silent one of its own. Overridable, and checked below.
-IO="${IO:-$AST/../EarthSciIO}"
+# OPTIONAL: an EarthSciIO checkout to patch in over the registry release. Unset
+# (the default), the crate builds against the earthsciio its Cargo.lock names.
+# There is deliberately no default path: a default relative to $AST was right
+# for a sibling checkout and wrong for a nested git worktree, and patching
+# whatever happens to be checked out beside EarthSciAST is how a dependabot
+# branch ended up deciding what got linked.
+IO="${IO:-}"
 
 # Where the built binary lands. Default is the canonical ./esm that CLAUDE.md
 # keeps untracked in the repo root and that run-tests.sh runs. Override it to
 # build a comparison binary without disturbing the one the suite uses:
 #
-#   OUT=./esm.mybranch AST=../EarthSciAST/.moves/mybranch IO=../EarthSciIO ./build-esm.sh
-#
-# Note the IO= : the default above is relative to $AST and is WRONG for a git
-# worktree, where $AST is nested a level or two deeper.
+#   OUT=./esm.mybranch AST=../EarthSciAST/.moves/mybranch ./build-esm.sh
 OUT="${OUT:-./esm}"
 
 if [[ ! -d "$AST/pkg/earthsci-ast-rs" ]]; then
   echo "error: no EarthSciAST crate at '$AST/pkg/earthsci-ast-rs' (set AST=...)" >&2
   exit 2
 fi
-if [[ ! -d "$IO/rust" ]]; then
-  echo "error: no EarthSciIO crate at '$IO/rust' (set IO=...)" >&2
-  echo "       the registry copy of earthsciio has no parquet reader, so a build" >&2
-  echo "       without this patch produces a binary that silently reads nothing" >&2
-  exit 2
+CFG=()
+if [[ -n "$IO" ]]; then
+  if [[ ! -d "$IO/rust" ]]; then
+    echo "error: IO='$IO' has no EarthSciIO crate at '$IO/rust'" >&2
+    exit 2
+  fi
+  IO_ABS="$(cd "$IO/rust" && pwd)"
+  CFG=(--config "patch.crates-io.earthsciio.path=\"$IO_ABS\"")
 fi
-IO_ABS="$(cd "$IO/rust" && pwd)"
 
 echo "building esm from $AST ..."
 (
   cd "$AST/pkg/earthsci-ast-rs" || exit 2
-  PATCH="patch.crates-io.earthsciio.path=\"$IO_ABS\""
 
   # `--config patch...` is SILENTLY IGNORED when Cargo.lock already pins the
   # registry copy: cargo prints "warning: patch ... was not used in the crate
-  # graph", builds the crates.io crate, and the binary then has no parquet
-  # reader. `cargo update` re-resolves so the patch wins. Cheap, and the
-  # alternative is a working binary that reads nothing.
-  cargo update -p earthsciio --config "$PATCH" >/dev/null 2>&1 || true
+  # graph" and builds the crates.io crate. `cargo update` re-resolves so the
+  # patch wins -- or, if the checkout's version does not match the one
+  # Cargo.toml asks for, still does not, which the checks below catch.
+  if [[ -n "$IO" ]]; then
+    cargo update -p earthsciio "${CFG[@]}" >/dev/null 2>&1 || true
+  fi
 
   # A cargo build killed mid-write -- by an OOM, or by a wrapper timeout --
   # leaves a half-written rlib, and the NEXT build fails at link with
@@ -89,7 +100,7 @@ echo "building esm from $AST ..."
   # The message points at a dependency and has nothing to do with the code, and
   # it has cost real time three times on this project. Detect it and self-heal
   # once rather than making the next person diagnose it again.
-  build() { cargo build --release --features esio,parallel --bin esm --config "$PATCH" 2>&1; }
+  build() { cargo build --release --features esio,parallel --bin esm "${CFG[@]}" 2>&1; }
   out="$(build)"; rc=$?
   if [[ $rc -ne 0 ]] && grep -q "undefined hidden symbol" <<<"$out"; then
     echo "note: stale build artifacts from an interrupted compile; cleaning and retrying" >&2
@@ -99,19 +110,41 @@ echo "building esm from $AST ..."
   fi
   printf '%s\n' "$out"
   [[ $rc -eq 0 ]] || exit $rc
-  grep -q "warning: patch .* was not used" <<<"$out" && {
-        echo "error: the EarthSciIO path patch was not applied -- the binary would" >&2
-        echo "       link the crates.io crate, which has no parquet reader." >&2
-        exit 3
-      }
 
-  # Belt and braces: a registry-sourced earthsciio in the lock means the local
-  # checkout is NOT what got linked, whatever the build log said.
-  if grep -A2 '^name = "earthsciio"' Cargo.lock | grep -q '^source = "registry'; then
-    echo "error: Cargo.lock resolves earthsciio to the registry, not $IO_ABS" >&2
+  # WHICH earthsciio got linked, from cargo itself rather than from a guess
+  # about the lock file: its version, its source (registry or path) and the
+  # directory its sources are in.
+  ESIO="$(cargo metadata --format-version 1 --features esio "${CFG[@]}" 2>/dev/null \
+    | python3 -c 'import json, os, sys
+p = [p for p in json.load(sys.stdin)["packages"] if p["name"] == "earthsciio"]
+if len(p) != 1:
+    sys.exit("expected one earthsciio package, found %d" % len(p))
+p = p[0]
+print(p["version"], p["source"] or "path", os.path.dirname(p["manifest_path"]), sep="\t")')" || {
+    echo "error: could not determine which earthsciio the build resolved" >&2
+    exit 3
+  }
+  IFS=$'\t' read -r ESIO_VERSION ESIO_SOURCE ESIO_DIR <<<"$ESIO"
+
+  if [[ -n "$IO" && "$ESIO_DIR" != "$IO_ABS" ]]; then
+    echo "error: IO='$IO' was asked for, but earthsciio $ESIO_VERSION resolved to" >&2
+    echo "       '$ESIO_DIR' -- the patch was not used (is the checkout's version" >&2
+    echo "       the one Cargo.toml asks for?)" >&2
     exit 3
   fi
+  # The requirement itself. Without the reader every parquet source reads as
+  # nothing, and each data-fed parameter returns its plausible `default`.
+  if [[ ! -f "$ESIO_DIR/src/format/parquet.rs" ]]; then
+    echo "error: the linked earthsciio ($ESIO_VERSION, $ESIO_SOURCE) has no parquet" >&2
+    echo "       reader at '$ESIO_DIR/src/format/parquet.rs'; the binary would read" >&2
+    echo "       no MOVES table. Set IO=<an EarthSciIO checkout that has one>." >&2
+    exit 3
+  fi
+  echo "earthsciio $ESIO_VERSION from $ESIO_SOURCE ($ESIO_DIR): parquet reader present"
+  printf '%s\t%s\t%s\n' "$ESIO_VERSION" "$ESIO_SOURCE" "$ESIO_DIR" > "${TMPDIR:-/tmp}/build-esm.esio.$$"
 ) || exit $?
+IFS=$'\t' read -r ESIO_VERSION ESIO_SOURCE ESIO_DIR < "${TMPDIR:-/tmp}/build-esm.esio.$$"
+rm -f "${TMPDIR:-/tmp}/build-esm.esio.$$"
 
 # WHERE CARGO PUT IT, not where it usually puts it. `CARGO_TARGET_DIR` in the
 # environment redirects the build and this copy does not follow, so the `cp`
@@ -157,15 +190,17 @@ if [[ "$OUT" != "./esm" ]]; then
   exit 0
 fi
 
-# The IO= path is read from "$IO" and NOT from "$AST/../EarthSciIO" below.
-# Those name the same directory only for a plain sibling checkout; with AST=
-# pointing at a nested git worktree the second does not exist, and the fallback
-# recorded 'not a git checkout' about a tree that IS one -- the same class of
-# quiet wrong answer the rest of this script exists to prevent, moved out of
-# the binary and into the record of it. Observed on the 3a01c56fc pin, whose
-# lock says exactly that about EarthSciIO d109951d4.
+# The earthsciio record is what cargo resolved, not what IO= asked for: a
+# registry release by version, or a patched-in checkout by commit. (It used to
+# read "$AST/../EarthSciIO", which for a nested worktree recorded 'not a git
+# checkout' about a tree that IS one -- a quiet wrong answer in the record.)
+if [[ "$ESIO_SOURCE" == path ]]; then
+  ESIO_RECORD="$(git -C "$ESIO_DIR" rev-parse HEAD 2>/dev/null || echo 'not a git checkout')"
+else
+  ESIO_RECORD="$ESIO_SOURCE"
+fi
 #
-# Note also that the heredoc below is UNQUOTED, so it interpolates: a shell
+# Note that the heredoc below is UNQUOTED, so it interpolates: a shell
 # variable written into a comment inside it lands in the lock file expanded.
 cat > esm-version.lock <<EOF
 # The EarthSciAST commit that ./esm was built from. Written by build-esm.sh.
@@ -182,10 +217,10 @@ date      = $(git -C "$AST" log -1 --format=%cI)
 version   = $(./esm --version)
 features  = esio,parallel
 
-# The EarthSciIO tree patched in over the crates.io 0.1.2 (same version
-# number, different content -- the registry copy has no parquet reader).
-esio_repo   = EarthSciIO
-esio_commit = $(git -C "$IO" rev-parse HEAD 2>/dev/null || echo 'not a git checkout')
+# The earthsciio cargo linked: a crates.io release, or a patched-in EarthSciIO
+# checkout (IO=) by commit. build-esm.sh refuses one without a parquet reader.
+esio_version = $ESIO_VERSION
+esio_source  = $ESIO_RECORD
 EOF
 
 echo "wrote esm-version.lock"
