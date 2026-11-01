@@ -5043,6 +5043,147 @@ at Rates scale but means nothing there (MOVES's pre-truncation MOVESOutput is
 `meanBaseRate x` a link activity this model does not build). Distance units other
 than miles are not read.
 
+#### 7.3.48 The rest of Rates scale: five captured runs, one per table family, measured before porting
+
+2026-11-01. §7.3.47 left every Rates table but running exhaust's RatePerDistance
+counted and unported, because no snapshot exercised them. Six RunSpecs were written
+for that (moves.rs `characterization/fixtures/rates-*.xml`, moves.rs `48fdf9fb`),
+each the Rates-scale twin of inventory runs this model already reproduces, so that
+what a run discriminates is the Rates arithmetic and nothing else. Five ran:
+
+| run | twin of | tables MOVES writes (rows) |
+|---|---|---|
+| `rates-running` | `process-crankcase-running` + `chain-tog-speciation`, road types 1 and 4 | RatePerDistance 79,625 |
+| `rates-wear` | `process-brakewear` + `process-tirewear` | RatePerDistance 10,000 |
+| `rates-start` | `process-crankcase-start` | RatePerStart 684, RatePerVehicle 684, StartsPerVehicle 125 |
+| `rates-hotelling` | `process-crankcase-extidle` + `process-extended-idle` + `process-apu` | RatePerHour 491, RatePerVehicle 491 |
+| `rates-evap` | the four evaporative and refueling runs, road types 1 and 4 | RatePerDistance 31,165, RatePerVehicle 296, RatePerProfile 64, RatePerStart 104, StartsPerVehicle 125 |
+
+**Two of §7.3.47's open items are not MOVES configurations.** *Time aggregation*:
+`TimeSpans.java` forces `aggregateBy = HOUR` at Rates scale and refuses anything
+else, so a Rates run that aggregates is not a RunSpec MOVES runs; it stays counted.
+*PROJECT-domain rates*: `rates-project` is written and MOVES fails it in this
+capture environment -- `RatePostProcessorRatesFirst.sql`'s PROJECT branch hardcodes
+`MOVESExecution.link`, and the capture's `executionDatabaseName = *` names the
+execution database per host, so the post-processor stops and leaves every rate
+table empty. It is skipped by default in moves.rs and stays counted here until it
+can be captured.
+
+**What MOVES does, from its source.** `RatePostProcessorRatesFirst.sql` assigns a
+row to a table by its process and road type alone:
+
+| table | rows | value |
+|---|---|---|
+| RatePerDistance | processes 1, 9, 10, 15 on any road type; 11, 12, 13, 18, 19 off road type 1 | `BaseRateOutput.emissionRate`; for 11-13, `MOVESOutput / distance` |
+| RatePerStart | 2, 16 (not PROJECT) | `emissionRate` |
+| RatePerHour | 17, 90, 91, 93 | `emissionRate` |
+| RatePerVehicle | 2, 16, 17, 90, 91, 93; 11, 13, 18, 19 on road type 1 | `MOVESOutput / population` |
+| RatePerProfile | 12 on road type 1 | `MOVESOutput / population`, by temperature profile |
+| StartsPerVehicle | every cohort with population, when starts are computed | `starts / population` |
+
+`baseratecalculator.go`'s `aggregateAndApplyActivity` scales `meanBaseRate` by the
+activity and leaves `emissionRate` alone, so at Rates scale `MOVESOutput` is the
+inventory's quantity and `emissionRate` is a rate per unit of activity.
+
+**Measured in pandas against the snapshots and their inventory twins.**
+
+1. *Every directly rated on-network row already reproduces.* Running THC, CO, NOx
+   and energy on road types 2-5 (the run's execution `runspecroadtype` holds all
+   five although the XML names 1 and 4 -- conventions §102) and brake and tire
+   PM2.5, within 1.2e-05, with no change.
+2. *A chained pollutant is the inventory's chain applied to the per-bin rate.* Brake
+   and tire PM10 are zero in the model today; MOVES's PM10/PM2.5 is constant across
+   the 16 bins within each cohort (8.0 for brake wear's older model years, 6.67 for
+   tire wear) -- `PM10EmissionRatio`, the same per-rate-row ratio the inventory
+   chain reads. Crankcase running and the hydrocarbon species are the same case.
+3. *Off-network idle is a rate per idle HOUR of a vehicle of that fuel*, in
+   RatePerDistance at `avgSpeedBinID` 0 and link `(zoneID*10 + 1)*100`, one row per
+   cohort rather than sixteen. The worker's Rates-mode `MOVESOutput` for it equals
+   `expand-roadtypes`' inventory at every cohort (the factor is 1.0551e6, kJ per
+   MMBtu), and `inventory / ratePerDistance` divided by the road-type-1 SHO of the
+   cohort's age is the fuel's share of the source type (0.179-0.200 for gasoline):
+   §104's normalization, without the bin speed.
+4. *Starts.* `rates-start` against `process-crankcase-start`: RatePerVehicle =
+   inventory / population, and RatePerStart = inventory / (starts x population per
+   vehicle), both within 1.1e-05 for every fuel; StartsPerVehicle is the AGE's
+   starts per vehicle, identical across fuels, with a row only where the cohort has
+   population (no diesel model year 2020).
+5. *Hotelling.* `rates-hotelling` against its three twins: RatePerVehicle =
+   inventory / population and RatePerHour = inventory / hotelling hours for 17, 90
+   and 91, within 1e-05 -- and shore power (93) has a RatePerHour of 0.0115 where
+   its hours and its inventory are zero. RatePerHour is the rate, not a quotient.
+6. *The evaporative on-road rows are an hourly rate over the bin speed.*
+   `ratePerDistance x avgBinSpeed` for 11, 12 and 13 is the same at every bin and
+   road type to 1.6e-05. Refueling (18, 19) varies by bin as running energy does:
+   it is chained from it, and MOVES keeps the energy prerequisites (91/1, 91/2) in
+   the Rates tables where the inventory output processor strips them (§7.3.30).
+7. *Off-network evaporative is new physics.* Permeation, leaks, vapor venting and
+   refueling on road type 1 need the soak operating modes, the cold-soak tank
+   temperatures (TTG-6/7) and refueling's off-network energy parent, none of which
+   the model computes (§7.3.33). RatePerProfile has one profile per zone and month,
+   `zoneID*10000 + monthID*100`.
+
+**The design.** Every Rates table but StartsPerVehicle is a SUBSET of the output
+relation -- of `rateoutput_rows` for RatePerDistance -- chosen by process and road
+type, so each table is a relation over the rows the model already has plus a
+membership flag `<prefix>_inTable`, and the harness drops the rows whose flag is 0.
+A declared and checked row count per table (as `n_outputRate` is) would cost five
+bindings in every RunSpec and a rank per table for no information the predicate
+does not already carry. The value columns:
+
+* *One per-activity rate, and its chain.* `rt_sourceBinShare` is §104's normalizer
+  without the operating mode -- the used fractions of a rate row's siblings in the
+  same block, cohort and regulatory class. `rtDay_ratePerActivity` is the
+  inventory's `rtDay_adjustedMeanBaseRate` over the unit divisor and that share:
+  per start, per hotelling hour, per idle hour. It goes through the inventory's
+  three chain rungs unchanged (the chain is linear and its ratio per rate row), and
+  `rto_ratePerActivity` sums it, direct plus chained, onto the output row --
+  with shore power's own rate on its own output row. RatePerStart and RatePerHour
+  are that value; RatePerDistance reads it for off-network idle.
+* *The per-bin rate gets its own chain.* `rtBin_rateDirect` is the existing
+  normalized per-bin rate over the unit divisor, and three rungs over `[b,j,g,n]`
+  give the chained species, crankcase, PM10 and refueling per bin.
+  `rpd_ratePerDistance` divides it by the bin speed, or reads `rto_ratePerActivity`
+  at road type 1 (one row: the first bin is a member, at bin id 0).
+* *Per vehicle.* `rto_population` is the age's population times the cohort's
+  share (the same `rt_usedFraction` sum); RatePerVehicle is `out_emissionQuant`
+  over it. StartsPerVehicle is a relation of its own over cohorts, county, month
+  and day, a member where the run computes starts and the cohort has population.
+* *Off-network idle covers crankcase running too.* MOVES applies the crankcase
+  ratio to every running row, so `ppr_isOffNetworkIdle` takes process 15 beside 1;
+  no inventory RunSpec here selects crankcase running with road type 1.
+* *Shared columns are read, not copied.* The output-row tables emit their key
+  columns from `out_*` (the harness names them from each table's column contract),
+  so only what is new is computed: the value, the membership, RatePerHour's road-
+  type-1 link, and the hour's meteorology once, as `rto_temperature` and
+  `rto_relHumidity`, which `rpd_*` now reads too.
+
+**The harness.** A runspec may carry one `oracle` source per table. Each table has
+a prefix (`rpd_`, `rps_`, `rph_`, `rpv_`, `rpp_`, `spv_`) and a column contract in
+`tolerance.toml`; `run-tests.sh` emits the prefix's variables and, for an output-
+row table, the `out_*` key columns its contract names, keeps the member rows, and
+compares each table. A Rates RunSpec names every table MOVES writes, including the
+empty ones, so a row the model emits that MOVES does not is a failure.
+
+**Sequenced in three parts, each closing runs.**
+
+* **A** -- the chains, off-network idle, starts and hotelling: `rates-wear`,
+  `rates-running`, `rates-start`, `rates-hotelling`, with `scale-rates` and
+  `rates-minimal` naming their empty tables. Priced: 1 equation changed in
+  `ppr_isOffNetworkIdle`, 5 in `rpd_*`; about 40 added (the share, the
+  per-activity rate and 5 chain equations, the per-bin direct rate and 5 more, the
+  output-row rate, population, meteorology, the RatePerStart, RatePerHour and
+  RatePerVehicle columns and memberships, and about 12 for StartsPerVehicle) and one
+  index set. Two chain copies are computed at inventory scale too, over a single
+  speed bin; their cost is measured on the 35 inventory runs, which must stay
+  byte-identical.
+* **B** -- the on-road evaporative rows and the kept energy prerequisites:
+  `rates-evap`'s RatePerDistance (the hourly evaporative rate over the bin speed,
+  refueling through the per-bin chain) and RatePerStart.
+* **C** -- off-network evaporative: the soak modes, TTG-6/7, refueling's off-network
+  parent, RatePerVehicle's road-type-1 rows and RatePerProfile. The largest part,
+  and measured separately before it is priced.
+
 ### 7.4 Upstream asks
 
 **None is blocking.** This section has said "still none", "already exists,
