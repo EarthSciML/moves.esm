@@ -8813,7 +8813,7 @@ twin binds -- and holds the run's tests (point 3). No logic.
    carry no tests, and the 7c stage holds them to it. The other fourteen
    fixtures got back the assertions their inline copies carried before §106,
    retargeted at `Onroad.`/`Nonroad.` and kept only where they PASS against
-   today's model: **1,431 of 2,433**. That includes the 157 first written on
+   today's model: **1,432 of 2,433**. That includes the 157 first written on
    the retired `run_rows` axis, which now give their coordinates on the
    `runspec*_rows` axes each variable is shaped over -- every one of those
    axes is one row wide in all twelve onroad snapshots, so row 1 is the row
@@ -8823,13 +8823,15 @@ twin binds -- and holds the run's tests (point 3). No logic.
    was re-pinned to the row now holding its model year, fuel type and day
    (13 restored; 6 had passed by position). Of the rest, 950 name one of 239
    variables the model no longer has, 8 assert a data-fed parameter (F43), and
-   44 expect a value the model has deliberately moved off since -- the
+   43 expect a value the model has deliberately moved off since -- the
    printed-decimal month fraction, `cohortSurvivorCount`'s new meaning --
    and each of those fixtures still matches its snapshot. They were not
    re-derived: a claim about a variable that no longer exists is not a claim
    about this model. The description of every partly kept test was edited
-   to drop or qualify what it no longer asserts (one, chain-so2's SO2 test,
-   is being restored separately).
+   to drop or qualify what it no longer asserts (chain-so2's SO2 test was
+   rewritten when its NaN `rt_supplyEnergyContent` assertion was restored:
+   FuelSubtype's NULL `energyContent` on electricity is now read as 0 where
+   it is gathered, per §29.2).
 4. **Seven library templates had become fixture-only**, and three of them
    named arithmetic the model spelled inline: `rt_co2ChainRatio`'s 44/12 is
    `carbon_to_carbon_dioxide_mass_ratio`, `rt_spmSulfateFraction` and
