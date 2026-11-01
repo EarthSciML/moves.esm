@@ -5886,7 +5886,7 @@
             "runspecmonth_rows",
             "runspecyear_rows"
           ],
-          "description": "The `RefuelingFuelType` extract's first column: the market-share-weighted energy content of the same supply, kJ per gram. Summed over the formulations of this fuel type, as `rt_supplyEnergyContent` is over a rate row's -- but on FIVE rows instead of thousands, because everything REFEC-7 needs is a property of the fuel. Electricity's subtype carries NULL and the extract's `WHERE energyContent > 0` is what keeps the NaN out of the divisor."
+          "description": "The `RefuelingFuelType` extract's first column: the market-share-weighted energy content of the same supply, kJ per gram. Summed over the formulations of this fuel type, as `rt_supplyEnergyContent` is over a rate row's -- but on FIVE rows instead of thousands, because everything REFEC-7 needs is a property of the fuel. Electricity's subtype carries NULL, which `ff_energyContent` already reads as 0; the extract's `WHERE energyContent > 0` is ported as written all the same, because it is the SQL's clause and not a NaN guard."
         },
         "rff_fuelDensity": {
           "type": "unknown",
@@ -7583,7 +7583,7 @@
           "shape": [
             "fuelsubtype_rows"
           ],
-          "description": "fuelSubtype.energyContent, MJ/kg. NULL on subtype 90, electricity, which reads as 0 here -- and no electricity cohort reaches the one ratio that divides by it, because `SulfateEmissionRate` has no fuel-type-9 row.",
+          "description": "fuelSubtype.energyContent, MJ/kg. NULL on subtype 90, electricity, which arrives as NaN and is read as 0 by `ff_energyContent`, the one place it is gathered -- and no electricity cohort reaches the one ratio that divides by it, because `SulfateEmissionRate` has no fuel-type-9 row.",
           "update": {
             "kind": "data",
             "source": "db_fuelsubtype",
@@ -7990,7 +7990,7 @@
           "shape": [
             "fuelformulation_rows"
           ],
-          "description": "The formulation's energy content, through `FuelSubtype`. A property of the subtype and not of the blend, so the high-ethanol substitution does not touch it."
+          "description": "The formulation's energy content, through `FuelSubtype`, with subtype 90's NULL read as 0 -- the term `SUM(marketShare * energyContent)` skips. A property of the subtype and not of the blend, so the high-ethanol substitution does not touch it."
         },
         "ff_carbonContent": {
           "type": "unknown",
@@ -50623,6 +50623,7 @@
           }
         },
         {
+          "_comment": "The NULL is swept HERE, at the one column that carries it, and not at either sum that reads it (docs/esm-conventions.md 29.2). Subtype 90, electricity, has a NULL `energyContent`; electricity's formulation is SUPPLIED -- market share 1.0 -- so the NaN it arrives as is not multiplied away by a zero weight and `rt_supplyEnergyContent` was NaN on every electricity rate row. `SO2FuelCalculation1`'s `SUM(marketShare * energyContent)` skips a NULL term, and so2_calculator.rs reads it as 0.0; `fuel_property_or_zero` is that reading.",
           "lhs": "ff_energyContent",
           "rhs": {
             "op": "faq",
@@ -50650,11 +50651,18 @@
               }
             ],
             "expr": {
-              "op": "index",
-              "args": [
-                "fst_energyContent",
-                "u"
-              ]
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "fuel_property_or_zero",
+              "bindings": {
+                "value": {
+                  "op": "index",
+                  "args": [
+                    "fst_energyContent",
+                    "u"
+                  ]
+                }
+              }
             }
           }
         },
