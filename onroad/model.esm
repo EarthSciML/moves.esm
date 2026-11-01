@@ -4488,6 +4488,100 @@
           ],
           "description": "TTG-5's count of recorded hot-soak minutes in the hour-day. Group 5's is 1,058 on process-evap-permeation, the number MOVES's stored soakActivityFraction implies (PLAN.md 7.3.27)."
         },
+        "ttg_tripHotSoakMinutes": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspeccounty_rows",
+            "runspecmonth_rows",
+            "samplevehicletrip_rows"
+          ],
+          "description": "The trip's recorded hot-soak minutes in the run's hour in ANY tank-temperature group. TTG-6 counts `DISTINCT vehID, hotSoakTime` across the groups, and a soak's minutes in an hour start at the same minute in every group, so the union is the longest: 1,058 on `rates-evap`, group 5's, where group 3 records 451."
+        },
+        "ttg_hotSoakOpModeCount": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspeccounty_rows",
+            "runspecmonth_rows",
+            "runspecday_rows",
+            "runspecsourcetype_rows"
+          ],
+          "description": "TTG-6's `hotSoakOpModeCount`: the source type's vehicle-minutes of hot soaking in the run's hour-day."
+        },
+        "ttg_operatingMinutes": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecday_rows",
+            "runspecsourcetype_rows"
+          ],
+          "description": "TTG-6's `oMinutes`: `SUM(keyOffTime - keyOnTime)` over `sampleVehicleTripByHour` in the run's hour, the source type's minutes of operating. 1,446 on `rates-evap`."
+        },
+        "ttg_existenceMinutes": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecday_rows",
+            "runspecsourcetype_rows"
+          ],
+          "description": "TTG-6's `eMinutes`: 60 x the source type's sample vehicles on the day, the minutes they exist in an hour. 49,260 on `rates-evap`."
+        },
+        "ttg_soakActivityFraction": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspeccounty_rows",
+            "runspecmonth_rows",
+            "runspecday_rows",
+            "runspecsourcetype_rows",
+            "operating_mode_rows"
+          ],
+          "description": "TTG-6's `soakActivityFraction`: of the minutes the source type's vehicles are NOT operating in the hour, the share hot soaking (`hotSoakOpModeCount / (eMinutes - oMinutes)`, mode 150) and the rest cold soaking (mode 151); 0 on every other mode. 0.0221274 and 0.977873 on `rates-evap`, the snapshot's values."
+        },
+        "evap_soakActivityInputCount": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspeccounty_rows",
+            "runspecsourcetype_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "How many mounted `soakActivityFraction` rows the source type, zone and month have. TTG-6 computes only where there are none (`SoakActivityFractionKeys`)."
+        },
+        "evap_soakActivityInput": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecday_rows",
+            "operating_mode_rows",
+            "runspeccounty_rows",
+            "runspecsourcetype_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "The mounted soakActivityFraction at the run's source type, zone, month, hour-day and mode."
+        },
+        "evap_soakActivityFraction": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecday_rows",
+            "operating_mode_rows",
+            "runspeccounty_rows",
+            "runspecsourcetype_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "The soak activity fraction the evaporative distribution reads: the mounted rows where the source type, zone and month have any, TTG-6's otherwise."
+        },
+        "evap_hasMode": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecpollutantprocess_rows",
+            "operating_mode_rows"
+          ],
+          "description": "Whether `OpModePolProcAssoc` gives the pollutant-process this operating mode: E2's restriction of the soaking modes to the ones it HAS."
+        },
         "ttg_hotSoakTemperatureTotal": {
           "type": "unknown",
           "units": "1",
@@ -12121,7 +12215,7 @@
           "shape": [
             "polprocroad_rows"
           ],
-          "description": "Does the pollutant-process happen on this pair's road type? `rspp_rateRoadTypeID` says where it lives -- the off-network road type 1, or the run's on-network road types, for which it carries their representative `run_roadTypeID` -- so an off-network one occurs on road type 1 alone, an on-network one on every selected on-network road type, and running exhaust on road type 1 as well when that block is off-network idle. This is what `rspp_occursOnSelectedRoad` was, per block; it is the OR over a pollutant-process's blocks now."
+          "description": "Does the pollutant-process happen on this pair's road type? `rspp_rateRoadTypeID` says where it lives -- the off-network road type 1, or the run's on-network road types, for which it carries their representative `run_roadTypeID` -- so an off-network one occurs on road type 1 alone, an on-network one on every selected on-network road type, and running exhaust on road type 1 as well when that block is off-network idle. This is what `rspp_occursOnSelectedRoad` was, per block; it is the OR over a pollutant-process's blocks now. On the off-network road type also: permeation and leaks, whose SourceHours there are SHP, and a chained pollutant-process with an off-network parent even where it has an on-network one -- refueling's start energy (PLAN.md §7.3.48 part C). Vapor venting's cold-soak insert is not ported, so it does not occur there (`run_offNetworkLinkCount`)."
         },
         "ppr_isEmitted": {
           "type": "unknown",
@@ -12236,9 +12330,10 @@
             "runspeccounty_rows",
             "runspecsourcetype_rows",
             "runspecmonth_rows",
-            "runspecyear_rows"
+            "runspecyear_rows",
+            "runspecroadtype_rows"
           ],
-          "description": "E1's numerator: `SHO` summed over the age dimension, per day type. The age axis is contracted because `FractionOfOperating` is a property of the hour and not of a cohort. Summed over the selected ON-network road types: an evaporative process on more than one is counted by `run_selectionUnported`, and road type 1's SourceHours is SHP, which this model does not have."
+          "description": "E1's numerator: `SHO` summed over the age dimension, per day type and road type. The age axis is contracted because `FractionOfOperating` is a property of the hour and the link, not of the vehicle."
         },
         "evap_sourceHoursTotal": {
           "type": "unknown",
@@ -12248,9 +12343,10 @@
             "runspeccounty_rows",
             "runspecsourcetype_rows",
             "runspecmonth_rows",
-            "runspecyear_rows"
+            "runspecyear_rows",
+            "runspecroadtype_rows"
           ],
-          "description": "E1's denominator, the same sum over `act_sourceHours`. Summed over the selected ON-network road types: an evaporative process on more than one is counted by `run_selectionUnported`, and road type 1's SourceHours is SHP, which this model does not have."
+          "description": "E1's denominator, the same sum over `act_sourceHours`, per road type: SHO on an on-network link, SHP on the off-network one."
         },
         "evap_fractionOfOperatingRaw": {
           "type": "unknown",
@@ -12260,7 +12356,8 @@
             "runspeccounty_rows",
             "runspecsourcetype_rows",
             "runspecmonth_rows",
-            "runspecyear_rows"
+            "runspecyear_rows",
+            "runspecroadtype_rows"
           ],
           "description": "The ratio before E1's clamp, with the zero-denominator guard that a day with no activity needs."
         },
@@ -12272,9 +12369,10 @@
             "runspeccounty_rows",
             "runspecsourcetype_rows",
             "runspecmonth_rows",
-            "runspecyear_rows"
+            "runspecyear_rows",
+            "runspecroadtype_rows"
           ],
-          "description": "E1, `least(1, SUM(SHO) / SUM(sourceHours))`. On every run this document has been given it is EXACTLY 1, because A10 made the two sums the same numbers -- so the clamp sits precisely on its boundary, the most fragile place a number can sit, and the soak weight `1 - fractionOfOperating` it feeds is exactly 0. That zero is why `soakActivityFraction` being empty costs these runs nothing, and it is computed rather than assumed: a document that wrote the soak weight as 0 would agree here and be wrong at the first off-network link."
+          "description": "E1, `least(1, SUM(SHO) / SUM(sourceHours))`, per road type. EXACTLY 1 on every on-network road type, where A10 makes the two sums the same numbers, so the soak weight `1 - fractionOfOperating` is exactly 0 there; at the off-network road type it is the off-network idle SHO over SHP, 0.007197 on `rates-evap` (PLAN.md §7.3.48 part C)."
         },
         "evap_soakWeight": {
           "type": "unknown",
@@ -12286,9 +12384,10 @@
             "runspeccounty_rows",
             "runspecsourcetype_rows",
             "runspecmonth_rows",
-            "runspecyear_rows"
+            "runspecyear_rows",
+            "runspecroadtype_rows"
           ],
-          "description": "E2: `soakActivityFraction x (1 - fractionOfOperating)` on the soaking modes, at the run's source type, zone, month and hour-day, and restricted to the modes `opModePolProcAssoc` gives this pollutant-process. EMPTY on both mounts, because `soakActivityFraction` has no rows in either -- and empty is not the same as zero, which is the whole reason the table is mounted and joined rather than argued away."
+          "description": "E2: `soakActivityFraction x (1 - fractionOfOperating)` on the soaking modes, at the run's source type, zone, month, hour-day and road type, and restricted to the modes `opModePolProcAssoc` gives this pollutant-process. EMPTY on both mounts, because `soakActivityFraction` has no rows in either -- and empty is not the same as zero, which is the whole reason the table is mounted and joined rather than argued away."
         },
         "evap_soakTotal": {
           "type": "unknown",
@@ -12299,7 +12398,8 @@
             "runspeccounty_rows",
             "runspecsourcetype_rows",
             "runspecmonth_rows",
-            "runspecyear_rows"
+            "runspecyear_rows",
+            "runspecroadtype_rows"
           ],
           "description": "The soaking modes' share of the hour, summed. E3 subtracts it."
         },
@@ -12312,7 +12412,8 @@
             "runspeccounty_rows",
             "runspecsourcetype_rows",
             "runspecmonth_rows",
-            "runspecyear_rows"
+            "runspecyear_rows",
+            "runspecroadtype_rows"
           ],
           "description": "E3 before its clamp: one minus the soaking share."
         },
@@ -12325,7 +12426,8 @@
             "runspeccounty_rows",
             "runspecsourcetype_rows",
             "runspecmonth_rows",
-            "runspecyear_rows"
+            "runspecyear_rows",
+            "runspecroadtype_rows"
           ],
           "description": "E3, `greatest(0, 1 - SUM(soaking))`. IT IS A RESIDUAL AND NOT `fractionOfOperating`, and the two are numerically indistinguishable on every run here -- both 1 -- which is exactly why the distinction has to be written rather than trusted. `docs/evap-leaks.md` 2.3 probes it at `fractionOfOperating = 0.6` and gets 0.599999932, a six-significant-figure difference of 6.8e-08 that is the signature of the right expression."
         },
@@ -12339,9 +12441,10 @@
             "runspeccounty_rows",
             "runspecsourcetype_rows",
             "runspecmonth_rows",
-            "runspecyear_rows"
+            "runspecyear_rows",
+            "runspecroadtype_rows"
           ],
-          "description": "The evaporative operating-mode distribution, `pp_W`'s alternative: the soaking weights plus the residual on All Running. With `soakActivityFraction` empty it is 1 on mode 300 and 0 everywhere else, and all three of those numbers are computed."
+          "description": "The evaporative operating-mode distribution, `pp_W`'s alternative: the soaking weights plus the residual on All Running. With `soakActivityFraction` empty it is 1 on mode 300 and 0 everywhere else, and all three of those numbers are computed. Per road type: all on All Running on an on-network one, soaking and operating at the off-network one."
         },
         "ac_ordinal": {
           "type": "unknown",
@@ -12496,6 +12599,27 @@
           ],
           "description": "MOVES's `SHO` per activity row, county, source type, month and ROAD TYPE: the network product on an on-network road type (`act_networkSho`), and off-network idle on road type 1 (`oni_sho`, TotalActivityGenerator step 190c). A road type is a location (conventions §96), so this is the link's SHO; the activity relation itself is not widened, because starts and hotelling hours share it and have no road type."
         },
+        "act_nationalSho": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "activity_rows",
+            "runspecsourcetype_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "`SUM(sho)` of `TotalActivityGenerator` step 180: the age's NATIONAL SHO, before the zone's SHO allocation, summed over the on-network road types (`WHERE VMT > 0`)."
+        },
+        "act_shp": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "activity_rows",
+            "runspeccounty_rows",
+            "runspecsourcetype_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "SHP, source hours PARKED: `TotalActivityGenerator` step 180's `SHPByAgeHour = population x noOfRealDays - SUM(SHO)` -- the age's NATIONAL population and national SHO -- times the zone's SHPAllocFactor (step 190). Measured on `rates-evap`: 570,208.455 hours over its 41 ages, the snapshot's road-type-1 `sourceHours` to its decimal storage (PLAN.md §7.3.48 part C)."
+        },
         "act_sourceHours": {
           "type": "unknown",
           "units": "1",
@@ -12506,7 +12630,7 @@
             "runspecmonth_rows",
             "runspecroadtype_rows"
           ],
-          "description": "A10: MOVES's `SourceHours`, the hours a vehicle of this cohort EXISTS in the hour, against `act_sho`'s hours it spends driving. At an on-network link `TotalActivityGenerator` copies `SHO` into it row for row, which is what this is; at the off-network link it is `SHP` instead, and `run_offNetworkLinkCount` is the assertion that no run here takes that arm. It is named separately from `act_sho` because E1 is the ratio of the two and a document that wrote one name twice would have written E1's answer. Per road type; read on the on-network ones only (`evap_shoTotal`)."
+          "description": "A10: MOVES's `SourceHours`, the hours a vehicle of this cohort EXISTS in the hour, against `act_sho`'s hours it spends driving. At an on-network link `TotalActivityGenerator` copies `SHO` into it row for row; at the off-network link it is `act_shp`, the hours it is parked. It is named separately from `act_sho` because E1 is the ratio of the two, and an evaporative rate row's activity is this and not SHO."
         },
         "oni_totalIdleFraction": {
           "type": "unknown",
@@ -15104,7 +15228,7 @@
           "shape": [
             "run_rows"
           ],
-          "description": "How many emitted EVAPORATIVE blocks lie on the OFF-NETWORK road type: 0, asserted. It is the licence for `act_sourceHours`. MOVES's `SourceHours` is `SHO` row for row at an on-network link and `SHP` -- a table this document does not have -- at road type 1, so an evaporative block there would make the evaporative denominator silently wrong rather than absent. Until PLAN.md §7.3.46 it counted counties whose one link was off-network; with the road type an axis, road type 1 is a block, and only an evaporative one there reads SHP."
+          "description": "How many SELECTED vapor-venting pollutant-processes lie on the OFF-NETWORK road type: 0, asserted. Venting there weights mode 151, whose rate is the multiday cold-soak insert (TVV-2 to TVV-7) the model does not compute, so the row would be wrong rather than absent; it is counted on the selection because the row is not emitted. Permeation and leaks there are ported (PLAN.md §7.3.48 part C)."
         },
         "run_offNetworkRoadTypeID": {
           "type": "unknown",
@@ -17834,7 +17958,7 @@
           "shape": [
             "run_rows"
           ],
-          "description": "How many things this run SELECTS that the model does not compute, beside its domain (`run_domainUnported`): 0, asserted by tools/check-runspec-shape.py. It counts an evaporative process on a second on-network road type (`run_evapRoadTypeExcess`); an on-road pollutant-process other than running exhaust (`occursOnRealRoads` = Y) in a run that also selects road type 1, where MOVES writes evaporative SHP rows this model does not -- running exhaust's off-network idle it does write, since PLAN.md §7.3.46; and a hotelling process in a run that aggregates hours or day types, whose hotelling hours AdjustHotelling would rescale before the aggregation. None of these fails loudly -- each emits a plausible number or none. And a chained pollutant-process with parents on both an on-network road type and road type 1 (`run_mixedRoadChains`). At Rates scale it also counts `run_ratesUnported`, everything the RatePerDistance relation does not compute (PLAN.md §7.3.47)."
+          "description": "How many things this run SELECTS that the model does not compute, beside its domain (`run_domainUnported`): 0, asserted by tools/check-runspec-shape.py. It counts an on-road pollutant-process other than running exhaust, crankcase running or an evaporative one (`occursOnRealRoads` = Y) in a run that also selects road type 1 (`run_onRoadPollutantProcessCount`); and a hotelling process in a run that aggregates hours or day types, whose hotelling hours AdjustHotelling would rescale before the aggregation. None of these fails loudly -- each emits a plausible number or none. Evaporative processes on several road types and chained ones with parents both on and off the network are ported (PLAN.md §7.3.48 part C). At Rates scale it also counts `run_ratesUnported`, everything the Rates tables do not compute."
         },
         "run_onRoadPollutantProcessCount": {
           "type": "unknown",
@@ -17842,15 +17966,7 @@
           "shape": [
             "run_rows"
           ],
-          "description": "How many of the run's pollutant-processes occur on a real road and are NOT running exhaust or crankcase running. Read by `run_selectionUnported` only when the run also selects road type 1: MOVES writes off-network idle for running exhaust and the crankcase running it chains to, which `ppr_isOffNetworkIdle` ports, and evaporative SHP rows on road type 1, which it does not; brake wear has no road-1 rates (`drivecycle.rs:513`) and tire wear's are not ported."
-        },
-        "run_evapRoadTypeExcess": {
-          "type": "unknown",
-          "units": "1",
-          "shape": [
-            "run_rows"
-          ],
-          "description": "Evaporative pollutant-processes times the on-network road types past the first: an evaporative process's SourceHours and soak weights are per link in MOVES and are summed over road types here (`evap_shoTotal`), right at one. Counted by `run_selectionUnported`; 0 on every run here."
+          "description": "How many of the run's pollutant-processes occur on a real road and are NOT running exhaust, crankcase running or evaporative. Read by `run_selectionUnported` only when the run also selects road type 1: MOVES writes off-network idle for running exhaust and the crankcase running it chains to, which `ppr_isOffNetworkIdle` ports, and evaporative rows over SHP, which `act_shp` ports but for vapor venting (`run_offNetworkLinkCount`); brake wear has no road-1 rates (`drivecycle.rs:513`) and tire wear's are not ported."
         },
         "run_offNetworkIdleBlocks": {
           "type": "unknown",
@@ -18067,7 +18183,7 @@
             "runspeccounty_rows",
             "runspecmonth_rows"
           ],
-          "description": "J34: (hourDayID, ageID) as one clause with two key pairs, reading the activity the rate row's process takes: SHO (`act_sho`), or hotelling hours (`hot_hours`) for extended idle and auxiliary power. Neither carries a dayID column, which is why the day relation derives an hourDayID. Per county. For start exhaust it is starts (`st_starts`). SHO is read at the rate row's road type."
+          "description": "J34: (hourDayID, ageID) as one clause with two key pairs, reading the activity the rate row's process takes: SHO (`act_sho`), or hotelling hours (`hot_hours`) for extended idle and auxiliary power. Neither carries a dayID column, which is why the day relation derives an hourDayID. Per county. For start exhaust it is starts (`st_starts`). SHO is read at the rate row's road type. An evaporative rate row's is SourceHours: the same as SHO on an on-network road type, SHP off it."
         },
         "had_inputRowCount": {
           "type": "unknown",
@@ -18531,14 +18647,6 @@
             "runspecpollutantprocess_rows"
           ],
           "description": "Rung 3 of the road type a pollutant-process lives on: its own where it is rated, else its parents' -- the run's on-network road type if any parent on a selected road is on-network, road type 1 if the only such parents are off-network, and the run's road type when it has none, which is what a chained process took before the off-network processes arrived."
-        },
-        "run_mixedRoadChains": {
-          "type": "unknown",
-          "units": "1",
-          "shape": [
-            "run_rows"
-          ],
-          "description": "Chained pollutant-processes whose parents live on BOTH a selected on-network road type and the off-network one: MOVES would emit them on both, and the model has one road type per pollutant-process. Counted by `run_selectionUnported`; 0 here."
         },
         "sod_dayID": {
           "type": "parameter",
@@ -19075,6 +19183,22 @@
             }
           }
         },
+        "zn_SHPAllocFactor": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "zone_rows"
+          ],
+          "description": "Zone.SHPAllocFactor, default side.",
+          "update": {
+            "kind": "data",
+            "source": "db_zone",
+            "from": {
+              "file_variable": "SHPAllocFactor"
+            }
+          }
+        },
         "zni_zoneID": {
           "type": "parameter",
           "units": "1",
@@ -19107,6 +19231,22 @@
             }
           }
         },
+        "zni_SHPAllocFactor": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "inputzone_rows"
+          ],
+          "description": "Zone.SHPAllocFactor, input side.",
+          "update": {
+            "kind": "data",
+            "source": "db_input_zone",
+            "from": {
+              "file_variable": "SHPAllocFactor"
+            }
+          }
+        },
         "zn_inputRowCount": {
           "type": "unknown",
           "units": "1",
@@ -19131,6 +19271,22 @@
           ],
           "description": "THE ROW MERGE of Zone, as `zrt_mergedSHOAllocFactor` writes ZoneRoadType's: the input's startAllocFactor where an input row has the zone, the default's otherwise."
         },
+        "zn_inputSHPAllocFactor": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "zone_rows"
+          ],
+          "description": "The shadowing input row's SHPAllocFactor."
+        },
+        "zn_mergedSHPAllocFactor": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "zone_rows"
+          ],
+          "description": "Zone's row merge, as `zn_mergedStartAllocFactor`: the input's SHPAllocFactor where an input row has the zone."
+        },
         "run_zoneRowsAdded": {
           "type": "unknown",
           "units": "1",
@@ -19154,6 +19310,14 @@
             "runspeccounty_rows"
           ],
           "description": "The zone's merged startAllocFactor, 1 where the zone has no row."
+        },
+        "run_shpAllocFactor": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspeccounty_rows"
+          ],
+          "description": "The zone's merged SHPAllocFactor: `TotalActivityGenerator` step 190's spatial allocation of the national parked hours. An inner join there, so 0 where the zone has no row."
         },
         "st_dayStatedRows": {
           "type": "unknown",
@@ -19945,7 +20109,7 @@
           "shape": [
             "run_rows"
           ],
-          "description": "At Rates scale, what is NOT ported: time aggregation, 1 -- MOVES refuses it at Rates scale, so it is an invalid RunSpec rather than unported work (a PROJECT domain is ported, and what a project selects beyond running exhaust is `run_domainUnported`'s); every selected evaporative or refueling pollutant-process on the OFF-NETWORK road type -- a block MOVES writes and the model does not compute -- whose RatePerVehicle and RatePerProfile rows need the soak operating modes and the cold-soak tank temperatures (part C of §7.3.48); and every rate row of SulfatePMCalculator's species or the non-HAP TOG residual, which the per-activity and per-bin rates do not carry. Zero at inventory scale. Inside `run_selectionUnported`."
+          "description": "At Rates scale, what is NOT ported: time aggregation, 1 -- MOVES refuses it at Rates scale, so it is an invalid RunSpec rather than unported work; and every rate row of SulfatePMCalculator's species or the non-HAP TOG residual, which the per-activity and per-bin rates do not carry. The off-network evaporative rows are ported but vapor venting's (`run_offNetworkLinkCount`, at both scales). Zero at inventory scale. Inside `run_selectionUnported`."
         },
         "run_startBlockCount": {
           "type": "unknown",
@@ -22134,22 +22298,29 @@
               "op": "*",
               "args": [
                 {
-                  "op": "*",
+                  "op": "ifelse",
                   "args": [
                     {
-                      "op": "index",
+                      "op": "==",
                       "args": [
-                        "ppr_isEmitted",
-                        "q"
+                        {
+                          "op": "index",
+                          "args": [
+                            "rspp_processID",
+                            "p"
+                          ]
+                        },
+                        {
+                          "op": "enum",
+                          "args": [
+                            "process",
+                            "EvapFuelVaporVenting"
+                          ]
+                        }
                       ]
                     },
-                    {
-                      "op": "index",
-                      "args": [
-                        "rspp_usesEvapModes",
-                        "p"
-                      ]
-                    }
+                    1.0,
+                    0.0
                   ]
                 },
                 {
@@ -24581,10 +24752,102 @@
                       ]
                     },
                     {
-                      "op": "index",
+                      "op": "max",
                       "args": [
-                        "ppr_isOffNetworkIdle",
-                        "q"
+                        {
+                          "op": "index",
+                          "args": [
+                            "ppr_isOffNetworkIdle",
+                            "q"
+                          ]
+                        },
+                        {
+                          "op": "max",
+                          "args": [
+                            {
+                              "op": "ifelse",
+                              "args": [
+                                {
+                                  "op": "and",
+                                  "args": [
+                                    {
+                                      "op": ">",
+                                      "args": [
+                                        {
+                                          "op": "index",
+                                          "args": [
+                                            "rspp_usesEvapModes",
+                                            "p"
+                                          ]
+                                        },
+                                        0.5
+                                      ]
+                                    },
+                                    {
+                                      "op": "!=",
+                                      "args": [
+                                        {
+                                          "op": "index",
+                                          "args": [
+                                            "rspp_processID",
+                                            "p"
+                                          ]
+                                        },
+                                        {
+                                          "op": "enum",
+                                          "args": [
+                                            "process",
+                                            "EvapFuelVaporVenting"
+                                          ]
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                },
+                                1.0,
+                                0.0
+                              ]
+                            },
+                            {
+                              "op": "ifelse",
+                              "args": [
+                                {
+                                  "op": "and",
+                                  "args": [
+                                    {
+                                      "op": "<",
+                                      "args": [
+                                        {
+                                          "op": "index",
+                                          "args": [
+                                            "rspp_hasBaseRateTableRow",
+                                            "p"
+                                          ]
+                                        },
+                                        0.5
+                                      ]
+                                    },
+                                    {
+                                      "op": ">",
+                                      "args": [
+                                        {
+                                          "op": "index",
+                                          "args": [
+                                            "rspp_offNetworkParents3",
+                                            "p"
+                                          ]
+                                        },
+                                        0.5
+                                      ]
+                                    }
+                                  ]
+                                },
+                                1.0,
+                                0.0
+                              ]
+                            }
+                          ]
+                        }
                       ]
                     }
                   ]
@@ -30896,7 +31159,8 @@
               "g",
               "s",
               "m",
-              "cy"
+              "cy",
+              "rd"
             ],
             "ranges": {
               "k": {
@@ -30944,26 +31208,14 @@
               }
             ],
             "expr": {
-              "op": "*",
+              "op": "index",
               "args": [
-                {
-                  "op": "index",
-                  "args": [
-                    "act_sho",
-                    "r",
-                    "g",
-                    "s",
-                    "m",
-                    "rd"
-                  ]
-                },
-                {
-                  "op": "index",
-                  "args": [
-                    "rsr_isOnNetwork",
-                    "rd"
-                  ]
-                }
+                "act_sho",
+                "r",
+                "g",
+                "s",
+                "m",
+                "rd"
               ]
             }
           }
@@ -30979,7 +31231,8 @@
               "g",
               "s",
               "m",
-              "cy"
+              "cy",
+              "rd"
             ],
             "ranges": {
               "k": {
@@ -31027,26 +31280,14 @@
               }
             ],
             "expr": {
-              "op": "*",
+              "op": "index",
               "args": [
-                {
-                  "op": "index",
-                  "args": [
-                    "act_sourceHours",
-                    "r",
-                    "g",
-                    "s",
-                    "m",
-                    "rd"
-                  ]
-                },
-                {
-                  "op": "index",
-                  "args": [
-                    "rsr_isOnNetwork",
-                    "rd"
-                  ]
-                }
+                "act_sourceHours",
+                "r",
+                "g",
+                "s",
+                "m",
+                "rd"
               ]
             }
           }
@@ -31063,7 +31304,8 @@
               "g",
               "s",
               "m",
-              "cy"
+              "cy",
+              "rd"
             ],
             "ranges": {
               "k": {
@@ -31080,6 +31322,9 @@
               },
               "cy": {
                 "from": "runspecyear_rows"
+              },
+              "rd": {
+                "from": "runspecroadtype_rows"
               }
             },
             "expr": {
@@ -31096,7 +31341,8 @@
                         "g",
                         "s",
                         "m",
-                        "cy"
+                        "cy",
+                        "rd"
                       ]
                     },
                     0.0
@@ -31113,7 +31359,8 @@
                         "g",
                         "s",
                         "m",
-                        "cy"
+                        "cy",
+                        "rd"
                       ]
                     },
                     {
@@ -31124,7 +31371,8 @@
                         "g",
                         "s",
                         "m",
-                        "cy"
+                        "cy",
+                        "rd"
                       ]
                     }
                   ]
@@ -31146,7 +31394,7 @@
           }
         },
         {
-          "_comment": "E2, evap_op_mode_distribution.rs:443 stage 2. `SoakActivityFraction` joins the run's source type, zone, month and hour-day, and `OpModePolProcAssoc` restricts the mode to one this pollutant-process HAS. Both joins are real and the relation is empty anyway, because `TankTemperatureGenerator` writes no row into either database this document is mounted against -- which is the point: an absent soaking mode and a soaking mode weighted zero are different statements, and only the data gets to make this one.",
+          "_comment": "E2, evap_op_mode_distribution.rs:443 stage 2, per road type. `OpModePolProcAssoc` restricts the mode to one this pollutant-process HAS; the soak fraction is `evap_soakActivityFraction`, mounted or TTG-6's (PLAN.md §7.3.48 part C).",
           "lhs": "evap_soakWeight",
           "rhs": {
             "op": "faq",
@@ -31159,7 +31407,8 @@
               "g",
               "s",
               "m",
-              "cy"
+              "cy",
+              "rd"
             ],
             "ranges": {
               "p": {
@@ -31180,62 +31429,33 @@
               "m": {
                 "from": "runspecmonth_rows"
               },
-              "a": {
-                "from": "soakactivityfraction_rows"
-              },
-              "q": {
-                "from": "opmodepolprocassoc_rows"
-              },
               "cy": {
                 "from": "runspecyear_rows"
+              },
+              "rd": {
+                "from": "runspecroadtype_rows"
               }
             },
-            "join": [
-              {
-                "on": [
-                  [
-                    "saf_sourceTypeID",
-                    "rst_sourceTypeID"
-                  ],
-                  [
-                    "saf_zoneID",
-                    "run_zoneID"
-                  ],
-                  [
-                    "saf_monthID",
-                    "rsm_monthID"
-                  ],
-                  [
-                    "saf_hourDayID",
-                    "day_hourDayID"
-                  ],
-                  [
-                    "saf_opModeID",
-                    "om_opModeID"
-                  ]
-                ]
-              },
-              {
-                "on": [
-                  [
-                    "oppa_polProcessID",
-                    "rspp_polProcessID"
-                  ],
-                  [
-                    "oppa_opModeID",
-                    "om_opModeID"
-                  ]
-                ]
-              }
-            ],
             "expr": {
               "op": "*",
               "args": [
                 {
                   "op": "index",
                   "args": [
-                    "saf_soakActivityFraction",
-                    "a"
+                    "evap_hasMode",
+                    "p",
+                    "o"
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "evap_soakActivityFraction",
+                    "k",
+                    "o",
+                    "g",
+                    "s",
+                    "m"
                   ]
                 },
                 {
@@ -31250,7 +31470,8 @@
                         "g",
                         "s",
                         "m",
-                        "cy"
+                        "cy",
+                        "rd"
                       ]
                     }
                   ]
@@ -31271,7 +31492,8 @@
               "g",
               "s",
               "m",
-              "cy"
+              "cy",
+              "rd"
             ],
             "ranges": {
               "p": {
@@ -31294,6 +31516,9 @@
               },
               "cy": {
                 "from": "runspecyear_rows"
+              },
+              "rd": {
+                "from": "runspecroadtype_rows"
               }
             },
             "expr": {
@@ -31306,7 +31531,8 @@
                 "g",
                 "s",
                 "m",
-                "cy"
+                "cy",
+                "rd"
               ]
             }
           }
@@ -31324,7 +31550,8 @@
               "g",
               "s",
               "m",
-              "cy"
+              "cy",
+              "rd"
             ],
             "ranges": {
               "p": {
@@ -31344,6 +31571,9 @@
               },
               "cy": {
                 "from": "runspecyear_rows"
+              },
+              "rd": {
+                "from": "runspecroadtype_rows"
               }
             },
             "expr": {
@@ -31359,7 +31589,8 @@
                     "g",
                     "s",
                     "m",
-                    "cy"
+                    "cy",
+                    "rd"
                   ]
                 }
               ]
@@ -31391,7 +31622,8 @@
               "g",
               "s",
               "m",
-              "cy"
+              "cy",
+              "rd"
             ],
             "ranges": {
               "p": {
@@ -31417,6 +31649,9 @@
               },
               "cy": {
                 "from": "runspecyear_rows"
+              },
+              "rd": {
+                "from": "runspecroadtype_rows"
               }
             },
             "expr": {
@@ -31432,7 +31667,8 @@
                     "g",
                     "s",
                     "m",
-                    "cy"
+                    "cy",
+                    "rd"
                   ]
                 },
                 {
@@ -31466,7 +31702,8 @@
                         "g",
                         "s",
                         "m",
-                        "cy"
+                        "cy",
+                        "rd"
                       ]
                     },
                     0.0
@@ -32647,6 +32884,178 @@
           }
         },
         {
+          "_comment": "PLAN.md §7.3.48 part C: the off-network link's SourceHours.",
+          "lhs": "act_nationalSho",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "r",
+              "s",
+              "m"
+            ],
+            "ranges": {
+              "r": {
+                "from": "activity_rows"
+              },
+              "s": {
+                "from": "runspecsourcetype_rows"
+              },
+              "m": {
+                "from": "runspecmonth_rows"
+              },
+              "rd": {
+                "from": "runspecroadtype_rows"
+              }
+            },
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "rsr_isOnNetwork",
+                    "rd"
+                  ]
+                },
+                {
+                  "op": "ifelse",
+                  "args": [
+                    {
+                      "op": ">",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "act_averageSpeed",
+                            "r",
+                            "s",
+                            "rd"
+                          ]
+                        },
+                        0.0
+                      ]
+                    },
+                    {
+                      "op": "/",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "act_vmt",
+                            "r",
+                            "s",
+                            "m",
+                            "rd"
+                          ]
+                        },
+                        {
+                          "op": "index",
+                          "args": [
+                            "act_averageSpeed",
+                            "r",
+                            "s",
+                            "rd"
+                          ]
+                        }
+                      ]
+                    },
+                    0.0
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "act_shp",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "r",
+              "g",
+              "s",
+              "m"
+            ],
+            "ranges": {
+              "r": {
+                "from": "activity_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "s": {
+                "from": "runspecsourcetype_rows"
+              },
+              "m": {
+                "from": "runspecmonth_rows"
+              },
+              "k": {
+                "from": "runspecday_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "act_dayOrdinal",
+                    "day_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "-",
+                  "args": [
+                    {
+                      "op": "*",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "act_population",
+                            "r",
+                            "s"
+                          ]
+                        },
+                        {
+                          "op": "index",
+                          "args": [
+                            "day_noOfRealDays",
+                            "k"
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "act_nationalSho",
+                        "r",
+                        "s",
+                        "m"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "run_shpAllocFactor",
+                    "g"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
           "_comment": "A10, allocation.rs:631-682. `SourceHours` is `SHO` at an on-network link; `run_offNetworkLinkCount` asserts that is the arm every run here takes, and the identity is written out so that E1's ratio has two names to divide.",
           "lhs": "act_sourceHours",
           "rhs": {
@@ -32678,14 +33087,42 @@
               }
             },
             "expr": {
-              "op": "index",
+              "op": "ifelse",
               "args": [
-                "act_sho",
-                "r",
-                "g",
-                "s",
-                "m",
-                "rd"
+                {
+                  "op": ">",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "rsr_isOnNetwork",
+                        "rd"
+                      ]
+                    },
+                    0.5
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "act_sho",
+                    "r",
+                    "g",
+                    "s",
+                    "m",
+                    "rd"
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "act_shp",
+                    "r",
+                    "g",
+                    "s",
+                    "m"
+                  ]
+                }
               ]
             }
           }
@@ -39524,6 +39961,616 @@
           }
         },
         {
+          "lhs": "ttg_tripHotSoakMinutes",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "max_product",
+            "output_idx": [
+              "g",
+              "n",
+              "i"
+            ],
+            "ranges": {
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "n": {
+                "from": "runspecmonth_rows"
+              },
+              "u": {
+                "from": "tanktemperaturerise_rows"
+              },
+              "i": {
+                "from": "samplevehicletrip_rows"
+              }
+            },
+            "expr": {
+              "op": "index",
+              "args": [
+                "ttg_hotSoakMinutes",
+                "g",
+                "n",
+                "u",
+                "i"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "ttg_hotSoakOpModeCount",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "g",
+              "n",
+              "k",
+              "s"
+            ],
+            "ranges": {
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "n": {
+                "from": "runspecmonth_rows"
+              },
+              "k": {
+                "from": "runspecday_rows"
+              },
+              "s": {
+                "from": "runspecsourcetype_rows"
+              },
+              "i": {
+                "from": "samplevehicletrip_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "svt_dayID",
+                    "rsd_dayID"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "trp_sourceTypeID",
+                    "rst_sourceTypeID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "ttg_tripHotSoakMinutes",
+                "g",
+                "n",
+                "i"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "ttg_operatingMinutes",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "k",
+              "s"
+            ],
+            "ranges": {
+              "k": {
+                "from": "runspecday_rows"
+              },
+              "s": {
+                "from": "runspecsourcetype_rows"
+              },
+              "i": {
+                "from": "samplevehicletrip_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "svt_dayID",
+                    "rsd_dayID"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "trp_sourceTypeID",
+                    "rst_sourceTypeID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "trp_hasRunHourSegment",
+                    "i"
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "trp_runHourSegmentMinutes",
+                    "i"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "ttg_existenceMinutes",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "k",
+              "s"
+            ],
+            "ranges": {
+              "k": {
+                "from": "runspecday_rows"
+              },
+              "s": {
+                "from": "runspecsourcetype_rows"
+              },
+              "v": {
+                "from": "samplevehicleday_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "svd_dayID",
+                    "rsd_dayID"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "svd_sourceTypeID",
+                    "rst_sourceTypeID"
+                  ]
+                ]
+              }
+            ],
+            "expr": 60.0
+          }
+        },
+        {
+          "_comment": "PLAN.md §7.3.48 part C: TTG-6, which the default database ships empty and the model computes.",
+          "lhs": "ttg_soakActivityFraction",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "g",
+              "n",
+              "k",
+              "s",
+              "o"
+            ],
+            "ranges": {
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "n": {
+                "from": "runspecmonth_rows"
+              },
+              "k": {
+                "from": "runspecday_rows"
+              },
+              "s": {
+                "from": "runspecsourcetype_rows"
+              },
+              "o": {
+                "from": "operating_mode_rows"
+              }
+            },
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                {
+                  "op": ">",
+                  "args": [
+                    {
+                      "op": "-",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "ttg_existenceMinutes",
+                            "k",
+                            "s"
+                          ]
+                        },
+                        {
+                          "op": "index",
+                          "args": [
+                            "ttg_operatingMinutes",
+                            "k",
+                            "s"
+                          ]
+                        }
+                      ]
+                    },
+                    0.0
+                  ]
+                },
+                {
+                  "op": "/",
+                  "args": [
+                    {
+                      "op": "ifelse",
+                      "args": [
+                        {
+                          "op": "==",
+                          "args": [
+                            {
+                              "op": "index",
+                              "args": [
+                                "om_opModeID",
+                                "o"
+                              ]
+                            },
+                            {
+                              "op": "enum",
+                              "args": [
+                                "operating_mode",
+                                "HotSoaking"
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "op": "index",
+                          "args": [
+                            "ttg_hotSoakOpModeCount",
+                            "g",
+                            "n",
+                            "k",
+                            "s"
+                          ]
+                        },
+                        {
+                          "op": "ifelse",
+                          "args": [
+                            {
+                              "op": "==",
+                              "args": [
+                                {
+                                  "op": "index",
+                                  "args": [
+                                    "om_opModeID",
+                                    "o"
+                                  ]
+                                },
+                                {
+                                  "op": "enum",
+                                  "args": [
+                                    "operating_mode",
+                                    "ColdSoaking"
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "op": "-",
+                              "args": [
+                                {
+                                  "op": "-",
+                                  "args": [
+                                    {
+                                      "op": "index",
+                                      "args": [
+                                        "ttg_existenceMinutes",
+                                        "k",
+                                        "s"
+                                      ]
+                                    },
+                                    {
+                                      "op": "index",
+                                      "args": [
+                                        "ttg_operatingMinutes",
+                                        "k",
+                                        "s"
+                                      ]
+                                    }
+                                  ]
+                                },
+                                {
+                                  "op": "index",
+                                  "args": [
+                                    "ttg_hotSoakOpModeCount",
+                                    "g",
+                                    "n",
+                                    "k",
+                                    "s"
+                                  ]
+                                }
+                              ]
+                            },
+                            0.0
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "op": "-",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "ttg_existenceMinutes",
+                            "k",
+                            "s"
+                          ]
+                        },
+                        {
+                          "op": "index",
+                          "args": [
+                            "ttg_operatingMinutes",
+                            "k",
+                            "s"
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                0.0
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "evap_soakActivityInputCount",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "g",
+              "s",
+              "m"
+            ],
+            "ranges": {
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "s": {
+                "from": "runspecsourcetype_rows"
+              },
+              "m": {
+                "from": "runspecmonth_rows"
+              },
+              "a": {
+                "from": "soakactivityfraction_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "saf_sourceTypeID",
+                    "rst_sourceTypeID"
+                  ],
+                  [
+                    "saf_zoneID",
+                    "run_zoneID"
+                  ],
+                  [
+                    "saf_monthID",
+                    "rsm_monthID"
+                  ]
+                ]
+              }
+            ],
+            "expr": 1.0
+          }
+        },
+        {
+          "lhs": "evap_soakActivityInput",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "k",
+              "o",
+              "g",
+              "s",
+              "m"
+            ],
+            "ranges": {
+              "k": {
+                "from": "runspecday_rows"
+              },
+              "o": {
+                "from": "operating_mode_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "s": {
+                "from": "runspecsourcetype_rows"
+              },
+              "m": {
+                "from": "runspecmonth_rows"
+              },
+              "a": {
+                "from": "soakactivityfraction_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "saf_sourceTypeID",
+                    "rst_sourceTypeID"
+                  ],
+                  [
+                    "saf_zoneID",
+                    "run_zoneID"
+                  ],
+                  [
+                    "saf_monthID",
+                    "rsm_monthID"
+                  ],
+                  [
+                    "saf_hourDayID",
+                    "day_hourDayID"
+                  ],
+                  [
+                    "saf_opModeID",
+                    "om_opModeID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "saf_soakActivityFraction",
+                "a"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "evap_soakActivityFraction",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "k",
+              "o",
+              "g",
+              "s",
+              "m"
+            ],
+            "ranges": {
+              "k": {
+                "from": "runspecday_rows"
+              },
+              "o": {
+                "from": "operating_mode_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "s": {
+                "from": "runspecsourcetype_rows"
+              },
+              "m": {
+                "from": "runspecmonth_rows"
+              }
+            },
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                {
+                  "op": ">",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "evap_soakActivityInputCount",
+                        "g",
+                        "s",
+                        "m"
+                      ]
+                    },
+                    0.5
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "evap_soakActivityInput",
+                    "k",
+                    "o",
+                    "g",
+                    "s",
+                    "m"
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "ttg_soakActivityFraction",
+                    "g",
+                    "m",
+                    "k",
+                    "s",
+                    "o"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "evap_hasMode",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "p",
+              "o"
+            ],
+            "ranges": {
+              "p": {
+                "from": "runspecpollutantprocess_rows"
+              },
+              "o": {
+                "from": "operating_mode_rows"
+              },
+              "q": {
+                "from": "opmodepolprocassoc_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "oppa_polProcessID",
+                    "rspp_polProcessID"
+                  ],
+                  [
+                    "oppa_opModeID",
+                    "om_opModeID"
+                  ]
+                ]
+              }
+            ],
+            "expr": 1.0
+          }
+        },
+        {
           "lhs": "ttg_hotSoakTemperatureTotal",
           "rhs": {
             "op": "faq",
@@ -40109,6 +41156,9 @@
               },
               "cy": {
                 "from": "runspecyear_rows"
+              },
+              "rd": {
+                "from": "runspecroadtype_rows"
               }
             },
             "join": [
@@ -40147,6 +41197,14 @@
                     "year_ordinal"
                   ]
                 ]
+              },
+              {
+                "on": [
+                  [
+                    "rt_roadTypeOrdinal",
+                    "rsr_ordinal"
+                  ]
+                ]
               }
             ],
             "expr": {
@@ -40162,7 +41220,8 @@
                     "g",
                     "s",
                     "n",
-                    "cy"
+                    "cy",
+                    "rd"
                   ]
                 },
                 {
@@ -46015,6 +47074,9 @@
               },
               "q": {
                 "from": "polprocroad_rows"
+              },
+              "rd": {
+                "from": "runspecroadtype_rows"
               }
             },
             "join": [
@@ -46067,6 +47129,14 @@
                   [
                     "rt_blockOrdinal",
                     "ppr_ordinal"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "rt_roadTypeOrdinal",
+                    "rsr_ordinal"
                   ]
                 ]
               }
@@ -46126,7 +47196,8 @@
                             "g",
                             "s",
                             "n",
-                            "cy"
+                            "cy",
+                            "rd"
                           ]
                         },
                         {
@@ -65188,6 +66259,9 @@
               },
               "rd": {
                 "from": "runspecroadtype_rows"
+              },
+              "p": {
+                "from": "runspecpollutantprocess_rows"
               }
             },
             "join": [
@@ -65220,6 +66294,14 @@
                   [
                     "rt_roadTypeOrdinal",
                     "rsr_ordinal"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "rt_polProcOrdinal",
+                    "rspp_ordinal"
                   ]
                 ]
               }
@@ -65277,14 +66359,43 @@
                       ]
                     },
                     {
-                      "op": "index",
+                      "op": "ifelse",
                       "args": [
-                        "act_sho",
-                        "r",
-                        "g",
-                        "s",
-                        "m",
-                        "rd"
+                        {
+                          "op": ">",
+                          "args": [
+                            {
+                              "op": "index",
+                              "args": [
+                                "rspp_usesEvapModes",
+                                "p"
+                              ]
+                            },
+                            0.5
+                          ]
+                        },
+                        {
+                          "op": "index",
+                          "args": [
+                            "act_sourceHours",
+                            "r",
+                            "g",
+                            "s",
+                            "m",
+                            "rd"
+                          ]
+                        },
+                        {
+                          "op": "index",
+                          "args": [
+                            "act_sho",
+                            "r",
+                            "g",
+                            "s",
+                            "m",
+                            "rd"
+                          ]
+                        }
                       ]
                     }
                   ]
@@ -74994,43 +76105,19 @@
                           "op": "+",
                           "args": [
                             {
-                              "op": "+",
+                              "op": "*",
                               "args": [
                                 {
-                                  "op": "+",
+                                  "op": "index",
                                   "args": [
-                                    {
-                                      "op": "index",
-                                      "args": [
-                                        "run_evapRoadTypeExcess",
-                                        "n"
-                                      ]
-                                    },
-                                    {
-                                      "op": "*",
-                                      "args": [
-                                        {
-                                          "op": "index",
-                                          "args": [
-                                            "run_offNetworkSelected",
-                                            "n"
-                                          ]
-                                        },
-                                        {
-                                          "op": "index",
-                                          "args": [
-                                            "run_onRoadPollutantProcessCount",
-                                            "n"
-                                          ]
-                                        }
-                                      ]
-                                    }
+                                    "run_offNetworkSelected",
+                                    "n"
                                   ]
                                 },
                                 {
                                   "op": "index",
                                   "args": [
-                                    "hot_aggregationUnported",
+                                    "run_onRoadPollutantProcessCount",
                                     "n"
                                   ]
                                 }
@@ -75039,7 +76126,7 @@
                             {
                               "op": "index",
                               "args": [
-                                "run_mixedRoadChains",
+                                "hot_aggregationUnported",
                                 "n"
                               ]
                             }
@@ -75081,253 +76168,73 @@
             "op": "+",
             "args": [
               {
-                "op": "+",
-                "args": [
-                  {
-                    "op": "faq",
-                    "args": [],
-                    "semiring": "sum_product",
-                    "output_idx": [
-                      "n"
-                    ],
-                    "ranges": {
-                      "n": {
-                        "from": "run_rows"
-                      }
-                    },
-                    "expr": {
-                      "op": "*",
-                      "args": [
-                        "n_ratesScale",
-                        {
-                          "op": "ifelse",
-                          "args": [
-                            {
-                              "op": "and",
-                              "args": [
-                                {
-                                  "op": "==",
-                                  "args": [
-                                    {
-                                      "op": "index",
-                                      "args": [
-                                        "run_aggregationHourCount",
-                                        "n"
-                                      ]
-                                    },
-                                    {
-                                      "op": "index",
-                                      "args": [
-                                        "run_hourCount",
-                                        "n"
-                                      ]
-                                    }
-                                  ]
-                                },
-                                {
-                                  "op": "==",
-                                  "args": [
-                                    {
-                                      "op": "index",
-                                      "args": [
-                                        "run_actDayCount",
-                                        "n"
-                                      ]
-                                    },
-                                    {
-                                      "op": "index",
-                                      "args": [
-                                        "run_dayCount",
-                                        "n"
-                                      ]
-                                    }
-                                  ]
-                                }
-                              ]
-                            },
-                            0.0,
-                            1.0
-                          ]
-                        }
-                      ]
-                    }
-                  },
-                  {
-                    "op": "faq",
-                    "args": [],
-                    "semiring": "sum_product",
-                    "output_idx": [
-                      "n"
-                    ],
-                    "ranges": {
-                      "n": {
-                        "from": "run_rows"
-                      },
-                      "q": {
-                        "from": "polprocroad_rows"
-                      },
-                      "p": {
-                        "from": "runspecpollutantprocess_rows"
-                      }
-                    },
-                    "join": [
-                      {
-                        "on": [
-                          [
-                            "ppr_ppOrdinal",
-                            "rspp_ordinal"
-                          ]
-                        ]
-                      }
-                    ],
-                    "expr": {
-                      "op": "*",
-                      "args": [
-                        "n_ratesScale",
-                        {
-                          "op": "ifelse",
-                          "args": [
-                            {
-                              "op": "and",
-                              "args": [
-                                {
-                                  "op": "or",
-                                  "args": [
-                                    {
-                                      "op": "or",
-                                      "args": [
-                                        {
-                                          "op": "or",
-                                          "args": [
-                                            {
-                                              "op": "or",
-                                              "args": [
-                                                {
-                                                  "op": "==",
-                                                  "args": [
-                                                    {
-                                                      "op": "index",
-                                                      "args": [
-                                                        "rspp_processID",
-                                                        "p"
-                                                      ]
-                                                    },
-                                                    {
-                                                      "op": "enum",
-                                                      "args": [
-                                                        "process",
-                                                        "EvapPermeation"
-                                                      ]
-                                                    }
-                                                  ]
-                                                },
-                                                {
-                                                  "op": "==",
-                                                  "args": [
-                                                    {
-                                                      "op": "index",
-                                                      "args": [
-                                                        "rspp_processID",
-                                                        "p"
-                                                      ]
-                                                    },
-                                                    {
-                                                      "op": "enum",
-                                                      "args": [
-                                                        "process",
-                                                        "EvapFuelVaporVenting"
-                                                      ]
-                                                    }
-                                                  ]
-                                                }
-                                              ]
-                                            },
-                                            {
-                                              "op": "==",
-                                              "args": [
-                                                {
-                                                  "op": "index",
-                                                  "args": [
-                                                    "rspp_processID",
-                                                    "p"
-                                                  ]
-                                                },
-                                                {
-                                                  "op": "enum",
-                                                  "args": [
-                                                    "process",
-                                                    "EvapFuelLeaks"
-                                                  ]
-                                                }
-                                              ]
-                                            }
-                                          ]
-                                        },
-                                        {
-                                          "op": "==",
-                                          "args": [
-                                            {
-                                              "op": "index",
-                                              "args": [
-                                                "rspp_processID",
-                                                "p"
-                                              ]
-                                            },
-                                            {
-                                              "op": "enum",
-                                              "args": [
-                                                "process",
-                                                "RefuelingDisplacementLoss"
-                                              ]
-                                            }
-                                          ]
-                                        }
-                                      ]
-                                    },
-                                    {
-                                      "op": "==",
-                                      "args": [
-                                        {
-                                          "op": "index",
-                                          "args": [
-                                            "rspp_processID",
-                                            "p"
-                                          ]
-                                        },
-                                        {
-                                          "op": "enum",
-                                          "args": [
-                                            "process",
-                                            "RefuelingSpillageLoss"
-                                          ]
-                                        }
-                                      ]
-                                    }
-                                  ]
-                                },
-                                {
-                                  "op": "<",
-                                  "args": [
-                                    {
-                                      "op": "index",
-                                      "args": [
-                                        "ppr_roadTypeID",
-                                        "q"
-                                      ]
-                                    },
-                                    1.5
-                                  ]
-                                }
-                              ]
-                            },
-                            1.0,
-                            0.0
-                          ]
-                        }
-                      ]
-                    }
+                "op": "faq",
+                "args": [],
+                "semiring": "sum_product",
+                "output_idx": [
+                  "n"
+                ],
+                "ranges": {
+                  "n": {
+                    "from": "run_rows"
                   }
-                ]
+                },
+                "expr": {
+                  "op": "*",
+                  "args": [
+                    "n_ratesScale",
+                    {
+                      "op": "ifelse",
+                      "args": [
+                        {
+                          "op": "and",
+                          "args": [
+                            {
+                              "op": "==",
+                              "args": [
+                                {
+                                  "op": "index",
+                                  "args": [
+                                    "run_aggregationHourCount",
+                                    "n"
+                                  ]
+                                },
+                                {
+                                  "op": "index",
+                                  "args": [
+                                    "run_hourCount",
+                                    "n"
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "op": "==",
+                              "args": [
+                                {
+                                  "op": "index",
+                                  "args": [
+                                    "run_actDayCount",
+                                    "n"
+                                  ]
+                                },
+                                {
+                                  "op": "index",
+                                  "args": [
+                                    "run_dayCount",
+                                    "n"
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        0.0,
+                        1.0
+                      ]
+                    }
+                  ]
+                }
               },
               {
                 "op": "faq",
@@ -75483,41 +76390,59 @@
                       "op": "or",
                       "args": [
                         {
-                          "op": "==",
+                          "op": "or",
                           "args": [
                             {
-                              "op": "index",
+                              "op": "==",
                               "args": [
-                                "rspp_processID",
-                                "p"
+                                {
+                                  "op": "index",
+                                  "args": [
+                                    "rspp_processID",
+                                    "p"
+                                  ]
+                                },
+                                {
+                                  "op": "enum",
+                                  "args": [
+                                    "process",
+                                    "RunningExhaust"
+                                  ]
+                                }
                               ]
                             },
                             {
-                              "op": "enum",
+                              "op": "==",
                               "args": [
-                                "process",
-                                "RunningExhaust"
+                                {
+                                  "op": "index",
+                                  "args": [
+                                    "rspp_processID",
+                                    "p"
+                                  ]
+                                },
+                                {
+                                  "op": "enum",
+                                  "args": [
+                                    "process",
+                                    "CrankcaseRunningExhaust"
+                                  ]
+                                }
                               ]
                             }
                           ]
                         },
                         {
-                          "op": "==",
+                          "op": ">",
                           "args": [
                             {
                               "op": "index",
                               "args": [
-                                "rspp_processID",
+                                "rspp_usesEvapModes",
                                 "p"
                               ]
                             },
-                            {
-                              "op": "enum",
-                              "args": [
-                                "process",
-                                "CrankcaseRunningExhaust"
-                              ]
-                            }
+                            0.5
                           ]
                         }
                       ]
@@ -75530,56 +76455,6 @@
             }
           },
           "_comment": "Crankcase running beside road type 1 is not counted: it chains every running row, off-network idle included, and `ppr_isOffNetworkIdle` writes it there (PLAN.md §7.3.48)."
-        },
-        {
-          "lhs": "run_evapRoadTypeExcess",
-          "rhs": {
-            "op": "faq",
-            "args": [],
-            "semiring": "sum_product",
-            "output_idx": [
-              "n"
-            ],
-            "ranges": {
-              "n": {
-                "from": "run_rows"
-              },
-              "p": {
-                "from": "runspecpollutantprocess_rows"
-              }
-            },
-            "expr": {
-              "op": "*",
-              "args": [
-                {
-                  "op": "index",
-                  "args": [
-                    "rspp_usesEvapModes",
-                    "p"
-                  ]
-                },
-                {
-                  "op": "max",
-                  "args": [
-                    {
-                      "op": "-",
-                      "args": [
-                        {
-                          "op": "index",
-                          "args": [
-                            "run_onNetworkRoadTypeCount",
-                            "n"
-                          ]
-                        },
-                        1.0
-                      ]
-                    },
-                    0.0
-                  ]
-                }
-              ]
-            }
-          }
         },
         {
           "lhs": "run_offNetworkIdleBlocks",
@@ -84088,81 +84963,6 @@
           }
         },
         {
-          "lhs": "run_mixedRoadChains",
-          "rhs": {
-            "op": "faq",
-            "args": [],
-            "semiring": "sum_product",
-            "output_idx": [
-              "n"
-            ],
-            "ranges": {
-              "n": {
-                "from": "run_rows"
-              },
-              "p": {
-                "from": "runspecpollutantprocess_rows"
-              }
-            },
-            "expr": {
-              "op": "ifelse",
-              "args": [
-                {
-                  "op": "and",
-                  "args": [
-                    {
-                      "op": "and",
-                      "args": [
-                        {
-                          "op": "<",
-                          "args": [
-                            {
-                              "op": "index",
-                              "args": [
-                                "rspp_hasBaseRateTableRow",
-                                "p"
-                              ]
-                            },
-                            0.5
-                          ]
-                        },
-                        {
-                          "op": ">",
-                          "args": [
-                            {
-                              "op": "index",
-                              "args": [
-                                "rspp_onNetworkParents3",
-                                "p"
-                              ]
-                            },
-                            0.5
-                          ]
-                        }
-                      ]
-                    },
-                    {
-                      "op": ">",
-                      "args": [
-                        {
-                          "op": "index",
-                          "args": [
-                            "rspp_offNetworkParents3",
-                            "p"
-                          ]
-                        },
-                        0.5
-                      ]
-                    }
-                  ]
-                },
-                1.0,
-                0.0
-              ]
-            }
-          }
-        },
-        {
           "lhs": "zn_inputRowCount",
           "rhs": {
             "op": "faq",
@@ -84249,6 +85049,66 @@
               },
               "zn_inputStartAllocFactor",
               "zn_startAllocFactor"
+            ]
+          }
+        },
+        {
+          "lhs": "zn_inputSHPAllocFactor",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "z"
+            ],
+            "ranges": {
+              "z": {
+                "from": "zone_rows"
+              },
+              "i": {
+                "from": "inputzone_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "zn_zoneID",
+                    "zni_zoneID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "zni_SHPAllocFactor",
+                "i"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "zn_mergedSHPAllocFactor",
+          "rhs": {
+            "op": "ifelse",
+            "args": [
+              {
+                "op": ">",
+                "args": [
+                  {
+                    "op": "apply_expression_template",
+                    "args": [],
+                    "name": "row_is_present",
+                    "bindings": {
+                      "match_count": "zn_inputRowCount"
+                    }
+                  },
+                  0.5
+                ]
+              },
+              "zn_inputSHPAllocFactor",
+              "zn_SHPAllocFactor"
             ]
           }
         },
@@ -84390,6 +85250,42 @@
                 ]
               }
             ]
+          }
+        },
+        {
+          "lhs": "run_shpAllocFactor",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "g"
+            ],
+            "ranges": {
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "z": {
+                "from": "zone_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "run_zoneID",
+                    "zn_zoneID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "zn_mergedSHPAllocFactor",
+                "z"
+              ]
+            }
           }
         },
         {

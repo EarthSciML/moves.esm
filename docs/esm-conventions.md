@@ -8953,3 +8953,30 @@ the per-activity path there and divide by `run_linkAvgSpeed`
 RatePerDistance keeps one row per output row at bin 0 on the project's link.
 `rates-project`, 125 of 125 at 5.2e-06. Capturing it needed the execution
 database named literally: the PROJECT branch hardcodes `MOVESExecution.link`.
+
+**Off the network, SourceHours is SHP and the evaporative weights are per road
+type.** At road type 1 `TotalActivityGenerator` writes SourceHours from SHP --
+the age's national population x `noOfRealDays` minus its national SHO, times
+the zone's `SHPAllocFactor` (`act_shp`) -- so E1 there is the off-network idle
+SHO over SHP (0.007197 on `rates-evap`) and the soak modes carry weight. E1 to
+E3 and `evap_W` carry the road type as an axis and a rate row reads its own;
+an evaporative rate row's activity is SourceHours, identical to SHO on the
+network. TTG-6's `soakActivityFraction` is computed, `ttg_soakActivityFraction`:
+hot-soak vehicle-minutes over the minutes not operating. MOVES counts
+`DISTINCT vehID, hotSoakTime` across tank-temperature groups, and a soak's
+minutes in an hour start at the same minute in every group, so the union is
+the per-trip maximum (`max_product`): 1,058, group 5's, where group 3 records
+451. A chained process occurs on road type 1 when it has an off-network parent,
+even beside an on-network one -- refueling's start energy -- because MOVES emits
+it on both. RatePerVehicle's 296 road-type-1 rows, 296 of 296 at 9.068e-06 on
+the first run. Vapor venting is the exception: its mode-151 rate there is the
+multiday cold-soak insert, unported, and `run_offNetworkLinkCount` counts it on
+the SELECTION, because the row is not emitted.
+
+**A build-time constant takes no join gate.** `evap_soakWeight` read the mounted
+(empty) `soakActivityFraction` through a join and compiled; with the computed
+fraction in its place and only the `OpModePolProcAssoc` join left, `native`
+refused it: the whole-array overlay takes no gated `faq` in a build-time
+constant. The association became its own flag, `evap_hasMode[p, o]`,
+and the weight a plain product. When a rewrite turns a relation-reading
+aggregate into one over computed operands, move its joins into a flag.

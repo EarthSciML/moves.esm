@@ -73,10 +73,15 @@ exactly 1 and the soaking modes are weighted exactly 0. An evaporative block on
 road type 1 would not lose a row or emit a zero: it would divide `SHO` by a copy
 of itself where MOVES divided it by something else, and every evaporative number
 would be wrong by whatever the two differ by. Nothing downstream could see it,
-so the model counts the evaporative blocks on road type 1 and this asserts there
-are none. (Until PLAN.md §7.3.46 it counted counties whose one link was
+so the model counted the evaporative blocks on road type 1 and this asserted there
+were none. (Until PLAN.md §7.3.46 it counted counties whose one link was
 off-network; with the road type an axis, road type 1 is a block of its own, and
-running exhaust's off-network idle lives there legitimately.)
+running exhaust's off-network idle lives there legitimately.) Since §7.3.48
+part C the model HAS SHP, and permeation and leaks on road type 1 are ported;
+what is left is vapor venting, whose mode-151 rate there is the multiday
+cold-soak insert the model does not compute. So it now counts the SELECTED
+vapor-venting pollutant-processes on road type 1 -- on the selection, because
+the row is not emitted -- and this still asserts zero.
 
 `run_rateRowsWithoutPhysics` is the same failure reached from the other side: a
 rate row whose (source type, regulatory class, model year) matches no
