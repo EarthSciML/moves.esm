@@ -1709,8 +1709,11 @@ C7P_DOMAIN=moves-onroad.esm
 # §7.3.48, conventions §107): `rates-wear` and `rates-running` chained pollutants
 # per speed bin and off-network idle at bin 0; `rates-start` RatePerStart,
 # RatePerVehicle and StartsPerVehicle; `rates-hotelling` RatePerHour per hour of
-# the hotelling mode and RatePerVehicle. Each names every Rates table, empty ones
-# included, and each table is a membership-flagged relation of the model.
+# the hotelling mode and RatePerVehicle; `rates-evap` the evaporative and
+# refueling rows on road type 1, RatePerVehicle and vapor venting's
+# RatePerProfile; `rates-project` RatePerDistance on a PROJECT link. Each names
+# every Rates table, empty ones included, and each table is a membership-flagged
+# relation of the model.
 mapfile -t RUNSPECS < <(find runspecs -maxdepth 1 -name '*.esm' -not -name '.*' 2>/dev/null | sort)
 mapfile -t RUNSPECS_PENDING < <(find runspecs/pending -maxdepth 1 -name '*.esm' -not -name '.*' 2>/dev/null | sort)
 
@@ -1752,7 +1755,7 @@ else
   # (PLAN.md §7.3.47, §7.3.48). Every inventory run's is MOVESOutput, and the
   # model's `out_*` relation is emitted for it. A Rates-scale run names every
   # table MOVES's rate post-processor writes -- RatePerDistance, RatePerStart,
-  # RatePerHour, RatePerVehicle, StartsPerVehicle, the empty ones too, so that a
+  # RatePerHour, RatePerVehicle, RatePerProfile, StartsPerVehicle, the empty ones too, so that a
   # row the model emits where MOVES wrote none fails -- and each is emitted by
   # tools/emit-oracle-table.py from its prefix relation, its member rows only.
   # The table name goes to the comparator, which takes that table's column

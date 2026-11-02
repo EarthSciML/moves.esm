@@ -52,7 +52,8 @@ PREFIX = {
 }
 # A table over the output relation may read a column it does not compute from
 # these, in order. Only `out_` itself and the tables laid over `output_rows` do.
-SHARED = {"rps_": ["rto_", "out_"], "rph_": ["rto_", "out_"], "rpv_": ["rto_", "out_"]}
+SHARED = {"rps_": ["rto_", "out_"], "rph_": ["rto_", "out_"], "rpv_": ["rto_", "out_"],
+          "rpp_": ["rto_", "out_"]}
 
 
 def oracle_columns(snapshots: pathlib.Path, run: str, table: str) -> list[str]:

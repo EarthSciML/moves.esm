@@ -15228,7 +15228,7 @@
           "shape": [
             "run_rows"
           ],
-          "description": "How many SELECTED vapor-venting pollutant-processes lie on the OFF-NETWORK road type: 0, asserted. Venting there weights mode 151, whose rate is the multiday cold-soak insert (TVV-2 to TVV-7) the model does not compute, so the row would be wrong rather than absent; it is counted on the selection because the row is not emitted. Permeation and leaks there are ported (PLAN.md §7.3.48 part C)."
+          "description": "How many SELECTED vapor-venting pollutant-processes lie on the OFF-NETWORK road type in a run whose hours pair a cold-soak hour with an earlier one (`run_coldSoakPairable`): 0, asserted. Venting there weights mode 151, whose rate is then the multiday cold-soak insert (TVV-2 to TVV-7) the model does not compute, so the row would be wrong rather than absent. In a run of one hour other than 1 that rate is exactly 0, which the absent rate row gives, and venting on road type 1 is ported (PLAN.md §7.3.48 part C2)."
         },
         "run_offNetworkRoadTypeID": {
           "type": "unknown",
@@ -18340,6 +18340,14 @@
           ],
           "description": "Hours the RunSpec selects."
         },
+        "run_coldSoakPairable": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "run_rows"
+          ],
+          "description": "1 if the run's hours can pair a cold-soak hour with an earlier one: it selects more than one hour, or hour 1, whose TVV-3 row pairs with itself. MultidayTankVaporVentingCalculator reads `HourDay` as the worker extracts it, the selected hours of the selected days, and TVV-3 pairs an hour with an earlier one of the SAME day (TankTemperatureGenerator resets the initial hour at hour 1 of each day), so at 0 TVV-3 is empty, and with it every step to TVV-7: vapor venting's mode-151 rate is exactly 0. Measured on `rates-evap`, one hour (7), all 64 RatePerProfile rows (PLAN.md §7.3.48 part C2)."
+        },
         "run_actDayCount": {
           "type": "unknown",
           "units": "1",
@@ -19943,13 +19951,29 @@
           ],
           "description": "Is this output row in RatePerVehicle? Processes 2, 16, 17, 90, 91 and 93, and 11, 13, 18 and 19 on road type 1. Not a chain prerequisite: RatePerVehicle reads MOVESOutput, which the output processor has stripped of it."
         },
-        "rpv_ratePerVehicle": {
+        "rpp_inTable": {
           "type": "unknown",
           "units": "1",
           "shape": [
             "output_rows"
           ],
-          "description": "RatePerVehicle.ratePerVehicle: MOVESOutput over the cohort's population, 0 where there is none -- at Rates scale MOVESOutput is the inventory's quantity, because only meanBaseRate is scaled by the activity."
+          "description": "Is this output row in RatePerProfile? Process 12 on road type 1, which RatePostProcessorRatesFirst.sql takes out of RatePerVehicle. Not a chain prerequisite: like RatePerVehicle it reads MOVESOutput."
+        },
+        "rpp_temperatureProfileID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "output_rows"
+          ],
+          "description": "RatePerProfile.temperatureProfileID: `zoneID*10000 + monthID*100`, the key DefaultDataMaker.java gives TemperatureProfileID for every zone and month in ZoneMonthHour."
+        },
+        "rto_ratePerVehicle": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "output_rows"
+          ],
+          "description": "RatePerVehicle.ratePerVehicle and RatePerProfile.ratePerVehicle: MOVESOutput over the cohort's population, 0 where there is none -- at Rates scale MOVESOutput is the inventory's quantity, because only meanBaseRate is scaled by the activity. RatePostProcessor.sql writes both tables with the same quotient."
         },
         "spvCohortOrdinal": {
           "type": "unknown",
@@ -22324,23 +22348,35 @@
                   ]
                 },
                 {
-                  "op": "ifelse",
+                  "op": "*",
                   "args": [
                     {
-                      "op": "<",
+                      "op": "ifelse",
                       "args": [
                         {
-                          "op": "index",
+                          "op": "<",
                           "args": [
-                            "ppr_roadTypeID",
-                            "q"
+                            {
+                              "op": "index",
+                              "args": [
+                                "ppr_roadTypeID",
+                                "q"
+                              ]
+                            },
+                            1.5
                           ]
                         },
-                        1.5
+                        1.0,
+                        0.0
                       ]
                     },
-                    1.0,
-                    0.0
+                    {
+                      "op": "index",
+                      "args": [
+                        "run_coldSoakPairable",
+                        "n"
+                      ]
+                    }
                   ]
                 }
               ]
@@ -24768,40 +24804,16 @@
                               "op": "ifelse",
                               "args": [
                                 {
-                                  "op": "and",
+                                  "op": ">",
                                   "args": [
                                     {
-                                      "op": ">",
+                                      "op": "index",
                                       "args": [
-                                        {
-                                          "op": "index",
-                                          "args": [
-                                            "rspp_usesEvapModes",
-                                            "p"
-                                          ]
-                                        },
-                                        0.5
+                                        "rspp_usesEvapModes",
+                                        "p"
                                       ]
                                     },
-                                    {
-                                      "op": "!=",
-                                      "args": [
-                                        {
-                                          "op": "index",
-                                          "args": [
-                                            "rspp_processID",
-                                            "p"
-                                          ]
-                                        },
-                                        {
-                                          "op": "enum",
-                                          "args": [
-                                            "process",
-                                            "EvapFuelVaporVenting"
-                                          ]
-                                        }
-                                      ]
-                                    }
+                                    0.5
                                   ]
                                 },
                                 1.0,
@@ -79572,6 +79584,63 @@
           }
         },
         {
+          "lhs": "run_coldSoakPairable",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "max_product",
+            "output_idx": [
+              "n"
+            ],
+            "ranges": {
+              "n": {
+                "from": "run_rows"
+              },
+              "x": {
+                "from": "runspechour_rows"
+              }
+            },
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                {
+                  "op": "or",
+                  "args": [
+                    {
+                      "op": ">",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "run_hourCount",
+                            "n"
+                          ]
+                        },
+                        1.5
+                      ]
+                    },
+                    {
+                      "op": "<",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "rsh_hourID",
+                            "x"
+                          ]
+                        },
+                        1.5
+                      ]
+                    }
+                  ]
+                },
+                1.0,
+                0.0
+              ]
+            }
+          }
+        },
+        {
           "lhs": "run_actDayCount",
           "rhs": {
             "op": "faq",
@@ -83211,7 +83280,132 @@
           }
         },
         {
-          "lhs": "rpv_ratePerVehicle",
+          "lhs": "rpp_inTable",
+          "rhs": {
+            "op": "*",
+            "args": [
+              {
+                "op": "faq",
+                "args": [],
+                "semiring": "sum_product",
+                "output_idx": [
+                  "o"
+                ],
+                "ranges": {
+                  "o": {
+                    "from": "output_rows"
+                  }
+                },
+                "expr": {
+                  "op": "*",
+                  "args": [
+                    "n_ratesScale",
+                    {
+                      "op": "ifelse",
+                      "args": [
+                        {
+                          "op": "and",
+                          "args": [
+                            {
+                              "op": "==",
+                              "args": [
+                                {
+                                  "op": "index",
+                                  "args": [
+                                    "out_processID",
+                                    "o"
+                                  ]
+                                },
+                                {
+                                  "op": "enum",
+                                  "args": [
+                                    "process",
+                                    "EvapFuelVaporVenting"
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "op": "<",
+                              "args": [
+                                {
+                                  "op": "index",
+                                  "args": [
+                                    "out_roadTypeID",
+                                    "o"
+                                  ]
+                                },
+                                1.5
+                              ]
+                            }
+                          ]
+                        },
+                        1.0,
+                        0.0
+                      ]
+                    }
+                  ]
+                }
+              },
+              {
+                "op": "-",
+                "args": [
+                  1.0,
+                  "rto_isPrerequisite"
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "lhs": "rpp_temperatureProfileID",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "o"
+            ],
+            "ranges": {
+              "o": {
+                "from": "output_rows"
+              }
+            },
+            "expr": {
+              "op": "+",
+              "args": [
+                {
+                  "op": "*",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "rto_zoneID",
+                        "o"
+                      ]
+                    },
+                    10000.0
+                  ]
+                },
+                {
+                  "op": "*",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "out_monthID",
+                        "o"
+                      ]
+                    },
+                    100.0
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rto_ratePerVehicle",
           "rhs": {
             "op": "faq",
             "args": [],

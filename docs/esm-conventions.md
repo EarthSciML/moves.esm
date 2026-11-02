@@ -8881,7 +8881,7 @@ bound to `true`) and the standalone link component; `second_op_mode` is the
 Idling-Braking-binned precedence both onroad paths share, and
 `graded_acceleration` is the link path's `At0`-`At2`.
 
-## 107. A Rates table is a flagged subset of a relation the model already has, and its rate is per unit of the activity MOVES divides by **[PLAN.md §7.3.48; `rates-wear` 10,000, `rates-running` 79,625, `rates-start` 684 + 684 + 125, `rates-hotelling` 491 + 491, every table key-exact and within 1.2e-05]**
+## 107. A Rates table is a flagged subset of a relation the model already has, and its rate is per unit of the activity MOVES divides by **[PLAN.md §7.3.48; `rates-wear` 10,000, `rates-running` 79,625, `rates-start` 684 + 684 + 125, `rates-hotelling` 491 + 491, `rates-evap` and `rates-project` too, every table key-exact and within 1.2e-05]**
 
 MOVES's rate post-processor (`RatePostProcessorRatesFirst.sql`) writes six tables
 and assigns a row to each by its PROCESS and ROAD TYPE alone. Four rules came out
@@ -8969,9 +8969,22 @@ the per-trip maximum (`max_product`): 1,058, group 5's, where group 3 records
 451. A chained process occurs on road type 1 when it has an off-network parent,
 even beside an on-network one -- refueling's start energy -- because MOVES emits
 it on both. RatePerVehicle's 296 road-type-1 rows, 296 of 296 at 9.068e-06 on
-the first run. Vapor venting is the exception: its mode-151 rate there is the
-multiday cold-soak insert, unported, and `run_offNetworkLinkCount` counts it on
-the SELECTION, because the row is not emitted.
+the first run. Vapor venting's mode-151 rate there is the multiday cold-soak
+insert, which is unported.
+
+**A rate that is zero by the run's selection is a computed gate, not an
+assumption.** The cold-soak insert pairs a cold-soak hour with an earlier one of
+the same day, among the hours the worker EXTRACTS -- the selected ones, not all
+24 -- so in a run of one hour other than 1 it is empty and venting's mode-151
+rate is exactly 0, the absent rate row's value. The model ports venting on road
+type 1 on that ground and computes it: `run_coldSoakPairable` is 1 when the
+selection could pair two hours, and `run_offNetworkLinkCount` counts selected
+venting there only then, so the day a RunSpec selects two hours it fails
+loudly rather than reporting 0. RatePerProfile is RatePerVehicle's quotient on
+process 12, so the quotient moved to `rto_ratePerVehicle` and both tables read
+it. `rates-evap`'s 64 rows, 64 of 64 at 8.999e-06 on the first run -- measured
+in pandas first, which is how the zero was found: MOVES's own working tables
+were not captured, and reproducing the chain from its inputs showed TVV-3 empty.
 
 **A build-time constant takes no join gate.** `evap_soakWeight` read the mounted
 (empty) `soakActivityFraction` through a join and compiled; with the computed

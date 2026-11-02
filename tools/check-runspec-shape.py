@@ -79,9 +79,11 @@ off-network; with the road type an axis, road type 1 is a block of its own, and
 running exhaust's off-network idle lives there legitimately.) Since §7.3.48
 part C the model HAS SHP, and permeation and leaks on road type 1 are ported;
 what is left is vapor venting, whose mode-151 rate there is the multiday
-cold-soak insert the model does not compute. So it now counts the SELECTED
-vapor-venting pollutant-processes on road type 1 -- on the selection, because
-the row is not emitted -- and this still asserts zero.
+cold-soak insert the model does not compute. That insert pairs a cold-soak hour
+with an earlier one among the run's SELECTED hours, so in a run of one hour
+other than 1 it is exactly 0 and venting there is ported (part C2); it now
+counts the selected vapor-venting pollutant-processes on road type 1 in a run
+whose hours could pair (`run_coldSoakPairable`), and this still asserts zero.
 
 `run_rateRowsWithoutPhysics` is the same failure reached from the other side: a
 rate row whose (source type, regulatory class, model year) matches no
@@ -147,7 +149,10 @@ where `n_outputRate` and the blocks and cohorts live. RatePerDistance is passed
 as a third file, and one thing about it is asserted that no key comparison
 would see if the link and the bin moved together: every link carries its bin in
 its last two digits and its road type in the third, `(zoneID*10 + roadTypeID)*100 +
-avgSpeedBinID`, bin 0 at road type 1.
+avgSpeedBinID`, bin 0 at road type 1. A PROJECT run (§7.3.48 part D) has no
+bin links: MOVES writes its RatePerDistance on the project link itself at bin 0,
+and the output relation is the one place that link is named (`out_linkID`, NULL
+at county detail), so there the assertion is that every row sits on it.
 
 usage: check-runspec-shape.py <emitted out_*.csv> <shape.csv> [<rateperdistance.csv>]
 """
@@ -195,11 +200,22 @@ def main(emitted_path, shape_path, rpd_path=None):
                         % (len(rows), pairs_emitted, len(counties), len(months),
                            len(days), expected))
     rpd = read(rpd_path) if rpd_path else []
+    # A PROJECT run's output relation carries its link; its RatePerDistance
+    # sits there, at bin 0, on that link's road type.
+    project = {(int(float(r[pre + "linkID"])), int(float(r[pre + "roadTypeID"])))
+               for r in rows if r[pre + "linkID"] not in ("", "NaN")}
     if rpd:
-        mislinked = [r for r in rpd
-                     if int(float(r["linkID"])) % 100 != int(float(r["avgSpeedBinID"]))
-                     or (int(float(r["linkID"])) // 100) % 10 != int(float(r["roadTypeID"]))]
-        if mislinked:
+        def linked(r):
+            link, road, b = (int(float(r[c])) for c in ("linkID", "roadTypeID", "avgSpeedBinID"))
+            if project:
+                return (link, road) in project and b == 0
+            return link % 100 == b and (link // 100) % 10 == road
+
+        mislinked = [r for r in rpd if not linked(r)]
+        if mislinked and project:
+            problems.append("%d RatePerDistance row(s) are not on the project link at bin 0"
+                            % len(mislinked))
+        elif mislinked:
             problems.append("%d RatePerDistance row(s) sit on a link whose last three digits "
                             "are not their road type and speed bin" % len(mislinked))
     if pairs_emitted > blocks * cohorts:
@@ -270,7 +286,8 @@ def main(emitted_path, shape_path, rpd_path=None):
              blocks, cohorts,
              "RAGGED -- a block is narrower than the widest" if ragged
              else "a rectangle",
-             "; every RatePerDistance row on its road type's and bin's link" if rpd else ""))
+             "" if not rpd else "; every RatePerDistance row on the project link" if project
+             else "; every RatePerDistance row on its road type's and bin's link"))
     return 0
 
 
