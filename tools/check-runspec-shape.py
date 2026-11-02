@@ -83,7 +83,9 @@ cold-soak insert the model does not compute. That insert pairs a cold-soak hour
 with an earlier one among the run's SELECTED hours, so in a run of one hour
 other than 1 it is exactly 0 and venting there is ported (part C2); it now
 counts the selected vapor-venting pollutant-processes on road type 1 in a run
-whose hours could pair (`run_coldSoakPairable`), and this still asserts zero.
+whose hours could pair, and asserted zero. Since PLAN.md §7.3.49 the insert is
+ported per (day type, hour) cell, and what this counts is venting on road type 1
+in a run that AGGREGATES its hours (`run_aggregatesHours`), still asserted zero.
 
 `run_rateRowsWithoutPhysics` is the same failure reached from the other side: a
 rate row whose (source type, regulatory class, model year) matches no

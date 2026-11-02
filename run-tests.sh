@@ -1714,9 +1714,13 @@ C7P_DOMAIN=moves-onroad.esm
 # RatePerProfile; `rates-project` RatePerDistance on a PROJECT link;
 # `rates-pm` SulfatePMCalculator's species per bin, and `rates-nonhaptog` and
 # `rates-mechanism` the non-HAP TOG residual per bin, without and with its
-# mechanism -- `rates-mechanism` is the costliest run here. Each names
-# every Rates table, empty ones included, and each table is a membership-flagged
-# relation of the model.
+# mechanism -- `rates-mechanism` is the costliest run here;
+# `rates-hotelling-sourcetypes` hotelling beside two source types that do not
+# hotel. Each names every Rates table, empty ones included, and each table is a
+# membership-flagged relation of the model. `rates-venting` and its inventory
+# twin `process-evap-fvv-day` select all 24 hours of both day types (PLAN.md
+# §7.3.49): the output cell is a (day type, hour) pair, and vapor venting's
+# cold soak pairs the selected hours.
 mapfile -t RUNSPECS < <(find runspecs -maxdepth 1 -name '*.esm' -not -name '.*' 2>/dev/null | sort)
 mapfile -t RUNSPECS_PENDING < <(find runspecs/pending -maxdepth 1 -name '*.esm' -not -name '.*' 2>/dev/null | sort)
 

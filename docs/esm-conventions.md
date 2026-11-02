@@ -9007,3 +9007,55 @@ cohort. Read the GROUP BY before porting a nonlinear step to a finer relation.
 `rates-pm` 47,320, `rates-nonhaptog` 35,100 and `rates-mechanism` 179,855 rows on
 the first run; `rates-nonhaptog` selects 88 without its mechanism and has no 88
 row, which is the switch, and only `rates-mechanism` tests the subtraction.
+
+## 108. The hour is part of the output cell, and a run's own cells are what a calculator that pairs hours pairs **[PLAN.md §7.3.49; `rates-venting` 3,072 + `process-evap-fvv-day` 6,144 rows, every hour of two day types, key-exact, one cell each at 2.2e-05 and every other within 2e-05; the 43 earlier RunSpecs byte-identical]**
+
+Every RunSpec before `rates-venting` selected one hour, so "the run's hour" was a
+scalar: the temperature, the humidity, the speed distribution, TankTemperatureGenerator's
+hour all read `run_hourID`. The tempting fix is an hour AXIS beside the day axis, and its
+forward closure is 175 of 1,178 equations. The cheaper one is the shape MOVES itself
+writes: the output's time key is a (day type, hour) pair, `runspechourday`, and the model
+already had an output day relation `k` that 72 of those 175 variables were keyed by.
+**`runspecday_rows` became the output TIME CELL.** `db_runspecday` mounts
+`runspechourday`; `rsd_dayID` and `rsd_hourID` are LOOKED UP through `hourday`; and on all
+59 earlier RunSpecs the cell relation is the day relation row for row, so nothing moved.
+What changed is about 52 variables that were per-run scalars of the hour, which gained
+the cell, and the time-cell MEMBERSHIP: a rate-side day type or an aggregation hour belongs
+to a cell when it equals the cell's day or hour, and to every cell when the cell is the
+synthesized aggregate (hour 0, day 0) -- `rday_hasOutputDay`'s wildcard, now for both
+(`tcell_dayMatch`, `tcell_hourMatch`). An ordinal that named ONE output day per rate day
+cannot name the 24 cells of that day, so it was retired rather than widened.
+
+**Price the promotion against the relation you already have, not against a new axis.**
+Count the forward closure, then count how much of it already carries a relation the new
+key could be folded into. The road type was an axis because it is a place; the hour is
+a coordinate of the output's time cell, which was already a relation.
+
+**A calculator that pairs hours pairs the hours the worker EXTRACTS.**
+MultidayTankVaporVentingCalculator joins `HourDay` as the worker sees it -- the
+selected hours of the selected days -- so TVV-3's (current hour, initial hour) pairs are
+pairs of the run's own CELLS, and the four `tvgSum*` windows are sums over the cells of
+a day. A one-hour run pairs nothing and its cold soak is exactly 0 (`rates-evap`); a
+24-hour run's is up to 46 % of an afternoon hour. Read every `HourDay` join in a
+calculator as a join over the selection.
+
+**A walk with one carried state closes into "the last earlier hour with a record".**
+TTG-7 walks each vehicle's hours keeping the hour its cold soak began; the state moves
+only at an hour with a trip segment or a recorded hot-soak minute. So the initial hour is
+`max(1, max over earlier hours with a record)`, a `max_product` over the hours, and the
+split of the hour's 60 minutes depends on which record comes FIRST -- which needs no
+minimum over a filtered set: a hot soak is first only when one CARRIES OVER from the
+previous hour, or TIES the first trip (a zero-minute last segment whose soak starts the
+same minute; TTG-7's comparison is strict). Missing the tie moved 124 vehicle-hours and
+cost 2e-4 of the fraction; with it all 534 pairs match to the capture's 4.9e-07.
+
+**A one-hour corpus hides what only another hour reaches.** Three defects had been right
+by coincidence at hour 7 and showed up at once at 24 hours. MARKER trips sit in hour 1
+with a negative key-off, so TTG-6's operating minutes counted them there (−161,072
+minutes) and nowhere else. Off-network idle SHO exists only when a process that needs SHO
+at the off-network link is selected -- running exhaust, brake or tire wear
+(TotalActivityGenerator.java:2083) -- so a venting-only run has none, its fraction
+operating is 0, and operating mode 300 weighs nothing. And the parked hours subtract
+the SHO of EVERY road type, not the selected ones, so the VMT-to-speed chain now runs over
+`roadtype_rows` and its readers select by ID. Each was found by comparing one
+intermediate per cell with the capture, at the hour where the error was largest.

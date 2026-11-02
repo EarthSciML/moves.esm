@@ -1,0 +1,363 @@
+{
+  "esm": "1.2.0",
+  "metadata": {
+    "name": "rates-venting-runspec",
+    "description": "PLAN.md §7.3.49: `rates-venting`, Rates-scale vapor venting (process 12, THC) for the gasoline-selected passenger car in Washtenaw County on road types 1 and 4, at EVERY hour of BOTH day types -- the first RunSpec here that selects more than one hour.\n\nWHAT IT DISCRIMINATES. (1) The hour as part of the output time cell: 48 (day type, hour) cells, each with its own temperature, speed distribution, activity and soak fractions. (2) MultidayTankVaporVentingCalculator's cold-soak insert, operating mode 151: TVV-2's peak hour, TVV-3's tank vapor generated between a cold-soak hour and its initial hour among the SELECTED hours, TVV-4's ethanol interpolation and hourly increment, the soaking-day recurrence over days 1 to 5, TVV-5's two equation forms, TVV-6's warming gate, TVV-7's weighting by `coldSoakInitialHourFraction` (TTG-7) and the four post-peak decay hours. A one-hour run multiplies all of it by exactly zero (`rates-evap`). Measured in pandas before the port: all 3,072 rows at 1.97e-05, with the soak fractions MOVES stores to six digits.\n\nTHE BINDINGS. `n_ratesScale` = 1 and `n_outputRate` the (pollutant-process, road type, cohort) pairs, checked by `rateSurvivorCount`.",
+    "authors": [
+      "EarthSciML Authors and Contributors"
+    ],
+    "tags": [
+      "runspec",
+      "onroad",
+      "default-database",
+      "rates",
+      "rates-evap",
+      "multi-hour"
+    ]
+  },
+  "data_sources": {
+    "db_runspecyear": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/rates-venting/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspecyear.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecyear"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, yearID 2020. The scope comes from these tables and never from the RunSpec XML, whose @key attributes are 0-based indices into sorted ID lists (docs/mixed-onroad.md §0.1).",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecmonth": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/rates-venting/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspecmonth.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecmonth"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, monthID 8. A key of the thermal chain and not only an axis: TTG-1 starts from `zoneMonthHour` at this month, and the cold-soak tank temperature it produces is every cold trip's key-on temperature and three degrees below where every hot soak ends.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspechour": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/rates-venting/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspechour.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspechour"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "24 rows, hourIDs 1 to 24: every hour of the day, and the first RunSpec here to select more than one. Vapor venting's cold soak pairs an hour with an earlier one of the same day among these, so this is what makes MultidayTankVaporVentingCalculator TVV-3 to TVV-7 non-zero (PLAN.md §7.3.49).",
+        "esio_format": "parquet"
+      }
+    },
+    "db_aggregationhour": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/rates-venting/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspechour.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_aggregationhour"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "The hours the run aggregates over. This run does not set `aggregateBy`, so it is `runspechour` itself and the same file.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecday": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/rates-venting/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspechourday.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecday"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "48 rows: `runspechourday`, every (hour, day type) cell, hourDayIDs 12 to 245. The output TIME CELL relation (PLAN.md §7.3.49): each is its own output row block.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_rateday": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/rates-venting/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspecday.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_rateday"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "The day types the RATE-side time pre-aggregation is scoped to. This run does not set `aggregateBy`, so it is `runspecday` itself: 2 rows, dayIDs 2 (weekend) and 5 (weekday).",
+        "esio_format": "parquet"
+      }
+    },
+    "db_actday": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/rates-venting/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspecday.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_actday"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "The day types the output cells' ACTIVITY covers, and the source of `noOfRealDays`: `runspecday`, dayIDs 2 and 5 (2 and 5 real days).",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecsourcetype": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/rates-venting/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspecsourcetype.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecsourcetype"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, sourceTypeID 21, Passenger Car. It selects the sample vehicles TTG-4a walks and, through `sourceTypeModelYearGroup`, the two tank-temperature groups they are walked as: 3 for model years 1996 and later and 5 before -- PC-6's gate.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecroadtype": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/rates-venting/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspecroadtype.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecroadtype"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "2 rows, roadTypeIDs 1 and 4, as the XML names them: with no running process selected MOVES adds no other on-network road type.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecsourcefueltype": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/rates-venting/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspecsourcefueltype.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecsourcefueltype"
+      },
+      "metadata": {
+        "tags": [
+          "scope",
+          "cohorts"
+        ],
+        "note": "4 rows: gasoline, diesel, E85 and electricity. Only gasoline and E85 reach the output: `emissionRateByAge` carries polProcess 111 for 484 gasoline and 484 E85 bin-rows, all at operating mode 300, and for none of the diesel or electricity ones.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecpollutantprocess": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/rates-venting/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspecpollutantprocess.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecpollutantprocess"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row: THC at vapor venting (112). MOVES writes THC only at Rates scale.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecchainedto": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/rates-venting/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspecchainedto.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecchainedto"
+      },
+      "metadata": {
+        "tags": [
+          "scope",
+          "chain"
+        ],
+        "note": "ZERO rows. Nothing is chained.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspeccounty": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/rates-venting/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspeccounty.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspeccounty"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, countyID 26161 (Washtenaw, MI), zone 261610. It selects the ambient temperatures the thermal chain starts from and the fuel supply PC-3 weights. Its `GPAFract` is 0, so PC-3's GPA term contributes nothing. There is no I/M step at all: `EvaporativePermeationCalculator` reads neither `IMCoverage` nor `IMFactor` and polProcess 111 is `isAffectedByEvapIM = 'N'` (docs/evap-permeation.md §1).",
+        "esio_format": "parquet"
+      }
+    },
+    "db_rateperdistance": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/rates-venting/tables/db__out_rates_venting__rateperdistance.parquet"
+      },
+      "reader_options": {
+        "float_columns": [
+          "ratePerDistance",
+          "temperature",
+          "relHumidity"
+        ]
+      },
+      "metadata": {
+        "tags": [
+          "oracle",
+          "expected-output"
+        ],
+        "note": "EMPTY in this run: MOVES writes no row to it, so a row the model emits here is a failure.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_rateperstart": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/rates-venting/tables/db__out_rates_venting__rateperstart.parquet"
+      },
+      "reader_options": {
+        "float_columns": [
+          "ratePerStart",
+          "temperature",
+          "relHumidity"
+        ]
+      },
+      "metadata": {
+        "tags": [
+          "oracle",
+          "expected-output"
+        ],
+        "note": "EMPTY in this run: MOVES writes no row to it, so a row the model emits here is a failure.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_startspervehicle": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/rates-venting/tables/db__out_rates_venting__startspervehicle.parquet"
+      },
+      "reader_options": {
+        "float_columns": [
+          "startsPerVehicle"
+        ]
+      },
+      "metadata": {
+        "tags": [
+          "oracle",
+          "expected-output"
+        ],
+        "note": "EMPTY in this run: MOVES writes no row to it, so a row the model emits here is a failure.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_ratepervehicle": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/rates-venting/tables/db__out_rates_venting__ratepervehicle.parquet"
+      },
+      "reader_options": {
+        "float_columns": [
+          "ratePerVehicle",
+          "temperature",
+          "relHumidity"
+        ]
+      },
+      "metadata": {
+        "tags": [
+          "oracle",
+          "expected-output"
+        ],
+        "note": "EMPTY in this run: MOVES writes no row to it, so a row the model emits here is a failure.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_rateperhour": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/rates-venting/tables/db__out_rates_venting__rateperhour.parquet"
+      },
+      "reader_options": {
+        "float_columns": [
+          "ratePerHour",
+          "temperature",
+          "relHumidity"
+        ]
+      },
+      "metadata": {
+        "tags": [
+          "oracle",
+          "expected-output"
+        ],
+        "note": "EMPTY in this run: MOVES writes no row to it, so a row the model emits here is a failure.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_rateperprofile": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/rates-venting/tables/db__out_rates_venting__rateperprofile.parquet"
+      },
+      "reader_options": {
+        "float_columns": [
+          "ratePerVehicle",
+          "temperature",
+          "relHumidity"
+        ]
+      },
+      "metadata": {
+        "tags": [
+          "oracle",
+          "expected-output"
+        ],
+        "note": "The 3,072-row RatePerProfile: vapor venting THC on road type 1, per vehicle, at every hour of both day types -- 64 cohorts x 48 cells. Hours 8 to 21 carry the cold soak (operating mode 151), up to 46 % of the hour; at night it is exactly 0, because the cold-soak tank temperature falls and TVV-6 zeroes a hour that did not warm. RatePerDistance is EMPTY too: no running process is selected, so there is no distance to divide by.",
+        "esio_format": "parquet"
+      }
+    }
+  },
+  "models": {
+    "Onroad": {
+      "ref": "../moves-onroad.esm",
+      "bindings": {
+        "n_ratesScale": 1,
+        "n_outputRate": 128
+      }
+    }
+  }
+}

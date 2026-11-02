@@ -1,0 +1,256 @@
+{
+  "esm": "1.2.0",
+  "metadata": {
+    "name": "process-evap-fvv-day-runspec",
+    "description": "PLAN.md §7.3.49: `process-evap-fvv-day`, the inventory twin of `rates-venting` -- `process-evap-fvv` (Evap Fuel Vapor Venting, THC, TOG and VOC) for the gasoline-selected passenger car on road types 1 AND 4, at every hour of both day types.\n\nWHAT IT DISCRIMINATES. The hour as part of the output cell at inventory scale, on road type 4 where venting is all operating mode 300 and the temperature and RVP adjustment move hour by hour; and on road type 1 the cold-soak insert, operating mode 151, weighted by the soaking share of the hour. Its road-type-1 THC is `rates-venting`'s RatePerProfile times the population, row for row.\n\nTHE BINDINGS. `n_outputRate`, the (pollutant-process, road type, cohort) pairs, checked by `rateSurvivorCount`.",
+    "authors": [
+      "EarthSciML Authors and Contributors"
+    ],
+    "tags": [
+      "runspec",
+      "onroad",
+      "default-database",
+      "evaporative",
+      "multi-hour"
+    ]
+  },
+  "data_sources": {
+    "db_runspecyear": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/process-evap-fvv-day/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspecyear.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecyear"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, yearID 2020. The scope comes from these tables and never from the RunSpec XML, whose @key attributes are 0-based indices into sorted ID lists (docs/mixed-onroad.md §0.1).",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecmonth": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/process-evap-fvv-day/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspecmonth.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecmonth"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, monthID 8. It selects the month group whose fuel supply `TankFuelGenerator` averages, and the month whose hourly extremes give the zone's evaporative temperature, 78.344292 degF from [59.5, 81.9].",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspechour": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/process-evap-fvv-day/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspechour.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspechour"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "24 rows, hourIDs 1 to 24: every hour of the day, and the first RunSpec here to select more than one. Vapor venting's cold soak pairs an hour with an earlier one of the same day among these, so this is what makes MultidayTankVaporVentingCalculator TVV-3 to TVV-7 non-zero (PLAN.md §7.3.49).",
+        "esio_format": "parquet"
+      }
+    },
+    "db_aggregationhour": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/process-evap-fvv-day/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspechour.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_aggregationhour"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "The hours the run aggregates over. This run does not set `aggregateBy`, so it is `runspechour` itself and the same file.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecday": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/process-evap-fvv-day/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspechourday.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecday"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "48 rows: `runspechourday`, every (hour, day type) cell, hourDayIDs 12 to 245. The output TIME CELL relation (PLAN.md §7.3.49): each is its own output row block.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_rateday": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/process-evap-fvv-day/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspecday.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_rateday"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "The day types the RATE-side time pre-aggregation is scoped to. This run does not set `aggregateBy`, so it is `runspecday` itself: 2 rows, dayIDs 2 (weekend) and 5 (weekday).",
+        "esio_format": "parquet"
+      }
+    },
+    "db_actday": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/process-evap-fvv-day/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspecday.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_actday"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "The day types the output cells' ACTIVITY covers, and the source of `noOfRealDays`: `runspecday`, dayIDs 2 and 5 (2 and 5 real days).",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecsourcetype": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/process-evap-fvv-day/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspecsourcetype.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecsourcetype"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, sourceTypeID 21, Passenger Car.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecroadtype": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/process-evap-fvv-day/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspecroadtype.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecroadtype"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "2 rows, roadTypeIDs 1 and 4, as the XML names them: with no running process selected MOVES adds no other on-network road type.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecsourcefueltype": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/process-evap-fvv-day/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspecsourcefueltype.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecsourcefueltype"
+      },
+      "metadata": {
+        "tags": [
+          "scope",
+          "cohorts"
+        ],
+        "note": "4 rows: gasoline, diesel, E85 and electricity. Only gasoline and E85 reach the output: `emissionRateByAge` carries polProcess 112 for them alone, and they are the two fuel types subject to evaporative calculations and the two with RVP knots.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecpollutantprocess": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/process-evap-fvv-day/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspecpollutantprocess.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecpollutantprocess"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "3 rows: THC, TOG and VOC at vapor venting (112, 8612, 8712).",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecchainedto": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/process-evap-fvv-day/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspecchainedto.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecchainedto"
+      },
+      "metadata": {
+        "tags": [
+          "scope",
+          "chain"
+        ],
+        "note": "ZERO rows. Nothing is chained.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspeccounty": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/process-evap-fvv-day/tables/db__movesexecution1ccc0233_campuscluster_illinois_edu__runspeccounty.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspeccounty"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, countyID 26161 (Washtenaw, MI), zone 261610, fuel region 270000000. `IMCoverage` narrows to no row for this county, so TVV-1's merge and TVV-9's blend are the identity, measured from the national table.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_movesoutput": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/process-evap-fvv-day/tables/db__out_process_evap_fvv_day__movesoutput.parquet"
+      },
+      "reader_options": {
+        "float_columns": [
+          "emissionQuant"
+        ]
+      },
+      "metadata": {
+        "tags": [
+          "oracle",
+          "expected-output"
+        ],
+        "note": "The 6,144-row expected output: THC on road types 1 and 4 at all 48 cells, 64 cohorts each. TOG and VOC, which the XML also names, are not written, as in `process-evap-fvv`.",
+        "esio_format": "parquet"
+      }
+    }
+  },
+  "models": {
+    "Onroad": {
+      "ref": "../moves-onroad.esm",
+      "bindings": {
+        "n_outputRate": 128
+      }
+    }
+  }
+}
