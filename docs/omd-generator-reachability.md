@@ -70,9 +70,9 @@ credited with a sibling's rows.
 
 The corpus as measured: **64 snapshot directories, 63 with an
 `execution-trace.json`** (`mixed-onroad-nonroad` carries `tables/` only), at
-`moves.rs` commit `7e89642d` (2026-11-02: `rates-venting` and `process-evap-fvv-day`, the first 24-hour runs, and `rates-hotelling-sourcetypes`, PLAN.md §7.3.49; before it `d1ced02c`, the same day: three more Rates-scale twins, `rates-pm`, `rates-nonhaptog` and
-`rates-mechanism`, PLAN.md §7.3.48 part E; before it `e9aae897`, 2026-11-01: `rates-project`, captured with the execution
-database named `MOVESExecution`; before that `48fdf9fb`, the five Rates-scale twins `rates-running`,
+`moves.rs` commit `5389ead6` (2026-11-02: `rates-venting` and `process-evap-fvv-day`, the first 24-hour runs, and `rates-hotelling-sourcetypes`, PLAN.md §7.3.49; before it `46cff1e6`, the same day: three more Rates-scale twins, `rates-pm`, `rates-nonhaptog` and
+`rates-mechanism`, PLAN.md §7.3.48 part E; before it `5cc407df`, 2026-11-01: `rates-project`, captured with the execution
+database named `MOVESExecution`; before that `6c11d458`, the five Rates-scale twins `rates-running`,
 `rates-wear`, `rates-start`, `rates-hotelling` and `rates-evap`, PLAN.md §7.3.48; before
 them `74fa85af`, 2026-10-20: five `expand-*` runs — `expand-roadtypes`,
 `expand-multiyear`, `expand-multifuel`, `expand-fullyear`, `expand-counties-large` —

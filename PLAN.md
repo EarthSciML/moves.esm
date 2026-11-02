@@ -5047,7 +5047,7 @@ than miles are not read.
 
 2026-11-01. §7.3.47 left every Rates table but running exhaust's RatePerDistance
 counted and unported, because no snapshot exercised them. Six RunSpecs were written
-for that (moves.rs `characterization/fixtures/rates-*.xml`, moves.rs `48fdf9fb`),
+for that (moves.rs `characterization/fixtures/rates-*.xml`, moves.rs `6c11d458`),
 each the Rates-scale twin of inventory runs this model already reproduces, so that
 what a run discriminates is the Rates arithmetic and nothing else. Five ran:
 
@@ -5066,7 +5066,7 @@ else, so a Rates run that aggregates is not a RunSpec MOVES runs; it stays count
 `RatePostProcessorRatesFirst.sql`'s PROJECT branch hardcodes `MOVESExecution.link`,
 and the capture's `executionDatabaseName = *` names the execution database per
 host, so the post-processor stopped and left every rate table empty. It is
-recaptured with the name literal (moves.rs `e9aae897`: `run-moves.sh` takes
+recaptured with the name literal (moves.rs `5cc407df`: `run-moves.sh` takes
 `EXECUTION_DB_NAME`, `*` for every other fixture) and ported as part D below.
 
 **What MOVES does, from its source.** `RatePostProcessorRatesFirst.sql` assigns a
@@ -5359,7 +5359,7 @@ NULL at county detail -- and asserts that instead.
 
 **What was done: part E** (2026-11-02): SulfatePMCalculator's species and the
 non-HAP TOG residual per speed bin, the last rows `run_ratesUnported` counted
-besides time aggregation. Three more captures (`moves.rs` `d1ced02c`), Rates twins
+besides time aggregation. Three more captures (`moves.rs` `46cff1e6`), Rates twins
 on road types 1 and 4: `rates-pm` of `process-pm-exhaust` (RatePerDistance 47,320
 rows), `rates-nonhaptog` of `chain-nonhaptog` (35,100, and no 88 row -- it selects
 88 without its mechanism 3000, so it tests the switch and not the subtraction) and
@@ -5384,7 +5384,7 @@ its six tables at 2.4 GB peak, measured beside a running suite, because each
 table is a separate `simulate`.
 
 **What was done: part F, hotelling for other source types** (2026-11-02).
-`rates-hotelling-sourcetypes` (moves.rs `7e89642d`) is `rates-hotelling` with the
+`rates-hotelling-sourcetypes` (moves.rs `5389ead6`) is `rates-hotelling` with the
 single-unit and combination short-haul trucks (52, 61) selected beside the
 long-haul truck (62), and MOVES writes the same 491 rows, every one 62's.
 BaseRateGenerator's steps 200 and 210 write RatesOpModeDistribution for 62 alone,
@@ -5408,7 +5408,7 @@ in §7.3.49.
 
 **Measured first** (2026-11-02). Every RunSpec so far selected ONE hour, and the
 model read the hour as a run scalar (`run_hourID`, and the meteorology and
-TankTemperatureGenerator's "run hour" with it). Two captures (moves.rs `7e89642d`)
+TankTemperatureGenerator's "run hour" with it). Two captures (moves.rs `5389ead6`)
 select every hour of both day types: `rates-venting`, Rates-scale vapor venting
 THC on road types 1 and 4 (3,072 RatePerProfile rows, every other table empty),
 and its inventory twin `process-evap-fvv-day` (6,144 MOVESOutput rows, THC only).
