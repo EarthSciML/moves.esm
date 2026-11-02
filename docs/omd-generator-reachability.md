@@ -27,8 +27,8 @@ Java classes MOVES loaded for that run.
 
 > **The brief for this work said the evidence is a `kind: "generator"` entry in
 > `java_classes`. There is no such entry anywhere in the corpus.** Rolled over
-> all 63 traces, `java_classes[*].kind` takes exactly five values —
-> `common` (4,067), `framework` (4,074), `master` (3,102), `utils` (126) and
+> all 64 traces, `java_classes[*].kind` takes exactly five values —
+> `common` (4,137), `framework` (4,137), `master` (3,147), `utils` (126) and
 > `worker` (63). Generators are `kind: "master"` (or `framework`, for the
 > abstract `Generator` base). The signal that works is the class NAME.
 
@@ -68,9 +68,9 @@ that key is `(roadTypeID, avgSpeedBinID)`, and
 What the intersection buys is that a generator nothing loaded can no longer be
 credited with a sibling's rows.
 
-The corpus as measured: **64 snapshot directories, 63 with an
+The corpus as measured: **65 snapshot directories, 64 with an
 `execution-trace.json`** (`mixed-onroad-nonroad` carries `tables/` only), at
-`moves.rs` commit `5389ead6` (2026-11-02: `rates-venting` and `process-evap-fvv-day`, the first 24-hour runs, and `rates-hotelling-sourcetypes`, PLAN.md §7.3.49; before it `46cff1e6`, the same day: three more Rates-scale twins, `rates-pm`, `rates-nonhaptog` and
+`moves.rs` commit `9285647a` (2026-11-02: `expand-ev-heat`, an electric car and transit bus at a hot hour, PLAN.md §7.3.50; before it `5389ead6`, the same day: `rates-venting` and `process-evap-fvv-day`, the first 24-hour runs, and `rates-hotelling-sourcetypes`, PLAN.md §7.3.49; before it `46cff1e6`, the same day: three more Rates-scale twins, `rates-pm`, `rates-nonhaptog` and
 `rates-mechanism`, PLAN.md §7.3.48 part E; before it `5cc407df`, 2026-11-01: `rates-project`, captured with the execution
 database named `MOVESExecution`; before that `6c11d458`, the five Rates-scale twins `rates-running`,
 `rates-wear`, `rates-start`, `rates-hotelling` and `rates-evap`, PLAN.md §7.3.48; before
@@ -128,15 +128,15 @@ which three of these rows share.
 
 | generator | class-loaded in | writes | snapshots with rows | reachable? |
 |---|---:|---|---:|---|
-| `RatesOperatingModeDistributionGenerator` | **51** / 63 | `RatesOpModeDistribution` | **33** | **yes** |
-| `StartOperatingModeDistributionGenerator` | **23** / 63 | `StartOpModeDistribution` | **21** | **yes** |
-| `LinkOperatingModeDistributionGenerator` | **2** / 63 | `OpModeDistribution` | **2** | **yes, since 2026-09-10** |
-| `OperatingModeDistributionGenerator` | 0 / 63 | `OpModeDistribution` | 0 | no — dead code |
-| `MesoscaleLookupOperatingModeDistributionGenerator` | 0 / 63 | `OpModeDistribution` | 0 | no — dead code |
-| `MesoscaleLookupTotalActivityGenerator` | 0 / 63 | `SourceHours`, `SHO` | 0 | no — dead code |
-| `NewTvvYearGenerator` | 0 / 63 | — | — | no — no such class |
+| `RatesOperatingModeDistributionGenerator` | **52** / 64 | `RatesOpModeDistribution` | **33** | **yes** |
+| `StartOperatingModeDistributionGenerator` | **23** / 64 | `StartOpModeDistribution` | **21** | **yes** |
+| `LinkOperatingModeDistributionGenerator` | **2** / 64 | `OpModeDistribution` | **2** | **yes, since 2026-09-10** |
+| `OperatingModeDistributionGenerator` | 0 / 64 | `OpModeDistribution` | 0 | no — dead code |
+| `MesoscaleLookupOperatingModeDistributionGenerator` | 0 / 64 | `OpModeDistribution` | 0 | no — dead code |
+| `MesoscaleLookupTotalActivityGenerator` | 0 / 64 | `SourceHours`, `SHO` | 0 | no — dead code |
+| `NewTvvYearGenerator` | 0 / 64 | — | — | no — no such class |
 
-`FuelEffectsGenerator` (49 / 63) is the eighth unported generator and belongs to
+`FuelEffectsGenerator` (50 / 64) is the eighth unported generator and belongs to
 a parallel rung; it is listed here only so the eight add up. It has since been
 ported (`docs/fuel-effects-generator.md`), as have the first two rows of the
 table (`docs/operating-mode-distribution.md`).

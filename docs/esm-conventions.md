@@ -8476,7 +8476,8 @@ trailing axis.**
    axis checker -- every index read compared against the index set its symbol ranges
    over -- which found one pre-existing misread (`run_evTemperatureIsSuppressed` reads
    `rst_sourceTypeID` at the one-row `run_rows` symbol; harmless while no run's heat
-   index reaches 67 degF, and left as found).
+   index reaches 67 degF, and left as found; fixed by PLAN.md §7.3.50, whose
+   `expand-ev-heat` puts a transit bus beside a car at a heat index of 83 degF).
 3. **A key that would become rank 2 gets a pair relation.** A join key is a rank-1
    column. `run_fuelRegionID` is keyed by county AND fuel year, so appending the year
    would make it a rank-2 key that fourteen fuel-supply joins read; it moves instead
