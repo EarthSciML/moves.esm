@@ -8677,9 +8677,9 @@ brake and tire wear, chained pollutants and off-network idle write RatePerStart,
 RatePerVehicle, RatePerProfile, RatePerHour or a chained BaseRateOutput, none of
 which is built -- a PROJECT domain, and any time aggregation. Distance units other
 than miles are a RunSpec setting no table records. (Since §107 most of that list is
-ported; what is still counted is off-network evaporative and refueling, sulfate-PM
-and non-HAP TOG rows, and time aggregation -- which MOVES refuses at Rates scale,
-so it marks an invalid RunSpec rather than unported work.)
+ported; what is still counted is vapor venting's cold soak where the run's hours
+could pair one, and time aggregation -- which MOVES refuses at Rates scale, so it
+marks an invalid RunSpec rather than unported work.)
 
 ## 104. At Rates scale a rate is per vehicle of its own fuel, and the measurement that found it was a ratio that had to be constant **[PLAN.md §7.3.47]**
 
@@ -8881,7 +8881,7 @@ bound to `true`) and the standalone link component; `second_op_mode` is the
 Idling-Braking-binned precedence both onroad paths share, and
 `graded_acceleration` is the link path's `At0`-`At2`.
 
-## 107. A Rates table is a flagged subset of a relation the model already has, and its rate is per unit of the activity MOVES divides by **[PLAN.md §7.3.48; `rates-wear` 10,000, `rates-running` 79,625, `rates-start` 684 + 684 + 125, `rates-hotelling` 491 + 491, `rates-evap` and `rates-project` too, every table key-exact and within 1.2e-05]**
+## 107. A Rates table is a flagged subset of a relation the model already has, and its rate is per unit of the activity MOVES divides by **[PLAN.md §7.3.48; `rates-wear` 10,000, `rates-running` 79,625, `rates-start` 684 + 684 + 125, `rates-hotelling` 491 + 491, `rates-evap`, `rates-project`, `rates-pm`, `rates-nonhaptog` and `rates-mechanism` too, every table key-exact and within 1.2e-05]**
 
 MOVES's rate post-processor (`RatePostProcessorRatesFirst.sql`) writes six tables
 and assigns a row to each by its PROCESS and ROAD TYPE alone. Four rules came out
@@ -8993,3 +8993,17 @@ refused it: the whole-array overlay takes no gated `faq` in a build-time
 constant. The association became its own flag, `evap_hasMode[p, o]`,
 and the weight a plain product. When a rewrite turns a relation-reading
 aggregate into one over computed operands, move its joins into a flag.
+
+**A calculator that is linear in both columns ports to the rate by its own
+construction, at the rate's grain.** SulfatePMCalculator and TOGSpeciation write
+`emissionRate` beside `emissionQuant` with the same arithmetic, so the per-bin
+rate takes the inventory's two constructions over `rtRate_*` with nothing new:
+the share matrix on the row's OWN rate, before the chain (`rtRate_direct` is now
+`rtRate_rated` or the share matrix, as `rtDay_quantDirect` is), and the residual
+on the FINISHED rate, after it. What does not carry over unread is the clamp's
+grain: `greatest(sum(...), 0)` is per GROUP BY cell, and the cell carries
+`linkID`, which at Rates scale is the bin -- so the clamp is per bin, not per
+cohort. Read the GROUP BY before porting a nonlinear step to a finer relation.
+`rates-pm` 47,320, `rates-nonhaptog` 35,100 and `rates-mechanism` 179,855 rows on
+the first run; `rates-nonhaptog` selects 88 without its mechanism and has no 88
+row, which is the switch, and only `rates-mechanism` tests the subtraction.

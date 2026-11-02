@@ -27,9 +27,9 @@ Java classes MOVES loaded for that run.
 
 > **The brief for this work said the evidence is a `kind: "generator"` entry in
 > `java_classes`. There is no such entry anywhere in the corpus.** Rolled over
-> all 57 traces, `java_classes[*].kind` takes exactly five values —
-> `common` (3,653), `framework` (3,682), `master` (2,792), `utils` (118) and
-> `worker` (57). Generators are `kind: "master"` (or `framework`, for the
+> all 60 traces, `java_classes[*].kind` takes exactly five values —
+> `common` (3,865), `framework` (3,877), `master` (2,948), `utils` (126) and
+> `worker` (60). Generators are `kind: "master"` (or `framework`, for the
 > abstract `Generator` base). The signal that works is the class NAME.
 
 ```
@@ -68,10 +68,11 @@ that key is `(roadTypeID, avgSpeedBinID)`, and
 What the intersection buys is that a generator nothing loaded can no longer be
 credited with a sibling's rows.
 
-The corpus as measured: **58 snapshot directories, 57 with an
+The corpus as measured: **61 snapshot directories, 60 with an
 `execution-trace.json`** (`mixed-onroad-nonroad` carries `tables/` only), at
-`moves.rs` commit `e9aae897` (2026-11-01: `rates-project`, captured with the execution
-database named `MOVESExecution`; before it `48fdf9fb`, the five Rates-scale twins `rates-running`,
+`moves.rs` commit `d1ced02c` (2026-11-02: three more Rates-scale twins, `rates-pm`, `rates-nonhaptog` and
+`rates-mechanism`, PLAN.md §7.3.48 part E; before it `e9aae897`, 2026-11-01: `rates-project`, captured with the execution
+database named `MOVESExecution`; before that `48fdf9fb`, the five Rates-scale twins `rates-running`,
 `rates-wear`, `rates-start`, `rates-hotelling` and `rates-evap`, PLAN.md §7.3.48; before
 them `74fa85af`, 2026-10-20: five `expand-*` runs — `expand-roadtypes`,
 `expand-multiyear`, `expand-multifuel`, `expand-fullyear`, `expand-counties-large` —
@@ -96,7 +97,7 @@ of it, exactly as §35.5 asks.
 
 So the date is not the mechanism. `tools/check-reachability-counts.py` is: it
 parses the figures out of THIS FILE and re-derives each one from the corpus,
-and `run-tests.sh` stage 2c fails when they disagree. 84 claims on 2026-11-01
+and `run-tests.sh` stage 2c fails when they disagree. 84 claims on 2026-11-02
 (58 when the checker was written; the grids' per-snapshot row counts grow with the
 corpus), covering the corpus-size sentence, the `kind` histogram, every count in the table below,
 `FuelEffectsGenerator`'s count in the prose under it, both per-snapshot grids
@@ -127,15 +128,15 @@ which three of these rows share.
 
 | generator | class-loaded in | writes | snapshots with rows | reachable? |
 |---|---:|---|---:|---|
-| `RatesOperatingModeDistributionGenerator` | **45** / 57 | `RatesOpModeDistribution` | **32** | **yes** |
-| `StartOperatingModeDistributionGenerator` | **23** / 57 | `StartOpModeDistribution` | **21** | **yes** |
-| `LinkOperatingModeDistributionGenerator` | **2** / 57 | `OpModeDistribution` | **2** | **yes, since 2026-09-10** |
-| `OperatingModeDistributionGenerator` | 0 / 57 | `OpModeDistribution` | 0 | no — dead code |
-| `MesoscaleLookupOperatingModeDistributionGenerator` | 0 / 57 | `OpModeDistribution` | 0 | no — dead code |
-| `MesoscaleLookupTotalActivityGenerator` | 0 / 57 | `SourceHours`, `SHO` | 0 | no — dead code |
-| `NewTvvYearGenerator` | 0 / 57 | — | — | no — no such class |
+| `RatesOperatingModeDistributionGenerator` | **48** / 60 | `RatesOpModeDistribution` | **32** | **yes** |
+| `StartOperatingModeDistributionGenerator` | **23** / 60 | `StartOpModeDistribution` | **21** | **yes** |
+| `LinkOperatingModeDistributionGenerator` | **2** / 60 | `OpModeDistribution` | **2** | **yes, since 2026-09-10** |
+| `OperatingModeDistributionGenerator` | 0 / 60 | `OpModeDistribution` | 0 | no — dead code |
+| `MesoscaleLookupOperatingModeDistributionGenerator` | 0 / 60 | `OpModeDistribution` | 0 | no — dead code |
+| `MesoscaleLookupTotalActivityGenerator` | 0 / 60 | `SourceHours`, `SHO` | 0 | no — dead code |
+| `NewTvvYearGenerator` | 0 / 60 | — | — | no — no such class |
 
-`FuelEffectsGenerator` (43 / 57) is the eighth unported generator and belongs to
+`FuelEffectsGenerator` (46 / 60) is the eighth unported generator and belongs to
 a parallel rung; it is listed here only so the eight add up. It has since been
 ported (`docs/fuel-effects-generator.md`), as have the first two rows of the
 table (`docs/operating-mode-distribution.md`).

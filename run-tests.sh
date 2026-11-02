@@ -1711,7 +1711,10 @@ C7P_DOMAIN=moves-onroad.esm
 # RatePerVehicle and StartsPerVehicle; `rates-hotelling` RatePerHour per hour of
 # the hotelling mode and RatePerVehicle; `rates-evap` the evaporative and
 # refueling rows on road type 1, RatePerVehicle and vapor venting's
-# RatePerProfile; `rates-project` RatePerDistance on a PROJECT link. Each names
+# RatePerProfile; `rates-project` RatePerDistance on a PROJECT link;
+# `rates-pm` SulfatePMCalculator's species per bin, and `rates-nonhaptog` and
+# `rates-mechanism` the non-HAP TOG residual per bin, without and with its
+# mechanism -- `rates-mechanism` is the costliest run here. Each names
 # every Rates table, empty ones included, and each table is a membership-flagged
 # relation of the model.
 mapfile -t RUNSPECS < <(find runspecs -maxdepth 1 -name '*.esm' -not -name '.*' 2>/dev/null | sort)

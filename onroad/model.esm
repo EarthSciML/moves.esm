@@ -16570,6 +16570,56 @@
           ],
           "description": "Adjusted, likewise."
         },
+        "rtRate_rated": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows",
+            "runspecday_rows",
+            "ratespeedbin_rows",
+            "runspeccounty_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "BaseRateOutput.emissionRate at Rates scale -- what `rtRate_direct` was before `SulfatePMCalculator`'s six blocks took the share matrix, in the output's units: the normalized rate at the bin over the bin speed -- per mile -- where the bin is kept, and the inventory's adjusted rate over the cohort's share -- per start, per idle hour, per hour of a hotelling mode -- everywhere else, the same at every bin -- and that per-hour rate over the bin speed for an evaporative row on an on-network road type. Exactly zero on a chained pollutant-process. Computed at inventory scale too, over the single bin `ratespeedbin_rows` holds there. In PROJECT domain running exhaust, brake and tire wear are per hour over the link's average speed."
+        },
+        "rtRate_spmParent": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows",
+            "spmspecies_rows",
+            "runspecday_rows",
+            "ratespeedbin_rows",
+            "runspeccounty_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "Each species' parent rate at the bin: `rtDay_spmParent`'s self-join over the RATED rate."
+        },
+        "rtRate_spmSpecies": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows",
+            "spmspecies_rows",
+            "runspecday_rows",
+            "ratespeedbin_rows",
+            "runspeccounty_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "The four species of this row's cohort at the bin, as `rtDay_spmSpecies`: SulfatePMCalculator.sql carries emissionRate through every step beside emissionQuant."
+        },
+        "rtRate_spmRate": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows",
+            "runspecday_rows",
+            "ratespeedbin_rows",
+            "runspeccounty_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "The share matrix times the species at the bin: this row's rate when it is one of `SulfatePMCalculator`'s blocks."
+        },
         "rtRate_direct": {
           "type": "unknown",
           "units": "1",
@@ -16580,7 +16630,7 @@
             "runspeccounty_rows",
             "runspecmonth_rows"
           ],
-          "description": "BaseRateOutput.emissionRate at Rates scale, in the output's units: the normalized rate at the bin over the bin speed -- per mile -- where the bin is kept, and the inventory's adjusted rate over the cohort's share -- per start, per idle hour, per hour of a hotelling mode -- everywhere else, the same at every bin -- and that per-hour rate over the bin speed for an evaporative row on an on-network road type. Exactly zero on a chained pollutant-process. Computed at inventory scale too, over the single bin `ratespeedbin_rows` holds there. In PROJECT domain running exhaust, brake and tire wear are per hour over the link's average speed."
+          "description": "The row's OWN rate, before any chain: `rtRate_rated` everywhere except on `SulfatePMCalculator`'s six blocks, where it is the share matrix times the four species -- `rtDay_quantDirect` at the bin, so PM10 chains off PM2.5 here as it does in the inventory."
         },
         "rtRate_chainGen1": {
           "type": "unknown",
@@ -16642,6 +16692,30 @@
           ],
           "description": "The third rung, as `rtDay_quantChained`: the chained part of the rate. `run_chainDepthExceeded` covers it with the inventory's."
         },
+        "rtRate_nonHapTogSum": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows",
+            "runspecday_rows",
+            "ratespeedbin_rows",
+            "runspeccounty_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "J108 at the bin, as `rtDay_nonHapTogSum`: NMOG minus the integrated species, each input's finished rate, on this 88 row's source bin, process and bin."
+        },
+        "rtRate_nonHapTog": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows",
+            "runspecday_rows",
+            "ratespeedbin_rows",
+            "runspeccounty_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "NonHAPTOG's rate, clamped at zero. TOGSpeciationCalculator.sql's GROUP BY carries linkID, which is the speed bin at Rates scale, so the clamp is per bin; within a bin it clamps the source bin, as `rtDay_nonHapTog` does."
+        },
         "rtRate_total": {
           "type": "unknown",
           "units": "1",
@@ -16652,7 +16726,7 @@
             "runspeccounty_rows",
             "runspecmonth_rows"
           ],
-          "description": "The rate MOVES writes for the rate row, own and chained. The non-HAP TOG residual and SulfatePMCalculator's species are not carried here; `run_ratesUnported` counts their blocks."
+          "description": "The rate MOVES writes for the rate row: own, chained, and the non-HAP TOG residual, as `rtDay_quant`."
         },
         "rt_parentEmitsGen4": {
           "type": "unknown",
@@ -20133,7 +20207,7 @@
           "shape": [
             "run_rows"
           ],
-          "description": "At Rates scale, what is NOT ported: time aggregation, 1 -- MOVES refuses it at Rates scale, so it is an invalid RunSpec rather than unported work; and every rate row of SulfatePMCalculator's species or the non-HAP TOG residual, which the per-activity and per-bin rates do not carry. The off-network evaporative rows are ported but vapor venting's (`run_offNetworkLinkCount`, at both scales). Zero at inventory scale. Inside `run_selectionUnported`."
+          "description": "At Rates scale, what is NOT ported: time aggregation, 1 -- MOVES refuses it at Rates scale, so it is an invalid RunSpec rather than unported work. SulfatePMCalculator's species and the non-HAP TOG residual are ported per bin (PLAN.md §7.3.48 part E). The off-network evaporative rows are ported but vapor venting's in a run whose hours pair a cold soak (`run_offNetworkLinkCount`, at both scales). Zero at inventory scale. Inside `run_selectionUnported`."
         },
         "run_startBlockCount": {
           "type": "unknown",
@@ -72930,7 +73004,7 @@
         },
         {
           "_comment": "BaseRateCalculator scales meanBaseRate by the activity and leaves emissionRate alone (baseratecalculator.go, aggregateAndApplyActivity), so at Rates scale emissionRate is the rate per unit of activity.",
-          "lhs": "rtRate_direct",
+          "lhs": "rtRate_rated",
           "rhs": {
             "op": "faq",
             "args": [],
@@ -73155,6 +73229,243 @@
                 }
               ]
             }
+          }
+        },
+        {
+          "lhs": "rtRate_spmParent",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b",
+              "e",
+              "k",
+              "j",
+              "g",
+              "m"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "e": {
+                "from": "spmspecies_rows"
+              },
+              "b2": {
+                "from": "rate_rows"
+              },
+              "k": {
+                "from": "runspecday_rows"
+              },
+              "j": {
+                "from": "ratespeedbin_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "m": {
+                "from": "runspecmonth_rows"
+              }
+            },
+            "join": [
+              {
+                "syms": [
+                  "b",
+                  "b2"
+                ],
+                "on": [
+                  [
+                    "rt_binOrdinal",
+                    "rt_binOrdinal"
+                  ],
+                  [
+                    "rt_processID",
+                    "rt_processID"
+                  ],
+                  [
+                    "rt_roadTypeOrdinal",
+                    "rt_roadTypeOrdinal"
+                  ]
+                ]
+              },
+              {
+                "syms": [
+                  "b2",
+                  "e"
+                ],
+                "on": [
+                  [
+                    "rt_pollutantID",
+                    "spmsp_parentPollutantID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "rtRate_rated",
+                "b2",
+                "k",
+                "j",
+                "g",
+                "m"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rtRate_spmSpecies",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b",
+              "e",
+              "k",
+              "j",
+              "g",
+              "m"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "e": {
+                "from": "spmspecies_rows"
+              },
+              "k": {
+                "from": "runspecday_rows"
+              },
+              "j": {
+                "from": "ratespeedbin_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "m": {
+                "from": "runspecmonth_rows"
+              }
+            },
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "rtRate_spmParent",
+                    "b",
+                    "e",
+                    "k",
+                    "j",
+                    "g",
+                    "m"
+                  ]
+                },
+                {
+                  "op": "*",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "rt_spmSpeciesFraction",
+                        "b",
+                        "e",
+                        "g",
+                        "m"
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "rt_spmSplitRatio",
+                        "b",
+                        "e"
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rtRate_spmRate",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b",
+              "k",
+              "j",
+              "g",
+              "m"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "e": {
+                "from": "spmspecies_rows"
+              },
+              "k": {
+                "from": "runspecday_rows"
+              },
+              "j": {
+                "from": "ratespeedbin_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "m": {
+                "from": "runspecmonth_rows"
+              }
+            },
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "rt_spmShare",
+                    "b",
+                    "e"
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "rtRate_spmSpecies",
+                    "b",
+                    "e",
+                    "k",
+                    "j",
+                    "g",
+                    "m"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rtRate_direct",
+          "rhs": {
+            "op": "ifelse",
+            "args": [
+              {
+                "op": ">",
+                "args": [
+                  "rt_isSPMOutput",
+                  0.5
+                ]
+              },
+              "rtRate_spmRate",
+              "rtRate_rated"
+            ]
           }
         },
         {
@@ -73529,12 +73840,149 @@
           }
         },
         {
+          "lhs": "rtRate_nonHapTogSum",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b",
+              "k",
+              "j",
+              "g",
+              "m"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "b2": {
+                "from": "rate_rows"
+              },
+              "k": {
+                "from": "runspecday_rows"
+              },
+              "j": {
+                "from": "ratespeedbin_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "m": {
+                "from": "runspecmonth_rows"
+              }
+            },
+            "join": [
+              {
+                "syms": [
+                  "b",
+                  "b2"
+                ],
+                "on": [
+                  [
+                    "rt_binOrdinal",
+                    "rt_binOrdinal"
+                  ],
+                  [
+                    "rt_processID",
+                    "rt_processID"
+                  ],
+                  [
+                    "rt_roadTypeOrdinal",
+                    "rt_roadTypeOrdinal"
+                  ]
+                ]
+              }
+            ],
+            "filter": {
+              "op": ">",
+              "args": [
+                {
+                  "op": "*",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "rt_isNonHapTog",
+                        "b"
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "rt_mechanismSelected",
+                        "b"
+                      ]
+                    }
+                  ]
+                },
+                0.5
+              ]
+            },
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "rt_nonHapTogSign",
+                    "b2"
+                  ]
+                },
+                {
+                  "op": "+",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "rtRate_direct",
+                        "b2",
+                        "k",
+                        "j",
+                        "g",
+                        "m"
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "rtRate_chained",
+                        "b2",
+                        "k",
+                        "j",
+                        "g",
+                        "m"
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rtRate_nonHapTog",
+          "rhs": {
+            "op": "max",
+            "args": [
+              "rtRate_nonHapTogSum",
+              0.0
+            ]
+          }
+        },
+        {
           "lhs": "rtRate_total",
           "rhs": {
             "op": "+",
             "args": [
-              "rtRate_direct",
-              "rtRate_chained"
+              {
+                "op": "+",
+                "args": [
+                  "rtRate_direct",
+                  "rtRate_chained"
+                ]
+              },
+              "rtRate_nonHapTog"
             ]
           }
         },
@@ -76177,144 +76625,73 @@
           "_comment": "PLAN.md §7.3.48: what a Rates run could ask for that the Rates tables do not yet carry, counted rather than emitted wrong.",
           "lhs": "run_ratesUnported",
           "rhs": {
-            "op": "+",
-            "args": [
-              {
-                "op": "faq",
-                "args": [],
-                "semiring": "sum_product",
-                "output_idx": [
-                  "n"
-                ],
-                "ranges": {
-                  "n": {
-                    "from": "run_rows"
-                  }
-                },
-                "expr": {
-                  "op": "*",
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "n"
+            ],
+            "ranges": {
+              "n": {
+                "from": "run_rows"
+              }
+            },
+            "expr": {
+              "op": "*",
+              "args": [
+                "n_ratesScale",
+                {
+                  "op": "ifelse",
                   "args": [
-                    "n_ratesScale",
                     {
-                      "op": "ifelse",
+                      "op": "and",
                       "args": [
                         {
-                          "op": "and",
+                          "op": "==",
                           "args": [
                             {
-                              "op": "==",
+                              "op": "index",
                               "args": [
-                                {
-                                  "op": "index",
-                                  "args": [
-                                    "run_aggregationHourCount",
-                                    "n"
-                                  ]
-                                },
-                                {
-                                  "op": "index",
-                                  "args": [
-                                    "run_hourCount",
-                                    "n"
-                                  ]
-                                }
+                                "run_aggregationHourCount",
+                                "n"
                               ]
                             },
                             {
-                              "op": "==",
+                              "op": "index",
                               "args": [
-                                {
-                                  "op": "index",
-                                  "args": [
-                                    "run_actDayCount",
-                                    "n"
-                                  ]
-                                },
-                                {
-                                  "op": "index",
-                                  "args": [
-                                    "run_dayCount",
-                                    "n"
-                                  ]
-                                }
+                                "run_hourCount",
+                                "n"
                               ]
                             }
                           ]
                         },
-                        0.0,
-                        1.0
-                      ]
-                    }
-                  ]
-                }
-              },
-              {
-                "op": "faq",
-                "args": [],
-                "semiring": "sum_product",
-                "output_idx": [
-                  "n"
-                ],
-                "ranges": {
-                  "n": {
-                    "from": "run_rows"
-                  },
-                  "b": {
-                    "from": "rate_rows"
-                  },
-                  "q": {
-                    "from": "polprocroad_rows"
-                  }
-                },
-                "join": [
-                  {
-                    "on": [
-                      [
-                        "rt_blockOrdinal",
-                        "ppr_ordinal"
-                      ]
-                    ]
-                  }
-                ],
-                "expr": {
-                  "op": "*",
-                  "args": [
-                    {
-                      "op": "*",
-                      "args": [
-                        "n_ratesScale",
                         {
-                          "op": "index",
+                          "op": "==",
                           "args": [
-                            "ppr_isEmitted",
-                            "q"
+                            {
+                              "op": "index",
+                              "args": [
+                                "run_actDayCount",
+                                "n"
+                              ]
+                            },
+                            {
+                              "op": "index",
+                              "args": [
+                                "run_dayCount",
+                                "n"
+                              ]
+                            }
                           ]
                         }
                       ]
                     },
-                    {
-                      "op": "max",
-                      "args": [
-                        {
-                          "op": "index",
-                          "args": [
-                            "rt_isSPMOutput",
-                            "b"
-                          ]
-                        },
-                        {
-                          "op": "index",
-                          "args": [
-                            "rt_isNonHapTog",
-                            "b"
-                          ]
-                        }
-                      ]
-                    }
+                    0.0,
+                    1.0
                   ]
                 }
-              }
-            ]
+              ]
+            }
           }
         },
         {
