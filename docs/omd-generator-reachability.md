@@ -27,9 +27,9 @@ Java classes MOVES loaded for that run.
 
 > **The brief for this work said the evidence is a `kind: "generator"` entry in
 > `java_classes`. There is no such entry anywhere in the corpus.** Rolled over
-> all 60 traces, `java_classes[*].kind` takes exactly five values —
-> `common` (3,865), `framework` (3,877), `master` (2,948), `utils` (126) and
-> `worker` (60). Generators are `kind: "master"` (or `framework`, for the
+> all 63 traces, `java_classes[*].kind` takes exactly five values —
+> `common` (4,067), `framework` (4,074), `master` (3,102), `utils` (126) and
+> `worker` (63). Generators are `kind: "master"` (or `framework`, for the
 > abstract `Generator` base). The signal that works is the class NAME.
 
 ```
@@ -68,9 +68,9 @@ that key is `(roadTypeID, avgSpeedBinID)`, and
 What the intersection buys is that a generator nothing loaded can no longer be
 credited with a sibling's rows.
 
-The corpus as measured: **61 snapshot directories, 60 with an
+The corpus as measured: **64 snapshot directories, 63 with an
 `execution-trace.json`** (`mixed-onroad-nonroad` carries `tables/` only), at
-`moves.rs` commit `d1ced02c` (2026-11-02: three more Rates-scale twins, `rates-pm`, `rates-nonhaptog` and
+`moves.rs` commit `7e89642d` (2026-11-02: `rates-venting` and `process-evap-fvv-day`, the first 24-hour runs, and `rates-hotelling-sourcetypes`, PLAN.md §7.3.49; before it `d1ced02c`, the same day: three more Rates-scale twins, `rates-pm`, `rates-nonhaptog` and
 `rates-mechanism`, PLAN.md §7.3.48 part E; before it `e9aae897`, 2026-11-01: `rates-project`, captured with the execution
 database named `MOVESExecution`; before that `48fdf9fb`, the five Rates-scale twins `rates-running`,
 `rates-wear`, `rates-start`, `rates-hotelling` and `rates-evap`, PLAN.md §7.3.48; before
@@ -97,7 +97,7 @@ of it, exactly as §35.5 asks.
 
 So the date is not the mechanism. `tools/check-reachability-counts.py` is: it
 parses the figures out of THIS FILE and re-derives each one from the corpus,
-and `run-tests.sh` stage 2c fails when they disagree. 84 claims on 2026-11-02
+and `run-tests.sh` stage 2c fails when they disagree. 85 claims on 2026-11-02
 (58 when the checker was written; the grids' per-snapshot row counts grow with the
 corpus), covering the corpus-size sentence, the `kind` histogram, every count in the table below,
 `FuelEffectsGenerator`'s count in the prose under it, both per-snapshot grids
@@ -128,15 +128,15 @@ which three of these rows share.
 
 | generator | class-loaded in | writes | snapshots with rows | reachable? |
 |---|---:|---|---:|---|
-| `RatesOperatingModeDistributionGenerator` | **48** / 60 | `RatesOpModeDistribution` | **32** | **yes** |
-| `StartOperatingModeDistributionGenerator` | **23** / 60 | `StartOpModeDistribution` | **21** | **yes** |
-| `LinkOperatingModeDistributionGenerator` | **2** / 60 | `OpModeDistribution` | **2** | **yes, since 2026-09-10** |
-| `OperatingModeDistributionGenerator` | 0 / 60 | `OpModeDistribution` | 0 | no — dead code |
-| `MesoscaleLookupOperatingModeDistributionGenerator` | 0 / 60 | `OpModeDistribution` | 0 | no — dead code |
-| `MesoscaleLookupTotalActivityGenerator` | 0 / 60 | `SourceHours`, `SHO` | 0 | no — dead code |
-| `NewTvvYearGenerator` | 0 / 60 | — | — | no — no such class |
+| `RatesOperatingModeDistributionGenerator` | **51** / 63 | `RatesOpModeDistribution` | **33** | **yes** |
+| `StartOperatingModeDistributionGenerator` | **23** / 63 | `StartOpModeDistribution` | **21** | **yes** |
+| `LinkOperatingModeDistributionGenerator` | **2** / 63 | `OpModeDistribution` | **2** | **yes, since 2026-09-10** |
+| `OperatingModeDistributionGenerator` | 0 / 63 | `OpModeDistribution` | 0 | no — dead code |
+| `MesoscaleLookupOperatingModeDistributionGenerator` | 0 / 63 | `OpModeDistribution` | 0 | no — dead code |
+| `MesoscaleLookupTotalActivityGenerator` | 0 / 63 | `SourceHours`, `SHO` | 0 | no — dead code |
+| `NewTvvYearGenerator` | 0 / 63 | — | — | no — no such class |
 
-`FuelEffectsGenerator` (46 / 60) is the eighth unported generator and belongs to
+`FuelEffectsGenerator` (49 / 63) is the eighth unported generator and belongs to
 a parallel rung; it is listed here only so the eight add up. It has since been
 ported (`docs/fuel-effects-generator.md`), as have the first two rows of the
 table (`docs/operating-mode-distribution.md`).
@@ -148,26 +148,27 @@ would put that 2 against all three of the generators that write it.
 
 ### Which snapshots, exactly
 
-`RatesOpModeDistribution` is non-empty in 32 snapshots:
+`RatesOpModeDistribution` is non-empty in 33 snapshots:
 
 | snapshot | rows | | snapshot | rows |
 |---|---:|---|---|---:|
-| `expand-counties` | 9 | | `process-crankcase-start` | 49 |
-| `expand-counties-large` | 9 | | `process-crankcase-start-single` | 49 |
+| `expand-counties-large` | 9 | | `process-crankcase-start` | 49 |
+| `expand-counties` | 9 | | `process-extended-idle-single` | 1 |
 | `expand-criteria` | 33 | | `process-extended-idle` | 2 |
-| `expand-day` | 18 | | `process-extended-idle-single` | 1 |
-| `expand-fueltype-diesel` | 18 | | `process-refueling` | 9 |
-| `expand-fullyear` | 9 | | `process-tirewear` | 16 |
-| `expand-month` | 9 | | `rates-evap` | 9 |
+| `expand-day` | 18 | | `process-refueling` | 9 |
+| `expand-fueltype-diesel` | 18 | | `process-tirewear` | 16 |
+| `expand-fullyear` | 9 | | `rates-evap` | 9 |
+| `expand-month` | 9 | | `rates-hotelling-sourcetypes` | 8 |
 | `expand-multifuel` | 9 | | `rates-hotelling` | 8 |
 | `expand-multiyear` | 9 | | `rates-minimal` | 9 |
 | `expand-roadtypes` | 9 | | `rates-project` | 22 |
 | `expand-sourcetype` | 46 | | `rates-start` | 49 |
 | `mixed-onroad` | 9 | | `rates-wear` | 16 |
-| `process-apu` | 3 | | `sample-runspec` | 9 |
-| `process-apu-single` | 3 | | `scale-county` | 9 |
-| `process-crankcase-extidle` | 3 | | `scale-project` | 22 |
-| `process-crankcase-extidle-single` | 3 | | `scale-rates` | 9 |
+| `process-apu-single` | 3 | | `sample-runspec` | 9 |
+| `process-apu` | 3 | | `scale-county` | 9 |
+| `process-crankcase-extidle-single` | 3 | | `scale-project` | 22 |
+| `process-crankcase-extidle` | 3 | | `scale-rates` | 9 |
+| `process-crankcase-start-single` | 49 | | | |
 
 **`scale-project`'s 22 are not all the same generator's** (nor `rates-project`'s), and that is the
 sharpest illustration in the corpus of why the `writes` column cannot be read

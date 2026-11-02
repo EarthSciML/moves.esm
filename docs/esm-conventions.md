@@ -8881,7 +8881,7 @@ bound to `true`) and the standalone link component; `second_op_mode` is the
 Idling-Braking-binned precedence both onroad paths share, and
 `graded_acceleration` is the link path's `At0`-`At2`.
 
-## 107. A Rates table is a flagged subset of a relation the model already has, and its rate is per unit of the activity MOVES divides by **[PLAN.md §7.3.48; `rates-wear` 10,000, `rates-running` 79,625, `rates-start` 684 + 684 + 125, `rates-hotelling` 491 + 491, `rates-evap`, `rates-project`, `rates-pm`, `rates-nonhaptog` and `rates-mechanism` too, every table key-exact and within 1.2e-05]**
+## 107. A Rates table is a flagged subset of a relation the model already has, and its rate is per unit of the activity MOVES divides by **[PLAN.md §7.3.48; `rates-wear` 10,000, `rates-running` 79,625, `rates-start` 684 + 684 + 125, `rates-hotelling` 491 + 491, `rates-evap`, `rates-project`, `rates-pm`, `rates-nonhaptog`, `rates-mechanism` and `rates-hotelling-sourcetypes` too, every table key-exact and within 1.2e-05]**
 
 MOVES's rate post-processor (`RatePostProcessorRatesFirst.sql`) writes six tables
 and assigns a row to each by its PROCESS and ROAD TYPE alone. Four rules came out
