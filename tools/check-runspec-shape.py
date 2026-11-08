@@ -30,7 +30,7 @@ So this asserts the identity three ways at once -- the declared row count, the
 chain's recomputation, and the KEYS actually present in the output -- and then
 asserts the four counts the chain keeps of what it could not reach:
 
-    rows == rateSurvivorCount x counties x months x day types
+    rows == rateSurvivorCount x counties x months x day types x hours
     distinct (pollutantID, processID, roadTypeID) == outputPolProcessCount
     distinct (yearID, sourceTypeID, fuelTypeID, modelYearID) == cohortSurvivorCount
     rateSurvivorCount <= outputPolProcessCount x cohortSurvivorCount
@@ -41,6 +41,7 @@ asserts the four counts the chain keeps of what it could not reach:
     run_offNetworkLinkCount == 0
     run_domainUnported == 0
     run_selectionUnported == 0
+    run_tankGroupsDropped == 0
 
 The last four lines are a different KIND of check from the four above them.
 The first two declared numbers are extents: too small and the document emits
@@ -183,6 +184,9 @@ def main(emitted_path, shape_path, rpd_path=None):
     offnet = int(float(shape[0]["run_offNetworkLinkCount"]))
     unported = int(float(shape[0]["run_domainUnported"]))
     unselected = int(float(shape[0]["run_selectionUnported"]))
+    # PLAN 7.3.51: the cold-soak chain's group slot. Read with a default so a
+    # shape file from before the slot still checks.
+    groupless = int(float(shape[0].get("run_tankGroupsDropped", 0) or 0))
 
     pre = "out_"
 
@@ -190,17 +194,21 @@ def main(emitted_path, shape_path, rpd_path=None):
         return {tuple(r[pre + c] for c in cols) for r in rows}
 
     days = distinct("dayID")
+    # The hour is part of the output cell (PLAN §7.3.49): a run selecting several
+    # hours emits every pair at each. A one-hour run multiplies by 1, which is why
+    # this factor was missing until the first 24-hour runs.
+    hours = distinct("hourID")
     months = distinct("monthID")
     pairs = distinct("pollutantID", "processID", "roadTypeID")
     cohort_keys = distinct("yearID", "sourceTypeID", "fuelTypeID", "modelYearID")
 
     problems = []
     counties = distinct("countyID")
-    expected = pairs_emitted * len(counties) * len(months) * len(days)
+    expected = pairs_emitted * len(counties) * len(months) * len(days) * len(hours)
     if len(rows) != expected:
-        problems.append("%d rows, but the chain recomputes %d x %d x %d x %d = %d"
+        problems.append("%d rows, but the chain recomputes %d x %d x %d x %d x %d = %d"
                         % (len(rows), pairs_emitted, len(counties), len(months),
-                           len(days), expected))
+                           len(days), len(hours), expected))
     rpd = read(rpd_path) if rpd_path else []
     # A PROJECT run's output relation carries its link; its RatePerDistance
     # sits there, at bin 0, on that link's road type.
@@ -241,6 +249,11 @@ def main(emitted_path, shape_path, rpd_path=None):
                         "are not on the drive-cycle axis: every rate row of "
                         "their regulatory class weights its operating modes "
                         "against nothing and emits 0" % vehicleless)
+    if groupless:
+        problems.append("%d vehicle-day tank-temperature group(s) fall past "
+                        "n_tankGroupSlot: their cold-soak minutes never reach "
+                        "csi_minutes, and vapor venting's cold soak is low by "
+                        "their share" % groupless)
     if unphysical:
         problems.append("%d selected rate row(s) match no sourceusetypephysics "
                         "row at all, so they have no drive cycle and emit 0"
@@ -280,11 +293,11 @@ def main(emitted_path, shape_path, rpd_path=None):
 
     ragged = pairs_emitted != blocks * cohorts
     print("%d rows = %d (pollutant-process, cohort) pair%s x %d %s x %d "
-          "month(s) x %d day type(s); %d block(s) and %d cohort(s), %s; no source "
+          "month(s) x %d day type(s) x %d hour(s); %d block(s) and %d cohort(s), %s; no source "
           "bin and no vehicle dropped, and the chain converged in three rungs%s"
           % (len(rows), pairs_emitted, "" if pairs_emitted == 1 else "s",
              len(counties), "county" if len(counties) == 1 else "counties",
-             len(months), len(days),
+             len(months), len(days), len(hours),
              blocks, cohorts,
              "RAGGED -- a block is narrower than the widest" if ragged
              else "a rectangle",

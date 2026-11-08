@@ -1834,6 +1834,7 @@ for s in srcs:
          --observed run_offNetworkLinkCount \
          --observed run_domainUnported \
          --observed run_selectionUnported \
+         --observed run_tankGroupsDropped \
          --output "$RS_SHAPE" >/dev/null 2>&1; then
       if out=$("$PYTHON" tools/check-runspec-shape.py "$RS_CSV" "$RS_SHAPE" $RS_RPD 2>&1); then
         pass "$rsname — the emitted shape is what the chain recomputes: $out"
@@ -1909,6 +1910,7 @@ for s in srcs:
          --observed run_offNetworkLinkCount \
          --observed run_domainUnported \
          --observed run_selectionUnported \
+         --observed run_tankGroupsDropped \
             --output "$RUNDIR/$pname.probe.shape.csv" >/dev/null 2>&1 \
        && cmp -s "$RUNDIR/$prun.runspec.csv" "$RUNDIR/$pname.probe.csv" \
        && "$PYTHON" tools/check-runspec-shape.py \

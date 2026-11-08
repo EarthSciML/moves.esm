@@ -119,6 +119,14 @@ if [[ "$actual" != "$pinned" && "${FORCE_SIF:-0}" != 1 ]]; then
 fi
 
 mkdir -p "$WORK/tmp" "$OUT"
+
+# run-fixture.sh takes target/release/moves-fixture-capture AS FOUND and never
+# rebuilds it. A build from 2026-05-30 -- before moves-snapshot/v2 -- wrote every
+# capture from 2026-10-20 to 2026-11-02 in v1's twelve fixed decimals. Building
+# first costs nothing when the binary is current.
+( cd "$MOVES_RS" && TMPDIR="$(cd "$WORK" && pwd)/tmp" cargo build --release -q -p moves-fixture-capture ) \
+  || { echo "error: could not build moves-fixture-capture in $MOVES_RS" >&2; exit 2; }
+
 OUT_ABS="$(cd "$OUT" && pwd)"
 WORK_ABS="$(cd "$WORK" && pwd)"
 SIF_ABS="$(cd "$(dirname "$SIF")" && pwd)/$(basename "$SIF")"
@@ -150,9 +158,12 @@ for n in "${NAMES[@]}"; do
   have=$(ls "$d" | grep '^db__movesexecution' | sed -E 's#^db__movesexecution##; s#__.*##' | sort -u | head -1)
   [[ -n $want && -n $have && $want != "$have" ]] || continue
   echo "  $n: renaming host token $have -> $want"
-  for f in "$d"/db__movesexecution"$have"__* "$d"/db__movesworker"$have"__*; do
-    [[ -e $f ]] && mv "$f" "${f/$have/$want}"
-  done
+  # Files, each .meta.json's name and the manifest's entries and hashes
+  # together: a file rename alone leaves a snapshot moves-snapshot refuses.
+  python3 tools/rehost-snapshot.py "$OUT_ABS/$n" "$have" "$want" || rc=1
+done
+for n in "${NAMES[@]}"; do
+  [[ -f "$OUT_ABS/$n/manifest.json" ]] && { python3 tools/rehost-snapshot.py --check "$OUT_ABS/$n" || rc=1; }
 done
 verify "${NAMES[@]}" || rc=1
 [[ $rc -eq 0 ]] && rm -rf "$WORK_ABS"

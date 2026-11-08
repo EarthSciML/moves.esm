@@ -660,6 +660,11 @@
       "type": "integer",
       "default": 0,
       "description": "Rows in sampleVehicleSoakingDayBasisUsed: eight, soaking days 2 to 5 at both day types."
+    },
+    "n_tankGroupSlot": {
+      "type": "integer",
+      "default": 2,
+      "description": "How many tank-temperature groups one source type carries, at most. DECLARED, like `n_spillagecountyyear`: no table states it. `SourceTypeModelYearGroup` gives eleven source types one group and 21, 31 and 32 two, so a sample vehicle-day needs the cold-soak chain in at most two of the sixteen `TankTemperatureRise` groups, and `tankgroupslot_rows` gives it exactly that many. A third group would be dropped silently -- its minutes would not reach `csi_minutes` -- so `run_tankGroupsDropped` counts them and the shape check asserts zero (PLAN.md 7.3.51)."
     }
   },
   "index_sets": {
@@ -1564,6 +1569,16 @@
     "soakday_rows": {
       "kind": "interval",
       "size": 5
+    },
+    "tankgroupslot_rows": {
+      "kind": "interval",
+      "size": {
+        "op": "*",
+        "args": [
+          "n_tankGroupSlot",
+          "n_samplevehicleday"
+        ]
+      }
     }
   },
   "enums": {
@@ -4966,6 +4981,15 @@
           ],
           "description": "The hour a slice falls in, wrapping past midnight."
         },
+        "trp_hourSlice": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "samplevehicletrip_rows",
+            "hourofday_rows"
+          ],
+          "description": "The one slice of the trip's soak that falls in the hour: slice 1 is the trip's last hour, and the 24 slices cover the day once, so every hour has exactly one. `tsk_hourID` read backwards."
+        },
         "tsk_isSlice": {
           "type": "unknown",
           "units": "1",
@@ -5263,6 +5287,18 @@
           ],
           "description": "TTG-4b's recorded hot-soak minutes in each SLICE of the trip's soak: all of the slice's, or up to the minute it stops, or none if it had already stopped."
         },
+        "ttg_hourHotSoakMinutes": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspeccounty_rows",
+            "runspecmonth_rows",
+            "tanktemperaturerise_rows",
+            "samplevehicletrip_rows",
+            "hourofday_rows"
+          ],
+          "description": "`ttg_sliceHotSoakMinutes` keyed by the hour instead of the slice. The vehicle-hour joins read this, so they walk a trip once per hour rather than once per slice and keep one."
+        },
         "ttg_hotSoakMinutes": {
           "type": "unknown",
           "units": "1",
@@ -5496,8 +5532,7 @@
           "shape": [
             "runspeccounty_rows",
             "runspecmonth_rows",
-            "tanktemperaturerise_rows",
-            "samplevehicleday_rows",
+            "tankgroupslot_rows",
             "hourofday_rows"
           ],
           "description": "The vehicle's recorded hot-soak minutes in the hour, in the group: `count(*)` of its HotSoakTemperature rows there."
@@ -5508,8 +5543,7 @@
           "shape": [
             "runspeccounty_rows",
             "runspecmonth_rows",
-            "tanktemperaturerise_rows",
-            "samplevehicleday_rows",
+            "tankgroupslot_rows",
             "hourofday_rows"
           ],
           "description": "Whether a hot soak CARRIES OVER into the hour: a later slice, beginning at the top of the hour, records a minute. Then the hot soak is the hour's first record."
@@ -5529,8 +5563,7 @@
           "shape": [
             "runspeccounty_rows",
             "runspecmonth_rows",
-            "tanktemperaturerise_rows",
-            "samplevehicleday_rows",
+            "tankgroupslot_rows",
             "hourofday_rows"
           ],
           "description": "Whether a trip ENDS at the very minute the hour's first segment starts -- a zero-minute last segment -- and its soak records that minute. The hot soak then ties the trip, and TTG-7's strict `<` makes the soak the first record (124 vehicle-hours on `rates-venting`)."
@@ -5541,8 +5574,7 @@
           "shape": [
             "runspeccounty_rows",
             "runspecmonth_rows",
-            "tanktemperaturerise_rows",
-            "samplevehicleday_rows",
+            "tankgroupslot_rows",
             "hourofday_rows"
           ],
           "description": "Whether the hour has a record, trip or hot soak: what moves the initial hour."
@@ -5553,8 +5585,7 @@
           "shape": [
             "runspeccounty_rows",
             "runspecmonth_rows",
-            "tanktemperaturerise_rows",
-            "samplevehicleday_rows",
+            "tankgroupslot_rows",
             "hourofday_rows"
           ],
           "description": "Whether the hour's first record is a trip."
@@ -5574,8 +5605,7 @@
           "shape": [
             "runspeccounty_rows",
             "runspecmonth_rows",
-            "tanktemperaturerise_rows",
-            "samplevehicleday_rows",
+            "tankgroupslot_rows",
             "hourofday_rows"
           ],
           "description": "The hour's minutes that continue a cold soak begun in its initial hour: all 60 with no record, the minutes before a first trip, none before a first hot soak."
@@ -5586,8 +5616,7 @@
           "shape": [
             "runspeccounty_rows",
             "runspecmonth_rows",
-            "tanktemperaturerise_rows",
-            "samplevehicleday_rows",
+            "tankgroupslot_rows",
             "hourofday_rows"
           ],
           "description": "The hour's minutes of a cold soak that begins in the hour itself: what is left of the 60 after the minutes from the initial hour, driving and hot soaking."
@@ -5598,8 +5627,7 @@
           "shape": [
             "runspeccounty_rows",
             "runspecmonth_rows",
-            "tanktemperaturerise_rows",
-            "samplevehicleday_rows",
+            "tankgroupslot_rows",
             "hourofday_rows"
           ],
           "description": "The hour the vehicle's current cold soak began: the last EARLIER hour with a record, or hour 1, where the walk resets each day."
@@ -14401,6 +14429,14 @@
           ],
           "description": "Whether TotalActivityGenerator writes off-network idle SHO at all: the run's pollutant-processes, prerequisites included, have running exhaust, brake wear or tire wear, the processes that need SHO at the road-type-1 link (TotalActivityGenerator.java:2083-2103). An evaporative process needs it only at an on-network one."
         },
+        "run_writesDistance": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "run_rows"
+          ],
+          "description": "Whether MOVES writes the distance activity (MOVESActivityOutput activityTypeID 1) that RatePostProcessorRatesFirst.sql divides the on-road evaporative inventory by: DistanceCalculator subscribes to Running Exhaust alone, so the run's pollutant-processes, prerequisites included, must have running exhaust. Without it the post-processor's inner join is empty and processes 11, 12 and 13 have no RatePerDistance row on any road type (rates-venting: THC venting alone, RatePerDistance empty)."
+        },
         "oni_sho": {
           "type": "unknown",
           "units": "1",
@@ -21276,6 +21312,16 @@
           ],
           "description": "StartOperatingModeDistributionGenerator step 400 outside PROJECT domain: `startsOpModeDistribution`'s opModeFraction at the day type, the run's hour and the source type, copied to every start pollutant-process by `select distinct ... cross join pollutantprocessassoc` and `INSERT IGNORE`, which keeps the FIRST age's fraction. Read at age 0, the table's first; `run_startModeAgeVariation` counts a key whose fraction another age disagrees with."
         },
+        "sod_ageVariation": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecday_rows",
+            "operating_mode_rows",
+            "runspecsourcetype_rows"
+          ],
+          "description": "`run_startModeAgeVariation` per startsOpModeDistribution key. Counted with the key bound, so the day, hour, source type and operating-mode joins each restrict the rows walked; summed over every key it is the run's count (PLAN §7.3.51)."
+        },
         "run_startModeAgeVariation": {
           "type": "unknown",
           "units": "1",
@@ -21642,7 +21688,7 @@
           "shape": [
             "rateoutput_rows"
           ],
-          "description": "Is this row in RatePerDistance? RatePostProcessorRatesFirst.sql assigns by process and road type: 1, 9, 10 and 15 on any road type, 11, 12, 13, 18 and 19 off road type 1. Road type 1 has one link and no bin, so only the first bin's row is kept there. Zero at inventory scale; the harness emits the rows where it is 1. PROJECT domain has no bin either: one row per output row there."
+          "description": "Is this row in RatePerDistance? RatePostProcessorRatesFirst.sql assigns by process and road type: 1, 9, 10 and 15 on any road type, 11, 12, 13, 18 and 19 off road type 1 -- and 11, 12 and 13 only where the run writes distance (`run_writesDistance`), because their rate is the inventory over MOVESActivityOutput's distance through an inner join. Road type 1 has one link and no bin, so only the first bin's row is kept there. Zero at inventory scale; the harness emits the rows where it is 1. PROJECT domain has no bin either: one row per output row there."
         },
         "rto_zoneID": {
           "type": "unknown",
@@ -21975,6 +22021,96 @@
             "run_rows"
           ],
           "description": "How many start-exhaust blocks the run computes, selected or required: MOVES computes starts, and writes StartsPerVehicle, when any does."
+        },
+        "svd_ordinal": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "samplevehicleday_rows"
+          ],
+          "description": "The vehicle-day's row: the key `tgs_dayOrdinal` joins on."
+        },
+        "tvh_groupOrdinal": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "tanktemperaturerise_rows",
+            "samplevehicleday_rows"
+          ],
+          "description": "The group's place among the groups of the vehicle's source type, in group-ID order, and 0 for a group that does not apply."
+        },
+        "tgs_dayOrdinal": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "tankgroupslot_rows"
+          ],
+          "description": "The slot row's vehicle-day: rows run slot-major, `n_samplevehicleday` to a slot."
+        },
+        "tgs_slot": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "tankgroupslot_rows"
+          ],
+          "description": "The slot row's slot, 1 to `n_tankGroupSlot`."
+        },
+        "tgs_vehID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "tankgroupslot_rows"
+          ],
+          "description": "The slot row's vehicle."
+        },
+        "tgs_dayID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "tankgroupslot_rows"
+          ],
+          "description": "The slot row's day type."
+        },
+        "tgs_sourceTypeID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "tankgroupslot_rows"
+          ],
+          "description": "The slot row's source type."
+        },
+        "tgs_tankTemperatureGroupID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "tankgroupslot_rows"
+          ],
+          "description": "The tank-temperature group in the slot: the slot-th group of the vehicle's source type, or 0 when it has fewer. TTG-7's `TempVehAndTTG` as one row per pair that exists rather than a 16-wide grid of which at most two are live."
+        },
+        "tgs_applies": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "tankgroupslot_rows"
+          ],
+          "description": "1 when the slot holds a group, 0 for an empty slot, whose chain is not a vehicle's."
+        },
+        "tgs_firstTripKeyOn": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "tankgroupslot_rows",
+            "hourofday_rows"
+          ],
+          "description": "`tvh_firstTripKeyOn` at the slot row's vehicle-day. Gathered onto `w` once so that `tvh_soakTies` joins its trips to the slot row directly, as `tvh_hotMinutes` does, rather than through a contracted vehicle-day (PLAN §7.3.51)."
+        },
+        "run_tankGroupsDropped": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "run_rows"
+          ],
+          "description": "Vehicle-day groups past slot `n_tankGroupSlot`, which `tankgroupslot_rows` does not hold. Asserted zero by the shape check, like `run_sourceBinsDropped`."
         }
       },
       "equations": [
@@ -35765,6 +35901,44 @@
           }
         },
         {
+          "lhs": "run_writesDistance",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "bool_and_or",
+            "output_idx": [
+              "n"
+            ],
+            "ranges": {
+              "n": {
+                "from": "run_rows"
+              },
+              "p": {
+                "from": "runspecpollutantprocess_rows"
+              }
+            },
+            "expr": {
+              "op": "==",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "rspp_processID",
+                    "p"
+                  ]
+                },
+                {
+                  "op": "enum",
+                  "args": [
+                    "process",
+                    "RunningExhaust"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
           "lhs": "oni_sho",
           "rhs": {
             "op": "faq",
@@ -39852,6 +40026,57 @@
           }
         },
         {
+          "lhs": "trp_hourSlice",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "output_idx": [
+              "i",
+              "h"
+            ],
+            "ranges": {
+              "i": {
+                "from": "samplevehicletrip_rows"
+              },
+              "h": {
+                "from": "hourofday_rows"
+              }
+            },
+            "expr": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "hour_of_day_wrap",
+              "bindings": {
+                "hour": {
+                  "op": "+",
+                  "args": [
+                    {
+                      "op": "-",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "hod_hourID",
+                            "h"
+                          ]
+                        },
+                        {
+                          "op": "index",
+                          "args": [
+                            "trp_lastHourID",
+                            "i"
+                          ]
+                        }
+                      ]
+                    },
+                    1.0
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
           "lhs": "tsk_isSlice",
           "rhs": {
             "op": "faq",
@@ -42132,6 +42357,55 @@
           }
         },
         {
+          "lhs": "ttg_hourHotSoakMinutes",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "output_idx": [
+              "g",
+              "n",
+              "u",
+              "i",
+              "h"
+            ],
+            "ranges": {
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "n": {
+                "from": "runspecmonth_rows"
+              },
+              "u": {
+                "from": "tanktemperaturerise_rows"
+              },
+              "i": {
+                "from": "samplevehicletrip_rows"
+              },
+              "h": {
+                "from": "hourofday_rows"
+              }
+            },
+            "expr": {
+              "op": "index",
+              "args": [
+                "ttg_sliceHotSoakMinutes",
+                "g",
+                "n",
+                "u",
+                "i",
+                {
+                  "op": "index",
+                  "args": [
+                    "trp_hourSlice",
+                    "i",
+                    "h"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
           "lhs": "ttg_hotSoakMinutes",
           "rhs": {
             "op": "faq",
@@ -43846,51 +44120,326 @@
           }
         },
         {
-          "lhs": "tvh_hotMinutes",
+          "lhs": "svd_ordinal",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "output_idx": [
+              "v"
+            ],
+            "ranges": {
+              "v": {
+                "from": "samplevehicleday_rows"
+              }
+            },
+            "expr": "v"
+          }
+        },
+        {
+          "lhs": "tvh_groupOrdinal",
           "rhs": {
             "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
-              "g",
-              "n",
               "u",
-              "v",
-              "h"
+              "v"
             ],
             "ranges": {
-              "g": {
-                "from": "runspeccounty_rows"
-              },
-              "n": {
-                "from": "runspecmonth_rows"
-              },
               "u": {
                 "from": "tanktemperaturerise_rows"
               },
               "v": {
                 "from": "samplevehicleday_rows"
               },
-              "h": {
-                "from": "hourofday_rows"
+              "x": {
+                "from": "tanktemperaturerise_rows"
+              }
+            },
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "*",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "tvh_groupApplies",
+                        "u",
+                        "v"
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "tvh_groupApplies",
+                        "x",
+                        "v"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "op": "ifelse",
+                  "args": [
+                    {
+                      "op": "<=",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "ttr_tankTemperatureGroupID",
+                            "x"
+                          ]
+                        },
+                        {
+                          "op": "index",
+                          "args": [
+                            "ttr_tankTemperatureGroupID",
+                            "u"
+                          ]
+                        }
+                      ]
+                    },
+                    1.0,
+                    0.0
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "tgs_dayOrdinal",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "output_idx": [
+              "w"
+            ],
+            "ranges": {
+              "w": {
+                "from": "tankgroupslot_rows"
+              }
+            },
+            "expr": {
+              "op": "+",
+              "args": [
+                {
+                  "op": "-",
+                  "args": [
+                    {
+                      "op": "-",
+                      "args": [
+                        "w",
+                        1
+                      ]
+                    },
+                    {
+                      "op": "*",
+                      "args": [
+                        "n_samplevehicleday",
+                        {
+                          "op": "floor",
+                          "args": [
+                            {
+                              "op": "/",
+                              "args": [
+                                {
+                                  "op": "-",
+                                  "args": [
+                                    "w",
+                                    1
+                                  ]
+                                },
+                                "n_samplevehicleday"
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                1
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "tgs_slot",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "output_idx": [
+              "w"
+            ],
+            "ranges": {
+              "w": {
+                "from": "tankgroupslot_rows"
+              }
+            },
+            "expr": {
+              "op": "+",
+              "args": [
+                {
+                  "op": "floor",
+                  "args": [
+                    {
+                      "op": "/",
+                      "args": [
+                        {
+                          "op": "-",
+                          "args": [
+                            "w",
+                            1
+                          ]
+                        },
+                        "n_samplevehicleday"
+                      ]
+                    }
+                  ]
+                },
+                1
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "tgs_vehID",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "w"
+            ],
+            "ranges": {
+              "w": {
+                "from": "tankgroupslot_rows"
               },
-              "i": {
-                "from": "samplevehicletrip_rows"
-              },
-              "s": {
-                "from": "soakslice_rows"
+              "v": {
+                "from": "samplevehicleday_rows"
               }
             },
             "join": [
               {
                 "on": [
                   [
-                    "svt_vehID",
-                    "svd_vehID"
-                  ],
+                    "tgs_dayOrdinal",
+                    "svd_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "svd_vehID",
+                "v"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "tgs_dayID",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "w"
+            ],
+            "ranges": {
+              "w": {
+                "from": "tankgroupslot_rows"
+              },
+              "v": {
+                "from": "samplevehicleday_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
                   [
-                    "svt_dayID",
-                    "svd_dayID"
+                    "tgs_dayOrdinal",
+                    "svd_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "svd_dayID",
+                "v"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "tgs_sourceTypeID",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "w"
+            ],
+            "ranges": {
+              "w": {
+                "from": "tankgroupslot_rows"
+              },
+              "v": {
+                "from": "samplevehicleday_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "tgs_dayOrdinal",
+                    "svd_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "svd_sourceTypeID",
+                "v"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "tgs_tankTemperatureGroupID",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "w"
+            ],
+            "ranges": {
+              "w": {
+                "from": "tankgroupslot_rows"
+              },
+              "v": {
+                "from": "samplevehicleday_rows"
+              },
+              "u": {
+                "from": "tanktemperaturerise_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "tgs_dayOrdinal",
+                    "svd_ordinal"
                   ]
                 ]
               }
@@ -43904,16 +44453,16 @@
                     {
                       "op": "index",
                       "args": [
-                        "tsk_hourID",
-                        "i",
-                        "s"
+                        "tvh_groupOrdinal",
+                        "u",
+                        "v"
                       ]
                     },
                     {
                       "op": "index",
                       "args": [
-                        "hod_hourID",
-                        "h"
+                        "tgs_slot",
+                        "w"
                       ]
                     }
                   ]
@@ -43921,15 +44470,156 @@
                 {
                   "op": "index",
                   "args": [
-                    "ttg_sliceHotSoakMinutes",
-                    "g",
-                    "n",
-                    "u",
-                    "i",
-                    "s"
+                    "ttr_tankTemperatureGroupID",
+                    "u"
                   ]
                 },
                 0.0
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "tgs_applies",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "output_idx": [
+              "w"
+            ],
+            "ranges": {
+              "w": {
+                "from": "tankgroupslot_rows"
+              }
+            },
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                {
+                  "op": ">",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "tgs_tankTemperatureGroupID",
+                        "w"
+                      ]
+                    },
+                    0.5
+                  ]
+                },
+                1.0,
+                0.0
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "run_tankGroupsDropped",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "n"
+            ],
+            "ranges": {
+              "n": {
+                "from": "run_rows"
+              },
+              "u": {
+                "from": "tanktemperaturerise_rows"
+              },
+              "v": {
+                "from": "samplevehicleday_rows"
+              }
+            },
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                {
+                  "op": ">",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "tvh_groupOrdinal",
+                        "u",
+                        "v"
+                      ]
+                    },
+                    "n_tankGroupSlot"
+                  ]
+                },
+                1.0,
+                0.0
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "tvh_hotMinutes",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "g",
+              "n",
+              "w",
+              "h"
+            ],
+            "ranges": {
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "n": {
+                "from": "runspecmonth_rows"
+              },
+              "w": {
+                "from": "tankgroupslot_rows"
+              },
+              "h": {
+                "from": "hourofday_rows"
+              },
+              "i": {
+                "from": "samplevehicletrip_rows"
+              },
+              "u": {
+                "from": "tanktemperaturerise_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "svt_vehID",
+                    "tgs_vehID"
+                  ],
+                  [
+                    "svt_dayID",
+                    "tgs_dayID"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "tgs_tankTemperatureGroupID",
+                    "ttr_tankTemperatureGroupID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "ttg_hourHotSoakMinutes",
+                "g",
+                "n",
+                "u",
+                "i",
+                "h"
               ]
             }
           }
@@ -43943,8 +44633,7 @@
             "output_idx": [
               "g",
               "n",
-              "u",
-              "v",
+              "w",
               "h"
             ],
             "ranges": {
@@ -43954,11 +44643,8 @@
               "n": {
                 "from": "runspecmonth_rows"
               },
-              "u": {
-                "from": "tanktemperaturerise_rows"
-              },
-              "v": {
-                "from": "samplevehicleday_rows"
+              "w": {
+                "from": "tankgroupslot_rows"
               },
               "h": {
                 "from": "hourofday_rows"
@@ -43966,8 +44652,8 @@
               "i": {
                 "from": "samplevehicletrip_rows"
               },
-              "s": {
-                "from": "soakslice_rows"
+              "u": {
+                "from": "tanktemperaturerise_rows"
               }
             },
             "join": [
@@ -43975,11 +44661,19 @@
                 "on": [
                   [
                     "svt_vehID",
-                    "svd_vehID"
+                    "tgs_vehID"
                   ],
                   [
                     "svt_dayID",
-                    "svd_dayID"
+                    "tgs_dayID"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "tgs_tankTemperatureGroupID",
+                    "ttr_tankTemperatureGroupID"
                   ]
                 ]
               }
@@ -43991,33 +44685,14 @@
                   "op": "and",
                   "args": [
                     {
-                      "op": "==",
-                      "args": [
-                        {
-                          "op": "index",
-                          "args": [
-                            "tsk_hourID",
-                            "i",
-                            "s"
-                          ]
-                        },
-                        {
-                          "op": "index",
-                          "args": [
-                            "hod_hourID",
-                            "h"
-                          ]
-                        }
-                      ]
-                    },
-                    {
                       "op": ">",
                       "args": [
                         {
                           "op": "index",
                           "args": [
-                            "tsl_slotID",
-                            "s"
+                            "trp_hourSlice",
+                            "i",
+                            "h"
                           ]
                         },
                         1.5
@@ -44029,12 +44704,12 @@
                         {
                           "op": "index",
                           "args": [
-                            "ttg_sliceHotSoakMinutes",
+                            "ttg_hourHotSoakMinutes",
                             "g",
                             "n",
                             "u",
                             "i",
-                            "s"
+                            "h"
                           ]
                         },
                         0.0
@@ -44104,6 +44779,47 @@
           }
         },
         {
+          "lhs": "tgs_firstTripKeyOn",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "w",
+              "h"
+            ],
+            "ranges": {
+              "w": {
+                "from": "tankgroupslot_rows"
+              },
+              "h": {
+                "from": "hourofday_rows"
+              },
+              "v": {
+                "from": "samplevehicleday_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "tgs_dayOrdinal",
+                    "svd_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "tvh_firstTripKeyOn",
+                "v",
+                "h"
+              ]
+            }
+          }
+        },
+        {
           "lhs": "tvh_soakTies",
           "rhs": {
             "op": "faq",
@@ -44112,8 +44828,7 @@
             "output_idx": [
               "g",
               "n",
-              "u",
-              "v",
+              "w",
               "h"
             ],
             "ranges": {
@@ -44123,11 +44838,8 @@
               "n": {
                 "from": "runspecmonth_rows"
               },
-              "u": {
-                "from": "tanktemperaturerise_rows"
-              },
-              "v": {
-                "from": "samplevehicleday_rows"
+              "w": {
+                "from": "tankgroupslot_rows"
               },
               "h": {
                 "from": "hourofday_rows"
@@ -44135,8 +44847,8 @@
               "i": {
                 "from": "samplevehicletrip_rows"
               },
-              "s": {
-                "from": "soakslice_rows"
+              "u": {
+                "from": "tanktemperaturerise_rows"
               }
             },
             "join": [
@@ -44144,11 +44856,19 @@
                 "on": [
                   [
                     "svt_vehID",
-                    "svd_vehID"
+                    "tgs_vehID"
                   ],
                   [
                     "svt_dayID",
-                    "svd_dayID"
+                    "tgs_dayID"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "tgs_tankTemperatureGroupID",
+                    "ttr_tankTemperatureGroupID"
                   ]
                 ]
               }
@@ -44160,32 +44880,14 @@
                   "op": "and",
                   "args": [
                     {
-                      "op": "==",
-                      "args": [
-                        {
-                          "op": "index",
-                          "args": [
-                            "trp_lastHourID",
-                            "i"
-                          ]
-                        },
-                        {
-                          "op": "index",
-                          "args": [
-                            "hod_hourID",
-                            "h"
-                          ]
-                        }
-                      ]
-                    },
-                    {
                       "op": "<",
                       "args": [
                         {
                           "op": "index",
                           "args": [
-                            "tsl_slotID",
-                            "s"
+                            "trp_hourSlice",
+                            "i",
+                            "h"
                           ]
                         },
                         1.5
@@ -44204,8 +44906,8 @@
                         {
                           "op": "index",
                           "args": [
-                            "tvh_firstTripKeyOn",
-                            "v",
+                            "tgs_firstTripKeyOn",
+                            "w",
                             "h"
                           ]
                         }
@@ -44217,12 +44919,12 @@
                         {
                           "op": "index",
                           "args": [
-                            "ttg_sliceHotSoakMinutes",
+                            "ttg_hourHotSoakMinutes",
                             "g",
                             "n",
                             "u",
                             "i",
-                            "s"
+                            "h"
                           ]
                         },
                         0.0
@@ -44245,8 +44947,7 @@
             "output_idx": [
               "g",
               "n",
-              "u",
-              "v",
+              "w",
               "h"
             ],
             "ranges": {
@@ -44256,14 +44957,14 @@
               "n": {
                 "from": "runspecmonth_rows"
               },
-              "u": {
-                "from": "tanktemperaturerise_rows"
-              },
-              "v": {
-                "from": "samplevehicleday_rows"
+              "w": {
+                "from": "tankgroupslot_rows"
               },
               "h": {
                 "from": "hourofday_rows"
+              },
+              "v": {
+                "from": "samplevehicleday_rows"
               }
             },
             "expr": {
@@ -44295,8 +44996,7 @@
                             "tvh_hotMinutes",
                             "g",
                             "n",
-                            "u",
-                            "v",
+                            "w",
                             "h"
                           ]
                         },
@@ -44308,7 +45008,17 @@
                 1.0,
                 0.0
               ]
-            }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "tgs_dayOrdinal",
+                    "svd_ordinal"
+                  ]
+                ]
+              }
+            ]
           }
         },
         {
@@ -44320,8 +45030,7 @@
             "output_idx": [
               "g",
               "n",
-              "u",
-              "v",
+              "w",
               "h"
             ],
             "ranges": {
@@ -44331,14 +45040,14 @@
               "n": {
                 "from": "runspecmonth_rows"
               },
-              "u": {
-                "from": "tanktemperaturerise_rows"
-              },
-              "v": {
-                "from": "samplevehicleday_rows"
+              "w": {
+                "from": "tankgroupslot_rows"
               },
               "h": {
                 "from": "hourofday_rows"
+              },
+              "v": {
+                "from": "samplevehicleday_rows"
               }
             },
             "expr": {
@@ -44370,8 +45079,7 @@
                             "tvh_soakCarries",
                             "g",
                             "n",
-                            "u",
-                            "v",
+                            "w",
                             "h"
                           ]
                         },
@@ -44387,8 +45095,7 @@
                             "tvh_soakTies",
                             "g",
                             "n",
-                            "u",
-                            "v",
+                            "w",
                             "h"
                           ]
                         },
@@ -44400,7 +45107,17 @@
                 1.0,
                 0.0
               ]
-            }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "tgs_dayOrdinal",
+                    "svd_ordinal"
+                  ]
+                ]
+              }
+            ]
           }
         },
         {
@@ -44447,8 +45164,7 @@
             "output_idx": [
               "g",
               "n",
-              "u",
-              "v",
+              "w",
               "h"
             ],
             "ranges": {
@@ -44458,14 +45174,14 @@
               "n": {
                 "from": "runspecmonth_rows"
               },
-              "u": {
-                "from": "tanktemperaturerise_rows"
-              },
-              "v": {
-                "from": "samplevehicleday_rows"
+              "w": {
+                "from": "tankgroupslot_rows"
               },
               "h": {
                 "from": "hourofday_rows"
+              },
+              "v": {
+                "from": "samplevehicleday_rows"
               }
             },
             "expr": {
@@ -44480,8 +45196,7 @@
                         "tvh_hasRecord",
                         "g",
                         "n",
-                        "u",
-                        "v",
+                        "w",
                         "h"
                       ]
                     },
@@ -44501,8 +45216,7 @@
                             "tvh_tripFirst",
                             "g",
                             "n",
-                            "u",
-                            "v",
+                            "w",
                             "h"
                           ]
                         },
@@ -44521,7 +45235,17 @@
                   ]
                 }
               ]
-            }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "tgs_dayOrdinal",
+                    "svd_ordinal"
+                  ]
+                ]
+              }
+            ]
           }
         },
         {
@@ -44533,8 +45257,7 @@
             "output_idx": [
               "g",
               "n",
-              "u",
-              "v",
+              "w",
               "h"
             ],
             "ranges": {
@@ -44544,14 +45267,14 @@
               "n": {
                 "from": "runspecmonth_rows"
               },
-              "u": {
-                "from": "tanktemperaturerise_rows"
-              },
-              "v": {
-                "from": "samplevehicleday_rows"
+              "w": {
+                "from": "tankgroupslot_rows"
               },
               "h": {
                 "from": "hourofday_rows"
+              },
+              "v": {
+                "from": "samplevehicleday_rows"
               }
             },
             "expr": {
@@ -44566,8 +45289,7 @@
                         "tvh_hasRecord",
                         "g",
                         "n",
-                        "u",
-                        "v",
+                        "w",
                         "h"
                       ]
                     },
@@ -44591,8 +45313,7 @@
                                 "tvh_fromInitial",
                                 "g",
                                 "n",
-                                "u",
-                                "v",
+                                "w",
                                 "h"
                               ]
                             }
@@ -44614,15 +45335,24 @@
                         "tvh_hotMinutes",
                         "g",
                         "n",
-                        "u",
-                        "v",
+                        "w",
                         "h"
                       ]
                     }
                   ]
                 }
               ]
-            }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "tgs_dayOrdinal",
+                    "svd_ordinal"
+                  ]
+                ]
+              }
+            ]
           }
         },
         {
@@ -44634,8 +45364,7 @@
             "output_idx": [
               "g",
               "n",
-              "u",
-              "v",
+              "w",
               "h"
             ],
             "ranges": {
@@ -44645,11 +45374,8 @@
               "n": {
                 "from": "runspecmonth_rows"
               },
-              "u": {
-                "from": "tanktemperaturerise_rows"
-              },
-              "v": {
-                "from": "samplevehicleday_rows"
+              "w": {
+                "from": "tankgroupslot_rows"
               },
               "h": {
                 "from": "hourofday_rows"
@@ -44693,8 +45419,7 @@
                             "tvh_hasRecord",
                             "g",
                             "n",
-                            "u",
-                            "v",
+                            "w",
                             "x"
                           ]
                         },
@@ -44743,11 +45468,8 @@
               "k2": {
                 "from": "runspecday_rows"
               },
-              "v": {
-                "from": "samplevehicleday_rows"
-              },
-              "u": {
-                "from": "tanktemperaturerise_rows"
+              "w": {
+                "from": "tankgroupslot_rows"
               },
               "h": {
                 "from": "hourofday_rows"
@@ -44757,19 +45479,19 @@
               {
                 "on": [
                   [
-                    "svd_sourceTypeID",
+                    "tgs_sourceTypeID",
                     "rst_sourceTypeID"
                   ]
                 ]
               },
               {
                 "syms": [
-                  "v",
+                  "w",
                   "k"
                 ],
                 "on": [
                   [
-                    "svd_dayID",
+                    "tgs_dayID",
                     "rsd_dayID"
                   ]
                 ]
@@ -44796,9 +45518,8 @@
                     {
                       "op": "index",
                       "args": [
-                        "tvh_groupApplies",
-                        "u",
-                        "v"
+                        "tgs_applies",
+                        "w"
                       ]
                     },
                     {
@@ -44844,8 +45565,7 @@
                                 "tvh_initialHourID",
                                 "g",
                                 "n",
-                                "u",
-                                "v",
+                                "w",
                                 "h"
                               ]
                             },
@@ -44864,8 +45584,7 @@
                             "tvh_fromInitial",
                             "g",
                             "n",
-                            "u",
-                            "v",
+                            "w",
                             "h"
                           ]
                         },
@@ -44888,8 +45607,7 @@
                             "tvh_inCurrent",
                             "g",
                             "n",
-                            "u",
-                            "v",
+                            "w",
                             "h"
                           ]
                         },
@@ -44927,11 +45645,8 @@
               "k": {
                 "from": "runspecday_rows"
               },
-              "v": {
-                "from": "samplevehicleday_rows"
-              },
-              "u": {
-                "from": "tanktemperaturerise_rows"
+              "w": {
+                "from": "tankgroupslot_rows"
               },
               "h": {
                 "from": "hourofday_rows"
@@ -44941,19 +45656,19 @@
               {
                 "on": [
                   [
-                    "svd_sourceTypeID",
+                    "tgs_sourceTypeID",
                     "rst_sourceTypeID"
                   ]
                 ]
               },
               {
                 "syms": [
-                  "v",
+                  "w",
                   "k"
                 ],
                 "on": [
                   [
-                    "svd_dayID",
+                    "tgs_dayID",
                     "rsd_dayID"
                   ]
                 ]
@@ -44977,9 +45692,8 @@
                 {
                   "op": "index",
                   "args": [
-                    "tvh_groupApplies",
-                    "u",
-                    "v"
+                    "tgs_applies",
+                    "w"
                   ]
                 },
                 {
@@ -44991,8 +45705,7 @@
                         "tvh_fromInitial",
                         "g",
                         "n",
-                        "u",
-                        "v",
+                        "w",
                         "h"
                       ]
                     },
@@ -45002,8 +45715,7 @@
                         "tvh_inCurrent",
                         "g",
                         "n",
-                        "u",
-                        "v",
+                        "w",
                         "h"
                       ]
                     }
@@ -92420,7 +93132,7 @@
                               "op": "or",
                               "args": [
                                 {
-                                  "op": "or",
+                                  "op": "and",
                                   "args": [
                                     {
                                       "op": "or",
@@ -92490,6 +93202,24 @@
                                       ]
                                     },
                                     {
+                                      "op": ">",
+                                      "args": [
+                                        {
+                                          "op": "index",
+                                          "args": [
+                                            "run_writesDistance",
+                                            "n"
+                                          ]
+                                        },
+                                        0.5
+                                      ]
+                                    }
+                                  ]
+                                },
+                                {
+                                  "op": "or",
+                                  "args": [
+                                    {
                                       "op": "==",
                                       "args": [
                                         {
@@ -92507,24 +93237,24 @@
                                           ]
                                         }
                                       ]
-                                    }
-                                  ]
-                                },
-                                {
-                                  "op": "==",
-                                  "args": [
-                                    {
-                                      "op": "index",
-                                      "args": [
-                                        "out_processID",
-                                        "o"
-                                      ]
                                     },
                                     {
-                                      "op": "enum",
+                                      "op": "==",
                                       "args": [
-                                        "process",
-                                        "RefuelingSpillageLoss"
+                                        {
+                                          "op": "index",
+                                          "args": [
+                                            "out_processID",
+                                            "o"
+                                          ]
+                                        },
+                                        {
+                                          "op": "enum",
+                                          "args": [
+                                            "process",
+                                            "RefuelingSpillageLoss"
+                                          ]
+                                        }
                                       ]
                                     }
                                   ]
@@ -96841,18 +97571,17 @@
           }
         },
         {
-          "lhs": "run_startModeAgeVariation",
+          "lhs": "sod_ageVariation",
           "rhs": {
             "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
-              "n"
+              "k",
+              "m",
+              "s"
             ],
             "ranges": {
-              "n": {
-                "from": "run_rows"
-              },
               "k": {
                 "from": "runspecday_rows"
               },
@@ -96930,6 +97659,40 @@
                     0.0
                   ]
                 }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "run_startModeAgeVariation",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "n"
+            ],
+            "ranges": {
+              "n": {
+                "from": "run_rows"
+              },
+              "k": {
+                "from": "runspecday_rows"
+              },
+              "m": {
+                "from": "operating_mode_rows"
+              },
+              "s": {
+                "from": "runspecsourcetype_rows"
+              }
+            },
+            "expr": {
+              "op": "index",
+              "args": [
+                "sod_ageVariation",
+                "k",
+                "m",
+                "s"
               ]
             }
           }
