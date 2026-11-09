@@ -5564,6 +5564,39 @@ The whole suite with these changes ran green on esm 9c0c941 in 8 h 28 min,
 621 ok, with a peak of 22.4 GB. The same suite on main had not finished after
 25 h.
 
+#### 7.3.52 One evaluation per run
+
+2026-11-08. A harness change, no model change. `esm simulate` evaluates every
+observed in the document; `--observed` only picks the columns written. The
+RunSpec stage nevertheless called it once per oracle table, then twice more for
+the output relation and the shape scalars. That was eight full evaluations for a
+Rates run, two for an inventory run, and two for each nonroad RunSpec and probe.
+The suite took 8 h 05 min, most of it in these repeats.
+
+`tools/emit-oracle-table.py` now makes ONE call per run, with `--format grid`.
+`--format csv` refuses fields of different shapes, and a run's tables do have
+different shapes; the grid writes each field with its own dimensions. The tool
+writes, from that one evaluation:
+
+* every oracle table;
+* the `out_*` relation;
+* the shape scalars.
+
+The relation and the scalars are written exactly as `--format csv` writes them.
+Floats are rendered as Rust's `{}` does: the shortest round-trip digits,
+positional, and on an exact tie between two shortest strings, rounded up where
+Python's `repr` rounds to even. A Float32 model hits such ties often:
+71.911651611328125 is written `…813`, and `repr` gives `…812`. All 5,483,003
+numbers in the previous suite's esm-written CSVs re-render byte-identically,
+and so do the files of four runs re-emitted through the new path. The probes'
+`cmp` against `<run>.runspec.csv` therefore still compares like with like.
+
+The suite went from 8 h 05 min to 2 h 48 min (peak 19.9 GB), and `rates-venting` from about
+35 min to 5 min 15 s. Every comparison and shape check passed. The one failure was
+the wall-clock `join.on` gate: 1052 ms driven against 3080 ms ungated, under a load spike
+on a shared node. Re-timed five times on its own, it ran 128–373 ms against
+2846–2925 ms.
+
 ### 7.4 Upstream asks
 
 **None is blocking.** This section has said "still none", "already exists,

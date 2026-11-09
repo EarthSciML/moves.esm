@@ -1767,6 +1767,16 @@ else
   # tools/emit-oracle-table.py from its prefix relation, its member rows only.
   # The table name goes to the comparator, which takes that table's column
   # contract from tolerance.toml.
+  #
+  # The shape scalars tools/check-runspec-shape.py reads, as emit-oracle-table.py
+  # arguments; the probes below ask for the same set.
+  RS_SHAPE_FIELDS=()
+  for f in rateSurvivorCount outputPolProcessCount cohortSurvivorCount \
+           run_sourceBinsDropped run_physicsRowsDropped run_rateRowsWithoutPhysics \
+           run_chainDepthExceeded run_offNetworkLinkCount run_domainUnported \
+           run_selectionUnported run_tankGroupsDropped; do
+    RS_SHAPE_FIELDS+=(--shape-field "$f")
+  done
   for rs in "${RUNSPECS[@]}"; do
     rsname=$(basename "$rs" .esm)
     mapfile -t RS_TABLES < <("$PYTHON" -c '
@@ -1782,27 +1792,30 @@ for s in srcs:
 
     # 2. The numbers, against that run's own recorded oracle tables, through the
     #    same comparator and the same tolerance.toml the fixture stage uses.
+    #    ONE evaluation writes every table, the output relation and the shape
+    #    scalars: `esm simulate` evaluates the whole document whatever
+    #    --observed names, so a call per table paid for the model up to eight
+    #    times a run (PLAN §7.3.52).
     RS_CSV="$RUNDIR/$rsname.runspec.csv"
-    rm -f "$RS_CSV"
+    RS_SHAPE="$RUNDIR/$rsname.runspec.shape.csv"
+    rm -f "$RS_CSV" "$RS_SHAPE"
+    rs_emit=()
+    for RS_TABLE in "${RS_TABLES[@]}"; do
+      [[ "$RS_TABLE" == movesoutput ]] || rs_emit+=(--table "$RS_TABLE")
+      rm -f "$RUNDIR/$rsname.$RS_TABLE.actual.csv"
+    done
+    if ! out=$("$PYTHON" tools/emit-oracle-table.py --esm "$ESM" --runspec "$rs" \
+                 --snapshots "$SNAPSHOTS" --model "$C7_LOGIC" --outdir "$RUNDIR" \
+                 --relation "$RS_CSV" --shape "$RS_SHAPE" "${RS_SHAPE_FIELDS[@]}" \
+                 "${rs_emit[@]}" 2>&1); then
+      fail "7c'/7d $rsname — the default-database chain does not evaluate, or a table does not emit"
+      sed 's/^/       /' <<<"$out" | tail -5
+      continue
+    fi
     RS_RPD=""
-    rs_ok=1
     for RS_TABLE in "${RS_TABLES[@]}"; do
       RS_ACTUAL="$RUNDIR/$rsname.$RS_TABLE.actual.csv"
-      if [[ "$RS_TABLE" == movesoutput ]]; then
-        if ! out=$("$ESM" simulate "$rs" --time 0 --format csv \
-                     "${c7_obs[@]}" --output "$RS_CSV" 2>&1); then
-          fail "7c'/7d $rsname — the default-database chain does not evaluate"
-          sed 's/^/       /' <<<"$out" | tail -5
-          rs_ok=0; break
-        fi
-        sed "1s/out_//g" "$RS_CSV" > "$RS_ACTUAL"
-      elif ! out=$("$PYTHON" tools/emit-oracle-table.py --esm "$ESM" --runspec "$rs" \
-                     --table "$RS_TABLE" --snapshots "$SNAPSHOTS" --model "$C7_LOGIC" \
-                     --output "$RS_ACTUAL" 2>&1); then
-        fail "7c'/7d $rsname — its $RS_TABLE relation does not emit"
-        sed 's/^/       /' <<<"$out" | tail -5
-        rs_ok=0; continue
-      fi
+      [[ "$RS_TABLE" == movesoutput ]] && sed "1s/out_//g" "$RS_CSV" > "$RS_ACTUAL"
       [[ "$RS_TABLE" == rateperdistance ]] && RS_RPD="$RS_ACTUAL"
       if out=$("$PYTHON" compare-output.py --fixture "$rsname" --actual "$RS_ACTUAL" \
                  --table "$RS_TABLE" --snapshots "$SNAPSHOTS" 2>&1); then
@@ -1813,37 +1826,16 @@ for s in srcs:
         sed 's/^/       /' <<<"$out" | tail -8
       fi
     done
-    [[ $rs_ok -eq 1 ]] || continue
 
     # 3. The shape, recomputed by the chain rather than read off the answer. It
     #    is the OUTPUT relation's shape -- where `n_outputRate` and the blocks and
-    #    cohorts live -- which a Rates run computes too, so a run that is not
-    #    judged on MOVESOutput emits it here for the check alone.
-    if [[ ! -f "$RS_CSV" ]] && ! out=$("$ESM" simulate "$rs" --time 0 --format csv \
-                                         "${c7_obs[@]}" --output "$RS_CSV" 2>&1); then
-      fail "7c'/7d $rsname — its output relation does not evaluate for the shape check"
-      continue
-    fi
-    RS_SHAPE="$RUNDIR/$rsname.runspec.shape.csv"
-    if "$ESM" simulate "$rs" --time 0 --format csv \
-         --observed rateSurvivorCount --observed outputPolProcessCount --observed cohortSurvivorCount \
-         --observed run_sourceBinsDropped \
-         --observed run_physicsRowsDropped \
-         --observed run_rateRowsWithoutPhysics \
-         --observed run_chainDepthExceeded \
-         --observed run_offNetworkLinkCount \
-         --observed run_domainUnported \
-         --observed run_selectionUnported \
-         --observed run_tankGroupsDropped \
-         --output "$RS_SHAPE" >/dev/null 2>&1; then
-      if out=$("$PYTHON" tools/check-runspec-shape.py "$RS_CSV" "$RS_SHAPE" $RS_RPD 2>&1); then
-        pass "$rsname — the emitted shape is what the chain recomputes: $out"
-      else
-        fail "7c'/7d $rsname — the rows emitted are not the shape the chain recomputes. Either a declared count is wrong, or rspp_isEmitted is, or n_sourceBin is a slot short, or n_physicsRow is a vehicle short"
-        sed 's/^/       /' <<<"$out" | head -4
-      fi
+    #    cohorts live -- which a Rates run computes too, so the evaluation above
+    #    wrote it whatever the run is judged on.
+    if out=$("$PYTHON" tools/check-runspec-shape.py "$RS_CSV" "$RS_SHAPE" $RS_RPD 2>&1); then
+      pass "$rsname — the emitted shape is what the chain recomputes: $out"
     else
-      fail "7c'/7d $rsname — the recomputed shape does not evaluate"
+      fail "7c'/7d $rsname — the rows emitted are not the shape the chain recomputes. Either a declared count is wrong, or rspp_isEmitted is, or n_sourceBin is a slot short, or n_physicsRow is a vehicle short"
+      sed 's/^/       /' <<<"$out" | head -4
     fi
   done
 
@@ -1898,21 +1890,12 @@ for s in srcs:
     # joins on it still named, the document refused to compile, and the check
     # below read the refusal as a move (PLAN.md §7.3.40). So evaluation is
     # required first, and only then is a moved relation a pass.
-    if ! "$ESM" simulate "$RS_PROBE" --time 0 --format csv "${c7_obs[@]}" \
-         --output "$RUNDIR/$pname.probe.csv" >/dev/null 2>&1; then
+    if ! "$PYTHON" tools/emit-oracle-table.py --esm "$ESM" --runspec "$RS_PROBE" \
+         --snapshots "$SNAPSHOTS" --model "$C7_LOGIC" \
+         --relation "$RUNDIR/$pname.probe.csv" \
+         --shape "$RUNDIR/$pname.probe.shape.csv" "${RS_SHAPE_FIELDS[@]}" >/dev/null 2>&1; then
       fail "$pname probe — the probe document does not evaluate, so it measures nothing about $prun"
-    elif "$ESM" simulate "$RS_PROBE" --time 0 --format csv \
-            --observed rateSurvivorCount --observed outputPolProcessCount --observed cohortSurvivorCount \
-            --observed run_sourceBinsDropped \
-            --observed run_physicsRowsDropped \
-            --observed run_rateRowsWithoutPhysics \
-         --observed run_chainDepthExceeded \
-         --observed run_offNetworkLinkCount \
-         --observed run_domainUnported \
-         --observed run_selectionUnported \
-         --observed run_tankGroupsDropped \
-            --output "$RUNDIR/$pname.probe.shape.csv" >/dev/null 2>&1 \
-       && cmp -s "$RUNDIR/$prun.runspec.csv" "$RUNDIR/$pname.probe.csv" \
+    elif cmp -s "$RUNDIR/$prun.runspec.csv" "$RUNDIR/$pname.probe.csv" \
        && "$PYTHON" tools/check-runspec-shape.py \
             "$RUNDIR/$pname.probe.csv" "$RUNDIR/$pname.probe.shape.csv" >/dev/null 2>&1; then
       fail "$pname probe — deleting that selection changed NOTHING about $prun, neither its numbers nor its recomputed shape. It has stopped being what narrows"
@@ -1978,9 +1961,9 @@ PYEOF
 )
 nr_obs=()
 for f in "${NR_FIELDS[@]}"; do nr_obs+=(--observed "$f"); done
-NR_SHAPE_OBS=(--observed run_equipmentPointsSelected --observed run_equipmentPointsDropped
-              --observed run_outputCohortCount --observed run_outputPolProcessCount
-              --observed run_extraScopeRows --observed run_mixSetsOffOne)
+NR_SHAPE_FIELDS=(--shape-field run_equipmentPointsSelected --shape-field run_equipmentPointsDropped
+                 --shape-field run_outputCohortCount --shape-field run_outputPolProcessCount
+                 --shape-field run_extraScopeRows --shape-field run_mixSetsOffOne)
 
 if [[ ! -e movesdb ]]; then
   skip "7e default database" "no ./movesdb (run ./build-movesdb.sh)"
@@ -2011,22 +1994,23 @@ else
   #    the RunSpecs are NONROAD's whole 213-SCC inventory at ~9 minutes and
   #    ~5 GB each, so serially they would add an hour and a quarter; the
   #    join.on timing gate has already run. 4 jobs stay under a 40 GB step.
-  nr_eval() {  # <runspec> <what>: runspec|shape
-    local n; n=$(basename "$1" .esm)
-    if [[ $2 == runspec ]]; then
-      "$ESM" simulate "$1" --time 0 --format csv "${nr_obs[@]}" --output "$RUNDIR/$n.runspec.csv" \
-        > "$RUNDIR/$n.runspec.log" 2>&1
-    else
-      "$ESM" simulate "$1" --time 0 --format csv "${NR_SHAPE_OBS[@]}" --output "$RUNDIR/$n.runspec.shape.csv" \
-        > "$RUNDIR/$n.runspec.shape.log" 2>&1
-    fi
-    echo $? > "$RUNDIR/$n.$2.rc"
+  #    Both come from ONE evaluation (PLAN §7.3.52): `esm simulate` evaluates
+  #    the whole document whatever --observed names.
+  nr_eval() {  # <runspec>
+    local n rc; n=$(basename "$1" .esm)
+    rm -f "$RUNDIR/$n.runspec.csv" "$RUNDIR/$n.runspec.shape.csv"
+    "$PYTHON" tools/emit-oracle-table.py --esm "$ESM" --runspec "$1" \
+      --snapshots "$SNAPSHOTS" --model "$NR_MODEL" \
+      --relation "$RUNDIR/$n.runspec.csv" \
+      --shape "$RUNDIR/$n.runspec.shape.csv" "${NR_SHAPE_FIELDS[@]}" \
+      > "$RUNDIR/$n.runspec.log" 2>&1
+    rc=$?
+    echo $rc > "$RUNDIR/$n.runspec.rc"
+    echo $rc > "$RUNDIR/$n.shape.rc"
   }
   for rs in "${NR_RUNSPECS[@]}"; do
-    for what in runspec shape; do
-      while (( $(jobs -rp | wc -l) >= ${NR_JOBS:-4} )); do wait -n; done
-      nr_eval "$rs" "$what" &
-    done
+    while (( $(jobs -rp | wc -l) >= ${NR_JOBS:-4} )); do wait -n; done
+    nr_eval "$rs" &
   done
   wait
 
