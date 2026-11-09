@@ -26,7 +26,7 @@ emitting a plausible wrong number. `runspecs/pending/project-offnetwork.esm` is 
 
 | | |
 |---|---|
-| RunSpecs | `../moves.rs/characterization/fixtures/scale-project.xml` and `rates-project.xml` (one link); `project-links.xml` (three links, two source types, an off-network link); `project-offnetwork.xml` (an on-network and an off-network link, source types 21 and 62) |
+| RunSpec | `../moves.rs/characterization/fixtures/scale-project.xml` and `rates-project.xml` (one link); `project-links.xml` (three links, two source types, an off-network link); `project-offnetwork.xml` (an on-network and an off-network link, source types 21 and 62) |
 | Model | ONROAD, `modeldomain` **`PROJECT`** |
 | Reads | `link`, `linkSourceTypeHour`, `offNetworkLink`, `avft`, `sourceTypeAgeDistribution`, `dayOfAnyWeek`, `hourDay`, `runSpecHourDay`, `runSpecDay`, `runSpecMonth`, `runSpecSourceType` |
 | Writes | `SHO` (with `distance`), `Starts`, `SHP`, `SourceHours`, `hotellingHours` |
