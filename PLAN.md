@@ -5673,14 +5673,16 @@ previous suite's files, every one byte-identical: `rates-minimal`,
 `rates-venting`, `rates-evap`, `process-evap-fvv-day`,
 `process-evap-permeation` and `expand-fullyear`.
 
-#### 7.3.55 PROJECT domain beyond running exhaust: several links, start, brake and tire wear
+#### 7.3.55 PROJECT domain beyond running exhaust: several links, start, brake and tire wear, hotelling
 
 2026-11-09. Until today a PROJECT run reproduced only running exhaust on one
 link. `run_domainUnported` refused any other emitted process, a second county
 and a county whose join selected other than one link. **`project-links`
 reproduces: 3412 of 3412 rows, key set exact, worst cell 1.324e-05, per-pollutant
 sum 1.17e-06**, through running, start, brake and tire wear on three links.
-`project-offnetwork` is captured and pending.
+**`project-hotelling` reproduces: 266 of 266, key set exact, worst cell
+8.316e-06**, through extended idle and APU on an off-network link.
+`project-offnetwork` is captured and pending on the evaporative processes.
 
 **Two new captures** (moves.rs `characterization/fixtures/` and
 `county-inputs/`, routed in `run-all-fixtures.sh`; snapshots captured on host
@@ -5689,7 +5691,8 @@ token `1ccc0236`):
 | run | selects | network |
 |---|---|---|
 | `project-links` | source types 21 and 32; road types 1, 4, 5; CO and Total Energy for running and start, PM10/PM2.5 brake and tire wear | link 1 (road type 4, 1 mi, 1,000 veh/h, 30 mph), link 2 (road type 5, 0.5 mi, 600 veh/h, 25 mph), off-network link 3; per-link source-type shares 0.8/0.2 and 0.6/0.4; an off-network fleet per source type; the user's start modes on link 3 |
-| `project-offnetwork` | source types 21 and 62; road types 1, 4; Total Energy for running, extended idle and APU, THC for permeation, venting and leaks | link 1 (road type 4) and off-network link 2 |
+| `project-offnetwork` | source types 21 and 62; road types 1, 4; Total Energy for running, extended idle and APU, THC for permeation, venting and leaks | link 1 (road type 4, 90% source type 21) and off-network link 2; 50 long-haul trucks idling 30% |
+| `project-hotelling` | the same without the evaporative processes | the same database (`setup-project-offnetwork.sql`) |
 
 The first `project-links` capture had no start-exhaust output at all. MOVES had
 computed Starts, but in PROJECT domain StartOperatingModeDistributionGenerator
@@ -5726,6 +5729,7 @@ execution database's inputs:
 tire pollutant-processes. **It did not count the second and third links.**
 `run_linkCount` selected only `run_roadTypeID`'s link, so a link on another road
 type was never seen. The processes refused the run; the links would not have.
+On `project-hotelling` the pre-port model gives 2: extended idle and APU.
 
 **What the model now does**, all behind `run_isProjectDomain`:
 
@@ -5754,7 +5758,18 @@ type was never seen. The processes refused the run; the links would not have.
 5. **Two domain tables are mounted in every catalogue**: `offNetworkLink` and
    the input `opModeDistribution`. They are empty in the default database, the
    county databases, the execution-database fixture catalogue and the 7c spike.
-6. **The DEFAULT domain's refusal of brake and tire wear beside road type 1**
+6. **Hotelling hours** are ProjectTAG's (`hot_projectHours`): the off-network
+   fleet of source type 62 x extendedIdleFraction x ageFraction x days, summed
+   over the fuel split as the DEFAULT path's `hot_hours` is. The project
+   database's `avft` is AVFTTool's sum of the sample vehicle population, so its
+   fractions sum to `hot_stmyTotal`. And **a process-93 block needs a
+   shore-power mode** (`rspp_hasShorePowerMode`). MOVES copies no default
+   `hotellingActivityDistribution` into a PROJECT run, so APU's distribution is
+   mode 201 alone, and MOVES writes no shore-power row. The first evaluation
+   found the model computing a 50-row process-93 block, hidden because
+   `n_outputRate` truncated it. The shape check caught it (316 recomputed
+   against 266 emitted).
+7. **The DEFAULT domain's refusal of brake and tire wear beside road type 1**
    (`run_onRoadPollutantProcessCount`) does not apply in PROJECT domain. There,
    road type 1 is the off-network link, and MOVES writes no brake or tire row
    on it.
@@ -5765,8 +5780,6 @@ type was never seen. The processes refused the run; the links would not have.
   (`rspp_hasProjectGenerator`):
   * the evaporative processes (SHP, SourceHours, and the project branches of
     their operating-mode and tank-temperature generators);
-  * extended idle and APU: ProjectTAG's per-fuel hotelling hours are
-    reproduced, but the model's hotelling activity has no fuel axis;
   * the crankcase processes;
 * a (county, road type) without exactly one link, and a second county;
 * an out-of-bounds bracket;
@@ -5779,13 +5792,14 @@ type was never seen. The processes refused the run; the links would not have.
 * a second link at Rates scale (`run_ratesProjectLinks`). The per-road-type
   rate keys are written but not exercised there.
 
-`runspecs/pending/project-offnetwork.esm` evaluates to `run_domainUnported` = 5.
-That is its five evaporative and hotelling pollutant-processes.
+`runspecs/pending/project-offnetwork.esm` evaluates to `run_domainUnported` = 3.
+That is its three evaporative pollutant-processes.
 
 **Unchanged runs.** Before the suite, `scale-project`, `rates-project` (all
 eight tables), `process-brakewear`, `process-tirewear`,
 `process-crankcase-start-single`, `process-crankcase-start` and
-`expand-roadtypes` were re-emitted with `tools/emit-oracle-table.py` and
+`expand-roadtypes`, and after the hotelling change `process-apu`,
+`process-apu-single` and `rates-hotelling`, were re-emitted with `tools/emit-oracle-table.py` and
 `cmp`'d against the main tree's `.fixtures-run/`: all byte-identical.
 `project-links` evaluates in 151 s at 2.3 GB peak.
 
