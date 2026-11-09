@@ -1636,7 +1636,9 @@
       "ColdSoaking": 151,
       "ExtendedIdling": 200,
       "DieselAuxiliaryPowerUnit": 201,
-      "ShorePower": 203
+      "ShorePower": 203,
+      "FirstTirewearSpeedMode": 401,
+      "LastTirewearMode": 499
     },
     "source_bin_slot": {
       "ShortModelYearGroup": 10,
@@ -1846,7 +1848,9 @@
           "only": [
             "link_op_mode_fraction",
             "national_hotelling_activity_zone",
-            "state_hotelling_activity_zone"
+            "state_hotelling_activity_zone",
+            "link_bracket_interpolation",
+            "tirewear_link_op_mode"
           ]
         },
         {
@@ -13041,9 +13045,10 @@
           "type": "unknown",
           "units": "1",
           "shape": [
-            "runspeccounty_rows"
+            "runspeccounty_rows",
+            "runspecroadtype_rows"
           ],
-          "description": "The PROJECT link in each selected county -- one row per county, selected out of the national `Link`'s 22,610 by the county and `run_roadTypeID`, the project link's road type. Read only by `out_linkID` at PROJECT scale; a DEFAULT run's MOVESOutput carries no link."
+          "description": "The link on each selected county and road type -- selected out of the national `Link`'s 22,610 at DEFAULT scale, and out of the project's own links in PROJECT domain, where a project has one link per road type it selects (`run_linkCount`). Read by `out_linkID` and `rpd_linkID` at the output row's road type; a DEFAULT run's MOVESOutput carries no link."
         },
         "run_countyID": {
           "type": "unknown",
@@ -14144,7 +14149,7 @@
             "operating_mode_rows",
             "physicsrow_rows"
           ],
-          "description": "The operating-mode weights the rate rows are summed under: `pp_WSpeedBins` in every DEFAULT-domain run, and for a PROJECT run's running exhaust the project link's own distribution `lomd_W` -- BaseRateGenerator's core path over the RatesOpModeDistribution LinkOperatingModeDistributionGenerator wrote, with no average-speed weighting (baserategenerator/mod.rs:158 and :242, `!is_project`). Per BLOCK since PLAN.md §7.3.46, and on an off-network idle block the idle mode alone at weight 1: BaseRateGenerator writes running exhaust's road-1 rates as opMode 1, opModeFraction 1, avgSpeedFraction 1 (`drivecycle.rs:517-541`)."
+          "description": "The operating-mode weights the rate rows are summed under: `pp_WSpeedBins` in every DEFAULT-domain run, and for a PROJECT run's running exhaust the project link's own distribution `lomd_W` -- BaseRateGenerator's core path over the RatesOpModeDistribution LinkOperatingModeDistributionGenerator wrote, with no average-speed weighting (baserategenerator/mod.rs:158 and :242, `!is_project`). Per BLOCK since PLAN.md §7.3.46, and on an off-network idle block the idle mode alone at weight 1: BaseRateGenerator writes running exhaust's road-1 rates as opMode 1, opModeFraction 1, avgSpeedFraction 1 (`drivecycle.rs:517-541`). Since PLAN.md §7.3.55 a PROJECT run's brake wear reads the link distribution without its stopped seconds (`lomd_WBrake`) and its tire wear the link's one speed mode (`lomd_tireW`), each at the block's road type -- the project's link on it."
         },
         "pp_WTotal": {
           "type": "unknown",
@@ -15068,7 +15073,7 @@
           "shape": [
             "output_rows"
           ],
-          "description": "MOVESOutput.linkID: NULL outside PROJECT domain, and the run's selected link in it."
+          "description": "MOVESOutput.linkID: NULL outside PROJECT domain, and in it the project's link on the row's county and road type."
         },
         "out_regClassID": {
           "type": "unknown",
@@ -19055,9 +19060,10 @@
           "type": "unknown",
           "units": "1",
           "shape": [
-            "runspeccounty_rows"
+            "runspeccounty_rows",
+            "runspecroadtype_rows"
           ],
-          "description": "The selected link's linkAvgSpeed in each county -- selected the way `run_linkID` is -- and 0 outside PROJECT domain, where the default database's link carries NULL here and nothing reads it."
+          "description": "The linkAvgSpeed of the link on each selected county and road type -- selected the way `run_linkID` is -- and 0 outside PROJECT domain, where the default database's link carries NULL here. Read by the link distribution's brackets (`run_projectLinkSpeed`) and by a Rates-scale project's per-link rates (`rtRate_rated`)."
         },
         "run_linkAvgGrade": {
           "type": "unknown",
@@ -19071,17 +19077,18 @@
           "type": "unknown",
           "units": "1",
           "shape": [
-            "runspeccounty_rows"
+            "runspeccounty_rows",
+            "runspecroadtype_rows"
           ],
-          "description": "How many links the county/road-type join selects in each county. 1 on every run here. The four `run_link*` columns are SUMS over this join, right while it selects one row; a project of two links on one road type would add their ids, so `run_domainUnported` counts a county where it is not 1."
+          "description": "How many links the county/road-type join selects on each selected county and road type. The `run_link*` columns are SUMS over this join, right while it selects one row; a project of two links on ONE road type would add their ids and speeds, so `run_domainUnported` counts a (county, road type) where it is not 1. `project-links` has three links on three road types (PLAN.md §7.3.55)."
         },
         "run_projectLinkSpeed": {
           "type": "unknown",
           "units": "1",
           "shape": [
-            "run_rows"
+            "runspecroadtype_rows"
           ],
-          "description": "The project link's average speed, summed over the run's one county."
+          "description": "The project link's average speed on each selected road type, summed over the run's one county. 0 on a road type with no link and outside PROJECT domain."
         },
         "run_projectLinkGrade": {
           "type": "unknown",
@@ -19089,7 +19096,7 @@
           "shape": [
             "run_rows"
           ],
-          "description": "The project link's grade, summed over the run's one county."
+          "description": "The project link's grade at `run_roadTypeID`, summed over the run's one county. One grade per run: the per-second chain (`lomd_at0` .. `lomd_vsp`) reads it, and keying that chain by road type would multiply its 63,602 x physics-row cells by the road types of every run, DEFAULT ones included. A project whose on-network links differ in grade is counted instead (`run_linkGradeMismatches`)."
         },
         "act_projectSho": {
           "type": "unknown",
@@ -19252,13 +19259,23 @@
             "operating_mode_rows",
             "physicsrow_rows"
           ],
-          "description": "secondCount * 1.0 / secondTotal, a DECIMAL rounded half-up at FIVE places (lib/operating_mode.esm's `link_op_mode_fraction`; docs/link-operating-mode-distribution.md 2.4), with mode 501's own quotient added to mode 1's -- the `group by ... sum(opModeFraction)` of the fold. MOVES then stores it in a FLOAT column, which this does not model: binary32 moves a fraction by at most 6e-8 of itself, and the run's cells are compared at 2e-5."
+          "description": "secondCount * 1.0 / secondTotal for every mode but the stopped one, a DECIMAL rounded half-up at FIVE places (lib/operating_mode.esm's `link_op_mode_fraction`; docs/link-operating-mode-distribution.md 2.4), for every drive-schedule association on a selected road type. The stopped seconds' quotient is `lomd_stoppedFraction`, which the fold adds to mode 1 (`lomd_lowFraction`) and brake wear never reaches (`lomd_lowBrakeFraction`). MOVES then stores it in a FLOAT column, which this does not model: binary32 moves a fraction by at most 6e-8 of itself, and the run's cells are compared at 2e-5."
+        },
+        "lomd_stoppedFraction": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "drive_schedule_assoc_rows",
+            "physicsrow_rows"
+          ],
+          "description": "The stopped seconds' (speed 0, mode 501) quotient, five-decimal like every mode's (`link_op_mode_fraction`). LinkOperatingModeDistributionGenerator.java:1103-1137 folds it into mode 1 for every polProcess but 11609, PM2.5 brake wear, which keeps it as 501 -- under a temp source type, where no real link reads it."
         },
         "lomd_hasAtOrBelow": {
           "type": "unknown",
           "units": "1",
           "shape": [
-            "runspecsourcetype_rows"
+            "runspecsourcetype_rows",
+            "runspecroadtype_rows"
           ],
           "description": "Whether the source type has a candidate schedule for the greatest averageSpeed AT OR BELOW the link's: the low bracket."
         },
@@ -19266,7 +19283,8 @@
           "type": "unknown",
           "units": "1",
           "shape": [
-            "runspecsourcetype_rows"
+            "runspecsourcetype_rows",
+            "runspecroadtype_rows"
           ],
           "description": "The greatest averageSpeed AT OR BELOW the link's: the low bracket."
         },
@@ -19274,7 +19292,8 @@
           "type": "unknown",
           "units": "1",
           "shape": [
-            "runspecsourcetype_rows"
+            "runspecsourcetype_rows",
+            "runspecroadtype_rows"
           ],
           "description": "Whether the source type has a candidate schedule for the least averageSpeed strictly ABOVE the link's: the low bracket's out-of-bounds fallback."
         },
@@ -19282,7 +19301,8 @@
           "type": "unknown",
           "units": "1",
           "shape": [
-            "runspecsourcetype_rows"
+            "runspecsourcetype_rows",
+            "runspecroadtype_rows"
           ],
           "description": "The least averageSpeed strictly ABOVE the link's: the low bracket's out-of-bounds fallback."
         },
@@ -19290,7 +19310,8 @@
           "type": "unknown",
           "units": "1",
           "shape": [
-            "runspecsourcetype_rows"
+            "runspecsourcetype_rows",
+            "runspecroadtype_rows"
           ],
           "description": "Whether the source type has a candidate schedule for the least averageSpeed AT OR ABOVE the link's: the high bracket."
         },
@@ -19298,7 +19319,8 @@
           "type": "unknown",
           "units": "1",
           "shape": [
-            "runspecsourcetype_rows"
+            "runspecsourcetype_rows",
+            "runspecroadtype_rows"
           ],
           "description": "The least averageSpeed AT OR ABOVE the link's: the high bracket."
         },
@@ -19306,7 +19328,8 @@
           "type": "unknown",
           "units": "1",
           "shape": [
-            "runspecsourcetype_rows"
+            "runspecsourcetype_rows",
+            "runspecroadtype_rows"
           ],
           "description": "Whether the source type has a candidate schedule for the greatest averageSpeed strictly BELOW the link's: the high bracket's out-of-bounds fallback."
         },
@@ -19314,7 +19337,8 @@
           "type": "unknown",
           "units": "1",
           "shape": [
-            "runspecsourcetype_rows"
+            "runspecsourcetype_rows",
+            "runspecroadtype_rows"
           ],
           "description": "The greatest averageSpeed strictly BELOW the link's: the high bracket's out-of-bounds fallback."
         },
@@ -19322,7 +19346,8 @@
           "type": "unknown",
           "units": "1",
           "shape": [
-            "runspecsourcetype_rows"
+            "runspecsourcetype_rows",
+            "runspecroadtype_rows"
           ],
           "description": "The low bracket's speed: at or below the link's if any schedule is, else the fallback."
         },
@@ -19330,7 +19355,8 @@
           "type": "unknown",
           "units": "1",
           "shape": [
-            "runspecsourcetype_rows"
+            "runspecsourcetype_rows",
+            "runspecroadtype_rows"
           ],
           "description": "The high bracket's speed: the same precedence, mirrored -- at or above the link's if any schedule is, else the fastest below it."
         },
@@ -19338,7 +19364,8 @@
           "type": "unknown",
           "units": "1",
           "shape": [
-            "runspecsourcetype_rows"
+            "runspecsourcetype_rows",
+            "runspecroadtype_rows"
           ],
           "description": "isOutOfBoundsLow + isOutOfBoundsHigh. Either one is a MOVES terminal error unless ALLOW_DRIVE_CYCLE_EXTRAPOLATION, so a run that reaches one is not a run this model reproduces; `run_domainUnported` counts it."
         },
@@ -19346,7 +19373,8 @@
           "type": "unknown",
           "units": "1",
           "shape": [
-            "runspecsourcetype_rows"
+            "runspecsourcetype_rows",
+            "runspecroadtype_rows"
           ],
           "description": "The low bracket's schedule: max(driveScheduleID) among the candidates at its speed, which is how the SQL breaks a tie."
         },
@@ -19354,7 +19382,8 @@
           "type": "unknown",
           "units": "1",
           "shape": [
-            "runspecsourcetype_rows"
+            "runspecsourcetype_rows",
+            "runspecroadtype_rows"
           ],
           "description": "The high bracket's schedule: max(driveScheduleID) among the candidates at its speed, which is how the SQL breaks a tie."
         },
@@ -19362,7 +19391,8 @@
           "type": "unknown",
           "units": "1",
           "shape": [
-            "runspecsourcetype_rows"
+            "runspecsourcetype_rows",
+            "runspecroadtype_rows"
           ],
           "description": "(linkAvgSpeed - low) / (high - low), and 0 when one schedule brackets both sides (java:690)."
         },
@@ -19371,27 +19401,69 @@
           "units": "1",
           "shape": [
             "operating_mode_rows",
-            "physicsrow_rows"
+            "physicsrow_rows",
+            "runspecroadtype_rows"
           ],
-          "description": "The low bracket's distribution, per vehicle."
+          "description": "The low bracket's distribution, per vehicle and road type, with the stopped seconds folded into mode 1: every polProcess's but brake wear's."
         },
         "lomd_highFraction": {
           "type": "unknown",
           "units": "1",
           "shape": [
             "operating_mode_rows",
-            "physicsrow_rows"
+            "physicsrow_rows",
+            "runspecroadtype_rows"
           ],
-          "description": "The high bracket's distribution, per vehicle."
+          "description": "The high bracket's distribution, per vehicle and road type, with the stopped seconds folded into mode 1."
+        },
+        "lomd_lowBrakeFraction": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "operating_mode_rows",
+            "physicsrow_rows",
+            "runspecroadtype_rows"
+          ],
+          "description": "The low bracket's distribution for PM2.5 brake wear (11609): the stopped seconds are NOT folded into mode 1. LinkOperatingModeDistributionGenerator.java:1113 keeps them as mode 501, and SourceTypePhysics' physics_ update (`where opModeID <> 501`) leaves that row under the temp source type, so the interpolation onto a real link never selects it: on a real link brake wear's distribution is the unfolded one and sums to less than 1 (docs/link-operating-mode-distribution.md §6.5)."
+        },
+        "lomd_highBrakeFraction": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "operating_mode_rows",
+            "physicsrow_rows",
+            "runspecroadtype_rows"
+          ],
+          "description": "The high bracket's distribution for PM2.5 brake wear: unfolded, as `lomd_lowBrakeFraction`."
         },
         "lomd_W": {
           "type": "unknown",
           "units": "1",
           "shape": [
             "operating_mode_rows",
-            "physicsrow_rows"
+            "physicsrow_rows",
+            "runspecroadtype_rows"
           ],
           "description": "low + (high - low) x factor over EVERY mode, a mode one bracket never entered reading 0, and the non-positive ones dropped (java:700-720) -- the project link's operating-mode distribution, at the BASE mode: `SourceTypePhysics` lifts it to opModeID + 1000 and lifts the same vehicles' emission rates with it, and the chain here keys both on the base mode and the physics row, as it does at every other scale."
+        },
+        "lomd_WBrake": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "operating_mode_rows",
+            "physicsrow_rows",
+            "runspecroadtype_rows"
+          ],
+          "description": "The link distribution brake wear reads: `lomd_W` without the stopped seconds, which MOVES keeps as mode 501 under a temp source type and so never on the link."
+        },
+        "lomd_tireW": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "operating_mode_rows",
+            "runspecroadtype_rows"
+          ],
+          "description": "Tire wear's PROJECT distribution: AverageSpeedOperatingModeDistributionGenerator.calculateTireProjectOpModeFractions (java:143-212) gives each link ONE mode, fraction 1, from its linkAvgSpeed -- 400 below 0.1 mph, else the 401-499 'tirewear' band holding the speed (`tirewear_link_op_mode`). Per road type: the project's one link on it."
         },
         "rspp_usesLinkModes": {
           "type": "unknown",
@@ -19399,7 +19471,7 @@
           "shape": [
             "runspecpollutantprocess_rows"
           ],
-          "description": "Whether a PROJECT run weights this pollutant-process by the link's operating-mode distribution: Running Exhaust. Brake wear reads it too in MOVES, keeping mode 501 for its PM, and that arm is not ported -- `run_domainUnported` counts an emitted pollutant-process this leaves out."
+          "description": "Whether a PROJECT run weights this pollutant-process by LinkOperatingModeDistributionGenerator's distribution for its link: Running Exhaust and Brakewear (the generator subscribes to both, java:65-80). Brake wear reads it without the stopped seconds (`lomd_WBrake`)."
         },
         "pp_WSpeedBins": {
           "type": "unknown",
@@ -19434,7 +19506,15 @@
           "shape": [
             "run_rows"
           ],
-          "description": "Counties whose county/road-type join selects other than exactly one link."
+          "description": "Selected (county, road type) pairs whose join selects other than exactly one link: a road type the project has no link on, or two links on one road type, whose `run_link*` sums would add."
+        },
+        "run_linkGradeMismatches": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "run_rows"
+          ],
+          "description": "On-network project links in the run's counties and road types whose grade is not `run_projectLinkGrade`, the one grade the per-second chain reads. 0 outside PROJECT domain, where the national link carries NULL grades."
         },
         "run_countyCount": {
           "type": "unknown",
@@ -19458,7 +19538,7 @@
           "shape": [
             "run_rows"
           ],
-          "description": "Out-of-bounds bracket flags over the run's source types."
+          "description": "Out-of-bounds bracket flags over the run's source types and on-network road types: the off-network road type has no drive schedule and no link distribution."
         },
         "run_linkSourceTypeHourRows": {
           "type": "unknown",
@@ -22427,7 +22507,8 @@
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
-              "c"
+              "c",
+              "rd"
             ],
             "ranges": {
               "l": {
@@ -22436,8 +22517,8 @@
               "c": {
                 "from": "runspeccounty_rows"
               },
-              "w": {
-                "from": "run_rows"
+              "rd": {
+                "from": "runspecroadtype_rows"
               }
             },
             "join": [
@@ -22449,7 +22530,7 @@
                   ],
                   [
                     "lnk_roadTypeID",
-                    "run_roadTypeID"
+                    "rsr_roadTypeID"
                   ]
                 ]
               }
@@ -22948,7 +23029,8 @@
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
-              "c"
+              "c",
+              "rd"
             ],
             "ranges": {
               "l": {
@@ -22957,8 +23039,8 @@
               "c": {
                 "from": "runspeccounty_rows"
               },
-              "w": {
-                "from": "run_rows"
+              "rd": {
+                "from": "runspecroadtype_rows"
               },
               "n": {
                 "from": "run_rows"
@@ -22973,7 +23055,7 @@
                   ],
                   [
                     "lnk_roadTypeID",
-                    "run_roadTypeID"
+                    "rsr_roadTypeID"
                   ]
                 ]
               }
@@ -23078,7 +23160,8 @@
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
-              "c"
+              "c",
+              "rd"
             ],
             "ranges": {
               "l": {
@@ -23087,8 +23170,8 @@
               "c": {
                 "from": "runspeccounty_rows"
               },
-              "w": {
-                "from": "run_rows"
+              "rd": {
+                "from": "runspecroadtype_rows"
               }
             },
             "join": [
@@ -23100,7 +23183,7 @@
                   ],
                   [
                     "lnk_roadTypeID",
-                    "run_roadTypeID"
+                    "rsr_roadTypeID"
                   ]
                 ]
               }
@@ -23115,11 +23198,11 @@
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
-              "n"
+              "rd"
             ],
             "ranges": {
-              "n": {
-                "from": "run_rows"
+              "rd": {
+                "from": "runspecroadtype_rows"
               },
               "g": {
                 "from": "runspeccounty_rows"
@@ -23129,7 +23212,8 @@
               "op": "index",
               "args": [
                 "run_linkAvgSpeed",
-                "g"
+                "g",
+                "rd"
               ]
             }
           }
@@ -24741,6 +24825,9 @@
               },
               "g": {
                 "from": "runspeccounty_rows"
+              },
+              "rd": {
+                "from": "runspecroadtype_rows"
               }
             },
             "expr": {
@@ -24753,7 +24840,8 @@
                       "op": "index",
                       "args": [
                         "run_linkCount",
-                        "g"
+                        "g",
+                        "rd"
                       ]
                     },
                     1.0
@@ -24761,6 +24849,108 @@
                 },
                 0.0,
                 1.0
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "run_linkGradeMismatches",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "n"
+            ],
+            "ranges": {
+              "n": {
+                "from": "run_rows"
+              },
+              "l": {
+                "from": "link_rows"
+              },
+              "c": {
+                "from": "runspeccounty_rows"
+              },
+              "rd": {
+                "from": "runspecroadtype_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "lnk_countyID",
+                    "rsc_countyID"
+                  ],
+                  [
+                    "lnk_roadTypeID",
+                    "rsr_roadTypeID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                {
+                  "op": "and",
+                  "args": [
+                    {
+                      "op": ">",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "run_isProjectDomain",
+                            "n"
+                          ]
+                        },
+                        0.5
+                      ]
+                    },
+                    {
+                      "op": ">",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "rsr_isOnNetwork",
+                            "rd"
+                          ]
+                        },
+                        0.5
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "op": "ifelse",
+                  "args": [
+                    {
+                      "op": "==",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "lnk_linkAvgGrade",
+                            "l"
+                          ]
+                        },
+                        {
+                          "op": "index",
+                          "args": [
+                            "run_projectLinkGrade",
+                            "n"
+                          ]
+                        }
+                      ]
+                    },
+                    0.0,
+                    1.0
+                  ]
+                },
+                0.0
               ]
             }
           }
@@ -24844,13 +25034,29 @@
               },
               "s": {
                 "from": "runspecsourcetype_rows"
+              },
+              "rd": {
+                "from": "runspecroadtype_rows"
               }
             },
             "expr": {
-              "op": "index",
+              "op": "*",
               "args": [
-                "lomd_outOfBoundsCount",
-                "s"
+                {
+                  "op": "index",
+                  "args": [
+                    "rsr_isOnNetwork",
+                    "rd"
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "lomd_outOfBoundsCount",
+                    "s",
+                    "rd"
+                  ]
+                }
               ]
             }
           }
@@ -25222,14 +25428,32 @@
             "op": "ifelse",
             "args": [
               {
-                "op": "==",
+                "op": "or",
                 "args": [
-                  "rspp_processID",
                   {
-                    "op": "enum",
+                    "op": "==",
                     "args": [
-                      "process",
-                      "RunningExhaust"
+                      "rspp_processID",
+                      {
+                        "op": "enum",
+                        "args": [
+                          "process",
+                          "RunningExhaust"
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "op": "==",
+                    "args": [
+                      "rspp_processID",
+                      {
+                        "op": "enum",
+                        "args": [
+                          "process",
+                          "Brakewear"
+                        ]
+                      }
                     ]
                   }
                 ]
@@ -31165,6 +31389,9 @@
               },
               "p": {
                 "from": "runspecpollutantprocess_rows"
+              },
+              "rd": {
+                "from": "runspecroadtype_rows"
               }
             },
             "join": [
@@ -31173,6 +31400,14 @@
                   [
                     "ppr_ppOrdinal",
                     "rspp_ordinal"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "ppr_roadTypeOrdinal",
+                    "rsr_ordinal"
                   ]
                 ]
               }
@@ -31212,63 +31447,141 @@
                   ]
                 },
                 {
-                  "op": "index",
+                  "op": "ifelse",
                   "args": [
-                    "lomd_W",
-                    "m",
-                    "r"
+                    {
+                      "op": "==",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "rspp_processID",
+                            "p"
+                          ]
+                        },
+                        {
+                          "op": "enum",
+                          "args": [
+                            "process",
+                            "Brakewear"
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "lomd_WBrake",
+                        "m",
+                        "r",
+                        "rd"
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "lomd_W",
+                        "m",
+                        "r",
+                        "rd"
+                      ]
+                    }
                   ]
                 },
                 {
                   "op": "ifelse",
                   "args": [
                     {
-                      "op": ">",
+                      "op": "and",
                       "args": [
                         {
-                          "op": "index",
+                          "op": ">",
                           "args": [
-                            "ppr_isOffNetworkIdle",
-                            "q"
+                            {
+                              "op": "index",
+                              "args": [
+                                "run_isProjectDomain",
+                                "n"
+                              ]
+                            },
+                            0.5
                           ]
                         },
-                        0.5
+                        {
+                          "op": ">",
+                          "args": [
+                            {
+                              "op": "index",
+                              "args": [
+                                "rspp_usesAvgSpeedModes",
+                                "p"
+                              ]
+                            },
+                            0.5
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "lomd_tireW",
+                        "m",
+                        "rd"
                       ]
                     },
                     {
                       "op": "ifelse",
                       "args": [
                         {
-                          "op": "==",
+                          "op": ">",
                           "args": [
                             {
                               "op": "index",
                               "args": [
-                                "om_opModeID",
-                                "m"
+                                "ppr_isOffNetworkIdle",
+                                "q"
                               ]
                             },
-                            {
-                              "op": "enum",
-                              "args": [
-                                "operating_mode",
-                                "Idling"
-                              ]
-                            }
+                            0.5
                           ]
                         },
-                        1.0,
-                        0.0
-                      ]
-                    },
-                    {
-                      "op": "index",
-                      "args": [
-                        "pp_WSpeedBins",
-                        "q",
-                        "k",
-                        "m",
-                        "r"
+                        {
+                          "op": "ifelse",
+                          "args": [
+                            {
+                              "op": "==",
+                              "args": [
+                                {
+                                  "op": "index",
+                                  "args": [
+                                    "om_opModeID",
+                                    "m"
+                                  ]
+                                },
+                                {
+                                  "op": "enum",
+                                  "args": [
+                                    "operating_mode",
+                                    "Idling"
+                                  ]
+                                }
+                              ]
+                            },
+                            1.0,
+                            0.0
+                          ]
+                        },
+                        {
+                          "op": "index",
+                          "args": [
+                            "pp_WSpeedBins",
+                            "q",
+                            "k",
+                            "m",
+                            "r"
+                          ]
+                        }
                       ]
                     }
                   ]
@@ -32095,8 +32408,8 @@
               "r": {
                 "from": "physicsrow_rows"
               },
-              "n": {
-                "from": "run_rows"
+              "rd": {
+                "from": "runspecroadtype_rows"
               }
             },
             "join": [
@@ -32116,7 +32429,7 @@
                   ],
                   [
                     "dsa_roadTypeID",
-                    "run_roadTypeID"
+                    "rsr_roadTypeID"
                   ]
                 ]
               }
@@ -32144,8 +32457,8 @@
               "r": {
                 "from": "physicsrow_rows"
               },
-              "n": {
-                "from": "run_rows"
+              "rd": {
+                "from": "runspecroadtype_rows"
               }
             },
             "join": [
@@ -32165,7 +32478,7 @@
                   ],
                   [
                     "dsa_roadTypeID",
-                    "run_roadTypeID"
+                    "rsr_roadTypeID"
                   ]
                 ]
               }
@@ -32200,11 +32513,11 @@
               "r": {
                 "from": "physicsrow_rows"
               },
-              "n": {
-                "from": "run_rows"
-              },
               "m": {
                 "from": "operating_mode_rows"
+              },
+              "rd": {
+                "from": "runspecroadtype_rows"
               }
             },
             "join": [
@@ -32224,7 +32537,7 @@
                   ],
                   [
                     "dsa_roadTypeID",
-                    "run_roadTypeID"
+                    "rsr_roadTypeID"
                   ]
                 ]
               }
@@ -32317,81 +32630,91 @@
                   ]
                 },
                 {
-                  "op": "+",
-                  "args": [
-                    {
-                      "op": "apply_expression_template",
-                      "args": [],
-                      "name": "link_op_mode_fraction",
-                      "bindings": {
-                        "second_count": {
-                          "op": "index",
-                          "args": [
-                            "lomd_modeSeconds",
-                            "a",
-                            "m",
-                            "r"
-                          ]
-                        },
-                        "second_total": {
-                          "op": "index",
-                          "args": [
-                            "lomd_totalSeconds",
-                            "a",
-                            "r"
-                          ]
-                        }
-                      }
-                    },
-                    {
-                      "op": "ifelse",
+                  "op": "apply_expression_template",
+                  "args": [],
+                  "name": "link_op_mode_fraction",
+                  "bindings": {
+                    "second_count": {
+                      "op": "index",
                       "args": [
-                        {
-                          "op": "==",
-                          "args": [
-                            {
-                              "op": "index",
-                              "args": [
-                                "om_opModeID",
-                                "m"
-                              ]
-                            },
-                            {
-                              "op": "enum",
-                              "args": [
-                                "operating_mode",
-                                "Idling"
-                              ]
-                            }
-                          ]
-                        },
-                        {
-                          "op": "apply_expression_template",
-                          "args": [],
-                          "name": "link_op_mode_fraction",
-                          "bindings": {
-                            "second_count": {
-                              "op": "index",
-                              "args": [
-                                "lomd_stoppedSeconds",
-                                "a",
-                                "r"
-                              ]
-                            },
-                            "second_total": {
-                              "op": "index",
-                              "args": [
-                                "lomd_totalSeconds",
-                                "a",
-                                "r"
-                              ]
-                            }
-                          }
-                        },
-                        0.0
+                        "lomd_modeSeconds",
+                        "a",
+                        "m",
+                        "r"
+                      ]
+                    },
+                    "second_total": {
+                      "op": "index",
+                      "args": [
+                        "lomd_totalSeconds",
+                        "a",
+                        "r"
                       ]
                     }
+                  }
+                },
+                0.0
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "lomd_stoppedFraction",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "a",
+              "r"
+            ],
+            "ranges": {
+              "a": {
+                "from": "drive_schedule_assoc_rows"
+              },
+              "r": {
+                "from": "physicsrow_rows"
+              }
+            },
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                {
+                  "op": ">",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "lomd_totalSeconds",
+                        "a",
+                        "r"
+                      ]
+                    },
+                    0.0
                   ]
+                },
+                {
+                  "op": "apply_expression_template",
+                  "args": [],
+                  "name": "link_op_mode_fraction",
+                  "bindings": {
+                    "second_count": {
+                      "op": "index",
+                      "args": [
+                        "lomd_stoppedSeconds",
+                        "a",
+                        "r"
+                      ]
+                    },
+                    "second_total": {
+                      "op": "index",
+                      "args": [
+                        "lomd_totalSeconds",
+                        "a",
+                        "r"
+                      ]
+                    }
+                  }
                 },
                 0.0
               ]
@@ -32410,7 +32733,8 @@
                 "args": [],
                 "semiring": "sum_product",
                 "output_idx": [
-                  "s"
+                  "s",
+                  "rd"
                 ],
                 "ranges": {
                   "a": {
@@ -32419,10 +32743,20 @@
                   "s": {
                     "from": "runspecsourcetype_rows"
                   },
-                  "n": {
-                    "from": "run_rows"
+                  "rd": {
+                    "from": "runspecroadtype_rows"
                   }
                 },
+                "join": [
+                  {
+                    "on": [
+                      [
+                        "dsa_roadTypeID",
+                        "rsr_roadTypeID"
+                      ]
+                    ]
+                  }
+                ],
                 "filter": {
                   "op": "and",
                   "args": [
@@ -32454,7 +32788,7 @@
                           "op": "index",
                           "args": [
                             "run_projectLinkSpeed",
-                            "n"
+                            "rd"
                           ]
                         }
                       ]
@@ -32473,7 +32807,8 @@
             "args": [],
             "semiring": "max_product",
             "output_idx": [
-              "s"
+              "s",
+              "rd"
             ],
             "ranges": {
               "a": {
@@ -32482,10 +32817,20 @@
               "s": {
                 "from": "runspecsourcetype_rows"
               },
-              "n": {
-                "from": "run_rows"
+              "rd": {
+                "from": "runspecroadtype_rows"
               }
             },
+            "join": [
+              {
+                "on": [
+                  [
+                    "dsa_roadTypeID",
+                    "rsr_roadTypeID"
+                  ]
+                ]
+              }
+            ],
             "filter": {
               "op": "and",
               "args": [
@@ -32517,7 +32862,7 @@
                       "op": "index",
                       "args": [
                         "run_projectLinkSpeed",
-                        "n"
+                        "rd"
                       ]
                     }
                   ]
@@ -32545,7 +32890,8 @@
                 "args": [],
                 "semiring": "sum_product",
                 "output_idx": [
-                  "s"
+                  "s",
+                  "rd"
                 ],
                 "ranges": {
                   "a": {
@@ -32554,10 +32900,20 @@
                   "s": {
                     "from": "runspecsourcetype_rows"
                   },
-                  "n": {
-                    "from": "run_rows"
+                  "rd": {
+                    "from": "runspecroadtype_rows"
                   }
                 },
+                "join": [
+                  {
+                    "on": [
+                      [
+                        "dsa_roadTypeID",
+                        "rsr_roadTypeID"
+                      ]
+                    ]
+                  }
+                ],
                 "filter": {
                   "op": "and",
                   "args": [
@@ -32589,7 +32945,7 @@
                           "op": "index",
                           "args": [
                             "run_projectLinkSpeed",
-                            "n"
+                            "rd"
                           ]
                         }
                       ]
@@ -32608,7 +32964,8 @@
             "args": [],
             "semiring": "min_sum",
             "output_idx": [
-              "s"
+              "s",
+              "rd"
             ],
             "ranges": {
               "a": {
@@ -32617,10 +32974,20 @@
               "s": {
                 "from": "runspecsourcetype_rows"
               },
-              "n": {
-                "from": "run_rows"
+              "rd": {
+                "from": "runspecroadtype_rows"
               }
             },
+            "join": [
+              {
+                "on": [
+                  [
+                    "dsa_roadTypeID",
+                    "rsr_roadTypeID"
+                  ]
+                ]
+              }
+            ],
             "filter": {
               "op": "and",
               "args": [
@@ -32652,7 +33019,7 @@
                       "op": "index",
                       "args": [
                         "run_projectLinkSpeed",
-                        "n"
+                        "rd"
                       ]
                     }
                   ]
@@ -32680,7 +33047,8 @@
                 "args": [],
                 "semiring": "sum_product",
                 "output_idx": [
-                  "s"
+                  "s",
+                  "rd"
                 ],
                 "ranges": {
                   "a": {
@@ -32689,10 +33057,20 @@
                   "s": {
                     "from": "runspecsourcetype_rows"
                   },
-                  "n": {
-                    "from": "run_rows"
+                  "rd": {
+                    "from": "runspecroadtype_rows"
                   }
                 },
+                "join": [
+                  {
+                    "on": [
+                      [
+                        "dsa_roadTypeID",
+                        "rsr_roadTypeID"
+                      ]
+                    ]
+                  }
+                ],
                 "filter": {
                   "op": "and",
                   "args": [
@@ -32724,7 +33102,7 @@
                           "op": "index",
                           "args": [
                             "run_projectLinkSpeed",
-                            "n"
+                            "rd"
                           ]
                         }
                       ]
@@ -32743,7 +33121,8 @@
             "args": [],
             "semiring": "min_sum",
             "output_idx": [
-              "s"
+              "s",
+              "rd"
             ],
             "ranges": {
               "a": {
@@ -32752,10 +33131,20 @@
               "s": {
                 "from": "runspecsourcetype_rows"
               },
-              "n": {
-                "from": "run_rows"
+              "rd": {
+                "from": "runspecroadtype_rows"
               }
             },
+            "join": [
+              {
+                "on": [
+                  [
+                    "dsa_roadTypeID",
+                    "rsr_roadTypeID"
+                  ]
+                ]
+              }
+            ],
             "filter": {
               "op": "and",
               "args": [
@@ -32787,7 +33176,7 @@
                       "op": "index",
                       "args": [
                         "run_projectLinkSpeed",
-                        "n"
+                        "rd"
                       ]
                     }
                   ]
@@ -32815,7 +33204,8 @@
                 "args": [],
                 "semiring": "sum_product",
                 "output_idx": [
-                  "s"
+                  "s",
+                  "rd"
                 ],
                 "ranges": {
                   "a": {
@@ -32824,10 +33214,20 @@
                   "s": {
                     "from": "runspecsourcetype_rows"
                   },
-                  "n": {
-                    "from": "run_rows"
+                  "rd": {
+                    "from": "runspecroadtype_rows"
                   }
                 },
+                "join": [
+                  {
+                    "on": [
+                      [
+                        "dsa_roadTypeID",
+                        "rsr_roadTypeID"
+                      ]
+                    ]
+                  }
+                ],
                 "filter": {
                   "op": "and",
                   "args": [
@@ -32859,7 +33259,7 @@
                           "op": "index",
                           "args": [
                             "run_projectLinkSpeed",
-                            "n"
+                            "rd"
                           ]
                         }
                       ]
@@ -32878,7 +33278,8 @@
             "args": [],
             "semiring": "max_product",
             "output_idx": [
-              "s"
+              "s",
+              "rd"
             ],
             "ranges": {
               "a": {
@@ -32887,10 +33288,20 @@
               "s": {
                 "from": "runspecsourcetype_rows"
               },
-              "n": {
-                "from": "run_rows"
+              "rd": {
+                "from": "runspecroadtype_rows"
               }
             },
+            "join": [
+              {
+                "on": [
+                  [
+                    "dsa_roadTypeID",
+                    "rsr_roadTypeID"
+                  ]
+                ]
+              }
+            ],
             "filter": {
               "op": "and",
               "args": [
@@ -32922,7 +33333,7 @@
                       "op": "index",
                       "args": [
                         "run_projectLinkSpeed",
-                        "n"
+                        "rd"
                       ]
                     }
                   ]
@@ -33005,7 +33416,8 @@
             "args": [],
             "semiring": "max_product",
             "output_idx": [
-              "s"
+              "s",
+              "rd"
             ],
             "ranges": {
               "a": {
@@ -33013,30 +33425,58 @@
               },
               "s": {
                 "from": "runspecsourcetype_rows"
+              },
+              "rd": {
+                "from": "runspecroadtype_rows"
               }
             },
             "join": [
               {
                 "on": [
                   [
-                    "dsa_averageSpeed",
-                    "lomd_lowSpeed"
+                    "dsa_roadTypeID",
+                    "rsr_roadTypeID"
                   ]
                 ]
               }
             ],
             "filter": {
-              "op": ">",
+              "op": "and",
               "args": [
                 {
-                  "op": "index",
+                  "op": ">",
                   "args": [
-                    "dsa_isSelected",
-                    "a",
-                    "s"
+                    {
+                      "op": "index",
+                      "args": [
+                        "dsa_isSelected",
+                        "a",
+                        "s"
+                      ]
+                    },
+                    0.5
                   ]
                 },
-                0.5
+                {
+                  "op": "==",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "dsa_averageSpeed",
+                        "a"
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "lomd_lowSpeed",
+                        "s",
+                        "rd"
+                      ]
+                    }
+                  ]
+                }
               ]
             },
             "expr": {
@@ -33055,7 +33495,8 @@
             "args": [],
             "semiring": "max_product",
             "output_idx": [
-              "s"
+              "s",
+              "rd"
             ],
             "ranges": {
               "a": {
@@ -33063,30 +33504,58 @@
               },
               "s": {
                 "from": "runspecsourcetype_rows"
+              },
+              "rd": {
+                "from": "runspecroadtype_rows"
               }
             },
             "join": [
               {
                 "on": [
                   [
-                    "dsa_averageSpeed",
-                    "lomd_highSpeed"
+                    "dsa_roadTypeID",
+                    "rsr_roadTypeID"
                   ]
                 ]
               }
             ],
             "filter": {
-              "op": ">",
+              "op": "and",
               "args": [
                 {
-                  "op": "index",
+                  "op": ">",
                   "args": [
-                    "dsa_isSelected",
-                    "a",
-                    "s"
+                    {
+                      "op": "index",
+                      "args": [
+                        "dsa_isSelected",
+                        "a",
+                        "s"
+                      ]
+                    },
+                    0.5
                   ]
                 },
-                0.5
+                {
+                  "op": "==",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "dsa_averageSpeed",
+                        "a"
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "lomd_highSpeed",
+                        "s",
+                        "rd"
+                      ]
+                    }
+                  ]
+                }
               ]
             },
             "expr": {
@@ -33105,14 +33574,15 @@
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
-              "s"
+              "s",
+              "rd"
             ],
             "ranges": {
               "s": {
                 "from": "runspecsourcetype_rows"
               },
-              "n": {
-                "from": "run_rows"
+              "rd": {
+                "from": "runspecroadtype_rows"
               }
             },
             "expr": {
@@ -33125,14 +33595,16 @@
                       "op": "index",
                       "args": [
                         "lomd_lowSpeed",
-                        "s"
+                        "s",
+                        "rd"
                       ]
                     },
                     {
                       "op": "index",
                       "args": [
                         "lomd_highSpeed",
-                        "s"
+                        "s",
+                        "rd"
                       ]
                     }
                   ]
@@ -33147,14 +33619,15 @@
                           "op": "index",
                           "args": [
                             "run_projectLinkSpeed",
-                            "n"
+                            "rd"
                           ]
                         },
                         {
                           "op": "index",
                           "args": [
                             "lomd_lowSpeed",
-                            "s"
+                            "s",
+                            "rd"
                           ]
                         }
                       ]
@@ -33166,14 +33639,16 @@
                           "op": "index",
                           "args": [
                             "lomd_highSpeed",
-                            "s"
+                            "s",
+                            "rd"
                           ]
                         },
                         {
                           "op": "index",
                           "args": [
                             "lomd_lowSpeed",
-                            "s"
+                            "s",
+                            "rd"
                           ]
                         }
                       ]
@@ -33193,7 +33668,8 @@
             "semiring": "sum_product",
             "output_idx": [
               "m",
-              "r"
+              "r",
+              "rd"
             ],
             "ranges": {
               "a": {
@@ -33207,6 +33683,9 @@
               },
               "s": {
                 "from": "runspecsourcetype_rows"
+              },
+              "rd": {
+                "from": "runspecroadtype_rows"
               }
             },
             "join": [
@@ -33229,24 +33708,333 @@
               {
                 "on": [
                   [
-                    "dsa_driveScheduleID",
-                    "lomd_lowScheduleID"
+                    "dsa_roadTypeID",
+                    "rsr_roadTypeID"
                   ]
                 ]
               }
             ],
             "filter": {
-              "op": ">",
+              "op": "and",
+              "args": [
+                {
+                  "op": ">",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "dsa_isSelected",
+                        "a",
+                        "s"
+                      ]
+                    },
+                    0.5
+                  ]
+                },
+                {
+                  "op": "==",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "dsa_driveScheduleID",
+                        "a"
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "lomd_lowScheduleID",
+                        "s",
+                        "rd"
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            "expr": {
+              "op": "+",
               "args": [
                 {
                   "op": "index",
                   "args": [
-                    "dsa_isSelected",
+                    "lomd_modeFraction",
                     "a",
-                    "s"
+                    "m",
+                    "r"
                   ]
                 },
-                0.5
+                {
+                  "op": "ifelse",
+                  "args": [
+                    {
+                      "op": "==",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "om_opModeID",
+                            "m"
+                          ]
+                        },
+                        {
+                          "op": "enum",
+                          "args": [
+                            "operating_mode",
+                            "Idling"
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "lomd_stoppedFraction",
+                        "a",
+                        "r"
+                      ]
+                    },
+                    0.0
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "lomd_highFraction",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "m",
+              "r",
+              "rd"
+            ],
+            "ranges": {
+              "a": {
+                "from": "drive_schedule_assoc_rows"
+              },
+              "m": {
+                "from": "operating_mode_rows"
+              },
+              "r": {
+                "from": "physicsrow_rows"
+              },
+              "s": {
+                "from": "runspecsourcetype_rows"
+              },
+              "rd": {
+                "from": "runspecroadtype_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "dsa_sourceTypeID",
+                    "phy_sourceTypeID"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "phy_sourceTypeOrdinal",
+                    "rst_ordinal"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "dsa_roadTypeID",
+                    "rsr_roadTypeID"
+                  ]
+                ]
+              }
+            ],
+            "filter": {
+              "op": "and",
+              "args": [
+                {
+                  "op": ">",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "dsa_isSelected",
+                        "a",
+                        "s"
+                      ]
+                    },
+                    0.5
+                  ]
+                },
+                {
+                  "op": "==",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "dsa_driveScheduleID",
+                        "a"
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "lomd_highScheduleID",
+                        "s",
+                        "rd"
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            "expr": {
+              "op": "+",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "lomd_modeFraction",
+                    "a",
+                    "m",
+                    "r"
+                  ]
+                },
+                {
+                  "op": "ifelse",
+                  "args": [
+                    {
+                      "op": "==",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "om_opModeID",
+                            "m"
+                          ]
+                        },
+                        {
+                          "op": "enum",
+                          "args": [
+                            "operating_mode",
+                            "Idling"
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "lomd_stoppedFraction",
+                        "a",
+                        "r"
+                      ]
+                    },
+                    0.0
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "lomd_lowBrakeFraction",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "m",
+              "r",
+              "rd"
+            ],
+            "ranges": {
+              "a": {
+                "from": "drive_schedule_assoc_rows"
+              },
+              "m": {
+                "from": "operating_mode_rows"
+              },
+              "r": {
+                "from": "physicsrow_rows"
+              },
+              "s": {
+                "from": "runspecsourcetype_rows"
+              },
+              "rd": {
+                "from": "runspecroadtype_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "dsa_sourceTypeID",
+                    "phy_sourceTypeID"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "phy_sourceTypeOrdinal",
+                    "rst_ordinal"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "dsa_roadTypeID",
+                    "rsr_roadTypeID"
+                  ]
+                ]
+              }
+            ],
+            "filter": {
+              "op": "and",
+              "args": [
+                {
+                  "op": ">",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "dsa_isSelected",
+                        "a",
+                        "s"
+                      ]
+                    },
+                    0.5
+                  ]
+                },
+                {
+                  "op": "==",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "dsa_driveScheduleID",
+                        "a"
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "lomd_lowScheduleID",
+                        "s",
+                        "rd"
+                      ]
+                    }
+                  ]
+                }
               ]
             },
             "expr": {
@@ -33261,14 +34049,15 @@
           }
         },
         {
-          "lhs": "lomd_highFraction",
+          "lhs": "lomd_highBrakeFraction",
           "rhs": {
             "op": "faq",
             "args": [],
             "semiring": "sum_product",
             "output_idx": [
               "m",
-              "r"
+              "r",
+              "rd"
             ],
             "ranges": {
               "a": {
@@ -33282,6 +34071,9 @@
               },
               "s": {
                 "from": "runspecsourcetype_rows"
+              },
+              "rd": {
+                "from": "runspecroadtype_rows"
               }
             },
             "join": [
@@ -33304,24 +34096,49 @@
               {
                 "on": [
                   [
-                    "dsa_driveScheduleID",
-                    "lomd_highScheduleID"
+                    "dsa_roadTypeID",
+                    "rsr_roadTypeID"
                   ]
                 ]
               }
             ],
             "filter": {
-              "op": ">",
+              "op": "and",
               "args": [
                 {
-                  "op": "index",
+                  "op": ">",
                   "args": [
-                    "dsa_isSelected",
-                    "a",
-                    "s"
+                    {
+                      "op": "index",
+                      "args": [
+                        "dsa_isSelected",
+                        "a",
+                        "s"
+                      ]
+                    },
+                    0.5
                   ]
                 },
-                0.5
+                {
+                  "op": "==",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "dsa_driveScheduleID",
+                        "a"
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "lomd_highScheduleID",
+                        "s",
+                        "rd"
+                      ]
+                    }
+                  ]
+                }
               ]
             },
             "expr": {
@@ -33343,7 +34160,8 @@
             "semiring": "sum_product",
             "output_idx": [
               "m",
-              "r"
+              "r",
+              "rd"
             ],
             "ranges": {
               "m": {
@@ -33354,6 +34172,9 @@
               },
               "s": {
                 "from": "runspecsourcetype_rows"
+              },
+              "rd": {
+                "from": "runspecroadtype_rows"
               }
             },
             "join": [
@@ -33369,51 +34190,178 @@
             "expr": {
               "op": "apply_expression_template",
               "args": [],
-              "name": "positive_else_zero",
+              "name": "link_bracket_interpolation",
               "bindings": {
-                "value": {
-                  "op": "+",
+                "low_fraction": {
+                  "op": "index",
+                  "args": [
+                    "lomd_lowFraction",
+                    "m",
+                    "r",
+                    "rd"
+                  ]
+                },
+                "high_fraction": {
+                  "op": "index",
+                  "args": [
+                    "lomd_highFraction",
+                    "m",
+                    "r",
+                    "rd"
+                  ]
+                },
+                "factor": {
+                  "op": "index",
+                  "args": [
+                    "lomd_factor",
+                    "s",
+                    "rd"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "lhs": "lomd_WBrake",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "m",
+              "r",
+              "rd"
+            ],
+            "ranges": {
+              "m": {
+                "from": "operating_mode_rows"
+              },
+              "r": {
+                "from": "physicsrow_rows"
+              },
+              "s": {
+                "from": "runspecsourcetype_rows"
+              },
+              "rd": {
+                "from": "runspecroadtype_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "phy_sourceTypeOrdinal",
+                    "rst_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "link_bracket_interpolation",
+              "bindings": {
+                "low_fraction": {
+                  "op": "index",
+                  "args": [
+                    "lomd_lowBrakeFraction",
+                    "m",
+                    "r",
+                    "rd"
+                  ]
+                },
+                "high_fraction": {
+                  "op": "index",
+                  "args": [
+                    "lomd_highBrakeFraction",
+                    "m",
+                    "r",
+                    "rd"
+                  ]
+                },
+                "factor": {
+                  "op": "index",
+                  "args": [
+                    "lomd_factor",
+                    "s",
+                    "rd"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "lhs": "lomd_tireW",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "m",
+              "rd"
+            ],
+            "ranges": {
+              "m": {
+                "from": "operating_mode_rows"
+              },
+              "rd": {
+                "from": "runspecroadtype_rows"
+              }
+            },
+            "expr": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "tirewear_link_op_mode",
+              "bindings": {
+                "op_mode_id": {
+                  "op": "index",
+                  "args": [
+                    "om_opModeID",
+                    "m"
+                  ]
+                },
+                "link_speed": {
+                  "op": "index",
+                  "args": [
+                    "run_projectLinkSpeed",
+                    "rd"
+                  ]
+                },
+                "speed_lower": {
+                  "op": "/",
                   "args": [
                     {
                       "op": "index",
                       "args": [
-                        "lomd_lowFraction",
-                        "m",
-                        "r"
+                        "om_speedLower",
+                        "m"
                       ]
                     },
                     {
-                      "op": "*",
+                      "op": "const",
+                      "args": [],
+                      "value": 1.0,
+                      "units": "mi/h"
+                    }
+                  ]
+                },
+                "speed_upper": {
+                  "op": "/",
+                  "args": [
+                    {
+                      "op": "index",
                       "args": [
-                        {
-                          "op": "-",
-                          "args": [
-                            {
-                              "op": "index",
-                              "args": [
-                                "lomd_highFraction",
-                                "m",
-                                "r"
-                              ]
-                            },
-                            {
-                              "op": "index",
-                              "args": [
-                                "lomd_lowFraction",
-                                "m",
-                                "r"
-                              ]
-                            }
-                          ]
-                        },
-                        {
-                          "op": "index",
-                          "args": [
-                            "lomd_factor",
-                            "s"
-                          ]
-                        }
+                        "om_speedUpper",
+                        "m"
                       ]
+                    },
+                    {
+                      "op": "const",
+                      "args": [],
+                      "value": 1.0,
+                      "units": "mi/h"
                     }
                   ]
                 }
@@ -84691,6 +85639,9 @@
               },
               "v": {
                 "from": "avgspeedbin_rows"
+              },
+              "rd": {
+                "from": "runspecroadtype_rows"
               }
             },
             "join": [
@@ -84703,6 +85654,14 @@
                   [
                     "rsb_ordinal",
                     "asb_ordinal"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "rt_roadTypeOrdinal",
+                    "rsr_ordinal"
                   ]
                 ]
               }
@@ -84866,7 +85825,8 @@
                                   "op": "index",
                                   "args": [
                                     "run_linkAvgSpeed",
-                                    "g"
+                                    "g",
+                                    "rd"
                                   ]
                                 },
                                 1.0
@@ -88074,6 +89034,9 @@
               },
               "n": {
                 "from": "run_rows"
+              },
+              "rd": {
+                "from": "runspecroadtype_rows"
               }
             },
             "join": [
@@ -88082,6 +89045,14 @@
                   [
                     "outCountyOrdinal",
                     "rsc_ordinal"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "outRoadTypeOrdinal",
+                    "rsr_ordinal"
                   ]
                 ]
               }
@@ -88106,7 +89077,8 @@
                   "op": "index",
                   "args": [
                     "run_linkID",
-                    "g"
+                    "g",
+                    "rd"
                   ]
                 },
                 {
@@ -93420,6 +94392,9 @@
               },
               "n": {
                 "from": "run_rows"
+              },
+              "rd": {
+                "from": "runspecroadtype_rows"
               }
             },
             "join": [
@@ -93436,6 +94411,14 @@
                   [
                     "outCountyOrdinal",
                     "rsc_ordinal"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "outRoadTypeOrdinal",
+                    "rsr_ordinal"
                   ]
                 ]
               }
@@ -93460,7 +94443,8 @@
                   "op": "index",
                   "args": [
                     "run_linkID",
-                    "g"
+                    "g",
+                    "rd"
                   ]
                 },
                 {

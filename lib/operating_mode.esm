@@ -132,6 +132,177 @@
     "insert_ignore_union": {
       "params": ["first_statement", "second_statement"],
       "body": { "op": "max", "args": ["first_statement", "second_statement"] }
+    },
+
+    "link_bracket_interpolation": {
+      "description": "LinkOperatingModeDistributionGenerator's interpolation between the two bracketing schedules' fractions, `low + (high - low) x factor`, with a non-positive result dropped (the insert's `where opModeFraction > 0`; docs/link-operating-mode-distribution.md 2.6). One template for the folded distribution every polProcess reads and the unfolded one brake wear reads (onroad/model.esm `lomd_W`, `lomd_WBrake`).",
+      "params": [
+        "low_fraction",
+        "high_fraction",
+        "factor"
+      ],
+      "body": {
+        "op": "ifelse",
+        "args": [
+          {
+            "op": ">",
+            "args": [
+              {
+                "op": "+",
+                "args": [
+                  "low_fraction",
+                  {
+                    "op": "*",
+                    "args": [
+                      {
+                        "op": "-",
+                        "args": [
+                          "high_fraction",
+                          "low_fraction"
+                        ]
+                      },
+                      "factor"
+                    ]
+                  }
+                ]
+              },
+              0.0
+            ]
+          },
+          {
+            "op": "+",
+            "args": [
+              "low_fraction",
+              {
+                "op": "*",
+                "args": [
+                  {
+                    "op": "-",
+                    "args": [
+                      "high_fraction",
+                      "low_fraction"
+                    ]
+                  },
+                  "factor"
+                ]
+              }
+            ]
+          },
+          0.0
+        ]
+      }
+    },
+
+    "tirewear_link_op_mode": {
+      "description": "1 when `op_mode_id` is the mode AverageSpeedOperatingModeDistributionGenerator.buildOpModeClause (java:345-387) assigns a PROJECT link of average speed `link_speed`, else 0: `when linkAvgSpeed<0.1 then 400`, then the operatingMode rows 401-499 named 'tirewear', each `speedLower <= linkAvgSpeed and linkAvgSpeed < speedUpper` with an absent (NULL, read as NaN) bound omitted. The bands are disjoint, so the CASE's first match is the only one. 400, 401 and 499 are the SQL's own literals.",
+      "params": [
+        "op_mode_id",
+        "link_speed",
+        "speed_lower",
+        "speed_upper"
+      ],
+      "body": {
+        "op": "ifelse",
+        "args": [
+          {
+            "op": "<",
+            "args": [
+              "link_speed",
+              0.1
+            ]
+          },
+          {
+            "op": "ifelse",
+            "args": [
+              {
+                "op": "==",
+                "args": [
+                  "op_mode_id",
+                  400.0
+                ]
+              },
+              1.0,
+              0.0
+            ]
+          },
+          {
+            "op": "ifelse",
+            "args": [
+              {
+                "op": "and",
+                "args": [
+                  {
+                    "op": ">=",
+                    "args": [
+                      "op_mode_id",
+                      401.0
+                    ]
+                  },
+                  {
+                    "op": "<=",
+                    "args": [
+                      "op_mode_id",
+                      499.0
+                    ]
+                  }
+                ]
+              },
+              {
+                "op": "ifelse",
+                "args": [
+                  {
+                    "op": "and",
+                    "args": [
+                      {
+                        "op": "==",
+                        "args": [
+                          "speed_lower",
+                          "speed_lower"
+                        ]
+                      },
+                      {
+                        "op": "<",
+                        "args": [
+                          "link_speed",
+                          "speed_lower"
+                        ]
+                      }
+                    ]
+                  },
+                  0.0,
+                  {
+                    "op": "ifelse",
+                    "args": [
+                      {
+                        "op": "and",
+                        "args": [
+                          {
+                            "op": "==",
+                            "args": [
+                              "speed_upper",
+                              "speed_upper"
+                            ]
+                          },
+                          {
+                            "op": ">=",
+                            "args": [
+                              "link_speed",
+                              "speed_upper"
+                            ]
+                          }
+                        ]
+                      },
+                      0.0,
+                      1.0
+                    ]
+                  }
+                ]
+              },
+              0.0
+            ]
+          }
+        ]
+      }
     }
   }
 }
