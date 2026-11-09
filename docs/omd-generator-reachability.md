@@ -27,8 +27,8 @@ Java classes MOVES loaded for that run.
 
 > **The brief for this work said the evidence is a `kind: "generator"` entry in
 > `java_classes`. There is no such entry anywhere in the corpus.** Rolled over
-> all 64 traces, `java_classes[*].kind` takes exactly five values —
-> `common` (4,137), `framework` (4,137), `master` (3,147), `utils` (126) and
+> all 67 traces, `java_classes[*].kind` takes exactly five values —
+> `common` (4,357), `framework` (4,354), `master` (3,324), `utils` (136) and
 > `worker` (63). Generators are `kind: "master"` (or `framework`, for the
 > abstract `Generator` base). The signal that works is the class NAME.
 
@@ -68,9 +68,9 @@ that key is `(roadTypeID, avgSpeedBinID)`, and
 What the intersection buys is that a generator nothing loaded can no longer be
 credited with a sibling's rows.
 
-The corpus as measured: **65 snapshot directories, 64 with an
+The corpus as measured: **68 snapshot directories, 67 with an
 `execution-trace.json`** (`mixed-onroad-nonroad` carries `tables/` only), at
-`moves.rs` commit `9285647a` (2026-11-02: `expand-ev-heat`, an electric car and transit bus at a hot hour, PLAN.md §7.3.50; before it `5389ead6`, the same day: `rates-venting` and `process-evap-fvv-day`, the first 24-hour runs, and `rates-hotelling-sourcetypes`, PLAN.md §7.3.49; before it `46cff1e6`, the same day: three more Rates-scale twins, `rates-pm`, `rates-nonhaptog` and
+`moves.rs` commit `9285647a` plus the three uncommitted PROJECT captures of 2026-11-09 (`project-links`, `project-offnetwork`, `project-hotelling`, PLAN.md §7.3.55; before them, 2026-11-02: `expand-ev-heat`, an electric car and transit bus at a hot hour, PLAN.md §7.3.50; before it `5389ead6`, the same day: `rates-venting` and `process-evap-fvv-day`, the first 24-hour runs, and `rates-hotelling-sourcetypes`, PLAN.md §7.3.49; before it `46cff1e6`, the same day: three more Rates-scale twins, `rates-pm`, `rates-nonhaptog` and
 `rates-mechanism`, PLAN.md §7.3.48 part E; before it `5cc407df`, 2026-11-01: `rates-project`, captured with the execution
 database named `MOVESExecution`; before that `6c11d458`, the five Rates-scale twins `rates-running`,
 `rates-wear`, `rates-start`, `rates-hotelling` and `rates-evap`, PLAN.md §7.3.48; before
@@ -128,47 +128,49 @@ which three of these rows share.
 
 | generator | class-loaded in | writes | snapshots with rows | reachable? |
 |---|---:|---|---:|---|
-| `RatesOperatingModeDistributionGenerator` | **52** / 64 | `RatesOpModeDistribution` | **33** | **yes** |
-| `StartOperatingModeDistributionGenerator` | **23** / 64 | `StartOpModeDistribution` | **21** | **yes** |
-| `LinkOperatingModeDistributionGenerator` | **2** / 64 | `OpModeDistribution` | **2** | **yes, since 2026-09-10** |
-| `OperatingModeDistributionGenerator` | 0 / 64 | `OpModeDistribution` | 0 | no — dead code |
-| `MesoscaleLookupOperatingModeDistributionGenerator` | 0 / 64 | `OpModeDistribution` | 0 | no — dead code |
-| `MesoscaleLookupTotalActivityGenerator` | 0 / 64 | `SourceHours`, `SHO` | 0 | no — dead code |
-| `NewTvvYearGenerator` | 0 / 64 | — | — | no — no such class |
+| `RatesOperatingModeDistributionGenerator` | **55** / 67 | `RatesOpModeDistribution` | **36** | **yes** |
+| `StartOperatingModeDistributionGenerator` | **24** / 67 | `StartOpModeDistribution` | **21** | **yes** |
+| `LinkOperatingModeDistributionGenerator` | **5** / 67 | `OpModeDistribution` | **5** | **yes, since 2026-09-10** |
+| `OperatingModeDistributionGenerator` | 0 / 67 | `OpModeDistribution` | 0 | no — dead code |
+| `MesoscaleLookupOperatingModeDistributionGenerator` | 0 / 67 | `OpModeDistribution` | 0 | no — dead code |
+| `MesoscaleLookupTotalActivityGenerator` | 0 / 67 | `SourceHours`, `SHO` | 0 | no — dead code |
+| `NewTvvYearGenerator` | 0 / 67 | — | — | no — no such class |
 
-`FuelEffectsGenerator` (50 / 64) is the eighth unported generator and belongs to
+`FuelEffectsGenerator` (53 / 67) is the eighth unported generator and belongs to
 a parallel rung; it is listed here only so the eight add up. It has since been
 ported (`docs/fuel-effects-generator.md`), as have the first two rows of the
 table (`docs/operating-mode-distribution.md`).
 
 The three zeros in the `snapshots with rows` column are the ones the
-intersection earns. `OpModeDistribution` is non-empty in exactly two snapshots
-— `scale-project` and `rates-project`, 122 rows each — and a table-keyed count
-would put that 2 against all three of the generators that write it.
+intersection earns. `OpModeDistribution` is non-empty in exactly the five PROJECT snapshots
+— `scale-project` and `rates-project`, 122 rows each, and since 2026-11-09 `project-links`, `project-offnetwork`
+and `project-hotelling` — and a table-keyed count would put that 5 against all three of the generators that
+write it.
 
 ### Which snapshots, exactly
 
-`RatesOpModeDistribution` is non-empty in 33 snapshots:
+`RatesOpModeDistribution` is non-empty in 36 snapshots:
 
 | snapshot | rows | | snapshot | rows |
 |---|---:|---|---|---:|
-| `expand-counties-large` | 9 | | `process-crankcase-start` | 49 |
-| `expand-counties` | 9 | | `process-extended-idle-single` | 1 |
-| `expand-criteria` | 33 | | `process-extended-idle` | 2 |
-| `expand-day` | 18 | | `process-refueling` | 9 |
-| `expand-fueltype-diesel` | 18 | | `process-tirewear` | 16 |
-| `expand-fullyear` | 9 | | `rates-evap` | 9 |
-| `expand-month` | 9 | | `rates-hotelling-sourcetypes` | 8 |
-| `expand-multifuel` | 9 | | `rates-hotelling` | 8 |
-| `expand-multiyear` | 9 | | `rates-minimal` | 9 |
-| `expand-roadtypes` | 9 | | `rates-project` | 22 |
-| `expand-sourcetype` | 46 | | `rates-start` | 49 |
-| `mixed-onroad` | 9 | | `rates-wear` | 16 |
-| `process-apu-single` | 3 | | `sample-runspec` | 9 |
-| `process-apu` | 3 | | `scale-county` | 9 |
-| `process-crankcase-extidle-single` | 3 | | `scale-project` | 22 |
-| `process-crankcase-extidle` | 3 | | `scale-rates` | 9 |
-| `process-crankcase-start-single` | 49 | | | |
+| `expand-counties` | 9 | | `process-extended-idle` | 2 |
+| `expand-counties-large` | 9 | | `process-extended-idle-single` | 1 |
+| `expand-criteria` | 33 | | `process-refueling` | 9 |
+| `expand-day` | 18 | | `process-tirewear` | 16 |
+| `expand-fueltype-diesel` | 18 | | `project-hotelling` | 272 |
+| `expand-fullyear` | 9 | | `project-links` | 273 |
+| `expand-month` | 9 | | `project-offnetwork` | 272 |
+| `expand-multifuel` | 9 | | `rates-evap` | 9 |
+| `expand-multiyear` | 9 | | `rates-hotelling` | 8 |
+| `expand-roadtypes` | 9 | | `rates-hotelling-sourcetypes` | 8 |
+| `expand-sourcetype` | 46 | | `rates-minimal` | 9 |
+| `mixed-onroad` | 9 | | `rates-project` | 22 |
+| `process-apu` | 3 | | `rates-start` | 49 |
+| `process-apu-single` | 3 | | `rates-wear` | 16 |
+| `process-crankcase-extidle` | 3 | | `sample-runspec` | 9 |
+| `process-crankcase-extidle-single` | 3 | | `scale-county` | 9 |
+| `process-crankcase-start` | 49 | | `scale-project` | 22 |
+| `process-crankcase-start-single` | 49 | | `scale-rates` | 9 |
 
 **`scale-project`'s 22 are not all the same generator's** (nor `rates-project`'s), and that is the
 sharpest illustration in the corpus of why the `writes` column cannot be read
@@ -204,8 +206,9 @@ corroborations of one predicate.
 Until `scale-project` they were, and this note said so ("set-equal, not merely
 equinumerous"). `scale-project` and `rates-project` class-load
 `StartOperatingModeDistributionGenerator` and leave `StartOpModeDistribution`
-**empty**, so the load set is two larger than the row set -- 23 and 21 since
-`rates-project` joined the corpus on 2026-11-01. The generator
+**empty**, so the load set is larger than the row set -- 23 and 21 since
+`rates-project` joined the corpus on 2026-11-01, and 24 and 21 since `project-links` (2026-11-09), whose
+PROJECT-domain start exhaust takes the user's modes. The generator
 did run — its All-Starts row is in `RatesOpModeDistribution` — but in PROJECT
 domain its step 400 takes a different branch that reads `OpModeDistribution`
 instead of `startsOpModeDistribution`
