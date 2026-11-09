@@ -675,10 +675,18 @@ def main(root):
         # (LinkOperatingModeDistributionGenerator.java:448-458). Without the
         # roadTypeID term those 21 read as 21 rows this specification failed to
         # predict, which is a different generator's output counted against it.
+        #
+        # A FIFTH writer shares (roadTypeID 1, bin 0) in PROJECT domain:
+        # AverageSpeedOMDG's project branch writes tire wear's one mode per link
+        # at the LINK's road type, and an off-network link's road type is 1
+        # (AverageSpeedOperatingModeDistributionGenerator.java:164-182: polProcess
+        # 11710, mode 400 at speed 0). `project-links` has two such rows. They
+        # are that generator's, so they are left out here by their polProcess.
         reference = {(r["sourceTypeID"], r["roadTypeID"], r["avgSpeedBinID"], r["hourDayID"],
                       r["polProcessID"], r["opModeID"]): float(r["opModeFraction"])
                      for r in reference_rates
-                     if r["avgSpeedBinID"] == 0 and r["roadTypeID"] == 1}
+                     if r["avgSpeedBinID"] == 0 and r["roadTypeID"] == 1
+                     and r["polProcessID"] != 11710}
         predicted = rates_op_mode_distribution(root, snap, onroad, procs, project)
         rates_missing += len(set(reference) - set(predicted))
         rates_extra += len(set(predicted) - set(reference))
@@ -706,7 +714,8 @@ def main(root):
         start_expected = onroad and 2 in procs
         rates_expected = onroad and (90 in procs or 91 in procs) and hotelling_selected
         start_seen = any(k[4] == 602 or k[5] in range(101, 109) for k in reference)
-        rates_seen = any(k[5] >= 200 for k in reference)
+        # The hotelling modes are 200-299; tire wear's 400-416 are excluded above.
+        rates_seen = any(200 <= k[5] < 300 for k in reference)
         if start_seen != start_expected or rates_seen != rates_expected:
             sched_bad += 1
             print("  SCHEDULING MISMATCH %-30s start seen/expected %s/%s "
@@ -884,25 +893,36 @@ five moved. The other four do not need a capture: three are discarded by
 `MOVESInstantiator.java:1449` under `DO_RATES_FIRST` and the fourth is not a
 Java class at all. `docs/omd-generator-reachability.md` has the evidence.
 
-### 8.3 Step 400's PROJECT arm is branched on but its INSERT emits nothing
+### 8.3 Step 400's PROJECT arm: the branch and, since `project-links`, its body
 
 Step 400 has two arms and the model domain chooses between them
-(`StartOperatingModeDistributionGenerator.java:381-431`). §6.5 now takes the
+(`StartOperatingModeDistributionGenerator.java:381-431`). §6.5 takes the
 PROJECT arm on a PROJECT RunSpec, and that change is load-bearing: forcing the
 non-PROJECT arm on `scale-project` predicts eight
 `(21, 1, 0, 95, 9102, 101..108)` rows canonical never wrote, and the oracle
 goes red with `0 missing, 8 extra`.
 
-**What is NOT established is the arm's own arithmetic.** On the one PROJECT
-snapshot in the corpus it iterates 122 `OpModeDistribution` rows and emits
+On `scale-project` the arm iterates 122 `OpModeDistribution` rows and emits
 **zero**, because its `omppa.opModeID = somd.opModeID` join has no match: the
 project link's operating modes are the VSP bins 1000–1040 and the only start
 polProcess in scope is 9102, which `opModePolProcAssoc` never pairs with them.
-So the corpus decides the branch CONDITION and not the branch BODY. The join is
-still doing work and can still fail — deleting it emits 21 rows and the oracle
-reports `0 missing, 21 extra` — but a snapshot in which the arm produces a row
-does not exist, and until one does the emitted values are ported from the SQL
-and unverified.
+That decided the branch CONDITION and not the branch BODY.
+
+**`project-links` (2026-11-09, PLAN.md §7.3.55) decides the body.** Its project
+database states start-mode rows (101–108, `isUserInput = 'Y'`) on its
+off-network link for source types 21 and 32 and polProcesses 202 and 9102, with
+fractions chosen to differ from the default `startsOpModeDistribution`. The arm
+copies them to road type 1 for every selected start polProcess whose
+`opModePolProcAssoc` carries the mode: 32 rows, plus the two All-Starts rows,
+every one reproduced. The join reads no `linkID` and no `polProcessID` from
+`OpModeDistribution` -- a row stated for 202 also feeds 9102 -- so the
+`INSERT IGNORE` keeps the first of rows that differ only there; the snapshot
+states them equal, and the onroad model counts a disagreement rather than
+choosing (`sod_projectConflicts`). The same snapshot's road-type-1 partition
+also holds two tire-wear rows (11710, mode 400), which are
+`AverageSpeedOperatingModeDistributionGenerator`'s project branch writing at its
+off-network link's road type; §6.5 leaves them out by polProcess, and the
+scheduling predicate reads the hotelling modes as 200–299 rather than `>= 200`.
 
 ### 8.2 The inventory branch of step 400 is ported from the SQL and not checked
 
