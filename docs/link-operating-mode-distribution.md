@@ -40,12 +40,12 @@ of the arithmetic decisions are decided by the corpus rather than argued.
 | Rust | `../moves.rs/crates/moves-calculators/src/generators/link_op_mode_distribution.rs` |
 
 `scale-project` names this specification because it is the only snapshot that
-carries `OpModeDistribution` non-empty. It has no fixture of its own — its
-`MOVESOutput` is a separate, unresolved matter recorded in
-`../moves.rs/docs/known-divergences.md` §6.1 — so this specification borrows
-its snapshot for the coverage tool's fixture leg exactly as
-`docs/meteorology-generator.md` borrows `process-pm-exhaust`
-(`docs/esm-conventions.md` §35.1).
+carries `OpModeDistribution` non-empty. It has no execution-database
+fixture, but since 2026-10-19 `runspecs/scale-project.esm` reproduces its
+`MOVESOutput` end to end through this generator: 125 of 125 rows, key set
+exact (PLAN.md §7.3.40). Since 2026-11-08 `tools/calculator-coverage.py`
+accepts that RunSpec as the claim's fixture leg (PLAN.md §7.3.53), and the
+claim counts. `docs/project-tag.md` claims `ProjectTAG` on the same snapshot.
 
 ### 0.1 Which runs it fires on, and how that was established
 

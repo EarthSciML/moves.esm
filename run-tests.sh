@@ -2113,7 +2113,7 @@ else
            "./run-nr-airtoxics-oracle.sh" "./run-fuel-effects-oracle.sh"
            "./run-omd-oracle.sh" "./run-so2-co2e-oracle.sh"
            "./run-expand-day-oracle.sh" "./run-link-omd-oracle.sh"
-           "./run-new-tvv-year-oracle.sh")
+           "./run-new-tvv-year-oracle.sh" "./run-project-tag-oracle.sh")
   for oracle in "${ORACLES[@]}"; do
     if [[ ! -x "${oracle%% *}" ]]; then
       fail "oracle ${oracle} — not executable"

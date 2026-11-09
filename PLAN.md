@@ -1376,7 +1376,7 @@ half of the pipeline:
 
 ```
 RunSpec XML ──► [MOVES master: parse, importers, build execution DB] ──► execution DB ──► [calculators, generators] ──► MOVESOutput
-                └────────────── not modelled in .esm ─────────────────┘                   └──── §2's ladder, 30/32 ────┘
+                └────────────── not modelled in .esm ─────────────────┘                   └──── §2's ladder, 32/32 ────┘
 ```
 
 Zero `.esm` documents read a RunSpec XML; zero read the default database. The
@@ -5597,6 +5597,33 @@ the wall-clock `join.on` gate: 1052 ms driven against 3080 ms ungated, under a l
 on a shared node. Re-timed five times on its own, it ran 128–373 ms against
 2846–2925 ms.
 
+#### 7.3.53 32 of 32: the two PROJECT-domain generators are counted
+
+2026-11-08. No model change. `tools/calculator-coverage.py` had reported 30 of
+32 live modules ported. The two it missed were both ported in step 7f
+(§7.3.40), and `scale-project` and `rates-project` have reproduced through
+them since. They went uncounted for two bookkeeping reasons:
+
+* **`LinkOperatingModeDistributionGenerator`** had a spec and a registered
+  oracle, `run-link-omd-oracle.sh`. But the tool's fixture leg accepted only a
+  `fixtures/` document, and `scale-project` reproduces as a RunSpec. A Phase 7
+  RunSpec reproduces its snapshot's oracle tables end to end, from the default
+  database, in the 7c'/7d stage. The tool now accepts one.
+* **`ProjectTAG`** had no spec at all. `docs/project-tag.md` is it: the SHO
+  product (`ProjectTAG.java:354-385`), a hand-checked example, and an
+  independent reproduction run by `run-project-tag-oracle.sh` and registered
+  in ORACLES. Over both PROJECT-domain snapshots the reproduction gives 82 of
+  82 `SHO` and 82 of 82 `distance` cells, each equal to the reference's
+  binary32 six-digit rendering. It also asserts the scheduling:
+  linkSourceTypeHour is populated on exactly the 2 PROJECT-domain runs and
+  empty on the other 62.
+
+  Only ProjectTAG's SHO path is ported. Its SHP, Starts, hotelling and
+  SourceHours outputs are refused through `run_domainUnported`, and the spec
+  says so at the top.
+
+The result is **32 of 32: 19 calculators and 13 generators.**
+
 ### 7.4 Upstream asks
 
 **None is blocking.** This section has said "still none", "already exists,
@@ -5725,4 +5752,4 @@ Note also that the components' index sets are hardcoded probe sizes (5, 7, 3,
 `docs/findings/*.esm` keep their inverted polarity, `run-tests.sh` keeps its
 stages, and the snapshot-fed fixtures keep asserting. Phase 7 is additive: it
 builds the half of the pipeline that has never been modelled, beside the half
-that is at 30 of 32.
+that is at 32 of 32.

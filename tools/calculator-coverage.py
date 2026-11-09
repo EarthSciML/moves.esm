@@ -25,8 +25,8 @@ and that a contributor cannot forget to update without the suite noticing:
 
   3. THE EVIDENCE -- the oracle. A spec's claim only counts when an oracle
      script says it `lives in docs/<name>.md`, that oracle is registered in
-     `run-tests.sh`'s ORACLES array, and a fixture in `fixtures/` names the
-     same snapshot. A claim with no oracle behind it is reported as a claim,
+     `run-tests.sh`'s ORACLES array, and a fixture in `fixtures/` -- or a
+     reproducing RunSpec in `runspecs/` -- names the same snapshot. A claim with no oracle behind it is reported as a claim,
      never as coverage.
 
 `--check` turns the whole thing into a gate: it exits non-zero if a spec names
@@ -256,16 +256,27 @@ def oracles():
 
 
 def fixtures():
-    """snapshot name -> the .esm that reproduces it."""
-    d = os.path.join(ROOT, "fixtures")
+    """snapshot name -> the .esm that reproduces it.
+
+    A `fixtures/` document reproduces its snapshot from the execution
+    database; a `runspecs/` document (Phase 7) reproduces the same snapshot's
+    oracle tables from the DEFAULT database plus its domain's inputs, end to
+    end, in run-tests.sh's 7c'/7d stage. Either is a reproduction of the
+    snapshot. The fixture is preferred when both exist. Counting the RunSpec
+    is what lets a PROJECT-domain generator count: `scale-project` has no
+    execution-database fixture, and reproduces only as a RunSpec
+    (PLAN.md §7.3.40, §7.3.53).
+    """
     out = {}
     # A fixture is named for its snapshot (run-tests.sh keys on the same
     # name); since 2026-11-01 the snapshot directory is spelled in the shared
     # catalogue and bound by `url_substitutions`, not in the fixture's text.
-    for name in sorted(os.listdir(d)):
-        if not name.endswith(".esm") or name.startswith("."):
-            continue
-        out[name[:-4]] = "fixtures/" + name
+    for sub in ("runspecs", "fixtures"):
+        d = os.path.join(ROOT, sub)
+        for name in sorted(os.listdir(d)):
+            if not name.endswith(".esm") or name.startswith("."):
+                continue
+            out[name[:-4]] = sub + "/" + name
     return out
 
 
