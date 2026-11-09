@@ -490,16 +490,73 @@ right answer must land exactly and the wrong one must miss.
 
 ### 6.5 The reproduction script
 
+Run by `./run-link-omd-oracle.sh` over every snapshot. Since 2026-11-09 the
+corpus has four PROJECT runs — `scale-project` and `rates-project` (one link,
+source type 21, one physics row), `project-links` (links 1, 2 and an
+off-network link 3; source types 21 and 32, the latter with three physics
+rows; pollutant-processes −1, 201, 9101 and brake 11609) and
+`project-offnetwork` (link 1 and an off-network link 2; source types 21 and 62,
+the latter with eleven physics rows) — and the script reproduces every row the
+generator leaves in them. What it models, each established by measurement on
+those snapshots:
+
+* **per link, in `linkID` order**, skipping road type 1 (`executeLoop` never
+  calls the generator for an off-network link);
+* **brackets per REAL source type** — `driveScheduleAssoc` is keyed by it —
+  for each RunSpec source type; the bracket lines print one per (link, source
+  type);
+* **one core run per bracketing schedule per physics row**: each
+  `sourceUseTypePhysicsMapping` row (one temp source type each) gets its own
+  VSP from its own coefficients, and `SourceTypePhysics` renames it to the
+  real source type at `mode + opModeIDOffset`, so a real source type with
+  three physics rows holds three disjoint bands (1100…, 1200…, 1300…) on the
+  same pseudo-link, each summing to one;
+* **the pseudo-link is replaced, not merged**: `delete … where linkID=-S`
+  precedes each core run, so the final table holds the last link's use of
+  schedule S (not exercised: no two links in the corpus share a schedule);
+* **brake 11609's stopped mode**: 501 is kept for 11609 and folded into 1 for
+  everything else, but `SourceTypePhysics`' `physics_` path lifts 11609 only
+  `where opModeID <> 501`, so the 501 row stays under the **temp** source type
+  (100, 101, …), unoffset, one per physics row; and because the interpolation
+  selects only the real source type's rows and only the physics band's modes,
+  **no 11609 mode-501 row reaches a real link**;
+* **the 501→1 fold** is a `sum()` over a FLOAT column: each DECIMAL(.,5)
+  quotient is narrowed to single, summed in double, narrowed again (the
+  corpus has 60 such collisions and cannot tell this from summing the
+  DECIMALs first — both reproduce);
+* **the interpolation per real source type** over the union of its physics
+  rows' `physicsOperatingMode` bands, narrowed to single;
+* **user input is not output.** Rows with `isUserInput='Y'` — in the corpus,
+  `project-links`' start distribution (202 and 9102, modes 101…108) on
+  off-network link 3 — are the generator's `tempExistingOpMode` input: they
+  are read for the exclusion and the stand-down test and excluded from the
+  comparison and from the scheduling predicate;
+* **tire wear 11710 is another generator's**
+  (`AverageSpeedOperatingModeDistributionGenerator`) and is excluded by name;
+  a separate small check reproduces what the final `RatesOpModeDistribution`
+  holds of it (§7.1).
+
+It asserts: the key set 0 missing / 0 extra and every cell equal under the
+six-digit FLOAT rendering, on real links and pseudo-links alike; the
+DECIMAL(.,5) quotient on every pseudo-link cell; the brake mode-501 cells; the
+double alternative to the interpolation's FLOAT narrowing still missing at
+least one cell; the `RatesOpModeDistribution` copy and the tire-wear rows key
+for key; the scheduling predicate on every snapshot; and FLOORS (lower
+bounds, the corpus grows) on every count.
+
 ```python
 #!/usr/bin/env python3
 """Independent reproduction of LinkOperatingModeDistributionGenerator.
 
 Reads only: link, driveSchedule, driveScheduleAssoc, driveScheduleSecond,
 operatingMode, physicsOperatingMode, sourceUseTypePhysicsMapping,
-opModePolProcAssoc, runSpecHourDay, runSpecSourceType, linkSourceTypeHour.
+opModePolProcAssoc, runSpecHourDay, runSpecSourceType, linkSourceTypeHour,
+and the USER-INPUT rows of opModeDistribution (isUserInput='Y'), which are
+the generator's `tempExistingOpMode` input and not its output.
 
-Compares against: opModeDistribution and ratesOpModeDistribution, which are
-read to be compared with and for the scheduling predicate, never as input.
+Compares against: the generator's rows of opModeDistribution
+(isUserInput='N') and ratesOpModeDistribution, which are read to be
+compared with and for the scheduling predicate, never as input.
 """
 import collections
 import glob
@@ -541,6 +598,13 @@ def f32(x):
 def print6(x):
     """MariaDB's FLOAT-column rendering: six significant digits."""
     return float("%.6g" % x)
+
+
+# Tire wear's 11710 rows come from AverageSpeedOperatingModeDistributionGenerator,
+# not from this generator; they are checked separately (tirewear_rows) and kept
+# out of every comparison of this generator's output.
+TIREWEAR = 11710
+BRAKE = 11609
 
 
 # ------------------------------------------------------- the generator, step 105
@@ -601,10 +665,12 @@ def assign_op_mode(bands, speed, vsp, at0, at1, at2):
 
 
 def core_distribution(seconds, grade, physics, bands, omppa, hourdays):
-    """calculateOpModeFractionsCore on one pseudo-link, then the physics offset.
+    """calculateOpModeFractionsCore on one pseudo-link for ONE physics row
+    (one temp source type), then SourceTypePhysics' renumbering.
 
     `seconds` is [(secondID, speed)] sorted. `grade` is the real link's
     linkAvgGrade, copied onto every second of every bracketing schedule.
+    Returns {(sourceTypeID, polProcessID, hourDayID, opModeID): fraction}.
     """
     a_term, b_term, c_term = physics["A"], physics["B"], physics["C"]
     mass, fmf = physics["mass"], physics["fmf"]
@@ -634,7 +700,7 @@ def core_distribution(seconds, grade, physics, bands, omppa, hourdays):
         counts[assign_op_mode(bands, speed, vsp, at0, at1, at2)] += 1
 
     total = len(seconds)
-    out = collections.defaultdict(Decimal)
+    parts = collections.defaultdict(list)
     for om, n in counts.items():
         # `(secondCount*1.0/secondTotal)`. MariaDB: `int * 1.0` is DECIMAL with
         # scale 1, and DECIMAL/int adds div_precision_increment (default 4), so
@@ -643,39 +709,50 @@ def core_distribution(seconds, grade, physics, bands, omppa, hourdays):
         frac = (Decimal(n) * Decimal("1.0") / Decimal(total)).quantize(
             Decimal("0.00001"), rounding=ROUND_HALF_UP)
         for pp in omppa.get(om, ()):
-            mode = (501 if pp == 11609 else 1) if om == 501 else om
+            mode = (501 if pp == BRAKE else 1) if om == 501 else om
             for hd in hourdays:
-                # `group by ... sum(opModeFraction)`: 501 folding into 1 can
-                # collide with a real idle row, and the sum is what MOVES keeps.
-                out[(pp, hd, mode)] += frac
+                # Into opModeDistributionTemp, whose opModeFraction is FLOAT.
+                parts[(pp, hd, mode)].append(f32(float(frac)))
 
-    # SourceTypePhysics.updateOperatingModeDistribution: the temp source type
-    # becomes the real one and the mode is lifted into the model-year-physics
-    # band, for the generic and Running-Exhaust polProcessIDs only.
-    offset = physics["offset"]
-    shifted = {}
-    for (pp, hd, mode), frac in out.items():
-        lifted = mode + offset if (pp < 0 or pp % 100 == 1) and 0 <= mode < 100 else mode
-        shifted[(pp, hd, lifted)] = f32(float(frac))
-    return shifted
+    # `insert ignore ... select ..., sum(opModeFraction) ... group by`: the
+    # stopped seconds (501) folding into idle (1) can collide with real idle
+    # seconds (0 < speed < 1); the sum is a DOUBLE sum of the two FLOATs,
+    # stored back into a FLOAT.
+    temp, real, offset = physics["temp"], physics["real"], physics["offset"]
+    out = {}
+    for (pp, hd, mode), xs in parts.items():
+        frac = f32(sum(xs))
+        # SourceTypePhysics.updateOperatingModeDistribution, per physics row:
+        #  * generic (pp < 0) and running-exhaust (pp % 100 == 1) rows in
+        #    0..99 move to the real source type at mode + opModeIDOffset;
+        #  * brake 11609 goes through `physics_opModeDistribution`, whose
+        #    update is `where opModeID <> 501`: every 0..99 mode is lifted to
+        #    the real source type, and mode 501 is NOT -- it is re-inserted
+        #    unchanged, still under the TEMP source type;
+        #  * any other polProcessID would stay under the temp source type.
+        if pp == BRAKE:
+            key = (temp, pp, hd, 501) if mode == 501 else (real, pp, hd, mode + offset)
+        elif (pp < 0 or pp % 100 == 1) and 0 <= mode < 100:
+            key = (real, pp, hd, mode + offset)
+        else:
+            key = (temp, pp, hd, mode)
+        out[key] = frac
+    return out
 
 
-def link_distribution(root, snap):
-    """The whole generator for one PROJECT snapshot: {linkID: {key: fraction}}."""
+def load(root, snap):
+    """Every input the generator reads, once per snapshot."""
     links = tab(root, snap, "link")
     physics_rows = tab(root, snap, "sourceusetypephysicsmapping") or []
     if not links or not physics_rows:
-        return None, None
-    p = physics_rows[0]
-    physics = {"A": num(p["rollingTermA"]), "B": num(p["rotatingTermB"]),
-               "C": num(p["dragTermC"]), "mass": num(p["sourceMass"]),
-               "fmf": num(p["fixedMassFactor"]), "offset": p["opModeIDOffset"],
-               "real": p["realSourceTypeID"], "temp": p["tempSourceTypeID"]}
-
-    schedule_speed = {r["driveScheduleID"]: num(r["averageSpeed"])
-                      for r in tab(root, snap, "driveschedule")}
-    assoc = tab(root, snap, "drivescheduleassoc")
-    bands = op_mode_bands(tab(root, snap, "operatingmode"))
+        return None
+    physics_of = collections.defaultdict(list)          # real -> [physics row]
+    for p in sorted(physics_rows, key=lambda p: p["opModeIDOffset"]):
+        physics_of[p["realSourceTypeID"]].append(
+            {"A": num(p["rollingTermA"]), "B": num(p["rotatingTermB"]),
+             "C": num(p["dragTermC"]), "mass": num(p["sourceMass"]),
+             "fmf": num(p["fixedMassFactor"]), "offset": p["opModeIDOffset"],
+             "real": p["realSourceTypeID"], "temp": p["tempSourceTypeID"]})
 
     seconds_of = collections.defaultdict(list)
     for r in tab(root, snap, "driveschedulesecond"):
@@ -686,65 +763,197 @@ def link_distribution(root, snap):
     omppa = collections.defaultdict(list)
     for r in tab(root, snap, "opmodepolprocassoc"):
         omppa[r["opModeID"]].append(r["polProcessID"])
-    hourdays = sorted({r["hourDayID"] for r in tab(root, snap, "runspechourday")})
-    physics_modes = sorted({r["opModeID"] for r in tab(root, snap, "physicsoperatingmode")
-                            if r["opModeID"] // 100 == physics["offset"] // 100})
 
+    pom = [r["opModeID"] for r in tab(root, snap, "physicsoperatingmode")]
+    # The interpolation's mode list for a REAL source type is the union of
+    # the physicsOperatingMode bands of ALL its physics rows
+    # (`pom.opModeID DIV 100 = sutpm.opModeIDOffset DIV 100`).
+    modes_of = {st: sorted({m for m in pom for p in ps if m // 100 == p["offset"] // 100})
+                for st, ps in physics_of.items()}
+
+    # tempExistingOpMode: the (sourceType, link, polProcess) triples that were
+    # in opModeDistribution before the generator first ran. In a snapshot
+    # those are exactly the isUserInput='Y' rows.
+    user = [r for r in tab(root, snap, "opmodedistribution") if r["isUserInput"] == "Y"]
+    return {
+        "links": sorted(links, key=lambda r: r["linkID"]),
+        "physics_of": physics_of,
+        "schedule_speed": {r["driveScheduleID"]: num(r["averageSpeed"])
+                           for r in tab(root, snap, "driveschedule")},
+        "assoc": tab(root, snap, "drivescheduleassoc"),
+        "bands": op_mode_bands(tab(root, snap, "operatingmode")),
+        "operating_mode": tab(root, snap, "operatingmode"),
+        "seconds_of": seconds_of,
+        "omppa": omppa,
+        "hourdays": sorted({r["hourDayID"] for r in tab(root, snap, "runspechourday")}),
+        "run_source_types": sorted({r["sourceTypeID"] for r in tab(root, snap, "runspecsourcetype")}),
+        "modes_of": modes_of,
+        "lsth": {(r["linkID"], r["sourceTypeID"])
+                 for r in (tab(root, snap, "linksourcetypehour") or [])},
+        "user_rows": user,
+        "existing": {(r["sourceTypeID"], r["linkID"], r["polProcessID"]) for r in user},
+    }
+
+
+def interpolate(lowd, highd, st, modes, factor, as_float=True):
+    """Step 105's interpolation for one real source type.
+
+    `tempOpModeDistribution2` is the FULL physics op-mode list of the real
+    source type crossed with every (hourDay, polProcess) either bracket holds
+    for it, `coalesce(opModeFraction, 0)` for a mode a bracket never entered;
+    the low and high copies are then INNER-joined, so a (polProcess, hourDay)
+    must be on both brackets. Non-positive results are dropped. The 11609
+    mode-501 rows sit under the TEMP source types and so are never selected.
+    """
+    def pairs(d):
+        return {(k[1], k[2]) for k in d if k[0] == st}
+    out = {}
+    for pp, hd in sorted(pairs(lowd) & pairs(highd)):
+        for mode in modes:
+            lo = lowd.get((st, pp, hd, mode), 0.0)
+            hi = highd.get((st, pp, hd, mode), 0.0)
+            v = lo + (hi - lo) * factor
+            if as_float:
+                v = f32(v)
+            if v > 0:
+                out[(st, pp, hd, mode)] = v
+    return out
+
+
+def link_distribution(ctx):
+    """The whole generator for one PROJECT snapshot.
+
+    Returns ({linkID: {(st, pp, hd, mode): fraction}}, [bracket detail]),
+    `linkID` negative for a pseudo-link (-driveScheduleID).
+    """
     produced = {}
-    detail = {}
-    for link in links:
+    detail = []
+    for link in ctx["links"]:
         link_id = link["linkID"]
         road_type = link["roadTypeID"]
         speed = num(link["linkAvgSpeed"])
         grade = num(link["linkAvgGrade"]) or 0.0
-        source_types = sorted({r["sourceTypeID"] for r in
-                               (tab(root, snap, "linksourcetypehour") or [])
-                               if r["linkID"] == link_id})
-        for source_type in source_types:
-            cands = sorted((schedule_speed[r["driveScheduleID"]], r["driveScheduleID"])
-                           for r in assoc
-                           if r["sourceTypeID"] == source_type and r["roadTypeID"] == road_type)
+        # executeLoop: `if(roadTypeRecordID != 1)` -- off-network links never
+        # reach the generator.
+        if road_type == 1:
+            continue
+        # calculateOpModeFractions: a link with its own running-type
+        # (pp % 100 == 1) user distribution is left alone; only the
+        # linkAvgSpeed > 0, no-drive-schedule path (step 105) is reproduced.
+        if any(l == link_id and pp % 100 == 1 for (_, l, pp) in ctx["existing"]):
+            continue
+        if not speed or speed <= 0:
+            continue
+
+        # Brackets are chosen per REAL source type (driveScheduleAssoc is
+        # keyed by it); the RunSpec's source types are the ones the core
+        # computes (`inner join RunSpecSourceType`).
+        chosen = {}
+        for st in ctx["run_source_types"]:
+            if st not in ctx["physics_of"]:
+                continue
+            cands = sorted((ctx["schedule_speed"][r["driveScheduleID"]], r["driveScheduleID"])
+                           for r in ctx["assoc"]
+                           if r["sourceTypeID"] == st and r["roadTypeID"] == road_type)
             low, high, oob_lo, oob_hi = brackets(cands, speed)
             if low is None or high is None:
                 continue
-            factor = ((speed - low[0]) / (high[0] - low[0])) if low[0] < high[0] else 0.0
-            lowd = core_distribution(seconds_of[low[1]], grade, physics, bands, omppa, hourdays)
-            highd = core_distribution(seconds_of[high[1]], grade, physics, bands, omppa, hourdays)
-            produced[-low[1]] = lowd
-            produced[-high[1]] = highd
+            chosen[st] = (low, high, oob_lo, oob_hi)
 
-            # The interpolation runs over the FULL physics op-mode list, with
-            # `coalesce(opModeFraction, 0)` for a mode one bracket never
-            # entered, and drops non-positive results before the insert.
-            interpolated = {}
-            for pp, hd in sorted({(k[0], k[1]) for k in list(lowd) + list(highd)}):
-                for mode in physics_modes:
-                    lo = lowd.get((pp, hd, mode), 0.0)
-                    hi = highd.get((pp, hd, mode), 0.0)
-                    value = f32(lo + (hi - lo) * factor)
-                    if value > 0:
-                        interpolated[(pp, hd, mode)] = value
-            produced[link_id] = interpolated
-            detail[link_id] = {"low": low, "high": high, "factor": factor,
-                               "oob_low": oob_lo, "oob_high": oob_hi,
-                               "roadTypeID": road_type, "avgSpeed": speed,
-                               "sourceTypeID": source_type}
+        # One core run per bracketing schedule, for the source types it
+        # brackets on THIS link. `delete from opModeDistribution where
+        # linkID=-S` first: a later link that reuses schedule S replaces
+        # every row of pseudo-link -S, so the final table holds the LAST
+        # link's source types for it.
+        schedule_types = collections.defaultdict(set)
+        for st, (low, high, _, _) in chosen.items():
+            schedule_types[low[1]].add(st)
+            schedule_types[high[1]].add(st)
+        for sched, sts in sorted(schedule_types.items()):
+            rows = {}
+            for st in sorted(sts):
+                for physics in ctx["physics_of"][st]:
+                    rows.update(core_distribution(ctx["seconds_of"][sched], grade, physics,
+                                                  ctx["bands"], ctx["omppa"], ctx["hourdays"]))
+            produced[-sched] = rows
+
+        rows = {}
+        for st, (low, high, oob_lo, oob_hi) in sorted(chosen.items()):
+            factor = ((speed - low[0]) / (high[0] - low[0])) if low[0] < high[0] else 0.0
+            for k, v in interpolate(produced[-low[1]], produced[-high[1]], st,
+                                    ctx["modes_of"][st], factor).items():
+                # `left join tempExistingOpMode ... where eom.* is null`
+                if (k[0], link_id, k[1]) not in ctx["existing"]:
+                    rows[k] = v
+            detail.append({"link": link_id, "sourceTypeID": st, "low": low, "high": high,
+                           "factor": factor, "oob_low": oob_lo, "oob_high": oob_hi,
+                           "roadTypeID": road_type, "avgSpeed": speed})
+        produced[link_id] = rows
+        # offsetUserInputOpModeIDs rewrites only linkID > 0 rows with
+        # opModeID < 100; every generated real-link row is >= 1000 and the
+        # corpus's user rows are start modes 101..108, so it is a no-op here.
     return produced, detail
 
 
-def rates_copy(root, snap, produced, detail):
-    """populateRatesOpModeDistribution: the real link's rows, at its own road type."""
-    lsth = tab(root, snap, "linksourcetypehour") or []
+def rates_copy(ctx, produced):
+    """populateRatesOpModeDistribution, as the FINAL table shows it.
+
+    Step 200 deletes the previous link's road type and the current one before
+    copying, so the table ends up holding the rows of the LAST on-network link
+    processed only (links are visited in linkID order): every
+    opModeDistribution row on that link -- generated or user input -- with
+    polProcessID > 0 and a linkSourceTypeHour row, at the link's road type,
+    avgSpeedBinID 0 and avgBinSpeed = linkAvgSpeed.
+    """
+    on_network = [l for l in ctx["links"] if l["roadTypeID"] != 1 and l["linkID"] in produced]
+    if not on_network:
+        return {}, None
+    last = on_network[-1]
+    link_id, road_type, speed = last["linkID"], last["roadTypeID"], num(last["linkAvgSpeed"])
+    rows = dict(produced[link_id])
+    for r in ctx["user_rows"]:
+        if r["linkID"] == link_id:
+            rows[(r["sourceTypeID"], r["polProcessID"], r["hourDayID"], r["opModeID"])] = \
+                num(r["opModeFraction"])
     out = {}
-    for link_id, d in detail.items():
-        pairs = {(r["linkID"], r["sourceTypeID"]) for r in lsth}
-        for (pp, hd, mode), frac in produced[link_id].items():
-            if pp <= 0:                     # "don't copy the generic polprocess entries"
-                continue
-            if (link_id, d["sourceTypeID"]) not in pairs:
-                continue
-            out[(d["sourceTypeID"], d["roadTypeID"], 0, hd, pp, mode)] = (frac, d["avgSpeed"])
-    return out
+    for (st, pp, hd, mode), frac in rows.items():
+        if pp <= 0:                     # "don't copy the generic polprocess entries"
+            continue
+        if (link_id, st) not in ctx["lsth"]:
+            continue
+        out[(st, road_type, 0, hd, pp, mode)] = (frac, speed)
+    return out, last
+
+
+def tirewear_rows(ctx):
+    """AverageSpeedOperatingModeDistributionGenerator's PROJECT tire wear rows,
+    as the FINAL ratesOpModeDistribution shows them.
+
+    One mode per link from linkAvgSpeed (`when linkAvgSpeed<0.1 then 400`,
+    else the 'tirewear%' row in 401..499 with speedLower <= speed <
+    speedUpper), fraction 1, for every RunSpec source type and hour-day. Each
+    link starts with `delete ... where polProcessID=11710`, so only the LAST
+    link visited -- on- OR off-network -- survives.
+    """
+    bands = sorted(((num(r["speedLower"]), num(r["speedUpper"]), r["opModeID"])
+                    for r in ctx["operating_mode"]
+                    if 401 <= r["opModeID"] <= 499 and r["opModeName"].startswith("tirewear")),
+                   key=lambda b: (b[0] is not None, b[0]))
+    out = {}
+    for link in ctx["links"]:
+        speed = num(link["linkAvgSpeed"])
+        mode = -1
+        if speed < 0.1:
+            mode = 400
+        else:
+            for lo, hi, om in bands:
+                if (lo is None or lo <= speed) and (hi is None or speed < hi):
+                    mode = om
+                    break
+        out[link["linkID"]] = {(st, link["roadTypeID"], 0, hd, TIREWEAR, mode): (1.0, speed)
+                               for st in ctx["run_source_types"] for hd in ctx["hourdays"]}
+    last = ctx["links"][-1]["linkID"]
+    return out[last], {k: next(iter(v))[5] for k, v in out.items()}
 
 
 # ------------------------------------------------------------------- the sweep
@@ -762,15 +971,23 @@ def main(root):
     swept = ran = 0
     sched_bad = []
     cells = exact = 0
+    real_cells = 0
     missing = extra = 0
     worst = 0.0
     f64_would_miss = 0
     decimal_cells = decimal_exact = 0
+    brake501_cells = brake501_exact = 0
+    user_rows = 0
     rates_cells = rates_exact = 0
+    rates_missing = rates_extra = 0
+    tire_cells = tire_exact = 0
+    tire_missing = tire_extra = 0
     brackets_seen = []
+    rates_seen = []
+    tire_seen = []
 
     for snap in snaps:
-        omd = tab(root, snap, "opmodedistribution", ["linkID"])
+        omd = tab(root, snap, "opmodedistribution", ["linkID", "isUserInput"])
         if omd is None:
             continue                      # not an execution database this port models
         swept += 1
@@ -778,78 +995,128 @@ def main(root):
         # THE SCHEDULING PREDICATE. LinkOMDG is on the DO_RATES_FIRST whitelist
         # (MOVESInstantiator.java:1462) but only the PROJECT domain gives it a
         # link to run on, and `OpModeDistribution` is its only output table.
-        non_empty = len(omd) > 0
+        # User-input rows are not its output, so they do not count.
+        non_empty = any(r["isUserInput"] != "Y" for r in omd)
         if non_empty != project:
             sched_bad.append((snap, non_empty, project))
         if not project:
             continue
         ran += 1
 
-        produced, detail = link_distribution(root, snap)
-        if produced is None:
+        ctx = load(root, snap)
+        if ctx is None:
             sched_bad.append((snap, non_empty, "no link table"))
             continue
-        brackets_seen += [(snap, k, v["low"], v["high"], v["factor"],
-                           v["oob_low"], v["oob_high"]) for k, v in detail.items()]
+        produced, detail = link_distribution(ctx)
+        brackets_seen += [(snap, d) for d in detail]
 
+        # The reference: this generator's rows only. isUserInput='Y' rows
+        # (the start-mode 101..108 distribution a user supplied for an
+        # off-network link) are INPUT; tire wear never lands here under
+        # DO_RATES_FIRST but is excluded by name all the same.
         reference = collections.defaultdict(dict)
         for r in tab(root, snap, "opmodedistribution"):
-            reference[r["linkID"]][(r["polProcessID"], r["hourDayID"], r["opModeID"])] = \
-                num(r["opModeFraction"])
+            if r["isUserInput"] == "Y":
+                user_rows += 1
+                continue
+            if r["polProcessID"] == TIREWEAR:
+                continue
+            reference[r["linkID"]][(r["sourceTypeID"], r["polProcessID"], r["hourDayID"],
+                                    r["opModeID"])] = num(r["opModeFraction"])
 
-        for link_id, pred in produced.items():
+        for link_id in sorted(set(produced) | set(reference)):
+            pred = produced.get(link_id, {})
             ref = reference.get(link_id, {})
             missing += len(set(ref) - set(pred))
             extra += len(set(pred) - set(ref))
             for k in sorted(set(ref) & set(pred)):
                 cells += 1
-                if print6(pred[k]) == ref[k]:
-                    exact += 1
+                real_cells += link_id > 0
+                ok = print6(pred[k]) == ref[k]
+                exact += ok
                 if ref[k]:
                     worst = max(worst, abs(pred[k] - ref[k]) / abs(ref[k]))
+                if link_id < 0:
+                    # Every pseudo-link cell is a DECIMAL(.,5) quotient (or a
+                    # FLOAT sum of two of them) narrowed once to FLOAT.
+                    decimal_cells += 1
+                    decimal_exact += ok
+                    if k[1] == BRAKE and k[3] == 501:
+                        brake501_cells += 1
+                        brake501_exact += ok
 
-        # The two hypotheses this snapshot can separate, asserted apart.
-        for link_id, d in detail.items():
-            lowd = produced[-d["low"][1]]
-            highd = produced[-d["high"][1]]
-            ref = reference.get(link_id, {})
-            for k in sorted(ref):
-                lo = lowd.get(k, 0.0)
-                hi = highd.get(k, 0.0)
-                v = lo + (hi - lo) * d["factor"]
-                if print6(v) != ref[k]:
+        # The FLOAT-vs-double hypothesis for the interpolation, asserted apart.
+        for d in detail:
+            lowd, highd = produced[-d["low"][1]], produced[-d["high"][1]]
+            alt = interpolate(lowd, highd, d["sourceTypeID"],
+                              ctx["modes_of"][d["sourceTypeID"]], d["factor"], as_float=False)
+            for k, v in reference.get(d["link"], {}).items():
+                if k[0] == d["sourceTypeID"] and print6(alt.get(k, 0.0)) != v:
                     f64_would_miss += 1
-            for pseudo in (-d["low"][1], -d["high"][1]):
-                for k, v in produced[pseudo].items():
-                    if k in reference.get(pseudo, {}):
-                        decimal_cells += 1
-                        decimal_exact += print6(v) == reference[pseudo][k]
 
+        # ratesOpModeDistribution: only the last on-network link survives.
+        # Rows at road type 1 (off-network: start, extended idle, hotelling,
+        # and tire wear's off-network row) are other generators' and are not
+        # compared here.
+        rates_all = tab(root, snap, "ratesopmodedistribution") or []
         rates_ref = {(r["sourceTypeID"], r["roadTypeID"], r["avgSpeedBinID"],
                       r["hourDayID"], r["polProcessID"], r["opModeID"]):
                      (num(r["opModeFraction"]), num(r["avgBinSpeed"]))
-                     for r in (tab(root, snap, "ratesopmodedistribution") or [])
-                     if r["avgSpeedBinID"] == 0 and r["roadTypeID"] != 1}
-        pred_rates = rates_copy(root, snap, produced, detail)
-        missing += len(set(rates_ref) - set(pred_rates))
-        extra += len(set(pred_rates) - set(rates_ref))
+                     for r in rates_all
+                     if r["avgSpeedBinID"] == 0 and r["roadTypeID"] != 1
+                     and r["polProcessID"] != TIREWEAR}
+        pred_rates, last = rates_copy(ctx, produced)
+        if last is not None:
+            rates_seen.append((snap, last["linkID"], last["roadTypeID"], len(pred_rates)))
+        rates_missing += len(set(rates_ref) - set(pred_rates))
+        rates_extra += len(set(pred_rates) - set(rates_ref))
         for k in sorted(set(rates_ref) & set(pred_rates)):
             rates_cells += 1
             rates_exact += (print6(pred_rates[k][0]) == rates_ref[k][0]
                             and print6(pred_rates[k][1]) == rates_ref[k][1])
 
-    for snap, link_id, low, high, factor, oob_lo, oob_hi in brackets_seen:
-        print("  brackets %-14s link %-4d low %s @ %g  high %s @ %g  factor %.16g%s"
-              % (snap, link_id, low[1], low[0], high[1], high[0], factor,
-                 "  OUT OF BOUNDS" if oob_lo or oob_hi else ""))
-    print("  opModeDistribution   %4d cells, %d missing / %d extra"
-          % (cells, missing, extra))
+        # Tire wear (another generator), checked only where the run has it.
+        tire_ref = {(r["sourceTypeID"], r["roadTypeID"], r["avgSpeedBinID"],
+                     r["hourDayID"], r["polProcessID"], r["opModeID"]):
+                    (num(r["opModeFraction"]), num(r["avgBinSpeed"]))
+                    for r in rates_all if r["polProcessID"] == TIREWEAR}
+        if tire_ref:
+            pred_tire, per_link = tirewear_rows(ctx)
+            tire_seen.append((snap, per_link))
+            tire_missing += len(set(tire_ref) - set(pred_tire))
+            tire_extra += len(set(pred_tire) - set(tire_ref))
+            for k in sorted(set(tire_ref) & set(pred_tire)):
+                tire_cells += 1
+                tire_exact += (print6(pred_tire[k][0]) == tire_ref[k][0]
+                               and print6(pred_tire[k][1]) == tire_ref[k][1])
+
+    for snap, d in brackets_seen:
+        print("  brackets %-18s link %-2d st %-3d low %s @ %g  high %s @ %g  factor %.16g%s"
+              % (snap, d["link"], d["sourceTypeID"], d["low"][1], d["low"][0],
+                 d["high"][1], d["high"][0], d["factor"],
+                 "  OUT OF BOUNDS" if d["oob_low"] or d["oob_high"] else ""))
+    for snap, link_id, road_type, n in rates_seen:
+        print("  rates    %-18s last on-network link %d, road type %d: %d rows"
+              % (snap, link_id, road_type, n))
+    for snap, per_link in tire_seen:
+        print("  tirewear %-18s mode per link %s (final table: last link only)"
+              % (snap, per_link))
+    print("  opModeDistribution   %4d cells (%d on real links), %d missing / %d extra"
+          % (cells, real_cells, missing, extra))
     print("  reproduced exactly   %4d of %d under FLOAT storage" % (exact, cells))
     print("  worst relative error %.4g" % worst)
+    print("  user-input rows      %4d excluded (isUserInput='Y', not this generator's)"
+          % user_rows)
     print("  DECIMAL(.,5) quotient bit-exact on %d of %d bracketing cells"
           % (decimal_exact, decimal_cells))
-    print("  the f64 alternative  misses %d of %d interpolated cells" % (f64_would_miss, cells and 42))
-    print("  ratesOpModeDistribution copy %d cells, %d exact" % (rates_cells, rates_exact))
+    print("  brake 11609 mode 501 %d of %d pseudo-link cells (temp source types)"
+          % (brake501_exact, brake501_cells))
+    print("  the f64 alternative  misses %d of %d interpolated cells"
+          % (f64_would_miss, real_cells))
+    print("  ratesOpModeDistribution copy %d cells, %d exact, %d missing / %d extra"
+          % (rates_cells, rates_exact, rates_missing, rates_extra))
+    print("  tire wear 11710      %d cells, %d exact, %d missing / %d extra"
+          % (tire_cells, tire_exact, tire_missing, tire_extra))
     print("  scheduling predicate %d snapshots swept, %d run the generator, %d disagreeing"
           % (swept, ran, len(sched_bad)))
 
@@ -858,36 +1125,60 @@ def main(root):
         bad.append("key set: %d missing, %d extra" % (missing, extra))
     if exact != cells:
         bad.append("%d of %d cells do not reproduce exactly" % (cells - exact, cells))
-    if cells < 122:
-        bad.append("only %d cells compared, expected >= 122" % cells)
+    if cells < FLOOR_CELLS:
+        bad.append("only %d cells compared, expected >= %d" % (cells, FLOOR_CELLS))
     if decimal_exact != decimal_cells:
         bad.append("the DECIMAL(.,5) quotient is not bit-exact on %d cells"
                    % (decimal_cells - decimal_exact))
-    if decimal_cells < 80:
-        bad.append("only %d bracketing cells compared, expected >= 80" % decimal_cells)
+    if decimal_cells < FLOOR_DECIMAL:
+        bad.append("only %d bracketing cells compared, expected >= %d"
+                   % (decimal_cells, FLOOR_DECIMAL))
+    if brake501_cells < FLOOR_BRAKE501:
+        bad.append("only %d brake mode-501 cells compared, expected >= %d"
+                   % (brake501_cells, FLOOR_BRAKE501))
     # The FLOAT intermediate is DECIDED here and nowhere else. Keeping the
-    # interpolation in double misses four cells; if it ever missed none, this
+    # interpolation in double misses cells; if it ever missed none, this
     # oracle would be asserting a distinction the corpus cannot see, and the
     # assertion has to fail rather than pass vacuously.
     if f64_would_miss < 1:
         bad.append("the double-precision alternative now reproduces every cell, "
                    "so the FLOAT round-trip is no longer distinguishable here")
-    if rates_cells < 21:
-        bad.append("only %d ratesOpModeDistribution cells compared, expected >= 21" % rates_cells)
+    if rates_missing or rates_extra:
+        bad.append("ratesOpModeDistribution key set: %d missing, %d extra"
+                   % (rates_missing, rates_extra))
+    if rates_cells < FLOOR_RATES:
+        bad.append("only %d ratesOpModeDistribution cells compared, expected >= %d"
+                   % (rates_cells, FLOOR_RATES))
     if rates_exact != rates_cells:
         bad.append("%d ratesOpModeDistribution cells differ" % (rates_cells - rates_exact))
+    if tire_missing or tire_extra or tire_exact != tire_cells:
+        bad.append("tire wear: %d missing, %d extra, %d differ"
+                   % (tire_missing, tire_extra, tire_cells - tire_exact))
+    if tire_cells < FLOOR_TIRE:
+        bad.append("only %d tire wear cells compared, expected >= %d" % (tire_cells, FLOOR_TIRE))
     if sched_bad:
         bad.append("%d snapshots disagree with the scheduling predicate: %s"
                    % (len(sched_bad), sched_bad[:4]))
-    if swept < 43:
-        bad.append("only %d snapshots swept, expected >= 43" % swept)
-    if ran < 1:
-        bad.append("no snapshot ran the generator; the corpus lost its PROJECT capture")
+    if swept < FLOOR_SWEPT:
+        bad.append("only %d snapshots swept, expected >= %d" % (swept, FLOOR_SWEPT))
+    if ran < FLOOR_RAN:
+        bad.append("only %d snapshots ran the generator, expected >= %d" % (ran, FLOOR_RAN))
     if bad:
         for b in bad:
             print("  FAIL: " + b, file=sys.stderr)
         sys.exit(1)
 
+
+# FLOORS, not equalities: silent skipping can only make them go down, and the
+# corpus is shared with the other rungs and grows (docs/esm-conventions.md
+# §35.5). Measured 2026-11-09 over 4 PROJECT runs.
+FLOOR_CELLS = 3650
+FLOOR_DECIMAL = 2378
+FLOOR_BRAKE501 = 16
+FLOOR_RATES = 549
+FLOOR_TIRE = 2
+FLOOR_SWEPT = 66
+FLOOR_RAN = 4
 
 main(sys.argv[1])
 ```
@@ -907,29 +1198,63 @@ copy.
 
 ### 7.1 The measured result
 
-`./run-link-omd-oracle.sh`, over all 43 snapshots carrying an execution
-database:
+`./run-link-omd-oracle.sh`, over all 66 snapshots carrying an execution
+database (2026-11-09):
 
 | | |
 |---|---|
-| `OpModeDistribution` | **122** cells, 0 missing / 0 extra |
-| reproduced exactly | **122 of 122** under FLOAT storage |
-| worst relative error | **2.396 × 10⁻⁶** |
-| the five-decimal quotient | bit-exact on **80 of 80** bracketing cells |
-| the double alternative | misses **4 of 42** interpolated cells |
-| `RatesOpModeDistribution` copy | **21** cells, 21 exact including `avgBinSpeed` |
-| scheduling predicate | **43** snapshots swept, **1** runs the generator, **0** disagreeing |
+| `OpModeDistribution` | **3,650** cells (1,272 on real links, 2,378 on pseudo-links), 0 missing / 0 extra |
+| reproduced exactly | **3,650 of 3,650** under FLOAT storage |
+| worst relative error | **4.613 × 10⁻⁶** |
+| user-input rows excluded | **32** (`project-links`, link 3, `isUserInput='Y'`) |
+| the five-decimal quotient | bit-exact on **2,378 of 2,378** bracketing cells |
+| brake 11609 mode 501 | **16 of 16** pseudo-link cells (4 schedules × temp source types 100…103) |
+| the double alternative | misses **32 of 1,272** interpolated cells |
+| `RatesOpModeDistribution` copy | **549** cells, 549 exact including `avgBinSpeed`, 0 missing / 0 extra |
+| tire wear 11710 | **2** cells, 2 exact, 0 missing / 0 extra |
+| scheduling predicate | **66** snapshots swept, **4** run the generator, **0** disagreeing |
 
-The 2.396 × 10⁻⁶ is not accumulated error and not a tolerance the port needs.
+Per (link, source type), the brackets and factors:
+
+| snapshot | link | road type | speed | source type | low | high | factor |
+|---|---|---|---|---|---|---|---|
+| `scale-project`, `rates-project` | 1 | 4 | 30 | 21 | 1021 @ 20.6006 | 153 @ 30.5 | 0.9494918883972766 |
+| `project-links` | 1 | 4 | 30 | 21, 32 | 1021 @ 20.6006 | 153 @ 30.5 | 0.9494918883972766 |
+| `project-links` | 2 | 5 | 25 | 21, 32 | 1041 @ 18.5781 | 1030 @ 25.379 | 0.9442720816362539 |
+| `project-offnetwork` | 1 | 4 | 30 | 21 | 1021 @ 20.6006 | 153 @ 30.5 | 0.9494918883972766 |
+| `project-offnetwork` | 1 | 4 | 30 | 62 | 305 @ 25.6 | 306 @ 32.5 | 0.6376811594202898 |
+
+Source types 21 and 32 share their candidate schedules in this corpus, so
+they bracket identically; 62 does not. None is out of bounds.
+
+**`RatesOpModeDistribution` is the state after the LAST link.** Step 200
+deletes the previous link's road type and the current one before each copy,
+so the final table holds only the last on-network link visited: link 2 at
+road type 5 in `project-links` (237 rows: 20 per process for source type 21,
+59 for 32, processes 201, 9101, 11609 — no 501), link 1 at road type 4 in the
+other three (270, 21, 21 rows). Link 1's road-type-4 rows in `project-links`
+were written and deleted and cannot be checked against the snapshot; the
+oracle compares exactly the last link's copy and asserts no other on-network
+road type survives. Rows at road type 1 (start, extended idle, hotelling,
+user-input copies) belong to other generators and are not compared.
+
+**Tire wear's final rows are likewise only the last link's.**
+`AverageSpeedOperatingModeDistributionGenerator`'s project path deletes every
+11710 row before writing each link, so of its per-link modes in
+`project-links` — 407 for link 1 (30 mi/h), 406 for link 2 (25 mi/h), 400 for
+link 3 (speed 0 < 0.1) — only link 3's survives: one row per source type at
+road type 1, fraction 1, `avgBinSpeed` 0. The check reproduces those 2 rows;
+the other two links' modes are computed and printed but not observable.
+
+The 4.6 × 10⁻⁶ is not accumulated error and not a tolerance the port needs.
 It is the reference's own storage: `opModeFraction` is a `FLOAT` column and
 the capture records MariaDB's six-significant-digit rendering of it, so a
 cell whose true value is 0.0900282487… is stored as `9.00282e-02` and nothing
 downstream can recover the seventh digit. Compared as six-digit decimals —
-which is all the reference has — every one of the 122 cells is **exact**.
-`tolerance.toml`'s per-cell budget is 2 × 10⁻⁵ and this sits an order of
-magnitude inside it, but the oracle does not use that budget: it asserts
-equality of the rendered value, which is stricter and which the corpus
-supports.
+which is all the reference has — every one of the 3,650 cells is **exact**.
+`tolerance.toml`'s per-cell budget is 2 × 10⁻⁵ and this sits inside it, but
+the oracle does not use that budget: it asserts equality of the rendered
+value, which is stricter and which the corpus supports.
 
 ### 7.2 The FLOAT intermediate, decided by measurement
 
@@ -994,30 +1319,38 @@ silently remove it. The scheduling predicate in §6.5 is the guard: if
 `scale-project` ever stops producing rows it fails, rather than the
 comparison quietly having nothing to compare.
 
-### 8.3 One link, one source type, one hour-day, one process
+### 8.3 Links, source types, physics rows and processes — now reproduced
 
-Every fan-out in §3 has cardinality 1 in this corpus:
+Until 2026-11-09 every fan-out in §3 had cardinality 1. `project-links` and
+`project-offnetwork` changed that, and §6.5 reproduces them exactly:
 
-| dimension | in the fixture | what is therefore unexercised |
+| dimension | in the corpus | status |
 |---|---|---|
-| links | 1 | the per-link loop, and `previousRoadTypeID`'s delete-before-insert in L-6 |
-| source types | 1 | `tempLinkBracket`'s `group by sourceTypeID`, and per-source-type brackets |
-| hour-days | 1 | the `runSpecHourDay` cross join |
-| pollutant-processes | `-1` and `9101` | the `mod(polProcessID,100) = 1` guard in L-4, and mode 501's survival at 11609 |
-| physics mapping rows | 1 | model-year-banded coefficients; `beginModelYearID`/`endModelYearID` are 1950/2060 |
+| links | up to 2 on-network + 1 off-network per run | reproduced; the off-network skip and the per-link loop are exercised |
+| source types | 21, 32, 62; two per run | reproduced; brackets per real source type |
+| physics mapping rows | 1, 3 (st 32: two regulatory classes, a model-year break at 2010) and 11 (st 62) | reproduced; per-row coefficients, `sourceMass ≠ fixedMassFactor`, offsets 1000…2100 |
+| pollutant-processes | −1, 201, 9101, 11609 | reproduced, including the `mod(polProcessID,100) = 1` guard's complement through the 11609 `physics_` path and mode 501 under the temp source types |
+| user-input rows | 32 start rows on an off-network link | excluded as input; they do not touch the generator's path |
+| hour-days | 1 | **unexercised**: the `runSpecHourDay` cross join |
 
-A multi-link project RunSpec would exercise the first two and the L-6 delete;
-none exists. This is the single largest gap in the rung and it is a `moves.rs`
-capture, not `.esm` work.
+Still not exercised: **two links sharing a bracketing schedule** (the
+replace-not-merge of the pseudo-link, modelled in §6.5 but with no snapshot
+that could tell it from a merge); **two on-network links of the same road
+type** (L-6's delete of the current road type); and every link's
+`RatesOpModeDistribution` copy except the last's, which the final table
+cannot show (§7.1). A pollutant-process other than −1, x01 and 11609 in the
+generator's fan-out (which would stay under the temp source type) does not
+occur.
 
 ### 8.4 What the fixture's zeros hide
 
 * **`linkAvgGrade` is 0**, so `sin(atan(g/100))` is 0 and both grade terms
   drop out of At0/At1/At2 and VSP. A non-zero grade is ported and unchecked.
-* **`sourceMass == fixedMassFactor == 1.4788`**, so `/ F` is the identity. A
-  port that dropped the division, or that divided by `sourceMass` instead,
-  would reproduce this corpus exactly. §6.5 cannot separate them and does not
-  claim to.
+* **`sourceMass == fixedMassFactor == 1.4788`** for source type 21, so `/ F`
+  is the identity there. Since 2026-11-09 it is not for every row: source
+  type 32's model-year-banded rows (3.40194 / 2.05979 and 3.40194 / 5) and
+  most of source type 62's do separate them, and dividing by `sourceMass`
+  instead breaks 1,620 of 3,476 compared cells and the key set.
 * **No second in either schedule lies within 10⁻⁹ of a band edge**, so the
   rectangle comparisons are not precision-sensitive here and a port using `<=`
   where MOVES uses `<` on an upper bound would still pass. The one boundary
@@ -1040,8 +1373,10 @@ capture, not `.esm` work.
 ### 8.5 What the generator does that this port does not
 
 * `modelYearPhysics.offsetUserInputOpModeIDs` runs after L-5. It renumbers
-  operating modes that came from a **user-supplied** distribution, and with
-  the input table empty there are none. Not ported.
+  `linkID > 0` rows with `opModeID < 100`, meant for a **user-supplied**
+  running distribution. The corpus's only user rows are start modes 101…108,
+  above its range, and every generated real-link row is ≥ 1000, so it is a
+  no-op on every snapshot. Not ported.
 * `createExpandedOperatingModesTable` materialises `physicsOperatingMode`.
   This port reads that table from the snapshot rather than building it,
   because `sourceUseTypePhysicsMapping` here has one row and the construction
