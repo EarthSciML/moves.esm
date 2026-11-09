@@ -19081,6 +19081,22 @@
             }
           }
         },
+        "onl_extendedIdleFraction": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "offnetworklink_rows"
+          ],
+          "description": "offNetworkLink.extendedIdleFraction: the share of the parked fleet's hour spent hotelling. ProjectTAG reads it for source type 62 only (java:435-463).",
+          "update": {
+            "kind": "data",
+            "source": "db_offnetworklink",
+            "from": {
+              "file_variable": "extendedIdleFraction"
+            }
+          }
+        },
         "omd_sourceTypeID": {
           "type": "parameter",
           "units": "1",
@@ -19625,7 +19641,7 @@
           "shape": [
             "runspecpollutantprocess_rows"
           ],
-          "description": "Whether this model computes the pollutant-process's PROJECT-domain activity and operating modes: running exhaust and brake wear (ProjectTAG's SHO, the link distribution), tire wear (SHO, the link's speed mode) and start exhaust (ProjectTAG's Starts, the user's start modes). Not: the evaporative processes (SHP, SourceHours and the project branch of their operating-mode generator), extended idle and APU (ProjectTAG's hotelling hours), and the crankcase processes, whose parents' project paths they would follow."
+          "description": "Whether this model computes the pollutant-process's PROJECT-domain activity and operating modes: running exhaust and brake wear (ProjectTAG's SHO, the link distribution), tire wear (SHO, the link's speed mode), start exhaust (ProjectTAG's Starts, the user's start modes), and extended idle and APU (ProjectTAG's hotelling hours, `hot_projectHours`). Not: the evaporative processes (SHP, SourceHours and the project branches of their operating-mode and tank-temperature generators) and the crankcase processes, whose parents' project paths they would follow."
         },
         "pp_WSpeedBins": {
           "type": "unknown",
@@ -20394,7 +20410,18 @@
             "runspecsourcetype_rows",
             "runspecmonth_rows"
           ],
-          "description": "HotellingHours at the run's hour-day, summed over fuel type: what BaseRateCalculator.sql's Process90/Process91 section reads as `activity`. The day's hours x the hour's share x the fuel split summed back, rescaled by AdjustHotelling. 0 for every source type but 62."
+          "description": "HotellingHours at the run's hour-day, summed over fuel type: what BaseRateCalculator.sql's Process90/Process91 section reads as `activity`. The day's hours x the hour's share x the fuel split summed back, rescaled by AdjustHotelling. 0 for every source type but 62. In PROJECT domain it is ProjectTAG's (`hot_projectHours`)."
+        },
+        "hot_projectHours": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "activity_rows",
+            "runspeccounty_rows",
+            "runspecsourcetype_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "ProjectTAG.allocateTotalActivityBasis's hotellingHours (java:435-463), summed over fuel type: the zone's off-network fleet x extendedIdleFraction x ageFraction x noOfRealDays x the cohort's avft fuelEngFraction, for source type 62 only. The project database's avft is the default sampleVehiclePopulation summed over regulatory class (AVFTTool's query), so its fractions summed over fuel and engine are `hot_stmyTotal`, the same sum the DEFAULT path carries. No AdjustHotelling: the domain's hotellingHoursPerDay is empty in every project database here, and MOVES's table holds ProjectTAG's product unadjusted (docs/project-tag.md §6.5)."
         },
         "rtDay_activityBasis": {
           "type": "unknown",
@@ -20602,6 +20629,14 @@
           ],
           "description": "Whether this pollutant-process's SHORE-POWER rates are reported under another process: auxiliary power (91). baseratecalculator.go:1021-1037 rewrites a process-91 block at operating mode 203 to process 93, 'Hotelling Shore Power', so that the output for that mode is not aggregated together with the APU's 201 -- and leaves its polProcessID at 91's, so every lookup the block makes afterwards is the APU pollutant-process's. The RunSpec never selects 93; the calculator writes it."
         },
+        "rspp_hasShorePowerMode": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecpollutantprocess_rows"
+          ],
+          "description": "Whether the pollutant-process's hotelling distribution (`hot_modeWeight`) carries shore power (mode 203). RatesOperatingModeDistributionGenerator step 210 takes APU's modes other than 201 from the merged hotellingActivityDistribution; a PROJECT run, into which MOVES does not copy the default table, whose project database states none has APU at mode 201 only, and the Go calculator then has no shore-power row to retag to process 93 (`project-hotelling`, PLAN.md §7.3.55)."
+        },
         "hot_isShorePowerMode": {
           "type": "unknown",
           "units": "1",
@@ -20692,7 +20727,7 @@
           "shape": [
             "rate_rows"
           ],
-          "description": "Whether the rate row puts a number in a process-93 block: a retagging pollutant-process's row that is selected and rated at shore power."
+          "description": "Whether the rate row puts a number in a process-93 block: a retagging pollutant-process's row that is selected and rated at shore power, in a run whose distribution for it carries shore power (`rspp_hasShorePowerMode`)."
         },
         "spc_cohortOrdinal": {
           "type": "unknown",
@@ -25857,27 +25892,63 @@
                     "op": "or",
                     "args": [
                       {
-                        "op": "==",
+                        "op": "or",
                         "args": [
-                          "rspp_processID",
                           {
-                            "op": "enum",
+                            "op": "==",
                             "args": [
-                              "process",
-                              "RunningExhaust"
+                              "rspp_processID",
+                              {
+                                "op": "enum",
+                                "args": [
+                                  "process",
+                                  "RunningExhaust"
+                                ]
+                              }
+                            ]
+                          },
+                          {
+                            "op": "==",
+                            "args": [
+                              "rspp_processID",
+                              {
+                                "op": "enum",
+                                "args": [
+                                  "process",
+                                  "StartExhaust"
+                                ]
+                              }
                             ]
                           }
                         ]
                       },
                       {
-                        "op": "==",
+                        "op": "or",
                         "args": [
-                          "rspp_processID",
                           {
-                            "op": "enum",
+                            "op": "==",
                             "args": [
-                              "process",
-                              "StartExhaust"
+                              "rspp_processID",
+                              {
+                                "op": "enum",
+                                "args": [
+                                  "process",
+                                  "Brakewear"
+                                ]
+                              }
+                            ]
+                          },
+                          {
+                            "op": "==",
+                            "args": [
+                              "rspp_processID",
+                              {
+                                "op": "enum",
+                                "args": [
+                                  "process",
+                                  "Tirewear"
+                                ]
+                              }
                             ]
                           }
                         ]
@@ -25895,7 +25966,7 @@
                             "op": "enum",
                             "args": [
                               "process",
-                              "Brakewear"
+                              "ExtendedIdleExhaust"
                             ]
                           }
                         ]
@@ -25908,7 +25979,7 @@
                             "op": "enum",
                             "args": [
                               "process",
-                              "Tirewear"
+                              "AuxiliaryPowerExhaust"
                             ]
                           }
                         ]
@@ -26062,6 +26133,53 @@
               1.0,
               0.0
             ]
+          }
+        },
+        {
+          "lhs": "rspp_hasShorePowerMode",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "row_is_present",
+            "bindings": {
+              "match_count": {
+                "op": "faq",
+                "args": [],
+                "semiring": "sum_product",
+                "output_idx": [
+                  "p"
+                ],
+                "ranges": {
+                  "p": {
+                    "from": "runspecpollutantprocess_rows"
+                  },
+                  "m": {
+                    "from": "operating_mode_rows"
+                  }
+                },
+                "expr": {
+                  "op": "*",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "hot_modeWeight",
+                        "p",
+                        "m"
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "hot_isShorePowerMode",
+                        "p",
+                        "m"
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
           }
         },
         {
@@ -91446,6 +91564,9 @@
               },
               "cy": {
                 "from": "runspecyear_rows"
+              },
+              "n": {
+                "from": "run_rows"
               }
             },
             "join": [
@@ -91467,15 +91588,163 @@
               }
             ],
             "expr": {
-              "op": "*",
+              "op": "ifelse",
               "args": [
+                {
+                  "op": ">",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "run_isProjectDomain",
+                        "n"
+                      ]
+                    },
+                    0.5
+                  ]
+                },
                 {
                   "op": "index",
                   "args": [
-                    "hot_dayAdjustment",
-                    "k",
+                    "hot_projectHours",
+                    "r",
                     "g",
-                    "cy"
+                    "s",
+                    "m"
+                  ]
+                },
+                {
+                  "op": "*",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "hot_dayAdjustment",
+                        "k",
+                        "g",
+                        "cy"
+                      ]
+                    },
+                    {
+                      "op": "*",
+                      "args": [
+                        {
+                          "op": "*",
+                          "args": [
+                            {
+                              "op": "index",
+                              "args": [
+                                "hot_dailyHours",
+                                "r",
+                                "g",
+                                "s",
+                                "m"
+                              ]
+                            },
+                            {
+                              "op": "index",
+                              "args": [
+                                "hot_hourDistribution",
+                                "k",
+                                "s"
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "op": "index",
+                          "args": [
+                            "hot_stmyTotal",
+                            "r",
+                            "s"
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "hot_projectHours",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "r",
+              "g",
+              "s",
+              "m"
+            ],
+            "ranges": {
+              "r": {
+                "from": "activity_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "s": {
+                "from": "runspecsourcetype_rows"
+              },
+              "m": {
+                "from": "runspecmonth_rows"
+              },
+              "k": {
+                "from": "runspecday_rows"
+              },
+              "x": {
+                "from": "offnetworklink_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "onl_zoneID",
+                    "run_zoneID"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "onl_sourceTypeID",
+                    "rst_sourceTypeID"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "act_dayOrdinal",
+                    "day_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                {
+                  "op": "==",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "onl_sourceTypeID",
+                        "x"
+                      ]
+                    },
+                    {
+                      "op": "enum",
+                      "args": [
+                        "source_type",
+                        "CombinationLongHaulTruck"
+                      ]
+                    }
                   ]
                 },
                 {
@@ -91485,21 +91754,42 @@
                       "op": "*",
                       "args": [
                         {
-                          "op": "index",
+                          "op": "*",
                           "args": [
-                            "hot_dailyHours",
-                            "r",
-                            "g",
-                            "s",
-                            "m"
+                            {
+                              "op": "*",
+                              "args": [
+                                {
+                                  "op": "index",
+                                  "args": [
+                                    "onl_vehiclePopulation",
+                                    "x"
+                                  ]
+                                },
+                                {
+                                  "op": "index",
+                                  "args": [
+                                    "onl_extendedIdleFraction",
+                                    "x"
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "op": "index",
+                              "args": [
+                                "act_ageFraction",
+                                "r",
+                                "s"
+                              ]
+                            }
                           ]
                         },
                         {
                           "op": "index",
                           "args": [
-                            "hot_hourDistribution",
-                            "k",
-                            "s"
+                            "day_noOfRealDays",
+                            "k"
                           ]
                         }
                       ]
@@ -91513,7 +91803,8 @@
                       ]
                     }
                   ]
-                }
+                },
+                0.0
               ]
             }
           }
@@ -94123,24 +94414,80 @@
         {
           "lhs": "rt_shorePowerEmits",
           "rhs": {
-            "op": "*",
-            "args": [
-              {
-                "op": "*",
-                "args": [
-                  "rt_retagsShorePower",
-                  "rt_survives"
-                ]
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
               },
-              {
-                "op": "apply_expression_template",
-                "args": [],
-                "name": "row_is_present",
-                "bindings": {
-                  "match_count": "rt_shorePowerRateRows"
-                }
+              "p": {
+                "from": "runspecpollutantprocess_rows"
               }
-            ]
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rt_polProcOrdinal",
+                    "rspp_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "*",
+                  "args": [
+                    {
+                      "op": "*",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "rt_retagsShorePower",
+                            "b"
+                          ]
+                        },
+                        {
+                          "op": "index",
+                          "args": [
+                            "rt_survives",
+                            "b"
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "op": "apply_expression_template",
+                      "args": [],
+                      "name": "row_is_present",
+                      "bindings": {
+                        "match_count": {
+                          "op": "index",
+                          "args": [
+                            "rt_shorePowerRateRows",
+                            "b"
+                          ]
+                        }
+                      }
+                    }
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "rspp_hasShorePowerMode",
+                    "p"
+                  ]
+                }
+              ]
+            }
           }
         },
         {

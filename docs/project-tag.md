@@ -10,12 +10,12 @@ It was ported in 2026-10-19's step 7f (PLAN.md §7.3.40) as `onroad/model.esm`'s
 claimed it, so `tools/calculator-coverage.py` listed it as unported until 2026-11-08 (PLAN.md §7.3.53).
 This document is that claim, and §6.5 is the evidence for it.
 
-**SHO and Starts are ported; SHP, `SourceHours` and hotelling hours are specified and not.** Since
-2026-11-09 (PLAN.md §7.3.55) `act_projectSho` runs once per link -- one per selected road type -- and
-`st_projectStarts` is ProjectTAG's Starts, through which `runspecs/project-links.esm` reproduces running, start,
-brake-wear and tire-wear exhaust on three links. ProjectTAG's other three outputs, which the evaporative
-processes and extended idle and APU read, are reproduced by §6.5 from the execution database's inputs but not
-ported. `run_domainUnported` counts any PROJECT-domain run that would need one (`rspp_hasProjectGenerator`),
+**SHO, Starts and hotelling hours are ported; SHP and `SourceHours` are specified and not.** Since
+2026-11-09 (PLAN.md §7.3.55) `act_projectSho` runs once per link -- one per selected road type --
+`st_projectStarts` is ProjectTAG's Starts and `hot_projectHours` its hotelling hours, through which
+`runspecs/project-links.esm` reproduces running, start, brake-wear and tire-wear exhaust on three links and
+`runspecs/project-hotelling.esm` extended idle and APU on an off-network link. SHP and `SourceHours`, which only
+the evaporative processes read, are reproduced by §6.5 from the execution database's inputs but not ported. `run_domainUnported` counts any PROJECT-domain run that would need one (`rspp_hasProjectGenerator`),
 and also a (county, road type) with other than one link and a second county; `tools/check-runspec-shape.py`
 asserts that count is 0. So a PROJECT-domain run that needs an unported path fails loudly rather than
 emitting a plausible wrong number. `runspecs/pending/project-offnetwork.esm` is such a run.
@@ -26,13 +26,13 @@ emitting a plausible wrong number. `runspecs/pending/project-offnetwork.esm` is 
 
 | | |
 |---|---|
-| RunSpec | `../moves.rs/characterization/fixtures/scale-project.xml` and `rates-project.xml` (one link); `project-links.xml` (three links, two source types, an off-network link); `project-offnetwork.xml` (an on-network and an off-network link, source types 21 and 62) |
+| RunSpec | `../moves.rs/characterization/fixtures/scale-project.xml` and `rates-project.xml` (one link); `project-links.xml` (three links, two source types, an off-network link); `project-offnetwork.xml` and `project-hotelling.xml` (an on-network and an off-network link, source types 21 and 62; the second without the evaporative processes) |
 | Model | ONROAD, `modeldomain` **`PROJECT`** |
 | Reads | `link`, `linkSourceTypeHour`, `offNetworkLink`, `avft`, `sourceTypeAgeDistribution`, `dayOfAnyWeek`, `hourDay`, `runSpecHourDay`, `runSpecDay`, `runSpecMonth`, `runSpecSourceType` |
 | Writes | `SHO` (with `distance`), `Starts`, `SHP`, `SourceHours`, `hotellingHours` |
 | Calculator path | **`ProjectTAG`** — the PROJECT-domain counterpart of TotalActivityGenerator, whose activity tables the base-rate chain reads |
 | Rows | 328 `SHO` over four snapshots, 164 `Starts` over three (`scale-project` and `rates-project` select start exhaust, so ProjectTAG writes Starts there, unread), 82 `SHP`, 164 `SourceHours`, 123 `hotellingHours` (§6.5) |
-| Ported by | SHO: `onroad/model.esm`'s `act_projectSho` (per road type), selected by `act_sho` under `run_isProjectDomain`, with `lib/onroad_activity.esm`'s `link_travel_hours_share`. Starts: `st_projectStarts`, selected by `st_starts`. SHP, SourceHours and hotelling hours: not ported, refused through `rspp_hasProjectGenerator` |
+| Ported by | SHO: `onroad/model.esm`'s `act_projectSho` (per road type), selected by `act_sho` under `run_isProjectDomain`, with `lib/onroad_activity.esm`'s `link_travel_hours_share`. Starts: `st_projectStarts`, selected by `st_starts`. Hotelling hours: `hot_projectHours`, selected by `hot_hours`, summed over the fuel split. SHP and SourceHours: not ported, refused through `rspp_hasProjectGenerator` |
 | Java | `.../ghg/ProjectTAG.java` (`allocateTotalActivityBasis`: :354-385 SHO, :387-404 SHP, :406-433 Starts, :435-463 hotelling hours, :465-519 SourceHours) |
 | Rust | `../moves.rs/crates/moves-calculators/src/generators/project_tag.rs` |
 
@@ -88,7 +88,10 @@ SourceHours    = SHP's product on the off-network link (:467-487);
 * **SHP** and **SourceHours** are written for the evaporative processes: SHP once per zone when the location
   is the off-network link, SourceHours once per link. Not ported.
 * **hotellingHours** are written for extended idle and APU, for source type 62 only, split by fuel through
-  `avft` at the cohort's model year (`modelYearID = yearID - ageID`). Not ported.
+  `avft` at the cohort's model year (`modelYearID = yearID - ageID`). Ported summed over the fuel split, as the
+  DEFAULT path's `hot_hours` is: the project database's `avft` is the default `sampleVehiclePopulation` summed
+  over regulatory class, so its fractions sum to the DEFAULT path's `hot_stmyTotal`. MOVES applies no
+  AdjustHotelling to them here (the project databases' `hotellingHoursPerDay` is empty).
 
 ## 6. Hand-checkable worked examples
 
@@ -133,7 +136,7 @@ are read only to compare against. FLOAT input columns (`linkSourceTypeHour`'s sh
 fractions, `avft`'s fraction) are narrowed to binary32 first, as MariaDB stores them. It asserts:
 
 * **Scheduling.** `linkSourceTypeHour`, the one table only ProjectTAG reads, is populated on exactly the
-  PROJECT-domain runs: 4 of the 66 snapshots that carry the table. And each of the five outputs is populated
+  PROJECT-domain runs: 5 of the 67 snapshots that carry the table. And each of the five outputs is populated
   exactly on the runs whose processes subscribe to it.
 * **Key sets.** For each PROJECT-domain run and output, the computed keys equal the reference's exactly.
 * **Values.** Every FLOAT cell (`SHO`, `distance`, `starts`, `SHP`, `sourceHours`) equals the reference's
@@ -341,6 +344,8 @@ for k, floor in (("SHO", 328), ("Starts", 164), ("SHP", 82), ("SourceHours", 164
 * **Missing age distributions.** ProjectTAG grows a missing year's age distribution from population
   (:315-350, through `TotalActivityGenerator`). Every run finds 2020 in the default database.
 * **More than one hour-day.** Every PROJECT snapshot has one.
-* **The unported outputs.** SHP, `SourceHours` and hotelling hours are reproduced above and not ported; the
-  evaporative processes and extended idle and APU are refused in PROJECT domain (`rspp_hasProjectGenerator`),
-  and `runspecs/pending/project-offnetwork.esm` waits on them.
+* **The unported outputs.** SHP and `SourceHours` are reproduced above and not ported; the evaporative
+  processes are refused in PROJECT domain (`rspp_hasProjectGenerator`), and
+  `runspecs/pending/project-offnetwork.esm` waits on them.
+* **An avft that is not the sample vehicle population's.** The model sums the fuel split back with
+  `hot_stmyTotal`; a project database whose `avft` differs from AVFTTool's default would need the split ported.
