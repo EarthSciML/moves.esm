@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Run the independent reproduction of `ProjectTAG`'s SHO that lives in
+# Run the independent reproduction of `ProjectTAG`'s outputs that lives in
 # `docs/project-tag.md` §6.5.
 #
 # The script is EXTRACTED from the specification rather than kept as a second
@@ -10,10 +10,11 @@
 #
 # It is handed the snapshots directory and moves.rs's RunSpec XMLs, not one
 # snapshot. From each PROJECT-domain run's link, linkSourceTypeHour,
-# sourceTypeAgeDistribution, dayOfAnyWeek, hourDay and runSpec* tables -- and
-# nothing else -- it recomputes SHO and distance (ProjectTAG.java:354-385) and
-# asserts the key set exact and every cell equal to the reference's binary32,
-# six-digit rendering. It also asserts the scheduling: linkSourceTypeHour is
+# offNetworkLink, avft, sourceTypeAgeDistribution, dayOfAnyWeek, hourDay and
+# runSpec* tables -- and nothing else -- it recomputes SHO and distance, Starts,
+# SHP, SourceHours and hotelling hours (ProjectTAG.java:354-519) and asserts
+# each key set exact and every FLOAT cell equal to the reference's binary32,
+# six-digit rendering (the DOUBLE hotellingHours within 1e-6). It also asserts the scheduling: linkSourceTypeHour is
 # populated on exactly the PROJECT-domain runs.
 
 set -uo pipefail
@@ -82,6 +83,7 @@ if ! out=$("$PYTHON" "$WORK/repro.py" "$SNAP_ABS" "$XMLS" 2>&1); then
   exit 1
 fi
 sed 's/^/  /' <<<"$out"
-echo "  NOTE: the non-positive-speed arm, several links and source types, a"
-echo "        missing age distribution and ProjectTAG's other outputs are"
-echo "        unexercised -- see $SPEC section 6.6."
+echo "  NOTE: the non-positive-speed arm on a link with a source-type share, two"
+echo "        links on one road type and a missing age distribution are"
+echo "        unexercised; SHP, SourceHours and hotelling hours are reproduced"
+echo "        here and not ported -- see $SPEC section 6.6."

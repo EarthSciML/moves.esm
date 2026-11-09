@@ -10,11 +10,15 @@ It was ported in 2026-10-19's step 7f (PLAN.md §7.3.40) as `onroad/model.esm`'s
 claimed it, so `tools/calculator-coverage.py` listed it as unported until 2026-11-08 (PLAN.md §7.3.53).
 This document is that claim, and §6.5 is the evidence for it.
 
-**Only the SHO path is ported.** ProjectTAG also writes SHP for an off-network link, `Starts`, hotelling
-hours and `SourceHours`, and none of those is ported. `run_domainUnported` counts any PROJECT-domain run
-that would need one: an emitted pollutant-process other than running exhaust, or a second link or county.
-`tools/check-runspec-shape.py` asserts that count is 0. So a PROJECT-domain run that needs an unported path
-fails loudly rather than emitting a plausible wrong number.
+**SHO and Starts are ported; SHP, `SourceHours` and hotelling hours are specified and not.** Since
+2026-11-09 (PLAN.md §7.3.55) `act_projectSho` runs once per link -- one per selected road type -- and
+`st_projectStarts` is ProjectTAG's Starts, through which `runspecs/project-links.esm` reproduces running, start,
+brake-wear and tire-wear exhaust on three links. ProjectTAG's other three outputs, which the evaporative
+processes and extended idle and APU read, are reproduced by §6.5 from the execution database's inputs but not
+ported. `run_domainUnported` counts any PROJECT-domain run that would need one (`rspp_hasProjectGenerator`),
+and also a (county, road type) with other than one link and a second county; `tools/check-runspec-shape.py`
+asserts that count is 0. So a PROJECT-domain run that needs an unported path fails loudly rather than
+emitting a plausible wrong number. `runspecs/pending/project-offnetwork.esm` is such a run.
 
 ---
 
@@ -22,14 +26,14 @@ fails loudly rather than emitting a plausible wrong number.
 
 | | |
 |---|---|
-| RunSpec | `../moves.rs/characterization/fixtures/scale-project.xml` (and `rates-project.xml`, its Rates-scale twin) |
+| RunSpecs | `../moves.rs/characterization/fixtures/scale-project.xml` and `rates-project.xml` (one link); `project-links.xml` (three links, two source types, an off-network link); `project-offnetwork.xml` (an on-network and an off-network link, source types 21 and 62) |
 | Model | ONROAD, `modeldomain` **`PROJECT`** |
-| Reads | `link`, `linkSourceTypeHour`, `sourceTypeAgeDistribution`, `dayOfAnyWeek`, `hourDay`, `runSpecHourDay`, `runSpecDay`, `runSpecMonth`, `runSpecSourceType` |
-| Writes | `SHO` (41 rows in each run), with its `distance` column |
-| Calculator path | **`ProjectTAG`** — the PROJECT-domain counterpart of TotalActivityGenerator, whose SHO the base-rate chain reads |
-| Rows | 41 `SHO` rows in each of two snapshots, 82 in all (§6.5) |
-| Ported by | `onroad/model.esm`'s `act_projectSho`, selected by `act_sho` under `run_isProjectDomain`; the link's travel-time share is `lib/onroad_activity.esm`'s `link_travel_hours_share` |
-| Java | `.../ghg/ProjectTAG.java` (`allocateTotalActivityBasis`, :354-385 for SHO) |
+| Reads | `link`, `linkSourceTypeHour`, `offNetworkLink`, `avft`, `sourceTypeAgeDistribution`, `dayOfAnyWeek`, `hourDay`, `runSpecHourDay`, `runSpecDay`, `runSpecMonth`, `runSpecSourceType` |
+| Writes | `SHO` (with `distance`), `Starts`, `SHP`, `SourceHours`, `hotellingHours` |
+| Calculator path | **`ProjectTAG`** — the PROJECT-domain counterpart of TotalActivityGenerator, whose activity tables the base-rate chain reads |
+| Rows | 328 `SHO` over four snapshots, 164 `Starts` over three (`scale-project` and `rates-project` select start exhaust, so ProjectTAG writes Starts there, unread), 82 `SHP`, 164 `SourceHours`, 123 `hotellingHours` (§6.5) |
+| Ported by | SHO: `onroad/model.esm`'s `act_projectSho` (per road type), selected by `act_sho` under `run_isProjectDomain`, with `lib/onroad_activity.esm`'s `link_travel_hours_share`. Starts: `st_projectStarts`, selected by `st_starts`. SHP, SourceHours and hotelling hours: not ported, refused through `rspp_hasProjectGenerator` |
+| Java | `.../ghg/ProjectTAG.java` (`allocateTotalActivityBasis`: :354-385 SHO, :387-404 SHP, :406-433 Starts, :435-463 hotelling hours, :465-519 SourceHours) |
 | Rust | `../moves.rs/crates/moves-calculators/src/generators/project_tag.rs` |
 
 ## 1. The computation
@@ -45,21 +49,46 @@ distance = SHO x linkAvgSpeed
   `least(length/speed, 1)` is the fraction of the hour that a vehicle entering the link spends on it, capped
   at the whole hour.
 * If `linkAvgSpeed` is not positive, the SQL's `else` arm keeps the product without the share, and the
-  distance is 0. Neither snapshot exercises this arm (§6.6).
+  distance is 0. An off-network link has speed 0, but no `linkSourceTypeHour` row in any snapshot, so the
+  arm still writes no row (§6.6).
 * `sourceTypeHourFraction` is the link's share for the source type. `linkSourceTypeHour` has no hour column,
-  despite its name, so the same share applies at every hour.
+  despite its name, so the same share applies at every hour. It is a FLOAT column, and §6.5 narrows it to
+  binary32 before multiplying: `project-links`' 0.6 decides one `distance` cell's sixth digit.
 * `noOfRealDays` is the day type's count of days in a week: 5 for weekdays.
 * `ageFraction` is `sourceTypeAgeDistribution` at the run's year. ProjectTAG builds it from
   `sourceTypeAgePopulation` when the year is missing (:315-350); the default database already has 2020, so
-  neither run reaches that branch.
+  no run reaches that branch.
 * There is no VMT, no road-type distribution and no SHO allocation factor. A project's activity is its
   links' volumes, which is the whole difference from `TotalActivityGenerator`. The month is a label on the
   row, not a factor in it.
 * The insert is `insert ignore` on (hourDay, month, year, age, link, source type), so a repeated key keeps its
-  first row. Neither run repeats a key, and §6.5 asserts that rather than assuming it.
+  first row. No run repeats a key, and §6.5 asserts that rather than assuming it.
 
 The model writes the product in the SQL's association: ((volume x fraction) x days) x ageFraction, then the
-share.
+share. Since the generator runs once per link and the model has no link axis, `act_projectSho` is keyed by
+road type: the project's link on each selected road type. `run_linkCount` refuses a (county, road type)
+with other than one link.
+
+The other four outputs read the zone's **off-network fleet**, `offNetworkLink`, rather than a link's volume:
+
+```
+Starts         = vehiclePopulation x startFraction x ageFraction x noOfRealDays                (:406-433)
+SHP            = vehiclePopulation x parkedVehicleFraction x ageFraction x noOfRealDays        (:387-404)
+hotellingHours = sum over the cohort's (engine tech) avft rows of
+                 vehiclePopulation x extendedIdleFraction x ageFraction x noOfRealDays x fuelEngFraction,
+                 per fuel type, source type 62 only                                             (:435-463)
+SourceHours    = SHP's product on the off-network link (:467-487);
+                 on an on-network link, SHO's product WITHOUT the travel-time share            (:488-516)
+```
+
+* **Starts** are written when start exhaust is selected, per zone. At Rates scale the SQL drops
+  `startFraction` (`isRates ? "" : "*onl.startFraction"`). Ported as `st_projectStarts`; the starts' operating
+  modes are the user's (`opModeDistribution`, StartOperatingModeDistributionGenerator's PROJECT arm;
+  `docs/operating-mode-distribution.md` §8.3, `sod_weight`).
+* **SHP** and **SourceHours** are written for the evaporative processes: SHP once per zone when the location
+  is the off-network link, SourceHours once per link. Not ported.
+* **hotellingHours** are written for extended idle and APU, for source type 62 only, split by fuel through
+  `avft` at the cohort's model year (`modelYearID = yearID - ageID`). Not ported.
 
 ## 6. Hand-checkable worked examples
 
@@ -77,31 +106,52 @@ x least(1/30, 1) = 164.12534517010538 / 30 = 5.4708448390035
 The snapshot stores `SHO` 5.47084, and `distance` 5.4708448390035 x 30 = 164.125, stored as 164.125. Both
 are FLOAT columns: binary32, rendered to six digits.
 
+### 6.2 `project-links`, link 2, source type 32, age 0
+
+Link 2 has volume 600, length 0.5 mile and speed 25 mph, on road type 5. Source type 32's share on it is
+0.4, stored as binary32 0.4000000059604645, and `ageFraction` at (32, 2020, age 0) is 0.09161354025564963.
+
+```
+600 x 0.4000000059604645 x 5 x 0.09161354025564963 = 109.93624994...
+x least(0.5/25, 1) = x 0.02 = 2.1987249988991464          stored SHO 2.19872
+x 25 = 54.96812497247866                                    stored distance 54.9681
+```
+
+### 6.3 `project-links`, Starts, source type 32, age 0
+
+`offNetworkLink` holds 400 light commercial trucks with start fraction 0.08 (binary32 0.07999999821186066):
+
+```
+400 x 0.07999999821186066 x 0.09161354025564963 x 5 = 14.65816611326839    stored starts 14.6582
+```
+
 ### 6.5 The reproduction script
 
 `./run-project-tag-oracle.sh` extracts this fence and runs it over the snapshot corpus and the moves.rs
-RunSpec XMLs. It reads only each run's execution-database inputs (§0's Reads row); `SHO` is read only to
-compare against. It asserts:
+RunSpec XMLs. It reads only each run's execution-database inputs (§0's Reads row); the five output tables
+are read only to compare against. FLOAT input columns (`linkSourceTypeHour`'s share, `offNetworkLink`'s
+fractions, `avft`'s fraction) are narrowed to binary32 first, as MariaDB stores them. It asserts:
 
 * **Scheduling.** `linkSourceTypeHour`, the one table only ProjectTAG reads, is populated on exactly the
-  PROJECT-domain runs. That is 2 of the 64 snapshots that carry the table; it is empty on the other 62.
-* **Key set.** For each PROJECT-domain run, the computed SHO keys equal the reference's exactly: 0 missing
-  and 0 extra.
-* **Values.** Every `SHO` and `distance` cell, narrowed to binary32 and rendered to six digits, equals the
-  reference: 82 of 82 for each column.
-* **Floors.** At least 2 PROJECT-domain runs and at least 82 rows. These are lower bounds, not equalities,
-  because the corpus grows (`docs/esm-conventions.md` §35.5).
+  PROJECT-domain runs: 4 of the 66 snapshots that carry the table. And each of the five outputs is populated
+  exactly on the runs whose processes subscribe to it.
+* **Key sets.** For each PROJECT-domain run and output, the computed keys equal the reference's exactly.
+* **Values.** Every FLOAT cell (`SHO`, `distance`, `starts`, `SHP`, `sourceHours`) equals the reference's
+  binary32 six-digit rendering; `hotellingHours` is a DOUBLE column and is held within 1e-6 relative.
+* **Floors.** At least 4 PROJECT-domain runs, 328 `SHO`, 164 `Starts`, 82 `SHP`, 164 `SourceHours` and 123
+  `hotellingHours` rows. These are lower bounds, not equalities, because the corpus grows
+  (`docs/esm-conventions.md` §35.5).
 
 ```python
-"""ProjectTAG's SHO and distance (ProjectTAG.java:354-385), from each PROJECT-
-domain run's execution-database inputs alone, against that run's own SHO."""
+"""ProjectTAG's SHO, Starts, SHP, SourceHours and hotelling hours (ProjectTAG.java:354-519),
+from each PROJECT-domain run's execution-database inputs alone, against that run's own tables."""
 import glob, pathlib, re, sys
 import numpy as np
 import pandas as pd
 
 snaps = pathlib.Path(sys.argv[1])
 xmls = pathlib.Path(sys.argv[2])  # moves.rs characterization/fixtures
-KEY = ["hourDayID", "monthID", "yearID", "ageID", "linkID", "sourceTypeID"]
+TIME = ["hourDayID", "monthID", "yearID", "ageID"]
 
 
 def table(run, name):
@@ -118,6 +168,11 @@ def table(run, name):
     return d
 
 
+def f32(col):
+    """A MariaDB FLOAT input column: binary32, widened back to double for the SQL's arithmetic."""
+    return col.astype(np.float32).astype(float)
+
+
 def domain(run):
     m = re.search(r'<modeldomain value="(\w+)"', (xmls / f"{run}.xml").read_text())
     return m.group(1) if m else "DEFAULT"
@@ -128,46 +183,112 @@ def float_rendering(x):
     return float(f"{float(np.float32(x)):.6g}")
 
 
+def frame(run):
+    """The run's (hourDay, month, source type, age) cross product, as the SQL's FROM builds it."""
+    stad = table(run, "sourcetypeagedistribution")
+    year = int(table(run, "runspecyear")["yearID"].iloc[0])
+    return (table(run, "hourday").merge(table(run, "runspechourday"), on="hourDayID")
+            .merge(table(run, "dayofanyweek"), on="dayID")
+            .merge(table(run, "runspecday"), on="dayID")
+            .merge(table(run, "runspecmonth"), how="cross")
+            .merge(table(run, "runspecsourcetype"), how="cross")
+            .merge(stad[stad.yearID == year], on="sourceTypeID"))
+
+
+def off_network(run):
+    onl = table(run, "offnetworklink")
+    for c in ("vehiclePopulation", "startFraction", "extendedIdleFraction", "parkedVehicleFraction"):
+        onl[c] = f32(onl[c])
+    return frame(run).merge(onl, on="sourceTypeID")
+
+
+def compare(run, what, got, ref, key, cols, rendered=True, rel_gate=0.0):
+    """Key set exact; each value equal to the reference's FLOAT rendering, or within rel_gate."""
+    assert not got.duplicated(key).any(), f"{run} {what}: a key the SQL's insert ignore would collapse"
+    m = got.merge(ref, on=key, how="outer", suffixes=("", "_ref"), indicator=True)
+    missing, extra = int((m._merge == "right_only").sum()), int((m._merge == "left_only").sum())
+    print(f"{run}: {len(got)} {what} keys computed, {len(ref)} in the reference, "
+          f"{missing} missing, {extra} extra")
+    assert missing == 0 and extra == 0, "the key sets differ"
+    for c, rc in cols:
+        rel = ((m[c] - m[rc]).abs() / m[rc].abs().where(m[rc] != 0, 1))
+        bad = m[m[c].map(float_rendering) != m[rc]] if rendered else m[rel > rel_gate]
+        how = "equal the reference's six-digit FLOAT rendering" if rendered else f"within {rel_gate:g} relative"
+        print(f"  {rc}: {len(m) - len(bad)} of {len(m)} cells {how} (worst rel {rel.max():.3e})")
+        assert bad.empty, bad[key + [c, rc]].head().to_string()
+    return len(got)
+
+
 def sho(run):
     link = table(run, "link")
     lsth = table(run, "linksourcetypehour")
-    stad = table(run, "sourcetypeagedistribution")
-    year = int(table(run, "runspecyear")["yearID"].iloc[0])
-    frame = (table(run, "hourday").merge(table(run, "runspechourday"), on="hourDayID")
-             .merge(table(run, "dayofanyweek"), on="dayID")
-             .merge(table(run, "runspecday"), on="dayID")
-             .merge(table(run, "runspecmonth"), how="cross")
-             .merge(table(run, "runspecsourcetype"), how="cross")
-             .merge(stad[stad.yearID == year], on="sourceTypeID"))
+    lsth["sourceTypeHourFraction"] = f32(lsth.sourceTypeHourFraction)
     out = []
     for _, l in link.iterrows():  # the generator is called once per link
-        q = frame.merge(lsth[lsth.linkID == l.linkID], on="sourceTypeID")
+        q = frame(run).merge(lsth[lsth.linkID == l.linkID], on="sourceTypeID")
         base = l.linkVolume * q.sourceTypeHourFraction * q.noOfRealDays * q.ageFraction
         if l.linkAvgSpeed > 0:
             share = min(l.linkLength / l.linkAvgSpeed, 1.0)
-            q["SHO"], q["distance"] = base * share, base * share * l.linkAvgSpeed
+            q["SHOc"], q["distancec"] = base * share, base * share * l.linkAvgSpeed
         else:
-            q["SHO"], q["distance"] = base, 0.0
+            q["SHOc"], q["distancec"] = base, 0.0
         q["linkID"] = l.linkID
         out.append(q)
-    got = pd.concat(out)
-    # `insert ignore` keeps a key's FIRST row. No run here repeats a key; if
-    # one ever does, the scan order matters and has to be decided first.
-    assert not got.duplicated(KEY).any(), f"{run}: a key the SQL would collapse"
+    return pd.concat(out)
+
+
+def run_sho(run):
     ref = table(run, "sho")
-    ref = ref[ref.linkID.isin(link.linkID)]
-    m = got.merge(ref, on=KEY, how="outer", suffixes=("", "_ref"), indicator=True)
-    missing, extra = int((m._merge == "right_only").sum()), int((m._merge == "left_only").sum())
-    print(f"{run}: {len(got)} SHO keys computed, {len(ref)} in the reference, "
-          f"{missing} missing, {extra} extra")
-    assert missing == 0 and extra == 0, "the key sets differ"
-    for c in ("SHO", "distance"):
-        bad = m[m[c].map(float_rendering) != m[c + "_ref"]]
-        rel = ((m[c] - m[c + "_ref"]).abs() / m[c + "_ref"].abs().where(m[c + "_ref"] != 0, 1)).max()
-        print(f"  {c}: {len(m) - len(bad)} of {len(m)} cells equal the reference's "
-              f"six-digit FLOAT rendering (worst rel {rel:.3e})")
-        assert bad.empty, bad[KEY + [c, c + "_ref"]].head().to_string()
-    return len(got)
+    ref = ref[ref.linkID.isin(table(run, "link").linkID)]
+    return compare(run, "SHO", sho(run), ref, TIME + ["linkID", "sourceTypeID"],
+                   [("SHOc", "SHO"), ("distancec", "distance")])
+
+
+def is_rates(run):
+    return '<modelscale value="Rates"' in (xmls / f"{run}.xml").read_text()
+
+
+def run_starts(run):
+    q = off_network(run)
+    if is_rates(run):  # `isRates ? "" : "*onl.startFraction"` (java:414)
+        q["startsc"] = q.vehiclePopulation * q.ageFraction * q.noOfRealDays
+    else:
+        q["startsc"] = q.vehiclePopulation * q.startFraction * q.ageFraction * q.noOfRealDays
+    return compare(run, "Starts", q, table(run, "starts"), TIME + ["sourceTypeID"], [("startsc", "starts")])
+
+
+def run_shp(run):
+    q = off_network(run)
+    q["SHPc"] = q.vehiclePopulation * q.parkedVehicleFraction * q.ageFraction * q.noOfRealDays
+    return compare(run, "SHP", q, table(run, "shp"), TIME + ["sourceTypeID"], [("SHPc", "SHP")])
+
+
+def run_source_hours(run):
+    link = table(run, "link")
+    off = off_network(run)
+    off["sourceHoursc"] = off.vehiclePopulation * off.parkedVehicleFraction * off.ageFraction * off.noOfRealDays
+    off["linkID"] = int(link[link.roadTypeID == 1].linkID.iloc[0])
+    on = sho(run)
+    on = on.merge(link[["linkID", "linkVolume"]], on="linkID")
+    on["sourceHoursc"] = on.linkVolume * on.sourceTypeHourFraction * on.noOfRealDays * on.ageFraction
+    return compare(run, "SourceHours", pd.concat([off, on]), table(run, "sourcehours"),
+                   TIME + ["linkID", "sourceTypeID"], [("sourceHoursc", "sourceHours")])
+
+
+def run_hotelling(run):
+    avft = table(run, "avft")
+    avft["fuelEngFraction"] = f32(avft.fuelEngFraction)
+    q = off_network(run)
+    q = q[q.sourceTypeID == 62].copy()
+    q["modelYearID"] = q.yearID - q.ageID
+    q = q.merge(avft, on=["sourceTypeID", "modelYearID"])
+    q["hh"] = (q.vehiclePopulation * q.extendedIdleFraction * q.ageFraction * q.noOfRealDays
+               * q.fuelEngFraction)
+    q = q.groupby(TIME + ["sourceTypeID", "fuelTypeID"], as_index=False).hh.sum()
+    # hotellingHours is a DOUBLE column, not a FLOAT: compared within 1e-6, not at six digits.
+    return compare(run, "hotellingHours", q, table(run, "hotellinghours"),
+                   TIME + ["sourceTypeID", "fuelTypeID"], [("hh", "hotellingHours")],
+                   rendered=False, rel_gate=1e-6)
 
 
 project, other = [], []
@@ -185,19 +306,41 @@ for d, n in project:
     assert n > 0, f"{d}: a PROJECT-domain run with no linkSourceTypeHour"
 print(f"linkSourceTypeHour populated on {len(project)} PROJECT-domain run(s) "
       f"and empty on {len(other)} others")
-assert len(project) >= 2, "fewer PROJECT-domain snapshots than when this was written"
-total = sum(sho(d) for d, _ in project)
-assert total >= 82, "fewer SHO rows than when this was written"
+
+# Each output is checked on every PROJECT run whose reference table has rows,
+# and a populated table on a run the SQL would not write it for is a failure:
+# the subscription is the process (ProjectTAG.java:243-282).
+totals = {"SHO": 0, "Starts": 0, "SHP": 0, "SourceHours": 0, "hotellingHours": 0}
+for d, _ in project:
+    pps = set(table(d, "runspecpollutantprocess").polProcessID % 100)
+    rts = set(table(d, "runspecroadtype").roadTypeID)
+    evap = bool(pps & {11, 12, 13})
+    expect = {"SHO": True, "Starts": 2 in pps, "SHP": evap and 1 in rts, "SourceHours": evap,
+              "hotellingHours": bool(pps & {90, 91}) and 62 in set(table(d, "runspecsourcetype").sourceTypeID)}
+    for what, fn, name in (("SHO", run_sho, "sho"), ("Starts", run_starts, "starts"), ("SHP", run_shp, "shp"),
+                           ("SourceHours", run_source_hours, "sourcehours"),
+                           ("hotellingHours", run_hotelling, "hotellinghours")):
+        populated = len(table(d, name)) > 0
+        assert populated == expect[what], f"{d}: {what} populated={populated}, expected {expect[what]}"
+        if populated:
+            totals[what] += fn(d)
+
+print("totals: " + ", ".join(f"{k} {v}" for k, v in totals.items()))
+# Floors: lower bounds, not equalities, because the corpus grows.
+assert len(project) >= 4, "fewer PROJECT-domain snapshots than when this was written"
+for k, floor in (("SHO", 328), ("Starts", 164), ("SHP", 82), ("SourceHours", 164), ("hotellingHours", 123)):
+    assert totals[k] >= floor, f"fewer {k} rows than when this was written"
 ```
 
 ### 6.6 What it does not reach
 
-* **The `else` arm.** No snapshot has a link with `linkAvgSpeed` <= 0. The template's `ifelse` follows the
-  SQL, but nothing tests it.
-* **Several links or source types.** Both runs have one link, one source type and one hour. The per-link
-  loop and the cross product are written as the SQL has them, and are exercised only at size 1.
-  `run_domainUnported` refuses a second link.
+* **The `else` arm.** No snapshot has an on-network link with `linkAvgSpeed` <= 0, and the off-network links
+  have no `linkSourceTypeHour` row. The template's `ifelse` follows the SQL, but nothing tests it.
+* **Two links on one road type.** The model keys a link by (county, road type), and `run_linkCount` refuses a
+  pair with two; ProjectTAG itself would handle it.
 * **Missing age distributions.** ProjectTAG grows a missing year's age distribution from population
-  (:315-350, through `TotalActivityGenerator`). Both runs find 2020 in the default database.
-* **The other outputs.** SHP, `Starts`, hotelling hours and `SourceHours` are not ported, and are refused as
-  described at the top of this document.
+  (:315-350, through `TotalActivityGenerator`). Every run finds 2020 in the default database.
+* **More than one hour-day.** Every PROJECT snapshot has one.
+* **The unported outputs.** SHP, `SourceHours` and hotelling hours are reproduced above and not ported; the
+  evaporative processes and extended idle and APU are refused in PROJECT domain (`rspp_hasProjectGenerator`),
+  and `runspecs/pending/project-offnetwork.esm` waits on them.
