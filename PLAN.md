@@ -5624,6 +5624,55 @@ them since. They went uncounted for two bookkeeping reasons:
 
 The result is **32 of 32: 19 calculators and 13 generators.**
 
+#### 7.3.54 The trip chain is per slot too
+
+2026-11-08. A cost fix; every output is byte-identical. §7.3.51 moved the
+vehicle-hour chain onto two group slots. The trip chain one step upstream
+(TTG-2..5: `ttg_tripState`, the key-on and key-off temperatures, the soak
+slices, the run-hour readings, twelve variables) still ran for all sixteen
+`TankTemperatureRise` groups x every trip. A trip's source type carries at
+most `n_tankGroupSlot`, which is two.
+
+**Two axes, not one.** The first attempt flattened (trip, slot) into one
+trip-major axis, and it was slower: 444 s of CPU on `rates-venting` against
+329 s. A recurrence is evaluated step by step along its axis and vectorised
+across the others. Flattening doubled the steps, narrowed each step's vector,
+and turned every trip-indexed read into a gather; the chain's step went from
+133 s to 252 s. What went in instead:
+
+* **`tankslot_rows`** (`q`, `n_tankGroupSlot`) carries the chain:
+  `ttg_X[g,n,q,i]`. The recurrence stays over the trip, vectorised over the
+  slot. `ttq_groupRow[q,i]` is the trip's q-th group in group-ID order, and
+  `ttq_applies` marks an empty slot, which is never walked.
+* **`tripgroupslot_rows`** (`zq`, trip-major) carries only the READERS: the
+  four per-group totals (TTG-6), `ttg_tripHotSoakMinutes`, and the three
+  vehicle-hour joins. Each reads the chain by a gather at
+  (`tts_slot`, `tts_trip`), so its join keys stay one-dimensional. Being
+  trip-major, a group's trips are summed in trip order, which keeps every sum
+  bit-identical. An empty slot's `tts_groupID` is -1, which matches neither a
+  group nor the vehicle-day side's empty slot, which is 0.
+* **The vehicle-hour joins use one composite key**: (vehicle, day, group).
+  As two clauses, the group clause paired every trip with every vehicle-day
+  slot of its group, 1.0e8 candidate pairs on `process-evap-permeation` and
+  10-20 s per fold.
+
+`ttg_hotSoakMinutes` and `ttg_hotSoakTemperatureSum` also walked all 24 soak
+slices to keep the one equal to `trp_runHourSlice[i,k]`. That slice is
+computable, so it is gathered (§7.3.51's pattern).
+
+**Measured** (CPU, so load-independent, on the same binary):
+
+| run | CPU before | CPU after | peak before | peak after |
+|---|---|---|---|---|
+| `rates-venting` | 329 s | 177 s | 8.0 GB | 3.7 GB |
+| `process-evap-permeation` | about 76 s | about 65 s | 2.9 GB | 1.9 GB |
+
+The trip chain's own step on `rates-venting` went from 133 s to 16 s. Six
+runs were re-emitted through the full harness and `cmp`'d against the
+previous suite's files, every one byte-identical: `rates-minimal`,
+`rates-venting`, `rates-evap`, `process-evap-fvv-day`,
+`process-evap-permeation` and `expand-fullyear`.
+
 ### 7.4 Upstream asks
 
 **None is blocking.** This section has said "still none", "already exists,

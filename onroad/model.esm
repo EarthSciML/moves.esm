@@ -1579,6 +1579,20 @@
           "n_samplevehicleday"
         ]
       }
+    },
+    "tankslot_rows": {
+      "kind": "interval",
+      "size": "n_tankGroupSlot"
+    },
+    "tripgroupslot_rows": {
+      "kind": "interval",
+      "size": {
+        "op": "*",
+        "args": [
+          "n_samplevehicletrip",
+          "n_tankGroupSlot"
+        ]
+      }
     }
   },
   "enums": {
@@ -5171,11 +5185,95 @@
           ],
           "description": "TTG-4a's `TempVehAndTTG`: every tank-temperature group of the trip's source type, whatever the vehicle's model year. Source type 21's vehicles are each walked twice, as group 3 and as group 5."
         },
-        "ttg_riseSlope": {
+        "trp_ordinal": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "samplevehicletrip_rows"
+          ],
+          "description": "The trip's row: the key `tts_trip` joins on."
+        },
+        "ttg_groupOrdinal": {
           "type": "unknown",
           "units": "1",
           "shape": [
             "tanktemperaturerise_rows",
+            "samplevehicletrip_rows"
+          ],
+          "description": "The group's place among the groups of the trip's source type, in group-ID order, and 0 for a group that does not apply: `tvh_groupOrdinal` per trip."
+        },
+        "ttq_groupRow": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "tankslot_rows",
+            "samplevehicletrip_rows"
+          ],
+          "description": "The `TankTemperatureRise` row of the trip's group in slot q: its q-th group in group-ID order, and 0 for an empty slot."
+        },
+        "ttq_applies": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "tankslot_rows",
+            "samplevehicletrip_rows"
+          ],
+          "description": "1 when the trip's slot q holds a group, 0 for an empty slot, whose chain is never walked."
+        },
+        "ttq_groupRowAt": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "tankslot_rows",
+            "samplevehicletrip_rows"
+          ],
+          "description": "`ttq_groupRow`, or row 1 for an empty slot: a row that can be READ. An empty slot is never walked (`ttq_applies`), so what it reads there is never used."
+        },
+        "tts_trip": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "tripgroupslot_rows"
+          ],
+          "description": "The trip of the trip-slot row. Rows are trip-major, `n_tankGroupSlot` slots per trip, so a group's trips are read in trip order and its sums keep their association."
+        },
+        "tts_slot": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "tripgroupslot_rows"
+          ],
+          "description": "The slot of the trip-slot row, 1 to `n_tankGroupSlot`."
+        },
+        "tts_groupID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "tripgroupslot_rows"
+          ],
+          "description": "The slot's tank-temperature group, and -1 for an empty slot: -1 matches no group, nor the vehicle-day side's empty slot, which is 0."
+        },
+        "tts_vehID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "tripgroupslot_rows"
+          ],
+          "description": "The trip's vehicle."
+        },
+        "tts_dayID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "tripgroupslot_rows"
+          ],
+          "description": "The trip's day type."
+        },
+        "ttg_riseSlope": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "tankslot_rows",
             "samplevehicletrip_rows"
           ],
           "description": "The trip's operating rise is AFFINE in its key-on temperature: this is its slope, the product of the segments' `segment_rise_slope`s."
@@ -5184,7 +5282,7 @@
           "type": "unknown",
           "units": "1",
           "shape": [
-            "tanktemperaturerise_rows",
+            "tankslot_rows",
             "samplevehicletrip_rows"
           ],
           "description": "And its intercept, the uncapped rise from 0 degF. The key-off temperature is `min(140, slope x keyOn + intercept)`; the cap is applied once because it is absorbing."
@@ -5195,7 +5293,7 @@
           "shape": [
             "runspeccounty_rows",
             "runspecmonth_rows",
-            "tanktemperaturerise_rows",
+            "tankslot_rows",
             "samplevehicletrip_rows"
           ],
           "description": "THE RECURRENCE (esm-spec 4.3.1.1): the tank temperature a trip's soak ends at, or a sentinel. Its body reads `index(ttg_tripState, g, n, u, i - 1)` -- itself, one row earlier along the trip axis, the other three axes identity -- and that one read is TTG-4a's work queue. A marker row carries the state through; a real trip computes its key-on temperature from its predecessor's state (`trip_key_on_temperature`), rises through its segments to its key-off temperature (`trip_temperature_after`), and soaks (`soak_end_temperature`). Probed at 37,216 rows by 16 groups on the ingest path: 2.2 s."
@@ -5206,7 +5304,7 @@
           "shape": [
             "runspeccounty_rows",
             "runspecmonth_rows",
-            "tanktemperaturerise_rows",
+            "tankslot_rows",
             "samplevehicletrip_rows"
           ],
           "description": "The trip's key-on temperature, read from the recurrence one row behind with the same template the recurrence uses."
@@ -5217,7 +5315,7 @@
           "shape": [
             "runspeccounty_rows",
             "runspecmonth_rows",
-            "tanktemperaturerise_rows",
+            "tankslot_rows",
             "samplevehicletrip_rows"
           ],
           "description": "Whether MOVES's work queue reaches the trip for this group -- `OperatingTemperature` has its segments."
@@ -5228,7 +5326,7 @@
           "shape": [
             "runspeccounty_rows",
             "runspecmonth_rows",
-            "tanktemperaturerise_rows",
+            "tankslot_rows",
             "samplevehicletrip_rows"
           ],
           "description": "The trip's key-off temperature, after all its segments."
@@ -5239,7 +5337,7 @@
           "shape": [
             "runspeccounty_rows",
             "runspecmonth_rows",
-            "tanktemperaturerise_rows",
+            "tankslot_rows",
             "samplevehicletrip_rows",
             "runspecday_rows"
           ],
@@ -5251,7 +5349,7 @@
           "shape": [
             "runspeccounty_rows",
             "runspecmonth_rows",
-            "tanktemperaturerise_rows",
+            "tankslot_rows",
             "samplevehicletrip_rows",
             "runspecday_rows"
           ],
@@ -5281,7 +5379,7 @@
           "shape": [
             "runspeccounty_rows",
             "runspecmonth_rows",
-            "tanktemperaturerise_rows",
+            "tankslot_rows",
             "samplevehicletrip_rows",
             "soakslice_rows"
           ],
@@ -5293,7 +5391,7 @@
           "shape": [
             "runspeccounty_rows",
             "runspecmonth_rows",
-            "tanktemperaturerise_rows",
+            "tankslot_rows",
             "samplevehicletrip_rows",
             "hourofday_rows"
           ],
@@ -5305,7 +5403,7 @@
           "shape": [
             "runspeccounty_rows",
             "runspecmonth_rows",
-            "tanktemperaturerise_rows",
+            "tankslot_rows",
             "samplevehicletrip_rows",
             "runspecday_rows"
           ],
@@ -5317,7 +5415,7 @@
           "shape": [
             "runspeccounty_rows",
             "runspecmonth_rows",
-            "tanktemperaturerise_rows",
+            "tankslot_rows",
             "samplevehicletrip_rows",
             "runspecday_rows"
           ],
@@ -41192,10 +41290,27 @@
           }
         },
         {
-          "lhs": "ttg_riseSlope",
+          "lhs": "trp_ordinal",
           "rhs": {
             "op": "faq",
             "args": [],
+            "output_idx": [
+              "i"
+            ],
+            "ranges": {
+              "i": {
+                "from": "samplevehicletrip_rows"
+              }
+            },
+            "expr": "i"
+          }
+        },
+        {
+          "lhs": "ttg_groupOrdinal",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
             "output_idx": [
               "u",
               "i"
@@ -41203,6 +41318,410 @@
             "ranges": {
               "u": {
                 "from": "tanktemperaturerise_rows"
+              },
+              "i": {
+                "from": "samplevehicletrip_rows"
+              },
+              "x": {
+                "from": "tanktemperaturerise_rows"
+              }
+            },
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "*",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "ttg_groupApplies",
+                        "u",
+                        "i"
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "ttg_groupApplies",
+                        "x",
+                        "i"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "op": "ifelse",
+                  "args": [
+                    {
+                      "op": "<=",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "ttr_tankTemperatureGroupID",
+                            "x"
+                          ]
+                        },
+                        {
+                          "op": "index",
+                          "args": [
+                            "ttr_tankTemperatureGroupID",
+                            "u"
+                          ]
+                        }
+                      ]
+                    },
+                    1.0,
+                    0.0
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "ttq_groupRow",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "q",
+              "i"
+            ],
+            "ranges": {
+              "q": {
+                "from": "tankslot_rows"
+              },
+              "i": {
+                "from": "samplevehicletrip_rows"
+              },
+              "u": {
+                "from": "tanktemperaturerise_rows"
+              }
+            },
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                {
+                  "op": "==",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "ttg_groupOrdinal",
+                        "u",
+                        "i"
+                      ]
+                    },
+                    "q"
+                  ]
+                },
+                "u",
+                0.0
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "ttq_applies",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "output_idx": [
+              "q",
+              "i"
+            ],
+            "ranges": {
+              "q": {
+                "from": "tankslot_rows"
+              },
+              "i": {
+                "from": "samplevehicletrip_rows"
+              }
+            },
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                {
+                  "op": ">",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "ttq_groupRow",
+                        "q",
+                        "i"
+                      ]
+                    },
+                    0.5
+                  ]
+                },
+                1.0,
+                0.0
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "ttq_groupRowAt",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "output_idx": [
+              "q",
+              "i"
+            ],
+            "ranges": {
+              "q": {
+                "from": "tankslot_rows"
+              },
+              "i": {
+                "from": "samplevehicletrip_rows"
+              }
+            },
+            "expr": {
+              "op": "max",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "ttq_groupRow",
+                    "q",
+                    "i"
+                  ]
+                },
+                1.0
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "tts_trip",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "output_idx": [
+              "zq"
+            ],
+            "ranges": {
+              "zq": {
+                "from": "tripgroupslot_rows"
+              }
+            },
+            "expr": {
+              "op": "+",
+              "args": [
+                {
+                  "op": "floor",
+                  "args": [
+                    {
+                      "op": "/",
+                      "args": [
+                        {
+                          "op": "-",
+                          "args": [
+                            "zq",
+                            1
+                          ]
+                        },
+                        "n_tankGroupSlot"
+                      ]
+                    }
+                  ]
+                },
+                1
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "tts_slot",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "output_idx": [
+              "zq"
+            ],
+            "ranges": {
+              "zq": {
+                "from": "tripgroupslot_rows"
+              }
+            },
+            "expr": {
+              "op": "-",
+              "args": [
+                "zq",
+                {
+                  "op": "*",
+                  "args": [
+                    "n_tankGroupSlot",
+                    {
+                      "op": "floor",
+                      "args": [
+                        {
+                          "op": "/",
+                          "args": [
+                            {
+                              "op": "-",
+                              "args": [
+                                "zq",
+                                1
+                              ]
+                            },
+                            "n_tankGroupSlot"
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "tts_groupID",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "output_idx": [
+              "zq"
+            ],
+            "ranges": {
+              "zq": {
+                "from": "tripgroupslot_rows"
+              }
+            },
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                {
+                  "op": ">",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "ttq_applies",
+                        {
+                          "op": "index",
+                          "args": [
+                            "tts_slot",
+                            "zq"
+                          ]
+                        },
+                        {
+                          "op": "index",
+                          "args": [
+                            "tts_trip",
+                            "zq"
+                          ]
+                        }
+                      ]
+                    },
+                    0.5
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "ttr_tankTemperatureGroupID",
+                    {
+                      "op": "index",
+                      "args": [
+                        "ttq_groupRowAt",
+                        {
+                          "op": "index",
+                          "args": [
+                            "tts_slot",
+                            "zq"
+                          ]
+                        },
+                        {
+                          "op": "index",
+                          "args": [
+                            "tts_trip",
+                            "zq"
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                -1.0
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "tts_vehID",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "output_idx": [
+              "zq"
+            ],
+            "ranges": {
+              "zq": {
+                "from": "tripgroupslot_rows"
+              }
+            },
+            "expr": {
+              "op": "index",
+              "args": [
+                "svt_vehID",
+                {
+                  "op": "index",
+                  "args": [
+                    "tts_trip",
+                    "zq"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "tts_dayID",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "output_idx": [
+              "zq"
+            ],
+            "ranges": {
+              "zq": {
+                "from": "tripgroupslot_rows"
+              }
+            },
+            "expr": {
+              "op": "index",
+              "args": [
+                "svt_dayID",
+                {
+                  "op": "index",
+                  "args": [
+                    "tts_trip",
+                    "zq"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "ttg_riseSlope",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "output_idx": [
+              "q",
+              "i"
+            ],
+            "ranges": {
+              "q": {
+                "from": "tankslot_rows"
               },
               "i": {
                 "from": "samplevehicletrip_rows"
@@ -41238,7 +41757,14 @@
                   "op": "index",
                   "args": [
                     "ttr_termB",
-                    "u"
+                    {
+                      "op": "index",
+                      "args": [
+                        "ttq_groupRowAt",
+                        "q",
+                        "i"
+                      ]
+                    }
                   ]
                 }
               }
@@ -41251,12 +41777,12 @@
             "op": "faq",
             "args": [],
             "output_idx": [
-              "u",
+              "q",
               "i"
             ],
             "ranges": {
-              "u": {
-                "from": "tanktemperaturerise_rows"
+              "q": {
+                "from": "tankslot_rows"
               },
               "i": {
                 "from": "samplevehicletrip_rows"
@@ -41300,14 +41826,28 @@
                   "op": "index",
                   "args": [
                     "ttr_termA",
-                    "u"
+                    {
+                      "op": "index",
+                      "args": [
+                        "ttq_groupRowAt",
+                        "q",
+                        "i"
+                      ]
+                    }
                   ]
                 },
                 "term_b": {
                   "op": "index",
                   "args": [
                     "ttr_termB",
-                    "u"
+                    {
+                      "op": "index",
+                      "args": [
+                        "ttq_groupRowAt",
+                        "q",
+                        "i"
+                      ]
+                    }
                   ]
                 }
               }
@@ -41323,7 +41863,7 @@
             "output_idx": [
               "g",
               "n",
-              "u",
+              "q",
               "i"
             ],
             "ranges": {
@@ -41333,8 +41873,8 @@
               "n": {
                 "from": "runspecmonth_rows"
               },
-              "u": {
-                "from": "tanktemperaturerise_rows"
+              "q": {
+                "from": "tankslot_rows"
               },
               "i": {
                 "from": "samplevehicletrip_rows"
@@ -41367,7 +41907,7 @@
                         "ttg_tripState",
                         "g",
                         "n",
-                        "u",
+                        "q",
                         {
                           "op": "-",
                           "args": [
@@ -41405,8 +41945,8 @@
                             {
                               "op": "index",
                               "args": [
-                                "ttg_groupApplies",
-                                "u",
+                                "ttq_applies",
+                                "q",
                                 "i"
                               ]
                             },
@@ -41439,7 +41979,7 @@
                                         "ttg_tripState",
                                         "g",
                                         "n",
-                                        "u",
+                                        "q",
                                         {
                                           "op": "-",
                                           "args": [
@@ -41503,7 +42043,7 @@
                                           "op": "index",
                                           "args": [
                                             "ttg_riseSlope",
-                                            "u",
+                                            "q",
                                             "i"
                                           ]
                                         },
@@ -41523,7 +42063,7 @@
                                                     "ttg_tripState",
                                                     "g",
                                                     "n",
-                                                    "u",
+                                                    "q",
                                                     {
                                                       "op": "-",
                                                       "args": [
@@ -41567,7 +42107,7 @@
                                       "op": "index",
                                       "args": [
                                         "ttg_riseIntercept",
-                                        "u",
+                                        "q",
                                         "i"
                                       ]
                                     }
@@ -41630,7 +42170,7 @@
             "output_idx": [
               "g",
               "n",
-              "u",
+              "q",
               "i"
             ],
             "ranges": {
@@ -41640,8 +42180,8 @@
               "n": {
                 "from": "runspecmonth_rows"
               },
-              "u": {
-                "from": "tanktemperaturerise_rows"
+              "q": {
+                "from": "tankslot_rows"
               },
               "i": {
                 "from": "samplevehicletrip_rows"
@@ -41663,7 +42203,7 @@
                         "ttg_tripState",
                         "g",
                         "n",
-                        "u",
+                        "q",
                         {
                           "op": "-",
                           "args": [
@@ -41711,7 +42251,7 @@
             "output_idx": [
               "g",
               "n",
-              "u",
+              "q",
               "i"
             ],
             "ranges": {
@@ -41721,8 +42261,8 @@
               "n": {
                 "from": "runspecmonth_rows"
               },
-              "u": {
-                "from": "tanktemperaturerise_rows"
+              "q": {
+                "from": "tankslot_rows"
               },
               "i": {
                 "from": "samplevehicletrip_rows"
@@ -41753,8 +42293,8 @@
                         {
                           "op": "index",
                           "args": [
-                            "ttg_groupApplies",
-                            "u",
+                            "ttq_applies",
+                            "q",
                             "i"
                           ]
                         },
@@ -41772,7 +42312,7 @@
                             "ttg_keyOnTemperature",
                             "g",
                             "n",
-                            "u",
+                            "q",
                             "i"
                           ]
                         }
@@ -41794,7 +42334,7 @@
             "output_idx": [
               "g",
               "n",
-              "u",
+              "q",
               "i"
             ],
             "ranges": {
@@ -41804,8 +42344,8 @@
               "n": {
                 "from": "runspecmonth_rows"
               },
-              "u": {
-                "from": "tanktemperaturerise_rows"
+              "q": {
+                "from": "tankslot_rows"
               },
               "i": {
                 "from": "samplevehicletrip_rows"
@@ -41822,7 +42362,7 @@
                     "ttg_keyOnTemperature",
                     "g",
                     "n",
-                    "u",
+                    "q",
                     "i"
                   ]
                 },
@@ -41858,14 +42398,28 @@
                   "op": "index",
                   "args": [
                     "ttr_termA",
-                    "u"
+                    {
+                      "op": "index",
+                      "args": [
+                        "ttq_groupRowAt",
+                        "q",
+                        "i"
+                      ]
+                    }
                   ]
                 },
                 "term_b": {
                   "op": "index",
                   "args": [
                     "ttr_termB",
-                    "u"
+                    {
+                      "op": "index",
+                      "args": [
+                        "ttq_groupRowAt",
+                        "q",
+                        "i"
+                      ]
+                    }
                   ]
                 }
               }
@@ -41880,7 +42434,7 @@
             "output_idx": [
               "g",
               "n",
-              "u",
+              "q",
               "i",
               "k"
             ],
@@ -41891,8 +42445,8 @@
               "n": {
                 "from": "runspecmonth_rows"
               },
-              "u": {
-                "from": "tanktemperaturerise_rows"
+              "q": {
+                "from": "tankslot_rows"
               },
               "i": {
                 "from": "samplevehicletrip_rows"
@@ -41912,7 +42466,7 @@
                     "ttg_keyOnTemperature",
                     "g",
                     "n",
-                    "u",
+                    "q",
                     "i"
                   ]
                 },
@@ -41955,14 +42509,28 @@
                   "op": "index",
                   "args": [
                     "ttr_termA",
-                    "u"
+                    {
+                      "op": "index",
+                      "args": [
+                        "ttq_groupRowAt",
+                        "q",
+                        "i"
+                      ]
+                    }
                   ]
                 },
                 "term_b": {
                   "op": "index",
                   "args": [
                     "ttr_termB",
-                    "u"
+                    {
+                      "op": "index",
+                      "args": [
+                        "ttq_groupRowAt",
+                        "q",
+                        "i"
+                      ]
+                    }
                   ]
                 }
               }
@@ -41977,7 +42545,7 @@
             "output_idx": [
               "g",
               "n",
-              "u",
+              "q",
               "i",
               "k"
             ],
@@ -41988,8 +42556,8 @@
               "n": {
                 "from": "runspecmonth_rows"
               },
-              "u": {
-                "from": "tanktemperaturerise_rows"
+              "q": {
+                "from": "tankslot_rows"
               },
               "i": {
                 "from": "samplevehicletrip_rows"
@@ -42009,7 +42577,7 @@
                     "ttg_keyOnTemperature",
                     "g",
                     "n",
-                    "u",
+                    "q",
                     "i"
                   ]
                 },
@@ -42046,14 +42614,28 @@
                   "op": "index",
                   "args": [
                     "ttr_termA",
-                    "u"
+                    {
+                      "op": "index",
+                      "args": [
+                        "ttq_groupRowAt",
+                        "q",
+                        "i"
+                      ]
+                    }
                   ]
                 },
                 "term_b": {
                   "op": "index",
                   "args": [
                     "ttr_termB",
-                    "u"
+                    {
+                      "op": "index",
+                      "args": [
+                        "ttq_groupRowAt",
+                        "q",
+                        "i"
+                      ]
+                    }
                   ]
                 }
               }
@@ -42151,7 +42733,7 @@
             "output_idx": [
               "g",
               "n",
-              "u",
+              "q",
               "i",
               "s"
             ],
@@ -42162,8 +42744,8 @@
               "n": {
                 "from": "runspecmonth_rows"
               },
-              "u": {
-                "from": "tanktemperaturerise_rows"
+              "q": {
+                "from": "tankslot_rows"
               },
               "i": {
                 "from": "samplevehicletrip_rows"
@@ -42187,7 +42769,7 @@
                             "ttg_isWalked",
                             "g",
                             "n",
-                            "u",
+                            "q",
                             "i"
                           ]
                         },
@@ -42217,7 +42799,7 @@
                             "ttg_keyOffTemperature",
                             "g",
                             "n",
-                            "u",
+                            "q",
                             "i"
                           ]
                         },
@@ -42260,7 +42842,7 @@
                                 "ttg_keyOffTemperature",
                                 "g",
                                 "n",
-                                "u",
+                                "q",
                                 "i"
                               ]
                             }
@@ -42329,7 +42911,7 @@
                                 "ttg_keyOffTemperature",
                                 "g",
                                 "n",
-                                "u",
+                                "q",
                                 "i"
                               ]
                             },
@@ -42364,7 +42946,7 @@
             "output_idx": [
               "g",
               "n",
-              "u",
+              "q",
               "i",
               "h"
             ],
@@ -42375,8 +42957,8 @@
               "n": {
                 "from": "runspecmonth_rows"
               },
-              "u": {
-                "from": "tanktemperaturerise_rows"
+              "q": {
+                "from": "tankslot_rows"
               },
               "i": {
                 "from": "samplevehicletrip_rows"
@@ -42391,7 +42973,7 @@
                 "ttg_sliceHotSoakMinutes",
                 "g",
                 "n",
-                "u",
+                "q",
                 "i",
                 {
                   "op": "index",
@@ -42413,7 +42995,7 @@
             "output_idx": [
               "g",
               "n",
-              "u",
+              "q",
               "i",
               "k"
             ],
@@ -42424,54 +43006,32 @@
               "n": {
                 "from": "runspecmonth_rows"
               },
-              "u": {
-                "from": "tanktemperaturerise_rows"
+              "q": {
+                "from": "tankslot_rows"
               },
               "i": {
                 "from": "samplevehicletrip_rows"
-              },
-              "s": {
-                "from": "soakslice_rows"
               },
               "k": {
                 "from": "runspecday_rows"
               }
             },
             "expr": {
-              "op": "ifelse",
+              "op": "index",
               "args": [
-                {
-                  "op": "==",
-                  "args": [
-                    {
-                      "op": "index",
-                      "args": [
-                        "trp_runHourSlice",
-                        "i",
-                        "k"
-                      ]
-                    },
-                    {
-                      "op": "index",
-                      "args": [
-                        "tsl_slotID",
-                        "s"
-                      ]
-                    }
-                  ]
-                },
+                "ttg_sliceHotSoakMinutes",
+                "g",
+                "n",
+                "q",
+                "i",
                 {
                   "op": "index",
                   "args": [
-                    "ttg_sliceHotSoakMinutes",
-                    "g",
-                    "n",
-                    "u",
+                    "trp_runHourSlice",
                     "i",
-                    "s"
+                    "k"
                   ]
-                },
-                0.0
+                }
               ]
             }
           }
@@ -42484,7 +43044,7 @@
             "output_idx": [
               "g",
               "n",
-              "u",
+              "q",
               "i",
               "k"
             ],
@@ -42495,14 +43055,11 @@
               "n": {
                 "from": "runspecmonth_rows"
               },
-              "u": {
-                "from": "tanktemperaturerise_rows"
+              "q": {
+                "from": "tankslot_rows"
               },
               "i": {
                 "from": "samplevehicletrip_rows"
-              },
-              "s": {
-                "from": "soakslice_rows"
               },
               "k": {
                 "from": "runspecday_rows"
@@ -42512,92 +43069,157 @@
               "op": "ifelse",
               "args": [
                 {
-                  "op": "==",
+                  "op": "and",
                   "args": [
                     {
-                      "op": "index",
+                      "op": ">",
                       "args": [
-                        "trp_runHourSlice",
-                        "i",
-                        "k"
+                        {
+                          "op": "index",
+                          "args": [
+                            "ttg_isWalked",
+                            "g",
+                            "n",
+                            "q",
+                            "i"
+                          ]
+                        },
+                        0.5
                       ]
                     },
                     {
-                      "op": "index",
+                      "op": ">",
                       "args": [
-                        "tsl_slotID",
-                        "s"
+                        {
+                          "op": "index",
+                          "args": [
+                            "tsk_isActive",
+                            "i",
+                            {
+                              "op": "index",
+                              "args": [
+                                "trp_runHourSlice",
+                                "i",
+                                "k"
+                              ]
+                            }
+                          ]
+                        },
+                        0.5
+                      ]
+                    },
+                    {
+                      "op": ">",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "ttg_keyOffTemperature",
+                            "g",
+                            "n",
+                            "q",
+                            "i"
+                          ]
+                        },
+                        {
+                          "op": "index",
+                          "args": [
+                            "tsk_stopThresholdBefore",
+                            "g",
+                            "n",
+                            "i",
+                            {
+                              "op": "index",
+                              "args": [
+                                "trp_runHourSlice",
+                                "i",
+                                "k"
+                              ]
+                            }
+                          ]
+                        }
                       ]
                     }
                   ]
                 },
                 {
-                  "op": "ifelse",
-                  "args": [
-                    {
-                      "op": "and",
+                  "op": "apply_expression_template",
+                  "args": [],
+                  "name": "soak_temperature_sum",
+                  "bindings": {
+                    "entry": {
+                      "op": "+",
                       "args": [
                         {
-                          "op": ">",
+                          "op": "*",
                           "args": [
                             {
                               "op": "index",
                               "args": [
-                                "ttg_isWalked",
-                                "g",
-                                "n",
-                                "u",
-                                "i"
-                              ]
-                            },
-                            0.5
-                          ]
-                        },
-                        {
-                          "op": ">",
-                          "args": [
-                            {
-                              "op": "index",
-                              "args": [
-                                "tsk_isActive",
+                                "tsk_entryDecay",
                                 "i",
-                                "s"
+                                {
+                                  "op": "index",
+                                  "args": [
+                                    "trp_runHourSlice",
+                                    "i",
+                                    "k"
+                                  ]
+                                }
                               ]
                             },
-                            0.5
-                          ]
-                        },
-                        {
-                          "op": ">",
-                          "args": [
                             {
                               "op": "index",
                               "args": [
                                 "ttg_keyOffTemperature",
                                 "g",
                                 "n",
-                                "u",
+                                "q",
                                 "i"
                               ]
-                            },
+                            }
+                          ]
+                        },
+                        {
+                          "op": "index",
+                          "args": [
+                            "tsk_entryOffset",
+                            "g",
+                            "n",
+                            "i",
                             {
                               "op": "index",
                               "args": [
-                                "tsk_stopThresholdBefore",
-                                "g",
-                                "n",
+                                "trp_runHourSlice",
                                 "i",
-                                "s"
+                                "k"
                               ]
                             }
                           ]
                         }
                       ]
                     },
-                    {
+                    "ambient": {
+                      "op": "index",
+                      "args": [
+                        "tsk_ambientTemperature",
+                        "g",
+                        "n",
+                        "i",
+                        {
+                          "op": "index",
+                          "args": [
+                            "trp_runHourSlice",
+                            "i",
+                            "k"
+                          ]
+                        }
+                      ]
+                    },
+                    "recorded": {
                       "op": "apply_expression_template",
                       "args": [],
-                      "name": "soak_temperature_sum",
+                      "name": "soak_recorded_minutes",
                       "bindings": {
                         "entry": {
                           "op": "+",
@@ -42610,7 +43232,14 @@
                                   "args": [
                                     "tsk_entryDecay",
                                     "i",
-                                    "s"
+                                    {
+                                      "op": "index",
+                                      "args": [
+                                        "trp_runHourSlice",
+                                        "i",
+                                        "k"
+                                      ]
+                                    }
                                   ]
                                 },
                                 {
@@ -42619,7 +43248,7 @@
                                     "ttg_keyOffTemperature",
                                     "g",
                                     "n",
-                                    "u",
+                                    "q",
                                     "i"
                                   ]
                                 }
@@ -42632,7 +43261,14 @@
                                 "g",
                                 "n",
                                 "i",
-                                "s"
+                                {
+                                  "op": "index",
+                                  "args": [
+                                    "trp_runHourSlice",
+                                    "i",
+                                    "k"
+                                  ]
+                                }
                               ]
                             }
                           ]
@@ -42644,129 +43280,101 @@
                             "g",
                             "n",
                             "i",
-                            "s"
-                          ]
-                        },
-                        "recorded": {
-                          "op": "apply_expression_template",
-                          "args": [],
-                          "name": "soak_recorded_minutes",
-                          "bindings": {
-                            "entry": {
-                              "op": "+",
-                              "args": [
-                                {
-                                  "op": "*",
-                                  "args": [
-                                    {
-                                      "op": "index",
-                                      "args": [
-                                        "tsk_entryDecay",
-                                        "i",
-                                        "s"
-                                      ]
-                                    },
-                                    {
-                                      "op": "index",
-                                      "args": [
-                                        "ttg_keyOffTemperature",
-                                        "g",
-                                        "n",
-                                        "u",
-                                        "i"
-                                      ]
-                                    }
-                                  ]
-                                },
-                                {
-                                  "op": "index",
-                                  "args": [
-                                    "tsk_entryOffset",
-                                    "g",
-                                    "n",
-                                    "i",
-                                    "s"
-                                  ]
-                                }
-                              ]
-                            },
-                            "ambient": {
+                            {
                               "op": "index",
                               "args": [
-                                "tsk_ambientTemperature",
+                                "trp_runHourSlice",
+                                "i",
+                                "k"
+                              ]
+                            }
+                          ]
+                        },
+                        "threshold": {
+                          "op": "+",
+                          "args": [
+                            {
+                              "op": "index",
+                              "args": [
+                                "tsk_coldSoakTemperature",
                                 "g",
                                 "n",
                                 "i",
-                                "s"
+                                {
+                                  "op": "index",
+                                  "args": [
+                                    "trp_runHourSlice",
+                                    "i",
+                                    "k"
+                                  ]
+                                }
                               ]
                             },
-                            "threshold": {
-                              "op": "+",
+                            {
+                              "op": "apply_expression_template",
+                              "args": [],
+                              "name": "hot_soak_margin",
+                              "bindings": {}
+                            }
+                          ]
+                        },
+                        "minutes": {
+                          "op": "index",
+                          "args": [
+                            "tsk_minutes",
+                            "i",
+                            {
+                              "op": "index",
+                              "args": [
+                                "trp_runHourSlice",
+                                "i",
+                                "k"
+                              ]
+                            }
+                          ]
+                        },
+                        "stops_here": {
+                          "op": "ifelse",
+                          "args": [
+                            {
+                              "op": "<=",
                               "args": [
                                 {
                                   "op": "index",
                                   "args": [
-                                    "tsk_coldSoakTemperature",
+                                    "ttg_keyOffTemperature",
+                                    "g",
+                                    "n",
+                                    "q",
+                                    "i"
+                                  ]
+                                },
+                                {
+                                  "op": "index",
+                                  "args": [
+                                    "tsk_stopThreshold",
                                     "g",
                                     "n",
                                     "i",
-                                    "s"
-                                  ]
-                                },
-                                {
-                                  "op": "apply_expression_template",
-                                  "args": [],
-                                  "name": "hot_soak_margin",
-                                  "bindings": {}
-                                }
-                              ]
-                            },
-                            "minutes": {
-                              "op": "index",
-                              "args": [
-                                "tsk_minutes",
-                                "i",
-                                "s"
-                              ]
-                            },
-                            "stops_here": {
-                              "op": "ifelse",
-                              "args": [
-                                {
-                                  "op": "<=",
-                                  "args": [
                                     {
                                       "op": "index",
                                       "args": [
-                                        "ttg_keyOffTemperature",
-                                        "g",
-                                        "n",
-                                        "u",
-                                        "i"
-                                      ]
-                                    },
-                                    {
-                                      "op": "index",
-                                      "args": [
-                                        "tsk_stopThreshold",
-                                        "g",
-                                        "n",
+                                        "trp_runHourSlice",
                                         "i",
-                                        "s"
+                                        "k"
                                       ]
                                     }
                                   ]
-                                },
-                                1.0,
-                                0.0
+                                }
                               ]
-                            }
-                          }
+                            },
+                            1.0,
+                            0.0
+                          ]
                         }
                       }
-                    },
-                    0.0
-                  ]
+                    }
+                  }
                 },
                 0.0
               ]
@@ -42797,16 +43405,24 @@
               "u": {
                 "from": "tanktemperaturerise_rows"
               },
-              "i": {
-                "from": "samplevehicletrip_rows"
+              "zq": {
+                "from": "tripgroupslot_rows"
               }
             },
             "join": [
               {
                 "on": [
                   [
-                    "svt_dayID",
+                    "tts_dayID",
                     "rsd_dayID"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "tts_groupID",
+                    "ttr_tankTemperatureGroupID"
                   ]
                 ]
               }
@@ -42820,15 +43436,33 @@
                     "ttg_isWalked",
                     "g",
                     "n",
-                    "u",
-                    "i"
+                    {
+                      "op": "index",
+                      "args": [
+                        "tts_slot",
+                        "zq"
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "tts_trip",
+                        "zq"
+                      ]
+                    }
                   ]
                 },
                 {
                   "op": "index",
                   "args": [
                     "trp_hasRunHourSegment",
-                    "i",
+                    {
+                      "op": "index",
+                      "args": [
+                        "tts_trip",
+                        "zq"
+                      ]
+                    },
                     "k"
                   ]
                 },
@@ -42836,7 +43470,13 @@
                   "op": "index",
                   "args": [
                     "trp_runHourSegmentMinutes",
-                    "i",
+                    {
+                      "op": "index",
+                      "args": [
+                        "tts_trip",
+                        "zq"
+                      ]
+                    },
                     "k"
                   ]
                 }
@@ -42868,16 +43508,24 @@
               "u": {
                 "from": "tanktemperaturerise_rows"
               },
-              "i": {
-                "from": "samplevehicletrip_rows"
+              "zq": {
+                "from": "tripgroupslot_rows"
               }
             },
             "join": [
               {
                 "on": [
                   [
-                    "svt_dayID",
+                    "tts_dayID",
                     "rsd_dayID"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "tts_groupID",
+                    "ttr_tankTemperatureGroupID"
                   ]
                 ]
               }
@@ -42891,15 +43539,33 @@
                     "ttg_isWalked",
                     "g",
                     "n",
-                    "u",
-                    "i"
+                    {
+                      "op": "index",
+                      "args": [
+                        "tts_slot",
+                        "zq"
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "tts_trip",
+                        "zq"
+                      ]
+                    }
                   ]
                 },
                 {
                   "op": "index",
                   "args": [
                     "trp_hasRunHourSegment",
-                    "i",
+                    {
+                      "op": "index",
+                      "args": [
+                        "tts_trip",
+                        "zq"
+                      ]
+                    },
                     "k"
                   ]
                 },
@@ -42907,7 +43573,13 @@
                   "op": "index",
                   "args": [
                     "trp_runHourSegmentMinutes",
-                    "i",
+                    {
+                      "op": "index",
+                      "args": [
+                        "tts_trip",
+                        "zq"
+                      ]
+                    },
                     "k"
                   ]
                 },
@@ -42923,8 +43595,20 @@
                             "ttg_runHourKeyOn",
                             "g",
                             "n",
-                            "u",
-                            "i",
+                            {
+                              "op": "index",
+                              "args": [
+                                "tts_slot",
+                                "zq"
+                              ]
+                            },
+                            {
+                              "op": "index",
+                              "args": [
+                                "tts_trip",
+                                "zq"
+                              ]
+                            },
                             "k"
                           ]
                         },
@@ -42934,8 +43618,20 @@
                             "ttg_runHourKeyOff",
                             "g",
                             "n",
-                            "u",
-                            "i",
+                            {
+                              "op": "index",
+                              "args": [
+                                "tts_slot",
+                                "zq"
+                              ]
+                            },
+                            {
+                              "op": "index",
+                              "args": [
+                                "tts_trip",
+                                "zq"
+                              ]
+                            },
                             "k"
                           ]
                         }
@@ -42972,16 +43668,24 @@
               "u": {
                 "from": "tanktemperaturerise_rows"
               },
-              "i": {
-                "from": "samplevehicletrip_rows"
+              "zq": {
+                "from": "tripgroupslot_rows"
               }
             },
             "join": [
               {
                 "on": [
                   [
-                    "svt_dayID",
+                    "tts_dayID",
                     "rsd_dayID"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "tts_groupID",
+                    "ttr_tankTemperatureGroupID"
                   ]
                 ]
               }
@@ -42992,8 +43696,20 @@
                 "ttg_hotSoakMinutes",
                 "g",
                 "n",
-                "u",
-                "i",
+                {
+                  "op": "index",
+                  "args": [
+                    "tts_slot",
+                    "zq"
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "tts_trip",
+                    "zq"
+                  ]
+                },
                 "k"
               ]
             }
@@ -43018,14 +43734,14 @@
               "n": {
                 "from": "runspecmonth_rows"
               },
-              "u": {
-                "from": "tanktemperaturerise_rows"
-              },
               "i": {
                 "from": "samplevehicletrip_rows"
               },
               "k": {
                 "from": "runspecday_rows"
+              },
+              "zq": {
+                "from": "tripgroupslot_rows"
               }
             },
             "expr": {
@@ -43034,11 +43750,33 @@
                 "ttg_hotSoakMinutes",
                 "g",
                 "n",
-                "u",
-                "i",
+                {
+                  "op": "index",
+                  "args": [
+                    "tts_slot",
+                    "zq"
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "tts_trip",
+                    "zq"
+                  ]
+                },
                 "k"
               ]
-            }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "tts_trip",
+                    "trp_ordinal"
+                  ]
+                ]
+              }
+            ]
           }
         },
         {
@@ -43653,16 +44391,24 @@
               "u": {
                 "from": "tanktemperaturerise_rows"
               },
-              "i": {
-                "from": "samplevehicletrip_rows"
+              "zq": {
+                "from": "tripgroupslot_rows"
               }
             },
             "join": [
               {
                 "on": [
                   [
-                    "svt_dayID",
+                    "tts_dayID",
                     "rsd_dayID"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "tts_groupID",
+                    "ttr_tankTemperatureGroupID"
                   ]
                 ]
               }
@@ -43673,8 +44419,20 @@
                 "ttg_hotSoakTemperatureSum",
                 "g",
                 "n",
-                "u",
-                "i",
+                {
+                  "op": "index",
+                  "args": [
+                    "tts_slot",
+                    "zq"
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "tts_trip",
+                    "zq"
+                  ]
+                },
                 "k"
               ]
             }
@@ -44582,31 +45340,24 @@
               "h": {
                 "from": "hourofday_rows"
               },
-              "i": {
-                "from": "samplevehicletrip_rows"
-              },
-              "u": {
-                "from": "tanktemperaturerise_rows"
+              "zq": {
+                "from": "tripgroupslot_rows"
               }
             },
             "join": [
               {
                 "on": [
                   [
-                    "svt_vehID",
+                    "tts_vehID",
                     "tgs_vehID"
                   ],
                   [
-                    "svt_dayID",
+                    "tts_dayID",
                     "tgs_dayID"
-                  ]
-                ]
-              },
-              {
-                "on": [
+                  ],
                   [
-                    "tgs_tankTemperatureGroupID",
-                    "ttr_tankTemperatureGroupID"
+                    "tts_groupID",
+                    "tgs_tankTemperatureGroupID"
                   ]
                 ]
               }
@@ -44617,8 +45368,20 @@
                 "ttg_hourHotSoakMinutes",
                 "g",
                 "n",
-                "u",
-                "i",
+                {
+                  "op": "index",
+                  "args": [
+                    "tts_slot",
+                    "zq"
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "tts_trip",
+                    "zq"
+                  ]
+                },
                 "h"
               ]
             }
@@ -44649,31 +45412,24 @@
               "h": {
                 "from": "hourofday_rows"
               },
-              "i": {
-                "from": "samplevehicletrip_rows"
-              },
-              "u": {
-                "from": "tanktemperaturerise_rows"
+              "zq": {
+                "from": "tripgroupslot_rows"
               }
             },
             "join": [
               {
                 "on": [
                   [
-                    "svt_vehID",
+                    "tts_vehID",
                     "tgs_vehID"
                   ],
                   [
-                    "svt_dayID",
+                    "tts_dayID",
                     "tgs_dayID"
-                  ]
-                ]
-              },
-              {
-                "on": [
+                  ],
                   [
-                    "tgs_tankTemperatureGroupID",
-                    "ttr_tankTemperatureGroupID"
+                    "tts_groupID",
+                    "tgs_tankTemperatureGroupID"
                   ]
                 ]
               }
@@ -44691,7 +45447,13 @@
                           "op": "index",
                           "args": [
                             "trp_hourSlice",
-                            "i",
+                            {
+                              "op": "index",
+                              "args": [
+                                "tts_trip",
+                                "zq"
+                              ]
+                            },
                             "h"
                           ]
                         },
@@ -44707,8 +45469,20 @@
                             "ttg_hourHotSoakMinutes",
                             "g",
                             "n",
-                            "u",
-                            "i",
+                            {
+                              "op": "index",
+                              "args": [
+                                "tts_slot",
+                                "zq"
+                              ]
+                            },
+                            {
+                              "op": "index",
+                              "args": [
+                                "tts_trip",
+                                "zq"
+                              ]
+                            },
                             "h"
                           ]
                         },
@@ -44844,31 +45618,24 @@
               "h": {
                 "from": "hourofday_rows"
               },
-              "i": {
-                "from": "samplevehicletrip_rows"
-              },
-              "u": {
-                "from": "tanktemperaturerise_rows"
+              "zq": {
+                "from": "tripgroupslot_rows"
               }
             },
             "join": [
               {
                 "on": [
                   [
-                    "svt_vehID",
+                    "tts_vehID",
                     "tgs_vehID"
                   ],
                   [
-                    "svt_dayID",
+                    "tts_dayID",
                     "tgs_dayID"
-                  ]
-                ]
-              },
-              {
-                "on": [
+                  ],
                   [
-                    "tgs_tankTemperatureGroupID",
-                    "ttr_tankTemperatureGroupID"
+                    "tts_groupID",
+                    "tgs_tankTemperatureGroupID"
                   ]
                 ]
               }
@@ -44886,7 +45653,13 @@
                           "op": "index",
                           "args": [
                             "trp_hourSlice",
-                            "i",
+                            {
+                              "op": "index",
+                              "args": [
+                                "tts_trip",
+                                "zq"
+                              ]
+                            },
                             "h"
                           ]
                         },
@@ -44900,7 +45673,13 @@
                           "op": "index",
                           "args": [
                             "svt_keyOffTime",
-                            "i"
+                            {
+                              "op": "index",
+                              "args": [
+                                "tts_trip",
+                                "zq"
+                              ]
+                            }
                           ]
                         },
                         {
@@ -44922,8 +45701,20 @@
                             "ttg_hourHotSoakMinutes",
                             "g",
                             "n",
-                            "u",
-                            "i",
+                            {
+                              "op": "index",
+                              "args": [
+                                "tts_slot",
+                                "zq"
+                              ]
+                            },
+                            {
+                              "op": "index",
+                              "args": [
+                                "tts_trip",
+                                "zq"
+                              ]
+                            },
                             "h"
                           ]
                         },
