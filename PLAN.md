@@ -5673,6 +5673,122 @@ previous suite's files, every one byte-identical: `rates-minimal`,
 `rates-venting`, `rates-evap`, `process-evap-fvv-day`,
 `process-evap-permeation` and `expand-fullyear`.
 
+#### 7.3.55 PROJECT domain beyond running exhaust: several links, start, brake and tire wear
+
+2026-11-09. Until today a PROJECT run reproduced only running exhaust on one
+link. `run_domainUnported` refused any other emitted process, a second county
+and a county whose join selected other than one link. **`project-links`
+reproduces: 3412 of 3412 rows, key set exact, worst cell 1.324e-05, per-pollutant
+sum 1.17e-06**, through running, start, brake and tire wear on three links.
+`project-offnetwork` is captured and pending.
+
+**Two new captures** (moves.rs `characterization/fixtures/` and
+`county-inputs/`, routed in `run-all-fixtures.sh`; snapshots captured on host
+token `1ccc0236`):
+
+| run | selects | network |
+|---|---|---|
+| `project-links` | source types 21 and 32; road types 1, 4, 5; CO and Total Energy for running and start, PM10/PM2.5 brake and tire wear | link 1 (road type 4, 1 mi, 1,000 veh/h, 30 mph), link 2 (road type 5, 0.5 mi, 600 veh/h, 25 mph), off-network link 3; per-link source-type shares 0.8/0.2 and 0.6/0.4; an off-network fleet per source type; the user's start modes on link 3 |
+| `project-offnetwork` | source types 21 and 62; road types 1, 4; Total Energy for running, extended idle and APU, THC for permeation, venting and leaks | link 1 (road type 4) and off-network link 2 |
+
+The first `project-links` capture had no start-exhaust output at all. MOVES had
+computed Starts, but in PROJECT domain StartOperatingModeDistributionGenerator
+takes start modes ONLY from the user's `opModeDistribution`
+(java:379-410). So the database now states them, as round fractions that differ
+from the default `startsOpModeDistribution`. A port that read the default would
+move the numbers.
+
+**Measured before porting.** Each intermediate was reproduced in pandas from the
+execution database's inputs:
+
+* ProjectTAG's five outputs (`docs/project-tag.md` §6.5): SHO 328 rows,
+  Starts 164, SHP 82, SourceHours 164, hotelling hours 123. Each key set is
+  exact. Every FLOAT cell matches at six digits once the FLOAT input columns
+  are narrowed to binary32: `project-links`' share of 0.6 decides one
+  `distance` cell. `rates-project` confirms the Rates arm of Starts, which has
+  no `startFraction`.
+* The link operating-mode distribution (`docs/link-operating-mode-distribution.md`
+  §6.5, generalised by a subagent): 3650 of 3650 cells across several links,
+  real source types and physics rows. It also settled the brake question. The
+  generator keeps brake wear's stopped seconds as mode 501, but under a TEMP
+  source type that SourceTypePhysics' `physics_` update skips
+  (`where opModeID <> 501`). So no real link ever reads them, and brake wear's
+  distribution on a link is the UNFOLDED one, which sums to under 1. Tire wear
+  gets one mode per link from its speed: 407 at 30 mph, 406 at 25 mph, 400
+  off-network.
+* The start modes (`docs/operating-mode-distribution.md` §8.3): step 400's
+  PROJECT arm reproduces 32 rows. The road-type-1 partition also holds
+  AverageSpeedOMDG's project tire rows, which the spec now leaves to their
+  generator.
+
+**First, the refusal guarded.** The pre-port model (dac96ab) evaluated on
+`project-links` gives `run_domainUnported` = 6: the six emitted start, brake and
+tire pollutant-processes. **It did not count the second and third links.**
+`run_linkCount` selected only `run_roadTypeID`'s link, so a link on another road
+type was never seen. The processes refused the run; the links would not have.
+
+**What the model now does**, all behind `run_isProjectDomain`:
+
+1. **The link is per (county, road type).** `run_linkID`, `run_linkAvgSpeed`
+   and `run_linkCount` carry the road type, and `out_linkID`, `rpd_linkID` and
+   `rtRate_rated` read the row's road type. `run_linkCount` refuses a
+   (county, road type) with other than one link. `act_projectSho` was already
+   per road type.
+2. **The link distribution is per road type.** The brackets, factor and
+   interpolation (`lomd_*`) are keyed by road type. A bracket schedule is
+   matched by FILTER: a two-index key such as `lomd_lowSpeed[s,rd]` cannot be
+   a join's right side. The first attempt joined on it, and every schedule
+   matched, giving a W summing to 11 and rates 15 times too large. The stopped
+   seconds' quotient is its own variable (`lomd_stoppedFraction`). The fold
+   adds it to mode 1 in the bracket fractions, with the same operands and order
+   as before, so running exhaust is bit-identical.
+3. **Brake wear** reads `lomd_WBrake`, the unfolded distribution. **Tire wear**
+   reads `lomd_tireW`, one mode per road type's link (the new template
+   `tirewear_link_op_mode`). `lib/operating_mode.esm` adds
+   `link_bracket_interpolation`, which is shared by `lomd_W` and `lomd_WBrake`.
+4. **Starts** are ProjectTAG's (`st_projectStarts`): the zone's
+   `offNetworkLink` fleet x startFraction (inventory only) x ageFraction x days.
+   **Start modes** are the user's: `sod_weight` reads the domain's
+   `opModeDistribution`, matched by neither link nor polProcess, as the SQL is.
+   The old expression is `sod_defaultWeight`.
+5. **Two domain tables are mounted in every catalogue**: `offNetworkLink` and
+   the input `opModeDistribution`. They are empty in the default database, the
+   county databases, the execution-database fixture catalogue and the 7c spike.
+6. **The DEFAULT domain's refusal of brake and tire wear beside road type 1**
+   (`run_onRoadPollutantProcessCount`) does not apply in PROJECT domain. There,
+   road type 1 is the off-network link, and MOVES writes no brake or tire row
+   on it.
+
+**What `run_domainUnported` still refuses in PROJECT domain**:
+
+* any emitted pollutant-process without a project generator here
+  (`rspp_hasProjectGenerator`):
+  * the evaporative processes (SHP, SourceHours, and the project branches of
+    their operating-mode and tank-temperature generators);
+  * extended idle and APU: ProjectTAG's per-fuel hotelling hours are
+    reproduced, but the model's hotelling activity has no fuel axis;
+  * the crankcase processes;
+* a (county, road type) without exactly one link, and a second county;
+* an out-of-bounds bracket;
+* on-network links of different grades (`run_linkGradeMismatches`). The
+  per-second chain reads one grade, because keying it by road type would
+  multiply 63,602 seconds x physics rows by the road types of every run;
+* user start modes that disagree across links or polProcesses
+  (`sod_projectConflicts`), which INSERT IGNORE would settle by scan order;
+* a user link distribution (`run_userLinkModeRows`);
+* a second link at Rates scale (`run_ratesProjectLinks`). The per-road-type
+  rate keys are written but not exercised there.
+
+`runspecs/pending/project-offnetwork.esm` evaluates to `run_domainUnported` = 5.
+That is its five evaporative and hotelling pollutant-processes.
+
+**Unchanged runs.** Before the suite, `scale-project`, `rates-project` (all
+eight tables), `process-brakewear`, `process-tirewear`,
+`process-crankcase-start-single`, `process-crankcase-start` and
+`expand-roadtypes` were re-emitted with `tools/emit-oracle-table.py` and
+`cmp`'d against the main tree's `.fixtures-run/`: all byte-identical.
+`project-links` evaluates in 151 s at 2.3 GB peak.
+
 ### 7.4 Upstream asks
 
 **None is blocking.** This section has said "still none", "already exists,
