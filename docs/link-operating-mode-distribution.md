@@ -15,12 +15,14 @@ This is that one. The other four need no capture: three are discarded by
 `MOVESInstantiator.java:1449` under `DO_RATES_FIRST` and the fourth is a SQL
 section rather than a class.
 
-**`scale-project` is the only snapshot in the corpus that runs this generator,
-and it runs it once, on one link.** That is a narrow base and this document
-says so wherever it matters — §8 is longer than usual for that reason. What
-the one snapshot does buy is unusually sharp: the whole output is 122 cells,
-every one of them reproduces to the last digit the reference stores, and two
-of the arithmetic decisions are decided by the corpus rather than argued.
+**Five snapshots run this generator** since 2026-11-09 (PLAN.md §7.3.55): `scale-project` and
+`rates-project` on one link and one source type, and `project-links`, `project-offnetwork` and
+`project-hotelling` on several links, road types, source types and physics rows, with brake wear. §6.5
+reproduces all of them (§7.1 has the counts). **Parts of §0-§5, §7.2-§7.3 and §9 were written when
+`scale-project` was the only one** -- one link, one source type, one physics row, 122 cells -- and
+still describe that base; where they disagree with §6.5 and §7.1, those two are current. The onroad
+model's port is keyed by road type (`lomd_*` in `onroad/model.esm`) and reproduces `project-links` and
+`project-hotelling` end to end.
 
 ---
 

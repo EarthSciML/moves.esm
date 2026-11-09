@@ -129,6 +129,5 @@ if ! out=$("$PYTHON" "$WORK/repro.py" "$SNAP_ABS" 2>&1); then
 fi
 sed 's/^/  /' <<<"$out"
 echo "  NOTE: three of the four paths through step 100, both out-of-bounds"
-echo "        bracket flags, a non-zero link grade and a source mass that"
-echo "        differs from the fixed mass factor are all unexercised --"
+echo "        bracket flags and a non-zero link grade are unexercised --"
 echo "        see $SPEC sections 8.1 and 8.4."
