@@ -10,15 +10,20 @@ It was ported in 2026-10-19's step 7f (PLAN.md §7.3.40) as `onroad/model.esm`'s
 claimed it, so `tools/calculator-coverage.py` listed it as unported until 2026-11-08 (PLAN.md §7.3.53).
 This document is that claim, and §6.5 is the evidence for it.
 
-**SHO, Starts and hotelling hours are ported; SHP and `SourceHours` are specified and not.** Since
+**All five outputs are ported.** Since
 2026-11-09 (PLAN.md §7.3.55) `act_projectSho` runs once per link -- one per selected road type --
 `st_projectStarts` is ProjectTAG's Starts and `hot_projectHours` its hotelling hours, through which
 `runspecs/project-links.esm` reproduces running, start, brake-wear and tire-wear exhaust on three links and
-`runspecs/project-hotelling.esm` extended idle and APU on an off-network link. SHP and `SourceHours`, which only
-the evaporative processes read, are reproduced by §6.5 from the execution database's inputs but not ported. `run_domainUnported` counts any PROJECT-domain run that would need one (`rspp_hasProjectGenerator`),
-and also a (county, road type) with other than one link and a second county; `tools/check-runspec-shape.py`
-asserts that count is 0. So a PROJECT-domain run that needs an unported path fails loudly rather than
-emitting a plausible wrong number. `runspecs/pending/project-offnetwork.esm` is such a run.
+`runspecs/project-hotelling.esm` extended idle and APU on an off-network link. Since §7.3.56 SHP is
+`act_projectShp` and `SourceHours` is `act_projectShp` on the off-network link and `act_projectSourceHours`
+(the link-volume product without the travel-time share; `act_projectSho` is it times the share) on an
+on-network one, through which `runspecs/project-offnetwork.esm` reproduces permeation, fuel vapor venting and
+fuel leaks on both links. The three fleet products share `lib/onroad_activity.esm`'s `off_network_fleet_hours`.
+`run_domainUnported` counts any PROJECT-domain run that needs a path not ported (`rspp_hasProjectGenerator`:
+the refueling and crankcase processes, and the evaporative ones at Rates scale), and also a (county, road
+type) with other than one link and a second county; `tools/check-runspec-shape.py` asserts that count is 0.
+So a PROJECT-domain run that needs an unported path fails loudly rather than emitting a plausible wrong
+number.
 
 ---
 
@@ -344,8 +349,7 @@ for k, floor in (("SHO", 328), ("Starts", 164), ("SHP", 82), ("SourceHours", 164
 * **Missing age distributions.** ProjectTAG grows a missing year's age distribution from population
   (:315-350, through `TotalActivityGenerator`). Every run finds 2020 in the default database.
 * **More than one hour-day.** Every PROJECT snapshot has one.
-* **The unported outputs.** SHP and `SourceHours` are reproduced above and not ported; the evaporative
-  processes are refused in PROJECT domain (`rspp_hasProjectGenerator`), and
-  `runspecs/pending/project-offnetwork.esm` waits on them.
+* **Evaporative Rates.** No PROJECT-domain Rates capture selects an evaporative process, so SHP and
+  `SourceHours` are exercised at inventory scale only, and `rspp_hasProjectGenerator` refuses them at Rates scale.
 * **An avft that is not the sample vehicle population's.** The model sums the fuel split back with
   `hot_stmyTotal`; a project database whose `avft` differs from AVFTTool's default would need the split ported.
