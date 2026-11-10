@@ -19,9 +19,15 @@ This document is that claim, and §6.5 is the evidence for it.
 (the link-volume product without the travel-time share; `act_projectSho` is it times the share) on an
 on-network one, through which `runspecs/project-offnetwork.esm` reproduces permeation, fuel vapor venting and
 fuel leaks on both links. The three fleet products share `lib/onroad_activity.esm`'s `off_network_fleet_hours`.
-`run_domainUnported` counts any PROJECT-domain run that needs a path not ported (`rspp_hasProjectGenerator`:
-the refueling and crankcase processes, and the evaporative ones at Rates scale), and also a (county, road
-type) with other than one link and a second county; `tools/check-runspec-shape.py` asserts that count is 0.
+Since §7.3.58 the crankcase and refueling processes read them through their parents' rows
+(`runspecs/project-crankcase.esm`, `project-refueling.esm`), the evaporative processes reproduce at Rates
+scale over the PROJECT population -- the same off-network fleet x ageFraction, which ActivityCalculator writes
+on the off-network link (`act_projectPopulation`; `runspecs/rates-project-evap.esm`) -- and
+`runspecs/project-useromd.esm` reproduces a link whose user states its operating modes. `run_domainUnported`
+counts any PROJECT-domain run that needs a path not ported (`rspp_hasProjectGenerator`: the crankcase and
+refueling processes at Rates scale; and evaporative rows a Rates run would write to RatePerDistance), and also
+a (county, road type) with other than one link and a second county; `tools/check-runspec-shape.py` asserts
+that count is 0.
 So a PROJECT-domain run that needs an unported path fails loudly rather than emitting a plausible wrong
 number.
 
@@ -31,13 +37,13 @@ number.
 
 | | |
 |---|---|
-| RunSpec | `../moves.rs/characterization/fixtures/scale-project.xml` and `rates-project.xml` (one link); `project-links.xml` (three links, two source types, an off-network link); `project-offnetwork.xml` and `project-hotelling.xml` (an on-network and an off-network link, source types 21 and 62; the second without the evaporative processes) |
+| RunSpec | `../moves.rs/characterization/fixtures/scale-project.xml` and `rates-project.xml` (one link); `project-links.xml` (three links, two source types, an off-network link); `project-offnetwork.xml` and `project-hotelling.xml` (an on-network and an off-network link, source types 21 and 62; the second without the evaporative processes); since §7.3.58 `project-crankcase.xml`, `project-refueling.xml` and `project-useromd.xml` (two on-network links on road types 4 and 5 and an off-network link, source types 21 and 62) and `rates-project-evap.xml` (`project-offnetwork`'s network at Rates scale) |
 | Model | ONROAD, `modeldomain` **`PROJECT`** |
 | Reads | `link`, `linkSourceTypeHour`, `offNetworkLink`, `avft`, `sourceTypeAgeDistribution`, `dayOfAnyWeek`, `hourDay`, `runSpecHourDay`, `runSpecDay`, `runSpecMonth`, `runSpecSourceType` |
 | Writes | `SHO` (with `distance`), `Starts`, `SHP`, `SourceHours`, `hotellingHours` |
 | Calculator path | **`ProjectTAG`** — the PROJECT-domain counterpart of TotalActivityGenerator, whose activity tables the base-rate chain reads |
 | Rows | 328 `SHO` over four snapshots, 164 `Starts` over three (`scale-project` and `rates-project` select start exhaust, so ProjectTAG writes Starts there, unread), 82 `SHP`, 164 `SourceHours`, 123 `hotellingHours` (§6.5) |
-| Ported by | SHO: `onroad/model.esm`'s `act_projectSho` (per road type), selected by `act_sho` under `run_isProjectDomain`, with `lib/onroad_activity.esm`'s `link_travel_hours_share`. Starts: `st_projectStarts`, selected by `st_starts`. Hotelling hours: `hot_projectHours`, selected by `hot_hours`, summed over the fuel split. SHP and SourceHours: not ported, refused through `rspp_hasProjectGenerator` |
+| Ported by | SHO: `onroad/model.esm`'s `act_projectSho` (per road type), selected by `act_sho` under `run_isProjectDomain`, with `lib/onroad_activity.esm`'s `link_travel_hours_share`. Starts: `st_projectStarts`, selected by `st_starts`. Hotelling hours: `hot_projectHours`, selected by `hot_hours`, summed over the fuel split. SHP and SourceHours: `act_projectShp` and `act_projectSourceHours`, selected by `act_shp` and `act_sourceHours` (PLAN.md §7.3.56). The PROJECT population, which ActivityCalculator writes from the same fleet, is `act_projectPopulation` (§7.3.58) |
 | Java | `.../ghg/ProjectTAG.java` (`allocateTotalActivityBasis`: :354-385 SHO, :387-404 SHP, :406-433 Starts, :435-463 hotelling hours, :465-519 SourceHours) |
 | Rust | `../moves.rs/crates/moves-calculators/src/generators/project_tag.rs` |
 
@@ -91,7 +97,8 @@ SourceHours    = SHP's product on the off-network link (:467-487);
   modes are the user's (`opModeDistribution`, StartOperatingModeDistributionGenerator's PROJECT arm;
   `docs/operating-mode-distribution.md` §8.3, `sod_weight`).
 * **SHP** and **SourceHours** are written for the evaporative processes: SHP once per zone when the location
-  is the off-network link, SourceHours once per link. Not ported.
+  is the off-network link, SourceHours once per link. Ported as `act_projectShp` and
+  `act_projectSourceHours` (PLAN.md §7.3.56), at both scales since §7.3.58.
 * **hotellingHours** are written for extended idle and APU, for source type 62 only, split by fuel through
   `avft` at the cohort's model year (`modelYearID = yearID - ageID`). Ported summed over the fuel split, as the
   DEFAULT path's `hot_hours` is: the project database's `avft` is the default `sampleVehiclePopulation` summed
@@ -349,7 +356,9 @@ for k, floor in (("SHO", 328), ("Starts", 164), ("SHP", 82), ("SourceHours", 164
 * **Missing age distributions.** ProjectTAG grows a missing year's age distribution from population
   (:315-350, through `TotalActivityGenerator`). Every run finds 2020 in the default database.
 * **More than one hour-day.** Every PROJECT snapshot has one.
-* **Evaporative Rates.** No PROJECT-domain Rates capture selects an evaporative process, so SHP and
-  `SourceHours` are exercised at inventory scale only, and `rspp_hasProjectGenerator` refuses them at Rates scale.
+* **Evaporative RatePerDistance.** `rates-project-evap` (PLAN.md §7.3.58) exercises SHP and `SourceHours` at
+  Rates scale off-network, where the rates are per vehicle of the PROJECT population. It selects no running
+  exhaust, so MOVES writes no distance activity and no on-network RatePerDistance row; a run that would is
+  refused (`run_ratesProjectEvapDistance`).
 * **An avft that is not the sample vehicle population's.** The model sums the fuel split back with
   `hot_stmyTotal`; a project database whose `avft` differs from AVFTTool's default would need the split ported.
