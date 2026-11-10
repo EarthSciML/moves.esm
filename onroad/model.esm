@@ -1709,7 +1709,8 @@
             "is_energy_pollutant",
             "energy_unit_divisor",
             "link_travel_hours_share",
-            "off_network_idle_sho"
+            "off_network_idle_sho",
+            "off_network_fleet_hours"
           ]
         },
         {
@@ -14495,7 +14496,18 @@
             "runspecsourcetype_rows",
             "runspecmonth_rows"
           ],
-          "description": "SHP, source hours PARKED: `TotalActivityGenerator` step 180's `SHPByAgeHour = population x noOfRealDays - SUM(SHO)` -- the age's NATIONAL population and national SHO -- times the zone's SHPAllocFactor (step 190). Measured on `rates-evap`: 570,208.455 hours over its 41 ages, the snapshot's road-type-1 `sourceHours` to its decimal storage (PLAN.md §7.3.48 part C)."
+          "description": "SHP, source hours PARKED: `TotalActivityGenerator` step 180's `SHPByAgeHour = population x noOfRealDays - SUM(SHO)` -- the age's NATIONAL population and national SHO -- times the zone's SHPAllocFactor (step 190). Measured on `rates-evap`: 570,208.455 hours over its 41 ages, the snapshot's road-type-1 `sourceHours` to its decimal storage (PLAN.md §7.3.48 part C). In PROJECT domain it is ProjectTAG's instead (`act_projectShp`): the off-network fleet's parked hours, which reads no population, SHO or allocation factor."
+        },
+        "act_projectShp": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "activity_rows",
+            "runspeccounty_rows",
+            "runspecsourcetype_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "ProjectTAG.allocateTotalActivityBasis's SHP (java:387-405): the zone's off-network fleet x parkedVehicleFraction x ageFraction x noOfRealDays, in the SQL's association. It is also the off-network link's SourceHours (java:465-485), which the SQL writes with the same product. The month is a label. 0 in a DEFAULT-domain run, whose offNetworkLink is empty."
         },
         "act_sourceHours": {
           "type": "unknown",
@@ -14507,7 +14519,7 @@
             "runspecmonth_rows",
             "runspecroadtype_rows"
           ],
-          "description": "A10: MOVES's `SourceHours`, the hours a vehicle of this cohort EXISTS in the hour, against `act_sho`'s hours it spends driving. At an on-network link `TotalActivityGenerator` copies `SHO` into it row for row; at the off-network link it is `act_shp`, the hours it is parked. It is named separately from `act_sho` because E1 is the ratio of the two, and an evaporative rate row's activity is this and not SHO."
+          "description": "A10: MOVES's `SourceHours`, the hours a vehicle of this cohort EXISTS in the hour, against `act_sho`'s hours it spends driving. At an on-network link `TotalActivityGenerator` copies `SHO` into it row for row, and ProjectTAG writes the link-volume product without the travel-time share (`act_projectSourceHours`), so that the hour's fraction of operating on a project link is that share; at the off-network link it is `act_shp`, the hours it is parked. It is named separately from `act_sho` because E1 is the ratio of the two, and an evaporative rate row's activity is this and not SHO."
         },
         "oni_totalIdleFraction": {
           "type": "unknown",
@@ -19097,6 +19109,22 @@
             }
           }
         },
+        "onl_parkedVehicleFraction": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "offnetworklink_rows"
+          ],
+          "description": "offNetworkLink.parkedVehicleFraction: the share of the parked fleet's hour spent parked. ProjectTAG reads it for SHP and for the off-network link's SourceHours (java:387-405, :465-485).",
+          "update": {
+            "kind": "data",
+            "source": "db_offnetworklink",
+            "from": {
+              "file_variable": "parkedVehicleFraction"
+            }
+          }
+        },
         "omd_sourceTypeID": {
           "type": "parameter",
           "units": "1",
@@ -19271,6 +19299,18 @@
             "runspecroadtype_rows"
           ],
           "description": "ProjectTAG.allocateTotalActivityBasis's SHO (ProjectTAG.java:354-385): linkVolume x sourceTypeHourFraction x noOfRealDays x ageFraction x least(linkLength/linkAvgSpeed, 1), in the SQL's association. It reads no VMT, no road-type distribution and no SHO allocation factor -- a project's activity is its links' volumes -- and the month is a label it carries rather than a factor. 0 in a DEFAULT-domain run, whose linkSourceTypeHour is empty. Per road type: a project link's SHO is on the link's own road type."
+        },
+        "act_projectSourceHours": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "activity_rows",
+            "runspeccounty_rows",
+            "runspecsourcetype_rows",
+            "runspecmonth_rows",
+            "runspecroadtype_rows"
+          ],
+          "description": "ProjectTAG.allocateTotalActivityBasis's SourceHours on an on-network link (java:487-517): linkVolume x sourceTypeHourFraction x noOfRealDays x ageFraction, in the SQL's association -- `act_projectSho` before its travel-time share. The hours a vehicle of the cohort EXISTS on the link in the hour, of which `act_projectSho` is the part spent driving it, so the evaporative fraction of operating on a project link is the share itself. 0 on the off-network road type, which has no linkSourceTypeHour row, and in a DEFAULT-domain run."
         },
         "act_networkSho": {
           "type": "unknown",
@@ -19641,7 +19681,7 @@
           "shape": [
             "runspecpollutantprocess_rows"
           ],
-          "description": "Whether this model computes the pollutant-process's PROJECT-domain activity and operating modes: running exhaust and brake wear (ProjectTAG's SHO, the link distribution), tire wear (SHO, the link's speed mode), start exhaust (ProjectTAG's Starts, the user's start modes), and extended idle and APU (ProjectTAG's hotelling hours, `hot_projectHours`). Not: the evaporative processes (SHP, SourceHours and the project branches of their operating-mode and tank-temperature generators) and the crankcase processes, whose parents' project paths they would follow."
+          "description": "Whether this model computes the pollutant-process's PROJECT-domain activity and operating modes: running exhaust and brake wear (ProjectTAG's SHO, the link distribution), tire wear (SHO, the link's speed mode), start exhaust (ProjectTAG's Starts, the user's start modes), extended idle and APU (ProjectTAG's hotelling hours, `hot_projectHours`), and since PLAN.md §7.3.56 the three evaporative processes that take the evaporative distribution (`rspp_usesEvapModes`: ProjectTAG's SourceHours, `act_projectSourceHours` and `act_projectShp`, with EvaporativeEmissionsOperatingModeDistributionGenerator and TankTemperatureGenerator unchanged per link). Not: the refueling processes and the crankcase processes."
         },
         "pp_WSpeedBins": {
           "type": "unknown",
@@ -25895,27 +25935,63 @@
                         "op": "or",
                         "args": [
                           {
-                            "op": "==",
+                            "op": "or",
                             "args": [
-                              "rspp_processID",
                               {
-                                "op": "enum",
+                                "op": "==",
                                 "args": [
-                                  "process",
-                                  "RunningExhaust"
+                                  "rspp_processID",
+                                  {
+                                    "op": "enum",
+                                    "args": [
+                                      "process",
+                                      "RunningExhaust"
+                                    ]
+                                  }
+                                ]
+                              },
+                              {
+                                "op": "==",
+                                "args": [
+                                  "rspp_processID",
+                                  {
+                                    "op": "enum",
+                                    "args": [
+                                      "process",
+                                      "StartExhaust"
+                                    ]
+                                  }
                                 ]
                               }
                             ]
                           },
                           {
-                            "op": "==",
+                            "op": "or",
                             "args": [
-                              "rspp_processID",
                               {
-                                "op": "enum",
+                                "op": "==",
                                 "args": [
-                                  "process",
-                                  "StartExhaust"
+                                  "rspp_processID",
+                                  {
+                                    "op": "enum",
+                                    "args": [
+                                      "process",
+                                      "Brakewear"
+                                    ]
+                                  }
+                                ]
+                              },
+                              {
+                                "op": "==",
+                                "args": [
+                                  "rspp_processID",
+                                  {
+                                    "op": "enum",
+                                    "args": [
+                                      "process",
+                                      "Tirewear"
+                                    ]
+                                  }
                                 ]
                               }
                             ]
@@ -25933,7 +26009,7 @@
                                 "op": "enum",
                                 "args": [
                                   "process",
-                                  "Brakewear"
+                                  "ExtendedIdleExhaust"
                                 ]
                               }
                             ]
@@ -25946,7 +26022,7 @@
                                 "op": "enum",
                                 "args": [
                                   "process",
-                                  "Tirewear"
+                                  "AuxiliaryPowerExhaust"
                                 ]
                               }
                             ]
@@ -25956,34 +26032,10 @@
                     ]
                   },
                   {
-                    "op": "or",
+                    "op": ">",
                     "args": [
-                      {
-                        "op": "==",
-                        "args": [
-                          "rspp_processID",
-                          {
-                            "op": "enum",
-                            "args": [
-                              "process",
-                              "ExtendedIdleExhaust"
-                            ]
-                          }
-                        ]
-                      },
-                      {
-                        "op": "==",
-                        "args": [
-                          "rspp_processID",
-                          {
-                            "op": "enum",
-                            "args": [
-                              "process",
-                              "AuxiliaryPowerExhaust"
-                            ]
-                          }
-                        ]
-                      }
+                      "rspp_usesEvapModes",
+                      0.5
                     ]
                   }
                 ]
@@ -36510,8 +36562,8 @@
           }
         },
         {
-          "_comment": "ProjectTAG.java:354-385. The three clauses are the link the run selects, that link's source-type share, and the day type the activity row is for.",
-          "lhs": "act_projectSho",
+          "_comment": "ProjectTAG.java:487-517, the `else` arm of makeSH: SHO's link-volume product without the travel-time share. The three clauses are the link the run selects, that link's source-type share, and the day type the activity row is for.",
+          "lhs": "act_projectSourceHours",
           "rhs": {
             "op": "faq",
             "args": [],
@@ -36593,29 +36645,17 @@
                       "op": "*",
                       "args": [
                         {
-                          "op": "*",
+                          "op": "index",
                           "args": [
-                            {
-                              "op": "index",
-                              "args": [
-                                "lnk_linkVolume",
-                                "l"
-                              ]
-                            },
-                            {
-                              "op": "index",
-                              "args": [
-                                "lsth_sourceTypeHourFraction",
-                                "y"
-                              ]
-                            }
+                            "lnk_linkVolume",
+                            "l"
                           ]
                         },
                         {
                           "op": "index",
                           "args": [
-                            "day_noOfRealDays",
-                            "k"
+                            "lsth_sourceTypeHourFraction",
+                            "y"
                           ]
                         }
                       ]
@@ -36623,11 +36663,84 @@
                     {
                       "op": "index",
                       "args": [
-                        "act_ageFraction",
-                        "r",
-                        "s"
+                        "day_noOfRealDays",
+                        "k"
                       ]
                     }
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "act_ageFraction",
+                    "r",
+                    "s"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "_comment": "ProjectTAG.java:354-385: SourceHours' link-volume product (`act_projectSourceHours`) times the share of the hour a vehicle spends on the link, in the SQL's association. The clause is the link the run selects.",
+          "lhs": "act_projectSho",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "r",
+              "g",
+              "s",
+              "m",
+              "rd"
+            ],
+            "ranges": {
+              "r": {
+                "from": "activity_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "s": {
+                "from": "runspecsourcetype_rows"
+              },
+              "m": {
+                "from": "runspecmonth_rows"
+              },
+              "l": {
+                "from": "link_rows"
+              },
+              "rd": {
+                "from": "runspecroadtype_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "lnk_countyID",
+                    "rsc_countyID"
+                  ],
+                  [
+                    "lnk_roadTypeID",
+                    "rsr_roadTypeID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "act_projectSourceHours",
+                    "r",
+                    "g",
+                    "s",
+                    "m",
+                    "rd"
                   ]
                 },
                 {
@@ -37015,6 +37128,9 @@
               },
               "k": {
                 "from": "runspecday_rows"
+              },
+              "n": {
+                "from": "run_rows"
               }
             },
             "join": [
@@ -37028,27 +37144,64 @@
               }
             ],
             "expr": {
-              "op": "*",
+              "op": "ifelse",
               "args": [
                 {
-                  "op": "-",
+                  "op": ">",
                   "args": [
                     {
-                      "op": "*",
+                      "op": "index",
+                      "args": [
+                        "run_isProjectDomain",
+                        "n"
+                      ]
+                    },
+                    0.5
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "act_projectShp",
+                    "r",
+                    "g",
+                    "s",
+                    "m"
+                  ]
+                },
+                {
+                  "op": "*",
+                  "args": [
+                    {
+                      "op": "-",
                       "args": [
                         {
-                          "op": "index",
+                          "op": "*",
                           "args": [
-                            "act_population",
-                            "r",
-                            "s"
+                            {
+                              "op": "index",
+                              "args": [
+                                "act_population",
+                                "r",
+                                "s"
+                              ]
+                            },
+                            {
+                              "op": "index",
+                              "args": [
+                                "day_noOfRealDays",
+                                "k"
+                              ]
+                            }
                           ]
                         },
                         {
                           "op": "index",
                           "args": [
-                            "day_noOfRealDays",
-                            "k"
+                            "act_nationalSho",
+                            "r",
+                            "s",
+                            "m"
                           ]
                         }
                       ]
@@ -37056,19 +37209,10 @@
                     {
                       "op": "index",
                       "args": [
-                        "act_nationalSho",
-                        "r",
-                        "s",
-                        "m"
+                        "run_shpAllocFactor",
+                        "g"
                       ]
                     }
-                  ]
-                },
-                {
-                  "op": "index",
-                  "args": [
-                    "run_shpAllocFactor",
-                    "g"
                   ]
                 }
               ]
@@ -37076,7 +37220,104 @@
           }
         },
         {
-          "_comment": "A10, allocation.rs:631-682. `SourceHours` is `SHO` at an on-network link; `run_offNetworkLinkCount` asserts that is the arm every run here takes, and the identity is written out so that E1's ratio has two names to divide.",
+          "_comment": "ProjectTAG.java:387-405, the off-network fleet product with the parked fraction (`off_network_fleet_hours`).",
+          "lhs": "act_projectShp",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "r",
+              "g",
+              "s",
+              "m"
+            ],
+            "ranges": {
+              "r": {
+                "from": "activity_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "s": {
+                "from": "runspecsourcetype_rows"
+              },
+              "m": {
+                "from": "runspecmonth_rows"
+              },
+              "k": {
+                "from": "runspecday_rows"
+              },
+              "x": {
+                "from": "offnetworklink_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "onl_zoneID",
+                    "run_zoneID"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "onl_sourceTypeID",
+                    "rst_sourceTypeID"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "act_dayOrdinal",
+                    "day_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "off_network_fleet_hours",
+              "bindings": {
+                "vehicle_population": {
+                  "op": "index",
+                  "args": [
+                    "onl_vehiclePopulation",
+                    "x"
+                  ]
+                },
+                "fraction": {
+                  "op": "index",
+                  "args": [
+                    "onl_parkedVehicleFraction",
+                    "x"
+                  ]
+                },
+                "age_fraction": {
+                  "op": "index",
+                  "args": [
+                    "act_ageFraction",
+                    "r",
+                    "s"
+                  ]
+                },
+                "real_days": {
+                  "op": "index",
+                  "args": [
+                    "day_noOfRealDays",
+                    "k"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "_comment": "A10, allocation.rs:631-682, and ProjectTAG's makeSH (java:465-517). `SourceHours` is `SHO` at an on-network link in DEFAULT domain and ProjectTAG's link-volume product WITHOUT the travel-time share in PROJECT domain, and `act_shp` -- whichever generator's -- at the off-network link.",
           "lhs": "act_sourceHours",
           "rhs": {
             "op": "faq",
@@ -37104,6 +37345,9 @@
               },
               "rd": {
                 "from": "runspecroadtype_rows"
+              },
+              "n": {
+                "from": "run_rows"
               }
             },
             "expr": {
@@ -37123,14 +37367,43 @@
                   ]
                 },
                 {
-                  "op": "index",
+                  "op": "ifelse",
                   "args": [
-                    "act_sho",
-                    "r",
-                    "g",
-                    "s",
-                    "m",
-                    "rd"
+                    {
+                      "op": ">",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "run_isProjectDomain",
+                            "n"
+                          ]
+                        },
+                        0.5
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "act_projectSourceHours",
+                        "r",
+                        "g",
+                        "s",
+                        "m",
+                        "rd"
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "act_sho",
+                        "r",
+                        "g",
+                        "s",
+                        "m",
+                        "rd"
+                      ]
+                    }
                   ]
                 },
                 {
@@ -91751,48 +92024,40 @@
                   "op": "*",
                   "args": [
                     {
-                      "op": "*",
-                      "args": [
-                        {
-                          "op": "*",
+                      "op": "apply_expression_template",
+                      "args": [],
+                      "name": "off_network_fleet_hours",
+                      "bindings": {
+                        "vehicle_population": {
+                          "op": "index",
                           "args": [
-                            {
-                              "op": "*",
-                              "args": [
-                                {
-                                  "op": "index",
-                                  "args": [
-                                    "onl_vehiclePopulation",
-                                    "x"
-                                  ]
-                                },
-                                {
-                                  "op": "index",
-                                  "args": [
-                                    "onl_extendedIdleFraction",
-                                    "x"
-                                  ]
-                                }
-                              ]
-                            },
-                            {
-                              "op": "index",
-                              "args": [
-                                "act_ageFraction",
-                                "r",
-                                "s"
-                              ]
-                            }
+                            "onl_vehiclePopulation",
+                            "x"
                           ]
                         },
-                        {
+                        "fraction": {
+                          "op": "index",
+                          "args": [
+                            "onl_extendedIdleFraction",
+                            "x"
+                          ]
+                        },
+                        "age_fraction": {
+                          "op": "index",
+                          "args": [
+                            "act_ageFraction",
+                            "r",
+                            "s"
+                          ]
+                        },
+                        "real_days": {
                           "op": "index",
                           "args": [
                             "day_noOfRealDays",
                             "k"
                           ]
                         }
-                      ]
+                      }
                     },
                     {
                       "op": "index",
@@ -100132,92 +100397,53 @@
               }
             ],
             "expr": {
-              "op": "ifelse",
-              "args": [
-                {
-                  "op": ">",
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "off_network_fleet_hours",
+              "bindings": {
+                "vehicle_population": {
+                  "op": "index",
                   "args": [
-                    "n_ratesScale",
-                    0.5
+                    "onl_vehiclePopulation",
+                    "x"
                   ]
                 },
-                {
-                  "op": "*",
+                "fraction": {
+                  "op": "ifelse",
                   "args": [
                     {
-                      "op": "*",
+                      "op": ">",
                       "args": [
-                        {
-                          "op": "index",
-                          "args": [
-                            "onl_vehiclePopulation",
-                            "x"
-                          ]
-                        },
-                        {
-                          "op": "index",
-                          "args": [
-                            "act_ageFraction",
-                            "r",
-                            "s"
-                          ]
-                        }
+                        "n_ratesScale",
+                        0.5
                       ]
                     },
+                    1.0,
                     {
                       "op": "index",
                       "args": [
-                        "day_noOfRealDays",
-                        "k"
+                        "onl_startFraction",
+                        "x"
                       ]
                     }
                   ]
                 },
-                {
-                  "op": "*",
+                "age_fraction": {
+                  "op": "index",
                   "args": [
-                    {
-                      "op": "*",
-                      "args": [
-                        {
-                          "op": "*",
-                          "args": [
-                            {
-                              "op": "index",
-                              "args": [
-                                "onl_vehiclePopulation",
-                                "x"
-                              ]
-                            },
-                            {
-                              "op": "index",
-                              "args": [
-                                "onl_startFraction",
-                                "x"
-                              ]
-                            }
-                          ]
-                        },
-                        {
-                          "op": "index",
-                          "args": [
-                            "act_ageFraction",
-                            "r",
-                            "s"
-                          ]
-                        }
-                      ]
-                    },
-                    {
-                      "op": "index",
-                      "args": [
-                        "day_noOfRealDays",
-                        "k"
-                      ]
-                    }
+                    "act_ageFraction",
+                    "r",
+                    "s"
+                  ]
+                },
+                "real_days": {
+                  "op": "index",
+                  "args": [
+                    "day_noOfRealDays",
+                    "k"
                   ]
                 }
-              ]
+              }
             }
           }
         },
