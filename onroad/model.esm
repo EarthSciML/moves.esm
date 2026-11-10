@@ -19681,7 +19681,15 @@
           "shape": [
             "runspecpollutantprocess_rows"
           ],
-          "description": "Whether this model computes the pollutant-process's PROJECT-domain activity and operating modes: running exhaust and brake wear (ProjectTAG's SHO, the link distribution), tire wear (SHO, the link's speed mode), start exhaust (ProjectTAG's Starts, the user's start modes), extended idle and APU (ProjectTAG's hotelling hours, `hot_projectHours`), and since PLAN.md §7.3.56 the three evaporative processes that take the evaporative distribution (`rspp_usesEvapModes`: ProjectTAG's SourceHours, `act_projectSourceHours` and `act_projectShp`, with EvaporativeEmissionsOperatingModeDistributionGenerator and TankTemperatureGenerator unchanged per link) -- at inventory scale only. Not: the evaporative processes at Rates scale, which no PROJECT capture selects, and the refueling and crankcase processes."
+          "description": "Whether this model computes the pollutant-process's PROJECT-domain activity and operating modes: running exhaust and brake wear (ProjectTAG's SHO, the link distribution), tire wear (SHO, the link's speed mode), start exhaust (ProjectTAG's Starts, the user's start modes), extended idle and APU (ProjectTAG's hotelling hours, `hot_projectHours`), and since PLAN.md §7.3.56 the three evaporative processes that take the evaporative distribution (`rspp_usesEvapModes`: ProjectTAG's SourceHours, `act_projectSourceHours` and `act_projectShp`, with EvaporativeEmissionsOperatingModeDistributionGenerator and TankTemperatureGenerator unchanged per link) -- at inventory scale only. Since §7.3.58 also the crankcase processes, which copy their parents' rows (`rspp_copiesParentRows`). Not: the evaporative processes at Rates scale, which no PROJECT capture selects, and the refueling processes."
+        },
+        "rspp_copiesParentRows": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecpollutantprocess_rows"
+          ],
+          "description": "Whether the pollutant-process is written only from its chain parents' rows, with no activity, operating modes or domain branch of its own: the crankcase processes (CrankcaseEmissionCalculator: each parent row at its own link and road type times `crankcaseEmissionRatio`; neither its Java nor its SQL tests the domain). So in PROJECT domain it has whatever generator its parents have, and `rspp_hasProjectGenerator` admits it (PLAN.md §7.3.58)."
         },
         "pp_WSpeedBins": {
           "type": "unknown",
@@ -25921,6 +25929,66 @@
           }
         },
         {
+          "_comment": "The crankcase processes: a parent's row times a ratio, per link, in every domain.",
+          "lhs": "rspp_copiesParentRows",
+          "rhs": {
+            "op": "ifelse",
+            "args": [
+              {
+                "op": "or",
+                "args": [
+                  {
+                    "op": "==",
+                    "args": [
+                      "rspp_processID",
+                      {
+                        "op": "enum",
+                        "args": [
+                          "process",
+                          "CrankcaseRunningExhaust"
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "op": "or",
+                    "args": [
+                      {
+                        "op": "==",
+                        "args": [
+                          "rspp_processID",
+                          {
+                            "op": "enum",
+                            "args": [
+                              "process",
+                              "CrankcaseStartExhaust"
+                            ]
+                          }
+                        ]
+                      },
+                      {
+                        "op": "==",
+                        "args": [
+                          "rspp_processID",
+                          {
+                            "op": "enum",
+                            "args": [
+                              "process",
+                              "CrankcaseExtendedIdleExhaust"
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              1.0,
+              0.0
+            ]
+          }
+        },
+        {
           "lhs": "rspp_hasProjectGenerator",
           "rhs": {
             "op": "ifelse",
@@ -25938,27 +26006,63 @@
                             "op": "or",
                             "args": [
                               {
-                                "op": "==",
+                                "op": "or",
                                 "args": [
-                                  "rspp_processID",
                                   {
-                                    "op": "enum",
+                                    "op": "==",
                                     "args": [
-                                      "process",
-                                      "RunningExhaust"
+                                      "rspp_processID",
+                                      {
+                                        "op": "enum",
+                                        "args": [
+                                          "process",
+                                          "RunningExhaust"
+                                        ]
+                                      }
+                                    ]
+                                  },
+                                  {
+                                    "op": "==",
+                                    "args": [
+                                      "rspp_processID",
+                                      {
+                                        "op": "enum",
+                                        "args": [
+                                          "process",
+                                          "StartExhaust"
+                                        ]
+                                      }
                                     ]
                                   }
                                 ]
                               },
                               {
-                                "op": "==",
+                                "op": "or",
                                 "args": [
-                                  "rspp_processID",
                                   {
-                                    "op": "enum",
+                                    "op": "==",
                                     "args": [
-                                      "process",
-                                      "StartExhaust"
+                                      "rspp_processID",
+                                      {
+                                        "op": "enum",
+                                        "args": [
+                                          "process",
+                                          "Brakewear"
+                                        ]
+                                      }
+                                    ]
+                                  },
+                                  {
+                                    "op": "==",
+                                    "args": [
+                                      "rspp_processID",
+                                      {
+                                        "op": "enum",
+                                        "args": [
+                                          "process",
+                                          "Tirewear"
+                                        ]
+                                      }
                                     ]
                                   }
                                 ]
@@ -25976,7 +26080,7 @@
                                     "op": "enum",
                                     "args": [
                                       "process",
-                                      "Brakewear"
+                                      "ExtendedIdleExhaust"
                                     ]
                                   }
                                 ]
@@ -25989,7 +26093,7 @@
                                     "op": "enum",
                                     "args": [
                                       "process",
-                                      "Tirewear"
+                                      "AuxiliaryPowerExhaust"
                                     ]
                                   }
                                 ]
@@ -25999,34 +26103,10 @@
                         ]
                       },
                       {
-                        "op": "or",
+                        "op": ">",
                         "args": [
-                          {
-                            "op": "==",
-                            "args": [
-                              "rspp_processID",
-                              {
-                                "op": "enum",
-                                "args": [
-                                  "process",
-                                  "ExtendedIdleExhaust"
-                                ]
-                              }
-                            ]
-                          },
-                          {
-                            "op": "==",
-                            "args": [
-                              "rspp_processID",
-                              {
-                                "op": "enum",
-                                "args": [
-                                  "process",
-                                  "AuxiliaryPowerExhaust"
-                                ]
-                              }
-                            ]
-                          }
+                          "rspp_copiesParentRows",
+                          0.5
                         ]
                       }
                     ]
@@ -26056,7 +26136,7 @@
               0.0
             ]
           },
-          "_comment": "The evaporative processes at INVENTORY scale only: no PROJECT-domain Rates capture selects one, and what MOVES's rate post-processor writes for a soaking mode on an on-network project link is unmeasured."
+          "_comment": "The evaporative processes at INVENTORY scale only: no PROJECT-domain Rates capture selects one, and what MOVES's rate post-processor writes for a soaking mode on an on-network project link is unmeasured. A process that copies its parents' rows (`rspp_copiesParentRows`, the crankcase three) has its parents' generators (PLAN.md §7.3.58)."
         },
         {
           "_comment": "Which pollutant-processes take the EVAPORATIVE mode family. Spelled like `rspp_usesAvgSpeedModes` above, against a process named in the enum.",
