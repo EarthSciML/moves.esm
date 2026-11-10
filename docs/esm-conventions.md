@@ -9060,3 +9060,46 @@ operating is 0, and operating mode 300 weighs nothing. And the parked hours subt
 the SHO of EVERY road type, not the selected ones, so the VMT-to-speed chain now runs over
 `roadtype_rows` and its readers select by ID. Each was found by comparing one
 intermediate per cell with the capture, at the hour where the error was largest.
+
+## 109. A user adjustment table multiplies the rows its join finds, and its default is computed over what MOVES wrote, not over what the run keeps **[PLAN.md §7.3.57; `scale-county-idle-adjust` 8,128 of 8,128, key-exact, on the port's first run; the runs that compute off-network idle or hotelling byte-identical]**
+
+AdjustTotalIdleFraction.sql and AdjustHotelling.sql are the two scripts through which a
+county database rewrites an activity input in place. Both were counted rather than
+ported until no database here stated a row; `setup-idle-adjust.sql` states all six
+tables, and four rules came out of porting them.
+
+1. **An adjustment is the identity where its key has no row, and the test is on the
+   match COUNT.** Every block is `UPDATE ... INNER JOIN` or a joined `REPLACE INTO`, so a
+   key the table does not state is left as it was. `lib/onroad_activity.esm`'s
+   `stated_adjustment_or_identity(match_count, adjustment)` is that shape, once; each
+   table contributes a `*Rows` count and a `*Stated` value at the same join, and the
+   consumer applies the template. A stated 0 is a row (§80).
+2. **A replacement is all or nothing, and it is decided in the EXECUTION database.**
+   Any `idleModelYearGrouping` row truncates `totalIdleFraction` for every source type
+   and rewrites it from the grouping crossed with every county, state, month and day.
+   InputDataManager cuts the grouping to the selected source types first, so a row at an
+   unselected one triggers nothing (`run_idleGroupingRows` counts at the selection), and a
+   selected source type the grouping does not state is left with NO fraction.
+3. **A "default share" is a share of what TAG wrote, which is more than the run keeps.**
+   TAG writes hotelling hours for all 24 hours of the run's days and cuts them to the run's
+   hours only after AdjustHotelling. So `defaultHourFraction` is the hour's share of the
+   24-hour day -- `hotellingdist / sum(hotellingdist)`, which makes a stated hour
+   `hourFraction x sum(hotellingdist)` of the distribution (`stated_hour_share`) -- and the
+   age and month defaults sum over the full day (`hot_dayShare`, `hot_dayAdjustedHours`).
+   Over the run's two hours alone the age share is off by 1e-10: TAG's hours are an age
+   factor times a time factor only to within that. The month default is a ratio of
+   AVERAGES, which on equal row counts is `numMonths x` the month's share: on a one-month
+   run it is 1 and a stated `monthAdjustment` multiplies outright.
+4. **Which generator calls a script is part of the port.** Only TotalActivityGenerator
+   calls AdjustHotelling; ProjectTAG never does, so in PROJECT domain the three tables are
+   ignored, not refused. What stays counted (`hot_adjustmentRowsUnported`) is a multi-year
+   run with a hotelling adjustment row: the defaults sum over every year `hotellingHours`
+   holds, and TAG adjusts one year at a time over a table that keeps the earlier years'
+   cut rows.
+
+The tables have an empty default side, so the domain states each whole: they moved from
+`onroad/default-database.esm` to `moves-onroad.esm` and every `inputs/*.esm`, as the
+hotelling tables already had (§92). The fixture catalogue reads the execution database,
+where `totalIdleFraction` is AdjustTotalIdleFraction's OUTPUT (a snapshot table is its last
+writer): applying the multipliers to it again is wrong, and harmless only while every
+snapshot it serves has them empty.
