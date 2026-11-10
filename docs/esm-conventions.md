@@ -8626,7 +8626,8 @@ type and model-year window (`lib/onroad_activity.esm` `off_network_idle_sho`).
   `totalIdleFraction` from `idleModelYearGrouping` and scales it by `idleMonthAdjust`
   and `idleDayAdjust`; all three are empty in the default database and in
   Washtenaw's county database, are mounted, and their rows are counted by
-  `run_domainUnported` on a run that computes ONI. An evaporative process beside
+  `run_domainUnported` on a run that computes ONI. (Ported since §109, PLAN.md
+  §7.3.57, and no longer counted.) An evaporative process beside
   road type 1 (MOVES writes SHP rows there) and one on a second on-network road type
   stay in `run_selectionUnported`; `run_offNetworkLinkCount` now counts evaporative
   BLOCKS on road type 1, the only ones that would read SHP.
