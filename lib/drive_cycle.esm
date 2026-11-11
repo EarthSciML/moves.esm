@@ -25,6 +25,37 @@
       "params": [],
       "body": { "op": "const", "args": [], "value": 100.0, "units": "percent" }
     },
+    "binary32_spacing": {
+      "description": "The spacing of IEEE binary32 values around a non-negative dimensionless `magnitude`: 2^(e-23), e = floor(log2(magnitude)) its binade's exponent (24 significant bits). A zero magnitude reads 1's binade, whose spacing rounds 0 to 0. `float_column_value` rounds to it.",
+      "params": ["magnitude"],
+      "body": { "op": "^", "args": [2.0, { "op": "-", "args": [
+        { "op": "floor", "args": [{ "op": "/", "args": [
+          { "op": "log", "args": [{ "op": "+", "args": [
+            "magnitude",
+            { "op": "ifelse", "args": [{ "op": "==", "args": ["magnitude", 0.0] }, 1.0, 0.0] } ] }] },
+          { "op": "log", "args": [2.0] } ] }] },
+        23.0 ] }] }
+    },
+    "float_column_value": {
+      "description": "The value a MariaDB FLOAT column stores for `value`: IEEE binary32, nearest, widened back to double for the arithmetic MOVES's SQL does on it. `driveScheduleSecond.speed`, `driveScheduleSecondLink.speed` and `.grade` are FLOAT, and the link generator copies a national schedule into driveScheduleSecondLink before it walks it (LinkOperatingModeDistributionGenerator.java:692), so every speed difference the brake test compares with -1 and -2 is a difference of binary32 values: national schedule 354's second 56, 64.9 -> 63.9 mph, is -1.000000000000007 in double and exactly -1.0 stored, and only the second is not braking (PLAN.md §7.3.62, `project-driveschedule`'s long-haul trucks). Written with the ops the format has: round(|v|/q) x q with the sign restored, q the binary32 spacing of |v| (`binary32_spacing`). Every step but the logarithm is exact in double; at an exact power of two a misjudged e still lands on the same value, which both spacings hold, and a one-decimal speed or grade never sits on a rounding tie, so half-up and IEEE's half-even agree. `unit` carries the column's unit through the dimensionless arithmetic.",
+      "params": ["value", "unit"],
+      "body": { "op": "*", "args": [
+        "unit",
+        { "op": "*", "args": [
+          { "op": "sign", "args": [{ "op": "/", "args": ["value", "unit"] }] },
+          { "op": "*", "args": [
+            { "op": "floor", "args": [{ "op": "+", "args": [
+              { "op": "/", "args": [
+                { "op": "abs", "args": [{ "op": "/", "args": ["value", "unit"] }] },
+                { "op": "apply_expression_template", "args": [], "name": "binary32_spacing",
+                  "bindings": { "magnitude": { "op": "abs", "args": [{ "op": "/", "args": ["value", "unit"] }] } } } ] },
+              0.5 ] }] },
+            { "op": "apply_expression_template", "args": [], "name": "binary32_spacing",
+              "bindings": { "magnitude": { "op": "abs", "args": [{ "op": "/", "args": ["value", "unit"] }] } } }
+          ] }
+        ] }
+      ] }
+    },
     "vehicle_specific_power": {
       "params": ["rolling_term_a", "rotating_term_b", "drag_term_c", "source_mass",
                  "fixed_mass_factor", "speed_ms", "acceleration_ms"],

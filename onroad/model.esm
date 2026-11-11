@@ -1796,7 +1796,8 @@
             "op_mode_rectangle_contains",
             "graded_acceleration",
             "braking_second",
-            "second_op_mode"
+            "second_op_mode",
+            "float_column_value"
           ]
         },
         {
@@ -19449,7 +19450,7 @@
           "shape": [
             "projectgrade_rows"
           ],
-          "description": "9.81/0.44704 x sin(atan(grade/100)): the acceleration-equivalent of the project link's grade, added to every one of the three accelerations the braking test reads (LinkOperatingModeDistributionGenerator.java:1006-1009). 0 at grade 0, which is the corpus's only grade. Per grade slot (`projectgrade_rows`, PLAN.md §7.3.60)."
+          "description": "9.81/0.44704 x sin(atan(grade/100)): the acceleration-equivalent of the project link's grade, added to every one of the three accelerations the braking test reads (LinkOperatingModeDistributionGenerator.java:1006-1009). 0 at grade 0, which is the corpus's only grade. Per grade slot (`projectgrade_rows`, PLAN.md §7.3.60). The grade is the FLOAT column's the copy writes it to (`float_column_value`)."
         },
         "lomd_at0": {
           "type": "unknown",
@@ -19458,7 +19459,7 @@
             "drive_second_rows",
             "projectgrade_rows"
           ],
-          "description": "At0 = coalesce((speed[t] - speed[t-1]) + grade, 0.0), java:1006. A BACKWARD difference only: a schedule's first second has no predecessor and gets 0, where `dss_acceleration` copies its successor's -- the Java's @algorithm comment claims the forward fallback and its SQL does not have it (docs/link-operating-mode-distribution.md 2.3). Per grade slot (`projectgrade_rows`, PLAN.md §7.3.60)."
+          "description": "At0 = coalesce((speed[t] - speed[t-1]) + grade, 0.0), java:1006. A BACKWARD difference only: a schedule's first second has no predecessor and gets 0, where `dss_acceleration` copies its successor's -- the Java's @algorithm comment claims the forward fallback and its SQL does not have it (docs/link-operating-mode-distribution.md 2.3). Per grade slot (`projectgrade_rows`, PLAN.md §7.3.60). The speeds are the FLOAT column's (`float_column_value`)."
         },
         "lomd_at1": {
           "type": "unknown",
@@ -19503,7 +19504,7 @@
             "physicsrow_rows",
             "projectgrade_rows"
           ],
-          "description": "java:1010-1015: the road-load polynomial `vehicle_specific_power` carries, with the link's acceleration, plus `grade_specific_power` for the grade. lib/drive_cycle.esm measures why one polynomial serves both generators. Per grade slot (`projectgrade_rows`, PLAN.md §7.3.60)."
+          "description": "java:1010-1015: the road-load polynomial `vehicle_specific_power` carries, with the link's acceleration, plus `grade_specific_power` for the grade. lib/drive_cycle.esm measures why one polynomial serves both generators. Per grade slot (`projectgrade_rows`, PLAN.md §7.3.60). Its speed and grade are the FLOAT columns' (`lomd_storedSpeed`, `float_column_value`), as the generator's copy into driveScheduleSecondLink stores them (PLAN.md §7.3.62)."
         },
         "lomd_binnedModeID": {
           "type": "unknown",
@@ -19532,6 +19533,14 @@
             "drive_second_rows"
           ],
           "description": "speed = 0, the CASE's first arm, mode 501. It folds into mode 1 for every pollutant-process but brake-wear PM, AFTER each was divided by the schedule's total and rounded -- so its seconds are counted apart from the idle ones, and the two five-decimal quotients are added."
+        },
+        "lomd_storedSpeed": {
+          "type": "unknown",
+          "units": "mi/h",
+          "shape": [
+            "drive_second_rows"
+          ],
+          "description": "driveScheduleSecond.speed as the generator walks it: the FLOAT column's binary32 value (`float_column_value`), copied into driveScheduleSecondLink's FLOAT speed (java:692). Schedule 354's second 56 (64.9 -> 63.9 mph) brakes in double and not stored, which `project-driveschedule`'s long-haul trucks on link 3 measure (PLAN.md §7.3.62)."
         },
         "lomd_opModeID": {
           "type": "unknown",
@@ -23653,7 +23662,7 @@
           "shape": [
             "linksecond_rows"
           ],
-          "description": "The slot's driveScheduleSecondLink.speed."
+          "description": "The slot's driveScheduleSecondLink.speed, as the FLOAT column stores it (`float_column_value`)."
         },
         "lsec_grade": {
           "type": "unknown",
@@ -23661,7 +23670,7 @@
           "shape": [
             "linksecond_rows"
           ],
-          "description": "The slot's driveScheduleSecondLink.grade: the second's own, not the link's."
+          "description": "The slot's driveScheduleSecondLink.grade, as the FLOAT column stores it: the second's own, not the link's."
         },
         "lsec_priorSecond": {
           "type": "unknown",
@@ -27571,11 +27580,24 @@
               ]
             },
             "expr": {
-              "op": "index",
-              "args": [
-                "dsl_speed",
-                "j"
-              ]
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "float_column_value",
+              "bindings": {
+                "value": {
+                  "op": "index",
+                  "args": [
+                    "dsl_speed",
+                    "j"
+                  ]
+                },
+                "unit": {
+                  "op": "const",
+                  "args": [],
+                  "value": 1.0,
+                  "units": "mi/h"
+                }
+              }
             }
           }
         },
@@ -27604,11 +27626,24 @@
               ]
             },
             "expr": {
-              "op": "index",
-              "args": [
-                "dsl_grade",
-                "j"
-              ]
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "float_column_value",
+              "bindings": {
+                "value": {
+                  "op": "index",
+                  "args": [
+                    "dsl_grade",
+                    "j"
+                  ]
+                },
+                "unit": {
+                  "op": "const",
+                  "args": [],
+                  "value": 1.0,
+                  "units": "percent"
+                }
+              }
             }
           }
         },
@@ -37493,11 +37528,24 @@
               "name": "grade_acceleration",
               "bindings": {
                 "grade_percent": {
-                  "op": "index",
-                  "args": [
-                    "pgr_grade",
-                    "gr"
-                  ]
+                  "op": "apply_expression_template",
+                  "args": [],
+                  "name": "float_column_value",
+                  "bindings": {
+                    "value": {
+                      "op": "index",
+                      "args": [
+                        "pgr_grade",
+                        "gr"
+                      ]
+                    },
+                    "unit": {
+                      "op": "const",
+                      "args": [],
+                      "value": 1.0,
+                      "units": "percent"
+                    }
+                  }
                 }
               }
             }
@@ -37548,16 +37596,29 @@
                         {
                           "op": "index",
                           "args": [
-                            "dss_speed",
+                            "lomd_storedSpeed",
                             "i"
                           ]
                         },
                         {
-                          "op": "index",
-                          "args": [
-                            "dss_priorSpeed",
-                            "i"
-                          ]
+                          "op": "apply_expression_template",
+                          "args": [],
+                          "name": "float_column_value",
+                          "bindings": {
+                            "value": {
+                              "op": "index",
+                              "args": [
+                                "dss_priorSpeed",
+                                "i"
+                              ]
+                            },
+                            "unit": {
+                              "op": "const",
+                              "args": [],
+                              "value": 1.0,
+                              "units": "mi/h"
+                            }
+                          }
                         }
                       ]
                     },
@@ -37636,18 +37697,44 @@
                       "op": "-",
                       "args": [
                         {
-                          "op": "index",
-                          "args": [
-                            "dss_priorSpeed",
-                            "i"
-                          ]
+                          "op": "apply_expression_template",
+                          "args": [],
+                          "name": "float_column_value",
+                          "bindings": {
+                            "value": {
+                              "op": "index",
+                              "args": [
+                                "dss_priorSpeed",
+                                "i"
+                              ]
+                            },
+                            "unit": {
+                              "op": "const",
+                              "args": [],
+                              "value": 1.0,
+                              "units": "mi/h"
+                            }
+                          }
                         },
                         {
-                          "op": "index",
-                          "args": [
-                            "dss_prior2Speed",
-                            "i"
-                          ]
+                          "op": "apply_expression_template",
+                          "args": [],
+                          "name": "float_column_value",
+                          "bindings": {
+                            "value": {
+                              "op": "index",
+                              "args": [
+                                "dss_prior2Speed",
+                                "i"
+                              ]
+                            },
+                            "unit": {
+                              "op": "const",
+                              "args": [],
+                              "value": 1.0,
+                              "units": "mi/h"
+                            }
+                          }
                         }
                       ]
                     },
@@ -37726,18 +37813,44 @@
                       "op": "-",
                       "args": [
                         {
-                          "op": "index",
-                          "args": [
-                            "dss_prior2Speed",
-                            "i"
-                          ]
+                          "op": "apply_expression_template",
+                          "args": [],
+                          "name": "float_column_value",
+                          "bindings": {
+                            "value": {
+                              "op": "index",
+                              "args": [
+                                "dss_prior2Speed",
+                                "i"
+                              ]
+                            },
+                            "unit": {
+                              "op": "const",
+                              "args": [],
+                              "value": 1.0,
+                              "units": "mi/h"
+                            }
+                          }
                         },
                         {
-                          "op": "index",
-                          "args": [
-                            "dss_prior3Speed",
-                            "i"
-                          ]
+                          "op": "apply_expression_template",
+                          "args": [],
+                          "name": "float_column_value",
+                          "bindings": {
+                            "value": {
+                              "op": "index",
+                              "args": [
+                                "dss_prior3Speed",
+                                "i"
+                              ]
+                            },
+                            "unit": {
+                              "op": "const",
+                              "args": [],
+                              "value": 1.0,
+                              "units": "mi/h"
+                            }
+                          }
                         }
                       ]
                     },
@@ -37857,8 +37970,21 @@
                       {
                         "op": "-",
                         "args": [
-                          "dss_speed",
-                          "dss_priorSpeed"
+                          "lomd_storedSpeed",
+                          {
+                            "op": "apply_expression_template",
+                            "args": [],
+                            "name": "float_column_value",
+                            "bindings": {
+                              "value": "dss_priorSpeed",
+                              "unit": {
+                                "op": "const",
+                                "args": [],
+                                "value": 1.0,
+                                "units": "mi/h"
+                              }
+                            }
+                          }
                         ]
                       },
                       0.0
@@ -37941,10 +38067,21 @@
                       ]
                     },
                     "speed_ms": {
-                      "op": "index",
+                      "op": "*",
                       "args": [
-                        "dss_speedMs",
-                        "i"
+                        {
+                          "op": "index",
+                          "args": [
+                            "lomd_storedSpeed",
+                            "i"
+                          ]
+                        },
+                        {
+                          "op": "apply_expression_template",
+                          "args": [],
+                          "name": "mph_to_meters_per_second",
+                          "bindings": {}
+                        }
                       ]
                     },
                     "acceleration_ms": {
@@ -37976,17 +38113,41 @@
                       ]
                     },
                     "grade_percent": {
-                      "op": "index",
-                      "args": [
-                        "pgr_grade",
-                        "gr"
-                      ]
+                      "op": "apply_expression_template",
+                      "args": [],
+                      "name": "float_column_value",
+                      "bindings": {
+                        "value": {
+                          "op": "index",
+                          "args": [
+                            "pgr_grade",
+                            "gr"
+                          ]
+                        },
+                        "unit": {
+                          "op": "const",
+                          "args": [],
+                          "value": 1.0,
+                          "units": "percent"
+                        }
+                      }
                     },
                     "speed_ms": {
-                      "op": "index",
+                      "op": "*",
                       "args": [
-                        "dss_speedMs",
-                        "i"
+                        {
+                          "op": "index",
+                          "args": [
+                            "lomd_storedSpeed",
+                            "i"
+                          ]
+                        },
+                        {
+                          "op": "apply_expression_template",
+                          "args": [],
+                          "name": "mph_to_meters_per_second",
+                          "bindings": {}
+                        }
                       ]
                     }
                   }
@@ -38057,7 +38218,7 @@
                         "speed": {
                           "op": "index",
                           "args": [
-                            "dss_speed",
+                            "lomd_storedSpeed",
                             "i"
                           ]
                         },
@@ -38149,7 +38310,7 @@
                     "speed": {
                       "op": "index",
                       "args": [
-                        "dss_speed",
+                        "lomd_storedSpeed",
                         "i"
                       ]
                     },
@@ -38202,6 +38363,23 @@
               1.0,
               0.0
             ]
+          }
+        },
+        {
+          "lhs": "lomd_storedSpeed",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "float_column_value",
+            "bindings": {
+              "value": "dss_speed",
+              "unit": {
+                "op": "const",
+                "args": [],
+                "value": 1.0,
+                "units": "mi/h"
+              }
+            }
           }
         },
         {
