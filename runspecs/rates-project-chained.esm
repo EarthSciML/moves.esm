@@ -1,0 +1,364 @@
+{
+  "esm": "1.2.0",
+  "metadata": {
+    "name": "rates-project-chained-runspec",
+    "description": "PLAN.md §7.3.59: `rates-project-chained`, the Rates-scale twin of `project-crankcase` and `project-refueling`: crankcase running, start and extended idle exhaust (THC, CO) with their parents running, start and extended idle, and refueling displacement and spillage (THC) with the Total Energy prerequisites MOVES adds, for gasoline passenger cars and diesel long-haul trucks in PROJECT domain, computed from the DEFAULT DATABASE plus the PROJECT input database `inputs/washtenaw-project-crankcase.esm`: two on-network links (link 1 on road type 4 at 30 mph, link 2 on road type 5 at 25 mph) and the off-network link 3 with the user's start modes. moves.rs captured it with the execution database named MOVESExecution, which RatePostProcessorRatesFirst.sql's PROJECT branch hardcodes.\\n\\nIts oracle is the six Rates tables. RatePerDistance (2080 rows) is BaseRateOutput's emissionRate over the LINK's average speed for processes 1, 15, 18 and 19 on both links, Total Energy's prerequisite running rows included (MOVES strips prerequisites from MOVESOutput, not from BaseRateOutput); RatePerHour (250) is extended idle and crankcase extended idle per hour of the mode on link 3, with Total Energy's extended-idle prerequisite; RatePerVehicle (1065) is start, crankcase start, extended idle, crankcase extended idle and the off-network refueling rows over the off-network fleet. RatePerStart and StartsPerVehicle are EMPTY: the post-processor skips both in PROJECT domain.\\n\\nWHAT IT EXERCISES: the copy calculators at Rates scale (`rspp_hasProjectGenerator` admits `rspp_copiesParentRows` at both scales), a second on-network link at Rates scale, RatePerDistance's one-bin gate for the refueling rows (`rpdKeptBin`), RatePerHour's link in PROJECT domain (`rto_linkID`, the project's link 3), and the hotelling rate's road gate: refueling's chain read extended idle's energy RATE on road types 4 and 5, where extended idle does not occur, and made the trucks' spillage 4-6 times too high there until `rtRate_hotellingMeanBaseRate` carried `ppr_occursOnRoad` as the quantity's weight already did (§7.3.58). The pre-port model gave `run_domainUnported` = 9: the eight copy pollutant-processes and the second link.\\n\\n`n_outputRate` IS 3349: the output relation's rows, of which the Rates tables are flagged subsets. `run_domainUnported` is 0.",
+    "authors": [
+      "EarthSciML Authors and Contributors"
+    ],
+    "tags": [
+      "runspec",
+      "onroad",
+      "project-domain",
+      "rates",
+      "rates-project-chained"
+    ]
+  },
+  "data_sources": {
+    "db_runspecyear": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/rates-project-chained/tables/db__movesexecution__runspecyear.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecyear"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row(s): yearID 2020.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecmonth": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/rates-project-chained/tables/db__movesexecution__runspecmonth.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecmonth"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row(s): monthID 8.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspechour": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/rates-project-chained/tables/db__movesexecution__runspechour.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspechour"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row(s): hourID 9.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_aggregationhour": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/rates-project-chained/tables/db__movesexecution__runspechour.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_aggregationhour"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "The hours the run aggregates over. This run does not set `aggregateBy`, so it is `runspechour` itself and the same file.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecday": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/rates-project-chained/tables/db__movesexecution__runspechourday.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecday"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row(s): hourDayID 95.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_rateday": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/rates-project-chained/tables/db__movesexecution__runspecday.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_rateday"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "The day types the RATE-side time pre-aggregation is scoped to. This run does not set `aggregateBy`, so it is `runspecday` itself and the same file: the pre-aggregation averages over one cell and returns the table's own value. A run that aggregates points this somewhere else, because MOVES overwrites `runspecday` with the synthesized output day AFTER the pre-aggregation has run.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_actday": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/rates-project-chained/tables/db__movesexecution__runspecday.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_actday"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "The day types the output day's ACTIVITY covers. This run does not set `aggregateBy`, so it is `runspecday` itself and the same file, and `noOfRealDays` is that one day type's.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecsourcetype": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/rates-project-chained/tables/db__movesexecution__runspecsourcetype.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecsourcetype"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "2 row(s): sourceTypeID 21,62.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecroadtype": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/rates-project-chained/tables/db__movesexecution__runspecroadtype.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecroadtype"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "3 row(s): roadTypeID 1,4,5.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecsourcefueltype": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/rates-project-chained/tables/db__movesexecution__runspecsourcefueltype.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecsourcefueltype"
+      },
+      "metadata": {
+        "tags": [
+          "scope",
+          "cohorts"
+        ],
+        "note": "7 row(s): sourceTypeID 21,62; fuelTypeID 1,2,3,5,9.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecpollutantprocess": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/rates-project-chained/tables/db__movesexecution__runspecpollutantprocess.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecpollutantprocess"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "17 row(s): polProcessID 101,102,115,116,117,118,119,190,201,202,215,216,217,290,9101,9102,9190.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecchainedto": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/rates-project-chained/tables/db__movesexecution__runspecchainedto.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecchainedto"
+      },
+      "metadata": {
+        "tags": [
+          "scope",
+          "chain"
+        ],
+        "note": "6 row(s): outputPolProcessID 115,116,117,215,216,217; outputPollutantID 1,2; outputProcessID 15,16,17; inputPolProcessID 101,102,190,201,202,290; inputPollutantID 1,2; inputProcessID 1,2,90.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspeccounty": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/rates-project-chained/tables/db__movesexecution__runspeccounty.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspeccounty"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row(s): countyID 26161.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_rateperdistance": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/rates-project-chained/tables/db__out_rates_project_chained__rateperdistance.parquet"
+      },
+      "reader_options": {
+        "float_columns": [
+          "ratePerDistance",
+          "temperature",
+          "relHumidity"
+        ]
+      },
+      "metadata": {
+        "tags": [
+          "oracle",
+          "expected-output"
+        ],
+        "note": "The 2080-row rateperdistance: process 1 road type 4 523, process 1 road type 5 523, process 15 road type 4 308, process 15 road type 5 308, process 18 road type 4 64, process 18 road type 5 64, process 19 road type 4 145, process 19 road type 5 145.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_rateperstart": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/rates-project-chained/tables/db__out_rates_project_chained__rateperstart.parquet"
+      },
+      "reader_options": {
+        "float_columns": [
+          "ratePerStart",
+          "temperature",
+          "relHumidity"
+        ]
+      },
+      "metadata": {
+        "tags": [
+          "oracle",
+          "expected-output"
+        ],
+        "note": "EMPTY in this run: MOVES writes no row to it, so a row the model emits here is a failure.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_rateperhour": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/rates-project-chained/tables/db__out_rates_project_chained__rateperhour.parquet"
+      },
+      "reader_options": {
+        "float_columns": [
+          "ratePerHour",
+          "temperature",
+          "relHumidity"
+        ]
+      },
+      "metadata": {
+        "tags": [
+          "oracle",
+          "expected-output"
+        ],
+        "note": "The 250-row rateperhour: process 17 road type 1 100, process 90 road type 1 150.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_ratepervehicle": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/rates-project-chained/tables/db__out_rates_project_chained__ratepervehicle.parquet"
+      },
+      "reader_options": {
+        "float_columns": [
+          "ratePerVehicle",
+          "temperature",
+          "relHumidity"
+        ]
+      },
+      "metadata": {
+        "tags": [
+          "oracle",
+          "expected-output"
+        ],
+        "note": "The 1065-row ratepervehicle.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_rateperprofile": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/rates-project-chained/tables/db__out_rates_project_chained__rateperprofile.parquet"
+      },
+      "reader_options": {
+        "float_columns": [
+          "ratePerVehicle",
+          "temperature",
+          "relHumidity"
+        ]
+      },
+      "metadata": {
+        "tags": [
+          "oracle",
+          "expected-output"
+        ],
+        "note": "EMPTY in this run: MOVES writes no row to it, so a row the model emits here is a failure.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_startspervehicle": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/rates-project-chained/tables/db__out_rates_project_chained__startspervehicle.parquet"
+      },
+      "reader_options": {
+        "float_columns": [
+          "startsPerVehicle"
+        ]
+      },
+      "metadata": {
+        "tags": [
+          "oracle",
+          "expected-output"
+        ],
+        "note": "EMPTY in this run: MOVES writes no row to it, so a row the model emits here is a failure.",
+        "esio_format": "parquet"
+      }
+    }
+  },
+  "models": {
+    "Onroad": {
+      "ref": "../inputs/washtenaw-project-crankcase.esm",
+      "bindings": {
+        "n_outputRate": 3349,
+        "n_sourceBin": 3,
+        "n_physicsRow": 21,
+        "n_ratesScale": 1
+      }
+    }
+  }
+}

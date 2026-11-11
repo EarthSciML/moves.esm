@@ -1722,6 +1722,12 @@ C7P_DOMAIN=moves-onroad.esm
 # the hotelling mode and RatePerVehicle; `rates-evap` the evaporative and
 # refueling rows on road type 1, RatePerVehicle and vapor venting's
 # RatePerProfile; `rates-project` RatePerDistance on a PROJECT link;
+# `rates-project-evap` the PROJECT population's RatePerVehicle and RatePerProfile;
+# `rates-project-chained` the crankcase and refueling processes at Rates scale on
+# two PROJECT links and an off-network one, `rates-project-evap-links` the
+# evaporative rows of two PROJECT links in RatePerDistance (MOVESOutput over the
+# link's distance) and `rates-project-useromd` a user's link distribution at Rates
+# scale (PLAN.md §7.3.59);
 # `rates-pm` SulfatePMCalculator's species per bin, and `rates-nonhaptog` and
 # `rates-mechanism` the non-HAP TOG residual per bin, without and with its
 # mechanism -- `rates-mechanism` is the costliest run here;
