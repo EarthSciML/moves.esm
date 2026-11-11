@@ -22943,7 +22943,7 @@
             "runspeccounty_rows",
             "hourday_rows"
           ],
-          "description": "`hotellingHourFraction` rows at the county's zone and the hour-day: whether AdjustHotelling.sql's hourFraction join finds one."
+          "description": "hotellingHourFraction rows at the zone, day type and hour, counted only at an hour the RunSpec selects: InputDataManager merges the table into the execution database cut to the run's hours (the execution database of `scale-county-idle-adjust` holds 3 of its 47 rows), so AdjustHotelling.sql rescales those hours and leaves the other 21 at their default share. A one-year run cannot tell, because every default it takes is a ratio over one year's hours that all carry the same day shares; the second year of a multi-year run can (PLAN.md §7.3.61)."
         },
         "hot_hourFractionStated": {
           "type": "unknown",
@@ -22952,7 +22952,7 @@
             "runspeccounty_rows",
             "hourday_rows"
           ],
-          "description": "`hotellingHourFraction.hourFraction` at the county's zone and the hour-day; read only where `hot_hourFractionRows` finds the row."
+          "description": "hotellingHourFraction.hourFraction at the zone, day type and hour, where the RunSpec selects the hour (`hot_hourFractionRows`)."
         },
         "hot_hourShare": {
           "type": "unknown",
@@ -23297,6 +23297,14 @@
           ],
           "description": "The earlier years' rows at the row's AGE after year `cy`'s hour block (`hot_ownHours x hot_pooledHourFactor` at their cell): their part of the age block's default numerator. The SQL joins on ageID, so an earlier year's age is pooled with this year's same age, a different model year."
         },
+        "hot_dayCellCount": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecday_rows"
+          ],
+          "description": "How many of the run's output cells share this cell's day type: the number of activity rows that each carry the same day's full-day hours. The one-year defaults are ratios of two sums that both count every day that many times; a sum pooled with an earlier year's rows, which are per cell, has to count it once."
+        },
         "hot_pooledAgeHours": {
           "type": "unknown",
           "units": "1",
@@ -23304,7 +23312,7 @@
             "activity_rows",
             "runspeccounty_rows"
           ],
-          "description": "The age block's default numerator over the pooled table: this year's own full-day hours at the age (`hot_pooledDayAdjustedHours`) plus `hot_earlierAgeHours`."
+          "description": "This year's own full-day hours at the row's age after the pooled hour block (`hot_pooledDayAdjustedHours`): with `hot_earlierAgeHours`, the age block's default numerator over the pooled table."
         },
         "hot_pooledTotalHours": {
           "type": "unknown",
@@ -23313,7 +23321,7 @@
             "runspeccounty_rows",
             "runspecyear_rows"
           ],
-          "description": "The age block's default denominator over the pooled table: `hot_pooledAgeHours` over every age."
+          "description": "The age block's default denominator over the pooled table: `hot_pooledAgeHours + hot_earlierAgeHours` over every age, the earlier years' part summed by cell (`hot_earlierCellHours x hot_pooledHourFactor`)."
         },
         "hot_pooledAgeAdjustment": {
           "type": "unknown",
@@ -23342,7 +23350,7 @@
             "runspecmonth_rows",
             "runspecyear_rows"
           ],
-          "description": "The month block's default numerator over the pooled table: this year's own full-day hours in the month after the pooled hour and age blocks, plus `hot_earlierMonthHours`."
+          "description": "This year's own full-day hours in the month after the pooled hour and age blocks: with `hot_earlierMonthHours`, the month block's default numerator over the pooled table."
         },
         "hot_pooledAllMonthHours": {
           "type": "unknown",
@@ -23351,7 +23359,7 @@
             "runspeccounty_rows",
             "runspecyear_rows"
           ],
-          "description": "`hot_pooledMonthHours` over the run's months."
+          "description": "`hot_pooledMonthHours + hot_earlierMonthHours` over the run's months: the month block's default denominator over the pooled table."
         },
         "hot_pooledMonthAdjustment": {
           "type": "unknown",
@@ -94139,6 +94147,9 @@
               },
               "x": {
                 "from": "hotellinghourfraction_rows"
+              },
+              "q": {
+                "from": "runspechour_rows"
               }
             },
             "join": [
@@ -94159,6 +94170,14 @@
                   [
                     "hd_hourID",
                     "hhf_hourID"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "hhf_hourID",
+                    "rsh_hourID"
                   ]
                 ]
               }
@@ -94185,6 +94204,9 @@
               },
               "x": {
                 "from": "hotellinghourfraction_rows"
+              },
+              "q": {
+                "from": "runspechour_rows"
               }
             },
             "join": [
@@ -94205,6 +94227,14 @@
                   [
                     "hd_hourID",
                     "hhf_hourID"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "hhf_hourID",
+                    "rsh_hourID"
                   ]
                 ]
               }
@@ -96450,54 +96480,103 @@
           }
         },
         {
+          "lhs": "hot_dayCellCount",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "k"
+            ],
+            "ranges": {
+              "k": {
+                "from": "runspecday_rows"
+              },
+              "j": {
+                "from": "runspecday_rows"
+              }
+            },
+            "join": [
+              {
+                "syms": [
+                  "k",
+                  "j"
+                ],
+                "on": [
+                  [
+                    "rsd_dayID",
+                    "rsd_dayID"
+                  ]
+                ]
+              }
+            ],
+            "expr": 1.0
+          }
+        },
+        {
           "lhs": "hot_pooledAgeHours",
           "rhs": {
-            "op": "+",
-            "args": [
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "r",
+              "g"
+            ],
+            "ranges": {
+              "r": {
+                "from": "activity_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "e": {
+                "from": "activity_rows"
+              },
+              "s": {
+                "from": "runspecsourcetype_rows"
+              },
+              "m": {
+                "from": "runspecmonth_rows"
+              },
+              "k": {
+                "from": "runspecday_rows"
+              }
+            },
+            "join": [
               {
-                "op": "faq",
-                "args": [],
-                "semiring": "sum_product",
-                "output_idx": [
+                "syms": [
                   "r",
-                  "g"
+                  "e"
                 ],
-                "ranges": {
-                  "r": {
-                    "from": "activity_rows"
-                  },
-                  "g": {
-                    "from": "runspeccounty_rows"
-                  },
-                  "e": {
-                    "from": "activity_rows"
-                  },
-                  "s": {
-                    "from": "runspecsourcetype_rows"
-                  },
-                  "m": {
-                    "from": "runspecmonth_rows"
-                  }
-                },
-                "join": [
-                  {
-                    "syms": [
-                      "r",
-                      "e"
-                    ],
-                    "on": [
-                      [
-                        "act_ageID",
-                        "act_ageID"
-                      ],
-                      [
-                        "act_yearOrdinal",
-                        "act_yearOrdinal"
-                      ]
-                    ]
-                  }
+                "on": [
+                  [
+                    "act_ageID",
+                    "act_ageID"
+                  ],
+                  [
+                    "act_yearOrdinal",
+                    "act_yearOrdinal"
+                  ]
+                ]
+              },
+              {
+                "syms": [
+                  "e",
+                  "k"
                 ],
-                "expr": {
+                "on": [
+                  [
+                    "act_dayOrdinal",
+                    "day_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "/",
+              "args": [
+                {
                   "op": "index",
                   "args": [
                     "hot_pooledDayAdjustedHours",
@@ -96506,17 +96585,16 @@
                     "s",
                     "m"
                   ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "hot_dayCellCount",
+                    "k"
+                  ]
                 }
-              },
-              {
-                "op": "index",
-                "args": [
-                  "hot_earlierAgeHours",
-                  "r",
-                  "g"
-                ]
-              }
-            ]
+              ]
+            }
           }
         },
         {
@@ -96547,6 +96625,9 @@
                   },
                   "m": {
                     "from": "runspecmonth_rows"
+                  },
+                  "k": {
+                    "from": "runspecday_rows"
                   }
                 },
                 "join": [
@@ -96557,16 +96638,36 @@
                         "year_ordinal"
                       ]
                     ]
+                  },
+                  {
+                    "on": [
+                      [
+                        "act_dayOrdinal",
+                        "day_ordinal"
+                      ]
+                    ]
                   }
                 ],
                 "expr": {
-                  "op": "index",
+                  "op": "/",
                   "args": [
-                    "hot_pooledDayAdjustedHours",
-                    "r",
-                    "g",
-                    "s",
-                    "m"
+                    {
+                      "op": "index",
+                      "args": [
+                        "hot_pooledDayAdjustedHours",
+                        "r",
+                        "g",
+                        "s",
+                        "m"
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "hot_dayCellCount",
+                        "k"
+                      ]
+                    }
                   ]
                 }
               },
@@ -96674,11 +96775,24 @@
                   ]
                 },
                 "part": {
-                  "op": "index",
+                  "op": "+",
                   "args": [
-                    "hot_pooledAgeHours",
-                    "r",
-                    "g"
+                    {
+                      "op": "index",
+                      "args": [
+                        "hot_pooledAgeHours",
+                        "r",
+                        "g"
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "hot_earlierAgeHours",
+                        "r",
+                        "g"
+                      ]
+                    }
                   ]
                 },
                 "total": {
@@ -96837,45 +96951,56 @@
         {
           "lhs": "hot_pooledMonthHours",
           "rhs": {
-            "op": "+",
-            "args": [
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "g",
+              "m",
+              "cy"
+            ],
+            "ranges": {
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "m": {
+                "from": "runspecmonth_rows"
+              },
+              "cy": {
+                "from": "runspecyear_rows"
+              },
+              "r": {
+                "from": "activity_rows"
+              },
+              "s": {
+                "from": "runspecsourcetype_rows"
+              },
+              "k": {
+                "from": "runspecday_rows"
+              }
+            },
+            "join": [
               {
-                "op": "faq",
-                "args": [],
-                "semiring": "sum_product",
-                "output_idx": [
-                  "g",
-                  "m",
-                  "cy"
-                ],
-                "ranges": {
-                  "g": {
-                    "from": "runspeccounty_rows"
-                  },
-                  "m": {
-                    "from": "runspecmonth_rows"
-                  },
-                  "cy": {
-                    "from": "runspecyear_rows"
-                  },
-                  "r": {
-                    "from": "activity_rows"
-                  },
-                  "s": {
-                    "from": "runspecsourcetype_rows"
-                  }
-                },
-                "join": [
-                  {
-                    "on": [
-                      [
-                        "act_yearOrdinal",
-                        "year_ordinal"
-                      ]
-                    ]
-                  }
-                ],
-                "expr": {
+                "on": [
+                  [
+                    "act_yearOrdinal",
+                    "year_ordinal"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "act_dayOrdinal",
+                    "day_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "/",
+              "args": [
+                {
                   "op": "*",
                   "args": [
                     {
@@ -96897,18 +97022,16 @@
                       ]
                     }
                   ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "hot_dayCellCount",
+                    "k"
+                  ]
                 }
-              },
-              {
-                "op": "index",
-                "args": [
-                  "hot_earlierMonthHours",
-                  "g",
-                  "m",
-                  "cy"
-                ]
-              }
-            ]
+              ]
+            }
           }
         },
         {
@@ -96933,12 +97056,26 @@
               }
             },
             "expr": {
-              "op": "index",
+              "op": "+",
               "args": [
-                "hot_pooledMonthHours",
-                "g",
-                "m",
-                "cy"
+                {
+                  "op": "index",
+                  "args": [
+                    "hot_pooledMonthHours",
+                    "g",
+                    "m",
+                    "cy"
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "hot_earlierMonthHours",
+                    "g",
+                    "m",
+                    "cy"
+                  ]
+                }
               ]
             }
           }
@@ -97000,12 +97137,26 @@
                       ]
                     },
                     {
-                      "op": "index",
+                      "op": "+",
                       "args": [
-                        "hot_pooledMonthHours",
-                        "g",
-                        "m",
-                        "cy"
+                        {
+                          "op": "index",
+                          "args": [
+                            "hot_pooledMonthHours",
+                            "g",
+                            "m",
+                            "cy"
+                          ]
+                        },
+                        {
+                          "op": "index",
+                          "args": [
+                            "hot_earlierMonthHours",
+                            "g",
+                            "m",
+                            "cy"
+                          ]
+                        }
                       ]
                     }
                   ]
