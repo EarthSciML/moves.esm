@@ -31,7 +31,7 @@ chain's recomputation, and the KEYS actually present in the output -- and then
 asserts the four counts the chain keeps of what it could not reach:
 
     rows == rateSurvivorCount x counties x months x day types x hours
-    distinct (pollutantID, processID, roadTypeID) == outputPolProcessCount
+    distinct (pollutantID, processID, roadTypeID, linkID) == outputPolProcessCount
     distinct (yearID, sourceTypeID, fuelTypeID, modelYearID) == cohortSurvivorCount
     rateSurvivorCount <= outputPolProcessCount x cohortSurvivorCount
     run_sourceBinsDropped == 0
@@ -199,7 +199,10 @@ def main(emitted_path, shape_path, rpd_path=None):
     # this factor was missing until the first 24-hour runs.
     hours = distinct("hourID")
     months = distinct("monthID")
-    pairs = distinct("pollutantID", "processID", "roadTypeID")
+    # A block is a (pollutant-process, LOCATION) pair: the road type, and in a
+    # PROJECT run the link, which is NULL -- one value -- at county detail. Two
+    # project links on one road type are two blocks (PLAN 7.3.60).
+    pairs = distinct("pollutantID", "processID", "roadTypeID", "linkID")
     cohort_keys = distinct("yearID", "sourceTypeID", "fuelTypeID", "modelYearID")
 
     problems = []
@@ -233,7 +236,7 @@ def main(emitted_path, shape_path, rpd_path=None):
                         "than the %d blocks x %d cohorts they can be drawn from"
                         % (pairs_emitted, blocks, cohorts))
     if len(pairs) != blocks:
-        problems.append("%d (pollutantID, processID, roadTypeID) blocks emitted, but "
+        problems.append("%d (pollutantID, processID, roadTypeID, linkID) blocks emitted, but "
                         "outputPolProcessCount is %d" % (len(pairs), blocks))
     if len(cohort_keys) != cohorts:
         problems.append("%d (yearID, sourceTypeID, fuelTypeID, modelYearID) cohorts "

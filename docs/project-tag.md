@@ -236,6 +236,8 @@ def compare(run, what, got, ref, key, cols, rendered=True, rel_gate=0.0):
 
 def sho(run):
     link = table(run, "link")
+    for c in ("linkLength", "linkVolume", "linkAvgSpeed"):  # FLOAT columns (project-multilink's 0.3 mi)
+        link[c] = f32(link[c])
     lsth = table(run, "linksourcetypehour")
     lsth["sourceTypeHourFraction"] = f32(lsth.sourceTypeHourFraction)
     out = []
@@ -280,6 +282,7 @@ def run_shp(run):
 
 def run_source_hours(run):
     link = table(run, "link")
+    link["linkVolume"] = f32(link.linkVolume)
     off = off_network(run)
     off["sourceHoursc"] = off.vehiclePopulation * off.parkedVehicleFraction * off.ageFraction * off.noOfRealDays
     off["linkID"] = int(link[link.roadTypeID == 1].linkID.iloc[0])
