@@ -9128,3 +9128,61 @@ truck cell. The weight of a process that lives on one kind of road is therefore
 written with its road's occurrence flag in it, as a factor of exactly 1 where it
 occurs: the emitted numbers of every earlier run are unchanged to the byte, and
 a child can no longer read what MOVES never wrote.
+
+## 112. A second instance of a key is a row appended to the relation that holds the first, and an axis is promoted only as far as its forward closure reaches **[PLAN.md §7.3.60; `project-multilink` 7654, `project-grades` 5245, `project-useromd-gaps` 2468, `project-startconflict` 939, every key set exact; seventeen earlier runs byte-identical]**
+
+A PROJECT link was a (county, road type) until a project put two links on one
+road type. MOVES's execution location is the LINK, so the honest shape is a
+link axis -- and every per-road-type variable would have had to carry it. Two
+rules came out of not doing that.
+
+1. **Append the second instance to the relation that already holds the first.**
+   `runspecroadtype_rows` became the run's LOCATIONS: the selected road types,
+   one row each and in the file's order as before, followed by one row per
+   link that shares a (county, road type) with an earlier link. The extra rows
+   are a declared and checked number (`n_projectExtraLinks`, default 0,
+   `run_extraLinksUndeclared`), as `n_outputRate` is: the relation's width
+   cannot come from a table no catalogue states. A link finds its row by
+   `lnk_locationOrdinal` -- its file-order rank within its (county, road type),
+   then its rank among the county's extra links -- and every lookup that joined
+   on the road type joins on that ordinal with the county. The road type of a
+   row is a computed column (`rsr_roadTypeID`), and the file's own column moved
+   to a relation of its own (`rsrf_roadTypeID`). Every DEFAULT-domain run and
+   every earlier PROJECT run has no extra row, so their relations are
+   unchanged to the byte.
+
+   **What breaks is a sum over the appended relation that meant a question
+   about the original one.** Twelve equations summed over road-type rows to
+   ask "is this road type selected?" -- the drive-schedule selection and its
+   second counts, the lowest on-network road type, the chain's road-type test
+   -- and on a relation with a duplicated road type they double-count. Find
+   them by listing every `faq` that REDUCES over the relation (the forward
+   closure's readers, not its writers), and move each to the file relation.
+   Sums that meant "over locations" (`oni_*`, the output's SHO) stay.
+
+2. **Promote an axis only through the variables that read the varying key.**
+   Grades differ per link, and the per-second link chain (63,602 seconds x
+   physics rows) reads the grade. Keying it by location would multiply that
+   chain by the locations of every run. Its forward closure from the grade was
+   twelve variables and stops at the bracket fractions, so only they gained an
+   axis: the DISTINCT grades, `projectgrade_rows` of the declared
+   `n_projectGrade` (default 1, `run_gradesUndeclared`), with each location
+   reading its grade's slot (`rsr_gradeOrdinal`, a join on `pgr_ordinal`). A
+   DEFAULT run walks the chain once, as before; `project-grades` walks it four
+   times for five links. Price the slot axis by the distinct values, not by
+   the rows that carry them.
+
+**Absence travels with presence, per location.** Where a user's link
+distribution leaves a pollutant-process nothing, MOVES writes no row -- an
+absence (§80, conventions' "absence and zero are different"). The model drops
+the rate row (`rt_hasLinkModes`, beside `rt_hasHotellingModes`), and the
+output BLOCK is then emitted per location only where one of its rate rows
+emits (`ppr_hasEmittingRow`): a per-pollutant-process presence flag is right
+only while every location of the pollutant-process has the same rows.
+
+**INSERT IGNORE under a MyISAM scan is first-written-wins.** Step 400's
+start-mode copy keys the user's rows by neither link nor polProcess; where they
+disagree MOVES keeps the row written first, which a primary-key order would not
+have chosen. A domain table's file order is the order its SQL wrote it, so the
+model takes the first matching row by index (`sod_projectFirst`, a `min_sum`
+over the row index, then a gather), not a max or a refusal.

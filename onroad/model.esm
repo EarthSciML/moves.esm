@@ -13164,7 +13164,7 @@
           "shape": [
             "run_rows"
           ],
-          "description": "The run's LOWEST selected on-network road type, and road type 1 when it selects no other. It is no longer the road type the run is computed on -- that is an axis, `runspecroadtype_rows` (PLAN.md §7.3.46) -- and it is read for two things: the project LINK's road type, which a PROJECT run selects one of (`run_link*`, `lomd_*`), and the representative by which the three-rung chain closure (`rspp_chainRoadTypeID1..3`) classes a pollutant-process as on-network; `ppr_occursOnRoad` then puts an on-network one on every selected on-network road type. J27: the reason no process-2 row exists in this snapshot."
+          "description": "The run's LOWEST selected on-network road type, and road type 1 when it selects no other, from the runspecroadtype file (`rsrf_roadTypeID`). It is no longer the road type the run is computed on -- that is the location relation, `runspecroadtype_rows` (PLAN.md §7.3.46, §7.3.60) -- and it is read as the representative by which the three-rung chain closure (`rspp_chainRoadTypeID1..3`) classes a pollutant-process as on-network; `ppr_occursOnRoad` then puts an on-network one on every selected on-network location. J27: the reason no process-2 row exists in this snapshot."
         },
         "run_linkID": {
           "type": "unknown",
@@ -13173,7 +13173,7 @@
             "runspeccounty_rows",
             "runspecroadtype_rows"
           ],
-          "description": "The link on each selected county and road type -- selected out of the national `Link`'s 22,610 at DEFAULT scale, and out of the project's own links in PROJECT domain, where a project has one link per road type it selects (`run_linkCount`). Read by `out_linkID` and `rpd_linkID` at the output row's road type; a DEFAULT run's MOVESOutput carries no link."
+          "description": "The link at each selected county and LOCATION -- selected out of the national `Link`'s 22,610 at DEFAULT scale, one per (county, road type), and out of the project's own links in PROJECT domain, where the first link on each selected road type holds that road type's row and every further one a row of its own after them (`lnk_locationOrdinal`, PLAN.md §7.3.60). Read by `out_linkID` and `rpd_linkID` at the output row's location; a DEFAULT run's MOVESOutput carries no link."
         },
         "run_countyID": {
           "type": "unknown",
@@ -13240,14 +13240,6 @@
             "spillagecountyyear_rows"
           ],
           "description": "Whether the synthesised row KEEPS the county's spillage reduction. Gasoline and E85 do; diesel, CNG and electricity are inserted with zero. It is a property of the fuel and not of the county, which is why it is declared here rather than read."
-        },
-        "run_linkRoadTypeID": {
-          "type": "unknown",
-          "units": "1",
-          "shape": [
-            "runspeccounty_rows"
-          ],
-          "description": "The road type of the county's `run_linkID` link."
         },
         "run_stateID": {
           "type": "unknown",
@@ -19358,22 +19350,6 @@
           ],
           "description": "Rows in runspecdomain. Exactly 1, asserted through `run_domainUnported`: a sum over two domain rows would be a domain no RunSpec has."
         },
-        "run_linkLength": {
-          "type": "unknown",
-          "units": "1",
-          "shape": [
-            "runspeccounty_rows"
-          ],
-          "description": "The selected link's linkLength in each county -- selected the way `run_linkID` is -- and 0 outside PROJECT domain, where the default database's link carries NULL here and nothing reads it."
-        },
-        "run_linkVolume": {
-          "type": "unknown",
-          "units": "1",
-          "shape": [
-            "runspeccounty_rows"
-          ],
-          "description": "The selected link's linkVolume in each county -- selected the way `run_linkID` is -- and 0 outside PROJECT domain, where the default database's link carries NULL here and nothing reads it."
-        },
         "run_linkAvgSpeed": {
           "type": "unknown",
           "units": "1",
@@ -19381,7 +19357,7 @@
             "runspeccounty_rows",
             "runspecroadtype_rows"
           ],
-          "description": "The linkAvgSpeed of the link on each selected county and road type -- selected the way `run_linkID` is -- and 0 outside PROJECT domain, where the default database's link carries NULL here. Read by the link distribution's brackets (`run_projectLinkSpeed`) and by a Rates-scale project's per-link rates (`rtRate_rated`)."
+          "description": "The linkAvgSpeed of the link at each selected county and LOCATION -- selected the way `run_linkID` is -- and 0 outside PROJECT domain, where the default database's link carries NULL here. Read by the link distribution's brackets (`run_projectLinkSpeed`) and by a Rates-scale project's per-link rates (`rtRate_rated`)."
         },
         "run_linkAvgGrade": {
           "type": "unknown",
@@ -19399,7 +19375,7 @@
             "runspeccounty_rows",
             "runspecroadtype_rows"
           ],
-          "description": "How many links the county/road-type join selects on each selected county and road type. The `run_link*` columns are SUMS over this join, right while it selects one row; a project of two links on ONE road type would add their ids and speeds, so `run_domainUnported` counts a (county, road type) where it is not 1. `project-links` has three links on three road types (PLAN.md §7.3.55)."
+          "description": "How many links the county/location join selects: 1 where a link holds the location, 0 where a selected road type has no link. The `run_link*` columns are sums over this join, right while it selects one row, and `lnk_locationOrdinal` gives each selected link a location of its own, so it never selects two (PLAN.md §7.3.60)."
         },
         "run_projectExtraLinks": {
           "type": "unknown",
@@ -19423,7 +19399,7 @@
           "shape": [
             "runspecroadtype_rows"
           ],
-          "description": "The project link's average speed on each selected road type, summed over the run's one county. 0 on a road type with no link and outside PROJECT domain."
+          "description": "The project link's average speed at each LOCATION, summed over the run's one county. 0 on a road type with no link and outside PROJECT domain."
         },
         "run_projectLinkGrade": {
           "type": "unknown",
@@ -19499,7 +19475,7 @@
             "runspecmonth_rows",
             "runspecroadtype_rows"
           ],
-          "description": "ProjectTAG.allocateTotalActivityBasis's SHO (ProjectTAG.java:354-385): linkVolume x sourceTypeHourFraction x noOfRealDays x ageFraction x least(linkLength/linkAvgSpeed, 1), in the SQL's association. It reads no VMT, no road-type distribution and no SHO allocation factor -- a project's activity is its links' volumes -- and the month is a label it carries rather than a factor. 0 in a DEFAULT-domain run, whose linkSourceTypeHour is empty. Per road type: a project link's SHO is on the link's own road type."
+          "description": "ProjectTAG.allocateTotalActivityBasis's SHO (ProjectTAG.java:354-385): linkVolume x sourceTypeHourFraction x noOfRealDays x ageFraction x least(linkLength/linkAvgSpeed, 1), in the SQL's association. It reads no VMT, no road-type distribution and no SHO allocation factor -- a project's activity is its links' volumes -- and the month is a label it carries rather than a factor. 0 in a DEFAULT-domain run, whose linkSourceTypeHour is empty. Per LOCATION: each project link's SHO is at its own location, two links on one road type at two (PLAN.md §7.3.60)."
         },
         "act_projectSourceHours": {
           "type": "unknown",
@@ -19911,7 +19887,7 @@
           "shape": [
             "run_rows"
           ],
-          "description": "How many things this run asks of its DOMAIN that the model does not do: 0, asserted by tools/check-runspec-shape.py, and the licence for every PROJECT-domain number. It counts a runspecdomain that is not one row; in PROJECT domain (`run_projectShortfall`), a selected (county, road type) whose join selects other than one link, a second county, an emitted pollutant-process without a project generator here (`rspp_hasProjectGenerator`: since PLAN.md §7.3.55 running, start, brake and tire wear, extended idle and APU have one, and since §7.3.56 permeation, fuel vapor venting and fuel leaks, and since §7.3.58 the crankcase and refueling processes at inventory scale and the evaporative ones at Rates scale), a bracketing schedule out of bounds (a MOVES terminal error), on-network links of different grades, user start modes that disagree across links or polProcesses, a user link distribution, a second link at Rates scale, and evaporative rows a PROJECT Rates run would write to RatePerDistance; and outside it, any linkSourceTypeHour row, which only ProjectTAG reads. None of those fail loudly on their own -- each would emit a plausible wrong number -- which is why they are counted rather than trusted. Since the SINGLE-county runs it also counts a ZoneRoadType input row whose key the default lacks (a row the merge would ADD, which relations on the default side's axis cannot see), and a hotellingHourFraction, hotellingAgeFraction or hotellingMonthAdjust row at a run's zone when it selects a hotelling process over more than one calendar year (`hot_adjustmentRowsUnported`): AdjustHotelling's four blocks are ported for one year (PLAN.md §7.3.57). And a Zone input row whose zone the default lacks. AdjustTotalIdleFraction.sql's override and multipliers are ported (`oni_totalIdleFraction`) and no longer counted."
+          "description": "How many things this run asks of its DOMAIN that the model does not do: 0, asserted by tools/check-runspec-shape.py, and the licence for every PROJECT-domain number. It counts a runspecdomain that is not one row; in PROJECT domain (`run_projectShortfall`), a selected road type without a link, an on-network link of zero speed, a second county, an emitted pollutant-process without a project generator here (`rspp_hasProjectGenerator`: the crankcase and refueling processes at Rates scale), user link operating-mode rows the model does not read (`run_userLinkModeRows`) or that cover some but not all selected hour-days (`run_userLinkGaps`), a second link at Rates scale, and evaporative rows a PROJECT Rates run would write to RatePerDistance; and outside it, any linkSourceTypeHour row, which only ProjectTAG reads. None of those fail loudly on their own -- each would emit a plausible wrong number -- which is why they are counted rather than trusted. In every domain it counts the two declared PROJECT shapes (`run_extraLinksUndeclared`, `run_gradesUndeclared`, PLAN.md §7.3.60). Since the SINGLE-county runs it also counts a ZoneRoadType input row whose key the default lacks (a row the merge would ADD, which relations on the default side's axis cannot see), and a hotellingHourFraction, hotellingAgeFraction or hotellingMonthAdjust row at a run's zone when it selects a hotelling process over more than one calendar year (`hot_adjustmentRowsUnported`): AdjustHotelling's four blocks are ported for one year (PLAN.md §7.3.57). And a Zone input row whose zone the default lacks. AdjustTotalIdleFraction.sql's override and multipliers are ported (`oni_totalIdleFraction`) and no longer counted. Since PLAN.md §7.3.60 it no longer counts two links on one road type, links of different grades, an out-of-bounds bracket (MOVES extrapolates, with a warning), conflicting user start modes, or user running and brake-wear rows that leave a gap."
         },
         "run_projectShortfall": {
           "type": "unknown",
@@ -19919,7 +19895,7 @@
           "shape": [
             "run_rows"
           ],
-          "description": "The PROJECT-domain half of `run_domainUnported`: a (county, road type) without exactly one link, a second county, an emitted pollutant-process without a project generator here, an out-of-bounds bracket, on-network links of different grades, conflicting user start modes, a user link distribution the model does not read or the gaps one leaves, a second link at Rates scale, and an evaporative process at Rates scale whose on-network rows would reach RatePerDistance (`run_ratesProjectEvapDistance`)."
+          "description": "The PROJECT-domain half of `run_domainUnported`: a selected road type without a link, an on-network link of zero speed (`run_projectZeroSpeedLinks`), a second county (MOVES's own RunSpec check allows one county at Project scale), an emitted pollutant-process without a project generator here, user link operating-mode rows the model does not read or that cover only some selected hour-days, a second link at Rates scale, and an evaporative process at Rates scale whose on-network rows would reach RatePerDistance (`run_ratesProjectEvapDistance`)."
         },
         "run_linkCountMismatches": {
           "type": "unknown",
@@ -19927,7 +19903,15 @@
           "shape": [
             "run_rows"
           ],
-          "description": "Selected (county, road type) pairs whose join selects other than exactly one link: a road type the project has no link on, or two links on one road type, whose `run_link*` sums would add."
+          "description": "Selected (county, location) pairs whose join selects other than exactly one link: a selected road type the project has no link on, whose emissions MOVES would not compute at all. Since PLAN.md §7.3.60 a second link on a road type is a location of its own and no longer counted here."
+        },
+        "run_projectZeroSpeedLinks": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "run_rows"
+          ],
+          "description": "On-network project locations whose link's average speed is not positive. LinkOperatingModeDistributionGenerator gives such a link thirty seconds of idling at grade 0 and walks them as a drive schedule (java:340-375), not a bracket, and ProjectTAG's SHO takes its `else` arm; neither is ported or captured. Counted by `run_projectShortfall`: before PLAN.md §7.3.60 the out-of-bounds refusal caught it, and MOVES's extrapolation, now ported, would bracket it at the slowest schedule instead."
         },
         "run_userLinkModeRows": {
           "type": "unknown",
@@ -19951,7 +19935,7 @@
           "shape": [
             "run_rows"
           ],
-          "description": "Links on the run's selected counties and on-network road types."
+          "description": "Links at the run's selected counties and on-network locations."
         },
         "run_ratesProjectLinks": {
           "type": "unknown",
@@ -24141,49 +24125,6 @@
           }
         },
         {
-          "lhs": "run_linkRoadTypeID",
-          "rhs": {
-            "op": "faq",
-            "args": [],
-            "semiring": "sum_product",
-            "output_idx": [
-              "c"
-            ],
-            "ranges": {
-              "l": {
-                "from": "link_rows"
-              },
-              "c": {
-                "from": "runspeccounty_rows"
-              },
-              "w": {
-                "from": "run_rows"
-              }
-            },
-            "join": [
-              {
-                "on": [
-                  [
-                    "lnk_countyID",
-                    "rsc_countyID"
-                  ],
-                  [
-                    "lnk_roadTypeID",
-                    "run_roadTypeID"
-                  ]
-                ]
-              }
-            ],
-            "expr": {
-              "op": "index",
-              "args": [
-                "lnk_roadTypeID",
-                "l"
-              ]
-            }
-          }
-        },
-        {
           "lhs": "run_isProjectDomain",
           "rhs": {
             "op": "faq",
@@ -24246,136 +24187,6 @@
               }
             },
             "expr": 1.0
-          }
-        },
-        {
-          "lhs": "run_linkLength",
-          "rhs": {
-            "op": "faq",
-            "args": [],
-            "semiring": "sum_product",
-            "output_idx": [
-              "c"
-            ],
-            "ranges": {
-              "l": {
-                "from": "link_rows"
-              },
-              "c": {
-                "from": "runspeccounty_rows"
-              },
-              "w": {
-                "from": "run_rows"
-              },
-              "n": {
-                "from": "run_rows"
-              }
-            },
-            "join": [
-              {
-                "on": [
-                  [
-                    "lnk_countyID",
-                    "rsc_countyID"
-                  ],
-                  [
-                    "lnk_roadTypeID",
-                    "run_roadTypeID"
-                  ]
-                ]
-              }
-            ],
-            "expr": {
-              "op": "ifelse",
-              "args": [
-                {
-                  "op": ">",
-                  "args": [
-                    {
-                      "op": "index",
-                      "args": [
-                        "run_isProjectDomain",
-                        "n"
-                      ]
-                    },
-                    0.5
-                  ]
-                },
-                {
-                  "op": "index",
-                  "args": [
-                    "lnk_linkLength",
-                    "l"
-                  ]
-                },
-                0.0
-              ]
-            }
-          }
-        },
-        {
-          "lhs": "run_linkVolume",
-          "rhs": {
-            "op": "faq",
-            "args": [],
-            "semiring": "sum_product",
-            "output_idx": [
-              "c"
-            ],
-            "ranges": {
-              "l": {
-                "from": "link_rows"
-              },
-              "c": {
-                "from": "runspeccounty_rows"
-              },
-              "w": {
-                "from": "run_rows"
-              },
-              "n": {
-                "from": "run_rows"
-              }
-            },
-            "join": [
-              {
-                "on": [
-                  [
-                    "lnk_countyID",
-                    "rsc_countyID"
-                  ],
-                  [
-                    "lnk_roadTypeID",
-                    "run_roadTypeID"
-                  ]
-                ]
-              }
-            ],
-            "expr": {
-              "op": "ifelse",
-              "args": [
-                {
-                  "op": ">",
-                  "args": [
-                    {
-                      "op": "index",
-                      "args": [
-                        "run_isProjectDomain",
-                        "n"
-                      ]
-                    },
-                    0.5
-                  ]
-                },
-                {
-                  "op": "index",
-                  "args": [
-                    "lnk_linkVolume",
-                    "l"
-                  ]
-                },
-                0.0
-              ]
-            }
           }
         },
         {
@@ -26554,7 +26365,13 @@
                           {
                             "op": "+",
                             "args": [
-                              "run_linkCountMismatches",
+                              {
+                                "op": "+",
+                                "args": [
+                                  "run_linkCountMismatches",
+                                  "run_projectZeroSpeedLinks"
+                                ]
+                              },
                               {
                                 "op": "-",
                                 "args": [
@@ -26622,6 +26439,74 @@
                 },
                 0.0,
                 1.0
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "run_projectZeroSpeedLinks",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "n"
+            ],
+            "ranges": {
+              "n": {
+                "from": "run_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "rd": {
+                "from": "runspecroadtype_rows"
+              }
+            },
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "*",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "rsr_isOnNetwork",
+                        "rd"
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "run_linkCount",
+                        "g",
+                        "rd"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "op": "ifelse",
+                  "args": [
+                    {
+                      "op": ">",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "run_linkAvgSpeed",
+                            "g",
+                            "rd"
+                          ]
+                        },
+                        0.0
+                      ]
+                    },
+                    0.0,
+                    1.0
+                  ]
+                }
               ]
             }
           }

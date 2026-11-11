@@ -23,11 +23,14 @@ Since §7.3.58 the crankcase and refueling processes read them through their par
 (`runspecs/project-crankcase.esm`, `project-refueling.esm`), the evaporative processes reproduce at Rates
 scale over the PROJECT population -- the same off-network fleet x ageFraction, which ActivityCalculator writes
 on the off-network link (`act_projectPopulation`; `runspecs/rates-project-evap.esm`) -- and
-`runspecs/project-useromd.esm` reproduces a link whose user states its operating modes. `run_domainUnported`
-counts any PROJECT-domain run that needs a path not ported (`rspp_hasProjectGenerator`: the crankcase and
-refueling processes at Rates scale; and evaporative rows a Rates run would write to RatePerDistance), and also
-a (county, road type) with other than one link and a second county; `tools/check-runspec-shape.py` asserts
-that count is 0.
+`runspecs/project-useromd.esm` reproduces a link whose user states its operating modes. Since §7.3.60 a link
+is a LOCATION rather than a (county, road type), so two links on one road type are two
+(`runspecs/project-multilink.esm`), and `project-grades`, `project-useromd-gaps` and `project-startconflict`
+reproduce links of different grades and speeds, user distributions that leave gaps, and conflicting start modes.
+`run_domainUnported` counts any PROJECT-domain run that needs a path not ported (`rspp_hasProjectGenerator`: the
+crankcase and refueling processes at Rates scale; and evaporative rows a Rates run would write to
+RatePerDistance), and also a selected road type with no link, an on-network link of zero speed and a second
+county; `tools/check-runspec-shape.py` asserts that count is 0.
 So a PROJECT-domain run that needs an unported path fails loudly rather than emitting a plausible wrong
 number.
 
@@ -37,7 +40,7 @@ number.
 
 | | |
 |---|---|
-| RunSpec | `../moves.rs/characterization/fixtures/scale-project.xml` and `rates-project.xml` (one link); `project-links.xml` (three links, two source types, an off-network link); `project-offnetwork.xml` and `project-hotelling.xml` (an on-network and an off-network link, source types 21 and 62; the second without the evaporative processes); since §7.3.58 `project-crankcase.xml`, `project-refueling.xml` and `project-useromd.xml` (two on-network links on road types 4 and 5 and an off-network link, source types 21 and 62) and `rates-project-evap.xml` (`project-offnetwork`'s network at Rates scale) |
+| RunSpec | `../moves.rs/characterization/fixtures/scale-project.xml` and `rates-project.xml` (one link); `project-links.xml` (three links, two source types, an off-network link); `project-offnetwork.xml` and `project-hotelling.xml` (an on-network and an off-network link, source types 21 and 62; the second without the evaporative processes); since §7.3.58 `project-crankcase.xml`, `project-refueling.xml` and `project-useromd.xml` (two on-network links on road types 4 and 5 and an off-network link, source types 21 and 62) and `rates-project-evap.xml` (`project-offnetwork`'s network at Rates scale); since §7.3.60 `project-multilink.xml` (two links on each of road types 4 and 5), `project-grades.xml` (grades and out-of-bounds speeds), `project-useromd-gaps.xml` and `project-startconflict.xml` |
 | Model | ONROAD, `modeldomain` **`PROJECT`** |
 | Reads | `link`, `linkSourceTypeHour`, `offNetworkLink`, `avft`, `sourceTypeAgeDistribution`, `dayOfAnyWeek`, `hourDay`, `runSpecHourDay`, `runSpecDay`, `runSpecMonth`, `runSpecSourceType` |
 | Writes | `SHO` (with `distance`), `Starts`, `SHP`, `SourceHours`, `hotellingHours` |
@@ -76,9 +79,10 @@ distance = SHO x linkAvgSpeed
   first row. No run repeats a key, and §6.5 asserts that rather than assuming it.
 
 The model writes the product in the SQL's association: ((volume x fraction) x days) x ageFraction, then the
-share. Since the generator runs once per link and the model has no link axis, `act_projectSho` is keyed by
-road type: the project's link on each selected road type. `run_linkCount` refuses a (county, road type)
-with other than one link.
+share. Since the generator runs once per link, `act_projectSho` is keyed by LOCATION: the run's selected road
+types, each the first link on it, followed by every further link on a road type already selected
+(`lnk_locationOrdinal`, `n_projectExtraLinks`; PLAN.md §7.3.60). The Link table's length, volume and speed are
+FLOAT columns: `project-multilink`'s 0.3 mi decides three SHO cells' sixth digit, and §6.5 narrows them.
 
 The other four outputs read the zone's **off-network fleet**, `offNetworkLink`, rather than a link's volume:
 
@@ -144,7 +148,7 @@ x 25 = 54.96812497247866                                    stored distance 54.9
 
 `./run-project-tag-oracle.sh` extracts this fence and runs it over the snapshot corpus and the moves.rs
 RunSpec XMLs. It reads only each run's execution-database inputs (§0's Reads row); the five output tables
-are read only to compare against. FLOAT input columns (`linkSourceTypeHour`'s share, `offNetworkLink`'s
+are read only to compare against. FLOAT input columns (`link`'s length, volume and speed, `linkSourceTypeHour`'s share, `offNetworkLink`'s
 fractions, `avft`'s fraction) are narrowed to binary32 first, as MariaDB stores them. It asserts:
 
 * **Scheduling.** `linkSourceTypeHour`, the one table only ProjectTAG reads, is populated on exactly the
@@ -354,8 +358,8 @@ for k, floor in (("SHO", 328), ("Starts", 164), ("SHP", 82), ("SourceHours", 164
 
 * **The `else` arm.** No snapshot has an on-network link with `linkAvgSpeed` <= 0, and the off-network links
   have no `linkSourceTypeHour` row. The template's `ifelse` follows the SQL, but nothing tests it.
-* **Two links on one road type.** The model keys a link by (county, road type), and `run_linkCount` refuses a
-  pair with two; ProjectTAG itself would handle it.
+* **Two links on one road type** is reproduced since §7.3.60 (`project-multilink`, 328 SHO and 410 SourceHours
+  keys over four on-network links).
 * **Missing age distributions.** ProjectTAG grows a missing year's age distribution from population
   (:315-350, through `TotalActivityGenerator`). Every run finds 2020 in the default database.
 * **More than one hour-day.** Every PROJECT snapshot has one.
