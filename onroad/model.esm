@@ -14172,7 +14172,15 @@
           "shape": [
             "polprocroad_rows"
           ],
-          "description": "Is this pair one of the output's blocks? Its pollutant-process has to occur on the pair's road type, have a rate, and be a selection rather than a prerequisite the output strips -- `rspp_isEmitted`'s three tests, the first one per road type."
+          "description": "Is this pair one of the output's blocks? Its pollutant-process has to occur on the pair's road type, have a rate row in the block that emits (`ppr_hasEmittingRow`; the pollutant-process's `rspp_hasRatedRow` but where a PROJECT location's user distribution leaves it none, PLAN.md §7.3.60), and be a selection rather than a prerequisite the output strips -- `rspp_isEmitted`'s three tests, the first two per location."
+        },
+        "ppr_hasEmittingRow": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "polprocroad_rows"
+          ],
+          "description": "Whether any rate row of the BLOCK -- the pollutant-process at this location -- emits (`rt_emits`). The pollutant-process's `rspp_hasRatedRow` on every block but where a location's own rows drop out: a PROJECT link whose user leaves the pollutant-process no distribution emits no row there (`rt_hasLinkModes`), so its block is not an output block (PLAN.md §7.3.60)."
         },
         "ppr_emittedPrefix": {
           "type": "unknown",
@@ -17036,13 +17044,21 @@
           ],
           "description": "Whether the rate row's source type has hotelling operating modes at all: 0 on a hotelling pollutant-process of any source type but 62, 1 everywhere else. BaseRateGenerator's steps 200 and 210 write RatesOpModeDistribution rows for 62 alone, so another source type's hotelling bin has no rate row -- an absence, which `cohMode_hotellingWeight`'s 0 is not. Measured on `rates-hotelling-sourcetypes`: MOVES writes the same 491 rows as `rates-hotelling`, none for 52 or 61 (PLAN.md §7.3.48)."
         },
+        "rt_hasLinkModes": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "0 on a PROJECT rate row whose running or brake-wear distribution the user governs and leaves empty (`omd_userGap`), 1 everywhere else: such a block-and-source-type has no RatesOpModeDistribution row, so MOVES writes no base rate and no output row for it, as a hotelling bin of a source type other than 62 has none (`rt_hasHotellingModes`). A chained child (PM10 brake wear) has no user rows of its own and emits through its parent's survival (`chained_emits`). PLAN.md §7.3.60."
+        },
         "rt_survivesRated": {
           "type": "unknown",
           "units": "1",
           "shape": [
             "rate_rows"
           ],
-          "description": "Selected AND rated, on a source type that has the process's operating modes -- `rt_survives` before `SulfatePMCalculator` claims its blocks."
+          "description": "Selected AND rated, on a source type that has the process's operating modes (`rt_hasHotellingModes`) and, in PROJECT domain, a distribution on its link (`rt_hasLinkModes`) -- `rt_survives` before `SulfatePMCalculator` claims its blocks."
         },
         "rt_survives": {
           "type": "unknown",
@@ -19919,7 +19935,7 @@
           "shape": [
             "run_rows"
           ],
-          "description": "Input opModeDistribution rows the model does not read: not at a start mode (101-199), and at Rates scale or not one of the two families PLAN.md §7.3.58 ports at inventory scale -- an on-network link's running exhaust (the link LinkOperatingModeDistributionGenerator then skips, `omd_linkRunningRows`) and an evaporative process at 150, 151 or 300 (which INSERT IGNORE keeps over the generator's, `evap_W`). Counted by `run_domainUnported`, with `run_userLinkGaps`."
+          "description": "Input opModeDistribution rows the model does not read: not at a start mode (101-199), and at Rates scale or not one of the families ported at inventory scale -- an on-network link's running exhaust and brake wear (`omd_userGoverned`, PLAN.md §7.3.58, §7.3.60), its tire wear (which AverageSpeedOperatingModeDistributionGenerator writes from the link's speed and never reads, so a user row there changes nothing), and an evaporative process at 150, 151 or 300 (which INSERT IGNORE keeps over the generator's, `evap_W`). Counted by `run_domainUnported`, with `run_userLinkGaps`."
         },
         "run_userLinkGaps": {
           "type": "unknown",
@@ -19927,7 +19943,7 @@
           "shape": [
             "run_rows"
           ],
-          "description": "What a link whose user states its running distribution leaves unported: an emitted running pollutant-process with no user row at a selected (hour-day, source type) -- MOVES would weight it by nothing -- and emitted brake or tire wear on that link, whose distributions beside a user's are unmeasured. Counted by `run_domainUnported` (PLAN.md §7.3.58)."
+          "description": "What a user-governed link distribution leaves unported: an emitted running or brake-wear pollutant-process whose user rows cover some but not all of the selected hour-days. The anti-join is keyed without the hour-day, so MOVES writes nothing at an uncovered one, and the model's rate rows carry no hour-day to drop. Counted by `run_domainUnported` (PLAN.md §7.3.58, §7.3.60)."
         },
         "run_onNetworkLinkCount": {
           "type": "unknown",
@@ -21941,7 +21957,7 @@
           ],
           "description": "The default domain's start operating-mode weights: startsOpModeDistribution at the run's day type and hour, age 0 (StartOperatingModeDistributionGenerator step 400, non-PROJECT arm)."
         },
-        "sod_projectMin": {
+        "sod_projectFirst": {
           "type": "unknown",
           "units": "1",
           "shape": [
@@ -21949,7 +21965,7 @@
             "operating_mode_rows",
             "runspecsourcetype_rows"
           ],
-          "description": "The smallest input opModeFraction at each (day, mode, source type)."
+          "description": "The FIRST input opModeDistribution row, in the table's own order, at each (day, mode, source type): any link, any polProcess. Step 400's PROJECT arm copies the rows to road type 1 for every start polProcess with INSERT IGNORE, keyed by neither the row's link nor its polProcess (StartOperatingModeDistributionGenerator.java:379-410), so where the user's rows disagree the first one MySQL scans wins every start polProcess -- and a MyISAM scan, by table or by the opModeID index, returns rows of one key in the order they were written. Measured on `project-startconflict` (PLAN.md §7.3.60): the off-network link's CO rows, written first, win over its Total Energy rows and over an on-network link's CO rows, which a primary-key scan would have put first. +inf where the user states none."
         },
         "sod_weight": {
           "type": "unknown",
@@ -21959,17 +21975,9 @@
             "operating_mode_rows",
             "runspecsourcetype_rows"
           ],
-          "description": "The start operating-mode weights BaseRateCalculator reads. DEFAULT domain: `sod_defaultWeight`. PROJECT domain: the USER's opModeDistribution rows at the source type, hour-day and mode, which step 400's PROJECT arm copies to road type 1 for every start polProcess (StartOperatingModeDistributionGenerator.java:379-410), and 0 at a mode the user states nothing for. The arm joins on neither the row's linkID nor its polProcessID, so rows differing only there collide under INSERT IGNORE; `sod_projectConflicts` counts a collision whose fractions differ rather than choosing the first."
+          "description": "The start operating-mode weights BaseRateCalculator reads. DEFAULT domain: `sod_defaultWeight`. PROJECT domain: the USER's opModeDistribution rows at the source type, hour-day and mode, which step 400's PROJECT arm copies to road type 1 for every start polProcess (StartOperatingModeDistributionGenerator.java:379-410), and 0 at a mode the user states nothing for. The arm joins on neither the row's linkID nor its polProcessID, so rows differing only there collide under INSERT IGNORE, and the first written wins (`sod_projectFirstFraction`, PLAN.md §7.3.60)."
         },
-        "sod_projectConflicts": {
-          "type": "unknown",
-          "units": "1",
-          "shape": [
-            "run_rows"
-          ],
-          "description": "(day, mode, source type) cells where the input opModeDistribution states two different fractions -- for two links or two polProcesses -- which step 400's INSERT IGNORE would resolve by scan order. Counted by `run_domainUnported`."
-        },
-        "sod_projectMax": {
+        "sod_projectFirstFraction": {
           "type": "unknown",
           "units": "1",
           "shape": [
@@ -21977,7 +21985,7 @@
             "operating_mode_rows",
             "runspecsourcetype_rows"
           ],
-          "description": "The largest input opModeFraction at each (day, mode, source type)."
+          "description": "The user's opModeFraction on the first row (`sod_projectFirst`) at each (day, mode, source type): what step 400's INSERT IGNORE keeps."
         },
         "sod_projectRows": {
           "type": "unknown",
@@ -23264,7 +23272,7 @@
             "runspecsourcetype_rows",
             "runspecroadtype_rows"
           ],
-          "description": "The user's opModeFraction for the project link on the road type, at the pollutant-process, hour-day, mode and source type; 0 where the user states none. A PROJECT run's running exhaust on a link the user states (`omd_linkRunningRows`) weights by it and not by `lomd_W`, at every physics row of the source type: SourceTypePhysics.updateOperatingModeDistribution copies a user row to each physics row's offset mode, as it does a generated one. The evaporative modes take it where the user states them (`evap_W`). PLAN.md §7.3.58."
+          "description": "The user's opModeFraction for the project link on the road type, at the pollutant-process, hour-day, mode and source type; 0 where the user states none. A PROJECT run's running exhaust and brake wear where the user governs them (`omd_userGoverned`) weight by it and not by `lomd_W`, at every physics row of the source type: SourceTypePhysics.updateOperatingModeDistribution copies a user row to each physics row's offset mode, as it does a generated one. The evaporative modes take it where the user states them (`evap_W`). PLAN.md §7.3.58."
         },
         "omd_userRows": {
           "type": "unknown",
@@ -23296,6 +23304,36 @@
             "runspecroadtype_rows"
           ],
           "description": "`omd_userRows` summed over the modes: whether the user states the pollutant-process at the hour-day and source type on the road type's link at all."
+        },
+        "omd_userPpRows": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecpollutantprocess_rows",
+            "runspecsourcetype_rows",
+            "runspecroadtype_rows"
+          ],
+          "description": "User opModeDistribution rows for the pollutant-process and source type on the location's link, at any selected hour-day: LinkOperatingModeDistributionGenerator's tempExistingOpMode (java:180-190), keyed by (source type, polProcess, link) and read by the anti-join that keeps the generator off every combination the user states (java:836-860)."
+        },
+        "omd_userGoverned": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecpollutantprocess_rows",
+            "runspecsourcetype_rows",
+            "runspecroadtype_rows"
+          ],
+          "description": "1 where the user's rows, and only they, weight a running or brake-wear pollutant-process of the source type on the location: the link has a user running row, so the generator skips it whole (`omd_linkRunningRows`, java:330), or the user states this combination, so the anti-join keeps the generator's rows out of it. PLAN.md §7.3.60."
+        },
+        "omd_userGap": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecpollutantprocess_rows",
+            "runspecsourcetype_rows",
+            "runspecroadtype_rows"
+          ],
+          "description": "1 where the user governs the combination (`omd_userGoverned`) and states no row for it: RatesOpModeDistribution then has nothing for it, BaseRateGenerator writes no base rate, and MOVES emits NO row -- an absence, not a zero (`rt_hasLinkModes`). `project-useromd-gaps`: running Total Energy on link 1, whose user states running CO only, and the light commercial trucks' brake wear there."
         },
         "evap_WGenerated": {
           "type": "unknown",
@@ -26532,14 +26570,8 @@
                       {
                         "op": "+",
                         "args": [
-                          "sod_projectConflicts",
-                          {
-                            "op": "+",
-                            "args": [
-                              "run_userLinkModeRows",
-                              "run_ratesProjectLinks"
-                            ]
-                          }
+                          "run_userLinkModeRows",
+                          "run_ratesProjectLinks"
                         ]
                       }
                     ]
@@ -26945,6 +26977,167 @@
           }
         },
         {
+          "lhs": "omd_userPpRows",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "p",
+              "s",
+              "rd"
+            ],
+            "ranges": {
+              "p": {
+                "from": "runspecpollutantprocess_rows"
+              },
+              "s": {
+                "from": "runspecsourcetype_rows"
+              },
+              "rd": {
+                "from": "runspecroadtype_rows"
+              },
+              "k": {
+                "from": "runspecday_rows"
+              }
+            },
+            "expr": {
+              "op": "index",
+              "args": [
+                "omd_userModeRows",
+                "p",
+                "k",
+                "s",
+                "rd"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "omd_userGoverned",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "p",
+              "s",
+              "rd"
+            ],
+            "ranges": {
+              "p": {
+                "from": "runspecpollutantprocess_rows"
+              },
+              "s": {
+                "from": "runspecsourcetype_rows"
+              },
+              "rd": {
+                "from": "runspecroadtype_rows"
+              }
+            },
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                {
+                  "op": "or",
+                  "args": [
+                    {
+                      "op": ">",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "omd_linkRunningRows",
+                            "rd"
+                          ]
+                        },
+                        0.5
+                      ]
+                    },
+                    {
+                      "op": ">",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "omd_userPpRows",
+                            "p",
+                            "s",
+                            "rd"
+                          ]
+                        },
+                        0.5
+                      ]
+                    }
+                  ]
+                },
+                1.0,
+                0.0
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "omd_userGap",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "p",
+              "s",
+              "rd"
+            ],
+            "ranges": {
+              "p": {
+                "from": "runspecpollutantprocess_rows"
+              },
+              "s": {
+                "from": "runspecsourcetype_rows"
+              },
+              "rd": {
+                "from": "runspecroadtype_rows"
+              }
+            },
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "omd_userGoverned",
+                    "p",
+                    "s",
+                    "rd"
+                  ]
+                },
+                {
+                  "op": "ifelse",
+                  "args": [
+                    {
+                      "op": ">",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "omd_userPpRows",
+                            "p",
+                            "s",
+                            "rd"
+                          ]
+                        },
+                        0.5
+                      ]
+                    },
+                    0.0,
+                    1.0
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
           "lhs": "run_userLinkModeRows",
           "rhs": {
             "op": "faq",
@@ -27025,41 +27218,172 @@
                           "op": "or",
                           "args": [
                             {
-                              "op": "and",
+                              "op": "or",
                               "args": [
                                 {
-                                  "op": "==",
+                                  "op": "and",
                                   "args": [
                                     {
-                                      "op": "-",
+                                      "op": "==",
+                                      "args": [
+                                        {
+                                          "op": "-",
+                                          "args": [
+                                            {
+                                              "op": "index",
+                                              "args": [
+                                                "omd_polProcessID",
+                                                "x"
+                                              ]
+                                            },
+                                            {
+                                              "op": "*",
+                                              "args": [
+                                                100.0,
+                                                {
+                                                  "op": "floor",
+                                                  "args": [
+                                                    {
+                                                      "op": "/",
+                                                      "args": [
+                                                        {
+                                                          "op": "index",
+                                                          "args": [
+                                                            "omd_polProcessID",
+                                                            "x"
+                                                          ]
+                                                        },
+                                                        100.0
+                                                      ]
+                                                    }
+                                                  ]
+                                                }
+                                              ]
+                                            }
+                                          ]
+                                        },
+                                        {
+                                          "op": "enum",
+                                          "args": [
+                                            "process",
+                                            "RunningExhaust"
+                                          ]
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "op": ">",
                                       "args": [
                                         {
                                           "op": "index",
                                           "args": [
-                                            "omd_polProcessID",
-                                            "x"
+                                            "lnk_roadTypeID",
+                                            "l"
+                                          ]
+                                        },
+                                        1.5
+                                      ]
+                                    }
+                                  ]
+                                },
+                                {
+                                  "op": "and",
+                                  "args": [
+                                    {
+                                      "op": "or",
+                                      "args": [
+                                        {
+                                          "op": "==",
+                                          "args": [
+                                            {
+                                              "op": "-",
+                                              "args": [
+                                                {
+                                                  "op": "index",
+                                                  "args": [
+                                                    "omd_polProcessID",
+                                                    "x"
+                                                  ]
+                                                },
+                                                {
+                                                  "op": "*",
+                                                  "args": [
+                                                    100.0,
+                                                    {
+                                                      "op": "floor",
+                                                      "args": [
+                                                        {
+                                                          "op": "/",
+                                                          "args": [
+                                                            {
+                                                              "op": "index",
+                                                              "args": [
+                                                                "omd_polProcessID",
+                                                                "x"
+                                                              ]
+                                                            },
+                                                            100.0
+                                                          ]
+                                                        }
+                                                      ]
+                                                    }
+                                                  ]
+                                                }
+                                              ]
+                                            },
+                                            {
+                                              "op": "enum",
+                                              "args": [
+                                                "process",
+                                                "Brakewear"
+                                              ]
+                                            }
                                           ]
                                         },
                                         {
-                                          "op": "*",
+                                          "op": "==",
                                           "args": [
-                                            100.0,
                                             {
-                                              "op": "floor",
+                                              "op": "-",
                                               "args": [
                                                 {
-                                                  "op": "/",
+                                                  "op": "index",
                                                   "args": [
+                                                    "omd_polProcessID",
+                                                    "x"
+                                                  ]
+                                                },
+                                                {
+                                                  "op": "*",
+                                                  "args": [
+                                                    100.0,
                                                     {
-                                                      "op": "index",
+                                                      "op": "floor",
                                                       "args": [
-                                                        "omd_polProcessID",
-                                                        "x"
+                                                        {
+                                                          "op": "/",
+                                                          "args": [
+                                                            {
+                                                              "op": "index",
+                                                              "args": [
+                                                                "omd_polProcessID",
+                                                                "x"
+                                                              ]
+                                                            },
+                                                            100.0
+                                                          ]
+                                                        }
                                                       ]
-                                                    },
-                                                    100.0
+                                                    }
                                                   ]
                                                 }
+                                              ]
+                                            },
+                                            {
+                                              "op": "enum",
+                                              "args": [
+                                                "process",
+                                                "Tirewear"
                                               ]
                                             }
                                           ]
@@ -27067,25 +27391,18 @@
                                       ]
                                     },
                                     {
-                                      "op": "enum",
+                                      "op": ">",
                                       "args": [
-                                        "process",
-                                        "RunningExhaust"
+                                        {
+                                          "op": "index",
+                                          "args": [
+                                            "lnk_roadTypeID",
+                                            "l"
+                                          ]
+                                        },
+                                        1.5
                                       ]
                                     }
-                                  ]
-                                },
-                                {
-                                  "op": ">",
-                                  "args": [
-                                    {
-                                      "op": "index",
-                                      "args": [
-                                        "lnk_roadTypeID",
-                                        "l"
-                                      ]
-                                    },
-                                    1.5
                                   ]
                                 }
                               ]
@@ -27363,23 +27680,56 @@
                   "op": "*",
                   "args": [
                     {
-                      "op": "min",
+                      "op": "*",
                       "args": [
                         {
                           "op": "index",
                           "args": [
-                            "omd_linkRunningRows",
-                            "rd"
+                            "run_isProjectDomain",
+                            "n"
                           ]
                         },
-                        1.0
+                        {
+                          "op": "index",
+                          "args": [
+                            "rspp_isEmitted",
+                            "p"
+                          ]
+                        }
                       ]
                     },
                     {
-                      "op": "index",
+                      "op": "*",
                       "args": [
-                        "rspp_isEmitted",
-                        "p"
+                        {
+                          "op": "index",
+                          "args": [
+                            "rspp_usesLinkModes",
+                            "p"
+                          ]
+                        },
+                        {
+                          "op": "ifelse",
+                          "args": [
+                            {
+                              "op": ">",
+                              "args": [
+                                {
+                                  "op": "index",
+                                  "args": [
+                                    "omd_userPpRows",
+                                    "p",
+                                    "s",
+                                    "rd"
+                                  ]
+                                },
+                                0.5
+                              ]
+                            },
+                            1.0,
+                            0.0
+                          ]
+                        }
                       ]
                     }
                   ]
@@ -27388,97 +27738,23 @@
                   "op": "ifelse",
                   "args": [
                     {
-                      "op": "==",
+                      "op": ">",
                       "args": [
                         {
                           "op": "index",
                           "args": [
-                            "rspp_processID",
-                            "p"
+                            "omd_userModeRows",
+                            "p",
+                            "k",
+                            "s",
+                            "rd"
                           ]
                         },
-                        {
-                          "op": "enum",
-                          "args": [
-                            "process",
-                            "RunningExhaust"
-                          ]
-                        }
+                        0.5
                       ]
                     },
-                    {
-                      "op": "ifelse",
-                      "args": [
-                        {
-                          "op": ">",
-                          "args": [
-                            {
-                              "op": "index",
-                              "args": [
-                                "omd_userModeRows",
-                                "p",
-                                "k",
-                                "s",
-                                "rd"
-                              ]
-                            },
-                            0.5
-                          ]
-                        },
-                        0.0,
-                        1.0
-                      ]
-                    },
-                    {
-                      "op": "ifelse",
-                      "args": [
-                        {
-                          "op": "or",
-                          "args": [
-                            {
-                              "op": "==",
-                              "args": [
-                                {
-                                  "op": "index",
-                                  "args": [
-                                    "rspp_processID",
-                                    "p"
-                                  ]
-                                },
-                                {
-                                  "op": "enum",
-                                  "args": [
-                                    "process",
-                                    "Brakewear"
-                                  ]
-                                }
-                              ]
-                            },
-                            {
-                              "op": "==",
-                              "args": [
-                                {
-                                  "op": "index",
-                                  "args": [
-                                    "rspp_processID",
-                                    "p"
-                                  ]
-                                },
-                                {
-                                  "op": "enum",
-                                  "args": [
-                                    "process",
-                                    "Tirewear"
-                                  ]
-                                }
-                              ]
-                            }
-                          ]
-                        },
-                        1.0,
-                        0.0
-                      ]
-                    }
+                    0.0,
+                    1.0
                   ]
                 }
               ]
@@ -30283,8 +30559,8 @@
                     {
                       "op": "index",
                       "args": [
-                        "rspp_hasRatedRow",
-                        "p"
+                        "ppr_hasEmittingRow",
+                        "q"
                       ]
                     }
                   ]
@@ -30302,6 +30578,42 @@
                     }
                   ]
                 }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "ppr_hasEmittingRow",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "bool_and_or",
+            "output_idx": [
+              "q"
+            ],
+            "ranges": {
+              "q": {
+                "from": "polprocroad_rows"
+              },
+              "b": {
+                "from": "rate_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rt_blockOrdinal",
+                    "ppr_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "rt_emits",
+                "b"
               ]
             }
           }
@@ -34481,30 +34793,28 @@
                   "op": "ifelse",
                   "args": [
                     {
-                      "op": "==",
+                      "op": ">",
                       "args": [
                         {
                           "op": "index",
                           "args": [
-                            "rspp_processID",
-                            "p"
+                            "omd_userGoverned",
+                            "p",
+                            "s",
+                            "rd"
                           ]
                         },
-                        {
-                          "op": "enum",
-                          "args": [
-                            "process",
-                            "Brakewear"
-                          ]
-                        }
+                        0.5
                       ]
                     },
                     {
                       "op": "index",
                       "args": [
-                        "lomd_WBrake",
+                        "omd_userFraction",
+                        "p",
+                        "k",
                         "m",
-                        "r",
+                        "s",
                         "rd"
                       ]
                     },
@@ -34512,26 +34822,30 @@
                       "op": "ifelse",
                       "args": [
                         {
-                          "op": ">",
+                          "op": "==",
                           "args": [
                             {
                               "op": "index",
                               "args": [
-                                "omd_linkRunningRows",
-                                "rd"
+                                "rspp_processID",
+                                "p"
                               ]
                             },
-                            0.5
+                            {
+                              "op": "enum",
+                              "args": [
+                                "process",
+                                "Brakewear"
+                              ]
+                            }
                           ]
                         },
                         {
                           "op": "index",
                           "args": [
-                            "omd_userFraction",
-                            "p",
-                            "k",
+                            "lomd_WBrake",
                             "m",
-                            "s",
+                            "r",
                             "rd"
                           ]
                         },
@@ -62787,6 +63101,99 @@
           }
         },
         {
+          "lhs": "rt_hasLinkModes",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "p": {
+                "from": "runspecpollutantprocess_rows"
+              },
+              "s": {
+                "from": "runspecsourcetype_rows"
+              },
+              "rd": {
+                "from": "runspecroadtype_rows"
+              },
+              "n": {
+                "from": "run_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rt_polProcOrdinal",
+                    "rspp_ordinal"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "rt_sourceTypeOrdinal",
+                    "rst_ordinal"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "rt_roadTypeOrdinal",
+                    "rsr_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "-",
+              "args": [
+                1.0,
+                {
+                  "op": "*",
+                  "args": [
+                    {
+                      "op": "*",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "run_isProjectDomain",
+                            "n"
+                          ]
+                        },
+                        {
+                          "op": "index",
+                          "args": [
+                            "rspp_usesLinkModes",
+                            "p"
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "omd_userGap",
+                        "p",
+                        "s",
+                        "rd"
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
           "lhs": "rt_survivesRated",
           "rhs": {
             "op": "*",
@@ -62794,11 +63201,17 @@
               {
                 "op": "*",
                 "args": [
-                  "rt_isSelected",
-                  "rt_hasRate"
+                  {
+                    "op": "*",
+                    "args": [
+                      "rt_isSelected",
+                      "rt_hasRate"
+                    ]
+                  },
+                  "rt_hasHotellingModes"
                 ]
               },
-              "rt_hasHotellingModes"
+              "rt_hasLinkModes"
             ]
           }
         },
@@ -104744,7 +105157,7 @@
           }
         },
         {
-          "lhs": "sod_projectMin",
+          "lhs": "sod_projectFirst",
           "rhs": {
             "op": "faq",
             "args": [],
@@ -104794,13 +105207,7 @@
                 ]
               }
             ],
-            "expr": {
-              "op": "index",
-              "args": [
-                "omd_opModeFraction",
-                "x"
-              ]
-            }
+            "expr": "x"
           }
         },
         {
@@ -104865,7 +105272,7 @@
                     {
                       "op": "index",
                       "args": [
-                        "sod_projectMax",
+                        "sod_projectFirstFraction",
                         "k",
                         "m",
                         "s"
@@ -104888,86 +105295,11 @@
           }
         },
         {
-          "lhs": "sod_projectConflicts",
+          "lhs": "sod_projectFirstFraction",
           "rhs": {
             "op": "faq",
             "args": [],
             "semiring": "sum_product",
-            "output_idx": [
-              "n"
-            ],
-            "ranges": {
-              "n": {
-                "from": "run_rows"
-              },
-              "k": {
-                "from": "runspecday_rows"
-              },
-              "m": {
-                "from": "operating_mode_rows"
-              },
-              "s": {
-                "from": "runspecsourcetype_rows"
-              }
-            },
-            "expr": {
-              "op": "ifelse",
-              "args": [
-                {
-                  "op": "and",
-                  "args": [
-                    {
-                      "op": ">",
-                      "args": [
-                        {
-                          "op": "index",
-                          "args": [
-                            "sod_projectRows",
-                            "k",
-                            "m",
-                            "s"
-                          ]
-                        },
-                        0.5
-                      ]
-                    },
-                    {
-                      "op": "!=",
-                      "args": [
-                        {
-                          "op": "index",
-                          "args": [
-                            "sod_projectMax",
-                            "k",
-                            "m",
-                            "s"
-                          ]
-                        },
-                        {
-                          "op": "index",
-                          "args": [
-                            "sod_projectMin",
-                            "k",
-                            "m",
-                            "s"
-                          ]
-                        }
-                      ]
-                    }
-                  ]
-                },
-                1.0,
-                0.0
-              ]
-            }
-          }
-        },
-        {
-          "lhs": "sod_projectMax",
-          "rhs": {
-            "op": "faq",
-            "args": [],
-            "semiring": "max_product",
             "output_idx": [
               "k",
               "m",
@@ -105013,6 +105345,21 @@
                 ]
               }
             ],
+            "filter": {
+              "op": "==",
+              "args": [
+                "x",
+                {
+                  "op": "index",
+                  "args": [
+                    "sod_projectFirst",
+                    "k",
+                    "m",
+                    "s"
+                  ]
+                }
+              ]
+            },
             "expr": {
               "op": "index",
               "args": [
