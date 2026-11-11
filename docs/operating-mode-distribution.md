@@ -558,12 +558,20 @@ def rates_op_mode_distribution(root, snap, onroad, processes, project=False):
             pp_of_st = {}
             for r in stpp:
                 pp_of_st.setdefault(r["sourceTypeID"], []).append(r["polProcessID"])
+            # INSERT IGNORE over rows keyed by neither link nor polProcess: where
+            # the user's rows disagree, MOVES keeps the row WRITTEN first (PLAN.md
+            # §7.3.60, `project-startconflict`). The snapshot dumps the table in
+            # key order, not write order, so the winner cannot be predicted from
+            # it; such a key is checked as "MOVES's value is one of the user's"
+            # and counted (START_CONFLICTS).
             for r in omd:
                 for pp in pp_of_st.get(r["sourceTypeID"], []):
                     if pp not in start_polprocs:
                         continue
                     if r["opModeID"] not in modes_of.get(pp, []):
                         continue
+                    key = (r["sourceTypeID"], 1, 0, r["hourDayID"], pp, r["opModeID"])
+                    START_CONFLICTS.setdefault((snap, key), set()).add(float(r["opModeFraction"]))
                     emit(r["sourceTypeID"], r["hourDayID"], pp,
                          r["opModeID"], float(r["opModeFraction"]))
         else:
@@ -586,6 +594,8 @@ def rates_op_mode_distribution(root, snap, onroad, processes, project=False):
     return out
 
 # --- the sweep ---------------------------------------------------------------
+
+START_CONFLICTS = {}   # (snapshot, RatesOpModeDistribution key) -> the user's fractions there
 
 def run_scope(root, fixtures, snap):
     """(is ONROAD, the processIDs the RunSpec selects, is PROJECT) for one snapshot.
@@ -613,6 +623,7 @@ def main(root):
     somd_rows = somd_decimal_exact = somd_ratio_exact = 0
     somd_worst_ratio = 0.0
     rates_rows = rates_missing = rates_extra = 0
+    conflicts_checked = 0
     rates_worst = 0.0
     sched_checked = sched_bad = 0
     populated_start = populated_rates = 0
@@ -694,6 +705,11 @@ def main(root):
             if k not in predicted:
                 continue
             rates_rows += 1
+            candidates = START_CONFLICTS.get((snap, k), set())
+            if len(candidates) > 1:
+                conflicts_checked += 1
+                if v in candidates:
+                    continue
             err = abs(predicted[k] - v) / abs(v) if v else abs(predicted[k] - v)
             rates_worst = max(rates_worst, err)
 
@@ -730,6 +746,8 @@ def main(root):
     print("  RatesOpModeDistribution %4d rows compared, %d missing / %d extra"
           % (rates_rows, rates_missing, rates_extra))
     print("  worst relative error  %.4g   (RatesOpModeDistribution, FLOAT storage)" % rates_worst)
+    print("  start-mode conflicts  %d key(s) where the user's rows disagree; MOVES's value is one of them on all"
+          % conflicts_checked)
     print("  the four-decimal quotient is bit-exact on %d of %d StartOpModeDistribution rows"
           % (somd_decimal_exact, somd_rows))
     print("  the exact IEEE ratio  is bit-exact on %d of %d, worst relative %.4g"
