@@ -61,6 +61,11 @@
       "default": 0,
       "description": "Rows in runspecroadtype."
     },
+    "n_projectExtraLinks": {
+      "type": "integer",
+      "default": 0,
+      "description": "A DECLARED AND CHECKED NUMBER: how many PROJECT links share a (county, road type) with an earlier link in the project's Link table -- the links beyond the first on a road type. MOVES iterates its execution locations over the Link table, so a project of two links on one road type is two locations (ExecutionLocationProducer.addCountyLocations), and every project generator runs once per link. The model's location relation `runspecroadtype_rows` is the run's selected road types, one location each (the first link on it in a PROJECT run), followed by these. 0 in every DEFAULT-domain run, where the national Link has one link per (county, road type); `run_extraLinksUndeclared` counts a run whose links disagree with it (PLAN.md §7.3.60)."
+    },
     "n_runspeccounty": {
       "type": "integer",
       "default": 0,
@@ -716,6 +721,16 @@
     },
     "runspecroadtype_rows": {
       "kind": "interval",
+      "size": {
+        "op": "+",
+        "args": [
+          "n_runspecroadtype",
+          "n_projectExtraLinks"
+        ]
+      }
+    },
+    "runspecroadtypefile_rows": {
+      "kind": "interval",
       "size": "n_runspecroadtype"
     },
     "runspeccounty_rows": {
@@ -1061,7 +1076,13 @@
             "op": "*",
             "args": [
               "n_runspecpollutantprocess",
-              "n_runspecroadtype"
+              {
+                "op": "+",
+                "args": [
+                  "n_runspecroadtype",
+                  "n_projectExtraLinks"
+                ]
+              }
             ]
           },
           {
@@ -1095,7 +1116,13 @@
             "op": "*",
             "args": [
               "n_runspecpollutantprocess",
-              "n_runspecroadtype"
+              {
+                "op": "+",
+                "args": [
+                  "n_runspecroadtype",
+                  "n_projectExtraLinks"
+                ]
+              }
             ]
           },
           {
@@ -1375,7 +1402,13 @@
             "op": "*",
             "args": [
               "n_runspecpollutantprocess",
-              "n_runspecroadtype"
+              {
+                "op": "+",
+                "args": [
+                  "n_runspecroadtype",
+                  "n_projectExtraLinks"
+                ]
+              }
             ]
           },
           {
@@ -1446,7 +1479,13 @@
         "op": "*",
         "args": [
           "n_runspecpollutantprocess",
-          "n_runspecroadtype"
+          {
+            "op": "+",
+            "args": [
+              "n_runspecroadtype",
+              "n_projectExtraLinks"
+            ]
+          }
         ]
       }
     },
@@ -2061,13 +2100,21 @@
           "description": "The source-type relation's row ordinal, in file order. Everything the drive cycle and the activity relation compute once per source type is laid out against it."
         },
         "rsr_roadTypeID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecroadtype_rows"
+          ],
+          "description": "The road type of each LOCATION: the selected road type itself on the first n_runspecroadtype rows -- `rsrf_roadTypeID`, the runspecroadtype file in its own order -- and on each row after them the road type of the project link that row holds (`lnk_locationOrdinal`), a second or later link on a road type already selected. Every per-road-type variable is keyed by this relation, so a PROJECT link is a location of its own and reads its road type's tables through the road type here (PLAN.md §7.3.60). A sum over these rows is a sum over LOCATIONS; a question about the SELECTED road types is asked of `rsrf_roadTypeID`."
+        },
+        "rsrf_roadTypeID": {
           "type": "parameter",
           "units": "1",
           "default": 0.0,
           "shape": [
-            "runspecroadtype_rows"
+            "runspecroadtypefile_rows"
           ],
-          "description": "runspecroadtype.roadTypeID.",
+          "description": "runspecroadtype.roadTypeID: the run's selected road types, one row each, in the file's order. The first n_runspecroadtype locations (`rsr_roadTypeID`).",
           "update": {
             "kind": "data",
             "source": "db_runspecroadtype",
@@ -2139,6 +2186,54 @@
               "file_variable": "linkID"
             }
           }
+        },
+        "lnk_roadTypeRank": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "link_rows"
+          ],
+          "description": "The link's 1-based rank, in the Link table's order, among the links of its (county, road type). 1 on every national link -- the default Link has one per (county, road type) -- and on the first project link of each road type."
+        },
+        "lnk_isSelected": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "link_rows"
+          ],
+          "description": "1 when the link is in a selected county and on a selected road type: one of MOVES's execution locations (ExecutionLocationProducer: `County.countyID = Link.countyID` and the RunSpec's road types)."
+        },
+        "lnk_isExtra": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "link_rows"
+          ],
+          "description": "1 on a selected link that is not the first of its (county, road type): a location after the first n_runspecroadtype."
+        },
+        "lnk_extraOrdinal": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "link_rows"
+          ],
+          "description": "The extra link's 1-based ordinal among its county's extra links, in the Link table's order; 0 on any other link."
+        },
+        "lnk_fileRoadTypeOrdinal": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "link_rows"
+          ],
+          "description": "The row of the runspecroadtype file that selects the link's road type, 0 when none does."
+        },
+        "lnk_locationOrdinal": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "link_rows"
+          ],
+          "description": "The LOCATION the link is: `rsr_ordinal` of the row that holds it. The first link of a selected (county, road type) holds its road type's row; an extra link holds row n_runspecroadtype + `lnk_extraOrdinal`; an unselected link holds none (0). Every project-link lookup joins on it, with the county, where it used to join on the road type (PLAN.md §7.3.60)."
         },
         "lnk_countyID": {
           "type": "parameter",
@@ -14036,7 +14131,7 @@
           "shape": [
             "polprocroad_rows"
           ],
-          "description": "Which selected road type the pair is, 1..n_runspecroadtype."
+          "description": "Which selected road type the pair is, 1..n_runspecroadtype + n_projectExtraLinks: which LOCATION the pair is."
         },
         "ppr_roadTypeID": {
           "type": "unknown",
@@ -19280,6 +19375,22 @@
           ],
           "description": "How many links the county/road-type join selects on each selected county and road type. The `run_link*` columns are SUMS over this join, right while it selects one row; a project of two links on ONE road type would add their ids and speeds, so `run_domainUnported` counts a (county, road type) where it is not 1. `project-links` has three links on three road types (PLAN.md §7.3.55)."
         },
+        "run_projectExtraLinks": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "run_rows"
+          ],
+          "description": "Selected links that are not the first of their (county, road type): the number `n_projectExtraLinks` declares."
+        },
+        "run_extraLinksUndeclared": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "run_rows"
+          ],
+          "description": "1 when `run_projectExtraLinks` is not the declared `n_projectExtraLinks`: too few location rows would drop a link's emissions, too many would emit rows for no link. Counted by `run_domainUnported`."
+        },
         "run_projectLinkSpeed": {
           "type": "unknown",
           "units": "1",
@@ -23238,7 +23349,7 @@
                     "from": "run_rows"
                   },
                   "s": {
-                    "from": "runspecroadtype_rows"
+                    "from": "runspecroadtypefile_rows"
                   }
                 },
                 "filter": {
@@ -23247,7 +23358,7 @@
                     {
                       "op": "index",
                       "args": [
-                        "rsr_roadTypeID",
+                        "rsrf_roadTypeID",
                         "s"
                       ]
                     },
@@ -23263,7 +23374,7 @@
                 "expr": {
                   "op": "index",
                   "args": [
-                    "rsr_roadTypeID",
+                    "rsrf_roadTypeID",
                     "s"
                   ]
                 }
@@ -23298,7 +23409,7 @@
                 "from": "run_rows"
               },
               "s": {
-                "from": "runspecroadtype_rows"
+                "from": "runspecroadtypefile_rows"
               }
             },
             "expr": {
@@ -23310,7 +23421,7 @@
                     {
                       "op": "index",
                       "args": [
-                        "rsr_roadTypeID",
+                        "rsrf_roadTypeID",
                         "s"
                       ]
                     },
@@ -23343,7 +23454,7 @@
                 "from": "run_rows"
               },
               "s": {
-                "from": "runspecroadtype_rows"
+                "from": "runspecroadtypefile_rows"
               }
             },
             "expr": {
@@ -23355,7 +23466,7 @@
                     {
                       "op": "index",
                       "args": [
-                        "rsr_roadTypeID",
+                        "rsrf_roadTypeID",
                         "s"
                       ]
                     },
@@ -23370,6 +23481,287 @@
                 },
                 1.0,
                 0.0
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "lnk_roadTypeRank",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "l"
+            ],
+            "ranges": {
+              "l": {
+                "from": "link_rows"
+              },
+              "w": {
+                "from": "link_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "lnk_countyID",
+                    "lnk_countyID"
+                  ],
+                  [
+                    "lnk_roadTypeID",
+                    "lnk_roadTypeID"
+                  ]
+                ]
+              }
+            ],
+            "filter": {
+              "op": "<=",
+              "args": [
+                "w",
+                "l"
+              ]
+            },
+            "expr": 1.0
+          }
+        },
+        {
+          "lhs": "lnk_isSelected",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "l"
+            ],
+            "ranges": {
+              "l": {
+                "from": "link_rows"
+              },
+              "c": {
+                "from": "runspeccounty_rows"
+              },
+              "f": {
+                "from": "runspecroadtypefile_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "lnk_countyID",
+                    "rsc_countyID"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "lnk_roadTypeID",
+                    "rsrf_roadTypeID"
+                  ]
+                ]
+              }
+            ],
+            "expr": 1.0
+          }
+        },
+        {
+          "lhs": "lnk_isExtra",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "l"
+            ],
+            "ranges": {
+              "l": {
+                "from": "link_rows"
+              }
+            },
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "lnk_isSelected",
+                    "l"
+                  ]
+                },
+                {
+                  "op": "ifelse",
+                  "args": [
+                    {
+                      "op": ">",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "lnk_roadTypeRank",
+                            "l"
+                          ]
+                        },
+                        1.5
+                      ]
+                    },
+                    1.0,
+                    0.0
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "lnk_extraOrdinal",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "l"
+            ],
+            "ranges": {
+              "l": {
+                "from": "link_rows"
+              },
+              "w": {
+                "from": "link_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "lnk_countyID",
+                    "lnk_countyID"
+                  ]
+                ]
+              }
+            ],
+            "filter": {
+              "op": "<=",
+              "args": [
+                "w",
+                "l"
+              ]
+            },
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "lnk_isExtra",
+                    "l"
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "lnk_isExtra",
+                    "w"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "lnk_fileRoadTypeOrdinal",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "l"
+            ],
+            "ranges": {
+              "l": {
+                "from": "link_rows"
+              },
+              "f": {
+                "from": "runspecroadtypefile_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "lnk_roadTypeID",
+                    "rsrf_roadTypeID"
+                  ]
+                ]
+              }
+            ],
+            "expr": "f"
+          }
+        },
+        {
+          "lhs": "lnk_locationOrdinal",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "l"
+            ],
+            "ranges": {
+              "l": {
+                "from": "link_rows"
+              }
+            },
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                {
+                  "op": ">",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "lnk_isExtra",
+                        "l"
+                      ]
+                    },
+                    0.5
+                  ]
+                },
+                {
+                  "op": "+",
+                  "args": [
+                    "n_runspecroadtype",
+                    {
+                      "op": "index",
+                      "args": [
+                        "lnk_extraOrdinal",
+                        "l"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "op": "*",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "lnk_isSelected",
+                        "l"
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "lnk_fileRoadTypeOrdinal",
+                        "l"
+                      ]
+                    }
+                  ]
+                }
               ]
             }
           }
@@ -23403,8 +23795,8 @@
                     "rsc_countyID"
                   ],
                   [
-                    "lnk_roadTypeID",
-                    "rsr_roadTypeID"
+                    "lnk_locationOrdinal",
+                    "rsr_ordinal"
                   ]
                 ]
               }
@@ -23928,8 +24320,8 @@
                     "rsc_countyID"
                   ],
                   [
-                    "lnk_roadTypeID",
-                    "rsr_roadTypeID"
+                    "lnk_locationOrdinal",
+                    "rsr_ordinal"
                   ]
                 ]
               }
@@ -24056,13 +24448,75 @@
                     "rsc_countyID"
                   ],
                   [
-                    "lnk_roadTypeID",
-                    "rsr_roadTypeID"
+                    "lnk_locationOrdinal",
+                    "rsr_ordinal"
                   ]
                 ]
               }
             ],
             "expr": 1.0
+          }
+        },
+        {
+          "lhs": "run_projectExtraLinks",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "n"
+            ],
+            "ranges": {
+              "n": {
+                "from": "run_rows"
+              },
+              "l": {
+                "from": "link_rows"
+              }
+            },
+            "expr": {
+              "op": "index",
+              "args": [
+                "lnk_isExtra",
+                "l"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "run_extraLinksUndeclared",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "n"
+            ],
+            "ranges": {
+              "n": {
+                "from": "run_rows"
+              }
+            },
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                {
+                  "op": "==",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "run_projectExtraLinks",
+                        "n"
+                      ]
+                    },
+                    "n_projectExtraLinks"
+                  ]
+                },
+                0.0,
+                1.0
+              ]
+            }
           }
         },
         {
@@ -25610,10 +26064,22 @@
                           ]
                         },
                         {
-                          "op": "index",
+                          "op": "+",
                           "args": [
-                            "hot_adjustmentRowsUnported",
-                            "n"
+                            {
+                              "op": "index",
+                              "args": [
+                                "hot_adjustmentRowsUnported",
+                                "n"
+                              ]
+                            },
+                            {
+                              "op": "index",
+                              "args": [
+                                "run_extraLinksUndeclared",
+                                "n"
+                              ]
+                            }
                           ]
                         }
                       ]
@@ -25782,8 +26248,8 @@
                     "rsc_countyID"
                   ],
                   [
-                    "lnk_roadTypeID",
-                    "rsr_roadTypeID"
+                    "lnk_locationOrdinal",
+                    "rsr_ordinal"
                   ]
                 ]
               }
@@ -28894,6 +29360,89 @@
           }
         },
         {
+          "lhs": "rsr_roadTypeID",
+          "rhs": {
+            "op": "+",
+            "args": [
+              {
+                "op": "faq",
+                "args": [],
+                "semiring": "sum_product",
+                "output_idx": [
+                  "rd"
+                ],
+                "ranges": {
+                  "rd": {
+                    "from": "runspecroadtype_rows"
+                  },
+                  "f": {
+                    "from": "runspecroadtypefile_rows"
+                  }
+                },
+                "filter": {
+                  "op": "==",
+                  "args": [
+                    "f",
+                    "rd"
+                  ]
+                },
+                "expr": {
+                  "op": "index",
+                  "args": [
+                    "rsrf_roadTypeID",
+                    "f"
+                  ]
+                }
+              },
+              {
+                "op": "faq",
+                "args": [],
+                "semiring": "sum_product",
+                "output_idx": [
+                  "rd"
+                ],
+                "ranges": {
+                  "rd": {
+                    "from": "runspecroadtype_rows"
+                  },
+                  "l": {
+                    "from": "link_rows"
+                  }
+                },
+                "join": [
+                  {
+                    "on": [
+                      [
+                        "lnk_locationOrdinal",
+                        "rsr_ordinal"
+                      ]
+                    ]
+                  }
+                ],
+                "expr": {
+                  "op": "*",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "lnk_isExtra",
+                        "l"
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "lnk_roadTypeID",
+                        "l"
+                      ]
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        },
+        {
           "lhs": "rsr_ordinal",
           "rhs": {
             "op": "faq",
@@ -28996,7 +29545,13 @@
                             1
                           ]
                         },
-                        "n_runspecroadtype"
+                        {
+                          "op": "+",
+                          "args": [
+                            "n_runspecroadtype",
+                            "n_projectExtraLinks"
+                          ]
+                        }
                       ]
                     }
                   ]
@@ -29035,7 +29590,13 @@
                     {
                       "op": "*",
                       "args": [
-                        "n_runspecroadtype",
+                        {
+                          "op": "+",
+                          "args": [
+                            "n_runspecroadtype",
+                            "n_projectExtraLinks"
+                          ]
+                        },
                         {
                           "op": "floor",
                           "args": [
@@ -29049,7 +29610,13 @@
                                     1
                                   ]
                                 },
-                                "n_runspecroadtype"
+                                {
+                                  "op": "+",
+                                  "args": [
+                                    "n_runspecroadtype",
+                                    "n_projectExtraLinks"
+                                  ]
+                                }
                               ]
                             }
                           ]
@@ -32249,7 +32816,7 @@
                 "from": "runspecsourcetype_rows"
               },
               "rd": {
-                "from": "runspecroadtype_rows"
+                "from": "runspecroadtypefile_rows"
               }
             },
             "join": [
@@ -32261,7 +32828,7 @@
                   ],
                   [
                     "dsa_roadTypeID",
-                    "rsr_roadTypeID"
+                    "rsrf_roadTypeID"
                   ]
                 ]
               }
@@ -32326,7 +32893,7 @@
                 "from": "physicsrow_rows"
               },
               "rd": {
-                "from": "runspecroadtype_rows"
+                "from": "runspecroadtypefile_rows"
               }
             },
             "join": [
@@ -32346,7 +32913,7 @@
                   ],
                   [
                     "dsa_roadTypeID",
-                    "rsr_roadTypeID"
+                    "rsrf_roadTypeID"
                   ]
                 ]
               }
@@ -32387,7 +32954,7 @@
                 "from": "physicsrow_rows"
               },
               "rd": {
-                "from": "runspecroadtype_rows"
+                "from": "runspecroadtypefile_rows"
               }
             },
             "join": [
@@ -32407,7 +32974,7 @@
                   ],
                   [
                     "dsa_roadTypeID",
-                    "rsr_roadTypeID"
+                    "rsrf_roadTypeID"
                   ]
                 ]
               }
@@ -34669,7 +35236,7 @@
                 "from": "physicsrow_rows"
               },
               "rd": {
-                "from": "runspecroadtype_rows"
+                "from": "runspecroadtypefile_rows"
               }
             },
             "join": [
@@ -34689,7 +35256,7 @@
                   ],
                   [
                     "dsa_roadTypeID",
-                    "rsr_roadTypeID"
+                    "rsrf_roadTypeID"
                   ]
                 ]
               }
@@ -34718,7 +35285,7 @@
                 "from": "physicsrow_rows"
               },
               "rd": {
-                "from": "runspecroadtype_rows"
+                "from": "runspecroadtypefile_rows"
               }
             },
             "join": [
@@ -34738,7 +35305,7 @@
                   ],
                   [
                     "dsa_roadTypeID",
-                    "rsr_roadTypeID"
+                    "rsrf_roadTypeID"
                   ]
                 ]
               }
@@ -34777,7 +35344,7 @@
                 "from": "operating_mode_rows"
               },
               "rd": {
-                "from": "runspecroadtype_rows"
+                "from": "runspecroadtypefile_rows"
               }
             },
             "join": [
@@ -34797,7 +35364,7 @@
                   ],
                   [
                     "dsa_roadTypeID",
-                    "rsr_roadTypeID"
+                    "rsrf_roadTypeID"
                   ]
                 ]
               }
@@ -38332,8 +38899,8 @@
                     "rsc_countyID"
                   ],
                   [
-                    "lnk_roadTypeID",
-                    "rsr_roadTypeID"
+                    "lnk_locationOrdinal",
+                    "rsr_ordinal"
                   ]
                 ]
               },
@@ -38446,8 +39013,8 @@
                     "rsc_countyID"
                   ],
                   [
-                    "lnk_roadTypeID",
-                    "rsr_roadTypeID"
+                    "lnk_locationOrdinal",
+                    "rsr_ordinal"
                   ]
                 ]
               }
@@ -101676,7 +102243,7 @@
                 "from": "runspecpollutantprocess_rows"
               },
               "s": {
-                "from": "runspecroadtype_rows"
+                "from": "runspecroadtypefile_rows"
               }
             },
             "join": [
@@ -101684,7 +102251,7 @@
                 "on": [
                   [
                     "rspp_ratedRoadTypeID",
-                    "rsr_roadTypeID"
+                    "rsrf_roadTypeID"
                   ]
                 ]
               }
@@ -101985,7 +102552,7 @@
                 "from": "runspecpollutantprocess_rows"
               },
               "s": {
-                "from": "runspecroadtype_rows"
+                "from": "runspecroadtypefile_rows"
               }
             },
             "join": [
@@ -101993,7 +102560,7 @@
                 "on": [
                   [
                     "rspp_chainRoadTypeID1",
-                    "rsr_roadTypeID"
+                    "rsrf_roadTypeID"
                   ]
                 ]
               }
@@ -102294,7 +102861,7 @@
                 "from": "runspecpollutantprocess_rows"
               },
               "s": {
-                "from": "runspecroadtype_rows"
+                "from": "runspecroadtypefile_rows"
               }
             },
             "join": [
@@ -102302,7 +102869,7 @@
                 "on": [
                   [
                     "rspp_chainRoadTypeID2",
-                    "rsr_roadTypeID"
+                    "rsrf_roadTypeID"
                   ]
                 ]
               }
