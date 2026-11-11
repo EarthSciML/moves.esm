@@ -1315,14 +1315,23 @@ checked** by anything:
 * the **zero-speed path**, which synthesises thirty seconds of idle when
   `linkAvgSpeed <= 0` and then takes the drive-schedule path;
 * the **user-distribution path**, which stands down entirely when
-  `OpModeDistribution` already holds a Running-Exhaust row for the link.
+  `OpModeDistribution` already holds a Running-Exhaust row for the link --
+  **exercised since PLAN.md §7.3.58** (`project-useromd`) and §7.3.60
+  (`project-useromd-gaps`: a running pollutant-process and a source type's
+  brake wear the user leaves empty write no row at all, and the generator's
+  tempExistingOpMode anti-join keeps it off every (source type, polProcess) the
+  user states on a link it does not skip).
 
-Also unreachable: both **out-of-bounds bracket flags** and the
-`ALLOW_DRIVE_CYCLE_EXTRAPOLATION` behaviour behind them. The fixture's link
-speed of 30 mi/h sits inside the candidate range 2.5…76, and reaching either
-flag needs a link outside it — a one-line change to
-`../moves.rs/characterization/county-inputs/washtenaw-project/setup-project.sql`
-and a new capture, not `.esm` work.
+**Both out-of-bounds bracket flags are exercised since §7.3.60**
+(`project-grades`: 80 mph on road type 4, 2 mph on road type 5 for source
+type 21). `ALLOW_DRIVE_CYCLE_EXTRAPOLATION` is TRUE in the pinned tree and in
+the capture's MOVES: the generator logs a warning (promoted to RUN_ERROR in a
+run's log), brackets the link by the nearest schedule on both sides at factor
+0, and the run completes. §6.5 reproduces those cells and the model's
+`latest_at_or_before_key` fallback already wrote them. The zero-speed path is
+still unreached, and `run_projectZeroSpeedLinks` refuses it: without the
+out-of-bounds refusal, the extrapolation would otherwise bracket a zero-speed
+link at the slowest schedule.
 
 ### 8.2 The empty `OpModeDistribution` is an input-database choice, not a fact
 
@@ -1349,10 +1358,12 @@ Until 2026-11-09 every fan-out in §3 had cardinality 1. `project-links` and
 | user-input rows | 32 start rows on an off-network link | excluded as input; they do not touch the generator's path |
 | hour-days | 1 | **unexercised**: the `runSpecHourDay` cross join |
 
-Still not exercised: **two links sharing a bracketing schedule** (the
-replace-not-merge of the pseudo-link, modelled in §6.5 but with no snapshot
-that could tell it from a merge); **two on-network links of the same road
-type** (L-6's delete of the current road type); and every link's
+Exercised since PLAN.md §7.3.60: **two on-network links of the same road
+type** (`project-multilink`, links 1 and 4 on road type 5 and 2 and 5 on road
+type 4, four bracket pairs) and **two links sharing a bracketing schedule at
+different grades** (`project-grades`' links 1 and 2, both schedule pair
+1021/153 at 0 % and 4 %), which tells the replace-not-merge of the pseudo-link
+from a merge. Still not exercised: every link's
 `RatesOpModeDistribution` copy except the last's, which the final table
 cannot show (§7.1). A pollutant-process other than −1, x01 and 11609 in the
 generator's fan-out (which would stay under the temp source type) does not
@@ -1360,8 +1371,10 @@ occur.
 
 ### 8.4 What the fixture's zeros hide
 
-* **`linkAvgGrade` is 0**, so `sin(atan(g/100))` is 0 and both grade terms
-  drop out of At0/At1/At2 and VSP. A non-zero grade is ported and unchecked.
+* **`linkAvgGrade` is 0** on every capture before `project-grades` (PLAN.md
+  §7.3.60), whose links carry -3, 0, 1.5 and 4 %: §6.5 reproduces their
+  24,999 cells, and the onroad model walks the per-second chain once per
+  distinct grade (`projectgrade_rows`).
 * **`sourceMass == fixedMassFactor == 1.4788`** for source type 21, so `/ F`
   is the identity there. Since 2026-11-09 it is not for every row: source
   type 32's model-year-banded rows (3.40194 / 2.05979 and 3.40194 / 5) and

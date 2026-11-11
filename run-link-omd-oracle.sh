@@ -128,6 +128,7 @@ if ! out=$("$PYTHON" "$WORK/repro.py" "$SNAP_ABS" 2>&1); then
   exit 1
 fi
 sed 's/^/  /' <<<"$out"
-echo "  NOTE: three of the four paths through step 100, both out-of-bounds"
-echo "        bracket flags and a non-zero link grade are unexercised --"
-echo "        see $SPEC sections 8.1 and 8.4."
+echo "  NOTE: the drive-schedule and zero-speed paths through step 100 are"
+echo "        unexercised; the out-of-bounds flags, non-zero grades and the"
+echo "        user-distribution path are not (PLAN.md 7.3.60) -- see $SPEC"
+echo "        sections 8.1 and 8.4."
