@@ -1692,6 +1692,11 @@ C7P_DOMAIN=moves-onroad.esm
 # a COMPLETE county database of the default's own rows (PLAN.md §7.3.45); its
 # oracle equals `expand-roadtypes`' on all 729 rows, and it reproduced with no
 # change beyond its selections.
+# `scale-county-idle-adjust` is the first run whose county database states the
+# six idle and hotelling ADJUSTMENT tables (PLAN.md §7.3.57, conventions §109):
+# AdjustTotalIdleFraction.sql's override and multipliers on off-network idle's
+# `totalIdleFraction`, and AdjustHotelling.sql's hour, age and month blocks on
+# TAG's hotelling hours, over two months, both day types and two hours.
 # `expand-multiyear` is the first run at two calendar years (PLAN.md §7.3.44,
 # conventions §98): the year is the cohort grid's and the activity relation's
 # slowest factor and a trailing axis of every other per-year relation, so the

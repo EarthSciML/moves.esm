@@ -1,0 +1,261 @@
+{
+  "esm": "1.2.0",
+  "metadata": {
+    "name": "scale-county-idle-adjust-runspec",
+    "description": "PLAN.md §7.3.57, step 7f. `scale-county-idle-adjust`: Total Energy (91) at running exhaust, extended idle and APU for the passenger car and the combination long-haul truck at Washtenaw County SINGLE scale, April and August 2020, both day types, hours 7 and 8, from the default database plus a county database that populates the six idle and hotelling ADJUSTMENT tables (`inputs/washtenaw-county-idle-adjust.esm`, built from moves.rs `setup-idle-adjust.sql`). MOVESOutput is 8,128 rows, 1,016 per time cell: running exhaust on road types 1 to 5 for every fuel MOVES adds to the two source types, extended idle (diesel and CNG), APU (diesel) and the APU's shore-power retag, process 93.\n\nWHAT IT DISCRIMINATES is the two adjustment scripts no other database here reaches. AdjustTotalIdleFraction.sql replaces `totalIdleFraction` from `idleModelYearGrouping` and scales it by `idleMonthAdjust` and `idleDayAdjust` before off-network idle reads it (road type 1 of running exhaust); AdjustHotelling.sql rescales TAG's hotelling hours by `hotellingHoursPerDay`, `hotellingHourFraction`, `hotellingAgeFraction` and `hotellingMonthAdjust`, in that order, before extended idle and APU read them. Each table varies along every key it carries and leaves some key of the run without a row. Measured in pandas from the execution database before the port: the adjusted `totalIdleFraction` 20 of 20 at 2.2e-16, and the four-block replay of AdjustHotelling.sql on TAG's `IdleHoursByAgeHour` 984 of 984 `hotellingHours` rows at 9.6e-15 (PLAN.md §7.3.57).\n\n`n_outputRate` is bound to 1016, the rows per (county, month, hour-day) cell, recomputed as `rateSurvivorCount`.\n\n`db_movesoutput` is DECLARED AND CONSUMED BY NOTHING, as in every RunSpec here.",
+    "authors": [
+      "EarthSciML Authors and Contributors"
+    ],
+    "tags": [
+      "fixture",
+      "onroad",
+      "default-database",
+      "single-county-domain",
+      "road-type-axis",
+      "off-network-idle",
+      "idle-adjustment",
+      "hotelling-adjustment"
+    ]
+  },
+  "data_sources": {
+    "db_runspecyear": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/scale-county-idle-adjust/tables/db__movesexecution1ccc0236_campuscluster_illinois_edu__runspecyear.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecyear"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, yearID 2020. The scope comes from these tables and never from the RunSpec XML, whose @key attributes are 0-based indices into sorted ID lists (docs/mixed-onroad.md §0.1).",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecmonth": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/scale-county-idle-adjust/tables/db__movesexecution1ccc0236_campuscluster_illinois_edu__runspecmonth.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecmonth"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "2 rows, monthIDs 4 and 8 (`<month key=\"3\"/>` and `\"7\"` are 0-based).",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspechour": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/scale-county-idle-adjust/tables/db__movesexecution1ccc0236_campuscluster_illinois_edu__runspechour.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspechour"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "2 rows, hourIDs 7 and 8. `<beginhour key=\"6\">`/`<endhour key=\"7\">` are 0-based indices into the sorted hour list (docs/mixed-onroad.md 0.1).",
+        "esio_format": "parquet"
+      }
+    },
+    "db_aggregationhour": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/scale-county-idle-adjust/tables/db__movesexecution1ccc0236_campuscluster_illinois_edu__runspechour.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_aggregationhour"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "The hours the run aggregates over. This run does not set `aggregateBy`, so it is `runspechour` itself and the same file.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecday": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/scale-county-idle-adjust/tables/db__movesexecution1ccc0236_campuscluster_illinois_edu__runspechourday.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecday"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "4 rows, hourDayIDs 72, 75, 82, 85: both day types at both hours. The output cell is the hour-day (conventions §108); `<aggregateBy key=\"Hour\"/>` aggregates nothing.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_rateday": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/scale-county-idle-adjust/tables/db__movesexecution1ccc0236_campuscluster_illinois_edu__runspecday.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_rateday"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "The day types the RATE-side time pre-aggregation is scoped to. This run does not set `aggregateBy`, so it is `runspecday` itself and the same file: the pre-aggregation averages over one cell and returns the table's own value. A run that aggregates points this somewhere else, because MOVES overwrites `runspecday` with the synthesized output day AFTER the pre-aggregation has run.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_actday": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/scale-county-idle-adjust/tables/db__movesexecution1ccc0236_campuscluster_illinois_edu__runspecday.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_actday"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "The day types the output day's ACTIVITY covers. This run does not set `aggregateBy`, so it is `runspecday` itself and the same file, and `noOfRealDays` is that one day type's.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecsourcetype": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/scale-county-idle-adjust/tables/db__movesexecution1ccc0236_campuscluster_illinois_edu__runspecsourcetype.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecsourcetype"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "2 rows, sourceTypeIDs 21 (passenger car) and 62 (combination long-haul truck, the only source type that hotels).",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecroadtype": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/scale-county-idle-adjust/tables/db__movesexecution1ccc0236_campuscluster_illinois_edu__runspecroadtype.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecroadtype"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "5 rows, road types 1 to 5. The RunSpec selects 1 and 4; MOVES adds 2, 3 and 5 because off-network idle (running exhaust on road type 1) is computed from every road type (\"Off-Network Idle requires all roadtypes\").",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecsourcefueltype": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/scale-county-idle-adjust/tables/db__movesexecution1ccc0236_campuscluster_illinois_edu__runspecsourcefueltype.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecsourcefueltype"
+      },
+      "metadata": {
+        "tags": [
+          "scope",
+          "cohorts"
+        ],
+        "note": "7 rows: source type 21 with gasoline, diesel, E85 and electricity, 62 with diesel, CNG and electricity (MOVES adds every fuel the RunSpec does not name).",
+        "esio_format": "parquet"
+      }
+    },
+    "db_movesoutput": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/scale-county-idle-adjust/tables/db__out_scale_county_idle_adjust__movesoutput.parquet"
+      },
+      "reader_options": {
+        "float_columns": [
+          "emissionQuant"
+        ]
+      },
+      "metadata": {
+        "tags": [
+          "oracle",
+          "expected-output"
+        ],
+        "note": "The 8,128-row expected output: 1,016 rows in each of 8 (month, day, hour) cells -- Total Energy (91) at running exhaust on road types 1-5 (175 rows each), extended idle (9190, 50 rows), APU (9191, 41) and its shore-power retag (91/93, 50).",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecpollutantprocess": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/scale-county-idle-adjust/tables/db__movesexecution1ccc0236_campuscluster_illinois_edu__runspecpollutantprocess.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecpollutantprocess"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "3 rows: 9101, 9190, 9191 (Total Energy at running exhaust, extended idle and APU).",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecchainedto": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/scale-county-idle-adjust/tables/db__movesexecution1ccc0236_campuscluster_illinois_edu__runspecchainedto.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecchainedto"
+      },
+      "metadata": {
+        "tags": [
+          "scope",
+          "chain"
+        ],
+        "note": "0 rows: Total Energy is chained to nothing.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspeccounty": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/scale-county-idle-adjust/tables/db__movesexecution1ccc0236_campuscluster_illinois_edu__runspeccounty.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspeccounty"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, countyID 26161, Washtenaw.",
+        "esio_format": "parquet"
+      }
+    }
+  },
+  "models": {
+    "Onroad": {
+      "ref": "../inputs/washtenaw-county-idle-adjust.esm",
+      "bindings": {
+        "n_outputRate": 1016,
+        "n_sourceBin": 3,
+        "n_physicsRow": 21
+      }
+    }
+  }
+}
