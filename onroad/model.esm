@@ -1367,6 +1367,16 @@
       "kind": "interval",
       "size": "n_driveschedulesecondlink"
     },
+    "linksecond_rows": {
+      "kind": "interval",
+      "size": {
+        "op": "+",
+        "args": [
+          "n_driveschedulesecondlink",
+          1
+        ]
+      }
+    },
     "runspecdomain_rows": {
       "kind": "interval",
       "size": "n_runspecdomain"
@@ -1929,7 +1939,9 @@
             "national_hotelling_activity_zone",
             "state_hotelling_activity_zone",
             "link_bracket_interpolation",
-            "tirewear_link_op_mode"
+            "tirewear_link_op_mode",
+            "stopped_folded_into_idle",
+            "zero_speed_link_idle_seconds"
           ]
         },
         {
@@ -19359,7 +19371,7 @@
             "runspeccounty_rows",
             "runspecroadtype_rows"
           ],
-          "description": "The linkAvgSpeed of the link at each selected county and LOCATION -- selected the way `run_linkID` is -- and 0 outside PROJECT domain, where the default database's link carries NULL here. Read by the link distribution's brackets (`run_projectLinkSpeed`) and by a Rates-scale project's per-link rates (`rtRate_rated`)."
+          "description": "The linkAvgSpeed of the link at each selected county and LOCATION -- selected the way `run_linkID` is -- and 0 outside PROJECT domain, where the default database's link carries NULL here. Read by the link distribution's brackets (`run_projectLinkSpeed`) and by a Rates-scale project's per-link rates (`rtRate_rated`). At a location whose schedule the generator walks (`lsl_walksSchedule`) it is the schedule's average, `lsl_averageSpeed`: the walk writes avg(speed) into Link.linkAvgSpeed (java:937-941) at a higher loop priority than ProjectTAG (java:71-79), so SHO, tire wear's mode and the Rates divisor all read it (PLAN.md §7.3.62)."
         },
         "run_linkAvgGrade": {
           "type": "unknown",
@@ -19393,7 +19405,7 @@
           "shape": [
             "runspecroadtype_rows"
           ],
-          "description": "The project link's grade at each on-network LOCATION, summed over the run's one county; 0 on the off-network location and outside PROJECT domain. LinkOperatingModeDistributionGenerator reads `ifnull(linkAvgGrade, 0)` per link (java:486) and walks each bracketing schedule at it, so a location's distribution is the per-second chain at its grade's slot (`rsr_gradeOrdinal`)."
+          "description": "The project link's grade at each on-network LOCATION, summed over the run's one county; 0 on the off-network location and outside PROJECT domain. LinkOperatingModeDistributionGenerator reads `ifnull(linkAvgGrade, 0)` per link (java:486) and walks each bracketing schedule at it, so a location's distribution is the per-second chain at its grade's slot (`rsr_gradeOrdinal`). 0 at a location whose schedule is walked (`lsl_walksSchedule`): its seconds carry their own grades and no bracketing schedule is copied at the link's, so it takes no grade slot (PLAN.md §7.3.62)."
         },
         "act_projectSho": {
           "type": "unknown",
@@ -19405,7 +19417,7 @@
             "runspecmonth_rows",
             "runspecroadtype_rows"
           ],
-          "description": "ProjectTAG.allocateTotalActivityBasis's SHO (ProjectTAG.java:354-385): linkVolume x sourceTypeHourFraction x noOfRealDays x ageFraction x least(linkLength/linkAvgSpeed, 1), in the SQL's association. It reads no VMT, no road-type distribution and no SHO allocation factor -- a project's activity is its links' volumes -- and the month is a label it carries rather than a factor. 0 in a DEFAULT-domain run, whose linkSourceTypeHour is empty. Per LOCATION: each project link's SHO is at its own location, two links on one road type at two (PLAN.md §7.3.60)."
+          "description": "ProjectTAG.allocateTotalActivityBasis's SHO (ProjectTAG.java:354-385): linkVolume x sourceTypeHourFraction x noOfRealDays x ageFraction x least(linkLength/linkAvgSpeed, 1), in the SQL's association. It reads no VMT, no road-type distribution and no SHO allocation factor -- a project's activity is its links' volumes -- and the month is a label it carries rather than a factor. 0 in a DEFAULT-domain run, whose linkSourceTypeHour is empty. Per LOCATION: each project link's SHO is at its own location, two links on one road type at two (PLAN.md §7.3.60). The speed is the Link table's AFTER LinkOperatingModeDistributionGenerator: `run_linkAvgSpeed`, a walked schedule's average where the generator walks one (PLAN.md §7.3.62)."
         },
         "act_projectSourceHours": {
           "type": "unknown",
@@ -19755,7 +19767,7 @@
             "physicsrow_rows",
             "runspecroadtype_rows"
           ],
-          "description": "low + (high - low) x factor over EVERY mode, a mode one bracket never entered reading 0, and the non-positive ones dropped (java:700-720) -- the project link's operating-mode distribution, at the BASE mode: `SourceTypePhysics` lifts it to opModeID + 1000 and lifts the same vehicles' emission rates with it, and the chain here keys both on the base mode and the physics row, as it does at every other scale."
+          "description": "low + (high - low) x factor over EVERY mode, a mode one bracket never entered reading 0, and the non-positive ones dropped (java:700-720) -- the project link's operating-mode distribution, at the BASE mode: `SourceTypePhysics` lifts it to opModeID + 1000 and lifts the same vehicles' emission rates with it, and the chain here keys both on the base mode and the physics row, as it does at every other scale. At a location whose link LinkOperatingModeDistributionGenerator walks second by second -- a user drive schedule, or the thirty idle seconds of a zero-speed link (`lsl_walksSchedule`, step 100's first arm) -- it is that walk's distribution, `lsl_fraction`, and no bracket is read (PLAN.md §7.3.62)."
         },
         "lomd_WBrake": {
           "type": "unknown",
@@ -19765,7 +19777,7 @@
             "physicsrow_rows",
             "runspecroadtype_rows"
           ],
-          "description": "The link distribution brake wear reads: `lomd_W` without the stopped seconds, which MOVES keeps as mode 501 under a temp source type and so never on the link."
+          "description": "The link distribution brake wear reads: `lomd_W` without the stopped seconds, which MOVES keeps as mode 501 under a temp source type and so never on the link. At a walked location it is the walk's unfolded distribution, `lsl_modeFraction` (PLAN.md §7.3.62)."
         },
         "lomd_tireW": {
           "type": "unknown",
@@ -19817,7 +19829,7 @@
           "shape": [
             "run_rows"
           ],
-          "description": "How many things this run asks of its DOMAIN that the model does not do: 0, asserted by tools/check-runspec-shape.py, and the licence for every PROJECT-domain number. It counts a runspecdomain that is not one row; in PROJECT domain (`run_projectShortfall`), a selected road type without a link, an on-network link of zero speed, a user drive schedule (`run_userLinkSchedules`), a second county, an emitted pollutant-process without a project generator here (`rspp_hasProjectGenerator`), user link operating-mode rows the model does not read (`run_userLinkModeRows`) or that cover some but not all selected hour-days (`run_userLinkGaps`), and two links on one road type at Rates scale; and outside it, any linkSourceTypeHour row, which only ProjectTAG reads. None of those fail loudly on their own -- each would emit a plausible wrong number -- which is why they are counted rather than trusted. In every domain it counts the two declared PROJECT shapes (`run_extraLinksUndeclared`, `run_gradesUndeclared`, PLAN.md §7.3.60). Since the SINGLE-county runs it also counts a ZoneRoadType input row whose key the default lacks (a row the merge would ADD, which relations on the default side's axis cannot see), and a hotellingHourFraction, hotellingAgeFraction or hotellingMonthAdjust row at a run's zone when it selects a hotelling process over more than TWO calendar years (`hot_adjustmentRowsUnported`): AdjustHotelling's four blocks are ported for a run's first year (PLAN.md §7.3.57) and for its second, over a table that still holds the first year's rows (§7.3.61). And a Zone input row whose zone the default lacks. AdjustTotalIdleFraction.sql's override and multipliers are ported (`oni_totalIdleFraction`) and no longer counted. Since PLAN.md §7.3.59 it no longer counts the crankcase and refueling processes at Rates scale, a second link at Rates scale or the evaporative rows a PROJECT Rates run writes to RatePerDistance; since §7.3.60 it no longer counts two links on one road type at inventory scale, links of different grades, an out-of-bounds bracket (MOVES extrapolates, with a warning), conflicting user start modes, or user running and brake-wear rows that leave a gap."
+          "description": "How many things this run asks of its DOMAIN that the model does not do: 0, asserted by tools/check-runspec-shape.py, and the licence for every PROJECT-domain number. It counts a runspecdomain that is not one row; in PROJECT domain (`run_projectShortfall`), a selected road type without a link, a walked drive schedule -- a user's or a zero-speed link's -- at Rates scale, beside an evaporative process or under user brake-wear rows (`run_projectScheduleUnported`), a second county, an emitted pollutant-process without a project generator here (`rspp_hasProjectGenerator`), user link operating-mode rows the model does not read (`run_userLinkModeRows`) or that cover some but not all selected hour-days (`run_userLinkGaps`), and two links on one road type at Rates scale; and outside it, any linkSourceTypeHour row, which only ProjectTAG reads. None of those fail loudly on their own -- each would emit a plausible wrong number -- which is why they are counted rather than trusted. In every domain it counts the two declared PROJECT shapes (`run_extraLinksUndeclared`, `run_gradesUndeclared`, PLAN.md §7.3.60). Since the SINGLE-county runs it also counts a ZoneRoadType input row whose key the default lacks (a row the merge would ADD, which relations on the default side's axis cannot see), and a hotellingHourFraction, hotellingAgeFraction or hotellingMonthAdjust row at a run's zone when it selects a hotelling process over more than TWO calendar years (`hot_adjustmentRowsUnported`): AdjustHotelling's four blocks are ported for a run's first year (PLAN.md §7.3.57) and for its second, over a table that still holds the first year's rows (§7.3.61). And a Zone input row whose zone the default lacks. AdjustTotalIdleFraction.sql's override and multipliers are ported (`oni_totalIdleFraction`) and no longer counted. Since PLAN.md §7.3.59 it no longer counts the crankcase and refueling processes at Rates scale, a second link at Rates scale or the evaporative rows a PROJECT Rates run writes to RatePerDistance; since §7.3.60 it no longer counts two links on one road type at inventory scale, links of different grades, an out-of-bounds bracket (MOVES extrapolates, with a warning), conflicting user start modes, or user running and brake-wear rows that leave a gap. Since §7.3.62 it no longer counts a user drive schedule or an on-network link of zero speed at inventory scale."
         },
         "run_projectShortfall": {
           "type": "unknown",
@@ -19825,7 +19837,7 @@
           "shape": [
             "run_rows"
           ],
-          "description": "The PROJECT-domain half of `run_domainUnported`: a selected road type without a link, an on-network link of zero speed (`run_projectZeroSpeedLinks`), a user drive schedule on a link (`run_userLinkSchedules`), a second county (MOVES's own RunSpec check allows one county at Project scale), an emitted pollutant-process without a project generator here, user link operating-mode rows the model does not read or that cover only some selected hour-days, and two links on one road type at Rates scale (`n_ratesScale` x `run_projectExtraLinks`: §7.3.59 measured Rates scale with one link per road type and §7.3.60 several links per road type at inventory scale, neither the two together). A second link at Rates scale and the evaporative rows a PROJECT Rates run writes to RatePerDistance are ported since PLAN.md §7.3.59."
+          "description": "The PROJECT-domain half of `run_domainUnported`: a selected road type without a link, a drive schedule the generator walks -- the user's, or a zero-speed link's -- at Rates scale, beside an evaporative process, or under user brake-wear rows (`run_projectScheduleUnported`), a second county (MOVES's own RunSpec check allows one county at Project scale), an emitted pollutant-process without a project generator here, user link operating-mode rows the model does not read or that cover only some selected hour-days, and two links on one road type at Rates scale (`n_ratesScale` x `run_projectExtraLinks`: §7.3.59 measured Rates scale with one link per road type and §7.3.60 several links per road type at inventory scale, neither the two together). A second link at Rates scale and the evaporative rows a PROJECT Rates run writes to RatePerDistance are ported since PLAN.md §7.3.59. A user drive schedule and a zero-speed link are ported at inventory scale since PLAN.md §7.3.62."
         },
         "run_linkCountMismatches": {
           "type": "unknown",
@@ -23513,7 +23525,7 @@
           "shape": [
             "rate_rows"
           ],
-          "description": "0 on a PROJECT rate row whose running or brake-wear distribution the user governs and leaves empty (`omd_userGap`), 1 everywhere else: such a block-and-source-type has no RatesOpModeDistribution row, so MOVES writes no base rate and no output row for it, as a hotelling bin of a source type other than 62 has none (`rt_hasHotellingModes`). A chained child (PM10 brake wear) has no user rows of its own and emits through its parent's survival (`chained_emits`). PLAN.md §7.3.60."
+          "description": "0 on a PROJECT rate row whose running or brake-wear distribution the user governs and leaves empty (`omd_userGap`), 1 everywhere else: such a block-and-source-type has no RatesOpModeDistribution row, so MOVES writes no base rate and no output row for it, as a hotelling bin of a source type other than 62 has none (`rt_hasHotellingModes`). A chained child (PM10 brake wear) has no user rows of its own and emits through its parent's survival (`chained_emits`). PLAN.md §7.3.60. Likewise on a walked location whose schedule leaves brake wear no mode (`lsl_brakeGap`, PLAN.md §7.3.62): a zero-speed link has no brake-wear row."
         },
         "run_projectExtraLinks": {
           "type": "unknown",
@@ -23593,7 +23605,15 @@
           "shape": [
             "run_rows"
           ],
-          "description": "On-network project locations whose link's average speed is not positive. LinkOperatingModeDistributionGenerator gives such a link thirty seconds of idling at grade 0 and walks them as a drive schedule (java:340-375), not a bracket, and ProjectTAG's SHO takes its `else` arm; neither is ported or captured. Counted by `run_projectShortfall`: before PLAN.md §7.3.60 the out-of-bounds refusal caught it, and MOVES's extrapolation, now ported, would bracket it at the slowest schedule instead."
+          "description": "On-network project locations whose link's average speed is not positive. LinkOperatingModeDistributionGenerator gives such a link thirty seconds of idling at grade 0 and walks them as a drive schedule (java:343-378; `lsl_isIdleSchedule`), and ProjectTAG's SHO takes its `else` arm (`link_travel_hours_share`). Ported at inventory scale since PLAN.md §7.3.62 (`project-zerospeed`); read by `run_projectScheduleUnported`, which still counts it at Rates scale, where the post-processor divides by the link's speed."
+        },
+        "run_projectScheduleUnported": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "run_rows"
+          ],
+          "description": "What a walked schedule (`lsl_walksSchedule`) meets that no capture measures, counted into `run_projectShortfall`: a user drive schedule or a zero-speed link at Rates scale (RatePostProcessorRatesFirst.sql divides by the link's speed, 0 on the idle link); an emitted evaporative pollutant-process beside a walked location (its fraction of operating is SHO, which the walk's speed moves, over SourceHours, which it does not); and user brake-wear opModeDistribution rows on a walked link, whose tempExistingOpMode anti-join the walk applies under the TEMP source type (java:1114-1121) and so never matches. PLAN.md §7.3.62."
         },
         "run_userLinkSchedules": {
           "type": "unknown",
@@ -23601,7 +23621,341 @@
           "shape": [
             "run_rows"
           ],
-          "description": "Input driveScheduleSecondLink rows on a selected on-network project link: a user drive schedule, which LinkOperatingModeDistributionGenerator walks second by second in place of the bracketing schedules (step 100's first arm, java:309-393), and whose average speed it writes back into the link's linkAvgSpeed before ProjectTAG reads it (java:937-948). Not ported: counted by `run_projectShortfall`, because the model would otherwise read the link as an average-speed link and emit a plausible wrong number. An off-network link's rows are not counted: the generator never runs on road type 1 (java:106)."
+          "description": "Locations whose USER drive schedule LinkOperatingModeDistributionGenerator walks (`lsl_walksSchedule` with user driveScheduleSecondLink rows; step 100's first arm, java:309-393). Ported at inventory scale since PLAN.md §7.3.62 (`project-driveschedule`): the walk is `lsec_*`/`lsl_*` and the schedule's average speed replaces the stated one in Link before ProjectTAG reads it (java:937-948). Read by `run_projectScheduleUnported`."
+        },
+        "lsec_isRow": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "linksecond_rows"
+          ],
+          "description": "1 on a slot that holds a driveScheduleSecondLink row, 0 on the one padding slot after them. `linksecond_rows` is the input's rows plus one so that no run computes over an empty relation: the input is mounted empty in every catalogue but a project database that states a schedule (F56)."
+        },
+        "lsec_linkID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "linksecond_rows"
+          ],
+          "description": "The slot's driveScheduleSecondLink.linkID; 0 on the padding slot, which no link has."
+        },
+        "lsec_second": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "linksecond_rows"
+          ],
+          "description": "The slot's driveScheduleSecondLink.secondID."
+        },
+        "lsec_speed": {
+          "type": "unknown",
+          "units": "mi/h",
+          "shape": [
+            "linksecond_rows"
+          ],
+          "description": "The slot's driveScheduleSecondLink.speed."
+        },
+        "lsec_grade": {
+          "type": "unknown",
+          "units": "percent",
+          "shape": [
+            "linksecond_rows"
+          ],
+          "description": "The slot's driveScheduleSecondLink.grade: the second's own, not the link's."
+        },
+        "lsec_priorSecond": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "linksecond_rows"
+          ],
+          "description": "secondID - 1: the key of the walk's `left join driveScheduleSecondLink b` (java:1009)."
+        },
+        "lsec_priorPresent": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "linksecond_rows"
+          ],
+          "description": "1 where the same link has a row one second earlier. An unmatched inner join fills the semiring identity, which for a speed is indistinguishable from a stop, hence the separate presence column (as `dss_priorPresent`). A user schedule may have gaps; the walk joins on secondID - 1 and counts every row (java:1009, 1047)."
+        },
+        "lsec_priorSpeed": {
+          "type": "unknown",
+          "units": "mi/h",
+          "shape": [
+            "linksecond_rows"
+          ],
+          "description": "The speed one second earlier on the same link; 0 where there is none."
+        },
+        "lsec_speedChange": {
+          "type": "unknown",
+          "units": "mi/h",
+          "shape": [
+            "linksecond_rows"
+          ],
+          "description": "coalesce(a.speed - b.speed, 0.0): the backward difference, 0 on a second with no predecessor -- the first, or the one after a gap. Not the forward difference the Java's @algorithm comment describes; the SQL has none (java:999-1005)."
+        },
+        "lsec_gradeAcceleration": {
+          "type": "unknown",
+          "units": "mi/(h*s)",
+          "shape": [
+            "linksecond_rows"
+          ],
+          "description": "9.81/0.44704 x sin(atan(grade/100)) at the second's OWN grade (java:1000): the acceleration-equivalent of the slope."
+        },
+        "lsec_at0": {
+          "type": "unknown",
+          "units": "mi/(h*s)",
+          "shape": [
+            "linksecond_rows"
+          ],
+          "description": "At0 = coalesce((a.speed - b.speed) + grade(a), 0.0) (java:999-1001): the second's backward difference plus its own grade."
+        },
+        "lsec_at1": {
+          "type": "unknown",
+          "units": "mi/(h*s)",
+          "shape": [
+            "linksecond_rows"
+          ],
+          "description": "At1 = coalesce((b.speed - c.speed) + grade(b), 0.0) (java:1002): the PREVIOUS second's At0. `c` is joined to `b`, not to `a` (java:1010), so the previous second's own coalesce is exactly this one's, and a second with no predecessor reads 0."
+        },
+        "lsec_at2": {
+          "type": "unknown",
+          "units": "mi/(h*s)",
+          "shape": [
+            "linksecond_rows"
+          ],
+          "description": "At2 = coalesce((c.speed - d.speed) + grade(c), 0.0) (java:1003): the previous second's At1, by the same chained join (java:1011)."
+        },
+        "lsec_isBraking": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "linksecond_rows"
+          ],
+          "description": "The CASE's braking arm, `At0 <= -2 or (At0 < -1 and At1 < -1 and At2 < -1)` (java:1031), through `braking_second` as the bracketing walk's `lomd_isBraking` is, its thresholds read from operatingMode's braking row."
+        },
+        "lsec_speedMs": {
+          "type": "unknown",
+          "units": "m/s",
+          "shape": [
+            "linksecond_rows"
+          ],
+          "description": "speed x 0.44704."
+        },
+        "lsec_accelerationMs": {
+          "type": "unknown",
+          "units": "m/s^2",
+          "shape": [
+            "linksecond_rows"
+          ],
+          "description": "coalesce(a.speed - b.speed, 0.0) x 0.44704, the VSP's acceleration term: the difference, with no grade (java:1005)."
+        },
+        "lsec_vsp": {
+          "type": "unknown",
+          "units": "kW/tonne",
+          "shape": [
+            "linksecond_rows",
+            "physicsrow_rows"
+          ],
+          "description": "The second's VSP for each physics row (java:1004-1006): the road-load polynomial with the second's acceleration, `vehicle_specific_power`, plus `grade_specific_power` at the second's own grade -- the bracketing walk's `lomd_vsp` with the grade read per second rather than per slot."
+        },
+        "lsec_binnedModeID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "linksecond_rows",
+            "physicsrow_rows"
+          ],
+          "description": "buildOpModeClause's rectangles (java:241-300) as a sum, as `lomd_binnedModeID`: the one mode whose (speed, VSP) rectangle admits the second, 0 where none does."
+        },
+        "lsec_binnedModeMatches": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "linksecond_rows",
+            "physicsrow_rows"
+          ],
+          "description": "The same sum without the id: 1 on a second some rectangle admits, 0 on one the CASE sends to -1, which is still counted in the schedule's total."
+        },
+        "lsec_isIdling": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "linksecond_rows"
+          ],
+          "description": "speed < 1, the CASE's idle arm (java:1030)."
+        },
+        "lsec_isStopped": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "linksecond_rows"
+          ],
+          "description": "speed = 0, the CASE's first arm (java:1029): mode 501, folded into mode 1 after the quotient for every polProcess but brake wear's."
+        },
+        "lsec_opModeID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "linksecond_rows",
+            "physicsrow_rows"
+          ],
+          "description": "The second's mode in the CASE's order: idle (speed < 1), braking, the rectangles."
+        },
+        "lsec_hasOpMode": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "linksecond_rows",
+            "physicsrow_rows"
+          ],
+          "description": "Whether any arm of the CASE but the -1 fallback took the second."
+        },
+        "lsec_locationOrdinal": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "linksecond_rows"
+          ],
+          "description": "The LOCATION the second's link is (`lnk_locationOrdinal`); 0 on the padding slot and on a link the run does not select."
+        },
+        "lsl_userSeconds": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecroadtype_rows"
+          ],
+          "description": "The user's driveScheduleSecondLink rows on the location's link."
+        },
+        "lsl_userStoppedSeconds": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecroadtype_rows"
+          ],
+          "description": "Those of them at speed 0."
+        },
+        "lsl_userSpeedSum": {
+          "type": "unknown",
+          "units": "mi/h",
+          "shape": [
+            "runspecroadtype_rows"
+          ],
+          "description": "The sum of their speeds."
+        },
+        "lsl_userModeSeconds": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "operating_mode_rows",
+            "physicsrow_rows",
+            "runspecroadtype_rows"
+          ],
+          "description": "secondCount per mode of the location's user schedule, per physics row (java:1060-1066), the stopped seconds left out: they are mode 501 until after the quotient."
+        },
+        "lsl_sourceTypeModeSeconds": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecsourcetype_rows",
+            "runspecroadtype_rows"
+          ],
+          "description": "The walked schedule's seconds that took a mode other than 501, over every physics row of the source type: 0 where brake wear has no mode at the location (`lsl_brakeGap`)."
+        },
+        "lsl_statedSpeedNotPositive": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecroadtype_rows"
+          ],
+          "description": "1 where the location's link states linkAvgSpeed <= 0 (`select linkAvgSpeed from link`, java:340-343), read from the Link table as stated, before the generator writes a schedule's average into it."
+        },
+        "run_linkModeProcesses": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "run_rows"
+          ],
+          "description": "Selected pollutant-processes of the two processes LinkOperatingModeDistributionGenerator subscribes to, running exhaust and brake wear (java:63-80). With none it never runs, a link's schedule is not walked and its linkAvgSpeed is left as stated."
+        },
+        "lsl_walksSchedule": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecroadtype_rows"
+          ],
+          "description": "1 where LinkOperatingModeDistributionGenerator takes step 100's FIRST arm at the location (java:309-389): a PROJECT run that selects running exhaust or brake wear, an on-network link, no user running opModeDistribution row on it (`omd_linkRunningRows`, which governs instead), and either the user's driveScheduleSecondLink rows or a stated linkAvgSpeed <= 0, for which the generator writes thirty idle seconds itself (java:343-367). The link is then walked second by second in place of the two bracketing schedules, and its linkAvgSpeed becomes the schedule's average (`run_linkAvgSpeed`)."
+        },
+        "lsl_isIdleSchedule": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecroadtype_rows"
+          ],
+          "description": "1 where the walked schedule is the generator's own thirty idle seconds: a walked location with no user rows."
+        },
+        "lsl_totalSeconds": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecroadtype_rows"
+          ],
+          "description": "secondTotal = count(*) over the walked schedule (java:1047): the user's rows, or the thirty idle seconds."
+        },
+        "lsl_stoppedSeconds": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecroadtype_rows"
+          ],
+          "description": "Seconds of the walked schedule at speed 0: the user's, or all thirty idle seconds, each of which the CASE's first arm takes whatever its grade or VSP."
+        },
+        "lsl_modeFraction": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "operating_mode_rows",
+            "physicsrow_rows",
+            "runspecroadtype_rows"
+          ],
+          "description": "secondCount * 1.0 / secondTotal for every mode but the stopped one, the five-decimal DECIMAL quotient (`link_op_mode_fraction`, java:1078) the bracketing schedules' `lomd_modeFraction` is. Brake wear reads it unfolded: its stopped seconds stay mode 501 under the temp source type, which the copy to RatesOpModeDistribution drops (SourceTypePhysics' `opModeID <> 501`, java:449-458)."
+        },
+        "lsl_stoppedFraction": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecroadtype_rows"
+          ],
+          "description": "The stopped seconds' five-decimal quotient."
+        },
+        "lsl_fraction": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "operating_mode_rows",
+            "physicsrow_rows",
+            "runspecroadtype_rows"
+          ],
+          "description": "The walked schedule's distribution with the stopped seconds folded into mode 1 (`stopped_folded_into_idle`): what every polProcess but brake wear reads at a walked location (`lomd_W`). No interpolation and no bracket."
+        },
+        "lsl_averageSpeed": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecroadtype_rows"
+          ],
+          "description": "avg(speed) over the location's user schedule (java:937), which the walk writes into Link.linkAvgSpeed before ProjectTAG and the tire-wear generator read it; 0 for the idle schedule. In mph, as the Link column is."
+        },
+        "lsl_brakeGap": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecpollutantprocess_rows",
+            "runspecsourcetype_rows",
+            "runspecroadtype_rows"
+          ],
+          "description": "1 on a brake-wear pollutant-process and source type at a walked location (`lsl_walksSchedule`) whose schedule leaves brake wear no mode: every second stopped -- the thirty idle seconds of a zero-speed link, or a user schedule that never moves. The walk keeps a stopped second as mode 501 for 11609 (java:1113), SourceTypePhysics leaves mode 501 under the temp source type (`where opModeID <> 501`), and the copy to RatesOpModeDistribution joins linkSourceTypeHour on the source type (java:449-458), so the link has NO brake-wear row and MOVES writes no output row for it -- an absence, as `omd_userGap`'s is (`rt_hasLinkModes`). `project-zerospeed`'s queue (PLAN.md §7.3.62)."
         },
         "sod_projectFirst": {
           "type": "unknown",
@@ -24591,10 +24945,35 @@
                   ]
                 },
                 {
-                  "op": "index",
+                  "op": "ifelse",
                   "args": [
-                    "lnk_linkAvgSpeed",
-                    "l"
+                    {
+                      "op": ">",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "lsl_walksSchedule",
+                            "rd"
+                          ]
+                        },
+                        0.5
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "lsl_averageSpeed",
+                        "rd"
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "lnk_linkAvgSpeed",
+                        "l"
+                      ]
+                    }
                   ]
                 },
                 0.0
@@ -24816,18 +25195,36 @@
               "op": "*",
               "args": [
                 {
-                  "op": "index",
+                  "op": "*",
                   "args": [
-                    "run_linkAvgGrade",
-                    "g",
-                    "rd"
+                    {
+                      "op": "index",
+                      "args": [
+                        "run_linkAvgGrade",
+                        "g",
+                        "rd"
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "rsr_isOnNetwork",
+                        "rd"
+                      ]
+                    }
                   ]
                 },
                 {
-                  "op": "index",
+                  "op": "-",
                   "args": [
-                    "rsr_isOnNetwork",
-                    "rd"
+                    1.0,
+                    {
+                      "op": "index",
+                      "args": [
+                        "lsl_walksSchedule",
+                        "rd"
+                      ]
+                    }
                   ]
                 }
               ]
@@ -26709,13 +27106,7 @@
                           {
                             "op": "+",
                             "args": [
-                              {
-                                "op": "+",
-                                "args": [
-                                  "run_linkCountMismatches",
-                                  "run_projectZeroSpeedLinks"
-                                ]
-                              },
+                              "run_linkCountMismatches",
                               {
                                 "op": "-",
                                 "args": [
@@ -26746,7 +27137,7 @@
                   "run_userLinkGaps"
                 ]
               },
-              "run_userLinkSchedules"
+              "run_projectScheduleUnported"
             ]
           }
         },
@@ -26862,6 +27253,156 @@
           }
         },
         {
+          "lhs": "run_projectScheduleUnported",
+          "rhs": {
+            "op": "+",
+            "args": [
+              {
+                "op": "+",
+                "args": [
+                  {
+                    "op": "*",
+                    "args": [
+                      "n_ratesScale",
+                      {
+                        "op": "+",
+                        "args": [
+                          "run_userLinkSchedules",
+                          "run_projectZeroSpeedLinks"
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "op": "faq",
+                    "args": [],
+                    "semiring": "sum_product",
+                    "output_idx": [
+                      "n"
+                    ],
+                    "ranges": {
+                      "n": {
+                        "from": "run_rows"
+                      },
+                      "rd": {
+                        "from": "runspecroadtype_rows"
+                      },
+                      "p": {
+                        "from": "runspecpollutantprocess_rows"
+                      }
+                    },
+                    "expr": {
+                      "op": "*",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "lsl_walksSchedule",
+                            "rd"
+                          ]
+                        },
+                        {
+                          "op": "*",
+                          "args": [
+                            {
+                              "op": "index",
+                              "args": [
+                                "rspp_isEmitted",
+                                "p"
+                              ]
+                            },
+                            {
+                              "op": "index",
+                              "args": [
+                                "rspp_usesEvapModes",
+                                "p"
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "op": "faq",
+                "args": [],
+                "semiring": "sum_product",
+                "output_idx": [
+                  "n"
+                ],
+                "ranges": {
+                  "n": {
+                    "from": "run_rows"
+                  },
+                  "rd": {
+                    "from": "runspecroadtype_rows"
+                  },
+                  "p": {
+                    "from": "runspecpollutantprocess_rows"
+                  },
+                  "s": {
+                    "from": "runspecsourcetype_rows"
+                  }
+                },
+                "expr": {
+                  "op": "*",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "lsl_walksSchedule",
+                        "rd"
+                      ]
+                    },
+                    {
+                      "op": "*",
+                      "args": [
+                        {
+                          "op": "ifelse",
+                          "args": [
+                            {
+                              "op": "==",
+                              "args": [
+                                {
+                                  "op": "index",
+                                  "args": [
+                                    "rspp_processID",
+                                    "p"
+                                  ]
+                                },
+                                {
+                                  "op": "enum",
+                                  "args": [
+                                    "process",
+                                    "Brakewear"
+                                  ]
+                                }
+                              ]
+                            },
+                            1.0,
+                            0.0
+                          ]
+                        },
+                        {
+                          "op": "index",
+                          "args": [
+                            "omd_userPpRows",
+                            "p",
+                            "s",
+                            "rd"
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        },
+        {
           "lhs": "run_userLinkSchedules",
           "rhs": {
             "op": "faq",
@@ -26874,14 +27415,1407 @@
               "n": {
                 "from": "run_rows"
               },
-              "g": {
-                "from": "runspeccounty_rows"
+              "rd": {
+                "from": "runspecroadtype_rows"
+              }
+            },
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "lsl_walksSchedule",
+                    "rd"
+                  ]
+                },
+                {
+                  "op": "ifelse",
+                  "args": [
+                    {
+                      "op": ">",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "lsl_userSeconds",
+                            "rd"
+                          ]
+                        },
+                        0.5
+                      ]
+                    },
+                    1.0,
+                    0.0
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "lsec_isRow",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "u"
+            ],
+            "ranges": {
+              "u": {
+                "from": "linksecond_rows"
+              },
+              "j": {
+                "from": "driveschedulesecondlink_rows"
+              }
+            },
+            "filter": {
+              "op": "==",
+              "args": [
+                "j",
+                "u"
+              ]
+            },
+            "expr": 1.0
+          }
+        },
+        {
+          "lhs": "lsec_linkID",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "u"
+            ],
+            "ranges": {
+              "u": {
+                "from": "linksecond_rows"
+              },
+              "j": {
+                "from": "driveschedulesecondlink_rows"
+              }
+            },
+            "filter": {
+              "op": "==",
+              "args": [
+                "j",
+                "u"
+              ]
+            },
+            "expr": {
+              "op": "index",
+              "args": [
+                "dsl_linkID",
+                "j"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "lsec_second",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "u"
+            ],
+            "ranges": {
+              "u": {
+                "from": "linksecond_rows"
+              },
+              "j": {
+                "from": "driveschedulesecondlink_rows"
+              }
+            },
+            "filter": {
+              "op": "==",
+              "args": [
+                "j",
+                "u"
+              ]
+            },
+            "expr": {
+              "op": "index",
+              "args": [
+                "dsl_secondID",
+                "j"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "lsec_speed",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "u"
+            ],
+            "ranges": {
+              "u": {
+                "from": "linksecond_rows"
+              },
+              "j": {
+                "from": "driveschedulesecondlink_rows"
+              }
+            },
+            "filter": {
+              "op": "==",
+              "args": [
+                "j",
+                "u"
+              ]
+            },
+            "expr": {
+              "op": "index",
+              "args": [
+                "dsl_speed",
+                "j"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "lsec_grade",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "u"
+            ],
+            "ranges": {
+              "u": {
+                "from": "linksecond_rows"
+              },
+              "j": {
+                "from": "driveschedulesecondlink_rows"
+              }
+            },
+            "filter": {
+              "op": "==",
+              "args": [
+                "j",
+                "u"
+              ]
+            },
+            "expr": {
+              "op": "index",
+              "args": [
+                "dsl_grade",
+                "j"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "lsec_priorSecond",
+          "rhs": {
+            "op": "-",
+            "args": [
+              "lsec_second",
+              1.0
+            ]
+          }
+        },
+        {
+          "lhs": "lsec_priorPresent",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "c"
+            ],
+            "ranges": {
+              "c": {
+                "from": "linksecond_rows"
+              },
+              "p": {
+                "from": "linksecond_rows"
+              }
+            },
+            "join": [
+              {
+                "syms": [
+                  "c",
+                  "p"
+                ],
+                "on": [
+                  [
+                    "lsec_priorSecond",
+                    "lsec_second"
+                  ],
+                  [
+                    "lsec_linkID",
+                    "lsec_linkID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "lsec_isRow",
+                "p"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "lsec_priorSpeed",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "c"
+            ],
+            "ranges": {
+              "c": {
+                "from": "linksecond_rows"
+              },
+              "p": {
+                "from": "linksecond_rows"
+              }
+            },
+            "join": [
+              {
+                "syms": [
+                  "c",
+                  "p"
+                ],
+                "on": [
+                  [
+                    "lsec_priorSecond",
+                    "lsec_second"
+                  ],
+                  [
+                    "lsec_linkID",
+                    "lsec_linkID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "lsec_speed",
+                "p"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "lsec_speedChange",
+          "rhs": {
+            "op": "ifelse",
+            "args": [
+              {
+                "op": ">",
+                "args": [
+                  "lsec_priorPresent",
+                  0.5
+                ]
+              },
+              {
+                "op": "-",
+                "args": [
+                  "lsec_speed",
+                  "lsec_priorSpeed"
+                ]
+              },
+              0.0
+            ]
+          }
+        },
+        {
+          "lhs": "lsec_gradeAcceleration",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "grade_acceleration",
+            "bindings": {
+              "grade_percent": "lsec_grade"
+            }
+          }
+        },
+        {
+          "lhs": "lsec_at0",
+          "rhs": {
+            "op": "ifelse",
+            "args": [
+              {
+                "op": ">",
+                "args": [
+                  "lsec_priorPresent",
+                  0.5
+                ]
+              },
+              {
+                "op": "apply_expression_template",
+                "args": [],
+                "name": "graded_acceleration",
+                "bindings": {
+                  "speed_change": "lsec_speedChange",
+                  "grade_acceleration": "lsec_gradeAcceleration"
+                }
+              },
+              0.0
+            ]
+          }
+        },
+        {
+          "lhs": "lsec_at1",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "c"
+            ],
+            "ranges": {
+              "c": {
+                "from": "linksecond_rows"
+              },
+              "p": {
+                "from": "linksecond_rows"
+              }
+            },
+            "join": [
+              {
+                "syms": [
+                  "c",
+                  "p"
+                ],
+                "on": [
+                  [
+                    "lsec_priorSecond",
+                    "lsec_second"
+                  ],
+                  [
+                    "lsec_linkID",
+                    "lsec_linkID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "lsec_at0",
+                "p"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "lsec_at2",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "c"
+            ],
+            "ranges": {
+              "c": {
+                "from": "linksecond_rows"
+              },
+              "p": {
+                "from": "linksecond_rows"
+              }
+            },
+            "join": [
+              {
+                "syms": [
+                  "c",
+                  "p"
+                ],
+                "on": [
+                  [
+                    "lsec_priorSecond",
+                    "lsec_second"
+                  ],
+                  [
+                    "lsec_linkID",
+                    "lsec_linkID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "lsec_at1",
+                "p"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "lsec_isBraking",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "u"
+            ],
+            "ranges": {
+              "u": {
+                "from": "linksecond_rows"
+              },
+              "k": {
+                "from": "run_rows"
+              }
+            },
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                {
+                  "op": "apply_expression_template",
+                  "args": [],
+                  "name": "braking_second",
+                  "bindings": {
+                    "acceleration": {
+                      "op": "index",
+                      "args": [
+                        "lsec_at0",
+                        "u"
+                      ]
+                    },
+                    "prior_acceleration": {
+                      "op": "index",
+                      "args": [
+                        "lsec_at1",
+                        "u"
+                      ]
+                    },
+                    "prior2_acceleration": {
+                      "op": "index",
+                      "args": [
+                        "lsec_at2",
+                        "u"
+                      ]
+                    },
+                    "history_complete": {
+                      "op": "true",
+                      "args": []
+                    },
+                    "rate_1sec": {
+                      "op": "index",
+                      "args": [
+                        "run_brakeRate1Sec",
+                        "k"
+                      ]
+                    },
+                    "rate_3sec": {
+                      "op": "index",
+                      "args": [
+                        "run_brakeRate3Sec",
+                        "k"
+                      ]
+                    }
+                  }
+                },
+                1.0,
+                0.0
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "lsec_speedMs",
+          "rhs": {
+            "op": "*",
+            "args": [
+              "lsec_speed",
+              {
+                "op": "apply_expression_template",
+                "args": [],
+                "name": "mph_to_meters_per_second",
+                "bindings": {}
+              }
+            ]
+          }
+        },
+        {
+          "lhs": "lsec_accelerationMs",
+          "rhs": {
+            "op": "*",
+            "args": [
+              {
+                "op": "apply_expression_template",
+                "args": [],
+                "name": "per_schedule_second",
+                "bindings": {
+                  "speed_change": "lsec_speedChange"
+                }
+              },
+              {
+                "op": "apply_expression_template",
+                "args": [],
+                "name": "mph_to_meters_per_second",
+                "bindings": {}
+              }
+            ]
+          }
+        },
+        {
+          "lhs": "lsec_vsp",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "u",
+              "r"
+            ],
+            "ranges": {
+              "u": {
+                "from": "linksecond_rows"
+              },
+              "r": {
+                "from": "physicsrow_rows"
+              }
+            },
+            "expr": {
+              "op": "+",
+              "args": [
+                {
+                  "op": "apply_expression_template",
+                  "args": [],
+                  "name": "vehicle_specific_power",
+                  "bindings": {
+                    "rolling_term_a": {
+                      "op": "index",
+                      "args": [
+                        "phy_rollingTermA",
+                        "r"
+                      ]
+                    },
+                    "rotating_term_b": {
+                      "op": "index",
+                      "args": [
+                        "phy_rotatingTermB",
+                        "r"
+                      ]
+                    },
+                    "drag_term_c": {
+                      "op": "index",
+                      "args": [
+                        "phy_dragTermC",
+                        "r"
+                      ]
+                    },
+                    "source_mass": {
+                      "op": "index",
+                      "args": [
+                        "phy_sourceMass",
+                        "r"
+                      ]
+                    },
+                    "fixed_mass_factor": {
+                      "op": "index",
+                      "args": [
+                        "phy_fixedMassFactor",
+                        "r"
+                      ]
+                    },
+                    "speed_ms": {
+                      "op": "index",
+                      "args": [
+                        "lsec_speedMs",
+                        "u"
+                      ]
+                    },
+                    "acceleration_ms": {
+                      "op": "index",
+                      "args": [
+                        "lsec_accelerationMs",
+                        "u"
+                      ]
+                    }
+                  }
+                },
+                {
+                  "op": "apply_expression_template",
+                  "args": [],
+                  "name": "grade_specific_power",
+                  "bindings": {
+                    "source_mass": {
+                      "op": "index",
+                      "args": [
+                        "phy_sourceMass",
+                        "r"
+                      ]
+                    },
+                    "fixed_mass_factor": {
+                      "op": "index",
+                      "args": [
+                        "phy_fixedMassFactor",
+                        "r"
+                      ]
+                    },
+                    "grade_percent": {
+                      "op": "index",
+                      "args": [
+                        "lsec_grade",
+                        "u"
+                      ]
+                    },
+                    "speed_ms": {
+                      "op": "index",
+                      "args": [
+                        "lsec_speedMs",
+                        "u"
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "lsec_binnedModeID",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "u",
+              "r"
+            ],
+            "ranges": {
+              "u": {
+                "from": "linksecond_rows"
+              },
+              "m": {
+                "from": "operating_mode_rows"
+              },
+              "r": {
+                "from": "physicsrow_rows"
+              }
+            },
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "om_opModeID",
+                    "m"
+                  ]
+                },
+                {
+                  "op": "*",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "om_isBinnedRunningMode",
+                        "m"
+                      ]
+                    },
+                    {
+                      "op": "apply_expression_template",
+                      "args": [],
+                      "name": "op_mode_rectangle_contains",
+                      "bindings": {
+                        "vsp": {
+                          "op": "index",
+                          "args": [
+                            "lsec_vsp",
+                            "u",
+                            "r"
+                          ]
+                        },
+                        "speed": {
+                          "op": "index",
+                          "args": [
+                            "lsec_speed",
+                            "u"
+                          ]
+                        },
+                        "vsp_lower": {
+                          "op": "index",
+                          "args": [
+                            "om_VSPLower",
+                            "m"
+                          ]
+                        },
+                        "vsp_upper": {
+                          "op": "index",
+                          "args": [
+                            "om_VSPUpper",
+                            "m"
+                          ]
+                        },
+                        "speed_lower": {
+                          "op": "index",
+                          "args": [
+                            "om_speedLower",
+                            "m"
+                          ]
+                        },
+                        "speed_upper": {
+                          "op": "index",
+                          "args": [
+                            "om_speedUpper",
+                            "m"
+                          ]
+                        }
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "lsec_binnedModeMatches",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "u",
+              "r"
+            ],
+            "ranges": {
+              "u": {
+                "from": "linksecond_rows"
+              },
+              "m": {
+                "from": "operating_mode_rows"
+              },
+              "r": {
+                "from": "physicsrow_rows"
+              }
+            },
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "om_isBinnedRunningMode",
+                    "m"
+                  ]
+                },
+                {
+                  "op": "apply_expression_template",
+                  "args": [],
+                  "name": "op_mode_rectangle_contains",
+                  "bindings": {
+                    "vsp": {
+                      "op": "index",
+                      "args": [
+                        "lsec_vsp",
+                        "u",
+                        "r"
+                      ]
+                    },
+                    "speed": {
+                      "op": "index",
+                      "args": [
+                        "lsec_speed",
+                        "u"
+                      ]
+                    },
+                    "vsp_lower": {
+                      "op": "index",
+                      "args": [
+                        "om_VSPLower",
+                        "m"
+                      ]
+                    },
+                    "vsp_upper": {
+                      "op": "index",
+                      "args": [
+                        "om_VSPUpper",
+                        "m"
+                      ]
+                    },
+                    "speed_lower": {
+                      "op": "index",
+                      "args": [
+                        "om_speedLower",
+                        "m"
+                      ]
+                    },
+                    "speed_upper": {
+                      "op": "index",
+                      "args": [
+                        "om_speedUpper",
+                        "m"
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "lsec_isIdling",
+          "rhs": {
+            "op": "ifelse",
+            "args": [
+              {
+                "op": "<",
+                "args": [
+                  "lsec_speed",
+                  "idleCeilingMph"
+                ]
+              },
+              1.0,
+              0.0
+            ]
+          }
+        },
+        {
+          "lhs": "lsec_isStopped",
+          "rhs": {
+            "op": "ifelse",
+            "args": [
+              {
+                "op": "==",
+                "args": [
+                  "lsec_speed",
+                  0.0
+                ]
+              },
+              1.0,
+              0.0
+            ]
+          }
+        },
+        {
+          "lhs": "lsec_opModeID",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "u",
+              "r"
+            ],
+            "ranges": {
+              "u": {
+                "from": "linksecond_rows"
+              },
+              "k": {
+                "from": "run_rows"
+              },
+              "r": {
+                "from": "physicsrow_rows"
+              }
+            },
+            "expr": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "second_op_mode",
+              "bindings": {
+                "is_idling": {
+                  "op": "index",
+                  "args": [
+                    "lsec_isIdling",
+                    "u"
+                  ]
+                },
+                "is_braking": {
+                  "op": "index",
+                  "args": [
+                    "lsec_isBraking",
+                    "u"
+                  ]
+                },
+                "idling_mode": {
+                  "op": "enum",
+                  "args": [
+                    "operating_mode",
+                    "Idling"
+                  ]
+                },
+                "braking_mode": {
+                  "op": "index",
+                  "args": [
+                    "run_brakingOpModeID",
+                    "k"
+                  ]
+                },
+                "binned_mode": {
+                  "op": "index",
+                  "args": [
+                    "lsec_binnedModeID",
+                    "u",
+                    "r"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "lhs": "lsec_hasOpMode",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "u",
+              "r"
+            ],
+            "ranges": {
+              "u": {
+                "from": "linksecond_rows"
+              },
+              "r": {
+                "from": "physicsrow_rows"
+              }
+            },
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                {
+                  "op": "or",
+                  "args": [
+                    {
+                      "op": ">",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "lsec_isIdling",
+                            "u"
+                          ]
+                        },
+                        0.5
+                      ]
+                    },
+                    {
+                      "op": "or",
+                      "args": [
+                        {
+                          "op": ">",
+                          "args": [
+                            {
+                              "op": "index",
+                              "args": [
+                                "lsec_isBraking",
+                                "u"
+                              ]
+                            },
+                            0.5
+                          ]
+                        },
+                        {
+                          "op": ">",
+                          "args": [
+                            {
+                              "op": "index",
+                              "args": [
+                                "lsec_binnedModeMatches",
+                                "u",
+                                "r"
+                              ]
+                            },
+                            0.5
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                1.0,
+                0.0
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "lsec_locationOrdinal",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "u"
+            ],
+            "ranges": {
+              "u": {
+                "from": "linksecond_rows"
+              },
+              "l": {
+                "from": "link_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "lsec_linkID",
+                    "lnk_linkID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "lsec_isRow",
+                    "u"
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "lnk_locationOrdinal",
+                    "l"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "lsl_userSeconds",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "rd"
+            ],
+            "ranges": {
+              "rd": {
+                "from": "runspecroadtype_rows"
+              },
+              "u": {
+                "from": "linksecond_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "lsec_locationOrdinal",
+                    "rsr_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": 1.0
+          }
+        },
+        {
+          "lhs": "lsl_userStoppedSeconds",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "rd"
+            ],
+            "ranges": {
+              "rd": {
+                "from": "runspecroadtype_rows"
+              },
+              "u": {
+                "from": "linksecond_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "lsec_locationOrdinal",
+                    "rsr_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "lsec_isStopped",
+                "u"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "lsl_userSpeedSum",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "rd"
+            ],
+            "ranges": {
+              "rd": {
+                "from": "runspecroadtype_rows"
+              },
+              "u": {
+                "from": "linksecond_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "lsec_locationOrdinal",
+                    "rsr_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "lsec_speed",
+                "u"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "lsl_userModeSeconds",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "m",
+              "r",
+              "rd"
+            ],
+            "ranges": {
+              "m": {
+                "from": "operating_mode_rows"
+              },
+              "r": {
+                "from": "physicsrow_rows"
               },
               "rd": {
                 "from": "runspecroadtype_rows"
               },
-              "j": {
-                "from": "driveschedulesecondlink_rows"
+              "u": {
+                "from": "linksecond_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "lsec_locationOrdinal",
+                    "rsr_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "filter": {
+              "op": "==",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "om_opModeID",
+                    "m"
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "lsec_opModeID",
+                    "u",
+                    "r"
+                  ]
+                }
+              ]
+            },
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "lsec_hasOpMode",
+                    "u",
+                    "r"
+                  ]
+                },
+                {
+                  "op": "-",
+                  "args": [
+                    1.0,
+                    {
+                      "op": "index",
+                      "args": [
+                        "lsec_isStopped",
+                        "u"
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "lsl_sourceTypeModeSeconds",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "s",
+              "rd"
+            ],
+            "ranges": {
+              "s": {
+                "from": "runspecsourcetype_rows"
+              },
+              "rd": {
+                "from": "runspecroadtype_rows"
+              },
+              "m": {
+                "from": "operating_mode_rows"
+              },
+              "r": {
+                "from": "physicsrow_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "phy_sourceTypeOrdinal",
+                    "rst_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "lsl_userModeSeconds",
+                "m",
+                "r",
+                "rd"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "lsl_statedSpeedNotPositive",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "rd"
+            ],
+            "ranges": {
+              "rd": {
+                "from": "runspecroadtype_rows"
+              },
+              "l": {
+                "from": "link_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "lnk_countyID",
+                    "rsc_countyID"
+                  ],
+                  [
+                    "lnk_locationOrdinal",
+                    "rsr_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                {
+                  "op": ">",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "lnk_linkAvgSpeed",
+                        "l"
+                      ]
+                    },
+                    0.0
+                  ]
+                },
+                0.0,
+                1.0
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "run_linkModeProcesses",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "n"
+            ],
+            "ranges": {
+              "n": {
+                "from": "run_rows"
+              },
+              "p": {
+                "from": "runspecpollutantprocess_rows"
+              }
+            },
+            "expr": {
+              "op": "index",
+              "args": [
+                "rspp_usesLinkModes",
+                "p"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "lsl_walksSchedule",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "rd"
+            ],
+            "ranges": {
+              "rd": {
+                "from": "runspecroadtype_rows"
+              },
+              "n": {
+                "from": "run_rows"
               }
             },
             "expr": {
@@ -26893,16 +28827,415 @@
                     {
                       "op": "index",
                       "args": [
-                        "rsr_isOnNetwork",
-                        "rd"
+                        "run_isProjectDomain",
+                        "n"
                       ]
                     },
                     {
                       "op": "index",
                       "args": [
-                        "run_linkCount",
-                        "g",
+                        "rsr_isOnNetwork",
                         "rd"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "op": "*",
+                  "args": [
+                    {
+                      "op": "ifelse",
+                      "args": [
+                        {
+                          "op": ">",
+                          "args": [
+                            {
+                              "op": "index",
+                              "args": [
+                                "run_linkModeProcesses",
+                                "n"
+                              ]
+                            },
+                            0.5
+                          ]
+                        },
+                        1.0,
+                        0.0
+                      ]
+                    },
+                    {
+                      "op": "*",
+                      "args": [
+                        {
+                          "op": "ifelse",
+                          "args": [
+                            {
+                              "op": ">",
+                              "args": [
+                                {
+                                  "op": "index",
+                                  "args": [
+                                    "omd_linkRunningRows",
+                                    "rd"
+                                  ]
+                                },
+                                0.5
+                              ]
+                            },
+                            0.0,
+                            1.0
+                          ]
+                        },
+                        {
+                          "op": "ifelse",
+                          "args": [
+                            {
+                              "op": ">",
+                              "args": [
+                                {
+                                  "op": "+",
+                                  "args": [
+                                    {
+                                      "op": "index",
+                                      "args": [
+                                        "lsl_userSeconds",
+                                        "rd"
+                                      ]
+                                    },
+                                    {
+                                      "op": "index",
+                                      "args": [
+                                        "lsl_statedSpeedNotPositive",
+                                        "rd"
+                                      ]
+                                    }
+                                  ]
+                                },
+                                0.5
+                              ]
+                            },
+                            1.0,
+                            0.0
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "lsl_isIdleSchedule",
+          "rhs": {
+            "op": "*",
+            "args": [
+              "lsl_walksSchedule",
+              {
+                "op": "ifelse",
+                "args": [
+                  {
+                    "op": ">",
+                    "args": [
+                      "lsl_userSeconds",
+                      0.5
+                    ]
+                  },
+                  0.0,
+                  1.0
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "lhs": "lsl_totalSeconds",
+          "rhs": {
+            "op": "+",
+            "args": [
+              "lsl_userSeconds",
+              {
+                "op": "*",
+                "args": [
+                  "lsl_isIdleSchedule",
+                  {
+                    "op": "apply_expression_template",
+                    "args": [],
+                    "name": "zero_speed_link_idle_seconds",
+                    "bindings": {}
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "lhs": "lsl_stoppedSeconds",
+          "rhs": {
+            "op": "+",
+            "args": [
+              "lsl_userStoppedSeconds",
+              {
+                "op": "*",
+                "args": [
+                  "lsl_isIdleSchedule",
+                  {
+                    "op": "apply_expression_template",
+                    "args": [],
+                    "name": "zero_speed_link_idle_seconds",
+                    "bindings": {}
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "lhs": "lsl_modeFraction",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "m",
+              "r",
+              "rd"
+            ],
+            "ranges": {
+              "m": {
+                "from": "operating_mode_rows"
+              },
+              "r": {
+                "from": "physicsrow_rows"
+              },
+              "rd": {
+                "from": "runspecroadtype_rows"
+              }
+            },
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                {
+                  "op": ">",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "lsl_totalSeconds",
+                        "rd"
+                      ]
+                    },
+                    0.0
+                  ]
+                },
+                {
+                  "op": "apply_expression_template",
+                  "args": [],
+                  "name": "link_op_mode_fraction",
+                  "bindings": {
+                    "second_count": {
+                      "op": "index",
+                      "args": [
+                        "lsl_userModeSeconds",
+                        "m",
+                        "r",
+                        "rd"
+                      ]
+                    },
+                    "second_total": {
+                      "op": "index",
+                      "args": [
+                        "lsl_totalSeconds",
+                        "rd"
+                      ]
+                    }
+                  }
+                },
+                0.0
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "lsl_stoppedFraction",
+          "rhs": {
+            "op": "ifelse",
+            "args": [
+              {
+                "op": ">",
+                "args": [
+                  "lsl_totalSeconds",
+                  0.0
+                ]
+              },
+              {
+                "op": "apply_expression_template",
+                "args": [],
+                "name": "link_op_mode_fraction",
+                "bindings": {
+                  "second_count": "lsl_stoppedSeconds",
+                  "second_total": "lsl_totalSeconds"
+                }
+              },
+              0.0
+            ]
+          }
+        },
+        {
+          "lhs": "lsl_fraction",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "m",
+              "r",
+              "rd"
+            ],
+            "ranges": {
+              "m": {
+                "from": "operating_mode_rows"
+              },
+              "r": {
+                "from": "physicsrow_rows"
+              },
+              "rd": {
+                "from": "runspecroadtype_rows"
+              }
+            },
+            "expr": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "stopped_folded_into_idle",
+              "bindings": {
+                "mode_fraction": {
+                  "op": "index",
+                  "args": [
+                    "lsl_modeFraction",
+                    "m",
+                    "r",
+                    "rd"
+                  ]
+                },
+                "stopped_fraction": {
+                  "op": "index",
+                  "args": [
+                    "lsl_stoppedFraction",
+                    "rd"
+                  ]
+                },
+                "op_mode_id": {
+                  "op": "index",
+                  "args": [
+                    "om_opModeID",
+                    "m"
+                  ]
+                },
+                "idling_mode": {
+                  "op": "enum",
+                  "args": [
+                    "operating_mode",
+                    "Idling"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "lhs": "lsl_averageSpeed",
+          "rhs": {
+            "op": "ifelse",
+            "args": [
+              {
+                "op": ">",
+                "args": [
+                  "lsl_userSeconds",
+                  0.5
+                ]
+              },
+              {
+                "op": "/",
+                "args": [
+                  {
+                    "op": "/",
+                    "args": [
+                      "lsl_userSpeedSum",
+                      "lsl_userSeconds"
+                    ]
+                  },
+                  {
+                    "op": "const",
+                    "args": [],
+                    "value": 1.0,
+                    "units": "mi/h"
+                  }
+                ]
+              },
+              0.0
+            ]
+          }
+        },
+        {
+          "lhs": "lsl_brakeGap",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "p",
+              "s",
+              "rd"
+            ],
+            "ranges": {
+              "p": {
+                "from": "runspecpollutantprocess_rows"
+              },
+              "s": {
+                "from": "runspecsourcetype_rows"
+              },
+              "rd": {
+                "from": "runspecroadtype_rows"
+              }
+            },
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "*",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "lsl_walksSchedule",
+                        "rd"
+                      ]
+                    },
+                    {
+                      "op": "ifelse",
+                      "args": [
+                        {
+                          "op": "==",
+                          "args": [
+                            {
+                              "op": "index",
+                              "args": [
+                                "rspp_processID",
+                                "p"
+                              ]
+                            },
+                            {
+                              "op": "enum",
+                              "args": [
+                                "process",
+                                "Brakewear"
+                              ]
+                            }
+                          ]
+                        },
+                        1.0,
+                        0.0
                       ]
                     }
                   ]
@@ -26911,27 +29244,21 @@
                   "op": "ifelse",
                   "args": [
                     {
-                      "op": "==",
+                      "op": ">",
                       "args": [
                         {
                           "op": "index",
                           "args": [
-                            "dsl_linkID",
-                            "j"
-                          ]
-                        },
-                        {
-                          "op": "index",
-                          "args": [
-                            "run_linkID",
-                            "g",
+                            "lsl_sourceTypeModeSeconds",
+                            "s",
                             "rd"
                           ]
-                        }
+                        },
+                        0.5
                       ]
                     },
-                    1.0,
-                    0.0
+                    0.0,
+                    1.0
                   ]
                 }
               ]
@@ -37398,9 +39725,11 @@
               ]
             },
             "expr": {
-              "op": "+",
-              "args": [
-                {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "stopped_folded_into_idle",
+              "bindings": {
+                "mode_fraction": {
                   "op": "index",
                   "args": [
                     "lomd_modeFraction",
@@ -37410,40 +39739,29 @@
                     "gr"
                   ]
                 },
-                {
-                  "op": "ifelse",
+                "stopped_fraction": {
+                  "op": "index",
                   "args": [
-                    {
-                      "op": "==",
-                      "args": [
-                        {
-                          "op": "index",
-                          "args": [
-                            "om_opModeID",
-                            "m"
-                          ]
-                        },
-                        {
-                          "op": "enum",
-                          "args": [
-                            "operating_mode",
-                            "Idling"
-                          ]
-                        }
-                      ]
-                    },
-                    {
-                      "op": "index",
-                      "args": [
-                        "lomd_stoppedFraction",
-                        "a",
-                        "r"
-                      ]
-                    },
-                    0.0
+                    "lomd_stoppedFraction",
+                    "a",
+                    "r"
+                  ]
+                },
+                "op_mode_id": {
+                  "op": "index",
+                  "args": [
+                    "om_opModeID",
+                    "m"
+                  ]
+                },
+                "idling_mode": {
+                  "op": "enum",
+                  "args": [
+                    "operating_mode",
+                    "Idling"
                   ]
                 }
-              ]
+              }
             }
           }
         },
@@ -37552,9 +39870,11 @@
               ]
             },
             "expr": {
-              "op": "+",
-              "args": [
-                {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "stopped_folded_into_idle",
+              "bindings": {
+                "mode_fraction": {
                   "op": "index",
                   "args": [
                     "lomd_modeFraction",
@@ -37564,40 +39884,29 @@
                     "gr"
                   ]
                 },
-                {
-                  "op": "ifelse",
+                "stopped_fraction": {
+                  "op": "index",
                   "args": [
-                    {
-                      "op": "==",
-                      "args": [
-                        {
-                          "op": "index",
-                          "args": [
-                            "om_opModeID",
-                            "m"
-                          ]
-                        },
-                        {
-                          "op": "enum",
-                          "args": [
-                            "operating_mode",
-                            "Idling"
-                          ]
-                        }
-                      ]
-                    },
-                    {
-                      "op": "index",
-                      "args": [
-                        "lomd_stoppedFraction",
-                        "a",
-                        "r"
-                      ]
-                    },
-                    0.0
+                    "lomd_stoppedFraction",
+                    "a",
+                    "r"
+                  ]
+                },
+                "op_mode_id": {
+                  "op": "index",
+                  "args": [
+                    "om_opModeID",
+                    "m"
+                  ]
+                },
+                "idling_mode": {
+                  "op": "enum",
+                  "args": [
+                    "operating_mode",
+                    "Idling"
                   ]
                 }
-              ]
+              }
             }
           }
         },
@@ -37869,37 +40178,64 @@
               }
             ],
             "expr": {
-              "op": "apply_expression_template",
-              "args": [],
-              "name": "link_bracket_interpolation",
-              "bindings": {
-                "low_fraction": {
+              "op": "ifelse",
+              "args": [
+                {
+                  "op": ">",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "lsl_walksSchedule",
+                        "rd"
+                      ]
+                    },
+                    0.5
+                  ]
+                },
+                {
                   "op": "index",
                   "args": [
-                    "lomd_lowFraction",
+                    "lsl_fraction",
                     "m",
                     "r",
                     "rd"
                   ]
                 },
-                "high_fraction": {
-                  "op": "index",
-                  "args": [
-                    "lomd_highFraction",
-                    "m",
-                    "r",
-                    "rd"
-                  ]
-                },
-                "factor": {
-                  "op": "index",
-                  "args": [
-                    "lomd_factor",
-                    "s",
-                    "rd"
-                  ]
+                {
+                  "op": "apply_expression_template",
+                  "args": [],
+                  "name": "link_bracket_interpolation",
+                  "bindings": {
+                    "low_fraction": {
+                      "op": "index",
+                      "args": [
+                        "lomd_lowFraction",
+                        "m",
+                        "r",
+                        "rd"
+                      ]
+                    },
+                    "high_fraction": {
+                      "op": "index",
+                      "args": [
+                        "lomd_highFraction",
+                        "m",
+                        "r",
+                        "rd"
+                      ]
+                    },
+                    "factor": {
+                      "op": "index",
+                      "args": [
+                        "lomd_factor",
+                        "s",
+                        "rd"
+                      ]
+                    }
+                  }
                 }
-              }
+              ]
             }
           }
         },
@@ -37939,37 +40275,64 @@
               }
             ],
             "expr": {
-              "op": "apply_expression_template",
-              "args": [],
-              "name": "link_bracket_interpolation",
-              "bindings": {
-                "low_fraction": {
+              "op": "ifelse",
+              "args": [
+                {
+                  "op": ">",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "lsl_walksSchedule",
+                        "rd"
+                      ]
+                    },
+                    0.5
+                  ]
+                },
+                {
                   "op": "index",
                   "args": [
-                    "lomd_lowBrakeFraction",
+                    "lsl_modeFraction",
                     "m",
                     "r",
                     "rd"
                   ]
                 },
-                "high_fraction": {
-                  "op": "index",
-                  "args": [
-                    "lomd_highBrakeFraction",
-                    "m",
-                    "r",
-                    "rd"
-                  ]
-                },
-                "factor": {
-                  "op": "index",
-                  "args": [
-                    "lomd_factor",
-                    "s",
-                    "rd"
-                  ]
+                {
+                  "op": "apply_expression_template",
+                  "args": [],
+                  "name": "link_bracket_interpolation",
+                  "bindings": {
+                    "low_fraction": {
+                      "op": "index",
+                      "args": [
+                        "lomd_lowBrakeFraction",
+                        "m",
+                        "r",
+                        "rd"
+                      ]
+                    },
+                    "high_fraction": {
+                      "op": "index",
+                      "args": [
+                        "lomd_highBrakeFraction",
+                        "m",
+                        "r",
+                        "rd"
+                      ]
+                    },
+                    "factor": {
+                      "op": "index",
+                      "args": [
+                        "lomd_factor",
+                        "s",
+                        "rd"
+                      ]
+                    }
+                  }
                 }
-              }
+              ]
             }
           }
         },
@@ -39902,8 +42265,9 @@
                     "link_avg_speed": {
                       "op": "index",
                       "args": [
-                        "lnk_linkAvgSpeed",
-                        "l"
+                        "run_linkAvgSpeed",
+                        "g",
+                        "rd"
                       ]
                     }
                   }
@@ -63361,12 +65725,26 @@
                       ]
                     },
                     {
-                      "op": "index",
+                      "op": "+",
                       "args": [
-                        "omd_userGap",
-                        "p",
-                        "s",
-                        "rd"
+                        {
+                          "op": "index",
+                          "args": [
+                            "omd_userGap",
+                            "p",
+                            "s",
+                            "rd"
+                          ]
+                        },
+                        {
+                          "op": "index",
+                          "args": [
+                            "lsl_brakeGap",
+                            "p",
+                            "s",
+                            "rd"
+                          ]
+                        }
                       ]
                     }
                   ]
