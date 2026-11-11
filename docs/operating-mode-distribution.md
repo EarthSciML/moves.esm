@@ -917,8 +917,10 @@ copies them to road type 1 for every selected start polProcess whose
 every one reproduced. The join reads no `linkID` and no `polProcessID` from
 `OpModeDistribution` -- a row stated for 202 also feeds 9102 -- so the
 `INSERT IGNORE` keeps the first of rows that differ only there; the snapshot
-states them equal, and the onroad model counts a disagreement rather than
-choosing (`sod_projectConflicts`). The same snapshot's road-type-1 partition
+states them equal. Where they differ (`project-startconflict`, PLAN.md
+§7.3.60) MOVES keeps the row WRITTEN first -- a MyISAM scan returns rows of one
+key in insertion order -- and the onroad model takes the first matching row in
+the input table's order (`sod_projectFirst`). The same snapshot's road-type-1 partition
 also holds two tire-wear rows (11710, mode 400), which are
 `AverageSpeedOperatingModeDistributionGenerator`'s project branch writing at its
 off-network link's road type; §6.5 leaves them out by polProcess, and the
