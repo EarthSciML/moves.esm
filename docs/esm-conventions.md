@@ -9128,3 +9128,45 @@ truck cell. The weight of a process that lives on one kind of road is therefore
 written with its road's occurrence flag in it, as a factor of exactly 1 where it
 occurs: the emitted numbers of every earlier run are unchanged to the byte, and
 a child can no longer read what MOVES never wrote.
+
+## 113. A script that runs once per year adjusts a table the earlier years still hold **[PLAN.md §7.3.61; `userdb-hotelling-multiyear` 15,616 of 15,616, key-exact, on the pooled chain's third evaluation; the runs that compute hotelling unchanged]**
+
+§109 ported AdjustHotelling.sql for one calendar year and refused the rest, on the
+reading that "TAG adjusts one year at a time over a table that still holds the
+earlier years' cut rows". The capture at two years confirmed the reading and
+priced it: adjusting the second year alone misses by up to 52%. Three rules came
+out of it.
+
+1. **Ask what a generator's table is cleared BY.** TotalActivityGenerator writes
+   `hotellingHours` once per (zone, year) and clears it only when the process
+   changes; the master loop runs process > location > year. So a per-year script
+   sees every earlier year's rows, already adjusted and cut. A block whose
+   defaults and rewrite carry no `yearID` (the hour, age and month blocks) pools
+   the years; a block that carries it (hotellingHoursPerDay) does not. The
+   earlier year's output is unaffected -- it was consumed before the later
+   year's TAG ran -- so the first year is the one-year computation and only the
+   later years move.
+2. **Port the pool from the earlier years' OWN chain, not from the variable that
+   uses the pool.** `hot_hours` at year 2 reads year 1's hours; written as one
+   variable over the year axis it would read itself, a cycle. The one-year chain
+   is a separate variable (`hot_ownHours`) that is exact for year 1, and the
+   pooled chain reads it -- exact while there is ONE earlier year. A third year
+   would need the second year's pooled rows and the first year's rescaled twice:
+   a recurrence with a table-valued state, which is refused
+   (`hot_adjustmentRowsUnported`), not approximated.
+3. **A ratio that cancels hides a count and a cut.** The one-year defaults are
+   ratios over hours that all carry the same day shares, so two things were wrong
+   in them and invisible: each day's full-day hours were counted once per
+   selected hour (every activity row of a day's cell carries the day), and
+   `hotellingHourFraction` was applied at all 24 hours although the input merge
+   keeps only the RunSpec's hours. Pooling with per-cell earlier rows makes both
+   visible -- 1.0% and 1e-4 -- so the pooled sums divide by `hot_dayCellCount`,
+   and `hot_hourFractionRows` counts a row only at a selected hour. The second
+   fix moves `scale-county-idle-adjust` by at most 4e-14 relative, the
+   reassociation of a ratio that was already right; nothing else moves.
+
+A multi-year run with these tables exists only in DEFAULT domain, through a user
+input database: MOVES refuses a county or project domain database with two
+calendar years (ImporterManager.java:2311). In this model a user database is a
+domain document like a county one -- the merges are the same merge -- with
+`runspecdomain` DEFAULT.
