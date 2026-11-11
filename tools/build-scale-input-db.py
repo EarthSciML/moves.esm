@@ -130,7 +130,9 @@ def stated_rows(sql):
         else:
             sys.exit("%s: INSERT without a column list and no CREATE TABLE column list" % table)
         for tup in re.findall(r"\(((?:[^()']|'[^']*')*)\)", m.group(3)):
-            values = [literal(v) for v in re.findall(r"'[^']*'|[^,]+", tup)]
+            # A quoted value is matched whole, after any leading blank, so a
+            # comma inside it does not split it (project-useromd's link name).
+            values = [literal(v) for v in re.findall(r"\s*'[^']*'|[^,]+", tup)]
             if len(values) != len(cols):
                 sys.exit("%s: %d values for %d columns" % (table, len(values), len(cols)))
             out.setdefault(table, (cols, []))[1].append(values)

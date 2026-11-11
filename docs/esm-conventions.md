@@ -9104,3 +9104,27 @@ hotelling tables already had (§92). The fixture catalogue reads the execution d
 where `totalIdleFraction` is AdjustTotalIdleFraction's OUTPUT (a snapshot table is its last
 writer): applying the multipliers to it again is wrong, and harmless only while every
 snapshot it serves has them empty.
+
+## 110. A copy has its parents' generators, and a parent's block is empty where its process does not occur **[PLAN.md §7.3.58; `project-crankcase` 3252 of 3252, `project-refueling` 418 of 418, both key-exact; seventeen earlier runs byte-identical]**
+
+Two MOVES calculators write no activity and no operating modes of their own:
+CrankcaseEmissionCalculator and RefuelingLossCalculator each take every row of
+their parents at its own link and road type and multiply it by a ratio. So the
+question "does this domain support process X" has no answer of X's own for them:
+it is the parents' answer. The model says that once, as a classification
+(`rspp_copiesParentRows`), and a domain's licence (`rspp_hasProjectGenerator`)
+admits the class rather than naming its members, so a third copy calculator
+inherits the rule by being classified, not by a new arm in every domain test.
+
+The rule has a precondition the chain did not used to need, because no captured
+run reached it: a parent block on a road type where its process does not occur
+must carry NOTHING, not merely be left out of the output. `rspp_isEmitted` and
+`ppr_occursOnRoad` decide which blocks reach MOVESOutput; a chain reads its
+parents' quantities by block, whether emitted or not. Starts were already
+weighted by `ppr_occursOnRoad`; hotelling was not, and it showed only when
+ProjectTAG's per-zone hotelling hours gave an extended-idle energy block on road
+types 4 and 5 a quantity that refueling then copied -- 25-63% on every long-haul
+truck cell. The weight of a process that lives on one kind of road is therefore
+written with its road's occurrence flag in it, as a factor of exactly 1 where it
+occurs: the emitted numbers of every earlier run are unchanged to the byte, and
+a child can no longer read what MOVES never wrote.

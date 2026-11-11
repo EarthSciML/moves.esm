@@ -85,5 +85,6 @@ fi
 sed 's/^/  /' <<<"$out"
 echo "  NOTE: the non-positive-speed arm on a link with a source-type share, two"
 echo "        links on one road type and a missing age distribution are"
-echo "        unexercised; SHP, SourceHours and hotelling hours are reproduced"
-echo "        here and not ported -- see $SPEC section 6.6."
+echo "        unexercised -- see $SPEC section 6.6. All five outputs are"
+echo "        ported (act_projectSho, st_projectStarts, act_projectShp,"
+echo "        act_projectSourceHours, hot_projectHours)."
