@@ -1697,6 +1697,11 @@ C7P_DOMAIN=moves-onroad.esm
 # AdjustTotalIdleFraction.sql's override and multipliers on off-network idle's
 # `totalIdleFraction`, and AdjustHotelling.sql's hour, age and month blocks on
 # TAG's hotelling hours, over two months, both day types and two hours.
+# `userdb-hotelling-multiyear` is the same database at TWO calendar years, merged
+# into a DEFAULT-domain run as a user input database because MOVES refuses a
+# county domain database with two (PLAN.md §7.3.61, conventions §113): TAG
+# adjusts 2020's hotelling hours over a table that still holds 2015's, and every
+# AdjustHotelling default is taken over both years' rows.
 # `expand-multiyear` is the first run at two calendar years (PLAN.md §7.3.44,
 # conventions §98): the year is the cohort grid's and the activity relation's
 # slowest factor and a trailing axis of every other per-year relation, so the
