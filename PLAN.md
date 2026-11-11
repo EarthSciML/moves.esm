@@ -6250,6 +6250,15 @@ runspecs. `rates-project-chained` evaluates in 4.3 min at 4.1 GB peak,
 `rates-project-evap-links` in 1.7 min and `rates-project-useromd` in 2.6 min at
 2.2-2.3 GB.
 
+**The suite.** `./run-tests.sh` in the worktree: 703 ok and 1 FAIL against main's
+668 ok. That is +36 for the three runspecs (each has seven table and shape checks,
+three fixture-stage table lines, and a validate and round-trip line), and the one
+FAIL was the `no-county-join` probe. It counts the county key pairs it deletes,
+and `rto_linkID` and `rto_distance` add two (21 to 23), so
+`tools/make-runspec-probe.py` now expects 23. Run directly, the probe document
+writes, evaluates and moves `expand-counties`. So the expected total is 704 ok /
+0 FAIL. Wall time was 2 h 43 min (8,764 s user CPU) and peak RSS 7.1 GB.
+
 ### 7.4 Upstream asks
 
 **None is blocking.** This section has said "still none", "already exists,
