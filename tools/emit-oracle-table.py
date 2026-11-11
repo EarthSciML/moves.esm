@@ -11,6 +11,8 @@ relation of `onroad/model.esm` under a prefix:
   rateperhour       rph_    > the output relation, each a SUBSET of it
   ratepervehicle    rpv_   /
   startspervehicle  spv_   cohorts x counties x months x day types
+  movesoutput_step  mos_   MOVESOutput at a Month or Year output time step:
+                           the output relation's cells summed (PLAN.md §7.3.63)
 
 A table over the output relation computes only what is NEW to it -- its value
 and its membership -- and reads every other column it carries from the
@@ -72,7 +74,13 @@ PREFIX = {
     "ratepervehicle": "rpv_",
     "rateperprofile": "rpp_",
     "startspervehicle": "spv_",
+    "movesoutput_step": "mos_",
 }
+# A table name that is not the snapshot's: the oracle it is compared against.
+# `movesoutput_step` is MOVESOutput at a coarser `<outputtimestep>` than the
+# output relation's cells (PLAN.md §7.3.63) -- the run's oracle source carries
+# the `output-time-step` tag -- emitted from `mos_*` into the movesoutput file.
+ORACLE_FILE = {"movesoutput_step": "movesoutput"}
 # A table over the output relation may read a column it does not compute from
 # these, in order. Only `out_` itself and the tables laid over `output_rows` do.
 SHARED = {"rps_": ["rto_", "out_"], "rph_": ["rto_", "out_"], "rpv_": ["rto_", "out_"],
@@ -105,7 +113,7 @@ def table_fields(names: set[str], snapshots, run, table):
     member = f"{prefix}inTable"
     fields = [(n, n[len(prefix):]) for n in own if n != member]
     have = {col for _, col in fields}
-    for col in oracle_columns(snapshots, run, table):
+    for col in oracle_columns(snapshots, run, ORACLE_FILE.get(table, table)):
         if col in have:
             continue
         for p in SHARED.get(prefix, []):
@@ -267,7 +275,7 @@ def main() -> int:
     if a.shape:
         write_esm_csv(grid, a.shape_field, a.shape)
     for t, fields in plan.items():
-        path = a.output or a.outdir / f"{run}.{t}.actual.csv"
+        path = a.output or a.outdir / f"{run}.{ORACLE_FILE.get(t, t)}.actual.csv"
         kept, total = write_table(grid, fields, path)
         print(f"{t}: {kept} of {total} {PREFIX[t]}* rows", file=sys.stderr)
     return 0
