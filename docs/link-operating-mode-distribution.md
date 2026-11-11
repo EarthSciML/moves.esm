@@ -780,7 +780,12 @@ def load(root, snap):
     return {
         "links": sorted(links, key=lambda r: r["linkID"]),
         "physics_of": physics_of,
-        "schedule_speed": {r["driveScheduleID"]: num(r["averageSpeed"])
+        # driveSchedule.averageSpeed is a FLOAT column: the interpolation
+        # factor is computed from the binary32 speeds. With the decimal text
+        # instead, a long-haul truck on a 25 mph link (brackets 19.4 and 25.6)
+        # lands one ulp high on two modes, which the six-digit rendering shows
+        # (PLAN.md §7.3.58).
+        "schedule_speed": {r["driveScheduleID"]: f32(num(r["averageSpeed"]))
                            for r in tab(root, snap, "driveschedule")},
         "assoc": tab(root, snap, "drivescheduleassoc"),
         "bands": op_mode_bands(tab(root, snap, "operatingmode")),
@@ -966,6 +971,12 @@ def is_project(fixtures, snap):
     return bool(re.search(r'<modeldomain value="PROJECT"', open(path).read()))
 
 
+def subscribes(root, snap):
+    """Whether the run carries a pollutant-process of running exhaust or brake wear."""
+    pps = tab(root, snap, "runspecpollutantprocess") or []
+    return any(int(r["polProcessID"]) % 100 in (1, 9) for r in pps)
+
+
 def main(root):
     fixtures = os.path.join(os.path.dirname(root.rstrip("/")), "fixtures")
     snaps = sorted(d for d in os.listdir(root) if os.path.isdir(os.path.join(root, d)))
@@ -993,10 +1004,13 @@ def main(root):
         if omd is None:
             continue                      # not an execution database this port models
         swept += 1
-        project = is_project(fixtures, snap)
+        project = is_project(fixtures, snap) and subscribes(root, snap)
         # THE SCHEDULING PREDICATE. LinkOMDG is on the DO_RATES_FIRST whitelist
         # (MOVESInstantiator.java:1462) but only the PROJECT domain gives it a
         # link to run on, and `OpModeDistribution` is its only output table.
+        # It subscribes to running exhaust and brake wear alone
+        # (java:65-79), so a PROJECT run of neither -- `rates-project-evap`,
+        # the evaporative processes -- never runs it.
         # User-input rows are not its output, so they do not count.
         non_empty = any(r["isUserInput"] != "Y" for r in omd)
         if non_empty != project:
