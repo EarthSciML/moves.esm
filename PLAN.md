@@ -6245,7 +6245,7 @@ counted by `run_domainUnported`:
 refueling runs (`process-crankcase-running`, `-start`, `-start-single`,
 `-extidle`, `-extidle-single`, `process-refueling`) were re-emitted with
 `tools/emit-oracle-table.py` and `cmp`'d against the main tree's
-`.fixtures-run/`: REGRESSION_RESULT. The Python binding loads the three new
+`.fixtures-run/`: every relation, shape and table file byte-identical (26 runs, 130 files), after renaming the two RatePerDistance helpers out of the `rpd_` prefix -- `tools/emit-oracle-table.py` emits every `rpd_*` variable as a column, and the first names made every RatePerDistance file two columns wider. The Python binding loads the three new
 runspecs. `rates-project-chained` evaluates in 4.3 min at 4.1 GB peak,
 `rates-project-evap-links` in 1.7 min and `rates-project-useromd` in 2.6 min at
 2.2-2.3 GB.
