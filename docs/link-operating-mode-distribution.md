@@ -24,6 +24,12 @@ still describe that base; where they disagree with §6.5 and §7.1, those two ar
 model's port is keyed by road type (`lomd_*` in `onroad/model.esm`) and reproduces `project-links` and
 `project-hotelling` end to end.
 
+**Step 100's first arm is reproduced since 2026-11-11** (PLAN.md §7.3.62): a link with
+`driveScheduleSecondLink` rows, or with `linkAvgSpeed <= 0`, is WALKED second by second rather than
+bracketed -- `project-driveschedule` (two user schedules) and `project-zerospeed` (the thirty idle seconds the
+generator writes for a queue). §2.1 has what the arm does, §6.5 reproduces it, and the onroad model ports it as
+`lsec_*` and `lsl_*`.
+
 ---
 
 ## 0. The generator at a glance
@@ -100,11 +106,13 @@ statement about the run, which is what the predicate is about.
 
 ### 1.3 What is NOT an input
 
-* **`driveScheduleSecondLink` is not read as input, and in the snapshot it is
-  empty.** The generator writes it (the bracketing schedules, under negative
-  pseudo-link ids) and deletes what it wrote before finishing. The captured
-  table is the aftermath, not the intermediate; this port does not read it,
-  which is why the 0 rows there are not a problem.
+* **`driveScheduleSecondLink` is an input only when the user states it.** The
+  generator writes the bracketing schedules into it under negative pseudo-link
+  ids and deletes them (java:679, 717, 887), so on a bracketed link the
+  captured table is the aftermath, empty. A user's rows under the real linkID
+  are step 100's first arm (§2.1), and so are the thirty idle seconds the
+  generator writes itself for a zero-speed link -- which it does NOT delete, so
+  `project-zerospeed`'s execution database still holds them.
 * **`OpModeDistribution` is not read as input either**, though the generator
   checks it: an existing row for the link with `(polProcessID % 100) = 1` makes
   the generator stand down and use the user's distribution
@@ -140,8 +148,26 @@ There is a fourth arm hidden in the second: when `linkAvgSpeed <= 0` the
 generator **writes itself a drive schedule** — thirty seconds of zero speed at
 zero grade, commented in the Java as "with 0 speed, brakes are likely applied
 rather than using the engine to counteract any grade" — and then takes the
-first arm. The fixture's link has `linkAvgSpeed` 30, so the corpus exercises
-the second arm only. §8.1.
+first arm (java:343-378).
+
+**The first arm, measured on `project-driveschedule` and `project-zerospeed`
+(PLAN.md §7.3.62).** `calculateOpModeFractionsCore` (java:922-1183) runs on the
+real link, for every RunSpec source type and physics row, with no brackets and
+no interpolation. Before anything else it writes the schedule's `avg(speed)`
+and `avg(grade)` into the Link row (java:937-948); the generator subscribes at
+`GENERATOR+1` "because this generator fills Link.linkAvgSpeed ... needed by
+ProjectTAG to do SHO calculations" (java:71-79), so SHO, its distance, tire
+wear's project mode and the rates copy's `avgBinSpeed` all read the schedule's
+average, not the stated speed: 21.1055 for link 1 (stated 30), 50.8433 for link
+2 (stated 45), and the snapshot's Link carries them. Each second's grade is its
+OWN: At0 adds `a.grade`'s term, At1 `b.grade`'s, At2 `c.grade`'s, and VSP
+`a.grade`'s (java:996-1006); and `c` and `d` are LEFT JOINed through `b` and
+`c` (java:1009-1011), so At1 is the previous second's At0 and At2 its At1, a
+gap zeroing both. The fan-out writes under the TEMP source types, and the
+`tempExistingOpMode` anti-join joins on them (java:1114-1121), so it never
+matches a user row. On a zero-speed link every second is mode 501: running's
+distribution is mode 1 at 1, and brake wear's stays mode 501 under the temp
+source types, so the link has NO brake-wear row.
 
 ### 2.2 L-2 — the brackets
 
@@ -666,39 +692,49 @@ def assign_op_mode(bands, speed, vsp, at0, at1, at2):
     return -1
 
 
-def core_distribution(seconds, grade, physics, bands, omppa, hourdays):
-    """calculateOpModeFractionsCore on one pseudo-link for ONE physics row
-    (one temp source type), then SourceTypePhysics' renumbering.
+def grade_terms(grade):
+    """(9.81/0.44704 x sin(atan(g/100)), 9.81 x sin(atan(g/100))): a grade's
+    acceleration-equivalent and its VSP force term."""
+    sine = math.sin(math.atan(grade / 100.0))
+    return 9.81 / 0.44704 * sine, 9.81 * sine
 
-    `seconds` is [(secondID, speed)] sorted. `grade` is the real link's
-    linkAvgGrade, copied onto every second of every bracketing schedule.
+
+def core_distribution(seconds, physics, bands, omppa, hourdays):
+    """calculateOpModeFractionsCore on one link for ONE physics row (one temp
+    source type), then SourceTypePhysics' renumbering.
+
+    `seconds` is [(secondID, speed, grade)] sorted: a bracketing schedule
+    copied at the real link's linkAvgGrade (java:692), a user's
+    driveScheduleSecondLink rows with their own grades, or the thirty idle
+    seconds the generator writes for a zero-speed link (java:355-361).
+    Each second's acceleration carries THAT second's grade: At0 a's, At1 b's,
+    At2 c's (java:996-1001), and the VSP a's.
     Returns {(sourceTypeID, polProcessID, hourDayID, opModeID): fraction}.
     """
     a_term, b_term, c_term = physics["A"], physics["B"], physics["C"]
     mass, fmf = physics["mass"], physics["fmf"]
-    grade_rad = math.atan(grade / 100.0)
-    grade_accel = 9.81 / 0.44704 * math.sin(grade_rad)
-    grade_force = 9.81 * math.sin(grade_rad)
 
-    speed_at = dict(seconds)
+    at = {sec: (speed, grade) for sec, speed, grade in seconds}
     counts = collections.Counter()
-    for sec, speed in seconds:
-        p1 = speed_at.get(sec - 1)
-        p2 = speed_at.get(sec - 2)
-        p3 = speed_at.get(sec - 3)
+    for sec, speed, grade in seconds:
+        # b, c and d are each LEFT JOINed to the previous one (java:1009-1011),
+        # so a second is reached only through every second after it.
+        b = at.get(sec - 1)
+        c = at.get(sec - 2) if b else None
+        d = at.get(sec - 3) if c else None
         # `coalesce((a.speed-b.speed)+grade, 0.0)`: a missing neighbour makes the
         # whole sum NULL, so the fallback is 0.0 and NOT a forward difference.
         # The Java's @algorithm comment claims a `speed[t+1]-speed[t]` second
         # argument; the SQL it documents has no such argument. The SQL wins.
-        at0 = (speed - p1) + grade_accel if p1 is not None else 0.0
-        at1 = (p1 - p2) + grade_accel if None not in (p1, p2) else 0.0
-        at2 = (p2 - p3) + grade_accel if None not in (p2, p3) else 0.0
+        at0 = (speed - b[0]) + grade_terms(grade)[0] if b else 0.0
+        at1 = (b[0] - c[0]) + grade_terms(b[1])[0] if c else 0.0
+        at2 = (c[0] - d[0]) + grade_terms(c[1])[0] if d else 0.0
 
         ms = speed * 0.44704                      # mi/h -> m/s
-        dv = (speed - p1) if p1 is not None else 0.0
+        dv = (speed - b[0]) if b else 0.0
         vsp = (ms * (a_term + ms * (b_term + c_term * ms))
                + mass * ms * dv * 0.44704
-               + mass * grade_force * ms) / fmf
+               + mass * grade_terms(grade)[1] * ms) / fmf
         counts[assign_op_mode(bands, speed, vsp, at0, at1, at2)] += 1
 
     total = len(seconds)
@@ -756,11 +792,31 @@ def load(root, snap):
              "fmf": num(p["fixedMassFactor"]), "offset": p["opModeIDOffset"],
              "real": p["realSourceTypeID"], "temp": p["tempSourceTypeID"]})
 
+    # driveScheduleSecondLink at the end of the run: the user's schedules and
+    # the thirty idle seconds the generator wrote for a zero-speed link
+    # (java:355-361), both under the real linkID. The bracketing copies it
+    # wrote under -driveScheduleID are deleted (java:887). speed and grade
+    # are FLOAT columns, narrowed here as MariaDB stores them.
+    schedule_of = collections.defaultdict(list)
+    for r in tab(root, snap, "driveschedulesecondlink") or []:
+        assert r["linkID"] > 0, f"{snap}: a bracketing copy survived in driveScheduleSecondLink"
+        schedule_of[r["linkID"]].append((r["secondID"], f32(num(r["speed"])), f32(num(r["grade"]))))
+    for k in schedule_of:
+        schedule_of[k].sort()
+
     seconds_of = collections.defaultdict(list)
+    seconds_of_double = collections.defaultdict(list)
     for r in tab(root, snap, "driveschedulesecond"):
-        seconds_of[r["driveScheduleID"]].append((r["second"], num(r["speed"])))
+        seconds_of_double[r["driveScheduleID"]].append((r["second"], num(r["speed"])))
+        # driveScheduleSecond.speed is a FLOAT column, and the generator copies
+        # it into driveScheduleSecondLink's FLOAT speed (java:692): binary32.
+        # Schedule 354's second 56 (64.9 -> 63.9 mph) is -1.000000000000007 in
+        # double and exactly -1.0 in binary32, so which one the brake test's
+        # `At0 < -1` sees decides that second (PLAN.md §7.3.62).
+        seconds_of[r["driveScheduleID"]].append((r["second"], f32(num(r["speed"]))))
     for k in seconds_of:
         seconds_of[k].sort()
+        seconds_of_double[k].sort()
 
     omppa = collections.defaultdict(list)
     for r in tab(root, snap, "opmodepolprocassoc"):
@@ -791,6 +847,8 @@ def load(root, snap):
         "bands": op_mode_bands(tab(root, snap, "operatingmode")),
         "operating_mode": tab(root, snap, "operatingmode"),
         "seconds_of": seconds_of,
+        "seconds_of_double": seconds_of_double,
+        "schedule_of": schedule_of,
         "omppa": omppa,
         "hourdays": sorted({r["hourDayID"] for r in tab(root, snap, "runspechourday")}),
         "run_source_types": sorted({r["sourceTypeID"] for r in tab(root, snap, "runspecsourcetype")}),
@@ -800,6 +858,11 @@ def load(root, snap):
         "user_rows": user,
         "existing": {(r["sourceTypeID"], r["linkID"], r["polProcessID"]) for r in user},
     }
+
+
+# The schedule the generator writes for a link with linkAvgSpeed <= 0
+# (java:355-361): seconds 1..30, speed 0, grade 0.
+IDLE_SCHEDULE = [(i, 0.0, 0.0) for i in range(1, 31)]
 
 
 def interpolate(lowd, highd, st, modes, factor, as_float=True):
@@ -849,8 +912,30 @@ def link_distribution(ctx):
         # linkAvgSpeed > 0, no-drive-schedule path (step 105) is reproduced.
         if any(l == link_id and pp % 100 == 1 for (_, l, pp) in ctx["existing"]):
             continue
-        if not speed or speed <= 0:
+        # Step 100's first arm (java:309-389): a link with driveScheduleSecondLink
+        # rows -- the user's, or for linkAvgSpeed <= 0 the thirty seconds of
+        # idling at grade 0 the generator writes itself -- is walked second by
+        # second for every RunSpec source type, with no brackets. The core first
+        # writes the schedule's average speed and grade back into Link
+        # (java:937-948), so the snapshot's Link carries avg(speed) here.
+        schedule = ctx["schedule_of"].get(link_id)
+        if schedule:
+            if not speed or speed <= 0:
+                assert schedule == IDLE_SCHEDULE, f"link {link_id}: speed {speed}, not the generator's idle schedule"
+            rows = {}
+            for st in ctx["run_source_types"]:
+                for physics in ctx["physics_of"].get(st, ()):
+                    rows.update(core_distribution(schedule, physics, ctx["bands"], ctx["omppa"],
+                                                  ctx["hourdays"]))
+            # `left join tempExistingOpMode` (java:1114-1121) joins on the TEMP
+            # source type the core writes under, which no user row carries.
+            produced[link_id] = rows
+            average = f32(sum(v for _, v, _ in schedule) / len(schedule))
+            detail.append({"link": link_id, "schedule": len(schedule), "avgSpeed": speed,
+                           "scheduleAverage": average, "roadTypeID": road_type,
+                           "idle": schedule == IDLE_SCHEDULE})
             continue
+        assert speed and speed > 0, f"link {link_id}: speed {speed} and no schedule"
 
         # Brackets are chosen per REAL source type (driveScheduleAssoc is
         # keyed by it); the RunSpec's source types are the ones the core
@@ -880,9 +965,18 @@ def link_distribution(ctx):
             rows = {}
             for st in sorted(sts):
                 for physics in ctx["physics_of"][st]:
-                    rows.update(core_distribution(ctx["seconds_of"][sched], grade, physics,
-                                                  ctx["bands"], ctx["omppa"], ctx["hourdays"]))
+                    rows.update(core_distribution([(s, v, grade) for s, v in ctx["seconds_of"][sched]],
+                                                  physics, ctx["bands"], ctx["omppa"], ctx["hourdays"]))
             produced[-sched] = rows
+            # The binary32 reading, decided from the other side: the same core
+            # over the decimal speeds read as doubles.
+            alt = {}
+            for st in sorted(sts):
+                for physics in ctx["physics_of"][st]:
+                    alt.update(core_distribution([(s, v, grade) for s, v in ctx["seconds_of_double"][sched]],
+                                                 physics, ctx["bands"], ctx["omppa"], ctx["hourdays"]))
+            ctx.setdefault("double_misses", set()).update(
+                (-sched, k) for k in set(rows) | set(alt) if rows.get(k) != alt.get(k))
 
         rows = {}
         for st, (low, high, oob_lo, oob_hi) in sorted(chosen.items()):
@@ -996,6 +1090,11 @@ def main(root):
     tire_cells = tire_exact = 0
     tire_missing = tire_extra = 0
     brackets_seen = []
+    schedules_seen = []
+    schedule_links = {}
+    schedule_cells = schedule_exact = 0
+    speed_bad = []
+    double_speed_misses = 0
     rates_seen = []
     tire_seen = []
 
@@ -1024,7 +1123,17 @@ def main(root):
             sched_bad.append((snap, non_empty, "no link table"))
             continue
         produced, detail = link_distribution(ctx)
-        brackets_seen += [(snap, d) for d in detail]
+        double_speed_misses += len(ctx.get("double_misses", ()))
+        schedule_links[snap] = {d["link"] for d in detail if "schedule" in d}
+        brackets_seen += [(snap, d) for d in detail if "schedule" not in d]
+        for d in detail:
+            if "schedule" not in d:
+                continue
+            schedules_seen.append((snap, d))
+            # The core's write-back (java:937-948): the snapshot's Link is the
+            # table after it, so its linkAvgSpeed is the schedule's average.
+            if print6(d["scheduleAverage"]) != d["avgSpeed"]:
+                speed_bad.append((snap, d["link"], d["avgSpeed"], d["scheduleAverage"]))
 
         # The reference: this generator's rows only. isUserInput='Y' rows
         # (the start-mode 101..108 distribution a user supplied for an
@@ -1052,6 +1161,9 @@ def main(root):
                 exact += ok
                 if ref[k]:
                     worst = max(worst, abs(pred[k] - ref[k]) / abs(ref[k]))
+                if link_id in schedule_links.get(snap, ()):
+                    schedule_cells += 1
+                    schedule_exact += ok
                 if link_id < 0:
                     # Every pseudo-link cell is a DECIMAL(.,5) quotient (or a
                     # FLOAT sum of two of them) narrowed once to FLOAT.
@@ -1063,6 +1175,8 @@ def main(root):
 
         # The FLOAT-vs-double hypothesis for the interpolation, asserted apart.
         for d in detail:
+            if "schedule" in d:
+                continue
             lowd, highd = produced[-d["low"][1]], produced[-d["high"][1]]
             alt = interpolate(lowd, highd, d["sourceTypeID"],
                               ctx["modes_of"][d["sourceTypeID"]], d["factor"], as_float=False)
@@ -1111,6 +1225,10 @@ def main(root):
               % (snap, d["link"], d["sourceTypeID"], d["low"][1], d["low"][0],
                  d["high"][1], d["high"][0], d["factor"],
                  "  OUT OF BOUNDS" if d["oob_low"] or d["oob_high"] else ""))
+    for snap, d in schedules_seen:
+        print("  schedule %-21s link %-2d road type %d: %d seconds%s, average %g, Link.linkAvgSpeed %g"
+              % (snap, d["link"], d["roadTypeID"], d["schedule"],
+                 " (the generator's idle schedule)" if d["idle"] else "", d["scheduleAverage"], d["avgSpeed"]))
     for snap, link_id, road_type, n in rates_seen:
         print("  rates    %-18s last on-network link %d, road type %d: %d rows"
               % (snap, link_id, road_type, n))
@@ -1120,6 +1238,8 @@ def main(root):
     print("  opModeDistribution   %4d cells (%d on real links), %d missing / %d extra"
           % (cells, real_cells, missing, extra))
     print("  reproduced exactly   %4d of %d under FLOAT storage" % (exact, cells))
+    print("  drive-schedule links %4d cells, %d exact, on %d links"
+          % (schedule_cells, schedule_exact, len(schedules_seen)))
     print("  worst relative error %.4g" % worst)
     print("  user-input rows      %4d excluded (isUserInput='Y', not this generator's)"
           % user_rows)
@@ -1129,6 +1249,8 @@ def main(root):
           % (brake501_exact, brake501_cells))
     print("  the f64 alternative  misses %d of %d interpolated cells"
           % (f64_would_miss, real_cells))
+    print("  national speeds read in double move %d bracketing cells (binary32 is what MOVES stores)"
+          % double_speed_misses)
     print("  ratesOpModeDistribution copy %d cells, %d exact, %d missing / %d extra"
           % (rates_cells, rates_exact, rates_missing, rates_extra))
     print("  tire wear 11710      %d cells, %d exact, %d missing / %d extra"
@@ -1137,6 +1259,15 @@ def main(root):
           % (swept, ran, len(sched_bad)))
 
     bad = []
+    # driveScheduleSecond.speed is a FLOAT column, and the corpus decides it:
+    # schedule 354's second 56 brakes in double and not in binary32.
+    if double_speed_misses < 1:
+        bad.append("reading the national speeds in double now reproduces every cell, "
+                   "so the binary32 reading is no longer distinguishable here")
+    if speed_bad:
+        bad.append("Link.linkAvgSpeed is not the schedule's average on %s" % speed_bad[:4])
+    if schedule_cells < FLOOR_SCHEDULE:
+        bad.append("only %d drive-schedule cells compared, expected >= %d" % (schedule_cells, FLOOR_SCHEDULE))
     if missing or extra:
         bad.append("key set: %d missing, %d extra" % (missing, extra))
     if exact != cells:
@@ -1187,14 +1318,16 @@ def main(root):
 
 # FLOORS, not equalities: silent skipping can only make them go down, and the
 # corpus is shared with the other rungs and grows (docs/esm-conventions.md
-# §35.5). Measured 2026-11-09 over 4 PROJECT runs.
-FLOOR_CELLS = 3650
-FLOOR_DECIMAL = 2378
-FLOOR_BRAKE501 = 16
-FLOOR_RATES = 549
-FLOOR_TIRE = 2
-FLOOR_SWEPT = 66
-FLOOR_RAN = 4
+# §35.5). Measured 2026-11-09 over 4 PROJECT runs; raised 2026-11-11 over 17,
+# three of them walked schedules (PLAN.md §7.3.62).
+FLOOR_CELLS = 41224
+FLOOR_DECIMAL = 23862
+FLOOR_BRAKE501 = 133
+FLOOR_RATES = 4932
+FLOOR_TIRE = 12
+FLOOR_SWEPT = 82
+FLOOR_RAN = 17
+FLOOR_SCHEDULE = 1452
 
 main(sys.argv[1])
 ```
@@ -1214,21 +1347,25 @@ copy.
 
 ### 7.1 The measured result
 
-`./run-link-omd-oracle.sh`, over all 66 snapshots carrying an execution
-database (2026-11-09):
+`./run-link-omd-oracle.sh`, over all 82 snapshots carrying an execution
+database (2026-11-11, PLAN.md §7.3.62; the 2026-11-09 figures were 3,650 cells over 66):
 
 | | |
 |---|---|
-| `OpModeDistribution` | **3,650** cells (1,272 on real links, 2,378 on pseudo-links), 0 missing / 0 extra |
-| reproduced exactly | **3,650 of 3,650** under FLOAT storage |
+| `OpModeDistribution` | **41,224** cells (17,362 on real links), 0 missing / 0 extra |
+| reproduced exactly | **41,224 of 41,224** under FLOAT storage |
+| walked schedules | **1,452** cells on 3 links, every one exact: `project-driveschedule` links 1 and 2 (user schedules), `project-zerospeed` link 2 (the idle schedule) |
 | worst relative error | **4.613 × 10⁻⁶** |
-| user-input rows excluded | **32** (`project-links`, link 3, `isUserInput='Y'`) |
-| the five-decimal quotient | bit-exact on **2,378 of 2,378** bracketing cells |
-| brake 11609 mode 501 | **16 of 16** pseudo-link cells (4 schedules × temp source types 100…103) |
-| the double alternative | misses **32 of 1,272** interpolated cells |
-| `RatesOpModeDistribution` copy | **549** cells, 549 exact including `avgBinSpeed`, 0 missing / 0 extra |
-| tire wear 11710 | **2** cells, 2 exact, 0 missing / 0 extra |
-| scheduling predicate | **66** snapshots swept, **4** run the generator, **0** disagreeing |
+| user-input rows excluded | **893** (`isUserInput='Y'`) |
+| the five-decimal quotient | bit-exact on **23,862 of 23,862** bracketing cells |
+| brake 11609 mode 501 | **133 of 133** pseudo-link cells (temp source types) |
+| the double alternative | misses **2,308 of 17,362** interpolated cells |
+| national speeds in double | move **88** bracketing cells (schedule 354; §7.3 item 5) |
+| `RatesOpModeDistribution` copy | **4,932** cells, all exact including `avgBinSpeed`, 0 missing / 0 extra |
+| tire wear 11710 | **12** cells, 12 exact, 0 missing / 0 extra |
+| scheduling predicate | **82** snapshots swept, **17** run the generator, **0** disagreeing |
+
+The table below is the 2026-11-09 corpus's.
 
 Per (link, source type), the brackets and factors:
 
@@ -1302,18 +1439,31 @@ fail rather than pass vacuously.
    is not precision-sensitive **in this corpus** (§8.4).
 4. **`atan`/`sin` of the grade** — exercised only at grade 0, where both are
    exactly 0. Not precision-sensitive here, and not checked (§8.4).
+5. **The FLOAT schedule speeds** — `driveScheduleSecond.speed` is a FLOAT
+   column, copied into driveScheduleSecondLink's FLOAT speed (java:692), so the
+   brake test compares differences of binary32 values. National schedule 354's
+   second 56 (64.9 -> 63.9 mph) is -1.000000000000007 in double and exactly
+   -1.0 stored, and `At0 < -1` makes it braking in double only.
+   `project-driveschedule`'s long-haul trucks on link 3 bracket at 354 and
+   decide it: §6.5 reads every schedule speed as binary32 and reproduces all
+   41,224 cells, and reading the national speeds in double moves 88. The model
+   reads them through `float_column_value` (`lomd_storedSpeed`, `lsec_speed`);
+   before it, brake wear on that link was 5.2e-04 high (PLAN.md §7.3.62).
 
 ## 8. Gaps and things not verified
 
-### 8.1 Three of the four paths through L-1 are ported and unreachable
+### 8.1 The four paths through L-1, all reached
 
-The corpus takes the average-speed path. Ported from the SQL and **not
-checked** by anything:
+Each path is exercised and reproduced:
 
 * the **drive-schedule path** (`hasDriveSchedule`), which runs L-3 directly on
-  a user-supplied `driveScheduleSecondLink`;
+  a user-supplied `driveScheduleSecondLink` -- **since PLAN.md §7.3.62**
+  (`project-driveschedule`: 1,380 cells on links 1 and 2, every one exact; the
+  Link row carries the schedules' averages);
 * the **zero-speed path**, which synthesises thirty seconds of idle when
-  `linkAvgSpeed <= 0` and then takes the drive-schedule path;
+  `linkAvgSpeed <= 0` and then takes the drive-schedule path -- **since
+  §7.3.62** (`project-zerospeed`: 72 cells, mode 1 at 1 for running, mode 501
+  under twelve temp source types for brake wear);
 * the **user-distribution path**, which stands down entirely when
   `OpModeDistribution` already holds a Running-Exhaust row for the link --
   **exercised since PLAN.md §7.3.58** (`project-useromd`) and §7.3.60
@@ -1328,10 +1478,8 @@ type 21). `ALLOW_DRIVE_CYCLE_EXTRAPOLATION` is TRUE in the pinned tree and in
 the capture's MOVES: the generator logs a warning (promoted to RUN_ERROR in a
 run's log), brackets the link by the nearest schedule on both sides at factor
 0, and the run completes. §6.5 reproduces those cells and the model's
-`latest_at_or_before_key` fallback already wrote them. The zero-speed path is
-still unreached, and `run_projectZeroSpeedLinks` refuses it: without the
-out-of-bounds refusal, the extrapolation would otherwise bracket a zero-speed
-link at the slowest schedule.
+`latest_at_or_before_key` fallback already wrote them. A zero-speed link does
+not reach the brackets at all: it is walked (§2.1).
 
 ### 8.2 The empty `OpModeDistribution` is an input-database choice, not a fact
 
@@ -1410,9 +1558,11 @@ occur.
   This port reads that table from the snapshot rather than building it,
   because `sourceUseTypePhysicsMapping` here has one row and the construction
   would be unverifiable — see `docs/esm-conventions.md` §35.3.
-* The generator writes and then deletes `driveScheduleSecondLink`. This port
-  never materialises it; the intermediate is not in the snapshot to compare
-  against (§1.3).
+* The generator writes and then deletes the bracketing copies in
+  `driveScheduleSecondLink`. This port never materialises them; the
+  intermediate is not in the snapshot to compare against (§1.3). A user's
+  schedule it reads (`dsl_*`), padded by one slot so that no catalogue computes
+  over an empty relation (`linksecond_rows`, F56).
 
 ## 9. Summary for the `.esm` author
 
