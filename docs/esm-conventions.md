@@ -9128,3 +9128,38 @@ truck cell. The weight of a process that lives on one kind of road is therefore
 written with its road's occurrence flag in it, as a factor of exactly 1 where it
 occurs: the emitted numbers of every earlier run are unchanged to the byte, and
 a child can no longer read what MOVES never wrote.
+
+## 111. A post-processor's inserts are arms of one variable, and a quotient's divisor is on its numerator's basis **[PLAN.md §7.3.59; `rates-project-chained` 2080 + 250 + 1065, `rates-project-evap-links` 632 + 128 + 64, `rates-project-useromd` 1082 + 128 + 64, every table key-exact; the PROJECT, Rates and crankcase/refueling runs byte-identical]**
+
+RatePostProcessorRatesFirst.sql writes RatePerDistance with TWO inserts: BaseRateOutput's
+`emissionRate` for the processes that fill BaseRateOutput, and MOVESOutput over
+MOVESActivityOutput's distance for permeation, venting and leaks. In DEFAULT domain the two
+are one number for an evaporative row -- the rate per SourceHour over the bin's speed is the
+inventory over the bin's distance, because SourceHours IS SHO on the network -- so §107 wrote
+the first and never needed the second. In PROJECT domain they part: ProjectTAG's SourceHours
+on a link lacks the travel-time share that its SHO and `distance` carry, and the quotient is
+the rate over the link's LENGTH. Three rules came out of porting it.
+
+1. **Name each insert, and make the table's value the SQL's choice between them.**
+   `rpdEmissionRate` is the first insert's expression, unchanged; `rpd_ratePerDistance` is
+   `ifelse(<the second insert's rows in this domain>, out_emissionQuant / rto_distance,
+   rpdEmissionRate)`. An `ifelse` returns its arm's value exactly, so every run the
+   condition does not select is byte-identical -- the alternative, rewriting the DEFAULT arm as
+   the quotient too, would be the same number to the last few ulps and nothing to the byte.
+2. **A divisor is on its numerator's basis.** `out_emissionQuant` is per `out_activity`, SHO
+   per real day; `out_SHO` is over all of the day type's days. The first `rto_distance` used
+   `out_SHO` and came out exactly 5 times too large -- the weekday's `noOfRealDays` -- on every
+   cell. A constant ratio that is a count in the run's scope is a basis, not physics:
+   look for the count in the run's tables before looking for a mechanism.
+3. **A gate on a quantity is a gate on its rate.** §110 put `ppr_occursOnRoad` on a hotelling
+   block's WEIGHT so that its quantity is empty where the process does not occur. The Rates
+   path computes the same block's RATE separately (`rtRate_hotellingMeanBaseRate`, per hour
+   of the mode), and a chain on rates reads it on every road type its child occurs on:
+   refueling's spillage on road types 4 and 5 picked up extended idle's energy rate, 0.313 g/mi
+   on every long-haul truck cell. Wherever a quantity's weight carries a gate, so must every
+   rate computed beside it -- grep the variable family for the weight's other uses.
+
+And one rule of shape that the same port re-learned: **a "no bin here" gate belongs to the
+table, not to a process family.** `rpd_inTable` kept one bin on road type 1 and on a PROJECT
+link only for running exhaust's family; refueling's on-network rows were written 16 times.
+The gate is now `rpdKeptBin`, read by every arm of the membership flag.
