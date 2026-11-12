@@ -6994,12 +6994,12 @@ off-network idle's SHO on that link), and the model emits none. Wear is no longe
 counted.
 
 **Unchanged runs.** Re-emitted with `tools/emit-oracle-table.py` on the final model and
-`cmp`'d against the main tree's `.fixtures-run/`: @REEMIT@. Every relation and every
+`cmp`'d against the main tree's `.fixtures-run/`: `expand-month`, `expand-fullyear`, `scale-county`, `scale-county-timeagg-day` and `-month` (relation and `movesoutput_step`), `scale-county-idle-adjust`, `process-evap-permeation`, `-leaks`, `-fvv`, `-fvv-day`, `process-refueling`, `process-crankcase-running`, `-start`, `-start-single`, `-extidle`, `-extidle-single`, `process-brakewear`, `process-tirewear`, `rates-evap` and `rates-venting` (and their six Rates tables), and -- because the eMinutes join, the positive-age filter and the stated-energy rule reach them -- `project-offnetwork`, `project-useromd`, `project-refueling`, `project-crankcase`, `rates-project-evap`, `rates-project-evap-links`, `rates-project-useromd` and `rates-project-chained` (and their Rates tables): 28 runs. Every relation and every
 oracle table is byte-identical; each shape file differs only by the retired
 `run_offNetworkLinkCount` column (0 in all of them). The Python binding (EarthSciAST
 `main` 0519b012e) loads both new runspecs. `scale-county-timeagg-processes-day`
-evaluates in @DAYTIME@ and `-month` in @MONTHTIME@, `run_domainUnported` and
-`run_selectionUnported` 0 on both. @SUITE@
+evaluates in 18 min 20 s (890 s user CPU) at 13.6 GB and `-month` in 26 min 30 s (1,250 s) at 14.0 GB, both on a node shared with two other lanes' evaluations, `run_domainUnported` and
+`run_selectionUnported` 0 on both. `./run-tests.sh` in this lane's sibling worktree: 758 ok / 1 FAIL against main's 749 / 1. The `ok` set is main's plus eight -- each new run's round-trip, validate, reproduction and shape lines -- plus the `join.on` scaling gate, main's one FAIL, the cold-cache flake, which passed this time. The FAIL is `document figures vs the corpus`: `docs/omd-generator-reachability.md` counts the shared snapshot corpus, which three lanes grew from 85 directories to 97 today (two of them this section's), so its figures are right only once every lane is merged and the document is re-derived (`tools/check-reachability-counts.py`). 4 h 20 min wall, 14,616 s user CPU, 14.0 GB peak, on the same shared node.
 
 ### 7.4 Upstream asks
 
