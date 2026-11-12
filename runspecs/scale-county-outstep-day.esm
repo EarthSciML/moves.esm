@@ -1,0 +1,265 @@
+{
+  "esm": "1.2.0",
+  "metadata": {
+    "name": "scale-county-outstep-day-runspec",
+    "description": "PLAN.md §7.3.66, step 7f. `scale-county-outstep-day`: CO and NOx at running exhaust, start exhaust and extended idle for the passenger car and the combination long-haul truck at Washtenaw County SINGLE scale, January and July 2020, both day types, all 24 hours, `<aggregateBy key=\"Hour\"/>` and `<outputtimestep value=\"24-Hour Day\"/>`, from the default database plus the time-aggregation county database (`inputs/washtenaw-county-timeagg.esm`, startsPerDay and the four hotelling tables). MOVESOutput is 8,752 rows, 2,188 per (month, day type), hourID NULL.\n\nWHAT IT DISCRIMINATES is the 24-Hour Day output step: AggregationSQLGenerator groups each day type's 24 hour cells into one row (`yearID, monthID, dayID, null as hourID`) and, because the step `usesClassicalDay`, converts each to a classical day (convertDays, `x 1/noOfRealDays`) -- the division the output relation's cells already carry. The model emits it from `mos_*` with `n_outputSumsHours` 1; the slot's representative cell is the day type's FIRST hour, which is not the slot number, because `runspechourday` is hour-major (12, 15, 22, 25, ...).\n\n`n_outputRate` is bound to 2188, the (pollutant-process, cohort) pairs per (county, month, cell), recomputed as `rateSurvivorCount`.\n\n`db_movesoutput` is DECLARED AND CONSUMED BY NOTHING, as in every RunSpec here.",
+    "authors": [
+      "EarthSciML Authors and Contributors"
+    ],
+    "tags": [
+      "fixture",
+      "onroad",
+      "default-database",
+      "single-county-domain",
+      "road-type-axis",
+      "off-network-idle",
+      "hotelling-adjustment",
+      "time-aggregation",
+      "starts",
+      "output-time-step"
+    ]
+  },
+  "data_sources": {
+    "db_runspecyear": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/scale-county-outstep-day/tables/db__movesexecution1ccc0236_campuscluster_illinois_edu__runspecyear.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecyear"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, yearID 2020. The scope comes from these tables and never from the RunSpec XML, whose @key attributes are 0-based indices into sorted ID lists (docs/mixed-onroad.md §0.1).",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecmonth": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/scale-county-outstep-day/tables/db__movesexecution1ccc0236_campuscluster_illinois_edu__runspecmonth.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecmonth"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "2 rows, monthIDs 1 and 7 (`<month key=\"0\"/>` and `\"6\"` are 0-based).",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspechour": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/scale-county-outstep-day/tables/db__movesexecution1ccc0236_campuscluster_illinois_edu__runspechour.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspechour"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "24 rows, hourIDs 1 to 24. `<beginhour key=\"0\">`/`<endhour key=\"23\">` are 0-based indices into the sorted hour list (docs/mixed-onroad.md 0.1).",
+        "esio_format": "parquet"
+      }
+    },
+    "db_aggregationhour": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/scale-county-outstep-day/tables/db__movesexecution1ccc0236_campuscluster_illinois_edu__runspechour.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_aggregationhour"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "The hours the run aggregates over. This run does not set `aggregateBy`, so it is `runspechour` itself and the same file.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecday": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/scale-county-outstep-day/tables/db__movesexecution1ccc0236_campuscluster_illinois_edu__runspechourday.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecday"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "48 rows, every hour-day of both day types, HOUR-major (12, 15, 22, 25, ..., 242, 245). The output cell is the hour-day (conventions §108); `<aggregateBy key=\"Hour\"/>` aggregates nothing.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_rateday": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/scale-county-outstep-day/tables/db__movesexecution1ccc0236_campuscluster_illinois_edu__runspecday.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_rateday"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "The day types the RATE-side time pre-aggregation is scoped to. This run does not set `aggregateBy`, so it is `runspecday` itself and the same file: the pre-aggregation averages over one cell and returns the table's own value. A run that aggregates points this somewhere else, because MOVES overwrites `runspecday` with the synthesized output day AFTER the pre-aggregation has run.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_actday": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/scale-county-outstep-day/tables/db__movesexecution1ccc0236_campuscluster_illinois_edu__runspecday.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_actday"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "The day types the output day's ACTIVITY covers. This run does not set `aggregateBy`, so it is `runspecday` itself and the same file, and `noOfRealDays` is that one day type's.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecsourcetype": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/scale-county-outstep-day/tables/db__movesexecution1ccc0236_campuscluster_illinois_edu__runspecsourcetype.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecsourcetype"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "2 rows, sourceTypeIDs 21 (passenger car) and 62 (combination long-haul truck, the only source type that hotels).",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecroadtype": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/scale-county-outstep-day/tables/db__movesexecution1ccc0236_campuscluster_illinois_edu__runspecroadtype.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecroadtype"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "5 rows, road types 1 to 5. The RunSpec selects 1 and 4; MOVES adds 2, 3 and 5 because off-network idle (running exhaust on road type 1) is computed from every road type (\"Off-Network Idle requires all roadtypes\").",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecsourcefueltype": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/scale-county-outstep-day/tables/db__movesexecution1ccc0236_campuscluster_illinois_edu__runspecsourcefueltype.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecsourcefueltype"
+      },
+      "metadata": {
+        "tags": [
+          "scope",
+          "cohorts"
+        ],
+        "note": "7 rows: source type 21 with gasoline, diesel, E85 and electricity, 62 with diesel, CNG and electricity (MOVES adds every fuel the RunSpec does not name).",
+        "esio_format": "parquet"
+      }
+    },
+    "db_movesoutput": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/scale-county-outstep-day/tables/db__out_scale_county_outstep_day__movesoutput.parquet"
+      },
+      "reader_options": {
+        "float_columns": [
+          "emissionQuant"
+        ]
+      },
+      "metadata": {
+        "tags": [
+          "oracle",
+          "expected-output",
+          "output-time-step"
+        ],
+        "note": "The 8,752-row expected output at `<outputtimestep value=\"24-Hour Day\"/>`: 2,188 rows in each (month, day type), hourID NULL, each the day type's 24 hour cells summed as classical days (AggregationSQLGenerator's convertDays). The model emits it from `mos_*`, the output relation summed to the output time step (`n_outputSumsHours` 1).",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecpollutantprocess": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/scale-county-outstep-day/tables/db__movesexecution1ccc0236_campuscluster_illinois_edu__runspecpollutantprocess.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecpollutantprocess"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "6 rows: CO and NOx (2, 3) at running exhaust, start exhaust and extended idle (201, 202, 290, 301, 302, 390).",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecchainedto": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/scale-county-outstep-day/tables/db__movesexecution1ccc0236_campuscluster_illinois_edu__runspecchainedto.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecchainedto"
+      },
+      "metadata": {
+        "tags": [
+          "scope",
+          "chain"
+        ],
+        "note": "0 rows: nothing is chained.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspeccounty": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/scale-county-outstep-day/tables/db__movesexecution1ccc0236_campuscluster_illinois_edu__runspeccounty.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspeccounty"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, countyID 26161, Washtenaw.",
+        "esio_format": "parquet"
+      }
+    }
+  },
+  "models": {
+    "Onroad": {
+      "ref": "../inputs/washtenaw-county-timeagg.esm",
+      "bindings": {
+        "n_outputRate": 2188,
+        "n_sourceBin": 3,
+        "n_physicsRow": 21,
+        "n_outputSumsHours": 1
+      }
+    }
+  }
+}
