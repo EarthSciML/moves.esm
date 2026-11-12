@@ -23701,6 +23701,40 @@
           ],
           "description": "The `totalIdleFraction` AdjustTotalIdleFraction.sql writes from `idleModelYearGrouping`: the grouping's fraction at the source type and the model-year window holding the row's model year. The SQL crosses the grouping with every county, state, month and day of the execution database, so the fraction holds at the run's idle region, county type, months and days alike."
         },
+        "oni_ownMonthAdjustRows": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecsourcetype_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "`idleMonthAdjust` rows at the source type and the cell's own month."
+        },
+        "oni_ownMonthAdjustStated": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecsourcetype_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "`idleMonthAdjust.idleMonthAdjust` at the source type and the cell's own month."
+        },
+        "oni_yearMonthAdjustRows": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecsourcetype_rows"
+          ],
+          "description": "`idleMonthAdjust` rows at the source type and the months a Year-aggregated run collapses (`db_aggregationmonth`): the rows PreAggYEAR.sql averages. InputDataManager cuts the table to the RunSpec's months and source types before the collapse (the execution database of `scale-county-idle-adjust-month` holds source type 21's April and August alone), so a source type with none has no collapsed row and keeps its fraction."
+        },
+        "oni_yearMonthAdjustSum": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecsourcetype_rows"
+          ],
+          "description": "`idleMonthAdjust.idleMonthAdjust` summed over those rows: with `oni_yearMonthAdjustRows`, PreAggYEAR.sql's UNWEIGHTED `avg(idleMonthAdjust)` by source type at MonthOfAnyYear 0 (PLAN.md §7.3.70)."
+        },
         "oni_monthAdjustRows": {
           "type": "unknown",
           "units": "1",
@@ -23708,7 +23742,7 @@
             "runspecsourcetype_rows",
             "runspecmonth_rows"
           ],
-          "description": "`idleMonthAdjust` rows at the source type and month: whether AdjustTotalIdleFraction.sql's `update ... inner join idleMonthAdjust` finds one."
+          "description": "`idleMonthAdjust` rows at the source type and month: whether AdjustTotalIdleFraction.sql's `update ... inner join idleMonthAdjust` finds one. At `aggregateBy` Year, whether PreAggYEAR.sql's collapse wrote a MonthOfAnyYear 0 row for the source type (`oni_yearMonthAdjustRows`; PLAN.md §7.3.70)."
         },
         "oni_monthAdjustStated": {
           "type": "unknown",
@@ -23717,7 +23751,7 @@
             "runspecsourcetype_rows",
             "runspecmonth_rows"
           ],
-          "description": "`idleMonthAdjust.idleMonthAdjust` at the source type and month; read only where `oni_monthAdjustRows` finds the row."
+          "description": "`idleMonthAdjust.idleMonthAdjust` at the source type and month; read only where `oni_monthAdjustRows` finds the row. At `aggregateBy` Year PreAggYEAR.sql's unweighted mean over the collapsed months' rows (`oni_yearMonthAdjustSum / oni_yearMonthAdjustRows`; 1.01 for the passenger car of `scale-county-idle-adjust-year`, April's 1.08 and August's 0.94)."
         },
         "oni_dayAdjustRows": {
           "type": "unknown",
@@ -45746,7 +45780,7 @@
           }
         },
         {
-          "lhs": "oni_monthAdjustRows",
+          "lhs": "oni_ownMonthAdjustRows",
           "rhs": {
             "op": "faq",
             "args": [],
@@ -45788,7 +45822,7 @@
           }
         },
         {
-          "lhs": "oni_monthAdjustStated",
+          "lhs": "oni_ownMonthAdjustStated",
           "rhs": {
             "op": "faq",
             "args": [],
@@ -45832,6 +45866,194 @@
                 "ima_idleMonthAdjust",
                 "x"
               ]
+            }
+          }
+        },
+        {
+          "lhs": "oni_yearMonthAdjustRows",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "s"
+            ],
+            "ranges": {
+              "s": {
+                "from": "runspecsourcetype_rows"
+              },
+              "am": {
+                "from": "aggregationmonth_rows"
+              },
+              "x": {
+                "from": "idlemonthadjust_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rst_sourceTypeID",
+                    "ima_sourceTypeID"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "amo_monthID",
+                    "ima_monthID"
+                  ]
+                ]
+              }
+            ],
+            "expr": 1.0
+          }
+        },
+        {
+          "lhs": "oni_yearMonthAdjustSum",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "s"
+            ],
+            "ranges": {
+              "s": {
+                "from": "runspecsourcetype_rows"
+              },
+              "am": {
+                "from": "aggregationmonth_rows"
+              },
+              "x": {
+                "from": "idlemonthadjust_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rst_sourceTypeID",
+                    "ima_sourceTypeID"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "amo_monthID",
+                    "ima_monthID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "ima_idleMonthAdjust",
+                "x"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "oni_monthAdjustRows",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "s",
+              "m"
+            ],
+            "ranges": {
+              "s": {
+                "from": "runspecsourcetype_rows"
+              },
+              "m": {
+                "from": "runspecmonth_rows"
+              }
+            },
+            "expr": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "year_value_or_own",
+              "bindings": {
+                "aggregates_months": "n_aggregatesMonths",
+                "year_value": {
+                  "op": "index",
+                  "args": [
+                    "oni_yearMonthAdjustRows",
+                    "s"
+                  ]
+                },
+                "own_value": {
+                  "op": "index",
+                  "args": [
+                    "oni_ownMonthAdjustRows",
+                    "s",
+                    "m"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "lhs": "oni_monthAdjustStated",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "s",
+              "m"
+            ],
+            "ranges": {
+              "s": {
+                "from": "runspecsourcetype_rows"
+              },
+              "m": {
+                "from": "runspecmonth_rows"
+              }
+            },
+            "expr": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "year_value_or_own",
+              "bindings": {
+                "aggregates_months": "n_aggregatesMonths",
+                "year_value": {
+                  "op": "apply_expression_template",
+                  "args": [],
+                  "name": "share_of_group",
+                  "bindings": {
+                    "numerator": {
+                      "op": "index",
+                      "args": [
+                        "oni_yearMonthAdjustSum",
+                        "s"
+                      ]
+                    },
+                    "group_total": {
+                      "op": "index",
+                      "args": [
+                        "oni_yearMonthAdjustRows",
+                        "s"
+                      ]
+                    }
+                  }
+                },
+                "own_value": {
+                  "op": "index",
+                  "args": [
+                    "oni_ownMonthAdjustStated",
+                    "s",
+                    "m"
+                  ]
+                }
+              }
             }
           }
         },
