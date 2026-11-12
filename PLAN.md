@@ -6671,9 +6671,17 @@ variables, and a capture; the two day output steps are one more slot level
 (sum a day type's hour cells, and `x 1/noOfRealDays` undone at Portion of Week),
 about six variables and a capture each.
 
-**Unchanged runs.** RERUNS
-`scale-county-timeagg-day` evaluates in 9 min 56 s at 7.5 GB, `-month` in 13 min
-14 s at 7.7 GB. The Python binding loads both.
+**Unchanged runs.** `expand-month`, `expand-fullyear` (the two that aggregate),
+`scale-county`, `scale-county-idle-adjust`, `userdb-hotelling-multiyear`,
+`process-extended-idle[-single]`, `process-apu[-single]`,
+`process-crankcase-start[-single]`, `rates-start`, `rates-hotelling`,
+`project-crankcase`, `project-startconflict`, `expand-day` and
+`process-evap-fvv-day` (every hour of two day types, which reads the unpacked
+hour-day) were re-emitted with `tools/emit-oracle-table.py` and `cmp`'d against
+the main tree's `.fixtures-run/`: every relation, shape and Rates table
+byte-identical. `scale-county-timeagg-day` evaluates in 9 min 19 s (470 s user CPU)
+at 7.5 GB, `-month` in 14 min 44 s (667 s) at 7.8 GB, `run_domainUnported` and
+`run_selectionUnported` 0 on both. The Python binding loads both.
 
 ### 7.4 Upstream asks
 
