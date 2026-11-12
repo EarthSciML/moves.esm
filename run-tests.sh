@@ -1840,17 +1840,18 @@ for s in srcs:
     RS_RPD=""
     for RS_TABLE in "${RS_TABLES[@]}"; do
       # `movesoutput_step` is MOVESOutput at a Month or Year output time step,
-      # emitted from `mos_*` into the movesoutput file (PLAN.md §7.3.63).
-      RS_TABLE="${RS_TABLE%_step}"
-      RS_ACTUAL="$RUNDIR/$rsname.$RS_TABLE.actual.csv"
+      # emitted from `mos_*` into the movesoutput file (PLAN.md §7.3.63); only
+      # a plain `movesoutput` is the output relation itself.
+      RS_FILE="${RS_TABLE%_step}"
+      RS_ACTUAL="$RUNDIR/$rsname.$RS_FILE.actual.csv"
       [[ "$RS_TABLE" == movesoutput ]] && sed "1s/out_//g" "$RS_CSV" > "$RS_ACTUAL"
-      [[ "$RS_TABLE" == rateperdistance ]] && RS_RPD="$RS_ACTUAL"
+      [[ "$RS_FILE" == rateperdistance ]] && RS_RPD="$RS_ACTUAL"
       if out=$("$PYTHON" compare-output.py --fixture "$rsname" --actual "$RS_ACTUAL" \
-                 --table "$RS_TABLE" --snapshots "$SNAPSHOTS" 2>&1); then
-        pass "$rsname — the default database reproduces the run's $RS_TABLE, complete"
+                 --table "$RS_FILE" --snapshots "$SNAPSHOTS" 2>&1); then
+        pass "$rsname — the default database reproduces the run's $RS_FILE, complete"
         sed 's/^/       /' <<<"$out" | tail -4
       else
-        fail "7c'/7d $rsname — it evaluates from the default database, but not to the run's $RS_TABLE"
+        fail "7c'/7d $rsname — it evaluates from the default database, but not to the run's $RS_FILE"
         sed 's/^/       /' <<<"$out" | tail -8
       fi
     done
