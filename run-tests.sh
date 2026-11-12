@@ -1723,6 +1723,14 @@ C7P_DOMAIN=moves-onroad.esm
 # and the months it collapses (`db_aggregationmonth`, from the RunSpec XML), and
 # its four months' fuel supply sums to 0.334 of the year, which scales every
 # process. It also selects brake and tire wear beside road type 1.
+# `scale-county-outstep-hourday`, `-week` and `-dayagg` are the 24-Hour Day
+# and Portion of Week output steps (PLAN.md §7.3.66, conventions §118): a
+# day type's hour cells summed, as classical days or as a portion of a week;
+# their oracle is `movesoutput_step` too. `scale-county-idle-adjust-day` and
+# `-month`, `scale-county-timeagg-weekday` and `userdb-hotelling-multiyear-day`
+# and `-month` are the three aggregation configurations §7.3.63 refused: the
+# idle adjustment tables, a RunSpec of one day type, and hotelling at two
+# calendar years, each under PreAggDAY.sql and/or PreAggMONTH.sql.
 # `expand-multiyear` is the first run at two calendar years (PLAN.md §7.3.44,
 # conventions §98): the year is the cohort grid's and the activity relation's
 # slowest factor and a trailing axis of every other per-year relation, so the
@@ -1853,8 +1861,8 @@ for s in srcs:
     fi
     RS_RPD=""
     for RS_TABLE in "${RS_TABLES[@]}"; do
-      # `movesoutput_step` is MOVESOutput at a Month or Year output time step,
-      # emitted from `mos_*` into the movesoutput file (PLAN.md §7.3.63); only
+      # `movesoutput_step` is MOVESOutput at a 24-Hour Day, Portion of Week, Month or Year
+      # output time step, emitted from `mos_*` into the movesoutput file (PLAN.md §7.3.63, §7.3.66); only
       # a plain `movesoutput` is the output relation itself.
       RS_FILE="${RS_TABLE%_step}"
       RS_ACTUAL="$RUNDIR/$rsname.$RS_FILE.actual.csv"

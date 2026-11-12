@@ -674,12 +674,22 @@
     "n_outputSumsDays": {
       "type": "integer",
       "default": 0,
-      "description": "THE RUNSPEC'S `<outputtimestep>`, first half: 1 when it is `Month` or `Year`, whose MOVESOutput sums every (day type, hour) cell of a month and scales it by the month's weeks (AggregationSQLGenerator's convertWeeks, `noOfDays/7`); 0 (the default) at `Hour`. It sizes `outputstep_rows`, the relation `mos_*` the oracle is read from, and switches nothing the cells compute. `24-Hour Day` and `Portion of Week` are not expressible (PLAN.md §7.3.63)."
+      "description": "THE RUNSPEC'S `<outputtimestep>`, one of MOVES's four OutputTimeStep flags (`requiresAllDays`): 1 when it is `Month` or `Year`, whose MOVESOutput sums every (day type, hour) cell of a month and scales it by the month's weeks (AggregationSQLGenerator's convertWeeks, `noOfDays/7`); 0 (the default) at `Hour`, `24-Hour Day` and `Portion of Week`. With it 1 the cells are summed whatever `n_outputSumsHours` says. It sizes `outputstep_rows`, the relation `mos_*` the oracle is read from, and switches nothing the cells compute (PLAN.md §7.3.63, §7.3.66)."
     },
     "n_outputSumsMonths": {
       "type": "integer",
       "default": 0,
-      "description": "THE RUNSPEC'S `<outputtimestep>`, second half: 1 when it is `Year`, whose MOVESOutput also sums the months; 0 (the default) otherwise. Only with `n_outputSumsDays` 1 (PLAN.md §7.3.63)."
+      "description": "THE RUNSPEC'S `<outputtimestep>`, `requiresAllMonths`: 1 when it is `Year`, whose MOVESOutput also sums the months; 0 (the default) otherwise. Only with `n_outputSumsDays` 1 (PLAN.md §7.3.63)."
+    },
+    "n_outputSumsHours": {
+      "type": "integer",
+      "default": 0,
+      "description": "THE RUNSPEC'S `<outputtimestep>`, `requiresAllHours`: 1 when it is `24-Hour Day` or `Portion of Week`, whose MOVESOutput sums each day type's hours into one row with hourID NULL (AggregationSQLGenerator groups by yearID, monthID, dayID); 0 (the default) at `Hour`. At `Month` and `Year` `n_outputSumsDays` sums the cells whether this is set or not. It sizes `outputstep_rows` (`output_step_cell_slots`) and switches nothing the cells compute (PLAN.md §7.3.66)."
+    },
+    "n_outputClassicalDay": {
+      "type": "integer",
+      "default": 1,
+      "description": "THE RUNSPEC'S `<outputtimestep>`, `usesClassicalDay`: 1 (the default) at `Hour` and `24-Hour Day`, whose worker SQL converts each cell to a classical 24-hour day (`x 1/noOfRealDays`, convertDays) -- the division `rtDay_activity` already makes; 0 at `Portion of Week`, which does not convert, so its rows are the cell's portion of a WEEK, the classical day times `noOfRealDays` (`outStepWeeks`). At `Month` and `Year` convertWeeks applies instead and this flag is not read (PLAN.md §7.3.66)."
     },
     "n_aggregatesMonths": {
       "type": "integer",
@@ -1063,18 +1073,36 @@
                 ]
               },
               {
-                "op": "-",
+                "op": "+",
                 "args": [
-                  "n_runspecday",
+                  "n_outputSumsDays",
                   {
                     "op": "*",
                     "args": [
-                      "n_outputSumsDays",
+                      {
+                        "op": "-",
+                        "args": [
+                          1,
+                          "n_outputSumsDays"
+                        ]
+                      },
                       {
                         "op": "-",
                         "args": [
                           "n_runspecday",
-                          1
+                          {
+                            "op": "*",
+                            "args": [
+                              "n_outputSumsHours",
+                              {
+                                "op": "-",
+                                "args": [
+                                  "n_runspecday",
+                                  "n_rateday"
+                                ]
+                              }
+                            ]
+                          }
                         ]
                       }
                     ]
@@ -2058,7 +2086,9 @@
             "year_value_or_own",
             "month_cell_share",
             "year_captured_process",
-            "year_captured_pollutant"
+            "year_captured_pollutant",
+            "output_step_month_slots",
+            "output_step_cell_slots"
           ]
         }
       ],
@@ -19296,7 +19326,7 @@
           "shape": [
             "output_rows"
           ],
-          "description": "The output-time-step slot an output row's (day type, hour) CELL falls in: its own cell, or 1 when the output time step sums the cells (`n_outputSumsDays`, Month or Year)."
+          "description": "The output-time-step slot an output row's (day type, hour) CELL falls in, its cell's `tcell_outputSlot`."
         },
         "outStepWeeks": {
           "type": "unknown",
@@ -19304,7 +19334,7 @@
           "shape": [
             "output_rows"
           ],
-          "description": "AggregationSQLGenerator's time conversion, the factor each output row is scaled by before the slot is summed. At Hour (and 24-Hour Day) MOVES converts every row to a classical day, `x 1/noOfRealDays` (convertDays, WeeksInMonthHelper.getPortionOfWeekPerDayClause) -- which is the division `rtDay_activity` already makes, so the output relation's cells ARE classical days and the factor is 1. At Month and Year (convertWeeks) MOVES instead scales the cell's portion of a WEEK by the month's weeks, `noOfDays / 7`, so the factor undoes the classical day and applies the weeks: `noOfRealDays x weeksPerMonth` (PLAN.md §7.3.63)."
+          "description": "AggregationSQLGenerator's time conversion, the factor each output row is scaled by before the slot is summed. At Hour and 24-Hour Day MOVES converts every row to a classical day, `x 1/noOfRealDays` (convertDays, WeeksInMonthHelper.getPortionOfWeekPerDayClause) -- which is the division `rtDay_activity` already makes, so the output relation's cells ARE classical days and the factor is 1. At Portion of Week (`usesClassicalDay` false, `n_outputClassicalDay` 0) nothing converts and each row is the cell's portion of a WEEK, so the factor is `noOfRealDays`. At Month and Year (convertWeeks) MOVES scales the cell's portion of a week by the month's weeks, `noOfDays / 7`, so the factor undoes the classical day and applies the weeks: `noOfRealDays x weeksPerMonth` (PLAN.md §7.3.63, §7.3.66)."
         },
         "outStepMonthID": {
           "type": "unknown",
@@ -19328,7 +19358,7 @@
           "shape": [
             "output_rows"
           ],
-          "description": "MOVESOutput.hourID at the output time step: the row's hour, NULL when the cells are summed."
+          "description": "MOVESOutput.hourID at the output time step: the row's hour, NULL when the hours are summed (24-Hour Day, Portion of Week, Month, Year)."
         },
         "mosRateOrdinal": {
           "type": "unknown",
@@ -19360,7 +19390,7 @@
           "shape": [
             "outputstep_rows"
           ],
-          "description": "The row's cell slot."
+          "description": "The row's cell slot: a (day type, hour) cell at Hour, a day type at 24-Hour Day and Portion of Week, the one whole slot at Month and Year (`tcell_outputSlot`)."
         },
         "mosOutputOrdinal": {
           "type": "unknown",
@@ -19368,7 +19398,7 @@
           "shape": [
             "outputstep_rows"
           ],
-          "description": "The output row that stands for the slot: its first month and first cell. Every column but the summed ones is the same across the slot, and `output_step_column` reads it from here."
+          "description": "The output row that stands for the slot: its first month and the slot's first cell (`tcell_slotFirstCell`). Every column but the summed ones is the same across the slot, and `output_step_column` reads it from here."
         },
         "mos_yearID": {
           "type": "unknown",
@@ -20932,7 +20962,7 @@
           "shape": [
             "run_rows"
           ],
-          "description": "How many things this run SELECTS that the model does not compute, beside its domain (`run_domainUnported`): 0, asserted by tools/check-runspec-shape.py. It counts an on-road pollutant-process other than running exhaust, crankcase running, brake or tire wear or an evaporative one (`occursOnRealRoads` = Y) in a run that also selects road type 1 (`run_onRoadPollutantProcessCount`); and what a run that aggregates hours or day types selects and the model does not compute (`run_aggregationUnported`; starts, hotelling and off-network idle under aggregation are ported, PLAN.md §7.3.63, and every evaporative, refueling, crankcase and wear process, §7.3.64; and the month collapse of `aggregateBy` Year for what `scale-county-timeagg-year` checks, §7.3.65). None of these fails loudly -- each emits a plausible number or none. Evaporative processes on several road types and chained ones with parents both on and off the network are ported (PLAN.md §7.3.48 part C). At Rates scale it also counts `run_ratesUnported`, everything the Rates tables do not compute."
+          "description": "How many things this run SELECTS that the model does not compute, beside its domain (`run_domainUnported`): 0, asserted by tools/check-runspec-shape.py. It counts an on-road pollutant-process other than running exhaust, crankcase running, brake or tire wear or an evaporative one (`occursOnRealRoads` = Y) in a run that also selects road type 1 (`run_onRoadPollutantProcessCount`); and what a run that aggregates hours or day types selects and the model does not compute (`run_aggregationUnported`; starts, hotelling and off-network idle under aggregation are ported, PLAN.md §7.3.63, with the idle adjustment tables, at two calendar years and over a partial week, §7.3.66; every evaporative, refueling, crankcase and wear process, §7.3.64; and the month collapse of `aggregateBy` Year for what `scale-county-timeagg-year` checks, §7.3.65). None of these fails loudly -- each emits a plausible number or none. Evaporative processes on several road types and chained ones with parents both on and off the network are ported (PLAN.md §7.3.48 part C). At Rates scale it also counts `run_ratesUnported`, everything the Rates tables do not compute."
         },
         "run_onRoadPollutantProcessCount": {
           "type": "unknown",
@@ -21339,21 +21369,13 @@
           ],
           "description": "1 when the run pre-aggregates time -- `aggregateBy` Day or Month: the hours it aggregates over are not the hours it selects, or the day types its activity covers are not the ones it selects."
         },
-        "run_idleAdjustmentRows": {
-          "type": "unknown",
-          "units": "1",
-          "shape": [
-            "run_rows"
-          ],
-          "description": "idleMonthAdjust and idleDayAdjust rows at the run's source types, beside `run_idleGroupingRows`: the AdjustTotalIdleFraction.sql inputs."
-        },
         "run_aggregationUnported": {
           "type": "unknown",
           "units": "1",
           "shape": [
             "run_rows"
           ],
-          "description": "What a run that pre-aggregates time selects and the model does not compute (PLAN.md §7.3.63), counted by `run_selectionUnported`; 0 on a run that does not aggregate. Starts, hotelling and off-network idle under PreAggDAY.sql, PreAggMONTH.sql and PreAggYEAR.sql are PORTED and are not counted (§7.3.63), and so, since PLAN.md §7.3.64, are the evaporative processes -- TankTemperatureGenerator over the collapsed ZoneMonthHour writes no cold-soak tank temperature, so permeation has no row, the soak is all cold (mode 151 at 1), venting has no cold-soak vapor, and TankFuelGenerator's temperature range is one point (`ttg_hasColdSoakTankTemperature`) -- and refueling, crankcase, brake and tire wear, which the two captures `scale-county-timeagg-processes-day` and `-month` check. Counted, each unmeasured: (1) hotelling in a run of more than one calendar year, whose pooled AdjustHotelling chain (`hot_earlier*`) is written per hour of the clock; (2) off-network idle with any AdjustTotalIdleFraction.sql input (`run_idleGroupingRows`, `run_idleAdjustmentRows`), which PreAggMONTH.sql collapses (idleDayAdjust) before that script runs; (3) start, hotelling or off-network idle in a whole-week run whose RunSpec selects fewer day types than the week -- its starts tables are cut to the selected days and its travel is not (`db_rateday` against `db_actday`). (4) an evaporative process over a STATED soakActivityFraction (`run_soakActivityInputRows`): PreAggDAY.sql collapses the user's hourly rows to `sum(soakActivityFraction x HourWeighting2)` per day type, and PreAggMONTH.sql those by DayWeighting2, before TTG-6 reads them, where the model reads them at the cell's own hour-day and finds none. Unmeasured; about four variables (the two weightings exist as `met_hourWeight` and `dw_roadDayWeight`) and a capture with a county database stating the table (PLAN.md §7.3.64). (5) at `aggregateBy` Year (`n_aggregatesMonths`), every pollutant-process on a selected road that `scale-county-timeagg-year` does not check (`run_yearUnportedSelected`): refueling, whose month-keyed fuel RVP and weather are uncaptured; air toxics, whose ATRatio PreAggYEAR.sql averages per month group rather than computing at the mean fuel; and anything outside THC, CO, NOx, energy, CO2 and brake/tire PM at running, start, the crankcase processes, extended idle, APU and wear. PreAggYEAR.sql's collapse itself -- MonthOfAnyYear 0, the weather, the A/C terms, the fuel supply's SUM, TotalIdleFraction -- is ported (PLAN.md §7.3.65)."
+          "description": "What a run that pre-aggregates time selects and the model does not compute (PLAN.md §7.3.63-§7.3.66), counted by `run_selectionUnported`; 0 on a run that does not aggregate. PORTED and not counted: starts, hotelling and off-network idle under PreAggDAY.sql and PreAggMONTH.sql (§7.3.63); the evaporative processes, refueling, crankcase, brake and tire wear under both (§7.3.64: TankTemperatureGenerator over the collapsed ZoneMonthHour writes no cold-soak tank temperature, `ttg_hasColdSoakTankTemperature`); hotelling at two calendar years (`userdb-hotelling-multiyear-day`, `-month`; a third year is `hot_adjustmentRowsUnported`'s), off-network idle with the AdjustTotalIdleFraction.sql inputs (`scale-county-idle-adjust-day`, `-month`) and a whole-week cell of a RunSpec selecting fewer day types than the week (`scale-county-timeagg-weekday`) under both (§7.3.66); and PreAggYEAR.sql's month collapse for what `scale-county-timeagg-year` checks (§7.3.65). Counted, each unmeasured: (1) an evaporative process over a STATED soakActivityFraction (`run_soakActivityInputRows`): PreAggDAY.sql collapses the user's hourly rows to `sum(soakActivityFraction x HourWeighting2)` per day type, and PreAggMONTH.sql those by DayWeighting2, before TTG-6 reads them, where the model reads them at the cell's own hour-day and finds none; about four variables (`met_hourWeight`, `dw_roadDayWeight` exist) and a capture with a county database stating the table (§7.3.64). At `aggregateBy` Year (`n_aggregatesMonths`) only: (2) every pollutant-process on a selected road that `scale-county-timeagg-year` does not check (`run_yearUnportedSelected`): the evaporative processes (PreAggYEAR.sql SUMS AverageTankTemperature and SoakActivityFraction), refueling, whose month-keyed fuel RVP and weather are uncaptured, air toxics, whose ATRatio PreAggYEAR.sql averages per month group, and anything outside THC, CO, NOx, energy, CO2 and brake/tire PM at running, start, the crankcase processes, extended idle, APU and wear; (3) the three configurations §7.3.66 ported at Day and Month, which no Year capture checks: hotelling at more than one calendar year, off-network idle with any AdjustTotalIdleFraction.sql input (`run_idleGroupingRows`, `run_idleAdjustmentRows`), and start, hotelling or off-network idle in a whole-week cell of a RunSpec selecting fewer day types than the week (`run_offNetworkActivitySelected`, `db_rateday` against `db_actday`)."
         },
         "run_soakActivityInputRows": {
           "type": "unknown",
@@ -22682,14 +22704,6 @@
           ],
           "description": "Start-exhaust PM pollutant-processes on a selected road, whose multiplicative start-temperature form is not ported. Counted by `run_selectionUnported`."
         },
-        "run_offNetworkActivitySelected": {
-          "type": "unknown",
-          "units": "1",
-          "shape": [
-            "run_rows"
-          ],
-          "description": "Hotelling and start pollutant-processes on a selected road, and off-network idle blocks: the activities this model reads at the run's hours without a pre-aggregation (ONI's `totalIdleFraction` is keyed by the day type the SHO row carries)."
-        },
         "cff_coefficientETOHSquared": {
           "type": "unknown",
           "units": "1",
@@ -23712,7 +23726,7 @@
             "runspecday_rows",
             "runspecsourcetype_rows"
           ],
-          "description": "`idleDayAdjust` rows at the cell's day type and the source type: whether AdjustTotalIdleFraction.sql's `update ... inner join idleDayAdjust` finds one."
+          "description": "`idleDayAdjust` rows at the cell's day types and the source type: whether AdjustTotalIdleFraction.sql's `update ... inner join idleDayAdjust` finds one. In a whole-week cell PreAggMONTH.sql has already collapsed the table to one row per source type, which exists when the source type has a row at ANY of the RunSpec's day types (`tcell_dayMatch`)."
         },
         "oni_dayAdjustStated": {
           "type": "unknown",
@@ -23721,7 +23735,7 @@
             "runspecday_rows",
             "runspecsourcetype_rows"
           ],
-          "description": "`idleDayAdjust.idleDayAdjust` at the cell's day type and the source type; read only where `oni_dayAdjustRows` finds the row."
+          "description": "`idleDayAdjust.idleDayAdjust` at the cell's day type and the source type; read only where `oni_dayAdjustRows` finds the row. In a whole-week cell it is PreAggMONTH.sql's collapse `sum(idleDayAdjust x noOfRealDays / 7)` over the RunSpec's day types (`tcell_dayWeekShare`), and a day type the table does not state adds NOTHING to it -- not the identity: `scale-county-idle-adjust-month`'s long-haul truck states the weekday alone, 1.12, and MOVES multiplies its whole week by 1.12 x 5/7 = 0.8 (PLAN.md §7.3.66)."
         },
         "oni_totalIdleFraction": {
           "type": "unknown",
@@ -24042,7 +24056,7 @@
             "runspecsourcetype_rows",
             "runspecyear_rows"
           ],
-          "description": "Hotelling hours of the run's EARLIER calendar years at the output cell (a day type and hour), summed over age and month: the rows TotalActivityGenerator leaves in hotellingHours when it adjusts year `cy`. TAG clears that table only when the PROCESS changes (clearActivityTables), and after adjusting a year it deletes that year's hours outside the RunSpec's, so the earlier year's adjusted rows at the run's cells are still there. Each is the earlier year's `hot_ownHours`, which is exact while there is one earlier year; a third year would see the first year's rows rescaled again by the second's blocks, which `hot_adjustmentRowsUnported` counts. Per source type, as TAG's rows are 62's alone."
+          "description": "Hotelling hours of the run's EARLIER calendar years at the output cell (a day type and hour), summed over age and month: the rows TotalActivityGenerator leaves in hotellingHours when it adjusts year `cy`. TAG clears that table only when the PROCESS changes (clearActivityTables), and after adjusting a year it deletes that year's hours outside the RunSpec's, so the earlier year's adjusted rows at the run's cells are still there. Each is the earlier year's `hot_earlierRowHours`, which is exact while there is one earlier year; a third year would see the first year's rows rescaled again by the second's blocks, which `hot_adjustmentRowsUnported` counts. Per source type, as TAG's rows are 62's alone."
         },
         "hot_earlierHours": {
           "type": "unknown",
@@ -24095,7 +24109,7 @@
             "runspecsourcetype_rows",
             "runspecyear_rows"
           ],
-          "description": "AdjustHotelling.sql's hotellingHourFraction block in year `cy`, `hourFraction / defaultHourFraction` at the output cell's hour (1 where the zone states none), with the default taken over every row the table holds: `(earlier + own) at the hour / (earlier + own) over the day`. The SQL rewrites EVERY row at that (zone, day, hour), so the earlier years' rows are multiplied by it too (`hot_earlierAgeHours`)."
+          "description": "AdjustHotelling.sql's hotellingHourFraction block in year `cy`, `hourFraction / defaultHourFraction` at the output cell's hour (1 where the zone states none), with the default taken over every row the table holds: `(earlier + own) at the hour / (earlier + own) over the day`. The SQL rewrites EVERY row at that (zone, day, hour), so the earlier years' rows are multiplied by it too (`hot_earlierAgeHours`). In a cell that collects the day's hours (PreAggDAY.sql, and PreAggMONTH.sql after it) the table holds ONE hour per day type and year, hour 0, so the block is taken over the collapsed tables: the cell's collapsed hourFraction (`hot_cellHourFractionStated`) over the default `(earlier + own) at the cell / (earlier + own) over the day`, which is 1 -- the earlier year's rows TAG keeps are at hour 0 too, the RunSpec's only hour after the pre-aggregation (PLAN.md §7.3.66). Over the hours of the clock it is `hot_pooledHourFactorByHour`."
         },
         "hot_pooledHourShare": {
           "type": "unknown",
@@ -24106,7 +24120,7 @@
             "runspecsourcetype_rows",
             "runspecyear_rows"
           ],
-          "description": "`hot_hourShare` over the pooled table: the output hour's `hotellingdist` times `hot_pooledHourFactor`."
+          "description": "`hot_hourShare` over the pooled table: the output hour's `hotellingdist` times `hot_pooledHourFactor`. In a cell that collects hours, the collapsed hotellingdist (`hot_hourDistribution`) times `hot_pooledHourFactor`."
         },
         "hot_pooledDayShare": {
           "type": "unknown",
@@ -24117,7 +24131,7 @@
             "runspecsourcetype_rows",
             "runspecyear_rows"
           ],
-          "description": "`hot_dayShare` over the pooled table: the day's 24 `hotellingdist` values each times its hour's pooled factor, which the age and month defaults are taken over."
+          "description": "`hot_dayShare` over the pooled table: the day's 24 `hotellingdist` values each times its hour's pooled factor, which the age and month defaults are taken over. In a cell that collects hours the day has one hour, so it is `hot_pooledHourShare` itself."
         },
         "hot_pooledHourAdjustedHours": {
           "type": "unknown",
@@ -24148,7 +24162,7 @@
             "activity_rows",
             "runspeccounty_rows"
           ],
-          "description": "The earlier years' rows at the row's AGE after year `cy`'s hour block (`hot_ownHours x hot_pooledHourFactor` at their cell): their part of the age block's default numerator. The SQL joins on ageID, so an earlier year's age is pooled with this year's same age, a different model year."
+          "description": "The earlier years' rows at the row's AGE after year `cy`'s hour block (`hot_earlierRowHours x hot_pooledHourFactor` at their cell): their part of the age block's default numerator. The SQL joins on ageID, so an earlier year's age is pooled with this year's same age, a different model year."
         },
         "hot_dayCellCount": {
           "type": "unknown",
@@ -24193,7 +24207,7 @@
             "runspecmonth_rows",
             "runspecyear_rows"
           ],
-          "description": "The earlier years' rows in the month after year `cy`'s hour and age blocks (`hot_ownHours x hot_pooledHourFactor x hot_pooledAgeAdjustment` at this year's same age): their part of the month block's default. MOVES's default is a ratio of AVERAGES, `avg(month) / avg(all)`, and every month holds the same number of rows of each year, so it is `numMonths x` the month's share of the pooled sum."
+          "description": "The earlier years' rows in the month after year `cy`'s hour and age blocks (`hot_earlierRowHours x hot_pooledHourFactor x hot_pooledAgeAdjustment` at this year's same age): their part of the month block's default. MOVES's default is a ratio of AVERAGES, `avg(month) / avg(all)`, and every month holds the same number of rows of each year, so it is `numMonths x` the month's share of the pooled sum."
         },
         "hot_pooledMonthHours": {
           "type": "unknown",
@@ -24856,6 +24870,94 @@
           ],
           "description": "1 where the user governs the combination (`omd_userGoverned`) and states no row for it: RatesOpModeDistribution then has nothing for it, BaseRateGenerator writes no base rate, and MOVES emits NO row -- an absence, not a zero (`rt_hasLinkModes`). `project-useromd-gaps`: running Total Energy on link 1, whose user states running CO only, and the light commercial trucks' brake wear there."
         },
+        "tcell_dayTypeSlot": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecday_rows"
+          ],
+          "description": "The cell's day type's place among the run's day types (`rateday_rows`, runspecday): the slot a 24-Hour Day or Portion of Week output row of this cell falls in. 0 for PreAggMONTH.sql's whole-week cell (day 0), which no output step finer than Month reads: MOVES raises the output step to the aggregation's (TimeSpans.java:746)."
+        },
+        "tcell_outputSlot": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecday_rows"
+          ],
+          "description": "The output-time-step slot the cell falls in (AggregationSQLGenerator's GROUP BY): the cell itself at Hour; its day type (`tcell_dayTypeSlot`) when `n_outputSumsHours` sums each day's hours; 1 when `n_outputSumsDays` sums every cell of the month."
+        },
+        "tcell_slotFirstCell": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecday_rows"
+          ],
+          "description": "Indexed by SLOT, not by cell: the first cell (lowest `day_ordinal`) whose `tcell_outputSlot` is this slot -- the cell `mosOutputOrdinal` reads a slot's unsummed columns from. A slot no cell falls in reads one past the last cell, and no output row asks for it."
+        },
+        "hot_pooledHourFactorByHour": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecday_rows",
+            "runspeccounty_rows",
+            "runspecsourcetype_rows",
+            "runspecyear_rows"
+          ],
+          "description": "AdjustHotelling.sql's hotellingHourFraction block in year `cy`, `hourFraction / defaultHourFraction` at the output cell's hour (1 where the zone states none), with the default taken over every row the table holds: `(earlier + own) at the hour / (earlier + own) over the day`. The SQL rewrites EVERY row at that (zone, day, hour), so the earlier years' rows are multiplied by it too (`hot_earlierAgeHours`). Over the hours of the clock: the arm of `hot_pooledHourFactor` for a cell that does not collect hours."
+        },
+        "hot_pooledHourShareByHour": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecday_rows",
+            "runspeccounty_rows",
+            "runspecsourcetype_rows",
+            "runspecyear_rows"
+          ],
+          "description": "`hot_hourShare` over the pooled table: the output hour's `hotellingdist` times `hot_pooledHourFactor`. Over the hours of the clock: the arm of `hot_pooledHourShare` for a cell that does not collect hours."
+        },
+        "hot_pooledDayShareByHour": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecday_rows",
+            "runspeccounty_rows",
+            "runspecsourcetype_rows",
+            "runspecyear_rows"
+          ],
+          "description": "`hot_dayShare` over the pooled table: the day's 24 `hotellingdist` values each times its hour's pooled factor, which the age and month defaults are taken over. Over the hours of the clock: the arm of `hot_pooledDayShare` for a cell that does not collect hours."
+        },
+        "hot_yearCellHours": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecday_rows",
+            "runspeccounty_rows",
+            "runspecyear_rows"
+          ],
+          "description": "A calendar year's own adjusted hotelling hours at the cell (`hot_ownHours` summed over age, month and source type): the rows that year leaves in hotellingHours, and the denominator of AdjustHotelling.sql's hotellingHoursPerDay default when a LATER year re-runs that block over them (`hot_earlierRescale`)."
+        },
+        "hot_earlierRescale": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecday_rows",
+            "runspeccounty_rows",
+            "runspecyear_rows"
+          ],
+          "description": "What a LATER year's AdjustHotelling.sql does to this year's rows in its hotellingHoursPerDay block. The block gives only the target year's rows a day type (`update ... where yearID = targetYearID`); every other row keeps the added column's default, dayID 0, and is joined to hotellingHoursPerDay at day 0. Over the hours of the clock and under PreAggDAY.sql no such row exists and the factor is 1. In PreAggMONTH.sql's whole-week cell day 0 IS the collapsed day, so the earlier year's rows are rescaled a second time by their own year's `hotellingHoursPerDay / (sum(hotellingHours) / noOfRealDays) x numMonths` -- with the default taken over rows the earlier year's four blocks already adjusted -- before the later year's hour, age and month blocks pool them (`userdb-hotelling-multiyear-month`; PLAN.md §7.3.66)."
+        },
+        "hot_earlierRowHours": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "activity_rows",
+            "runspeccounty_rows",
+            "runspecsourcetype_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "An activity row's hours as a LATER year's AdjustHotelling.sql finds them in hotellingHours: `hot_ownHours` times its own year's `hot_earlierRescale` at its cell (1 everywhere but a whole-week cell). What the pooled chain's earlier-year sums read."
+        },
         "run_ownDaysInMonth": {
           "type": "unknown",
           "units": "1",
@@ -25145,6 +25247,22 @@
             "runspecmonth_rows"
           ],
           "description": "What BaseRateCalculator's sum over the formulations by `marketShare` multiplies a rate by beyond the share-weighted MEANS the model's ratios are: 1 on a run that does not aggregate by year, whose shares sum to 1 per fuel type; at `aggregateBy` Year the fuel type's summed share, 0.334 at four months -- on brake and tire wear and energy as much as on THC (PLAN.md §7.3.65)."
+        },
+        "run_idleAdjustmentRows": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "run_rows"
+          ],
+          "description": "idleMonthAdjust and idleDayAdjust rows at the run's source types, beside `run_idleGroupingRows`: the AdjustTotalIdleFraction.sql inputs."
+        },
+        "run_offNetworkActivitySelected": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "run_rows"
+          ],
+          "description": "Hotelling and start pollutant-processes on a selected road, and off-network idle blocks: the activities this model reads at the run's hours without a pre-aggregation (ONI's `totalIdleFraction` is keyed by the day type the SHO row carries)."
         }
       },
       "equations": [
@@ -45436,6 +45554,130 @@
           }
         },
         {
+          "lhs": "run_offNetworkActivitySelected",
+          "rhs": {
+            "op": "+",
+            "args": [
+              {
+                "op": "faq",
+                "args": [],
+                "semiring": "sum_product",
+                "output_idx": [
+                  "n"
+                ],
+                "ranges": {
+                  "n": {
+                    "from": "run_rows"
+                  },
+                  "p": {
+                    "from": "runspecpollutantprocess_rows"
+                  }
+                },
+                "expr": {
+                  "op": "*",
+                  "args": [
+                    {
+                      "op": "+",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "rspp_isHotelling",
+                            "p"
+                          ]
+                        },
+                        {
+                          "op": "index",
+                          "args": [
+                            "rspp_isStart",
+                            "p"
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "rspp_occursOnSelectedRoad",
+                        "p"
+                      ]
+                    }
+                  ]
+                }
+              },
+              "run_offNetworkIdleBlocks"
+            ]
+          }
+        },
+        {
+          "lhs": "run_idleAdjustmentRows",
+          "rhs": {
+            "op": "+",
+            "args": [
+              {
+                "op": "faq",
+                "args": [],
+                "semiring": "sum_product",
+                "output_idx": [
+                  "n"
+                ],
+                "ranges": {
+                  "n": {
+                    "from": "run_rows"
+                  },
+                  "s": {
+                    "from": "runspecsourcetype_rows"
+                  },
+                  "x": {
+                    "from": "idlemonthadjust_rows"
+                  }
+                },
+                "join": [
+                  {
+                    "on": [
+                      [
+                        "rst_sourceTypeID",
+                        "ima_sourceTypeID"
+                      ]
+                    ]
+                  }
+                ],
+                "expr": 1.0
+              },
+              {
+                "op": "faq",
+                "args": [],
+                "semiring": "sum_product",
+                "output_idx": [
+                  "n"
+                ],
+                "ranges": {
+                  "n": {
+                    "from": "run_rows"
+                  },
+                  "s": {
+                    "from": "runspecsourcetype_rows"
+                  },
+                  "x": {
+                    "from": "idledayadjust_rows"
+                  }
+                },
+                "join": [
+                  {
+                    "on": [
+                      [
+                        "rst_sourceTypeID",
+                        "ida_sourceTypeID"
+                      ]
+                    ]
+                  }
+                ],
+                "expr": 1.0
+              }
+            ]
+          }
+        },
+        {
           "lhs": "oni_groupedIdleFraction",
           "rhs": {
             "op": "faq",
@@ -45610,6 +45852,9 @@
               "s": {
                 "from": "runspecsourcetype_rows"
               },
+              "d": {
+                "from": "rateday_rows"
+              },
               "x": {
                 "from": "idledayadjust_rows"
               }
@@ -45626,13 +45871,20 @@
               {
                 "on": [
                   [
-                    "rsd_dayID",
+                    "rday_dayID",
                     "ida_dayID"
                   ]
                 ]
               }
             ],
-            "expr": 1.0
+            "expr": {
+              "op": "index",
+              "args": [
+                "tcell_dayMatch",
+                "k",
+                "d"
+              ]
+            }
           }
         },
         {
@@ -45652,6 +45904,9 @@
               "s": {
                 "from": "runspecsourcetype_rows"
               },
+              "d": {
+                "from": "rateday_rows"
+              },
               "x": {
                 "from": "idledayadjust_rows"
               }
@@ -45668,17 +45923,30 @@
               {
                 "on": [
                   [
-                    "rsd_dayID",
+                    "rday_dayID",
                     "ida_dayID"
                   ]
                 ]
               }
             ],
             "expr": {
-              "op": "index",
+              "op": "*",
               "args": [
-                "ida_idleDayAdjust",
-                "x"
+                {
+                  "op": "index",
+                  "args": [
+                    "tcell_dayWeekShare",
+                    "k",
+                    "d"
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "ida_idleDayAdjust",
+                    "x"
+                  ]
+                }
               ]
             }
           }
@@ -98749,26 +99017,26 @@
             "ranges": {
               "o": {
                 "from": "output_rows"
+              },
+              "k": {
+                "from": "runspecday_rows"
               }
             },
-            "expr": {
-              "op": "ifelse",
-              "args": [
-                {
-                  "op": ">",
-                  "args": [
-                    "n_outputSumsDays",
-                    0.5
-                  ]
-                },
-                1.0,
-                {
-                  "op": "index",
-                  "args": [
+            "join": [
+              {
+                "on": [
+                  [
                     "outDayOrdinal",
-                    "o"
+                    "day_ordinal"
                   ]
-                }
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "tcell_outputSlot",
+                "k"
               ]
             }
           }
@@ -98829,7 +99097,26 @@
                     }
                   ]
                 },
-                1.0
+                {
+                  "op": "ifelse",
+                  "args": [
+                    {
+                      "op": ">",
+                      "args": [
+                        "n_outputClassicalDay",
+                        0.5
+                      ]
+                    },
+                    1.0,
+                    {
+                      "op": "index",
+                      "args": [
+                        "outNoOfRealDays",
+                        "o"
+                      ]
+                    }
+                  ]
+                }
               ]
             }
           }
@@ -98934,10 +99221,22 @@
               "op": "ifelse",
               "args": [
                 {
-                  "op": ">",
+                  "op": "or",
                   "args": [
-                    "n_outputSumsDays",
-                    0.5
+                    {
+                      "op": ">",
+                      "args": [
+                        "n_outputSumsDays",
+                        0.5
+                      ]
+                    },
+                    {
+                      "op": ">",
+                      "args": [
+                        "n_outputSumsHours",
+                        0.5
+                      ]
+                    }
                   ]
                 },
                 {
@@ -98995,44 +99294,18 @@
                               "args": [
                                 "n_runspeccounty",
                                 {
-                                  "op": "-",
-                                  "args": [
-                                    "n_runspecmonth",
-                                    {
-                                      "op": "*",
-                                      "args": [
-                                        "n_outputSumsMonths",
-                                        {
-                                          "op": "-",
-                                          "args": [
-                                            "n_runspecmonth",
-                                            1
-                                          ]
-                                        }
-                                      ]
-                                    }
-                                  ]
+                                  "op": "apply_expression_template",
+                                  "args": [],
+                                  "name": "output_step_month_slots",
+                                  "bindings": {}
                                 }
                               ]
                             },
                             {
-                              "op": "-",
-                              "args": [
-                                "n_runspecday",
-                                {
-                                  "op": "*",
-                                  "args": [
-                                    "n_outputSumsDays",
-                                    {
-                                      "op": "-",
-                                      "args": [
-                                        "n_runspecday",
-                                        1
-                                      ]
-                                    }
-                                  ]
-                                }
-                              ]
+                              "op": "apply_expression_template",
+                              "args": [],
+                              "name": "output_step_cell_slots",
+                              "bindings": {}
                             }
                           ]
                         }
@@ -99102,44 +99375,18 @@
                                       "args": [
                                         "n_runspeccounty",
                                         {
-                                          "op": "-",
-                                          "args": [
-                                            "n_runspecmonth",
-                                            {
-                                              "op": "*",
-                                              "args": [
-                                                "n_outputSumsMonths",
-                                                {
-                                                  "op": "-",
-                                                  "args": [
-                                                    "n_runspecmonth",
-                                                    1
-                                                  ]
-                                                }
-                                              ]
-                                            }
-                                          ]
+                                          "op": "apply_expression_template",
+                                          "args": [],
+                                          "name": "output_step_month_slots",
+                                          "bindings": {}
                                         }
                                       ]
                                     },
                                     {
-                                      "op": "-",
-                                      "args": [
-                                        "n_runspecday",
-                                        {
-                                          "op": "*",
-                                          "args": [
-                                            "n_outputSumsDays",
-                                            {
-                                              "op": "-",
-                                              "args": [
-                                                "n_runspecday",
-                                                1
-                                              ]
-                                            }
-                                          ]
-                                        }
-                                      ]
+                                      "op": "apply_expression_template",
+                                      "args": [],
+                                      "name": "output_step_cell_slots",
+                                      "bindings": {}
                                     }
                                   ]
                                 }
@@ -99151,42 +99398,16 @@
                           "op": "*",
                           "args": [
                             {
-                              "op": "-",
-                              "args": [
-                                "n_runspecmonth",
-                                {
-                                  "op": "*",
-                                  "args": [
-                                    "n_outputSumsMonths",
-                                    {
-                                      "op": "-",
-                                      "args": [
-                                        "n_runspecmonth",
-                                        1
-                                      ]
-                                    }
-                                  ]
-                                }
-                              ]
+                              "op": "apply_expression_template",
+                              "args": [],
+                              "name": "output_step_month_slots",
+                              "bindings": {}
                             },
                             {
-                              "op": "-",
-                              "args": [
-                                "n_runspecday",
-                                {
-                                  "op": "*",
-                                  "args": [
-                                    "n_outputSumsDays",
-                                    {
-                                      "op": "-",
-                                      "args": [
-                                        "n_runspecday",
-                                        1
-                                      ]
-                                    }
-                                  ]
-                                }
-                              ]
+                              "op": "apply_expression_template",
+                              "args": [],
+                              "name": "output_step_cell_slots",
+                              "bindings": {}
                             }
                           ]
                         }
@@ -99259,44 +99480,18 @@
                                           "args": [
                                             "n_runspeccounty",
                                             {
-                                              "op": "-",
-                                              "args": [
-                                                "n_runspecmonth",
-                                                {
-                                                  "op": "*",
-                                                  "args": [
-                                                    "n_outputSumsMonths",
-                                                    {
-                                                      "op": "-",
-                                                      "args": [
-                                                        "n_runspecmonth",
-                                                        1
-                                                      ]
-                                                    }
-                                                  ]
-                                                }
-                                              ]
+                                              "op": "apply_expression_template",
+                                              "args": [],
+                                              "name": "output_step_month_slots",
+                                              "bindings": {}
                                             }
                                           ]
                                         },
                                         {
-                                          "op": "-",
-                                          "args": [
-                                            "n_runspecday",
-                                            {
-                                              "op": "*",
-                                              "args": [
-                                                "n_outputSumsDays",
-                                                {
-                                                  "op": "-",
-                                                  "args": [
-                                                    "n_runspecday",
-                                                    1
-                                                  ]
-                                                }
-                                              ]
-                                            }
-                                          ]
+                                          "op": "apply_expression_template",
+                                          "args": [],
+                                          "name": "output_step_cell_slots",
+                                          "bindings": {}
                                         }
                                       ]
                                     }
@@ -99324,42 +99519,16 @@
                                   "op": "*",
                                   "args": [
                                     {
-                                      "op": "-",
-                                      "args": [
-                                        "n_runspecmonth",
-                                        {
-                                          "op": "*",
-                                          "args": [
-                                            "n_outputSumsMonths",
-                                            {
-                                              "op": "-",
-                                              "args": [
-                                                "n_runspecmonth",
-                                                1
-                                              ]
-                                            }
-                                          ]
-                                        }
-                                      ]
+                                      "op": "apply_expression_template",
+                                      "args": [],
+                                      "name": "output_step_month_slots",
+                                      "bindings": {}
                                     },
                                     {
-                                      "op": "-",
-                                      "args": [
-                                        "n_runspecday",
-                                        {
-                                          "op": "*",
-                                          "args": [
-                                            "n_outputSumsDays",
-                                            {
-                                              "op": "-",
-                                              "args": [
-                                                "n_runspecday",
-                                                1
-                                              ]
-                                            }
-                                          ]
-                                        }
-                                      ]
+                                      "op": "apply_expression_template",
+                                      "args": [],
+                                      "name": "output_step_cell_slots",
+                                      "bindings": {}
                                     }
                                   ]
                                 }
@@ -99368,23 +99537,10 @@
                           ]
                         },
                         {
-                          "op": "-",
-                          "args": [
-                            "n_runspecday",
-                            {
-                              "op": "*",
-                              "args": [
-                                "n_outputSumsDays",
-                                {
-                                  "op": "-",
-                                  "args": [
-                                    "n_runspecday",
-                                    1
-                                  ]
-                                }
-                              ]
-                            }
-                          ]
+                          "op": "apply_expression_template",
+                          "args": [],
+                          "name": "output_step_cell_slots",
+                          "bindings": {}
                         }
                       ]
                     }
@@ -99452,44 +99608,18 @@
                                       "args": [
                                         "n_runspeccounty",
                                         {
-                                          "op": "-",
-                                          "args": [
-                                            "n_runspecmonth",
-                                            {
-                                              "op": "*",
-                                              "args": [
-                                                "n_outputSumsMonths",
-                                                {
-                                                  "op": "-",
-                                                  "args": [
-                                                    "n_runspecmonth",
-                                                    1
-                                                  ]
-                                                }
-                                              ]
-                                            }
-                                          ]
+                                          "op": "apply_expression_template",
+                                          "args": [],
+                                          "name": "output_step_month_slots",
+                                          "bindings": {}
                                         }
                                       ]
                                     },
                                     {
-                                      "op": "-",
-                                      "args": [
-                                        "n_runspecday",
-                                        {
-                                          "op": "*",
-                                          "args": [
-                                            "n_outputSumsDays",
-                                            {
-                                              "op": "-",
-                                              "args": [
-                                                "n_runspecday",
-                                                1
-                                              ]
-                                            }
-                                          ]
-                                        }
-                                      ]
+                                      "op": "apply_expression_template",
+                                      "args": [],
+                                      "name": "output_step_cell_slots",
+                                      "bindings": {}
                                     }
                                   ]
                                 }
@@ -99517,42 +99647,16 @@
                               "op": "*",
                               "args": [
                                 {
-                                  "op": "-",
-                                  "args": [
-                                    "n_runspecmonth",
-                                    {
-                                      "op": "*",
-                                      "args": [
-                                        "n_outputSumsMonths",
-                                        {
-                                          "op": "-",
-                                          "args": [
-                                            "n_runspecmonth",
-                                            1
-                                          ]
-                                        }
-                                      ]
-                                    }
-                                  ]
+                                  "op": "apply_expression_template",
+                                  "args": [],
+                                  "name": "output_step_month_slots",
+                                  "bindings": {}
                                 },
                                 {
-                                  "op": "-",
-                                  "args": [
-                                    "n_runspecday",
-                                    {
-                                      "op": "*",
-                                      "args": [
-                                        "n_outputSumsDays",
-                                        {
-                                          "op": "-",
-                                          "args": [
-                                            "n_runspecday",
-                                            1
-                                          ]
-                                        }
-                                      ]
-                                    }
-                                  ]
+                                  "op": "apply_expression_template",
+                                  "args": [],
+                                  "name": "output_step_cell_slots",
+                                  "bindings": {}
                                 }
                               ]
                             }
@@ -99577,23 +99681,10 @@
                           ]
                         },
                         {
-                          "op": "-",
-                          "args": [
-                            "n_runspecday",
-                            {
-                              "op": "*",
-                              "args": [
-                                "n_outputSumsDays",
-                                {
-                                  "op": "-",
-                                  "args": [
-                                    "n_runspecday",
-                                    1
-                                  ]
-                                }
-                              ]
-                            }
-                          ]
+                          "op": "apply_expression_template",
+                          "args": [],
+                          "name": "output_step_cell_slots",
+                          "bindings": {}
                         }
                       ]
                     }
@@ -99616,8 +99707,21 @@
             "ranges": {
               "x": {
                 "from": "outputstep_rows"
+              },
+              "s": {
+                "from": "runspecday_rows"
               }
             },
+            "join": [
+              {
+                "on": [
+                  [
+                    "mosDaySlot",
+                    "day_ordinal"
+                  ]
+                ]
+              }
+            ],
             "expr": {
               "op": "+",
               "args": [
@@ -99709,8 +99813,8 @@
                 {
                   "op": "index",
                   "args": [
-                    "mosDaySlot",
-                    "x"
+                    "tcell_slotFirstCell",
+                    "s"
                   ]
                 }
               ]
@@ -104233,7 +104337,7 @@
                 {
                   "op": "index",
                   "args": [
-                    "hot_ownHours",
+                    "hot_earlierRowHours",
                     "e",
                     "g",
                     "s",
@@ -104500,56 +104604,22 @@
               },
               "cy": {
                 "from": "runspecyear_rows"
-              },
-              "a": {
-                "from": "aggregationhour_rows"
-              },
-              "h": {
-                "from": "sourcetypehour_rows"
-              },
-              "d": {
-                "from": "hourday_rows"
               }
             },
-            "join": [
-              {
-                "on": [
-                  [
-                    "rst_sourceTypeID",
-                    "sth_sourceTypeID"
-                  ]
-                ]
-              },
-              {
-                "on": [
-                  [
-                    "sth_hourDayID",
-                    "hd_hourDayID"
-                  ]
-                ]
-              },
-              {
-                "on": [
-                  [
-                    "hd_dayID",
-                    "rsd_dayID"
-                  ],
-                  [
-                    "hd_hourID",
-                    "ahr_hourID"
-                  ]
-                ]
-              }
-            ],
             "expr": {
-              "op": "*",
+              "op": "ifelse",
               "args": [
                 {
-                  "op": "index",
+                  "op": ">",
                   "args": [
-                    "tcell_hourMatch",
-                    "k",
-                    "a"
+                    {
+                      "op": "index",
+                      "args": [
+                        "tcell_collectsHours",
+                        "k"
+                      ]
+                    },
+                    0.5
                   ]
                 },
                 {
@@ -104560,17 +104630,17 @@
                     "match_count": {
                       "op": "index",
                       "args": [
-                        "hot_hourFractionRows",
-                        "g",
-                        "d"
+                        "hot_cellHourFractionRows",
+                        "k",
+                        "g"
                       ]
                     },
                     "stated": {
                       "op": "index",
                       "args": [
-                        "hot_hourFractionStated",
-                        "g",
-                        "d"
+                        "hot_cellHourFractionStated",
+                        "k",
+                        "g"
                       ]
                     },
                     "part": {
@@ -104579,8 +104649,8 @@
                         {
                           "op": "index",
                           "args": [
-                            "hot_earlierHourDayHours",
-                            "d",
+                            "hot_earlierCellHours",
+                            "k",
                             "g",
                             "s",
                             "cy"
@@ -104602,8 +104672,9 @@
                             {
                               "op": "index",
                               "args": [
-                                "sth_hotellingdist",
-                                "h"
+                                "hot_hourDistribution",
+                                "k",
+                                "s"
                               ]
                             }
                           ]
@@ -104649,6 +104720,16 @@
                       ]
                     }
                   }
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "hot_pooledHourFactorByHour",
+                    "k",
+                    "g",
+                    "s",
+                    "cy"
+                  ]
                 }
               ]
             }
@@ -104678,56 +104759,22 @@
               },
               "cy": {
                 "from": "runspecyear_rows"
-              },
-              "a": {
-                "from": "aggregationhour_rows"
-              },
-              "h": {
-                "from": "sourcetypehour_rows"
-              },
-              "d": {
-                "from": "hourday_rows"
               }
             },
-            "join": [
-              {
-                "on": [
-                  [
-                    "rst_sourceTypeID",
-                    "sth_sourceTypeID"
-                  ]
-                ]
-              },
-              {
-                "on": [
-                  [
-                    "sth_hourDayID",
-                    "hd_hourDayID"
-                  ]
-                ]
-              },
-              {
-                "on": [
-                  [
-                    "hd_dayID",
-                    "rsd_dayID"
-                  ],
-                  [
-                    "hd_hourID",
-                    "ahr_hourID"
-                  ]
-                ]
-              }
-            ],
             "expr": {
-              "op": "*",
+              "op": "ifelse",
               "args": [
                 {
-                  "op": "index",
+                  "op": ">",
                   "args": [
-                    "tcell_hourMatch",
-                    "k",
-                    "a"
+                    {
+                      "op": "index",
+                      "args": [
+                        "tcell_collectsHours",
+                        "k"
+                      ]
+                    },
+                    0.5
                   ]
                 },
                 {
@@ -104736,108 +104783,31 @@
                     {
                       "op": "index",
                       "args": [
-                        "sth_hotellingdist",
-                        "h"
+                        "hot_hourDistribution",
+                        "k",
+                        "s"
                       ]
                     },
                     {
-                      "op": "apply_expression_template",
-                      "args": [],
-                      "name": "stated_over_default",
-                      "bindings": {
-                        "match_count": {
-                          "op": "index",
-                          "args": [
-                            "hot_hourFractionRows",
-                            "g",
-                            "d"
-                          ]
-                        },
-                        "stated": {
-                          "op": "index",
-                          "args": [
-                            "hot_hourFractionStated",
-                            "g",
-                            "d"
-                          ]
-                        },
-                        "part": {
-                          "op": "+",
-                          "args": [
-                            {
-                              "op": "index",
-                              "args": [
-                                "hot_earlierHourDayHours",
-                                "d",
-                                "g",
-                                "s",
-                                "cy"
-                              ]
-                            },
-                            {
-                              "op": "*",
-                              "args": [
-                                {
-                                  "op": "index",
-                                  "args": [
-                                    "hot_dayUnit",
-                                    "k",
-                                    "g",
-                                    "s",
-                                    "cy"
-                                  ]
-                                },
-                                {
-                                  "op": "index",
-                                  "args": [
-                                    "sth_hotellingdist",
-                                    "h"
-                                  ]
-                                }
-                              ]
-                            }
-                          ]
-                        },
-                        "total": {
-                          "op": "+",
-                          "args": [
-                            {
-                              "op": "index",
-                              "args": [
-                                "hot_earlierDayHours",
-                                "k",
-                                "g",
-                                "s",
-                                "cy"
-                              ]
-                            },
-                            {
-                              "op": "*",
-                              "args": [
-                                {
-                                  "op": "index",
-                                  "args": [
-                                    "hot_dayUnit",
-                                    "k",
-                                    "g",
-                                    "s",
-                                    "cy"
-                                  ]
-                                },
-                                {
-                                  "op": "index",
-                                  "args": [
-                                    "hot_dayDistribution",
-                                    "k",
-                                    "s"
-                                  ]
-                                }
-                              ]
-                            }
-                          ]
-                        }
-                      }
+                      "op": "index",
+                      "args": [
+                        "hot_pooledHourFactor",
+                        "k",
+                        "g",
+                        "s",
+                        "cy"
+                      ]
                     }
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "hot_pooledHourShareByHour",
+                    "k",
+                    "g",
+                    "s",
+                    "cy"
                   ]
                 }
               ]
@@ -104868,147 +104838,43 @@
               },
               "cy": {
                 "from": "runspecyear_rows"
-              },
-              "h": {
-                "from": "sourcetypehour_rows"
-              },
-              "d": {
-                "from": "hourday_rows"
               }
             },
-            "join": [
-              {
-                "on": [
-                  [
-                    "rst_sourceTypeID",
-                    "sth_sourceTypeID"
-                  ]
-                ]
-              },
-              {
-                "on": [
-                  [
-                    "sth_hourDayID",
-                    "hd_hourDayID"
-                  ]
-                ]
-              },
-              {
-                "on": [
-                  [
-                    "hd_dayID",
-                    "rsd_dayID"
-                  ]
-                ]
-              }
-            ],
             "expr": {
-              "op": "*",
+              "op": "ifelse",
               "args": [
                 {
-                  "op": "index",
+                  "op": ">",
                   "args": [
-                    "sth_hotellingdist",
-                    "h"
+                    {
+                      "op": "index",
+                      "args": [
+                        "tcell_collectsHours",
+                        "k"
+                      ]
+                    },
+                    0.5
                   ]
                 },
                 {
-                  "op": "apply_expression_template",
-                  "args": [],
-                  "name": "stated_over_default",
-                  "bindings": {
-                    "match_count": {
-                      "op": "index",
-                      "args": [
-                        "hot_hourFractionRows",
-                        "g",
-                        "d"
-                      ]
-                    },
-                    "stated": {
-                      "op": "index",
-                      "args": [
-                        "hot_hourFractionStated",
-                        "g",
-                        "d"
-                      ]
-                    },
-                    "part": {
-                      "op": "+",
-                      "args": [
-                        {
-                          "op": "index",
-                          "args": [
-                            "hot_earlierHourDayHours",
-                            "d",
-                            "g",
-                            "s",
-                            "cy"
-                          ]
-                        },
-                        {
-                          "op": "*",
-                          "args": [
-                            {
-                              "op": "index",
-                              "args": [
-                                "hot_dayUnit",
-                                "k",
-                                "g",
-                                "s",
-                                "cy"
-                              ]
-                            },
-                            {
-                              "op": "index",
-                              "args": [
-                                "sth_hotellingdist",
-                                "h"
-                              ]
-                            }
-                          ]
-                        }
-                      ]
-                    },
-                    "total": {
-                      "op": "+",
-                      "args": [
-                        {
-                          "op": "index",
-                          "args": [
-                            "hot_earlierDayHours",
-                            "k",
-                            "g",
-                            "s",
-                            "cy"
-                          ]
-                        },
-                        {
-                          "op": "*",
-                          "args": [
-                            {
-                              "op": "index",
-                              "args": [
-                                "hot_dayUnit",
-                                "k",
-                                "g",
-                                "s",
-                                "cy"
-                              ]
-                            },
-                            {
-                              "op": "index",
-                              "args": [
-                                "hot_dayDistribution",
-                                "k",
-                                "s"
-                              ]
-                            }
-                          ]
-                        }
-                      ]
-                    }
-                  }
+                  "op": "index",
+                  "args": [
+                    "hot_pooledHourShare",
+                    "k",
+                    "g",
+                    "s",
+                    "cy"
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "hot_pooledDayShareByHour",
+                    "k",
+                    "g",
+                    "s",
+                    "cy"
+                  ]
                 }
               ]
             }
@@ -105321,7 +105187,7 @@
                     {
                       "op": "index",
                       "args": [
-                        "hot_ownHours",
+                        "hot_earlierRowHours",
                         "e",
                         "g",
                         "s",
@@ -105780,7 +105646,7 @@
                         {
                           "op": "index",
                           "args": [
-                            "hot_ownHours",
+                            "hot_earlierRowHours",
                             "e",
                             "g",
                             "s",
@@ -107844,74 +107710,6 @@
           }
         },
         {
-          "lhs": "run_idleAdjustmentRows",
-          "rhs": {
-            "op": "+",
-            "args": [
-              {
-                "op": "faq",
-                "args": [],
-                "semiring": "sum_product",
-                "output_idx": [
-                  "n"
-                ],
-                "ranges": {
-                  "n": {
-                    "from": "run_rows"
-                  },
-                  "s": {
-                    "from": "runspecsourcetype_rows"
-                  },
-                  "x": {
-                    "from": "idlemonthadjust_rows"
-                  }
-                },
-                "join": [
-                  {
-                    "on": [
-                      [
-                        "rst_sourceTypeID",
-                        "ima_sourceTypeID"
-                      ]
-                    ]
-                  }
-                ],
-                "expr": 1.0
-              },
-              {
-                "op": "faq",
-                "args": [],
-                "semiring": "sum_product",
-                "output_idx": [
-                  "n"
-                ],
-                "ranges": {
-                  "n": {
-                    "from": "run_rows"
-                  },
-                  "s": {
-                    "from": "runspecsourcetype_rows"
-                  },
-                  "x": {
-                    "from": "idledayadjust_rows"
-                  }
-                },
-                "join": [
-                  {
-                    "on": [
-                      [
-                        "rst_sourceTypeID",
-                        "ida_sourceTypeID"
-                      ]
-                    ]
-                  }
-                ],
-                "expr": 1.0
-              }
-            ]
-          }
-        },
-        {
           "lhs": "run_aggregationUnported",
           "rhs": {
             "op": "faq",
@@ -107939,33 +107737,77 @@
                   "op": "+",
                   "args": [
                     {
-                      "op": "+",
+                      "op": "*",
                       "args": [
+                        "n_aggregatesMonths",
                         {
                           "op": "+",
                           "args": [
                             {
-                              "op": "*",
+                              "op": "+",
                               "args": [
                                 {
-                                  "op": "index",
+                                  "op": "*",
                                   "args": [
-                                    "run_hotellingSelected",
-                                    "n"
+                                    {
+                                      "op": "index",
+                                      "args": [
+                                        "run_hotellingSelected",
+                                        "n"
+                                      ]
+                                    },
+                                    {
+                                      "op": "ifelse",
+                                      "args": [
+                                        {
+                                          "op": ">",
+                                          "args": [
+                                            "n_runspecyear",
+                                            1.5
+                                          ]
+                                        },
+                                        1.0,
+                                        0.0
+                                      ]
+                                    }
                                   ]
                                 },
                                 {
-                                  "op": "ifelse",
+                                  "op": "*",
                                   "args": [
                                     {
-                                      "op": ">",
-                                      "args": [
-                                        "n_runspecyear",
-                                        1.5
-                                      ]
+                                      "op": "apply_expression_template",
+                                      "args": [],
+                                      "name": "row_is_present",
+                                      "bindings": {
+                                        "match_count": {
+                                          "op": "index",
+                                          "args": [
+                                            "run_offNetworkIdleBlocks",
+                                            "n"
+                                          ]
+                                        }
+                                      }
                                     },
-                                    1.0,
-                                    0.0
+                                    {
+                                      "op": "+",
+                                      "args": [
+                                        {
+                                          "op": "index",
+                                          "args": [
+                                            "run_idleGroupingRows",
+                                            "n"
+                                          ]
+                                        },
+                                        {
+                                          "op": "index",
+                                          "args": [
+                                            "run_idleAdjustmentRows",
+                                            "n"
+                                          ]
+                                        }
+                                      ]
+                                    }
                                   ]
                                 }
                               ]
@@ -107981,76 +107823,38 @@
                                     "match_count": {
                                       "op": "index",
                                       "args": [
-                                        "run_offNetworkIdleBlocks",
+                                        "run_offNetworkActivitySelected",
                                         "n"
                                       ]
                                     }
                                   }
                                 },
                                 {
-                                  "op": "+",
+                                  "op": "ifelse",
                                   "args": [
                                     {
-                                      "op": "index",
+                                      "op": "<",
                                       "args": [
-                                        "run_idleGroupingRows",
-                                        "n"
+                                        {
+                                          "op": "index",
+                                          "args": [
+                                            "run_dayCount",
+                                            "n"
+                                          ]
+                                        },
+                                        {
+                                          "op": "index",
+                                          "args": [
+                                            "run_actDayCount",
+                                            "n"
+                                          ]
+                                        }
                                       ]
                                     },
-                                    {
-                                      "op": "index",
-                                      "args": [
-                                        "run_idleAdjustmentRows",
-                                        "n"
-                                      ]
-                                    }
+                                    1.0,
+                                    0.0
                                   ]
                                 }
-                              ]
-                            }
-                          ]
-                        },
-                        {
-                          "op": "*",
-                          "args": [
-                            {
-                              "op": "apply_expression_template",
-                              "args": [],
-                              "name": "row_is_present",
-                              "bindings": {
-                                "match_count": {
-                                  "op": "index",
-                                  "args": [
-                                    "run_offNetworkActivitySelected",
-                                    "n"
-                                  ]
-                                }
-                              }
-                            },
-                            {
-                              "op": "ifelse",
-                              "args": [
-                                {
-                                  "op": "<",
-                                  "args": [
-                                    {
-                                      "op": "index",
-                                      "args": [
-                                        "run_dayCount",
-                                        "n"
-                                      ]
-                                    },
-                                    {
-                                      "op": "index",
-                                      "args": [
-                                        "run_actDayCount",
-                                        "n"
-                                      ]
-                                    }
-                                  ]
-                                },
-                                1.0,
-                                0.0
                               ]
                             }
                           ]
@@ -116799,62 +116603,6 @@
           }
         },
         {
-          "lhs": "run_offNetworkActivitySelected",
-          "rhs": {
-            "op": "+",
-            "args": [
-              {
-                "op": "faq",
-                "args": [],
-                "semiring": "sum_product",
-                "output_idx": [
-                  "n"
-                ],
-                "ranges": {
-                  "n": {
-                    "from": "run_rows"
-                  },
-                  "p": {
-                    "from": "runspecpollutantprocess_rows"
-                  }
-                },
-                "expr": {
-                  "op": "*",
-                  "args": [
-                    {
-                      "op": "+",
-                      "args": [
-                        {
-                          "op": "index",
-                          "args": [
-                            "rspp_isHotelling",
-                            "p"
-                          ]
-                        },
-                        {
-                          "op": "index",
-                          "args": [
-                            "rspp_isStart",
-                            "p"
-                          ]
-                        }
-                      ]
-                    },
-                    {
-                      "op": "index",
-                      "args": [
-                        "rspp_occursOnSelectedRoad",
-                        "p"
-                      ]
-                    }
-                  ]
-                }
-              },
-              "run_offNetworkIdleBlocks"
-            ]
-          }
-        },
-        {
           "lhs": "cff_coefficientETOHSquared",
           "rhs": {
             "op": "const",
@@ -117369,6 +117117,954 @@
                 "m",
                 "s",
                 "d"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "tcell_dayTypeSlot",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "k"
+            ],
+            "ranges": {
+              "k": {
+                "from": "runspecday_rows"
+              },
+              "r": {
+                "from": "rateday_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rsd_dayID",
+                    "rday_dayID"
+                  ]
+                ]
+              }
+            ],
+            "expr": "r"
+          }
+        },
+        {
+          "lhs": "tcell_outputSlot",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "k"
+            ],
+            "ranges": {
+              "k": {
+                "from": "runspecday_rows"
+              }
+            },
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                {
+                  "op": ">",
+                  "args": [
+                    "n_outputSumsDays",
+                    0.5
+                  ]
+                },
+                1.0,
+                {
+                  "op": "ifelse",
+                  "args": [
+                    {
+                      "op": ">",
+                      "args": [
+                        "n_outputSumsHours",
+                        0.5
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "tcell_dayTypeSlot",
+                        "k"
+                      ]
+                    },
+                    "k"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "tcell_slotFirstCell",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "min_sum",
+            "output_idx": [
+              "s"
+            ],
+            "ranges": {
+              "s": {
+                "from": "runspecday_rows"
+              },
+              "k": {
+                "from": "runspecday_rows"
+              }
+            },
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                {
+                  "op": "<",
+                  "args": [
+                    {
+                      "op": "abs",
+                      "args": [
+                        {
+                          "op": "-",
+                          "args": [
+                            {
+                              "op": "index",
+                              "args": [
+                                "tcell_outputSlot",
+                                "k"
+                              ]
+                            },
+                            "s"
+                          ]
+                        }
+                      ]
+                    },
+                    0.5
+                  ]
+                },
+                "k",
+                {
+                  "op": "+",
+                  "args": [
+                    "n_runspecday",
+                    1
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "hot_pooledHourFactorByHour",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "k",
+              "g",
+              "s",
+              "cy"
+            ],
+            "ranges": {
+              "k": {
+                "from": "runspecday_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "s": {
+                "from": "runspecsourcetype_rows"
+              },
+              "cy": {
+                "from": "runspecyear_rows"
+              },
+              "a": {
+                "from": "aggregationhour_rows"
+              },
+              "h": {
+                "from": "sourcetypehour_rows"
+              },
+              "d": {
+                "from": "hourday_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rst_sourceTypeID",
+                    "sth_sourceTypeID"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "sth_hourDayID",
+                    "hd_hourDayID"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "hd_dayID",
+                    "rsd_dayID"
+                  ],
+                  [
+                    "hd_hourID",
+                    "ahr_hourID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "tcell_hourMatch",
+                    "k",
+                    "a"
+                  ]
+                },
+                {
+                  "op": "apply_expression_template",
+                  "args": [],
+                  "name": "stated_over_default",
+                  "bindings": {
+                    "match_count": {
+                      "op": "index",
+                      "args": [
+                        "hot_hourFractionRows",
+                        "g",
+                        "d"
+                      ]
+                    },
+                    "stated": {
+                      "op": "index",
+                      "args": [
+                        "hot_hourFractionStated",
+                        "g",
+                        "d"
+                      ]
+                    },
+                    "part": {
+                      "op": "+",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "hot_earlierHourDayHours",
+                            "d",
+                            "g",
+                            "s",
+                            "cy"
+                          ]
+                        },
+                        {
+                          "op": "*",
+                          "args": [
+                            {
+                              "op": "index",
+                              "args": [
+                                "hot_dayUnit",
+                                "k",
+                                "g",
+                                "s",
+                                "cy"
+                              ]
+                            },
+                            {
+                              "op": "index",
+                              "args": [
+                                "sth_hotellingdist",
+                                "h"
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    "total": {
+                      "op": "+",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "hot_earlierDayHours",
+                            "k",
+                            "g",
+                            "s",
+                            "cy"
+                          ]
+                        },
+                        {
+                          "op": "*",
+                          "args": [
+                            {
+                              "op": "index",
+                              "args": [
+                                "hot_dayUnit",
+                                "k",
+                                "g",
+                                "s",
+                                "cy"
+                              ]
+                            },
+                            {
+                              "op": "index",
+                              "args": [
+                                "hot_dayDistribution",
+                                "k",
+                                "s"
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "hot_pooledHourShareByHour",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "k",
+              "g",
+              "s",
+              "cy"
+            ],
+            "ranges": {
+              "k": {
+                "from": "runspecday_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "s": {
+                "from": "runspecsourcetype_rows"
+              },
+              "cy": {
+                "from": "runspecyear_rows"
+              },
+              "a": {
+                "from": "aggregationhour_rows"
+              },
+              "h": {
+                "from": "sourcetypehour_rows"
+              },
+              "d": {
+                "from": "hourday_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rst_sourceTypeID",
+                    "sth_sourceTypeID"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "sth_hourDayID",
+                    "hd_hourDayID"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "hd_dayID",
+                    "rsd_dayID"
+                  ],
+                  [
+                    "hd_hourID",
+                    "ahr_hourID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "tcell_hourMatch",
+                    "k",
+                    "a"
+                  ]
+                },
+                {
+                  "op": "*",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "sth_hotellingdist",
+                        "h"
+                      ]
+                    },
+                    {
+                      "op": "apply_expression_template",
+                      "args": [],
+                      "name": "stated_over_default",
+                      "bindings": {
+                        "match_count": {
+                          "op": "index",
+                          "args": [
+                            "hot_hourFractionRows",
+                            "g",
+                            "d"
+                          ]
+                        },
+                        "stated": {
+                          "op": "index",
+                          "args": [
+                            "hot_hourFractionStated",
+                            "g",
+                            "d"
+                          ]
+                        },
+                        "part": {
+                          "op": "+",
+                          "args": [
+                            {
+                              "op": "index",
+                              "args": [
+                                "hot_earlierHourDayHours",
+                                "d",
+                                "g",
+                                "s",
+                                "cy"
+                              ]
+                            },
+                            {
+                              "op": "*",
+                              "args": [
+                                {
+                                  "op": "index",
+                                  "args": [
+                                    "hot_dayUnit",
+                                    "k",
+                                    "g",
+                                    "s",
+                                    "cy"
+                                  ]
+                                },
+                                {
+                                  "op": "index",
+                                  "args": [
+                                    "sth_hotellingdist",
+                                    "h"
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        "total": {
+                          "op": "+",
+                          "args": [
+                            {
+                              "op": "index",
+                              "args": [
+                                "hot_earlierDayHours",
+                                "k",
+                                "g",
+                                "s",
+                                "cy"
+                              ]
+                            },
+                            {
+                              "op": "*",
+                              "args": [
+                                {
+                                  "op": "index",
+                                  "args": [
+                                    "hot_dayUnit",
+                                    "k",
+                                    "g",
+                                    "s",
+                                    "cy"
+                                  ]
+                                },
+                                {
+                                  "op": "index",
+                                  "args": [
+                                    "hot_dayDistribution",
+                                    "k",
+                                    "s"
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "hot_pooledDayShareByHour",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "k",
+              "g",
+              "s",
+              "cy"
+            ],
+            "ranges": {
+              "k": {
+                "from": "runspecday_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "s": {
+                "from": "runspecsourcetype_rows"
+              },
+              "cy": {
+                "from": "runspecyear_rows"
+              },
+              "h": {
+                "from": "sourcetypehour_rows"
+              },
+              "d": {
+                "from": "hourday_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rst_sourceTypeID",
+                    "sth_sourceTypeID"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "sth_hourDayID",
+                    "hd_hourDayID"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "hd_dayID",
+                    "rsd_dayID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "sth_hotellingdist",
+                    "h"
+                  ]
+                },
+                {
+                  "op": "apply_expression_template",
+                  "args": [],
+                  "name": "stated_over_default",
+                  "bindings": {
+                    "match_count": {
+                      "op": "index",
+                      "args": [
+                        "hot_hourFractionRows",
+                        "g",
+                        "d"
+                      ]
+                    },
+                    "stated": {
+                      "op": "index",
+                      "args": [
+                        "hot_hourFractionStated",
+                        "g",
+                        "d"
+                      ]
+                    },
+                    "part": {
+                      "op": "+",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "hot_earlierHourDayHours",
+                            "d",
+                            "g",
+                            "s",
+                            "cy"
+                          ]
+                        },
+                        {
+                          "op": "*",
+                          "args": [
+                            {
+                              "op": "index",
+                              "args": [
+                                "hot_dayUnit",
+                                "k",
+                                "g",
+                                "s",
+                                "cy"
+                              ]
+                            },
+                            {
+                              "op": "index",
+                              "args": [
+                                "sth_hotellingdist",
+                                "h"
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    "total": {
+                      "op": "+",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "hot_earlierDayHours",
+                            "k",
+                            "g",
+                            "s",
+                            "cy"
+                          ]
+                        },
+                        {
+                          "op": "*",
+                          "args": [
+                            {
+                              "op": "index",
+                              "args": [
+                                "hot_dayUnit",
+                                "k",
+                                "g",
+                                "s",
+                                "cy"
+                              ]
+                            },
+                            {
+                              "op": "index",
+                              "args": [
+                                "hot_dayDistribution",
+                                "k",
+                                "s"
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "hot_yearCellHours",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "k",
+              "g",
+              "cy"
+            ],
+            "ranges": {
+              "k": {
+                "from": "runspecday_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "cy": {
+                "from": "runspecyear_rows"
+              },
+              "e": {
+                "from": "activity_rows"
+              },
+              "s": {
+                "from": "runspecsourcetype_rows"
+              },
+              "m": {
+                "from": "runspecmonth_rows"
+              }
+            },
+            "join": [
+              {
+                "syms": [
+                  "e",
+                  "k"
+                ],
+                "on": [
+                  [
+                    "act_dayOrdinal",
+                    "day_ordinal"
+                  ]
+                ]
+              },
+              {
+                "syms": [
+                  "e",
+                  "cy"
+                ],
+                "on": [
+                  [
+                    "act_yearOrdinal",
+                    "year_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "hot_ownHours",
+                "e",
+                "g",
+                "s",
+                "m"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "hot_earlierRescale",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "k",
+              "g",
+              "cy"
+            ],
+            "ranges": {
+              "k": {
+                "from": "runspecday_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "cy": {
+                "from": "runspecyear_rows"
+              },
+              "n": {
+                "from": "run_rows"
+              }
+            },
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                {
+                  "op": "and",
+                  "args": [
+                    {
+                      "op": ">",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "tcell_collectsDays",
+                            "k"
+                          ]
+                        },
+                        0.5
+                      ]
+                    },
+                    {
+                      "op": ">",
+                      "args": [
+                        {
+                          "op": "apply_expression_template",
+                          "args": [],
+                          "name": "row_is_present",
+                          "bindings": {
+                            "match_count": {
+                              "op": "index",
+                              "args": [
+                                "hot_hoursPerDayInputRows",
+                                "k",
+                                "g",
+                                "cy"
+                              ]
+                            }
+                          }
+                        },
+                        0.5
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "op": "*",
+                  "args": [
+                    {
+                      "op": "apply_expression_template",
+                      "args": [],
+                      "name": "ratio_with_zero_guard",
+                      "bindings": {
+                        "numerator": {
+                          "op": "*",
+                          "args": [
+                            {
+                              "op": "index",
+                              "args": [
+                                "hot_hoursPerDayInput",
+                                "k",
+                                "g",
+                                "cy"
+                              ]
+                            },
+                            {
+                              "op": "index",
+                              "args": [
+                                "day_noOfRealDays",
+                                "k"
+                              ]
+                            }
+                          ]
+                        },
+                        "denominator": {
+                          "op": "index",
+                          "args": [
+                            "hot_yearCellHours",
+                            "k",
+                            "g",
+                            "cy"
+                          ]
+                        }
+                      }
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "run_monthCount",
+                        "n"
+                      ]
+                    }
+                  ]
+                },
+                1.0
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "hot_earlierRowHours",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "e",
+              "g",
+              "s",
+              "m"
+            ],
+            "ranges": {
+              "e": {
+                "from": "activity_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "s": {
+                "from": "runspecsourcetype_rows"
+              },
+              "m": {
+                "from": "runspecmonth_rows"
+              },
+              "k": {
+                "from": "runspecday_rows"
+              },
+              "cy": {
+                "from": "runspecyear_rows"
+              }
+            },
+            "join": [
+              {
+                "syms": [
+                  "e",
+                  "k"
+                ],
+                "on": [
+                  [
+                    "act_dayOrdinal",
+                    "day_ordinal"
+                  ]
+                ]
+              },
+              {
+                "syms": [
+                  "e",
+                  "cy"
+                ],
+                "on": [
+                  [
+                    "act_yearOrdinal",
+                    "year_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "hot_ownHours",
+                    "e",
+                    "g",
+                    "s",
+                    "m"
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "hot_earlierRescale",
+                    "k",
+                    "g",
+                    "cy"
+                  ]
+                }
               ]
             }
           }

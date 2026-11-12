@@ -9482,3 +9482,39 @@ and three kinds of weight.
    shares as the execution database holds them (`ffsup_suppliedShare`). What
    the SQL sums and what it averages is the measurement, not the intuition: a
    quirk that a twelve-month run cannot see is still the run's number.
+
+## 118. An output time step is MOVES's four OutputTimeStep flags, and a script that keys a column to its target leaves every other row at the column's default **[PLAN.md §7.3.66; `scale-county-outstep-hourly`, `-week`, `-dayagg`, `scale-county-idle-adjust-day`, `-month`, `scale-county-timeagg-weekday`, `userdb-hotelling-multiyear-day`, `-month`, every key set exact, no `cell_exception`; the runs that aggregate, start or hotel byte-identical]**
+
+§115.3 made the Month and Year steps a relation over slots of cells. The 24-Hour
+Day and Portion of Week steps are the same relation with one more slot level, and
+two rules came out of porting them and the last three aggregation refusals.
+
+1. **Declare the output step as the flags MOVES's `OutputTimeStep` carries, not
+   as a code.** `requiresAllHours`, `requiresAllDays`, `requiresAllMonths` and
+   `usesClassicalDay` are `n_outputSumsHours`, `n_outputSumsDays`,
+   `n_outputSumsMonths` and `n_outputClassicalDay`. AggregationSQLGenerator
+   branches on exactly these four (hours AND days: convertWeeks; otherwise
+   `usesClassicalDay`: convertDays; otherwise no conversion), and an index-set
+   size is a metaparameter expression over `+ - * /`, so a single step code
+   cannot size the slot relation: the indicator "sums hours" over the codes
+   {Hour, Day, Portion of Week} has no integer polynomial. The cell level then
+   has three widths -- the cells, the day types (`n_rateday`), one -- written once
+   as the template `output_step_cell_slots`. A slot's unsummed columns are read
+   from the slot's FIRST cell (`tcell_slotFirstCell`, a `min_sum` over the cells),
+   not from the cell whose ordinal equals the slot number: `runspechourday` is
+   hour-major, so day type 2's first cell is cell 1 and day type 5's is cell 2.
+   Portion of Week is the classical day times `noOfRealDays`, measured as exactly
+   that ratio against the 24-Hour Day run of the same RunSpec on every nonzero row.
+2. **A script that stamps a key column on its TARGET rows leaves every other row
+   at the column's default, and that default can be a real key.**
+   AdjustHotelling.sql's hotellingHoursPerDay block adds `dayID` and fills it only
+   `where yearID = targetYearID`; an earlier year's rows keep `dayID 0`. At the
+   hours of the clock and under PreAggDAY.sql no day 0 exists, so those rows join
+   nothing -- §113's chain was right without knowing it. PreAggMONTH.sql's
+   whole-week cell IS day 0, so in a two-year Month run the earlier year's rows
+   are rescaled a second time by their own year's block before the later year's
+   hour, age and month blocks pool them (`hot_earlierRescale`); without it 2020
+   was off by up to 20%, a month factor and an age pattern at once. The same
+   shape -- a collapse that sums the rows PRESENT, so a day type with no row adds
+   nothing rather than the identity -- is PreAggMONTH.sql's idleDayAdjust: a
+   source type stating only the weekday's 1.12 gets a whole week of 0.8.
