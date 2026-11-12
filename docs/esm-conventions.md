@@ -9263,3 +9263,66 @@ input database: MOVES refuses a county or project domain database with two
 calendar years (ImporterManager.java:2311). In this model a user database is a
 domain document like a county one -- the merges are the same merge -- with
 `runspecdomain` DEFAULT.
+
+## 114. A table the user may state is walked over its rows plus one, a generator that writes back into an input is read after it, and a FLOAT column is read as one where a threshold sees it **[PLAN.md §7.3.62; `project-driveschedule` 3,672 of 3,672 and `project-zerospeed` 2,444 of 2,444, key-exact, no exception; every earlier PROJECT run byte-identical]**
+
+LinkOperatingModeDistributionGenerator's step 100 has two arms that walk a schedule
+second by second instead of bracketing the link: the user's `driveScheduleSecondLink`
+rows, and the thirty idle seconds the generator writes for a link of zero speed. Porting
+them gave three rules.
+
+1. **Pad a per-row computation over a table most catalogues mount empty.** A walk is a
+   chain of computed per-second variables -- the prior second's speed, three
+   accelerations, VSP per physics row, the mode -- and every one of them is shaped over
+   the table's rows. `driveScheduleSecondLink` is empty in every catalogue but a project
+   database that states a schedule, and a computed relation of length 0 is F56. So the
+   walk runs over `linksecond_rows`, sized `n_driveschedulesecondlink + 1`, the index-set
+   size expression `chainlink_rows` already used, and each column is built the way that
+   edge list is, `concat(input column, one padding row)` (`lsec_pad*`); the padding slot
+   has linkID 0 and joins no location. (A gather by `filter: j == u` is a join spelled as
+   a predicate, which tools/check-conventions.py refuses.) Every per-LOCATION reduction (`lsl_*`) contracts over the slots, which is
+   safe at any length. Not a declared count (`n_projectExtraLinks`, `n_projectGrade`):
+   the table's own extent sizes it, so no RunSpec binds a number and none can be wrong.
+
+   A chained `LEFT JOIN` is a gather of the previous row's own value. The walk joins `b`
+   to `a`, `c` to `b` and `d` to `c` (java:1009-1011), so At1 is exactly the previous
+   second's At0 and At2 its At1, with the coalesce and a gap's zero inherited: two
+   gathers of a computed column instead of four gathers of raw speeds and grades.
+
+   A closed walk is still the walk. The idle schedule's thirty seconds all take the
+   CASE's first arm, whatever their grade or VSP, so its counts are thirty and thirty
+   (`zero_speed_link_idle_seconds`) and nothing is materialized; the quotient, the fold
+   and the absence that follow are the user walk's own variables.
+
+2. **A generator that writes into an input table is read through what it writes.** The
+   walk stores the schedule's average speed in `Link.linkAvgSpeed` at a loop priority
+   above ProjectTAG's (java:71-79, :937-941), so SHO, its distance, tire wear's mode and
+   the Rates divisor read the walk's average, not the stated speed -- 21.1 mph against a
+   stated 30 on `project-driveschedule`'s link 1, which moves its SHO by 42%. The model
+   writes the table as the later readers see it: `run_linkAvgSpeed` is the walked
+   average where `lsl_walksSchedule` holds, and `act_projectSho`, which read the stated
+   column directly, now reads it. The condition is MOVES's own scheduling, written once:
+   the generator runs only for running exhaust and brake wear, never on a link the user's
+   running distribution governs, and never off the network. "A snapshot table is its
+   last writer" applies to the oracles too: the snapshot's Link renders the written
+   average to six digits, which moves SHO's sixth, so docs/project-tag.md §6.5 derives
+   it from the schedule as the generator does.
+
+3. **A FLOAT column is read as binary32 where a threshold can see it.** The brake test
+   compares speed differences with -1 and -2, and `driveScheduleSecond.speed` is a
+   FLOAT: national schedule 354's 64.9 -> 63.9 mph is -1.000000000000007 in double and
+   exactly -1.0 stored, so a second that brakes in double does not in MOVES. No earlier
+   bracket reached schedule 354; a 55 mph long-haul truck does, and brake wear moved
+   5.2e-04. `float_column_value` (lib/drive_cycle.esm) is the stored value written with
+   the ops the format has -- round(|v| / 2^(floor(log2|v|) - 23)) times that spacing,
+   sign restored -- which is exact in double, equal to numpy's binary32 on every
+   one-decimal value in [-200, 2000], and unaffected by the logarithm's error at a power
+   of two, which both spacings hold. The link walks read speeds and grades through it.
+   It moved no earlier run's output by a byte, because no earlier bracket sat on such an
+   edge; the oracle pins the reading from both sides (binary32 reproduces all 41,224
+   cells, double moves 88). Where no capture can see a threshold, the double stays.
+
+An absence follows from the walk as from a user's distribution (§112): a schedule
+whose every second is stopped leaves brake wear only mode 501 under the temp source
+types, which the copy to RatesOpModeDistribution drops, so the link has NO brake-wear
+row (`lsl_brakeGap`, beside `omd_userGap` in `rt_hasLinkModes`).

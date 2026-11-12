@@ -31,9 +31,14 @@ the evaporative rows of an on-network link in RatePerDistance, MOVESOutput over 
 is a LOCATION rather than a (county, road type), so two links on one road type are two
 (`runspecs/project-multilink.esm`), and `project-grades`, `project-useromd-gaps` and `project-startconflict`
 reproduce links of different grades and speeds, user distributions that leave gaps, and conflicting start modes.
+Since §7.3.62 SHO reads the link's speed AFTER LinkOperatingModeDistributionGenerator: a link it walks
+second by second -- a user drive schedule, `project-driveschedule` -- carries the schedule's average speed, which
+the generator writes into Link before ProjectTAG runs (`run_linkAvgSpeed`), and a zero-speed queue,
+`project-zerospeed`, takes the SQL's `else` arm.
 `run_domainUnported` counts any PROJECT-domain run that needs a path not ported (a user link row outside the
-ported families or one that covers only some selected hour-days, two links on one road type at Rates scale),
-and also a selected road type with no link, an on-network link of zero speed and a second county;
+ported families or one that covers only some selected hour-days, two links on one road type at Rates scale, a
+walked schedule at Rates scale, beside an evaporative process or under user brake-wear rows),
+and also a selected road type with no link and a second county;
 `tools/check-runspec-shape.py` asserts that count is 0.
 So a PROJECT-domain run that needs an unported path fails loudly rather than emitting a plausible wrong
 number.
@@ -44,7 +49,7 @@ number.
 
 | | |
 |---|---|
-| RunSpec | `../moves.rs/characterization/fixtures/scale-project.xml` and `rates-project.xml` (one link); `project-links.xml` (three links, two source types, an off-network link); `project-offnetwork.xml` and `project-hotelling.xml` (an on-network and an off-network link, source types 21 and 62; the second without the evaporative processes); since §7.3.58 `project-crankcase.xml`, `project-refueling.xml` and `project-useromd.xml` (two on-network links on road types 4 and 5 and an off-network link, source types 21 and 62) and `rates-project-evap.xml` (`project-offnetwork`'s network at Rates scale); since §7.3.59 `rates-project-chained.xml` and `rates-project-evap-links.xml` (`project-crankcase`'s network at Rates scale) and `rates-project-useromd.xml` (`project-useromd`'s); since §7.3.60 `project-multilink.xml` (two links on each of road types 4 and 5), `project-grades.xml` (grades and out-of-bounds speeds), `project-useromd-gaps.xml` and `project-startconflict.xml` |
+| RunSpec | `../moves.rs/characterization/fixtures/scale-project.xml` and `rates-project.xml` (one link); `project-links.xml` (three links, two source types, an off-network link); `project-offnetwork.xml` and `project-hotelling.xml` (an on-network and an off-network link, source types 21 and 62; the second without the evaporative processes); since §7.3.58 `project-crankcase.xml`, `project-refueling.xml` and `project-useromd.xml` (two on-network links on road types 4 and 5 and an off-network link, source types 21 and 62) and `rates-project-evap.xml` (`project-offnetwork`'s network at Rates scale); since §7.3.59 `rates-project-chained.xml` and `rates-project-evap-links.xml` (`project-crankcase`'s network at Rates scale) and `rates-project-useromd.xml` (`project-useromd`'s); since §7.3.60 `project-multilink.xml` (two links on each of road types 4 and 5), `project-grades.xml` (grades and out-of-bounds speeds), `project-useromd-gaps.xml` and `project-startconflict.xml`; since §7.3.62 `project-driveschedule.xml` (two links with a user drive schedule) and `project-zerospeed.xml` (an idling queue) |
 | Model | ONROAD, `modeldomain` **`PROJECT`** |
 | Reads | `link`, `linkSourceTypeHour`, `offNetworkLink`, `avft`, `sourceTypeAgeDistribution`, `dayOfAnyWeek`, `hourDay`, `runSpecHourDay`, `runSpecDay`, `runSpecMonth`, `runSpecSourceType` |
 | Writes | `SHO` (with `distance`), `Starts`, `SHP`, `SourceHours`, `hotellingHours` |
@@ -66,9 +71,19 @@ distance = SHO x linkAvgSpeed
 * The **link** supplies `linkVolume` (vehicles per hour), `linkLength` (miles) and `linkAvgSpeed` (mph).
   `least(length/speed, 1)` is the fraction of the hour that a vehicle entering the link spends on it, capped
   at the whole hour.
+* **`linkAvgSpeed` is the Link row as LinkOperatingModeDistributionGenerator LEAVES it.** That generator runs
+  at the link loop, priority `GENERATOR+1`, before ProjectTAG at the year loop (LinkOperatingModeDistributionGenerator.java:71-79,
+  "this generator fills Link.linkAvgSpeed based on drive schedules"), and when it walks a link's drive schedule
+  -- the user's `driveScheduleSecondLink` rows -- it first writes `avg(speed)` over them into
+  `Link.linkAvgSpeed` (java:937-941). So a scheduled link's SHO, distance and tire-wear mode are at the
+  schedule's average, not the stated speed: `project-driveschedule`'s link 1 states 30 mph and is computed at
+  21.1055, link 2 states 45 and is computed at 50.8433 (PLAN.md §7.3.62). The generator runs only for running
+  exhaust and brake wear, and not on a link the user's running opModeDistribution governs; the model writes
+  the rule as `lsl_walksSchedule` and the speed as `run_linkAvgSpeed`, which `act_projectSho` reads.
 * If `linkAvgSpeed` is not positive, the SQL's `else` arm keeps the product without the share, and the
-  distance is 0. An off-network link has speed 0, but no `linkSourceTypeHour` row in any snapshot, so the
-  arm still writes no row (§6.6).
+  distance is 0. `project-zerospeed`'s queue (link 2, 0 mph) reaches it since PLAN.md §7.3.62; its walked
+  idle schedule averages 0, so the write-back leaves it at 0. An off-network link has speed 0 but no
+  `linkSourceTypeHour` row, so there the arm writes no row (§6.6).
 * `sourceTypeHourFraction` is the link's share for the source type. `linkSourceTypeHour` has no hour column,
   despite its name, so the same share applies at every hour. It is a FLOAT column, and §6.5 narrows it to
   binary32 before multiplying: `project-links`' 0.6 decides one `distance` cell's sixth digit.
@@ -246,6 +261,16 @@ def sho(run):
     link = table(run, "link")
     for c in ("linkLength", "linkVolume", "linkAvgSpeed"):  # FLOAT columns (project-multilink's 0.3 mi)
         link[c] = f32(link[c])
+    # A walked link's speed is the one LinkOperatingModeDistributionGenerator wrote
+    # into Link before ProjectTAG read it: avg() of the schedule's FLOAT speeds,
+    # stored back into the FLOAT column (java:937-941). The snapshot's Link shows
+    # it only to six digits, which moves SHO's sixth (PLAN.md §7.3.62). The idle
+    # schedule of a zero-speed link averages 0, as its stated speed is.
+    sched = table(run, "driveschedulesecondlink")
+    for i, l in link.iterrows():
+        rows = sched[sched.linkID == l.linkID]
+        if len(rows):
+            link.loc[i, "linkAvgSpeed"] = float(np.float32(f32(rows.speed).mean()))
     lsth = table(run, "linksourcetypehour")
     lsth["sourceTypeHourFraction"] = f32(lsth.sourceTypeHourFraction)
     out = []
@@ -360,8 +385,11 @@ for k, floor in (("SHO", 328), ("Starts", 164), ("SHP", 82), ("SourceHours", 164
 
 ### 6.6 What it does not reach
 
-* **The `else` arm.** No snapshot has an on-network link with `linkAvgSpeed` <= 0, and the off-network links
-  have no `linkSourceTypeHour` row. The template's `ifelse` follows the SQL, but nothing tests it.
+* **The `else` arm** is reached since PLAN.md §7.3.62: `project-zerospeed`'s queue, 82 SHO keys at
+  `distance` 0. The off-network links still have no `linkSourceTypeHour` row.
+* **A walked link's speed** is reached since §7.3.62 (`project-driveschedule`): the script derives it as
+  MOVES does, from the schedule, because the snapshot's Link renders it to six digits and that moves SHO's sixth
+  on 55 of its 246 cells.
 * **Two links on one road type** is reproduced since §7.3.60 (`project-multilink`, 328 SHO and 410 SourceHours
   keys over four on-network links).
 * **Missing age distributions.** ProjectTAG grows a missing year's age distribution from population

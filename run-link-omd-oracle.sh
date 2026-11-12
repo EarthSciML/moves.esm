@@ -128,7 +128,7 @@ if ! out=$("$PYTHON" "$WORK/repro.py" "$SNAP_ABS" 2>&1); then
   exit 1
 fi
 sed 's/^/  /' <<<"$out"
-echo "  NOTE: the drive-schedule and zero-speed paths through step 100 are"
-echo "        unexercised; the out-of-bounds flags, non-zero grades and the"
-echo "        user-distribution path are not (PLAN.md 7.3.60) -- see $SPEC"
-echo "        sections 8.1 and 8.4."
+echo "  NOTE: every path through step 100 is exercised: the out-of-bounds flags,"
+echo "        non-zero grades and the user-distribution path since PLAN.md 7.3.60,"
+echo "        a user drive schedule and a zero-speed link since 7.3.62 -- see"
+echo "        $SPEC sections 2.1, 8.1 and 8.4."

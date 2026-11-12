@@ -83,8 +83,8 @@ if ! out=$("$PYTHON" "$WORK/repro.py" "$SNAP_ABS" "$XMLS" 2>&1); then
   exit 1
 fi
 sed 's/^/  /' <<<"$out"
-echo "  NOTE: the non-positive-speed arm on a link with a source-type share, two"
-echo "        links on one road type and a missing age distribution are"
-echo "        unexercised -- see $SPEC section 6.6. All five outputs are"
+echo "  NOTE: a missing age distribution is unexercised; the non-positive-speed"
+echo "        arm (project-zerospeed) and a walked schedule's speed (project-"
+echo "        driveschedule) are reached -- see $SPEC section 6.6. All five outputs are"
 echo "        ported (act_projectSho, st_projectStarts, act_projectShp,"
 echo "        act_projectSourceHours, hot_projectHours)."
