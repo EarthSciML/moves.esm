@@ -674,12 +674,22 @@
     "n_outputSumsDays": {
       "type": "integer",
       "default": 0,
-      "description": "THE RUNSPEC'S `<outputtimestep>`, first half: 1 when it is `Month` or `Year`, whose MOVESOutput sums every (day type, hour) cell of a month and scales it by the month's weeks (AggregationSQLGenerator's convertWeeks, `noOfDays/7`); 0 (the default) at `Hour`. It sizes `outputstep_rows`, the relation `mos_*` the oracle is read from, and switches nothing the cells compute. `24-Hour Day` and `Portion of Week` are not expressible (PLAN.md §7.3.63)."
+      "description": "THE RUNSPEC'S `<outputtimestep>`, one of MOVES's four OutputTimeStep flags (`requiresAllDays`): 1 when it is `Month` or `Year`, whose MOVESOutput sums every (day type, hour) cell of a month and scales it by the month's weeks (AggregationSQLGenerator's convertWeeks, `noOfDays/7`); 0 (the default) at `Hour`, `24-Hour Day` and `Portion of Week`. With it 1 the cells are summed whatever `n_outputSumsHours` says. It sizes `outputstep_rows`, the relation `mos_*` the oracle is read from, and switches nothing the cells compute (PLAN.md §7.3.63, §7.3.66)."
     },
     "n_outputSumsMonths": {
       "type": "integer",
       "default": 0,
-      "description": "THE RUNSPEC'S `<outputtimestep>`, second half: 1 when it is `Year`, whose MOVESOutput also sums the months; 0 (the default) otherwise. Only with `n_outputSumsDays` 1 (PLAN.md §7.3.63)."
+      "description": "THE RUNSPEC'S `<outputtimestep>`, `requiresAllMonths`: 1 when it is `Year`, whose MOVESOutput also sums the months; 0 (the default) otherwise. Only with `n_outputSumsDays` 1 (PLAN.md §7.3.63)."
+    },
+    "n_outputSumsHours": {
+      "type": "integer",
+      "default": 0,
+      "description": "THE RUNSPEC'S `<outputtimestep>`, `requiresAllHours`: 1 when it is `24-Hour Day` or `Portion of Week`, whose MOVESOutput sums each day type's hours into one row with hourID NULL (AggregationSQLGenerator groups by yearID, monthID, dayID); 0 (the default) at `Hour`. At `Month` and `Year` `n_outputSumsDays` sums the cells whether this is set or not. It sizes `outputstep_rows` (`output_step_cell_slots`) and switches nothing the cells compute (PLAN.md §7.3.66)."
+    },
+    "n_outputClassicalDay": {
+      "type": "integer",
+      "default": 1,
+      "description": "THE RUNSPEC'S `<outputtimestep>`, `usesClassicalDay`: 1 (the default) at `Hour` and `24-Hour Day`, whose worker SQL converts each cell to a classical 24-hour day (`x 1/noOfRealDays`, convertDays) -- the division `rtDay_activity` already makes; 0 at `Portion of Week`, which does not convert, so its rows are the cell's portion of a WEEK, the classical day times `noOfRealDays` (`outStepWeeks`). At `Month` and `Year` convertWeeks applies instead and this flag is not read (PLAN.md §7.3.66)."
     },
     "n_cumtvvcoeffs": {
       "type": "integer",
@@ -1048,18 +1058,36 @@
                 ]
               },
               {
-                "op": "-",
+                "op": "+",
                 "args": [
-                  "n_runspecday",
+                  "n_outputSumsDays",
                   {
                     "op": "*",
                     "args": [
-                      "n_outputSumsDays",
+                      {
+                        "op": "-",
+                        "args": [
+                          1,
+                          "n_outputSumsDays"
+                        ]
+                      },
                       {
                         "op": "-",
                         "args": [
                           "n_runspecday",
-                          1
+                          {
+                            "op": "*",
+                            "args": [
+                              "n_outputSumsHours",
+                              {
+                                "op": "-",
+                                "args": [
+                                  "n_runspecday",
+                                  "n_rateday"
+                                ]
+                              }
+                            ]
+                          }
                         ]
                       }
                     ]
@@ -2034,7 +2062,9 @@
             "hour_day_hour",
             "preaggregation_source_type_order",
             "preaggregation_source_type_order_none",
-            "output_step_column"
+            "output_step_column",
+            "output_step_month_slots",
+            "output_step_cell_slots"
           ]
         }
       ],
@@ -19221,7 +19251,7 @@
           "shape": [
             "output_rows"
           ],
-          "description": "The output-time-step slot an output row's (day type, hour) CELL falls in: its own cell, or 1 when the output time step sums the cells (`n_outputSumsDays`, Month or Year)."
+          "description": "The output-time-step slot an output row's (day type, hour) CELL falls in, its cell's `tcell_outputSlot`."
         },
         "outStepWeeks": {
           "type": "unknown",
@@ -19229,7 +19259,7 @@
           "shape": [
             "output_rows"
           ],
-          "description": "AggregationSQLGenerator's time conversion, the factor each output row is scaled by before the slot is summed. At Hour (and 24-Hour Day) MOVES converts every row to a classical day, `x 1/noOfRealDays` (convertDays, WeeksInMonthHelper.getPortionOfWeekPerDayClause) -- which is the division `rtDay_activity` already makes, so the output relation's cells ARE classical days and the factor is 1. At Month and Year (convertWeeks) MOVES instead scales the cell's portion of a WEEK by the month's weeks, `noOfDays / 7`, so the factor undoes the classical day and applies the weeks: `noOfRealDays x weeksPerMonth` (PLAN.md §7.3.63)."
+          "description": "AggregationSQLGenerator's time conversion, the factor each output row is scaled by before the slot is summed. At Hour and 24-Hour Day MOVES converts every row to a classical day, `x 1/noOfRealDays` (convertDays, WeeksInMonthHelper.getPortionOfWeekPerDayClause) -- which is the division `rtDay_activity` already makes, so the output relation's cells ARE classical days and the factor is 1. At Portion of Week (`usesClassicalDay` false, `n_outputClassicalDay` 0) nothing converts and each row is the cell's portion of a WEEK, so the factor is `noOfRealDays`. At Month and Year (convertWeeks) MOVES scales the cell's portion of a week by the month's weeks, `noOfDays / 7`, so the factor undoes the classical day and applies the weeks: `noOfRealDays x weeksPerMonth` (PLAN.md §7.3.63, §7.3.66)."
         },
         "outStepMonthID": {
           "type": "unknown",
@@ -19253,7 +19283,7 @@
           "shape": [
             "output_rows"
           ],
-          "description": "MOVESOutput.hourID at the output time step: the row's hour, NULL when the cells are summed."
+          "description": "MOVESOutput.hourID at the output time step: the row's hour, NULL when the hours are summed (24-Hour Day, Portion of Week, Month, Year)."
         },
         "mosRateOrdinal": {
           "type": "unknown",
@@ -19285,7 +19315,7 @@
           "shape": [
             "outputstep_rows"
           ],
-          "description": "The row's cell slot."
+          "description": "The row's cell slot: a (day type, hour) cell at Hour, a day type at 24-Hour Day and Portion of Week, the one whole slot at Month and Year (`tcell_outputSlot`)."
         },
         "mosOutputOrdinal": {
           "type": "unknown",
@@ -19293,7 +19323,7 @@
           "shape": [
             "outputstep_rows"
           ],
-          "description": "The output row that stands for the slot: its first month and first cell. Every column but the summed ones is the same across the slot, and `output_step_column` reads it from here."
+          "description": "The output row that stands for the slot: its first month and the slot's first cell (`tcell_slotFirstCell`). Every column but the summed ones is the same across the slot, and `output_step_column` reads it from here."
         },
         "mos_yearID": {
           "type": "unknown",
@@ -24780,6 +24810,30 @@
             "runspecroadtype_rows"
           ],
           "description": "1 where the user governs the combination (`omd_userGoverned`) and states no row for it: RatesOpModeDistribution then has nothing for it, BaseRateGenerator writes no base rate, and MOVES emits NO row -- an absence, not a zero (`rt_hasLinkModes`). `project-useromd-gaps`: running Total Energy on link 1, whose user states running CO only, and the light commercial trucks' brake wear there."
+        },
+        "tcell_dayTypeSlot": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecday_rows"
+          ],
+          "description": "The cell's day type's place among the run's day types (`rateday_rows`, runspecday): the slot a 24-Hour Day or Portion of Week output row of this cell falls in. 0 for PreAggMONTH.sql's whole-week cell (day 0), which no output step finer than Month reads: MOVES raises the output step to the aggregation's (TimeSpans.java:746)."
+        },
+        "tcell_outputSlot": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecday_rows"
+          ],
+          "description": "The output-time-step slot the cell falls in (AggregationSQLGenerator's GROUP BY): the cell itself at Hour; its day type (`tcell_dayTypeSlot`) when `n_outputSumsHours` sums each day's hours; 1 when `n_outputSumsDays` sums every cell of the month."
+        },
+        "tcell_slotFirstCell": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecday_rows"
+          ],
+          "description": "Indexed by SLOT, not by cell: the first cell (lowest `day_ordinal`) whose `tcell_outputSlot` is this slot -- the cell `mosOutputOrdinal` reads a slot's unsummed columns from. A slot no cell falls in reads one past the last cell, and no output row asks for it."
         }
       },
       "equations": [
@@ -97607,26 +97661,26 @@
             "ranges": {
               "o": {
                 "from": "output_rows"
+              },
+              "k": {
+                "from": "runspecday_rows"
               }
             },
-            "expr": {
-              "op": "ifelse",
-              "args": [
-                {
-                  "op": ">",
-                  "args": [
-                    "n_outputSumsDays",
-                    0.5
-                  ]
-                },
-                1.0,
-                {
-                  "op": "index",
-                  "args": [
+            "join": [
+              {
+                "on": [
+                  [
                     "outDayOrdinal",
-                    "o"
+                    "day_ordinal"
                   ]
-                }
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "tcell_outputSlot",
+                "k"
               ]
             }
           }
@@ -97687,7 +97741,26 @@
                     }
                   ]
                 },
-                1.0
+                {
+                  "op": "ifelse",
+                  "args": [
+                    {
+                      "op": ">",
+                      "args": [
+                        "n_outputClassicalDay",
+                        0.5
+                      ]
+                    },
+                    1.0,
+                    {
+                      "op": "index",
+                      "args": [
+                        "outNoOfRealDays",
+                        "o"
+                      ]
+                    }
+                  ]
+                }
               ]
             }
           }
@@ -97792,10 +97865,22 @@
               "op": "ifelse",
               "args": [
                 {
-                  "op": ">",
+                  "op": "or",
                   "args": [
-                    "n_outputSumsDays",
-                    0.5
+                    {
+                      "op": ">",
+                      "args": [
+                        "n_outputSumsDays",
+                        0.5
+                      ]
+                    },
+                    {
+                      "op": ">",
+                      "args": [
+                        "n_outputSumsHours",
+                        0.5
+                      ]
+                    }
                   ]
                 },
                 {
@@ -97853,44 +97938,18 @@
                               "args": [
                                 "n_runspeccounty",
                                 {
-                                  "op": "-",
-                                  "args": [
-                                    "n_runspecmonth",
-                                    {
-                                      "op": "*",
-                                      "args": [
-                                        "n_outputSumsMonths",
-                                        {
-                                          "op": "-",
-                                          "args": [
-                                            "n_runspecmonth",
-                                            1
-                                          ]
-                                        }
-                                      ]
-                                    }
-                                  ]
+                                  "op": "apply_expression_template",
+                                  "args": [],
+                                  "name": "output_step_month_slots",
+                                  "bindings": {}
                                 }
                               ]
                             },
                             {
-                              "op": "-",
-                              "args": [
-                                "n_runspecday",
-                                {
-                                  "op": "*",
-                                  "args": [
-                                    "n_outputSumsDays",
-                                    {
-                                      "op": "-",
-                                      "args": [
-                                        "n_runspecday",
-                                        1
-                                      ]
-                                    }
-                                  ]
-                                }
-                              ]
+                              "op": "apply_expression_template",
+                              "args": [],
+                              "name": "output_step_cell_slots",
+                              "bindings": {}
                             }
                           ]
                         }
@@ -97960,44 +98019,18 @@
                                       "args": [
                                         "n_runspeccounty",
                                         {
-                                          "op": "-",
-                                          "args": [
-                                            "n_runspecmonth",
-                                            {
-                                              "op": "*",
-                                              "args": [
-                                                "n_outputSumsMonths",
-                                                {
-                                                  "op": "-",
-                                                  "args": [
-                                                    "n_runspecmonth",
-                                                    1
-                                                  ]
-                                                }
-                                              ]
-                                            }
-                                          ]
+                                          "op": "apply_expression_template",
+                                          "args": [],
+                                          "name": "output_step_month_slots",
+                                          "bindings": {}
                                         }
                                       ]
                                     },
                                     {
-                                      "op": "-",
-                                      "args": [
-                                        "n_runspecday",
-                                        {
-                                          "op": "*",
-                                          "args": [
-                                            "n_outputSumsDays",
-                                            {
-                                              "op": "-",
-                                              "args": [
-                                                "n_runspecday",
-                                                1
-                                              ]
-                                            }
-                                          ]
-                                        }
-                                      ]
+                                      "op": "apply_expression_template",
+                                      "args": [],
+                                      "name": "output_step_cell_slots",
+                                      "bindings": {}
                                     }
                                   ]
                                 }
@@ -98009,42 +98042,16 @@
                           "op": "*",
                           "args": [
                             {
-                              "op": "-",
-                              "args": [
-                                "n_runspecmonth",
-                                {
-                                  "op": "*",
-                                  "args": [
-                                    "n_outputSumsMonths",
-                                    {
-                                      "op": "-",
-                                      "args": [
-                                        "n_runspecmonth",
-                                        1
-                                      ]
-                                    }
-                                  ]
-                                }
-                              ]
+                              "op": "apply_expression_template",
+                              "args": [],
+                              "name": "output_step_month_slots",
+                              "bindings": {}
                             },
                             {
-                              "op": "-",
-                              "args": [
-                                "n_runspecday",
-                                {
-                                  "op": "*",
-                                  "args": [
-                                    "n_outputSumsDays",
-                                    {
-                                      "op": "-",
-                                      "args": [
-                                        "n_runspecday",
-                                        1
-                                      ]
-                                    }
-                                  ]
-                                }
-                              ]
+                              "op": "apply_expression_template",
+                              "args": [],
+                              "name": "output_step_cell_slots",
+                              "bindings": {}
                             }
                           ]
                         }
@@ -98117,44 +98124,18 @@
                                           "args": [
                                             "n_runspeccounty",
                                             {
-                                              "op": "-",
-                                              "args": [
-                                                "n_runspecmonth",
-                                                {
-                                                  "op": "*",
-                                                  "args": [
-                                                    "n_outputSumsMonths",
-                                                    {
-                                                      "op": "-",
-                                                      "args": [
-                                                        "n_runspecmonth",
-                                                        1
-                                                      ]
-                                                    }
-                                                  ]
-                                                }
-                                              ]
+                                              "op": "apply_expression_template",
+                                              "args": [],
+                                              "name": "output_step_month_slots",
+                                              "bindings": {}
                                             }
                                           ]
                                         },
                                         {
-                                          "op": "-",
-                                          "args": [
-                                            "n_runspecday",
-                                            {
-                                              "op": "*",
-                                              "args": [
-                                                "n_outputSumsDays",
-                                                {
-                                                  "op": "-",
-                                                  "args": [
-                                                    "n_runspecday",
-                                                    1
-                                                  ]
-                                                }
-                                              ]
-                                            }
-                                          ]
+                                          "op": "apply_expression_template",
+                                          "args": [],
+                                          "name": "output_step_cell_slots",
+                                          "bindings": {}
                                         }
                                       ]
                                     }
@@ -98182,42 +98163,16 @@
                                   "op": "*",
                                   "args": [
                                     {
-                                      "op": "-",
-                                      "args": [
-                                        "n_runspecmonth",
-                                        {
-                                          "op": "*",
-                                          "args": [
-                                            "n_outputSumsMonths",
-                                            {
-                                              "op": "-",
-                                              "args": [
-                                                "n_runspecmonth",
-                                                1
-                                              ]
-                                            }
-                                          ]
-                                        }
-                                      ]
+                                      "op": "apply_expression_template",
+                                      "args": [],
+                                      "name": "output_step_month_slots",
+                                      "bindings": {}
                                     },
                                     {
-                                      "op": "-",
-                                      "args": [
-                                        "n_runspecday",
-                                        {
-                                          "op": "*",
-                                          "args": [
-                                            "n_outputSumsDays",
-                                            {
-                                              "op": "-",
-                                              "args": [
-                                                "n_runspecday",
-                                                1
-                                              ]
-                                            }
-                                          ]
-                                        }
-                                      ]
+                                      "op": "apply_expression_template",
+                                      "args": [],
+                                      "name": "output_step_cell_slots",
+                                      "bindings": {}
                                     }
                                   ]
                                 }
@@ -98226,23 +98181,10 @@
                           ]
                         },
                         {
-                          "op": "-",
-                          "args": [
-                            "n_runspecday",
-                            {
-                              "op": "*",
-                              "args": [
-                                "n_outputSumsDays",
-                                {
-                                  "op": "-",
-                                  "args": [
-                                    "n_runspecday",
-                                    1
-                                  ]
-                                }
-                              ]
-                            }
-                          ]
+                          "op": "apply_expression_template",
+                          "args": [],
+                          "name": "output_step_cell_slots",
+                          "bindings": {}
                         }
                       ]
                     }
@@ -98310,44 +98252,18 @@
                                       "args": [
                                         "n_runspeccounty",
                                         {
-                                          "op": "-",
-                                          "args": [
-                                            "n_runspecmonth",
-                                            {
-                                              "op": "*",
-                                              "args": [
-                                                "n_outputSumsMonths",
-                                                {
-                                                  "op": "-",
-                                                  "args": [
-                                                    "n_runspecmonth",
-                                                    1
-                                                  ]
-                                                }
-                                              ]
-                                            }
-                                          ]
+                                          "op": "apply_expression_template",
+                                          "args": [],
+                                          "name": "output_step_month_slots",
+                                          "bindings": {}
                                         }
                                       ]
                                     },
                                     {
-                                      "op": "-",
-                                      "args": [
-                                        "n_runspecday",
-                                        {
-                                          "op": "*",
-                                          "args": [
-                                            "n_outputSumsDays",
-                                            {
-                                              "op": "-",
-                                              "args": [
-                                                "n_runspecday",
-                                                1
-                                              ]
-                                            }
-                                          ]
-                                        }
-                                      ]
+                                      "op": "apply_expression_template",
+                                      "args": [],
+                                      "name": "output_step_cell_slots",
+                                      "bindings": {}
                                     }
                                   ]
                                 }
@@ -98375,42 +98291,16 @@
                               "op": "*",
                               "args": [
                                 {
-                                  "op": "-",
-                                  "args": [
-                                    "n_runspecmonth",
-                                    {
-                                      "op": "*",
-                                      "args": [
-                                        "n_outputSumsMonths",
-                                        {
-                                          "op": "-",
-                                          "args": [
-                                            "n_runspecmonth",
-                                            1
-                                          ]
-                                        }
-                                      ]
-                                    }
-                                  ]
+                                  "op": "apply_expression_template",
+                                  "args": [],
+                                  "name": "output_step_month_slots",
+                                  "bindings": {}
                                 },
                                 {
-                                  "op": "-",
-                                  "args": [
-                                    "n_runspecday",
-                                    {
-                                      "op": "*",
-                                      "args": [
-                                        "n_outputSumsDays",
-                                        {
-                                          "op": "-",
-                                          "args": [
-                                            "n_runspecday",
-                                            1
-                                          ]
-                                        }
-                                      ]
-                                    }
-                                  ]
+                                  "op": "apply_expression_template",
+                                  "args": [],
+                                  "name": "output_step_cell_slots",
+                                  "bindings": {}
                                 }
                               ]
                             }
@@ -98435,23 +98325,10 @@
                           ]
                         },
                         {
-                          "op": "-",
-                          "args": [
-                            "n_runspecday",
-                            {
-                              "op": "*",
-                              "args": [
-                                "n_outputSumsDays",
-                                {
-                                  "op": "-",
-                                  "args": [
-                                    "n_runspecday",
-                                    1
-                                  ]
-                                }
-                              ]
-                            }
-                          ]
+                          "op": "apply_expression_template",
+                          "args": [],
+                          "name": "output_step_cell_slots",
+                          "bindings": {}
                         }
                       ]
                     }
@@ -98474,8 +98351,21 @@
             "ranges": {
               "x": {
                 "from": "outputstep_rows"
+              },
+              "s": {
+                "from": "runspecday_rows"
               }
             },
+            "join": [
+              {
+                "on": [
+                  [
+                    "mosDaySlot",
+                    "day_ordinal"
+                  ]
+                ]
+              }
+            ],
             "expr": {
               "op": "+",
               "args": [
@@ -98567,8 +98457,8 @@
                 {
                   "op": "index",
                   "args": [
-                    "mosDaySlot",
-                    "x"
+                    "tcell_slotFirstCell",
+                    "s"
                   ]
                 }
               ]
@@ -116130,6 +116020,141 @@
                 "m",
                 "s",
                 "d"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "tcell_dayTypeSlot",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "k"
+            ],
+            "ranges": {
+              "k": {
+                "from": "runspecday_rows"
+              },
+              "r": {
+                "from": "rateday_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rsd_dayID",
+                    "rday_dayID"
+                  ]
+                ]
+              }
+            ],
+            "expr": "r"
+          }
+        },
+        {
+          "lhs": "tcell_outputSlot",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "k"
+            ],
+            "ranges": {
+              "k": {
+                "from": "runspecday_rows"
+              }
+            },
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                {
+                  "op": ">",
+                  "args": [
+                    "n_outputSumsDays",
+                    0.5
+                  ]
+                },
+                1.0,
+                {
+                  "op": "ifelse",
+                  "args": [
+                    {
+                      "op": ">",
+                      "args": [
+                        "n_outputSumsHours",
+                        0.5
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "tcell_dayTypeSlot",
+                        "k"
+                      ]
+                    },
+                    "k"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "tcell_slotFirstCell",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "min_sum",
+            "output_idx": [
+              "s"
+            ],
+            "ranges": {
+              "s": {
+                "from": "runspecday_rows"
+              },
+              "k": {
+                "from": "runspecday_rows"
+              }
+            },
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                {
+                  "op": "<",
+                  "args": [
+                    {
+                      "op": "abs",
+                      "args": [
+                        {
+                          "op": "-",
+                          "args": [
+                            {
+                              "op": "index",
+                              "args": [
+                                "tcell_outputSlot",
+                                "k"
+                              ]
+                            },
+                            "s"
+                          ]
+                        }
+                      ]
+                    },
+                    0.5
+                  ]
+                },
+                "k",
+                {
+                  "op": "+",
+                  "args": [
+                    "n_runspecday",
+                    1
+                  ]
+                }
               ]
             }
           }

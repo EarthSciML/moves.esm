@@ -2,7 +2,7 @@
   "esm": "1.2.0",
   "metadata": {
     "name": "moves.time_aggregation",
-    "description": "Template library: the shapes of MOVES's TIME pre-aggregation (PreAggDAY.sql, PreAggMONTH.sql; InputDataManager.preAggregateExecutionDB) and of its output time step (AggregationSQLGenerator), as `onroad/model.esm` reads them (PLAN.md §7.3.63, docs/esm-conventions.md §115).\n\n`hour_day_day` and `hour_day_hour` unpack a packed hour-day the way every MOVES script does, `mod(hourDayID,10)` and `floor(hourDayID/10)` (AdjustHotelling.sql): PreAggDAY.sql writes `hourDayID = dayID` at hour 0, which no default table holds, so the cell's day and hour cannot be looked up.\n\n`preaggregation_source_type_order` is PreAggDAY.sql's and PreAggMONTH.sql's `SourceTypeOrdering`, the preference by which HourWeighting3 takes ONE source type's travel to weigh the collapsed weather by: 21 first, then by default population, 11 last. It is a constant the scripts write as an INSERT, so it is written here as code (conventions §73); `preaggregation_source_type_order_none` is the place past its end.\n\n`output_step_column` reads one column of the output relation onto the output-time-step relation `outputstep_rows` through the representative cell `mosOutputOrdinal`, as `rate_output_column` reads one onto the Rates relation.",
+    "description": "Template library: the shapes of MOVES's TIME pre-aggregation (PreAggDAY.sql, PreAggMONTH.sql; InputDataManager.preAggregateExecutionDB) and of its output time step (AggregationSQLGenerator), as `onroad/model.esm` reads them (PLAN.md §7.3.63, docs/esm-conventions.md §115).\n\n`hour_day_day` and `hour_day_hour` unpack a packed hour-day the way every MOVES script does, `mod(hourDayID,10)` and `floor(hourDayID/10)` (AdjustHotelling.sql): PreAggDAY.sql writes `hourDayID = dayID` at hour 0, which no default table holds, so the cell's day and hour cannot be looked up.\n\n`preaggregation_source_type_order` is PreAggDAY.sql's and PreAggMONTH.sql's `SourceTypeOrdering`, the preference by which HourWeighting3 takes ONE source type's travel to weigh the collapsed weather by: 21 first, then by default population, 11 last. It is a constant the scripts write as an INSERT, so it is written here as code (conventions §73); `preaggregation_source_type_order_none` is the place past its end.\n\n`output_step_column` reads one column of the output relation onto the output-time-step relation `outputstep_rows` through the representative cell `mosOutputOrdinal`, as `rate_output_column` reads one onto the Rates relation.\n\n`output_step_month_slots` and `output_step_cell_slots` are how many month and cell slots each (pollutant-process, cohort, county) keeps at the output time step: the months unless `n_outputSumsMonths`; and the (day type, hour) cells at Hour, the day types (`n_rateday`) when `n_outputSumsHours` sums each day's hours (24-Hour Day, Portion of Week), and one when `n_outputSumsDays` sums them all (Month, Year). `outputstep_rows` is sized by the same product, written out because an index-set size is a metaparameter expression (PLAN.md §7.3.66).",
     "authors": [
       "EarthSciML Authors and Contributors"
     ]
@@ -269,6 +269,68 @@
             "o"
           ]
         }
+      }
+    },
+    "output_step_month_slots": {
+      "params": [],
+      "body": {
+        "op": "-",
+        "args": [
+          "n_runspecmonth",
+          {
+            "op": "*",
+            "args": [
+              "n_outputSumsMonths",
+              {
+                "op": "-",
+                "args": [
+                  "n_runspecmonth",
+                  1
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "output_step_cell_slots": {
+      "params": [],
+      "body": {
+        "op": "+",
+        "args": [
+          "n_outputSumsDays",
+          {
+            "op": "*",
+            "args": [
+              {
+                "op": "-",
+                "args": [
+                  1,
+                  "n_outputSumsDays"
+                ]
+              },
+              {
+                "op": "-",
+                "args": [
+                  "n_runspecday",
+                  {
+                    "op": "*",
+                    "args": [
+                      "n_outputSumsHours",
+                      {
+                        "op": "-",
+                        "args": [
+                          "n_runspecday",
+                          "n_rateday"
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
       }
     }
   }
