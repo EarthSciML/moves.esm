@@ -2085,6 +2085,7 @@
             "whole_year_days",
             "year_value_or_own",
             "month_cell_share",
+            "fuel_supply_summing_process",
             "year_captured_process",
             "year_captured_pollutant",
             "output_step_month_slots",
@@ -7210,7 +7211,7 @@
             "fuelformulation_rows",
             "runspecyear_rows"
           ],
-          "description": "TFG-1a's weight: the formulation's market share in the county's fuel region, fuel year and month group, times the year multiplicity, for a formulation of an evaporative fuel type with a positive share, else 0."
+          "description": "TFG-1a's weight: the formulation's market share in the county's fuel region, fuel year and month group, times the year multiplicity, for a formulation of an evaporative fuel type with a positive share, else 0. The share is FuelSupply's as the execution database holds it (`ffsup_suppliedShare`), not its share of the fuel type: TankFuelGenerator's means divide by `sum(marketShare)` and do not see the difference, but TFG-1c's `gasoholMarketShare` is a SUM, and at `aggregateBy` Year it is PreAggYEAR.sql's summed share, 0.334 at four months, which puts `commingling_factor` in its 1.035 bin where a twelve-month or unaggregated run has 1.000 (PLAN.md §7.3.68)."
         },
         "tfg_gasPortionRVP": {
           "type": "unknown",
@@ -7286,7 +7287,7 @@
             "fueltype_rows",
             "runspecyear_rows"
           ],
-          "description": "TFG-1c's `gasoholMarketShare`: the weight of the formulations with 4 <= ETOHVolume <= 20. An absolute sum, not a share of the fuel type."
+          "description": "TFG-1c's `gasoholMarketShare`: the weight of the formulations with 4 <= ETOHVolume <= 20. An absolute sum, not a share of the fuel type. At `aggregateBy` Year it is the SUMMED share (0.334 at four months; `tfg_weight`)."
         },
         "tfg_hasFuel": {
           "type": "unknown",
@@ -8124,7 +8125,7 @@
             "runspecmonth_rows",
             "runspecyear_rows"
           ],
-          "description": "REFEC-2's `RefuelingAverageRVP`: the market-share-weighted Reid vapour pressure of this fuel type's supply, in the county and month. 8.0 for gasoline and 7.7 for E85 in the one-county runs, and 0 for the three fuels whose formulations carry no RVP -- a zero that reaches the exponential and is harmless there because `vaporTermD` is zero on exactly those fuels."
+          "description": "REFEC-2's `RefuelingAverageRVP`: the market-share-weighted Reid vapour pressure of this fuel type's supply, in the county and month. 8.0 for gasoline and 7.7 for E85 in the one-county runs, and 0 for the three fuels whose formulations carry no RVP -- a zero that reaches the exponential and is harmless there because `vaporTermD` is zero on exactly those fuels. The share is FuelSupply's as the execution database holds it (`ffsup_suppliedShare`): REFEC-2 sums `rvp x marketShare` and never divides, so at `aggregateBy` Year it is PreAggYEAR.sql's summed share times the RVP -- 3.447 for gasoline at four months where the mean is 10.31 (PLAN.md §7.3.68)."
         },
         "rff_energyContent": {
           "type": "unknown",
@@ -8135,7 +8136,7 @@
             "runspecmonth_rows",
             "runspecyear_rows"
           ],
-          "description": "The `RefuelingFuelType` extract's first column: the market-share-weighted energy content of the same supply, kJ per gram. Summed over the formulations of this fuel type, as `rt_supplyEnergyContent` is over a rate row's -- but on FIVE rows instead of thousands, because everything REFEC-7 needs is a property of the fuel. Electricity's subtype carries NULL, which `ff_energyContent` already reads as 0; the extract's `WHERE energyContent > 0` is ported as written all the same, because it is the SQL's clause and not a NaN guard."
+          "description": "The `RefuelingFuelType` extract's first column: the market-share-weighted energy content of the same supply, kJ per gram. Summed over the formulations of this fuel type, as `rt_supplyEnergyContent` is over a rate row's -- but on FIVE rows instead of thousands, because everything REFEC-7 needs is a property of the fuel. Electricity's subtype carries NULL, which `ff_energyContent` already reads as 0; the extract's `WHERE energyContent > 0` is ported as written all the same, because it is the SQL's clause and not a NaN guard. Over the shares as the execution database holds them (`ffsup_suppliedShare`): at `aggregateBy` Year the summed share, 0.334 of the mean energy content at four months, which divides the loss and so multiplies refueling by 2.992 against the energy that `rt_fuelSupplyScale` already scaled (PLAN.md §7.3.68)."
         },
         "rff_fuelDensity": {
           "type": "unknown",
@@ -25246,7 +25247,7 @@
             "runspeccounty_rows",
             "runspecmonth_rows"
           ],
-          "description": "What BaseRateCalculator's sum over the formulations by `marketShare` multiplies a rate by beyond the share-weighted MEANS the model's ratios are: 1 on a run that does not aggregate by year, whose shares sum to 1 per fuel type; at `aggregateBy` Year the fuel type's summed share, 0.334 at four months -- on brake and tire wear and energy as much as on THC (PLAN.md §7.3.65)."
+          "description": "What BaseRateCalculator's sum over the formulations by `marketShare` multiplies a rate by beyond the share-weighted MEANS the model's ratios are: 1 on a run that does not aggregate by year, whose shares sum to 1 per fuel type; at `aggregateBy` Year the fuel type's summed share, 0.334 at four months -- on brake and tire wear and energy as much as on THC (PLAN.md §7.3.65). Fuel vapor venting and fuel leaks are 1 at Year too (`fuel_supply_summing_process`): their calculators read no market share, and the capture `scale-county-timeagg-processes-year` found both exactly 0.334229 low with the scale applied (PLAN.md §7.3.68)."
         },
         "run_idleAdjustmentRows": {
           "type": "unknown",
@@ -63655,7 +63656,7 @@
                         {
                           "op": "index",
                           "args": [
-                            "ffsup_marketShare",
+                            "ffsup_suppliedShare",
                             "g",
                             "n",
                             "f",
@@ -63686,7 +63687,7 @@
                     {
                       "op": "index",
                       "args": [
-                        "ffsup_marketShare",
+                        "ffsup_suppliedShare",
                         "g",
                         "n",
                         "f",
@@ -85012,7 +85013,7 @@
                 {
                   "op": "index",
                   "args": [
-                    "ffsup_marketShare",
+                    "ffsup_suppliedShare",
                     "g",
                     "m",
                     "f",
@@ -85083,7 +85084,7 @@
                 {
                   "op": "index",
                   "args": [
-                    "ffsup_marketShare",
+                    "ffsup_suppliedShare",
                     "g",
                     "m",
                     "f",
@@ -119501,12 +119502,38 @@
               "bindings": {
                 "aggregates_months": "n_aggregatesMonths",
                 "year_value": {
-                  "op": "index",
+                  "op": "ifelse",
                   "args": [
-                    "rt_fuelTypeSupplyShare",
-                    "b",
-                    "g",
-                    "m"
+                    {
+                      "op": ">",
+                      "args": [
+                        {
+                          "op": "apply_expression_template",
+                          "args": [],
+                          "name": "fuel_supply_summing_process",
+                          "bindings": {
+                            "process_id": {
+                              "op": "index",
+                              "args": [
+                                "rt_processID",
+                                "b"
+                              ]
+                            }
+                          }
+                        },
+                        0.5
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "rt_fuelTypeSupplyShare",
+                        "b",
+                        "g",
+                        "m"
+                      ]
+                    },
+                    1.0
                   ]
                 },
                 "own_value": 1.0
