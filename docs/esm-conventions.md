@@ -7872,6 +7872,15 @@ it. Nothing in the corpus does that. The document says so, in its own
 description, because a limitation a reader has to rediscover is worse than one
 that is written down.
 
+**Closed since PLAN.md §7.3.64**, when `scale-county-timeagg-processes-*` selected
+Total Energy at running exhaust beside both refueling losses and MOVES kept that
+block (1,490 rows) and stripped start's and extended idle's. The missing datum is
+the user's, so it is DECLARED, as `<modelscale>` and `<outputtimestep>` are: the
+runspec document binds `n_statedEnergyProcesses` (bits over the needs table's three
+exhaust processes), and `rfn_isStated` takes a stated pair out of
+`rspp_isSilentlyRequired`. The model still never parses the XML; a run that binds
+nothing keeps the derivation below.
+
 **The general rule this leaves: a runspec document supplies SELECTIONS, and a
 selection is not the same thing as a scope.** Where the two differ and the
 database records only the scope, derive the selection from a declared table and
