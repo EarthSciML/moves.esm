@@ -1702,6 +1702,13 @@ C7P_DOMAIN=moves-onroad.esm
 # county domain database with two (PLAN.md §7.3.61, conventions §113): TAG
 # adjusts 2020's hotelling hours over a table that still holds 2015's, and every
 # AdjustHotelling default is taken over both years' rows.
+# `scale-county-timeagg-day` and `scale-county-timeagg-month` are county
+# inventories that PRE-AGGREGATE time (PLAN.md §7.3.63, conventions §115):
+# `aggregateBy` 24-Hour Day and Month collapse the hour and day-type tables
+# before any generator runs, so AdjustStarts and AdjustHotelling read the
+# collapsed tables; and their `<outputtimestep>` (Month, Year) sums the cells,
+# so their oracle source carries the `output-time-step` tag and is emitted
+# from the output-time-step relation `mos_*` as `movesoutput_step`.
 # `expand-multiyear` is the first run at two calendar years (PLAN.md §7.3.44,
 # conventions §98): the year is the cohort grid's and the activity relation's
 # slowest factor and a trailing axis of every other per-year relation, so the
@@ -1799,8 +1806,10 @@ else
 import json, sys
 srcs = json.load(open(sys.argv[1])).get("data_sources", {}).values()
 for s in srcs:
-    if "oracle" in s.get("metadata", {}).get("tags", []):
-        print(s["source"]["url_template"].rsplit("__", 1)[1].split(".")[0])' "$rs")
+    tags = s.get("metadata", {}).get("tags", [])
+    if "oracle" in tags:
+        t = s["source"]["url_template"].rsplit("__", 1)[1].split(".")[0]
+        print(t + "_step" if "output-time-step" in tags else t)' "$rs")
     if [[ ${#RS_TABLES[@]} -eq 0 ]]; then
       fail "7c'/7d $rsname — it names no \`oracle\` source"
       continue
@@ -1818,7 +1827,7 @@ for s in srcs:
     rs_emit=()
     for RS_TABLE in "${RS_TABLES[@]}"; do
       [[ "$RS_TABLE" == movesoutput ]] || rs_emit+=(--table "$RS_TABLE")
-      rm -f "$RUNDIR/$rsname.$RS_TABLE.actual.csv"
+      rm -f "$RUNDIR/$rsname.${RS_TABLE%_step}.actual.csv"
     done
     if ! out=$("$PYTHON" tools/emit-oracle-table.py --esm "$ESM" --runspec "$rs" \
                  --snapshots "$SNAPSHOTS" --model "$C7_LOGIC" --outdir "$RUNDIR" \
@@ -1830,15 +1839,19 @@ for s in srcs:
     fi
     RS_RPD=""
     for RS_TABLE in "${RS_TABLES[@]}"; do
-      RS_ACTUAL="$RUNDIR/$rsname.$RS_TABLE.actual.csv"
+      # `movesoutput_step` is MOVESOutput at a Month or Year output time step,
+      # emitted from `mos_*` into the movesoutput file (PLAN.md §7.3.63); only
+      # a plain `movesoutput` is the output relation itself.
+      RS_FILE="${RS_TABLE%_step}"
+      RS_ACTUAL="$RUNDIR/$rsname.$RS_FILE.actual.csv"
       [[ "$RS_TABLE" == movesoutput ]] && sed "1s/out_//g" "$RS_CSV" > "$RS_ACTUAL"
-      [[ "$RS_TABLE" == rateperdistance ]] && RS_RPD="$RS_ACTUAL"
+      [[ "$RS_FILE" == rateperdistance ]] && RS_RPD="$RS_ACTUAL"
       if out=$("$PYTHON" compare-output.py --fixture "$rsname" --actual "$RS_ACTUAL" \
-                 --table "$RS_TABLE" --snapshots "$SNAPSHOTS" 2>&1); then
-        pass "$rsname — the default database reproduces the run's $RS_TABLE, complete"
+                 --table "$RS_FILE" --snapshots "$SNAPSHOTS" 2>&1); then
+        pass "$rsname — the default database reproduces the run's $RS_FILE, complete"
         sed 's/^/       /' <<<"$out" | tail -4
       else
-        fail "7c'/7d $rsname — it evaluates from the default database, but not to the run's $RS_TABLE"
+        fail "7c'/7d $rsname — it evaluates from the default database, but not to the run's $RS_FILE"
         sed 's/^/       /' <<<"$out" | tail -8
       fi
     done

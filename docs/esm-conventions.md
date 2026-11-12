@@ -9326,3 +9326,49 @@ An absence follows from the walk as from a user's distribution (§112): a schedu
 whose every second is stopped leaves brake wear only mode 501 under the temp source
 types, which the copy to RatesOpModeDistribution drops, so the link has NO brake-wear
 row (`lsl_brakeGap`, beside `omd_userGap` in `rt_hasLinkModes`).
+## 115. A pre-aggregation that runs before the generators is a table at the cell, and an output time step is a sum over cells **[PLAN.md §7.3.63; `scale-county-timeagg-day` 12,576 of 12,576 and `scale-county-timeagg-month` 6,288 of 6,288, key-exact, no `cell_exception`; the runs that aggregate, start or hotel byte-identical]**
+
+§66 made `aggregateBy = Month` a per-run selection of time cells over which the
+RATE tables are averaged. That was enough while the only tables collapsed were
+ones the model reads as rates. It is not enough once a run selects start exhaust,
+hotelling or off-network idle, because MOVES runs the pre-aggregation scripts
+before any generator (MasterLoop's "Preaggregate data" precedes
+`performInstantiation`): AdjustStarts.sql and AdjustHotelling.sql, and every
+default share they compute, read the collapsed tables. Three rules came out of it.
+
+1. **Write each collapsed table as a variable at the output cell, equal to the
+   table's own row where the cell is one (day, hour).** The generator downstream
+   then stays ONE equation: AdjustHotelling over a day whose hours collapsed to one
+   is the same script with `defaultHourFraction` 1. The collapses are not means of
+   the generator's output -- a start rate at the collapsed temperature and the
+   startsHourFraction-weighted operating-mode distribution is not the
+   starts-weighted mean of hourly start rates -- so porting the output's
+   aggregation instead of the input's would be a second model that agrees with
+   MOVES nowhere. `tcell_collectsHours` and `tcell_collectsDays` say which collapse
+   a cell is; every collapse is written in the SQL's own association (a sum where
+   PreAggDAY sums, a ratio over the RunSpec's day types where PreAggMONTH
+   renormalises, `dayID / 7` where the SQL multiplies by the day's ID).
+2. **A weight the SQL picks is a pick, and a weight that cancels for one day type
+   does not cancel for two.** HourWeighting3 is ONE source type's travel, chosen by
+   a constant ordering the scripts INSERT -- data that is code, written as the
+   template `preaggregation_source_type_order` -- and it carries no day type, so
+   both day types read the same collapsed weather. §66.1's sum over the selected
+   source types and its cancelled DayWeighting1 were each exact on a run of one
+   source type and one day type and are 5e-04 and 0.36 off at three and two. When a
+   convention rests on "no run in this corpus can tell", the run that can tell is
+   the next one to write.
+3. **An output time step is a relation over slots of cells, and its conversion
+   undoes the cell's.** The output relation's cells are classical DAYS: MOVES's Hour
+   step multiplies by `1/noOfRealDays` (convertDays), which `rtDay_activity` already
+   does. Month and Year steps instead scale each cell's portion of a WEEK by
+   `noOfDays/7` (convertWeeks), so the slot sum `mos_emissionQuant` multiplies by
+   `noOfRealDays x weeksPerMonth` -- with weeksPerMonth alone every cell was 3.7x
+   low, a uniform factor per day type, found in one cohort's two cells. The slot
+   relation is declared by two metaparameters (`n_outputSumsDays`,
+   `n_outputSumsMonths`), sized like `output_rows`, and reads every unsummed column
+   from the slot's first row; a column the step sums away is NULL, `0/0`.
+
+The day-aggregated cell also exposed a lookup that only ever worked by
+coincidence: `rsd_dayID` was looked up in the default `hourday`, which holds no
+`hourDayID = dayID` at hour 0. It is now unpacked as every MOVES script unpacks
+it, `mod(hourDayID,10)` and `floor(hourDayID/10)`.

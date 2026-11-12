@@ -1,0 +1,355 @@
+{
+  "esm": "1.2.0",
+  "metadata": {
+    "name": "washtenaw-county-timeagg",
+    "description": "PLAN.md §7.3.63, step 7f: Washtenaw's COMPLETE county database for the two TIME-AGGREGATED county inventories -- `washtenaw_cdb` as moves.rs `characterization/county-inputs/washtenaw-county-timeagg/setup-timeagg.sql` builds it for `scale-county-timeagg-day` and `scale-county-timeagg-month`. That file is `setup-county.sql` (`inputs/washtenaw-county.esm`) with STATED daily starts (`startsPerDay`, 6 rows: the passenger car, light commercial truck and long-haul truck on both day types, each a different multiple of the default's population x startsPerDayPerVehicle) and `setup-idle-adjust.sql`'s four hotelling tables verbatim (`hotellingHoursPerDay` 2 day types, `hotellingHourFraction` 47 rows with the weekend's hour 8 left out, `hotellingAgeFraction` ages 0-29, `hotellingMonthAdjust` 12 months). The three idle adjustment tables are created empty, as in `washtenaw-county`. Every other row is a copy of the default database's (written by `tools/build-scale-input-db.py --copy Zone,ZoneRoadType,hotellingActivityDistribution`).\n\nIT DOES NOT LOAD ALONE: it names no runspec.",
+    "authors": [
+      "EarthSciML Authors and Contributors"
+    ],
+    "tags": [
+      "onroad",
+      "domain",
+      "single-county-domain",
+      "scale-input-database",
+      "idle-adjustment",
+      "hotelling-adjustment"
+    ]
+  },
+  "data_sources": {
+    "db_link": {
+      "kind": "static",
+      "source": {
+        "url_template": "../movesdb/Link.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_link"
+      },
+      "metadata": {
+        "tags": [
+          "scope",
+          "output",
+          "domain"
+        ],
+        "note": "Link, the default database's national table: MOVES merges it into every domain but PROJECT (InputDataManager.java:1432), so a SINGLE-county run reads the same 22,610 synthetic links a DEFAULT one does, and selects county 26161's on-network and off-network ones by its joins.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_linksourcetypehour": {
+      "kind": "static",
+      "source": {
+        "url_template": "../movesdb/linkSourceTypeHour.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_linksourcetypehour"
+      },
+      "metadata": {
+        "tags": [
+          "domain",
+          "activity"
+        ],
+        "note": "linkSourceTypeHour, the default database's: 0 rows, and the county database has none. Only ProjectTAG reads it.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_offnetworklink": {
+      "kind": "static",
+      "source": {
+        "url_template": "../movesdb/offNetworkLink.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_offnetworklink"
+      },
+      "metadata": {
+        "tags": [
+          "domain",
+          "activity"
+        ],
+        "note": "offNetworkLink, the default database's: 0 rows. Only ProjectTAG reads it (Starts, SHP, SourceHours and hotelling hours), so a run outside PROJECT domain carries it empty. The county database has none.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_opmodedistribution": {
+      "kind": "static",
+      "source": {
+        "url_template": "../movesdb/OpModeDistribution.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_opmodedistribution"
+      },
+      "metadata": {
+        "tags": [
+          "domain",
+          "operating-mode"
+        ],
+        "note": "The INPUT opModeDistribution, the default database's: 0 rows. In PROJECT domain the user's start-mode rows are what StartOperatingModeDistributionGenerator reads (`sod_weight`); outside it nothing reads it. The county database has none.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_driveschedulesecondlink": {
+      "kind": "static",
+      "source": {
+        "url_template": "../movesdb/driveScheduleSecondLink.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_driveschedulesecondlink"
+      },
+      "metadata": {
+        "tags": [
+          "domain",
+          "operating-mode"
+        ],
+        "note": "The INPUT driveScheduleSecondLink, the default database's: 0 rows. Only a project database states one -- a link's second-by-second speed and grade, which LinkOperatingModeDistributionGenerator walks in place of the bracketing schedules (step 100's first arm, java:309-393). The county database has none.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecdomain": {
+      "kind": "static",
+      "source": {
+        "url_template": "./washtenaw-county-timeagg/runspecdomain.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecdomain"
+      },
+      "metadata": {
+        "tags": [
+          "scope",
+          "domain"
+        ],
+        "note": "1 row, modelDomain SINGLE, read by tools/build-scale-input-db.py from scale-county-idle-adjust.xml's `<modeldomain value=\"SINGLE\"/>`.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_input_zoneroadtype": {
+      "kind": "static",
+      "source": {
+        "url_template": "./washtenaw-county-timeagg/ZoneRoadType.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_inputzoneroadtype"
+      },
+      "metadata": {
+        "tags": [
+          "domain",
+          "activity"
+        ],
+        "note": "The county's ZoneRoadType: 4 rows at zone 261610 (road types 2-5), `INSERT ... SELECT` copies of the default's, bit for bit (written by `--copy`); the input side of a shadowing row merge whose precedence returns the default's values.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_input_hotellingactivitydistribution": {
+      "kind": "static",
+      "source": {
+        "url_template": "./washtenaw-county-timeagg/hotellingActivityDistribution.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_inputhotellingactivitydistribution"
+      },
+      "metadata": {
+        "tags": [
+          "domain",
+          "hotelling"
+        ],
+        "note": "The default's rows at zone 261610, which are none: 0 rows. The default's 36 rows at 990000 merge untouched.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_hotellinghoursperday": {
+      "kind": "static",
+      "source": {
+        "url_template": "./washtenaw-county-timeagg/hotellingHoursPerDay.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_hotellinghoursperday"
+      },
+      "metadata": {
+        "tags": [
+          "domain",
+          "hotelling"
+        ],
+        "note": "The county's hotellingHoursPerDay: 2 rows at zone 261610, 2020 -- 1700 hours on a weekend day, 2600 on a weekday, neither the default's daily total. AdjustHotelling.sql's first block (`hot_dayAdjustment`), times the run's two months.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_hotellinghourfraction": {
+      "kind": "static",
+      "source": {
+        "url_template": "./washtenaw-county-timeagg/hotellingHourFraction.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_hotellinghourfraction"
+      },
+      "metadata": {
+        "tags": [
+          "domain",
+          "hotelling"
+        ],
+        "note": "The county's hotellingHourFraction: 47 rows at zone 261610 -- the weekday's 24 hours (sum 0.935) and the weekend's 23 (sum 0.953; hour 8 has no row). Both runs select all 24 hours, so the input merge keeps every row, and the pre-aggregation collapses them before AdjustHotelling.sql reads them: PreAggDAY.sql to their sum per day type, PreAggMONTH.sql then to that sum over the week's (`hot_cellHourFractionStated`).",
+        "esio_format": "parquet"
+      }
+    },
+    "db_hotellingagefraction": {
+      "kind": "static",
+      "source": {
+        "url_template": "./washtenaw-county-timeagg/hotellingAgeFraction.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_hotellingagefraction"
+      },
+      "metadata": {
+        "tags": [
+          "domain",
+          "hotelling"
+        ],
+        "note": "The county's hotellingAgeFraction: 30 rows at zone 261610, ages 0-29 (sum 0.696643); ages 30-40 keep their default share. AdjustHotelling.sql's third block (`hot_ageAdjustment`).",
+        "esio_format": "parquet"
+      }
+    },
+    "db_hotellingmonthadjust": {
+      "kind": "static",
+      "source": {
+        "url_template": "./washtenaw-county-timeagg/hotellingMonthAdjust.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_hotellingmonthadjust"
+      },
+      "metadata": {
+        "tags": [
+          "domain",
+          "hotelling"
+        ],
+        "note": "The county's hotellingMonthAdjust: 12 rows at zone 261610, a different adjustment each month (0.85-1.10). AdjustHotelling.sql's fourth block (`hot_monthAdjustment`), relative to the month's default share of the run's months.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_idlemodelyeargrouping": {
+      "kind": "static",
+      "source": {
+        "url_template": "./washtenaw-county-timeagg/idleModelYearGrouping.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_idlemodelyeargrouping"
+      },
+      "metadata": {
+        "tags": [
+          "domain",
+          "activity"
+        ],
+        "note": "Created empty: 0 rows, as in `washtenaw-county`. totalIdleFraction is the default's, copied (`oni_defaultIdleFraction`).",
+        "esio_format": "parquet"
+      }
+    },
+    "db_idlemonthadjust": {
+      "kind": "static",
+      "source": {
+        "url_template": "./washtenaw-county-timeagg/idleMonthAdjust.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_idlemonthadjust"
+      },
+      "metadata": {
+        "tags": [
+          "domain",
+          "activity"
+        ],
+        "note": "Created empty: 0 rows, as in `washtenaw-county`. totalIdleFraction is the default's, copied (`oni_defaultIdleFraction`).",
+        "esio_format": "parquet"
+      }
+    },
+    "db_idledayadjust": {
+      "kind": "static",
+      "source": {
+        "url_template": "./washtenaw-county-timeagg/idleDayAdjust.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_idledayadjust"
+      },
+      "metadata": {
+        "tags": [
+          "domain",
+          "activity"
+        ],
+        "note": "Created empty: 0 rows, as in `washtenaw-county`. totalIdleFraction is the default's, copied (`oni_defaultIdleFraction`).",
+        "esio_format": "parquet"
+      }
+    },
+    "db_startsperday": {
+      "kind": "static",
+      "source": {
+        "url_template": "./washtenaw-county-timeagg/startsPerDay.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_startsperday"
+      },
+      "metadata": {
+        "tags": [
+          "domain",
+          "starts"
+        ],
+        "note": "The county's startsPerDay: 6 rows -- (2,21) 312e6, (5,21) 401e6, (2,32) 48e6, (5,32) 51e6, (2,62) 610000, (5,62) 700000, national scale as the default's population x startsPerDayPerVehicle is (329110808 / 387305498, 45223950 / 52958680, 531381 / 722084). AdjustStarts.sql takes the stated branch for every source type of a day type with a row (`st_dayStatedRows`); PreAggMONTH.sql collapses it to `sum(startsPerDay * dayID / 7)` (`st_perDayStated`).",
+        "esio_format": "parquet"
+      }
+    },
+    "db_input_zone": {
+      "kind": "static",
+      "source": {
+        "url_template": "./washtenaw-county-timeagg/Zone.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_inputzone"
+      },
+      "metadata": {
+        "tags": [
+          "domain",
+          "starts"
+        ],
+        "note": "The county's Zone: 1 row, zone 261610, an `INSERT ... SELECT` copy of the default's, bit for bit (not setup-starts.sql's twelve-decimal truncation). startAllocFactor scales every start.",
+        "esio_format": "parquet"
+      }
+    }
+  },
+  "metaparameters": {
+    "n_outputRate": {
+      "type": "integer",
+      "default": 375,
+      "description": "How many (pollutant-process, cohort) PAIRS reach MOVESOutput, summed over the run's emitted blocks. Declared here as well as in the model it mounts for the reason the numbers around it are (docs/esm-conventions.md §49.1): this is the relay that lets a per-fixture document set it. It replaces `n_outputCohort` and `n_outputPolProcess`, which between them could describe only a rectangle. 375 is `process-tirewear`'s, three blocks of 125; a run with one emitted block of 125 needs 125, `expand-fueltype-diesel` 248, `expand-sourcetype` 430 and `expand-criteria` 372. `rateSurvivorCount` recomputes it, so it is a CHECKED declaration."
+    },
+    "n_sourceBin": {
+      "type": "integer",
+      "default": 1,
+      "description": "How many source bins the widest cohort of the run holds. Declared here as well as in the model it mounts for the reason the two numbers above it are (docs/esm-conventions.md §49.1): this is the relay that lets a per-fixture document set it. 1 is right for a run whose cohorts are single-binned -- a passenger car's are, and so the bin relation is that run's cohort relation row for row -- and a run that selects a light commercial truck needs 2, a refuse truck 8. `run_sourceBinsDropped` recomputes whether the value is enough, so it is a CHECKED declaration."
+    },
+    "n_physicsRow": {
+      "type": "integer",
+      "default": 1,
+      "description": "How many rows of `sourceusetypephysics` the run's source types select between them -- the width of the drive-cycle axis. Declared here as well as in the model it mounts for the reason the three numbers above it are (docs/esm-conventions.md §49.1): this is the relay that lets a per-fixture document set it. The vehicle a drive cycle is computed for is keyed by (sourceTypeID, regClassID, model-year range), so 1 is right for a motorcycle or a passenger car, a light commercial truck alone needs 3, source types 21 and 32 together 4, and the five of `expand-sourcetype` 40. `run_physicsRowsSelected` recomputes it and `run_physicsRowsDropped` says whether it is enough, so it is a CHECKED declaration."
+    },
+    "n_ratesScale": {
+      "type": "integer",
+      "default": 0,
+      "description": "The RunSpec's `<modelscale>`: 1 at Rates scale, 0 (the default) at inventory scale. Relayed here as `n_outputRate` is (docs/esm-conventions.md §49.1), so a per-fixture document can bind it (PLAN.md §7.3.47)."
+    },
+    "n_outputSumsDays": {
+      "type": "integer",
+      "default": 0,
+      "description": "THE RUNSPEC'S `<outputtimestep>`, first half: 1 when it is `Month` or `Year`, whose MOVESOutput sums every (day type, hour) cell of a month and scales it by the month's weeks (AggregationSQLGenerator's convertWeeks, `noOfDays/7`); 0 (the default) at `Hour`. Relayed here as `n_outputRate` is (docs/esm-conventions.md §49.1), so a per-fixture document can bind it (PLAN.md §7.3.63)."
+    },
+    "n_outputSumsMonths": {
+      "type": "integer",
+      "default": 0,
+      "description": "THE RUNSPEC'S `<outputtimestep>`, second half: 1 when it is `Year`, whose MOVESOutput also sums the months; 0 (the default) otherwise. Relayed here as `n_outputRate` is (docs/esm-conventions.md §49.1), so a per-fixture document can bind it (PLAN.md §7.3.63)."
+    }
+  },
+  "models": {
+    "Onroad": {
+      "ref": "../onroad/default-database.esm",
+      "bindings": {
+        "n_outputRate": "n_outputRate",
+        "n_sourceBin": "n_sourceBin",
+        "n_physicsRow": "n_physicsRow",
+        "n_ratesScale": "n_ratesScale",
+        "n_outputSumsDays": "n_outputSumsDays",
+        "n_outputSumsMonths": "n_outputSumsMonths"
+      }
+    }
+  }
+}
