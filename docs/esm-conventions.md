@@ -7872,6 +7872,15 @@ it. Nothing in the corpus does that. The document says so, in its own
 description, because a limitation a reader has to rediscover is worse than one
 that is written down.
 
+**Closed since PLAN.md §7.3.64**, when `scale-county-timeagg-processes-*` selected
+Total Energy at running exhaust beside both refueling losses and MOVES kept that
+block (1,490 rows) and stripped start's and extended idle's. The missing datum is
+the user's, so it is DECLARED, as `<modelscale>` and `<outputtimestep>` are: the
+runspec document binds `n_statedEnergyProcesses` (bits over the needs table's three
+exhaust processes), and `rfn_isStated` takes a stated pair out of
+`rspp_isSilentlyRequired`. The model still never parses the XML; a run that binds
+nothing keeps the derivation below.
+
 **The general rule this leaves: a runspec document supplies SELECTIONS, and a
 selection is not the same thing as a scope.** Where the two differ and the
 database records only the scope, derive the selection from a declared table and
@@ -9372,6 +9381,64 @@ The day-aggregated cell also exposed a lookup that only ever worked by
 coincidence: `rsd_dayID` was looked up in the default `hourday`, which holds no
 `hourDayID = dayID` at hour 0. It is now unpacked as every MOVES script unpacks
 it, `mod(hourDayID,10)` and `floor(hourDayID/10)`.
+
+## 116. A generator that reads a collapsed table's neighbours finds none, and what it then writes is a presence on the run **[PLAN.md §7.3.64; `scale-county-timeagg-processes-day` 19,628 of 19,628 and `scale-county-timeagg-processes-month` 78,512 of 78,512, key-exact, every on-road process under aggregation, five cells under two scoped precision exceptions; the evaporative, refueling, crankcase, wear and aggregating runs byte-identical]**
+
+§115 wrote each table PreAggDAY.sql collapses as a variable at the cell, equal to
+the table's own row where the cell is one (day, hour), and the generators
+downstream stayed one equation. That holds for a generator that reads a table's
+ROWS. It does not hold for one that reads a row's NEIGHBOUR. TankTemperatureGenerator's
+TTG-1 interpolates each hour of `ZoneMonthHour` toward the next one
+(`zmh1.hourID = zmh2.hourID-1`); after PreAggDAY.sql the table has one row per
+month at hourID 0, which has no next hour. So the collapsed run has no cold-soak
+tank temperature at all, not a collapsed one -- and every step joined to it is
+empty with it. Four rules came out of it.
+
+1. **Read the generator's joins before its arithmetic.** The model's TTG reads the
+   national hourly table, so it computed perfectly good tank temperatures where
+   MOVES had none, and they reached the output through three consumers: TTG-3/4's
+   hot soaks (the soak split), TTG-5's AverageTankTemperature (permeation) and
+   TVV-3's cold-soak pairs (venting). The port is ONE fact on the run,
+   `ttg_hasColdSoakTankTemperature`, gating those three -- not a collapsed
+   recurrence. Measure the generator's OUTPUT tables in the snapshot first: both
+   execution databases hold zero ColdSoakTankTemperature and AverageTankTemperature
+   rows and twelve SoakActivityFraction rows, all mode 151 at exactly 1.
+2. **An empty join is an absence, and an absence is a row the output does not
+   have.** Permeation's rate is not zero under aggregation; MOVES writes no
+   permeation row, so the rate row does not survive (`rt_hasTankTemperature`
+   beside `rt_hasHotellingModes` in `rt_survivesRated`) and `n_outputRate` counts
+   the 640 pairs it no longer emits.
+3. **A ratio whose subtracted term vanishes is 1, whatever its guard says.**
+   TTG-6's cold-soak share is `(e - o - hot)/(e - o)`. With `hot` empty it is 1 at
+   any `e - o` of either sign, and MOVES's collapsed `o` -- every trip's first
+   segment at hour 0 -- exceeds `e` for some source types. The model's guard
+   `e - o > 0` had only ever met a per-hour `o`, which cannot. The guard stays; the
+   cell's `e` had to be right instead: a whole-week cell counts the vehicles of
+   every selected day type, as PreAggMONTH.sql folds SampleVehicleDay into day 0.
+4. **An extreme over a collapsed table is a point.** TankFuelGenerator takes the
+   month's `min` and `max` temperature; over one row they are equal, so its
+   `zoneMax - zoneMin <= 0` arm takes their mean, and the tank RVP moves (July
+   gasoline 7.979 to 8.0, E85 7.694 to 7.7, the clamp). The on-network venting
+   cells were 0.99945 of MOVES's, uniformly per fuel: a whole-row factor, so the
+   adjustment chain was where to look.
+
+The same capture found a gap with no aggregation in it. The execution database's
+`runspecpollutantprocess` is the EXPANDED set (§81),
+so a RunSpec that selects refueling AND Total Energy at running exhaust keeps
+that energy block where the model, deriving the user's selection from the needs
+table, stripped it -- the blind spot `rspp_isSilentlyRequired` had documented. A
+datum only the RunSpec holds is a declaration, as `<modelscale>` and
+`<outputtimestep>` are: `n_statedEnergyProcesses`, bits over the needs table's
+three exhaust processes, relayed by the catalogues that mount the model.
+
+Two smaller rules, both MOVES's own filters, came out of the same run. EvapOMDG sums
+`fractionOfOperating` over the ages whose SourceHours is POSITIVE (`WHERE
+sourceHours>0`), and the collapsed off-network SHP -- a whole day's SHO against one
+day's population -- is negative at the newest ages, so a filter that changes no re-emitted
+run here decides July's weekday soak share (0.477, not 0.859). And a negative
+SHP is a cancellation: where `population x 7 - SHO` is 1,315 times smaller than its
+operands, MOVES's FLOAT columns are the oracle's precision, and the cells are held by
+a scoped `cell_exception` that says so, not by a wider gate.
 
 ## 117. A collapse that is not a mean scales the run, and a month cell reads its months through a weight **[PLAN.md §7.3.65; `scale-county-timeagg-year` 18,071 of 18,071, key-exact, worst cell 1.134e-05, no `cell_exception`; the runs that aggregate byte-identical]**
 

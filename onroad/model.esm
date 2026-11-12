@@ -710,6 +710,11 @@
       "type": "integer",
       "default": 0,
       "description": "Rows in the run's aggregation-month list (`db_aggregationmonth`): the months a Year cell collapses (PreAggYEAR.sql). 12 on a run that does not aggregate by year, whose cells each read their own month of it."
+    },
+    "n_statedEnergyProcesses": {
+      "type": "integer",
+      "default": 0,
+      "description": "THE RUNSPEC'S OWN Total Energy Consumption selections at the needs table's three exhaust processes, as a sum of `rfn_stateBit`s: 1 running, 2 start, 4 extended idle; 0 (the default) when it selects none. No table states it: `flagRequiredPollutantProcesses` adds every one of the three a refueling loss needs and the RunSpec did not select, flags it `silentlyRequired`, and the output processor strips it -- so the execution database's `runspecpollutantprocess` holds the EXPANDED set and cannot say which energy pairs the user asked for. A RunSpec that selects a refueling loss AND Total Energy at running exhaust keeps that block and only that one (`scale-county-timeagg-processes-*`: 1; PLAN.md §7.3.64). Read off the RunSpec XML, as `n_ratesScale` and `n_outputSumsDays` are."
     }
   },
   "index_sets": {
@@ -4957,6 +4962,14 @@
           ],
           "description": "TTG-1c's `ColdSoakTankTemperature`: the parked tank's temperature at the top of each hour. It is operating mode 151's average tank temperature, the key-on temperature of every trip that starts cold, and three degrees below the point where a hot soak ends."
         },
+        "ttg_hasColdSoakTankTemperature": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "run_rows"
+          ],
+          "description": "Whether TTG-1 writes `ColdSoakTankTemperature` at all: 1 on a run that does not aggregate its hours, 0 on one that does (`run_aggregatesHours`). TTG-1a interpolates each hour of `ZoneMonthHour` toward the NEXT hour (`zmh1.hourID = zmh2.hourID-1`, or 24 then 1; TankTemperatureGenerator.java:361-368), and PreAggDAY.sql, which runs before every generator, leaves ONE row per month at hourID 0 -- a row with no next hour. So QuarterHourTemperature, QuarterHourTankTemperature and ColdSoakTankTemperature are empty, and so is everything joined to the cold-soak temperature: TTG-3/4's hot soaks (`ttg_hotSoakOpModeCount`), TTG-5's AverageTankTemperature (`ttg_hasAverageTankTemperature`, `rt_hasTankTemperature`) and TVV-3's cold-soak vapor (`tvv_pairExists`). Measured on `scale-county-timeagg-processes-day` and `-month` (PLAN.md §7.3.64): both execution databases hold no ColdSoakTankTemperature and no AverageTankTemperature row, SoakActivityFraction is mode 151 at exactly 1 on all 12 of its rows, and permeation has no output row. The model's own TTG-1 reads the national hourly table, which is why the run, not the table, says so."
+        },
         "trp_hasKeyOn": {
           "type": "unknown",
           "units": "1",
@@ -5709,7 +5722,7 @@
             "runspecday_rows",
             "runspecsourcetype_rows"
           ],
-          "description": "TTG-6's `hotSoakOpModeCount`: the source type's vehicle-minutes of hot soaking in the run's hour-day."
+          "description": "TTG-6's `hotSoakOpModeCount`: the source type's vehicle-minutes of hot soaking in the run's hour-day. None at all on a run that aggregates its hours: the walk joins the empty cold-soak temperature (`ttg_hasColdSoakTankTemperature`), so TTG-6 writes mode 151 at exactly 1 and no mode 150."
         },
         "ttg_operatingMinutes": {
           "type": "unknown",
@@ -5727,7 +5740,7 @@
             "runspecday_rows",
             "runspecsourcetype_rows"
           ],
-          "description": "TTG-6's `eMinutes`: 60 x the source type's sample vehicles on the day, the minutes they exist in an hour. 49,260 on `rates-evap`."
+          "description": "TTG-6's `eMinutes`: 60 x the source type's sample vehicles on the cell's day types, the minutes they exist in an hour. 49,260 on `rates-evap`. A whole-week cell collects every day type the RunSpec selected (`tcell_dayMatch`): the execution database's SampleVehicleDay is cut to those days and source types, and PreAggMONTH.sql folds it into day 0 before TTG-6 counts it (`scale-county-timeagg-processes-month`: 1,168 cars, 741 + 1,716 vehicles in all)."
         },
         "ttg_soakActivityFraction": {
           "type": "unknown",
@@ -6412,7 +6425,7 @@
             "runspeccounty_rows",
             "runspecmonth_rows"
           ],
-          "description": "TVV-3's row: a venting rate row, a positive `coldSoakInitialHourFraction` pairing the cell with an initial cell of its day, the two distinct or both hour 1, and an hour no later than the peak. Both cells are SELECTED hours, which is why a run of one hour other than 1 generates nothing."
+          "description": "TVV-3's row: a venting rate row, a positive `coldSoakInitialHourFraction` pairing the cell with an initial cell of its day, the two distinct or both hour 1, and an hour no later than the peak. Both cells are SELECTED hours, which is why a run of one hour other than 1 generates nothing. Never on a run that aggregates its hours: TVV-3 joins the cold-soak tank temperature, which is empty there (`ttg_hasColdSoakTankTemperature`), so operating mode 151 has no venting rate."
         },
         "tvv_generatedByAltitude": {
           "type": "unknown",
@@ -6666,7 +6679,7 @@
             "tanktemperaturerise_rows",
             "operating_mode_rows"
           ],
-          "description": "Whether TTG-5 writes the row: modes 300 and 151 where the group has an operating segment in the hour-day, mode 150 where it has a recorded hot-soak minute."
+          "description": "Whether TTG-5 writes the row: modes 300 and 151 where the group has an operating segment in the hour-day, mode 150 where it has a recorded hot-soak minute. Never on a run that aggregates its hours (`ttg_hasColdSoakTankTemperature`)."
         },
         "ppmy_fuelMYGroupID": {
           "type": "parameter",
@@ -7333,6 +7346,33 @@
           ],
           "description": "TFG-3a: the linear mean RVP times `commingling_factor` of the gasohol share -- 1.000 here, because the share is 1."
         },
+        "tfg_hourlyMinimumTemperature": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspeccounty_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "The month's lowest hourly ambient temperature at the county's zone, over the 24 hours of the national `zoneMonthHour`."
+        },
+        "tfg_hourlyMaximumTemperature": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspeccounty_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "Its highest."
+        },
+        "tfg_collapsedTemperature": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspeccounty_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "The ONE temperature PreAggDAY.sql leaves in `ZoneMonthHour` for the month, at hourID 0: the HourWeighting3 mean every cell of the month reads (`run_temperature`, the same at each cell because the collapse carries no day type). `min` over the cells only selects it."
+        },
         "tfg_minimumTemperature": {
           "type": "unknown",
           "units": "1",
@@ -7340,7 +7380,7 @@
             "runspeccounty_rows",
             "runspecmonth_rows"
           ],
-          "description": "The month's lowest hourly ambient temperature at the county's zone."
+          "description": "TFG-2a's `zoneMin`: the month's lowest ambient temperature among the `ZoneMonthHour` rows the execution database holds -- the 24 hours on a run that does not aggregate them, and the one collapsed row on a run that does (`run_aggregatesHours`; TankFuelGenerator runs after PreAggDAY.sql), where it is also the highest (PLAN.md §7.3.64)."
         },
         "tfg_maximumTemperature": {
           "type": "unknown",
@@ -7349,7 +7389,7 @@
             "runspeccounty_rows",
             "runspecmonth_rows"
           ],
-          "description": "Its highest."
+          "description": "TFG-2a's `zoneMax`, from the same rows as `tfg_minimumTemperature`. Equal to it on a run that aggregates its hours, so TFG-2a takes its `zoneMax - zoneMin <= 0` arm, the mean of the two."
         },
         "tfg_zoneEvapTemperature": {
           "type": "unknown",
@@ -14270,7 +14310,7 @@
           "shape": [
             "polprocroad_rows"
           ],
-          "description": "Does the pollutant-process happen on this pair's road type? `rspp_rateRoadTypeID` says where it lives -- the off-network road type 1, or the run's on-network road types, for which it carries their representative `run_roadTypeID` -- so an off-network one occurs on road type 1 alone, an on-network one on every selected on-network road type, and running exhaust on road type 1 as well when that block is off-network idle. This is what `rspp_occursOnSelectedRoad` was, per block; it is the OR over a pollutant-process's blocks now. On the off-network road type also: permeation and leaks, whose SourceHours there are SHP, and a chained pollutant-process with an off-network parent even where it has an on-network one -- refueling's start energy (PLAN.md §7.3.48 part C). Vapor venting's cold-soak insert is not ported, so it does not occur there (`run_offNetworkLinkCount`)."
+          "description": "Does the pollutant-process happen on this pair's road type? `rspp_rateRoadTypeID` says where it lives -- the off-network road type 1, or the run's on-network road types, for which it carries their representative `run_roadTypeID` -- so an off-network one occurs on road type 1 alone, an on-network one on every selected on-network road type, and running exhaust on road type 1 as well when that block is off-network idle. This is what `rspp_occursOnSelectedRoad` was, per block; it is the OR over a pollutant-process's blocks now. On the off-network road type also: permeation and leaks, whose SourceHours there are SHP, and a chained pollutant-process with an off-network parent even where it has an on-network one -- refueling's start energy (PLAN.md §7.3.48 part C). Vapor venting's cold-soak insert is ported per cell (PLAN.md §7.3.49) and, in a run that aggregates its hours, is empty as MOVES's is (§7.3.64)."
         },
         "ppr_isEmitted": {
           "type": "unknown",
@@ -14546,7 +14586,7 @@
             "runspecyear_rows",
             "runspecroadtype_rows"
           ],
-          "description": "E1's numerator: `SHO` summed over the age dimension, per day type and road type. The age axis is contracted because `FractionOfOperating` is a property of the hour and the link, not of the vehicle."
+          "description": "E1's numerator: `SHO` summed over the age dimension, per day type and road type. The age axis is contracted because `FractionOfOperating` is a property of the hour and the link, not of the vehicle. Over the ages whose SourceHours is POSITIVE only: E1's `WHERE sourceHours>0` (EvaporativeEmissionsOperatingModeDistributionGenerator.java:204) drops an age from both sums, and the SHO of a dropped age with it. The collapsed off-network SHP of a run that aggregates its hours is negative at the newest model years -- the whole day's SHO against one day's population -- and July's weekday passenger-car fraction is 0.477 with the filter, 0.859 without (PLAN.md §7.3.64)."
         },
         "evap_sourceHoursTotal": {
           "type": "unknown",
@@ -14559,7 +14599,7 @@
             "runspecyear_rows",
             "runspecroadtype_rows"
           ],
-          "description": "E1's denominator, the same sum over `act_sourceHours`, per road type: SHO on an on-network link, SHP on the off-network one."
+          "description": "E1's denominator, the same sum over `act_sourceHours`, per road type: SHO on an on-network link, SHP on the off-network one. Over the positive ages only, as `evap_shoTotal`."
         },
         "evap_fractionOfOperatingRaw": {
           "type": "unknown",
@@ -15677,6 +15717,22 @@
             "refuelingneedinput_rows"
           ],
           "description": "The needs table's input side: running (1), start (2) and extended-idle (90) exhaust. THREE, where `rfp_processID` -- what the calculator READS -- is four. Auxiliary-power energy is consumed if it is there and is never pulled in, and the two lists are kept apart because they answer different questions."
+        },
+        "rfn_stateBit": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "refuelingneedinput_rows"
+          ],
+          "description": "The bit of `n_statedEnergyProcesses` that says the RunSpec itself selects Total Energy at the needs-table row's process: 1 running, 2 start, 4 extended idle."
+        },
+        "rfn_isStated": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "refuelingneedinput_rows"
+          ],
+          "description": "Whether the RunSpec itself selects Total Energy Consumption at the row's process: `n_statedEnergyProcesses`' bit, `floor(mask / bit) - 2 floor(mask / 2 bit)`. `require()` does not flag a pair the user had already selected, so a stated pair is a selection and its block is emitted."
         },
         "run_selectsRefuelingOutput": {
           "type": "unknown",
@@ -16819,7 +16875,7 @@
           "shape": [
             "runspecpollutantprocess_rows"
           ],
-          "description": "Is this pollutant-process a chain PREREQUISITE the RunSpec never asked for? `ExecutionRunSpec.flagRequiredPollutantProcesses` adds Total Energy Consumption at running, start and extended-idle exhaust whenever a refueling loss is selected, because without it `BaseRate` emits no energy and the chained calculator sees no input; the addition is flagged `silentlyRequired` and the output processor strips it. So `process-refueling` computes 250 energy rows and emits none of them.\n\nIT IS DERIVED FROM `runspecpollutantprocess` AND THE DECLARED NEEDS TABLE, not read: the execution database records the EXPANDED set and not the user's. That is a real limit, and it has exactly one blind spot -- `require()` does not flag a pair the user had already selected, so a RunSpec asking for refueling AND for Total Energy Consumption would keep its energy block and this document would drop it. No run in the corpus does that, and the needs table is refueling-only, which is what makes the rest derivable."
+          "description": "Is this pollutant-process a chain PREREQUISITE the RunSpec never asked for? `ExecutionRunSpec.flagRequiredPollutantProcesses` adds Total Energy Consumption at running, start and extended-idle exhaust whenever a refueling loss is selected, because without it `BaseRate` emits no energy and the chained calculator sees no input; the addition is flagged `silentlyRequired` and the output processor strips it. So `process-refueling` computes 250 energy rows and emits none of them.\n\nIT IS DERIVED FROM `runspecpollutantprocess` AND THE DECLARED NEEDS TABLE, not read: the execution database records the EXPANDED set and not the user's. That is a real limit, and it has exactly one blind spot -- `require()` does not flag a pair the user had already selected, so a RunSpec asking for refueling AND for Total Energy Consumption keeps that energy block. The RunSpec states which (`n_statedEnergyProcesses`, `rfn_isStated`); `scale-county-timeagg-processes-*` select Total Energy at running exhaust beside both refueling losses and emit its 1,490 rows, where the document had dropped them (PLAN.md §7.3.64). The needs table is refueling-only, which is what makes the rest derivable."
         },
         "rspp_isStripped": {
           "type": "unknown",
@@ -17273,6 +17329,14 @@
           ],
           "description": "Selected AND rated, on a source type that has the process's operating modes (`rt_hasHotellingModes`) and, in PROJECT domain, a distribution on its link (`rt_hasLinkModes`) -- `rt_survives` before `SulfatePMCalculator` claims its blocks."
         },
+        "rt_hasTankTemperature": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "0 on a permeation rate row of a run that aggregates its hours, 1 everywhere else. EvaporativePermeationCalculator.sql joins `AverageTankTemperature`, which TTG-5 does not write there (`ttg_hasColdSoakTankTemperature`), so MOVES writes no permeation row at all -- an absence, which a zero-weighted rate is not (PLAN.md §7.3.64)."
+        },
         "rt_survives": {
           "type": "unknown",
           "units": "1",
@@ -17445,14 +17509,6 @@
             "run_rows"
           ],
           "description": "300, All Running, NAMED from the operating_mode enum and carried as a one-row relation for the reason `run_tirewearIdleOpModeID` is: `evap_W` decides which mode takes the residual by matching this, not by writing 300 into an expression."
-        },
-        "run_offNetworkLinkCount": {
-          "type": "unknown",
-          "units": "1",
-          "shape": [
-            "run_rows"
-          ],
-          "description": "How many SELECTED vapor-venting pollutant-processes lie on the OFF-NETWORK road type in a run that aggregates its hours (`run_aggregatesHours`): 0, asserted. The multiday cold-soak insert is ported per cell (PLAN.md §7.3.49), and a cell that averages hours is not one it pairs."
         },
         "run_offNetworkRoadTypeID": {
           "type": "unknown",
@@ -20876,7 +20932,7 @@
           "shape": [
             "run_rows"
           ],
-          "description": "How many things this run SELECTS that the model does not compute, beside its domain (`run_domainUnported`): 0, asserted by tools/check-runspec-shape.py. It counts an on-road pollutant-process other than running exhaust, crankcase running, brake or tire wear or an evaporative one (`occursOnRealRoads` = Y) in a run that also selects road type 1 (`run_onRoadPollutantProcessCount`); and what a run that aggregates hours or day types selects and the model does not compute (`run_aggregationUnported`; starts, hotelling and off-network idle under aggregation are ported, PLAN.md §7.3.63). None of these fails loudly -- each emits a plausible number or none. Evaporative processes on several road types and chained ones with parents both on and off the network are ported (PLAN.md §7.3.48 part C). At Rates scale it also counts `run_ratesUnported`, everything the Rates tables do not compute."
+          "description": "How many things this run SELECTS that the model does not compute, beside its domain (`run_domainUnported`): 0, asserted by tools/check-runspec-shape.py. It counts an on-road pollutant-process other than running exhaust, crankcase running, brake or tire wear or an evaporative one (`occursOnRealRoads` = Y) in a run that also selects road type 1 (`run_onRoadPollutantProcessCount`); and what a run that aggregates hours or day types selects and the model does not compute (`run_aggregationUnported`; starts, hotelling and off-network idle under aggregation are ported, PLAN.md §7.3.63, and every evaporative, refueling, crankcase and wear process, §7.3.64; and the month collapse of `aggregateBy` Year for what `scale-county-timeagg-year` checks, §7.3.65). None of these fails loudly -- each emits a plausible number or none. Evaporative processes on several road types and chained ones with parents both on and off the network are ported (PLAN.md §7.3.48 part C). At Rates scale it also counts `run_ratesUnported`, everything the Rates tables do not compute."
         },
         "run_onRoadPollutantProcessCount": {
           "type": "unknown",
@@ -20884,7 +20940,7 @@
           "shape": [
             "run_rows"
           ],
-          "description": "How many of the run's pollutant-processes occur on a real road and are NOT running exhaust, crankcase running or evaporative. Read by `run_selectionUnported` only when the run also selects road type 1: MOVES writes off-network idle for running exhaust and the crankcase running it chains to, which `ppr_isOffNetworkIdle` ports, and evaporative rows over SHP, which `act_shp` ports but for vapor venting (`run_offNetworkLinkCount`); brake and tire wear are not counted since `scale-county-timeagg-year` (PLAN.md §7.3.65) selected them beside road type 1 in the DEFAULT domain: MOVES writes no brake- or tire-wear row on road type 1 (brake wear has no road-1 rates, `drivecycle.rs:513`, and tire wear none either), the model writes none, and all 4,768 of their rows on road types 2-5 reproduce. Not in PROJECT domain, where road type 1 is the off-network link and MOVES writes no brake- or tire-wear row on it (`project-links`, PLAN.md §7.3.55)."
+          "description": "How many of the run's pollutant-processes occur on a real road and are NOT running exhaust, crankcase running, evaporative, brake wear or tire wear. Read by `run_selectionUnported` only when the run also selects road type 1: MOVES writes off-network idle for running exhaust and the crankcase running it chains to, which `ppr_isOffNetworkIdle` ports, and evaporative rows over SHP, which `act_shp` ports, vapor venting's cold soak included (PLAN.md §7.3.49, §7.3.64); and brake and tire wear have no road-1 row: brake wear has no road-1 rates (`drivecycle.rs:513`), and MOVES writes no brake- or tire-wear row on road type 1 in `scale-county-timeagg-processes-day` and `-month`, the first DEFAULT/SINGLE-domain captures to select road type 1 beside both (off-network idle putting SHO on the road-1 link), where the model emits none either (PLAN.md §7.3.64). `scale-county-timeagg-year` (PLAN.md §7.3.65) selects them beside road type 1 too, and its 4,768 wear rows on road types 2-5 reproduce. They were counted here, unmeasured, until then. Not in PROJECT domain, where road type 1 is the off-network link and MOVES writes no brake- or tire-wear row on it (`project-links`, PLAN.md §7.3.55)."
         },
         "run_offNetworkIdleBlocks": {
           "type": "unknown",
@@ -21291,21 +21347,21 @@
           ],
           "description": "idleMonthAdjust and idleDayAdjust rows at the run's source types, beside `run_idleGroupingRows`: the AdjustTotalIdleFraction.sql inputs."
         },
-        "run_evapSelected": {
-          "type": "unknown",
-          "units": "1",
-          "shape": [
-            "run_rows"
-          ],
-          "description": "How many of the run's pollutant-processes are evaporative ones on a road type it selects."
-        },
         "run_aggregationUnported": {
           "type": "unknown",
           "units": "1",
           "shape": [
             "run_rows"
           ],
-          "description": "What a run that pre-aggregates time selects and the model does not compute (PLAN.md §7.3.63), counted by `run_selectionUnported`; 0 on a run that does not aggregate. Starts, hotelling and off-network idle under PreAggDAY.sql, PreAggMONTH.sql and PreAggYEAR.sql are PORTED and are not counted. Counted, each unmeasured: (1) hotelling in a run of more than one calendar year, whose pooled AdjustHotelling chain (`hot_earlier*`) is written per hour of the clock; (2) off-network idle with any AdjustTotalIdleFraction.sql input (`run_idleGroupingRows`, `run_idleAdjustmentRows`), which PreAggMONTH.sql collapses (idleDayAdjust) before that script runs; (3) start, hotelling or off-network idle in a whole-week run whose RunSpec selects fewer day types than the week -- its starts tables are cut to the selected days and its travel is not (`db_rateday` against `db_actday`); (4) any evaporative process, whose TankTemperatureGenerator reads SampleVehicleTrip with every hour collapsed to 0; (5) at `aggregateBy` Year (`n_aggregatesMonths`), every pollutant-process on a selected road that `scale-county-timeagg-year` does not check (`run_yearUnportedSelected`): refueling, whose month-keyed fuel RVP and weather are uncaptured; air toxics, whose ATRatio PreAggYEAR.sql averages per month group rather than computing at the mean fuel; and anything outside THC, CO, NOx, energy, CO2 and brake/tire PM at running, start, the crankcase processes, extended idle, APU and wear. PreAggYEAR.sql's collapse itself -- MonthOfAnyYear 0, the weather, the A/C terms, the fuel supply's SUM, TotalIdleFraction -- is ported (PLAN.md §7.3.65)."
+          "description": "What a run that pre-aggregates time selects and the model does not compute (PLAN.md §7.3.63), counted by `run_selectionUnported`; 0 on a run that does not aggregate. Starts, hotelling and off-network idle under PreAggDAY.sql, PreAggMONTH.sql and PreAggYEAR.sql are PORTED and are not counted (§7.3.63), and so, since PLAN.md §7.3.64, are the evaporative processes -- TankTemperatureGenerator over the collapsed ZoneMonthHour writes no cold-soak tank temperature, so permeation has no row, the soak is all cold (mode 151 at 1), venting has no cold-soak vapor, and TankFuelGenerator's temperature range is one point (`ttg_hasColdSoakTankTemperature`) -- and refueling, crankcase, brake and tire wear, which the two captures `scale-county-timeagg-processes-day` and `-month` check. Counted, each unmeasured: (1) hotelling in a run of more than one calendar year, whose pooled AdjustHotelling chain (`hot_earlier*`) is written per hour of the clock; (2) off-network idle with any AdjustTotalIdleFraction.sql input (`run_idleGroupingRows`, `run_idleAdjustmentRows`), which PreAggMONTH.sql collapses (idleDayAdjust) before that script runs; (3) start, hotelling or off-network idle in a whole-week run whose RunSpec selects fewer day types than the week -- its starts tables are cut to the selected days and its travel is not (`db_rateday` against `db_actday`). (4) an evaporative process over a STATED soakActivityFraction (`run_soakActivityInputRows`): PreAggDAY.sql collapses the user's hourly rows to `sum(soakActivityFraction x HourWeighting2)` per day type, and PreAggMONTH.sql those by DayWeighting2, before TTG-6 reads them, where the model reads them at the cell's own hour-day and finds none. Unmeasured; about four variables (the two weightings exist as `met_hourWeight` and `dw_roadDayWeight`) and a capture with a county database stating the table (PLAN.md §7.3.64). (5) at `aggregateBy` Year (`n_aggregatesMonths`), every pollutant-process on a selected road that `scale-county-timeagg-year` does not check (`run_yearUnportedSelected`): refueling, whose month-keyed fuel RVP and weather are uncaptured; air toxics, whose ATRatio PreAggYEAR.sql averages per month group rather than computing at the mean fuel; and anything outside THC, CO, NOx, energy, CO2 and brake/tire PM at running, start, the crankcase processes, extended idle, APU and wear. PreAggYEAR.sql's collapse itself -- MonthOfAnyYear 0, the weather, the A/C terms, the fuel supply's SUM, TotalIdleFraction -- is ported (PLAN.md §7.3.65)."
+        },
+        "run_soakActivityInputRows": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "run_rows"
+          ],
+          "description": "Stated `soakActivityFraction` rows at the run's zone, source types and months (`evap_soakActivityInputCount` summed). The default database has none; a county or user database may state them, and TTG-6 then keeps them in place of its own."
         },
         "run_aggregationHourCount": {
           "type": "unknown",
@@ -21329,7 +21385,7 @@
           "shape": [
             "run_rows"
           ],
-          "description": "1 if the run averages its hours into one output cell (`aggregateBy`). Vapor venting's cold soak pairs an hour with an earlier one among the hours the worker extracts, and an aggregated run's single synthesized hour pairs nothing with anything; what MOVES does there is not measured."
+          "description": "1 if the run averages its hours into one output cell (`aggregateBy`). PreAggDAY.sql leaves ZoneMonthHour one hour-0 row per month, which TankTemperatureGenerator's TTG-1 pairs with no next hour, so the run has no cold-soak tank temperature at all (`ttg_hasColdSoakTankTemperature`) and TankFuelGenerator's temperature range is that one row (`tfg_minimumTemperature`); measured on `scale-county-timeagg-processes-day` and `-month` (PLAN.md §7.3.64)."
         },
         "run_actDayCount": {
           "type": "unknown",
@@ -23269,7 +23325,7 @@
           "shape": [
             "run_rows"
           ],
-          "description": "At Rates scale, what is NOT ported: time aggregation, 1 -- MOVES refuses it at Rates scale, so it is an invalid RunSpec rather than unported work. SulfatePMCalculator's species and the non-HAP TOG residual are ported per bin (PLAN.md §7.3.48 part E). The off-network evaporative rows are ported but vapor venting's in a run whose hours pair a cold soak (`run_offNetworkLinkCount`, at both scales). Zero at inventory scale. Inside `run_selectionUnported`."
+          "description": "At Rates scale, what is NOT ported: time aggregation, 1 -- MOVES refuses it at Rates scale, so it is an invalid RunSpec rather than unported work. SulfatePMCalculator's species and the non-HAP TOG residual are ported per bin (PLAN.md §7.3.48 part E). The off-network evaporative rows are ported, vapor venting's cold soak included (PLAN.md §7.3.49; under aggregation §7.3.64, which MOVES refuses at Rates scale anyway). Zero at inventory scale. Inside `run_selectionUnported`."
         },
         "run_startBlockCount": {
           "type": "unknown",
@@ -27934,102 +27990,6 @@
                 ]
               }
             ]
-          }
-        },
-        {
-          "_comment": "The licence for `act_sourceHours`: no evaporative block on the off-network road type, counted rather than assumed.",
-          "lhs": "run_offNetworkLinkCount",
-          "rhs": {
-            "op": "faq",
-            "args": [],
-            "semiring": "sum_product",
-            "output_idx": [
-              "n"
-            ],
-            "ranges": {
-              "n": {
-                "from": "run_rows"
-              },
-              "q": {
-                "from": "polprocroad_rows"
-              },
-              "p": {
-                "from": "runspecpollutantprocess_rows"
-              }
-            },
-            "join": [
-              {
-                "on": [
-                  [
-                    "ppr_ppOrdinal",
-                    "rspp_ordinal"
-                  ]
-                ]
-              }
-            ],
-            "expr": {
-              "op": "*",
-              "args": [
-                {
-                  "op": "ifelse",
-                  "args": [
-                    {
-                      "op": "==",
-                      "args": [
-                        {
-                          "op": "index",
-                          "args": [
-                            "rspp_processID",
-                            "p"
-                          ]
-                        },
-                        {
-                          "op": "enum",
-                          "args": [
-                            "process",
-                            "EvapFuelVaporVenting"
-                          ]
-                        }
-                      ]
-                    },
-                    1.0,
-                    0.0
-                  ]
-                },
-                {
-                  "op": "*",
-                  "args": [
-                    {
-                      "op": "ifelse",
-                      "args": [
-                        {
-                          "op": "<",
-                          "args": [
-                            {
-                              "op": "index",
-                              "args": [
-                                "ppr_roadTypeID",
-                                "q"
-                              ]
-                            },
-                            1.5
-                          ]
-                        },
-                        1.0,
-                        0.0
-                      ]
-                    },
-                    {
-                      "op": "index",
-                      "args": [
-                        "run_aggregatesHours",
-                        "n"
-                      ]
-                    }
-                  ]
-                }
-              ]
-            }
           }
         },
         {
@@ -42851,14 +42811,37 @@
               }
             ],
             "expr": {
-              "op": "index",
+              "op": "ifelse",
               "args": [
-                "act_sho",
-                "r",
-                "g",
-                "s",
-                "m",
-                "rd"
+                {
+                  "op": ">",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "act_sourceHours",
+                        "r",
+                        "g",
+                        "s",
+                        "m",
+                        "rd"
+                      ]
+                    },
+                    0.0
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "act_sho",
+                    "r",
+                    "g",
+                    "s",
+                    "m",
+                    "rd"
+                  ]
+                },
+                0.0
               ]
             }
           }
@@ -42923,14 +42906,37 @@
               }
             ],
             "expr": {
-              "op": "index",
+              "op": "ifelse",
               "args": [
-                "act_sourceHours",
-                "r",
-                "g",
-                "s",
-                "m",
-                "rd"
+                {
+                  "op": ">",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "act_sourceHours",
+                        "r",
+                        "g",
+                        "s",
+                        "m",
+                        "rd"
+                      ]
+                    },
+                    0.0
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "act_sourceHours",
+                    "r",
+                    "g",
+                    "s",
+                    "m",
+                    "rd"
+                  ]
+                },
+                0.0
               ]
             }
           }
@@ -48753,6 +48759,35 @@
           }
         },
         {
+          "lhs": "ttg_hasColdSoakTankTemperature",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "r"
+            ],
+            "ranges": {
+              "r": {
+                "from": "run_rows"
+              }
+            },
+            "expr": {
+              "op": "-",
+              "args": [
+                1.0,
+                {
+                  "op": "index",
+                  "args": [
+                    "run_aggregatesHours",
+                    "r"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
           "lhs": "trp_hasKeyOn",
           "rhs": {
             "op": "faq",
@@ -53889,6 +53924,9 @@
               },
               "i": {
                 "from": "samplevehicletrip_rows"
+              },
+              "r": {
+                "from": "run_rows"
               }
             },
             "join": [
@@ -53910,13 +53948,25 @@
               }
             ],
             "expr": {
-              "op": "index",
+              "op": "*",
               "args": [
-                "ttg_tripHotSoakMinutes",
-                "g",
-                "n",
-                "i",
-                "k"
+                {
+                  "op": "index",
+                  "args": [
+                    "ttg_tripHotSoakMinutes",
+                    "g",
+                    "n",
+                    "i",
+                    "k"
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "ttg_hasColdSoakTankTemperature",
+                    "r"
+                  ]
+                }
               ]
             }
           }
@@ -54012,6 +54062,9 @@
               "s": {
                 "from": "runspecsourcetype_rows"
               },
+              "d": {
+                "from": "rateday_rows"
+              },
               "v": {
                 "from": "samplevehicleday_rows"
               }
@@ -54021,7 +54074,7 @@
                 "on": [
                   [
                     "svd_dayID",
-                    "rsd_dayID"
+                    "rday_dayID"
                   ]
                 ]
               },
@@ -54034,7 +54087,20 @@
                 ]
               }
             ],
-            "expr": 60.0
+            "expr": {
+              "op": "*",
+              "args": [
+                60.0,
+                {
+                  "op": "index",
+                  "args": [
+                    "tcell_dayMatch",
+                    "k",
+                    "d"
+                  ]
+                }
+              ]
+            }
           }
         },
         {
@@ -59467,6 +59533,9 @@
               },
               "st": {
                 "from": "runspecsourcetype_rows"
+              },
+              "r": {
+                "from": "run_rows"
               }
             },
             "join": [
@@ -59480,66 +59549,84 @@
               }
             ],
             "expr": {
-              "op": "ifelse",
+              "op": "*",
               "args": [
                 {
-                  "op": "and",
+                  "op": "ifelse",
                   "args": [
                     {
-                      "op": ">",
+                      "op": "and",
                       "args": [
                         {
-                          "op": "index",
+                          "op": ">",
                           "args": [
-                            "rt_isVenting",
-                            "b"
-                          ]
-                        },
-                        0.5
-                      ]
-                    },
-                    {
-                      "op": ">",
-                      "args": [
-                        {
-                          "op": "index",
-                          "args": [
-                            "rt_tvvCoeffRows",
-                            "b"
-                          ]
-                        },
-                        0.5
-                      ]
-                    },
-                    {
-                      "op": ">",
-                      "args": [
-                        {
-                          "op": "index",
-                          "args": [
-                            "csi_fraction",
-                            "g",
-                            "n",
-                            "st",
-                            "k",
-                            "k2"
-                          ]
-                        },
-                        0.0
-                      ]
-                    },
-                    {
-                      "op": "or",
-                      "args": [
-                        {
-                          "op": "!=",
-                          "args": [
-                            "k",
-                            "k2"
+                            {
+                              "op": "index",
+                              "args": [
+                                "rt_isVenting",
+                                "b"
+                              ]
+                            },
+                            0.5
                           ]
                         },
                         {
-                          "op": "==",
+                          "op": ">",
+                          "args": [
+                            {
+                              "op": "index",
+                              "args": [
+                                "rt_tvvCoeffRows",
+                                "b"
+                              ]
+                            },
+                            0.5
+                          ]
+                        },
+                        {
+                          "op": ">",
+                          "args": [
+                            {
+                              "op": "index",
+                              "args": [
+                                "csi_fraction",
+                                "g",
+                                "n",
+                                "st",
+                                "k",
+                                "k2"
+                              ]
+                            },
+                            0.0
+                          ]
+                        },
+                        {
+                          "op": "or",
+                          "args": [
+                            {
+                              "op": "!=",
+                              "args": [
+                                "k",
+                                "k2"
+                              ]
+                            },
+                            {
+                              "op": "==",
+                              "args": [
+                                {
+                                  "op": "index",
+                                  "args": [
+                                    "rsd_hourID",
+                                    "k"
+                                  ]
+                                },
+                                1.0
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "op": "<=",
                           "args": [
                             {
                               "op": "index",
@@ -59548,35 +59635,29 @@
                                 "k"
                               ]
                             },
-                            1.0
+                            {
+                              "op": "index",
+                              "args": [
+                                "tvv_peakHourID",
+                                "g",
+                                "n"
+                              ]
+                            }
                           ]
                         }
                       ]
                     },
-                    {
-                      "op": "<=",
-                      "args": [
-                        {
-                          "op": "index",
-                          "args": [
-                            "rsd_hourID",
-                            "k"
-                          ]
-                        },
-                        {
-                          "op": "index",
-                          "args": [
-                            "tvv_peakHourID",
-                            "g",
-                            "n"
-                          ]
-                        }
-                      ]
-                    }
+                    1.0,
+                    0.0
                   ]
                 },
-                1.0,
-                0.0
+                {
+                  "op": "index",
+                  "args": [
+                    "ttg_hasColdSoakTankTemperature",
+                    "r"
+                  ]
+                }
               ]
             }
           }
@@ -62390,122 +62471,137 @@
               },
               "o": {
                 "from": "operating_mode_rows"
+              },
+              "r": {
+                "from": "run_rows"
               }
             },
             "expr": {
-              "op": "ifelse",
+              "op": "*",
               "args": [
                 {
-                  "op": "or",
+                  "op": "ifelse",
                   "args": [
                     {
-                      "op": "and",
+                      "op": "or",
                       "args": [
                         {
-                          "op": "or",
+                          "op": "and",
                           "args": [
                             {
-                              "op": "==",
+                              "op": "or",
                               "args": [
                                 {
-                                  "op": "index",
+                                  "op": "==",
                                   "args": [
-                                    "om_opModeID",
-                                    "o"
+                                    {
+                                      "op": "index",
+                                      "args": [
+                                        "om_opModeID",
+                                        "o"
+                                      ]
+                                    },
+                                    {
+                                      "op": "enum",
+                                      "args": [
+                                        "operating_mode",
+                                        "AllRunning"
+                                      ]
+                                    }
                                   ]
                                 },
                                 {
-                                  "op": "enum",
+                                  "op": "==",
                                   "args": [
-                                    "operating_mode",
-                                    "AllRunning"
+                                    {
+                                      "op": "index",
+                                      "args": [
+                                        "om_opModeID",
+                                        "o"
+                                      ]
+                                    },
+                                    {
+                                      "op": "enum",
+                                      "args": [
+                                        "operating_mode",
+                                        "ColdSoaking"
+                                      ]
+                                    }
                                   ]
                                 }
                               ]
                             },
                             {
-                              "op": "==",
+                              "op": ">",
                               "args": [
                                 {
                                   "op": "index",
                                   "args": [
-                                    "om_opModeID",
-                                    "o"
+                                    "ttg_runningMinutes",
+                                    "g",
+                                    "n",
+                                    "k",
+                                    "u"
                                   ]
                                 },
-                                {
-                                  "op": "enum",
-                                  "args": [
-                                    "operating_mode",
-                                    "ColdSoaking"
-                                  ]
-                                }
+                                0.0
                               ]
                             }
                           ]
                         },
                         {
-                          "op": ">",
+                          "op": "and",
                           "args": [
                             {
-                              "op": "index",
+                              "op": "==",
                               "args": [
-                                "ttg_runningMinutes",
-                                "g",
-                                "n",
-                                "k",
-                                "u"
+                                {
+                                  "op": "index",
+                                  "args": [
+                                    "om_opModeID",
+                                    "o"
+                                  ]
+                                },
+                                {
+                                  "op": "enum",
+                                  "args": [
+                                    "operating_mode",
+                                    "HotSoaking"
+                                  ]
+                                }
                               ]
                             },
-                            0.0
+                            {
+                              "op": ">",
+                              "args": [
+                                {
+                                  "op": "index",
+                                  "args": [
+                                    "ttg_hotSoakMinuteCount",
+                                    "g",
+                                    "n",
+                                    "k",
+                                    "u"
+                                  ]
+                                },
+                                0.0
+                              ]
+                            }
                           ]
                         }
                       ]
                     },
-                    {
-                      "op": "and",
-                      "args": [
-                        {
-                          "op": "==",
-                          "args": [
-                            {
-                              "op": "index",
-                              "args": [
-                                "om_opModeID",
-                                "o"
-                              ]
-                            },
-                            {
-                              "op": "enum",
-                              "args": [
-                                "operating_mode",
-                                "HotSoaking"
-                              ]
-                            }
-                          ]
-                        },
-                        {
-                          "op": ">",
-                          "args": [
-                            {
-                              "op": "index",
-                              "args": [
-                                "ttg_hotSoakMinuteCount",
-                                "g",
-                                "n",
-                                "k",
-                                "u"
-                              ]
-                            },
-                            0.0
-                          ]
-                        }
-                      ]
-                    }
+                    1.0,
+                    0.0
                   ]
                 },
-                1.0,
-                0.0
+                {
+                  "op": "index",
+                  "args": [
+                    "ttg_hasColdSoakTankTemperature",
+                    "r"
+                  ]
+                }
               ]
             }
           }
@@ -64042,7 +64138,7 @@
           }
         },
         {
-          "lhs": "tfg_minimumTemperature",
+          "lhs": "tfg_hourlyMinimumTemperature",
           "rhs": {
             "op": "faq",
             "args": [],
@@ -64074,7 +64170,107 @@
           }
         },
         {
-          "lhs": "tfg_maximumTemperature",
+          "lhs": "tfg_collapsedTemperature",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "min_sum",
+            "output_idx": [
+              "g",
+              "n"
+            ],
+            "ranges": {
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "n": {
+                "from": "runspecmonth_rows"
+              },
+              "k": {
+                "from": "runspecday_rows"
+              }
+            },
+            "expr": {
+              "op": "/",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "run_temperature",
+                    "k",
+                    "g",
+                    "n"
+                  ]
+                },
+                {
+                  "op": "const",
+                  "args": [],
+                  "value": 1.0,
+                  "units": "degF"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "tfg_minimumTemperature",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "g",
+              "n"
+            ],
+            "ranges": {
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "n": {
+                "from": "runspecmonth_rows"
+              },
+              "r": {
+                "from": "run_rows"
+              }
+            },
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                {
+                  "op": ">",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "run_aggregatesHours",
+                        "r"
+                      ]
+                    },
+                    0.5
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "tfg_collapsedTemperature",
+                    "g",
+                    "n"
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "tfg_hourlyMinimumTemperature",
+                    "g",
+                    "n"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "tfg_hourlyMaximumTemperature",
           "rhs": {
             "op": "faq",
             "args": [],
@@ -64101,6 +64297,63 @@
                 "g",
                 "n",
                 "h"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "tfg_maximumTemperature",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "g",
+              "n"
+            ],
+            "ranges": {
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "n": {
+                "from": "runspecmonth_rows"
+              },
+              "r": {
+                "from": "run_rows"
+              }
+            },
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                {
+                  "op": ">",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "run_aggregatesHours",
+                        "r"
+                      ]
+                    },
+                    0.5
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "tfg_collapsedTemperature",
+                    "g",
+                    "n"
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "tfg_hourlyMaximumTemperature",
+                    "g",
+                    "n"
+                  ]
+                }
               ]
             }
           }
@@ -68117,15 +68370,71 @@
                   {
                     "op": "*",
                     "args": [
-                      "rt_isSelected",
-                      "rt_hasRate"
+                      {
+                        "op": "*",
+                        "args": [
+                          "rt_isSelected",
+                          "rt_hasRate"
+                        ]
+                      },
+                      "rt_hasHotellingModes"
                     ]
                   },
-                  "rt_hasHotellingModes"
+                  "rt_hasLinkModes"
                 ]
               },
-              "rt_hasLinkModes"
+              "rt_hasTankTemperature"
             ]
+          }
+        },
+        {
+          "lhs": "rt_hasTankTemperature",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "r": {
+                "from": "run_rows"
+              }
+            },
+            "expr": {
+              "op": "-",
+              "args": [
+                1.0,
+                {
+                  "op": "*",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "rt_isPermeation",
+                        "b"
+                      ]
+                    },
+                    {
+                      "op": "-",
+                      "args": [
+                        1.0,
+                        {
+                          "op": "index",
+                          "args": [
+                            "ttg_hasColdSoakTankTemperature",
+                            "r"
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
           }
         },
         {
@@ -91197,6 +91506,88 @@
           }
         },
         {
+          "_comment": "Each needs-table row's bit of `n_statedEnergyProcesses`.",
+          "lhs": "rfn_stateBit",
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              1,
+              2,
+              4
+            ]
+          }
+        },
+        {
+          "lhs": "rfn_isStated",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "q"
+            ],
+            "ranges": {
+              "q": {
+                "from": "refuelingneedinput_rows"
+              }
+            },
+            "expr": {
+              "op": "-",
+              "args": [
+                {
+                  "op": "floor",
+                  "args": [
+                    {
+                      "op": "/",
+                      "args": [
+                        "n_statedEnergyProcesses",
+                        {
+                          "op": "index",
+                          "args": [
+                            "rfn_stateBit",
+                            "q"
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "op": "*",
+                  "args": [
+                    2.0,
+                    {
+                      "op": "floor",
+                      "args": [
+                        {
+                          "op": "/",
+                          "args": [
+                            "n_statedEnergyProcesses",
+                            {
+                              "op": "*",
+                              "args": [
+                                2.0,
+                                {
+                                  "op": "index",
+                                  "args": [
+                                    "rfn_stateBit",
+                                    "q"
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
           "lhs": "run_selectsRefuelingOutput",
           "rhs": {
             "op": "faq",
@@ -91249,7 +91640,7 @@
           }
         },
         {
-          "_comment": "An energy pollutant-process at one of the three required processes, in a run that selects a refueling loss. The pollutant half is an enum test rather than a join because Total Energy Consumption is the only pollutant the needs table ever requires.",
+          "_comment": "An energy pollutant-process at one of the three required processes, in a run that selects a refueling loss. The pollutant half is an enum test rather than a join because Total Energy Consumption is the only pollutant the needs table ever requires. A pair the RunSpec itself states (`rfn_isStated`) is not one.",
           "lhs": "rspp_isSilentlyRequired",
           "rhs": {
             "op": "faq",
@@ -91306,10 +91697,28 @@
                   ]
                 },
                 {
-                  "op": "index",
+                  "op": "*",
                   "args": [
-                    "run_selectsRefuelingOutput",
-                    "n"
+                    {
+                      "op": "index",
+                      "args": [
+                        "run_selectsRefuelingOutput",
+                        "n"
+                      ]
+                    },
+                    {
+                      "op": "-",
+                      "args": [
+                        1.0,
+                        {
+                          "op": "index",
+                          "args": [
+                            "rfn_isStated",
+                            "q"
+                          ]
+                        }
+                      ]
+                    }
                   ]
                 },
                 0.0
@@ -107503,44 +107912,6 @@
           }
         },
         {
-          "lhs": "run_evapSelected",
-          "rhs": {
-            "op": "faq",
-            "args": [],
-            "semiring": "sum_product",
-            "output_idx": [
-              "n"
-            ],
-            "ranges": {
-              "n": {
-                "from": "run_rows"
-              },
-              "p": {
-                "from": "runspecpollutantprocess_rows"
-              }
-            },
-            "expr": {
-              "op": "*",
-              "args": [
-                {
-                  "op": "index",
-                  "args": [
-                    "rspp_usesEvapModes",
-                    "p"
-                  ]
-                },
-                {
-                  "op": "index",
-                  "args": [
-                    "rspp_occursOnSelectedRoad",
-                    "p"
-                  ]
-                }
-              ]
-            }
-          }
-        },
-        {
           "lhs": "run_aggregationUnported",
           "rhs": {
             "op": "faq",
@@ -107690,10 +108061,29 @@
                       "op": "+",
                       "args": [
                         {
-                          "op": "index",
+                          "op": "*",
                           "args": [
-                            "run_evapSelected",
-                            "n"
+                            {
+                              "op": "index",
+                              "args": [
+                                "run_needsTankTemperature",
+                                "n"
+                              ]
+                            },
+                            {
+                              "op": "apply_expression_template",
+                              "args": [],
+                              "name": "row_is_present",
+                              "bindings": {
+                                "match_count": {
+                                  "op": "index",
+                                  "args": [
+                                    "run_soakActivityInputRows",
+                                    "n"
+                                  ]
+                                }
+                              }
+                            }
                           ]
                         },
                         {
@@ -107713,6 +108103,40 @@
                     }
                   ]
                 }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "run_soakActivityInputRows",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "n"
+            ],
+            "ranges": {
+              "n": {
+                "from": "run_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "s": {
+                "from": "runspecsourcetype_rows"
+              },
+              "mm": {
+                "from": "runspecmonth_rows"
+              }
+            },
+            "expr": {
+              "op": "index",
+              "args": [
+                "evap_soakActivityInputCount",
+                "g",
+                "s",
+                "mm"
               ]
             }
           }

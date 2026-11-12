@@ -1577,7 +1577,8 @@ C7P_DOMAIN=moves-onroad.esm
 # agree here and be wrong at the first off-network link, which is why
 # `run_offNetworkLinkCount` joined the shape check: an evaporative block on the
 # off-network road type would divide `SHO` by a copy of itself where MOVES
-# divided it by `SHP`, and nothing else in this harness could see it. It reproduced all 64 cells at 7.294e-06 on
+# divided it by `SHP`, and nothing else in this harness could see it (retired by
+# PLAN.md §7.3.64, once every road-type-1 case was ported). It reproduced all 64 cells at 7.294e-06 on
 # its first run, the same worst cell as the independent pandas reproduction.
 # `process-refueling` is the first run whose selection is not what its execution
 # database records. `runspecpollutantprocess` carries seven pollutant-processes
@@ -1631,8 +1632,9 @@ C7P_DOMAIN=moves-onroad.esm
 # high-ethanol substitution (E85 would weather to 7.61 psi without it, and is 7.7).
 # The cold-soak insert, TVV-2 to TVV-7, writes mode 151 and is weighted by a
 # computed exactly-zero on an on-network link; the shape check's
-# `run_offNetworkLinkCount` is what turns its absence into a failure the day an
-# evaporative block lands on road type 1. All 64 cells at 7.517e-06 on the first run.
+# `run_offNetworkLinkCount` is what turned its absence into a failure the day an
+# evaporative block landed on road type 1 (ported since PLAN.md §7.3.49 and
+# §7.3.64, and the count retired). All 64 cells at 7.517e-06 on the first run.
 # `scale-project` is the first run whose input is NOT the default database
 # alone (step 7f, PLAN.md §7.3.40). It mounts `inputs/washtenaw-project.esm`,
 # its PROJECT database, where every other document here mounts
@@ -1709,6 +1711,12 @@ C7P_DOMAIN=moves-onroad.esm
 # collapsed tables; and their `<outputtimestep>` (Month, Year) sums the cells,
 # so their oracle source carries the `output-time-step` tag and is emitted
 # from the output-time-step relation `mos_*` as `movesoutput_step`.
+# `scale-county-timeagg-processes-day` and `-month` select EVERY on-road process
+# under the same two collapses (PLAN.md §7.3.64, conventions §116), output Year
+# and Month: TankTemperatureGenerator over the collapsed ZoneMonthHour writes no
+# cold-soak tank temperature, so permeation has no row and the soak is all cold,
+# and the RunSpec selects Total Energy beside refueling, so its running-energy
+# block is a selection and not a stripped prerequisite (`n_statedEnergyProcesses`).
 # `scale-county-timeagg-year` is the same county inventory at `aggregateBy`
 # Year (PLAN.md §7.3.65, conventions §117): PreAggYEAR.sql collapses the
 # months into MonthOfAnyYear 0, so its runspec declares `n_aggregatesMonths` 1
@@ -1802,7 +1810,7 @@ else
   RS_SHAPE_FIELDS=()
   for f in rateSurvivorCount outputPolProcessCount cohortSurvivorCount \
            run_sourceBinsDropped run_physicsRowsDropped run_rateRowsWithoutPhysics \
-           run_chainDepthExceeded run_offNetworkLinkCount run_domainUnported \
+           run_chainDepthExceeded run_domainUnported \
            run_selectionUnported run_tankGroupsDropped; do
     RS_SHAPE_FIELDS+=(--shape-field "$f")
   done

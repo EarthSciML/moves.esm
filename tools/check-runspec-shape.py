@@ -38,7 +38,6 @@ asserts the four counts the chain keeps of what it could not reach:
     run_physicsRowsDropped == 0
     run_rateRowsWithoutPhysics == 0
     run_chainDepthExceeded == 0
-    run_offNetworkLinkCount == 0
     run_domainUnported == 0
     run_selectionUnported == 0
     run_tankGroupsDropped == 0
@@ -87,6 +86,11 @@ counts the selected vapor-venting pollutant-processes on road type 1 in a run
 whose hours could pair, and asserted zero. Since PLAN.md §7.3.49 the insert is
 ported per (day type, hour) cell, and what this counts is venting on road type 1
 in a run that AGGREGATES its hours (`run_aggregatesHours`), still asserted zero.
+PLAN.md §7.3.64 measured that last case and retired the count: an aggregated
+run's TankTemperatureGenerator writes no cold-soak tank temperature at all, so
+venting there has no cold-soak vapor and the model computes the same
+(`ttg_hasColdSoakTankTemperature`). A shape file that still carries the field is
+read and ignored.
 
 `run_rateRowsWithoutPhysics` is the same failure reached from the other side: a
 rate row whose (source type, regulatory class, model year) matches no
@@ -181,7 +185,6 @@ def main(emitted_path, shape_path, rpd_path=None):
     vehicleless = int(float(shape[0]["run_physicsRowsDropped"]))
     unphysical = int(float(shape[0]["run_rateRowsWithoutPhysics"]))
     undeep = int(float(shape[0]["run_chainDepthExceeded"]))
-    offnet = int(float(shape[0]["run_offNetworkLinkCount"]))
     unported = int(float(shape[0]["run_domainUnported"]))
     unselected = int(float(shape[0]["run_selectionUnported"]))
     # PLAN 7.3.51: the cold-soak chain's group slot. Read with a default so a
@@ -266,11 +269,6 @@ def main(emitted_path, shape_path, rpd_path=None):
                         "row(s): this run's chain is deeper than the three the "
                         "model unrolls, and its deepest species are emitting 0 "
                         "or not emitting at all" % undeep)
-    if offnet:
-        problems.append("%d evaporative block(s) of this run lie on the "
-                        "OFF-NETWORK road type, where SourceHours is SHP and "
-                        "not SHO: the evaporative fractionOfOperating is "
-                        "dividing SHO by a copy of itself" % offnet)
     if unported:
         problems.append("%d thing(s) this run asks of its DOMAIN that the model "
                         "does not do (run_domainUnported): a runspecdomain that "
