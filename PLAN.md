@@ -6937,10 +6937,10 @@ refueling is refused (its month-keyed fuel RVP and weather are uncaptured), and
 Year + air toxics is refused (ATRatio's MonthGroupWeighting mean of per-group
 ratios is not the ratio at the mean fuel). §7.3.63's refusals are unchanged.
 
-**Unchanged runs.** @UNCHANGED@
+**Unchanged runs.** The full suite in this worktree re-emitted every run, and all 365 CSVs `.fixtures-run/` shares with main's are byte-identical under `cmp` -- among them `expand-month`, `expand-fullyear`, `scale-county`, `scale-county-timeagg-day`, `scale-county-timeagg-month`, `scale-county-idle-adjust`, `userdb-hotelling-multiyear`, `process-brakewear`, `process-tirewear`, `process-apu`, `process-extended-idle`, `process-crankcase-start`, `process-crankcase-extidle`, `chain-so2-co2e-mechanism`, `rates-start` and `rates-hotelling`. Byte-identical by construction: on a run that does not aggregate by year every new weight is exactly 1 or 0, `ffsup_normalizer` and `rt_fuelSupplyScale` exactly 1. The Python binding loads the Year and Month runspecs. `./run-tests.sh`: 754 ok / 1 FAIL against main's 749 / 1; the FAIL is `document figures no longer match the corpus` (the shared moves.rs corpus has grown to 96 snapshot directories with the parallel lanes' captures and this one), and main's join.on timing flake passed this time. 3 h 58 min wall, 13,369 s user CPU, 12.1 GB peak, on a node running two other suites.
 
-**Runtime.** `scale-county-timeagg-year` evaluates in @RUNTIME@. The twelve-row
-default aggregation-month axis costs the non-Year runs about @COST@.
+**Runtime.** `scale-county-timeagg-year` evaluates in 11 min (515 s user CPU) at 12.1 GB. The twelve-row
+default aggregation-month axis is not free: re-evaluated alone, `scale-county-timeagg-day` took 531 s user CPU against §7.3.63's 470 and `-month` 767 against 667 (both under concurrent load, so an upper bound). Declaring `db_aggregationmonth` per RunSpec as its own `runspecmonth` would make the axis one row wide on every run, at the price of 75 edited documents.
 
 ### 7.4 Upstream asks
 
