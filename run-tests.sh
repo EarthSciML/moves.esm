@@ -1847,8 +1847,8 @@ for s in srcs:
     fi
     RS_RPD=""
     for RS_TABLE in "${RS_TABLES[@]}"; do
-      # `movesoutput_step` is MOVESOutput at a Month or Year output time step,
-      # emitted from `mos_*` into the movesoutput file (PLAN.md §7.3.63); only
+      # `movesoutput_step` is MOVESOutput at a 24-Hour Day, Portion of Week, Month or Year
+      # output time step, emitted from `mos_*` into the movesoutput file (PLAN.md §7.3.63, §7.3.66); only
       # a plain `movesoutput` is the output relation itself.
       RS_FILE="${RS_TABLE%_step}"
       RS_ACTUAL="$RUNDIR/$rsname.$RS_FILE.actual.csv"

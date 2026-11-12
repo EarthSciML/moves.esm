@@ -11,8 +11,8 @@ relation of `onroad/model.esm` under a prefix:
   rateperhour       rph_    > the output relation, each a SUBSET of it
   ratepervehicle    rpv_   /
   startspervehicle  spv_   cohorts x counties x months x day types
-  movesoutput_step  mos_   MOVESOutput at a Month or Year output time step:
-                           the output relation's cells summed (PLAN.md §7.3.63)
+  movesoutput_step  mos_   MOVESOutput at a coarser output time step:
+                           the output relation's cells summed (PLAN.md §7.3.63, §7.3.66)
 
 A table over the output relation computes only what is NEW to it -- its value
 and its membership -- and reads every other column it carries from the
