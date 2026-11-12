@@ -1,0 +1,271 @@
+{
+  "esm": "1.2.0",
+  "metadata": {
+    "name": "scale-county-timeagg-processes-day-runspec",
+    "description": "PLAN.md §7.3.64, step 7f. `scale-county-timeagg-processes-day`: EVERY on-road process a county inventory selects, under `<aggregateBy key=\"24-Hour Day\"/>` and `<outputtimestep value=\"Year\"/>`: THC, CO and NOx at running exhaust, start exhaust, extended idle and crankcase running, start and extended idle; Total Energy at running exhaust; THC at evaporative permeation, fuel vapor venting and fuel leaks and at refueling displacement and spillage; PM10 and PM2.5 brake and tire wear -- for the passenger car, the light commercial truck and the combination long-haul truck at Washtenaw County SINGLE scale, January and July 2020, both day types, all 24 hours, over the county database of `scale-county-timeagg-day` (`inputs/washtenaw-county-timeagg.esm`).\n\nWHAT IT DISCRIMINATES is every process downstream of PreAggDAY.sql that `scale-county-timeagg-day` did not select: the chained copies (crankcase, refueling, the PM2.5-to-PM10 wear chain) over collapsed parents, brake and tire wear over the collapsed AvgSpeedDistribution, and the evaporative chain over a SampleVehicleTrip whose every trip PreAggDAY.sql moved to hour 0 (PLAN.md §7.3.64).\n\n`n_outputRate` is bound to the (pollutant-process, cohort) pairs per (county, month, day) cell, recomputed as `rateSurvivorCount`.\n\n`db_movesoutput` is DECLARED AND CONSUMED BY NOTHING, as in every RunSpec here.",
+    "authors": [
+      "EarthSciML Authors and Contributors"
+    ],
+    "tags": [
+      "fixture",
+      "onroad",
+      "default-database",
+      "single-county-domain",
+      "road-type-axis",
+      "off-network-idle",
+      "hotelling-adjustment",
+      "time-aggregation",
+      "starts",
+      "output-time-step",
+      "evaporative",
+      "refueling",
+      "crankcase",
+      "brake-wear",
+      "tire-wear"
+    ]
+  },
+  "data_sources": {
+    "db_runspecyear": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/scale-county-timeagg-processes-day/tables/db__movesexecution1ccc0236_campuscluster_illinois_edu__runspecyear.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecyear"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, yearID 2020. The scope comes from these tables and never from the RunSpec XML, whose @key attributes are 0-based indices into sorted ID lists (docs/mixed-onroad.md §0.1).",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecmonth": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/scale-county-timeagg-processes-day/tables/db__movesexecution1ccc0236_campuscluster_illinois_edu__runspecmonth.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecmonth"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "2 rows, monthIDs 1 and 7 (`<month key=\"0\"/>` and `\"6\"` are 0-based).",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspechour": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/scale-county-timeagg-processes-day/tables/db__movesexecution1ccc0236_campuscluster_illinois_edu__runspechour.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspechour"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, hourID 0 -- the SYNTHESIZED `Entire Day` PreAggDAY.sql writes into HourOfAnyDay, not an hour of the clock. The RunSpec selects all 24 hours.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_aggregationhour": {
+      "kind": "static",
+      "source": {
+        "url_template": "../movesdb/HourOfAnyDay.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_aggregationhour"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "THE 24 HOURS EACH DAY TYPE IS COLLAPSED OVER: the default database's own `HourOfAnyDay`. `<aggregateBy key=\"24-Hour Day\"/>` collapses every hour of the day before any generator runs (PreAggDAY.sql).",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecday": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/scale-county-timeagg-processes-day/tables/db__movesexecution1ccc0236_campuscluster_illinois_edu__runspechourday.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecday"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "2 rows, hourDayIDs 2 and 5: PreAggDAY.sql's collapsed HourDay, `hourDayID = dayID` at hourID 0, which the default `hourday` does not hold. `rsd_dayID` and `rsd_hourID` unpack it as the SQL does (`mod(hourDayID,10)`, `floor(hourDayID/10)`), so each cell is its day type at the synthesized hour.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_rateday": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/scale-county-timeagg-processes-day/tables/db__movesexecution1ccc0236_campuscluster_illinois_edu__runspecday.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_rateday"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "2 rows, dayIDs 2 and 5: this run's own `runspecday`. PreAggDAY.sql does not touch the day types, so the selection survives in the execution database.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_actday": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/scale-county-timeagg-processes-day/tables/db__movesexecution1ccc0236_campuscluster_illinois_edu__runspecday.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_actday"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "The same file: aggregating hours leaves each output cell one day type, and `noOfRealDays` is that day's.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecsourcetype": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/scale-county-timeagg-processes-day/tables/db__movesexecution1ccc0236_campuscluster_illinois_edu__runspecsourcetype.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecsourcetype"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "3 rows, sourceTypeIDs 21 (passenger car), 32 (light commercial truck) and 62 (combination long-haul truck, the only source type that hotels). Three source types is what makes PreAggDAY.sql's HourWeighting3 pick ONE of them, by `SourceTypeOrdering` (`met_weightingSourceType`): 21.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecroadtype": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/scale-county-timeagg-processes-day/tables/db__movesexecution1ccc0236_campuscluster_illinois_edu__runspecroadtype.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecroadtype"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "5 rows, road types 1 to 5. The RunSpec selects 1 and 4; MOVES adds 2, 3 and 5 because off-network idle (running exhaust on road type 1) is computed from every road type (\"Off-Network Idle requires all roadtypes\").",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecsourcefueltype": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/scale-county-timeagg-processes-day/tables/db__movesexecution1ccc0236_campuscluster_illinois_edu__runspecsourcefueltype.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecsourcefueltype"
+      },
+      "metadata": {
+        "tags": [
+          "scope",
+          "cohorts"
+        ],
+        "note": "11 rows: source types 21 and 32 with gasoline, diesel, E85 and electricity, 62 with diesel, CNG and electricity (MOVES adds every fuel the RunSpec does not name).",
+        "esio_format": "parquet"
+      }
+    },
+    "db_movesoutput": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/scale-county-timeagg-processes-day/tables/db__out_scale_county_timeagg_processes_day__movesoutput.parquet"
+      },
+      "reader_options": {
+        "float_columns": [
+          "emissionQuant"
+        ]
+      },
+      "metadata": {
+        "tags": [
+          "oracle",
+          "expected-output",
+          "output-time-step"
+        ],
+        "note": "The 19,628-row expected output at `<outputtimestep value=\"Year\"/>`: monthID, dayID and hourID NULL, each row the two months' and two day types' cells summed, each scaled by its weeksPerMonth (AggregationSQLGenerator's convertWeeks). The model emits it from `mos_*`, the output relation summed to the output time step (`n_outputSumsDays` and `n_outputSumsMonths` 1). Evaporative permeation has NO rows: TankTemperatureGenerator writes no AverageTankTemperature under the collapse (PLAN.md §7.3.64).",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecpollutantprocess": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/scale-county-timeagg-processes-day/tables/db__movesexecution1ccc0236_campuscluster_illinois_edu__runspecpollutantprocess.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecpollutantprocess"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "30 rows: THC, CO and NOx (1, 2, 3) at running exhaust, start exhaust, extended idle and crankcase running, start and extended idle; Total Energy (91) at running, start and extended idle -- 9102 and 9190 added by MOVES as refueling's prerequisites (`flagRequiredPollutantProcesses`) and stripped from the output; THC at permeation, venting, leaks, refueling displacement and spillage (111, 112, 113, 118, 119); PM10 and PM2.5 brake and tire wear (10609, 11609, 10710, 11710).",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecchainedto": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/scale-county-timeagg-processes-day/tables/db__movesexecution1ccc0236_campuscluster_illinois_edu__runspecchainedto.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecchainedto"
+      },
+      "metadata": {
+        "tags": [
+          "scope",
+          "chain"
+        ],
+        "note": "11 rows: crankcase running, start and extended idle from their parents (115-317 from 101-390), and PM10 brake and tire wear from PM2.5 (10609 from 11609, 10710 from 11710).",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspeccounty": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/scale-county-timeagg-processes-day/tables/db__movesexecution1ccc0236_campuscluster_illinois_edu__runspeccounty.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspeccounty"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, countyID 26161, Washtenaw.",
+        "esio_format": "parquet"
+      }
+    }
+  },
+  "models": {
+    "Onroad": {
+      "ref": "../inputs/washtenaw-county-timeagg.esm",
+      "bindings": {
+        "n_outputRate": 18778,
+        "n_sourceBin": 3,
+        "n_physicsRow": 24,
+        "n_outputSumsDays": 1,
+        "n_outputSumsMonths": 1
+      }
+    }
+  }
+}
