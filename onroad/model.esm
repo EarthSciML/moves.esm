@@ -5794,6 +5794,17 @@
           ],
           "description": "How many mounted `soakActivityFraction` rows the source type, zone and month have. TTG-6 computes only where there are none (`SoakActivityFractionKeys`)."
         },
+        "evap_soakCellWeight": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecday_rows",
+            "rateday_rows",
+            "aggregationhour_rows",
+            "runspecsourcetype_rows"
+          ],
+          "description": "A stated soakActivityFraction row's weight in the cell, by its day type and hour (PLAN.md §7.3.67). In a cell of its own hour-day, 1 at that hour-day and 0 elsewhere. PreAggDAY.sql collapses the user's hourly rows BEFORE TankTemperatureGenerator keeps them (`sum(soakActivityFraction x HourWeighting2)` per day type, InputDataManager.preAggregateExecutionDB precedes every generator), so in a cell that collects hours each hour weighs its HourWeighting2 (`met_hourWeight`), which sums to about 1 over the hours; and PreAggMONTH.sql collapses those to `sum(x DayWeighting2)` at hourDayID 0, so in a whole-week cell each day type weighs DayWeighting2 (`dw_roadDayWeight`), which is NOT normalised -- it sums to the week's travel-weighted days, not to 1. Neither is divided, and the collapsed fraction is what EvaporativeEmissionsOperatingModeDistributionGenerator multiplies by `1 - fractionOfOperating`."
+        },
         "evap_soakActivityInput": {
           "type": "unknown",
           "units": "1",
@@ -5804,7 +5815,7 @@
             "runspecsourcetype_rows",
             "runspecmonth_rows"
           ],
-          "description": "The mounted soakActivityFraction at the run's source type, zone, month, hour-day and mode."
+          "description": "The mounted soakActivityFraction at the run's source type, zone, month and mode, in the cell: its own hour-day's row, or, in a cell that pre-aggregates time, PreAggDAY.sql's and PreAggMONTH.sql's collapse of the stated hourly rows (`evap_soakCellWeight`), which is what TTG-6 then keeps."
         },
         "evap_soakActivityFraction": {
           "type": "unknown",
@@ -54605,6 +54616,120 @@
           }
         },
         {
+          "lhs": "evap_soakCellWeight",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "k",
+              "d",
+              "h",
+              "s"
+            ],
+            "ranges": {
+              "k": {
+                "from": "runspecday_rows"
+              },
+              "d": {
+                "from": "rateday_rows"
+              },
+              "h": {
+                "from": "aggregationhour_rows"
+              },
+              "s": {
+                "from": "runspecsourcetype_rows"
+              }
+            },
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "*",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "tcell_dayMatch",
+                        "k",
+                        "d"
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "tcell_hourMatch",
+                        "k",
+                        "h"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "op": "*",
+                  "args": [
+                    {
+                      "op": "ifelse",
+                      "args": [
+                        {
+                          "op": ">",
+                          "args": [
+                            {
+                              "op": "index",
+                              "args": [
+                                "tcell_collectsHours",
+                                "k"
+                              ]
+                            },
+                            0.5
+                          ]
+                        },
+                        {
+                          "op": "index",
+                          "args": [
+                            "met_hourWeight",
+                            "d",
+                            "h",
+                            "s"
+                          ]
+                        },
+                        1.0
+                      ]
+                    },
+                    {
+                      "op": "ifelse",
+                      "args": [
+                        {
+                          "op": ">",
+                          "args": [
+                            {
+                              "op": "index",
+                              "args": [
+                                "tcell_collectsDays",
+                                "k"
+                              ]
+                            },
+                            0.5
+                          ]
+                        },
+                        {
+                          "op": "index",
+                          "args": [
+                            "dw_roadDayWeight",
+                            "s",
+                            "d"
+                          ]
+                        },
+                        1.0
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
           "lhs": "evap_soakActivityInput",
           "rhs": {
             "op": "faq",
@@ -54635,6 +54760,15 @@
               },
               "a": {
                 "from": "soakactivityfraction_rows"
+              },
+              "w": {
+                "from": "hourday_rows"
+              },
+              "d": {
+                "from": "rateday_rows"
+              },
+              "h": {
+                "from": "aggregationhour_rows"
               }
             },
             "join": [
@@ -54653,21 +54787,52 @@
                     "rsm_monthID"
                   ],
                   [
-                    "saf_hourDayID",
-                    "day_hourDayID"
-                  ],
-                  [
                     "saf_opModeID",
                     "om_opModeID"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "saf_hourDayID",
+                    "hd_hourDayID"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "hd_dayID",
+                    "rday_dayID"
+                  ],
+                  [
+                    "hd_hourID",
+                    "ahr_hourID"
                   ]
                 ]
               }
             ],
             "expr": {
-              "op": "index",
+              "op": "*",
               "args": [
-                "saf_soakActivityFraction",
-                "a"
+                {
+                  "op": "index",
+                  "args": [
+                    "evap_soakCellWeight",
+                    "k",
+                    "d",
+                    "h",
+                    "s"
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "saf_soakActivityFraction",
+                    "a"
+                  ]
+                }
               ]
             }
           }
