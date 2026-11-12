@@ -5817,6 +5817,26 @@
           ],
           "description": "The mounted soakActivityFraction at the run's source type, zone, month and mode, in the cell: its own hour-day's row, or, in a cell that pre-aggregates time, PreAggDAY.sql's and PreAggMONTH.sql's collapse of the stated hourly rows (`evap_soakCellWeight`), which is what TTG-6 then keeps."
         },
+        "evap_zoneSoakActivityInputCount": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspeccounty_rows"
+          ],
+          "description": "How many mounted `soakActivityFraction` rows the zone has at the run's source types and months. TTG-6 runs only for a zone with NONE (`needSoakActivityFraction = !hasRecord(... where zoneID = ...)`, TankTemperatureGenerator.java:301): ONE stated row anywhere in the zone switches the generator off for every source type and month of it, and its per-key exclusion (`SoakActivityFractionKeys`) never comes into play. Measured on `scale-county-timeagg-soak-day` (PLAN.md §7.3.67): the county states the light commercial truck's rows for January alone, and the execution database holds no July row of it."
+        },
+        "evap_soakActivityInputRows": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecday_rows",
+            "operating_mode_rows",
+            "runspeccounty_rows",
+            "runspecsourcetype_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "How many mounted soakActivityFraction rows the cell collects at the mode: its own hour-day's, or every hour (and day type) PreAggDAY.sql (and PreAggMONTH.sql) fold into it. A count and not the collapsed value, because a stated 0 is a row (EvaporativeEmissionsOperatingModeDistributionGenerator inner-joins SoakActivityFraction, and its mode-300 residual is grouped over the rows that join)."
+        },
         "evap_soakActivityFraction": {
           "type": "unknown",
           "units": "1",
@@ -5827,7 +5847,7 @@
             "runspecsourcetype_rows",
             "runspecmonth_rows"
           ],
-          "description": "The soak activity fraction the evaporative distribution reads: the mounted rows where the source type, zone and month have any, TTG-6's otherwise."
+          "description": "The soak activity fraction the evaporative distribution reads: the mounted rows (collapsed to the cell, `evap_soakActivityInput`) in a zone that states any, TTG-6's in a zone that states none. The switch is the ZONE's (`evap_zoneSoakActivityInputCount`), as TankTemperatureGenerator's is: a source type or month the zone does not state then has NO row, not TTG-6's (PLAN.md §7.3.67)."
         },
         "evap_hasMode": {
           "type": "unknown",
@@ -14697,6 +14717,30 @@
           ],
           "description": "The soaking modes' share of the hour, summed. E3 subtracts it."
         },
+        "evap_soakActivityProcessRows": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecpollutantprocess_rows",
+            "runspecday_rows",
+            "runspeccounty_rows",
+            "runspecsourcetype_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "The stated soakActivityFraction rows the cell collects at the modes the pollutant-process has (`evap_hasMode`): what EvaporativeEmissionsOperatingModeDistributionGenerator's inner join to `OpModePolProcAssoc` keeps."
+        },
+        "evap_hasSoakRow": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecpollutantprocess_rows",
+            "runspecday_rows",
+            "runspeccounty_rows",
+            "runspecsourcetype_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "Whether EvaporativeEmissionsOperatingModeDistributionGenerator writes ANY row for the pollutant-process in the cell: its soaking modes are inserted from SoakActivityFraction rows joined to `OpModePolProcAssoc`, and the All Running residual is grouped over what was inserted, so with no soak row there is no residual either -- and no distribution, and no output row. 1 where TTG-6 writes the table (it writes mode 151 at every hour-day it has vehicles for); in a zone that states rows, whether the cell collects a stated row at a mode the pollutant-process has (`evap_soakActivityInputRows`, `evap_hasMode`)."
+        },
         "evap_operatingWeightRaw": {
           "type": "unknown",
           "units": "1",
@@ -14709,7 +14753,7 @@
             "runspecyear_rows",
             "runspecroadtype_rows"
           ],
-          "description": "E3 before its clamp: one minus the soaking share."
+          "description": "E3 before its clamp: one minus the soaking share. Only where the distribution exists at all (`evap_hasSoakRow`)."
         },
         "evap_operatingWeight": {
           "type": "unknown",
@@ -43316,6 +43360,134 @@
           }
         },
         {
+          "lhs": "evap_soakActivityProcessRows",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "p",
+              "k",
+              "g",
+              "s",
+              "m"
+            ],
+            "ranges": {
+              "p": {
+                "from": "runspecpollutantprocess_rows"
+              },
+              "k": {
+                "from": "runspecday_rows"
+              },
+              "o": {
+                "from": "operating_mode_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "s": {
+                "from": "runspecsourcetype_rows"
+              },
+              "m": {
+                "from": "runspecmonth_rows"
+              }
+            },
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "evap_hasMode",
+                    "p",
+                    "o"
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "evap_soakActivityInputRows",
+                    "k",
+                    "o",
+                    "g",
+                    "s",
+                    "m"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "evap_hasSoakRow",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "p",
+              "k",
+              "g",
+              "s",
+              "m"
+            ],
+            "ranges": {
+              "p": {
+                "from": "runspecpollutantprocess_rows"
+              },
+              "k": {
+                "from": "runspecday_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "s": {
+                "from": "runspecsourcetype_rows"
+              },
+              "m": {
+                "from": "runspecmonth_rows"
+              }
+            },
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                {
+                  "op": ">",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "evap_zoneSoakActivityInputCount",
+                        "g"
+                      ]
+                    },
+                    0.5
+                  ]
+                },
+                {
+                  "op": "apply_expression_template",
+                  "args": [],
+                  "name": "row_is_present",
+                  "bindings": {
+                    "match_count": {
+                      "op": "index",
+                      "args": [
+                        "evap_soakActivityProcessRows",
+                        "p",
+                        "k",
+                        "g",
+                        "s",
+                        "m"
+                      ]
+                    }
+                  }
+                },
+                1.0
+              ]
+            }
+          }
+        },
+        {
           "_comment": "E3's subtraction, evap_op_mode_distribution.rs:443 stage 3.",
           "lhs": "evap_operatingWeightRaw",
           "rhs": {
@@ -43355,20 +43527,36 @@
               }
             },
             "expr": {
-              "op": "-",
+              "op": "*",
               "args": [
-                1.0,
                 {
                   "op": "index",
                   "args": [
-                    "evap_soakTotal",
+                    "evap_hasSoakRow",
                     "p",
                     "k",
                     "g",
                     "s",
-                    "m",
-                    "cy",
-                    "rd"
+                    "m"
+                  ]
+                },
+                {
+                  "op": "-",
+                  "args": [
+                    1.0,
+                    {
+                      "op": "index",
+                      "args": [
+                        "evap_soakTotal",
+                        "p",
+                        "k",
+                        "g",
+                        "s",
+                        "m",
+                        "cy",
+                        "rd"
+                      ]
+                    }
                   ]
                 }
               ]
@@ -54838,6 +55026,144 @@
           }
         },
         {
+          "lhs": "evap_zoneSoakActivityInputCount",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "g"
+            ],
+            "ranges": {
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "s": {
+                "from": "runspecsourcetype_rows"
+              },
+              "m": {
+                "from": "runspecmonth_rows"
+              }
+            },
+            "expr": {
+              "op": "index",
+              "args": [
+                "evap_soakActivityInputCount",
+                "g",
+                "s",
+                "m"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "evap_soakActivityInputRows",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "k",
+              "o",
+              "g",
+              "s",
+              "m"
+            ],
+            "ranges": {
+              "k": {
+                "from": "runspecday_rows"
+              },
+              "o": {
+                "from": "operating_mode_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "s": {
+                "from": "runspecsourcetype_rows"
+              },
+              "m": {
+                "from": "runspecmonth_rows"
+              },
+              "a": {
+                "from": "soakactivityfraction_rows"
+              },
+              "w": {
+                "from": "hourday_rows"
+              },
+              "d": {
+                "from": "rateday_rows"
+              },
+              "h": {
+                "from": "aggregationhour_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "saf_sourceTypeID",
+                    "rst_sourceTypeID"
+                  ],
+                  [
+                    "saf_zoneID",
+                    "run_zoneID"
+                  ],
+                  [
+                    "saf_monthID",
+                    "rsm_monthID"
+                  ],
+                  [
+                    "saf_opModeID",
+                    "om_opModeID"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "saf_hourDayID",
+                    "hd_hourDayID"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "hd_dayID",
+                    "rday_dayID"
+                  ],
+                  [
+                    "hd_hourID",
+                    "ahr_hourID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "tcell_dayMatch",
+                    "k",
+                    "d"
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "tcell_hourMatch",
+                    "k",
+                    "h"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
           "lhs": "evap_soakActivityFraction",
           "rhs": {
             "op": "faq",
@@ -54876,10 +55202,8 @@
                     {
                       "op": "index",
                       "args": [
-                        "evap_soakActivityInputCount",
-                        "g",
-                        "s",
-                        "m"
+                        "evap_zoneSoakActivityInputCount",
+                        "g"
                       ]
                     },
                     0.5
