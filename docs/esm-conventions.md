@@ -9277,9 +9277,10 @@ them gave three rules.
    the table's rows. `driveScheduleSecondLink` is empty in every catalogue but a project
    database that states a schedule, and a computed relation of length 0 is F56. So the
    walk runs over `linksecond_rows`, sized `n_driveschedulesecondlink + 1`, the index-set
-   size expression `chainlink_rows` already used: each slot gathers its input row by
-   `filter: j == u`, and the one padding slot gathers nothing, has linkID 0 and joins no
-   location. Every per-LOCATION reduction (`lsl_*`) contracts over the slots, which is
+   size expression `chainlink_rows` already used, and each column is built the way that
+   edge list is, `concat(input column, one padding row)` (`lsec_pad*`); the padding slot
+   has linkID 0 and joins no location. (A gather by `filter: j == u` is a join spelled as
+   a predicate, which tools/check-conventions.py refuses.) Every per-LOCATION reduction (`lsl_*`) contracts over the slots, which is
    safe at any length. Not a declared count (`n_projectExtraLinks`, `n_projectGrade`):
    the table's own extent sizes it, so no RunSpec binds a number and none can be wrong.
 

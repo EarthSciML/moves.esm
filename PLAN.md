@@ -6593,7 +6593,9 @@ no user running row on the link, and user rows or a stated speed <= 0.
 
 * **The walk**, `lsec_*`, over `linksecond_rows` -- the input's rows plus one
   padding slot (`n_driveschedulesecondlink + 1`), so no catalogue computes over
-  an empty relation (F56). Each slot gathers its row (`filter: j == u`); the
+  an empty relation (F56): each column is `concat(input column, one padding
+  row)`, the chain edge list's shape (an equality-filtered gather is refused by
+  tools/check-conventions.py, which caught the first version); the
   prior second is a join on (link, second - 1); At1 and At2 are the previous
   second's At0 and At1; the braking test, VSP, rectangles and CASE are the
   bracketing walk's templates with the grade read per second.
@@ -6639,7 +6641,12 @@ other refusals stand.
 `project-driveschedule` evaluates in 153 s at 2.5 GB peak, `project-zerospeed`
 in 117 s at 2.3 GB.
 
-**The suite.** (pending)
+**The suite.** `./run-tests.sh` in the worktree, SNAPSHOTS on a corpus equal to
+moves.rs main plus the two captures: **739 ok / 0 FAIL against main's 729 / 0**.
+The +10 are the two runspecs' validate, round-trip, MOVESOutput and shape checks
+(8) and the two input documents' data-open controls (2); the bindings and
+index-set-rename counts each moved by the new table and axes (117 -> 118, 171 ->
+173). Wall 3 h 16 min (11,058 s user CPU), peak RSS 7.2 GB.
 
 ### 7.4 Upstream asks
 
