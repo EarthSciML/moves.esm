@@ -1731,6 +1731,11 @@ C7P_DOMAIN=moves-onroad.esm
 # and `-month` are the three aggregation configurations §7.3.63 refused: the
 # idle adjustment tables, a RunSpec of one day type, and hotelling at two
 # calendar years, each under PreAggDAY.sql and/or PreAggMONTH.sql.
+# `scale-county-idle-adjust-year`, `userdb-hotelling-multiyear-year` and
+# `scale-county-timeagg-weekday-year` are the same three under PreAggYEAR.sql
+# (PLAN.md §7.3.70, conventions §122): idleMonthAdjust collapses to its
+# unweighted mean over the RunSpec's months. `runspecs/pending/userdb-hotelling-threeyear`
+# is hotelling at a THIRD calendar year, refused (`hot_adjustmentRowsUnported`).
 # `expand-multiyear` is the first run at two calendar years (PLAN.md §7.3.44,
 # conventions §98): the year is the cohort grid's and the activity relation's
 # slowest factor and a trailing axis of every other per-year relation, so the
