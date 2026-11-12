@@ -1709,6 +1709,14 @@ C7P_DOMAIN=moves-onroad.esm
 # collapsed tables; and their `<outputtimestep>` (Month, Year) sums the cells,
 # so their oracle source carries the `output-time-step` tag and is emitted
 # from the output-time-step relation `mos_*` as `movesoutput_step`.
+# `scale-county-outstep-hourday`, `-week` and `-dayagg` are the 24-Hour Day
+# and Portion of Week output steps (PLAN.md §7.3.66, conventions §118): a
+# day type's hour cells summed, as classical days or as a portion of a week;
+# their oracle is `movesoutput_step` too. `scale-county-idle-adjust-day` and
+# `-month`, `scale-county-timeagg-weekday` and `userdb-hotelling-multiyear-day`
+# and `-month` are the three aggregation configurations §7.3.63 refused: the
+# idle adjustment tables, a RunSpec of one day type, and hotelling at two
+# calendar years, each under PreAggDAY.sql and/or PreAggMONTH.sql.
 # `expand-multiyear` is the first run at two calendar years (PLAN.md §7.3.44,
 # conventions §98): the year is the cohort grid's and the activity relation's
 # slowest factor and a trailing axis of every other per-year relation, so the
