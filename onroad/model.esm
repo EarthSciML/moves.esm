@@ -681,6 +681,11 @@
       "default": 0,
       "description": "THE RUNSPEC'S `<outputtimestep>`, second half: 1 when it is `Year`, whose MOVESOutput also sums the months; 0 (the default) otherwise. Only with `n_outputSumsDays` 1 (PLAN.md §7.3.63)."
     },
+    "n_aggregatesMonths": {
+      "type": "integer",
+      "default": 0,
+      "description": "THE RUNSPEC'S `<aggregateBy>` at `Year`: 1 when InputDataManager.preAggregateExecutionDB runs PreAggYEAR.sql after PreAggDAY.sql and PreAggMONTH.sql, collapsing the RunSpec's months into MonthOfAnyYear 0 (`Whole Year`, 365 days) before any generator; 0 (the default) at `Hour`, `24-Hour Day` and `Month`. No table in the execution database says so -- the RunSpec XML does -- so a Year RunSpec binds it beside `n_outputSumsMonths` (PLAN.md §7.3.65)."
+    },
     "n_cumtvvcoeffs": {
       "type": "integer",
       "default": 0,
@@ -700,6 +705,11 @@
       "type": "integer",
       "default": 2,
       "description": "How many tank-temperature groups one source type carries, at most. DECLARED, like `n_spillagecountyyear`: no table states it. `SourceTypeModelYearGroup` gives eleven source types one group and 21, 31 and 32 two, so a sample vehicle-day needs the cold-soak chain in at most two of the sixteen `TankTemperatureRise` groups, and `tankgroupslot_rows` gives it exactly that many. A third group would be dropped silently -- its minutes would not reach `csi_minutes` -- so `run_tankGroupsDropped` counts them and the shape check asserts zero (PLAN.md 7.3.51)."
+    },
+    "n_aggregationmonth": {
+      "type": "integer",
+      "default": 0,
+      "description": "Rows in the run's aggregation-month list (`db_aggregationmonth`): the months a Year cell collapses (PreAggYEAR.sql). 12 on a run that does not aggregate by year, whose cells each read their own month of it."
     }
   },
   "index_sets": {
@@ -1746,6 +1756,10 @@
           "n_tankGroupSlot"
         ]
       }
+    },
+    "aggregationmonth_rows": {
+      "kind": "interval",
+      "size": "n_aggregationmonth"
     }
   },
   "enums": {
@@ -2034,7 +2048,12 @@
             "hour_day_hour",
             "preaggregation_source_type_order",
             "preaggregation_source_type_order_none",
-            "output_step_column"
+            "output_step_column",
+            "whole_year_days",
+            "year_value_or_own",
+            "month_cell_share",
+            "year_captured_process",
+            "year_captured_pollutant"
           ]
         }
       ],
@@ -3263,7 +3282,7 @@
             "runspeccounty_rows",
             "runspecmonth_rows"
           ],
-          "description": "The relative humidity the heat index is computed at, cell-weighted over the run's time cells. On a run that does not aggregate it is `zonemonthhour.relHumidity` at the run's own hour."
+          "description": "The relative humidity the heat index is computed at, cell-weighted over the run's time cells. On a run that does not aggregate it is `zonemonthhour.relHumidity` at the run's own hour. At `aggregateBy` Year it is PreAggYEAR.sql's MonthWeighting mean of the months' day-collapsed values (`mag_meanShare`; PLAN.md §7.3.65)."
         },
         "run_barometricPressure": {
           "type": "unknown",
@@ -3328,7 +3347,7 @@
             "runspecmonth_rows",
             "roadtype_rows"
           ],
-          "description": "The share of the month's VMT this activity row's time cells carry: `sum over cells of dayVMTFraction x hourVMTFraction`. On a run that does not aggregate it is the single product the two columns used to be multiplied as; on a run that aggregates by month it is the whole week at every hour, and the two factors sum to 1.0 exactly and to 1 within 2.2e-07 respectively -- which is the literal 1.0 canonical writes into both tables. The cells summed are the ones the row's output cell collects: its own (day, hour), or every one when it is an aggregate."
+          "description": "The share of the month's VMT this activity row's time cells carry: `sum over cells of dayVMTFraction x hourVMTFraction`. On a run that does not aggregate it is the single product the two columns used to be multiplied as; on a run that aggregates by month it is the whole week at every hour, and the two factors sum to 1.0 exactly and to 1 within 2.2e-07 respectively -- which is the literal 1.0 canonical writes into both tables. The cells summed are the ones the row's output cell collects: its own (day, hour), or every one when it is an aggregate. At `aggregateBy` Year PreAggYEAR.sql writes DayVMTFraction 1.0 at MonthOfAnyYear 0; the months' sums, each 1 within 2.2e-07, are averaged by `mag_meanShare` (PLAN.md §7.3.65)."
         },
         "zrt_zoneID": {
           "type": "parameter",
@@ -10205,7 +10224,7 @@
             "fuelformulation_rows",
             "runspecyear_rows"
           ],
-          "description": "The share of its fuel type's volume that this formulation is, in this county and this month -- `FuelSupply` resolved against the county's fuel region, the month's month group and the run's fuel year, and laid out on the formulation axis. It is 1.0 for the five formulations any run in `runspecs/` carries and 0 for the other 2,153.\n\nIT EXISTS TO BE COMPUTED ONCE. `FuelSupply` is 105,651 national rows and the collapse used to live inside `cfr_suppliedRatio`, which was affordable while one lookup needed it. The hydrocarbon species need it seven more times -- the methane ratio and the two speciation constants, each at the row's own fuel subtype and again at the E10 one -- and seven more spines over 105,651 x 2,158 took `expand-day` from 60 seconds to 564. Every lookup now joins this instead, and the run that had one such spine has none."
+          "description": "The share of its fuel type's volume that this formulation is, in this county and this month: `ffsup_suppliedShare`, and at `aggregateBy` Year that share over its fuel type's total (`ffsup_normalizer`), so the share-weighted ratios and contents are MEANS as on every other run; the total itself scales the quantity once, `rt_fuelSupplyScale`. The share of its fuel type's volume that this formulation is, in this county and this month -- `FuelSupply` resolved against the county's fuel region, the month's month group and the run's fuel year, and laid out on the formulation axis. It is 1.0 for the five formulations any run in `runspecs/` carries and 0 for the other 2,153.\n\nIT EXISTS TO BE COMPUTED ONCE. `FuelSupply` is 105,651 national rows and the collapse used to live inside `cfr_suppliedRatio`, which was affordable while one lookup needed it. The hydrocarbon species need it seven more times -- the methane ratio and the two speciation constants, each at the row's own fuel subtype and again at the E10 one -- and seven more spines over 105,651 x 2,158 took `expand-day` from 60 seconds to 564. Every lookup now joins this instead, and the run that had one such spine has none. At `aggregateBy` Year the market share is PreAggYEAR.sql's `sum(marketShare x actFract)` over MonthGroupWeighting, NOT a mean (`mag_groupSum`; PLAN.md §7.3.65)."
         },
         "ffx_RVP": {
           "type": "unknown",
@@ -10224,7 +10243,7 @@
             "fuelformulation_rows",
             "runspecyear_rows"
           ],
-          "description": "The E10 base fuel's RVP where the formulation is high-ethanol and the formulation's own RVP everywhere else -- `alterHighEthanolFuelProperties` step 020's `altRVP` column. It is the mirror image of `ffx_RVP`: the substitution that every other property gets and this one does not, kept instead as a second value beside it. 8.0 against 7.7 for formulation 27002."
+          "description": "The E10 base fuel's RVP where the formulation is high-ethanol and the formulation's own RVP everywhere else -- `alterHighEthanolFuelProperties` step 020's `altRVP` column. It is the mirror image of `ffx_RVP`: the substitution that every other property gets and this one does not, kept instead as a second value beside it. 8.0 against 7.7 for formulation 27002. At `aggregateBy` Year it is PreAggYEAR.sql's MonthGroupWeighting mean over the months' groups (`mag_groupShare`; PLAN.md §7.3.65)."
         },
         "ffx_esterVolume": {
           "type": "unknown",
@@ -10243,7 +10262,7 @@
             "fuelformulation_rows",
             "runspecyear_rows"
           ],
-          "description": "Sulfur level after the high-ethanol substitution: 7.15 ppm for formulation 27002 in region 270000000 in August 2020, against the 8.0 the table ships."
+          "description": "Sulfur level after the high-ethanol substitution: 7.15 ppm for formulation 27002 in region 270000000 in August 2020, against the 8.0 the table ships. At `aggregateBy` Year it is PreAggYEAR.sql's MonthGroupWeighting mean over the months' groups (`mag_groupShare`; PLAN.md §7.3.65)."
         },
         "ffx_ETOHVolume": {
           "type": "unknown",
@@ -10254,7 +10273,7 @@
             "fuelformulation_rows",
             "runspecyear_rows"
           ],
-          "description": "Ethanol volume after the substitution: 10, against the 74 the table ships. The E85 rows clamp it at 10 anyway, so this one is the substitution the corpus cannot see."
+          "description": "Ethanol volume after the substitution: 10, against the 74 the table ships. The E85 rows clamp it at 10 anyway, so this one is the substitution the corpus cannot see. At `aggregateBy` Year it is PreAggYEAR.sql's MonthGroupWeighting mean over the months' groups (`mag_groupShare`; PLAN.md §7.3.65)."
         },
         "ffx_aromaticContent": {
           "type": "unknown",
@@ -10265,7 +10284,7 @@
             "fuelformulation_rows",
             "runspecyear_rows"
           ],
-          "description": "Aromatic content after the substitution: 23.14 against 0.0."
+          "description": "Aromatic content after the substitution: 23.14 against 0.0. At `aggregateBy` Year it is PreAggYEAR.sql's MonthGroupWeighting mean over the months' groups (`mag_groupShare`; PLAN.md §7.3.65)."
         },
         "ffx_T50": {
           "type": "unknown",
@@ -10276,7 +10295,7 @@
             "fuelformulation_rows",
             "runspecyear_rows"
           ],
-          "description": "T50 after the substitution: 222.95 degrees against the sentinel 999. This is the substitution that matters -- the THC exponent carries `T50*T50`."
+          "description": "T50 after the substitution: 222.95 degrees against the sentinel 999. This is the substitution that matters -- the THC exponent carries `T50*T50`. At `aggregateBy` Year it is PreAggYEAR.sql's MonthGroupWeighting mean over the months' groups (`mag_groupShare`; PLAN.md §7.3.65)."
         },
         "ffx_T90": {
           "type": "unknown",
@@ -10287,7 +10306,7 @@
             "fuelformulation_rows",
             "runspecyear_rows"
           ],
-          "description": "T90 after the substitution: 327.77 against the sentinel 999."
+          "description": "T90 after the substitution: 327.77 against the sentinel 999. At `aggregateBy` Year it is PreAggYEAR.sql's MonthGroupWeighting mean over the months' groups (`mag_groupShare`; PLAN.md §7.3.65)."
         },
         "cff_exponent": {
           "type": "unknown",
@@ -11030,7 +11049,7 @@
             "fuelformulation_rows",
             "runspecyear_rows"
           ],
-          "description": "Olefin content after the high-ethanol substitution."
+          "description": "Olefin content after the high-ethanol substitution. At `aggregateBy` Year it is PreAggYEAR.sql's MonthGroupWeighting mean over the months' groups (`mag_groupShare`; PLAN.md §7.3.65)."
         },
         "ffx_e200": {
           "type": "unknown",
@@ -11041,7 +11060,7 @@
             "fuelformulation_rows",
             "runspecyear_rows"
           ],
-          "description": "e200 after the substitution: 45.75 for formulation 27002 in region 270000000 in August 2020, against the sentinel 999 the table ships."
+          "description": "e200 after the substitution: 45.75 for formulation 27002 in region 270000000 in August 2020, against the sentinel 999 the table ships. At `aggregateBy` Year it is PreAggYEAR.sql's MonthGroupWeighting mean over the months' groups (`mag_groupShare`; PLAN.md §7.3.65)."
         },
         "ffx_e300": {
           "type": "unknown",
@@ -11052,7 +11071,7 @@
             "fuelformulation_rows",
             "runspecyear_rows"
           ],
-          "description": "e300 after the substitution: 83.45 against 999."
+          "description": "e300 after the substitution: 83.45 against 999. At `aggregateBy` Year it is PreAggYEAR.sql's MonthGroupWeighting mean over the months' groups (`mag_groupShare`; PLAN.md §7.3.65)."
         },
         "ffx_benzeneContent": {
           "type": "unknown",
@@ -11063,7 +11082,7 @@
             "fuelformulation_rows",
             "runspecyear_rows"
           ],
-          "description": "Benzene content after the high-ethanol substitution."
+          "description": "Benzene content after the high-ethanol substitution. At `aggregateBy` Year it is PreAggYEAR.sql's MonthGroupWeighting mean over the months' groups (`mag_groupShare`; PLAN.md §7.3.65)."
         },
         "ffx_MTBEVolume": {
           "type": "unknown",
@@ -11074,7 +11093,7 @@
             "fuelformulation_rows",
             "runspecyear_rows"
           ],
-          "description": "MTBE volume after the high-ethanol substitution."
+          "description": "MTBE volume after the high-ethanol substitution. At `aggregateBy` Year it is PreAggYEAR.sql's MonthGroupWeighting mean over the months' groups (`mag_groupShare`; PLAN.md §7.3.65)."
         },
         "ffx_ETBEVolume": {
           "type": "unknown",
@@ -11085,7 +11104,7 @@
             "fuelformulation_rows",
             "runspecyear_rows"
           ],
-          "description": "ETBE volume after the high-ethanol substitution."
+          "description": "ETBE volume after the high-ethanol substitution. At `aggregateBy` Year it is PreAggYEAR.sql's MonthGroupWeighting mean over the months' groups (`mag_groupShare`; PLAN.md §7.3.65)."
         },
         "cmp_polProcessID": {
           "type": "parameter",
@@ -12247,7 +12266,7 @@
             "runspecmonth_rows",
             "runspecyear_rows"
           ],
-          "description": "The market-share-weighted ratio over the gasoline formulations the county's fuel supply carries."
+          "description": "The market-share-weighted ratio over the gasoline formulations the county's fuel supply carries. At `aggregateBy` Year the market share is PreAggYEAR.sql's `sum(marketShare x actFract)` over MonthGroupWeighting, NOT a mean (`mag_groupSum`; PLAN.md §7.3.65). At `aggregateBy` Year the shares are taken over the gasoline total (`ffsup_normalizer`)."
         },
         "atr_baseEmissions": {
           "type": "unknown",
@@ -12256,7 +12275,7 @@
             "complexconfig_rows",
             "runspecmonth_rows"
           ],
-          "description": "`atBaseEmissions` at this configuration's pollutant-process and this month's month group, 0 where the table has no row -- which is every criteria configuration. It is a per-mile emission of the BASE fuel and it never leaves a quotient, so the unit it would carry cancels."
+          "description": "`atBaseEmissions` at this configuration's pollutant-process and this month's month group, 0 where the table has no row -- which is every criteria configuration. It is a per-mile emission of the BASE fuel and it never leaves a quotient, so the unit it would carry cancels. At `aggregateBy` Year it is PreAggYEAR.sql's MonthGroupWeighting mean over the months' groups (`mag_groupShare`; PLAN.md §7.3.65)."
         },
         "atr_complexRatio": {
           "type": "unknown",
@@ -12664,7 +12683,7 @@
             "runspeccounty_rows",
             "runspecmonth_rows"
           ],
-          "description": "`CarbonOxidationByFuelType.sumCarbonContent`: the market-share-weighted carbon content of the row's fuel type's supply."
+          "description": "`CarbonOxidationByFuelType.sumCarbonContent`: the market-share-weighted carbon content of the row's fuel type's supply. Over `ffsup_suppliedShare`, the shares as the execution database holds them: at `aggregateBy` Year they sum to the selected months' share of the year (0.334 at four months), and CarbonOxidationByFuelType's two SUMS each carry it -- with the energy's own `rt_fuelSupplyScale`, Atmospheric CO2 is scaled by its cube, which `scale-county-timeagg-year` measures (8.952 = 0.334229^-2 high with both normalised; PLAN.md §7.3.65)."
         },
         "rt_supplyOxidationFraction": {
           "type": "unknown",
@@ -12674,7 +12693,7 @@
             "runspeccounty_rows",
             "runspecmonth_rows"
           ],
-          "description": "`CarbonOxidationByFuelType.sumOxidationFraction`, weighted the same way. The SQL multiplies the two SUMS, not the sum of their products; with one formulation per fuel type the corpus cannot tell them apart, and this follows the SQL."
+          "description": "`CarbonOxidationByFuelType.sumOxidationFraction`, weighted the same way. The SQL multiplies the two SUMS, not the sum of their products; with one formulation per fuel type the corpus cannot tell them apart, and this follows the SQL. Over `ffsup_suppliedShare`, the shares as the execution database holds them: at `aggregateBy` Year they sum to the selected months' share of the year (0.334 at four months), and CarbonOxidationByFuelType's two SUMS each carry it -- with the energy's own `rt_fuelSupplyScale`, Atmospheric CO2 is scaled by its cube, which `scale-county-timeagg-year` measures (8.952 = 0.334229^-2 high with both normalised; PLAN.md §7.3.65)."
         },
         "rt_isCO2": {
           "type": "unknown",
@@ -13409,7 +13428,7 @@
             "runspecsourcetype_rows",
             "runspecmonth_rows"
           ],
-          "description": "S7's month share."
+          "description": "S7's month share. At `aggregateBy` Year it is PreAggYEAR.sql's constant row at MonthOfAnyYear 0, which no default table holds (`year_value_or_own`; PLAN.md §7.3.65)."
         },
         "run_daysInMonth": {
           "type": "unknown",
@@ -13417,7 +13436,7 @@
           "shape": [
             "runspecmonth_rows"
           ],
-          "description": "31 for August."
+          "description": "31 for August. At `aggregateBy` Year it is PreAggYEAR.sql's constant row at MonthOfAnyYear 0, which no default table holds (`year_value_or_own`; PLAN.md §7.3.65)."
         },
         "run_weeksPerMonth": {
           "type": "unknown",
@@ -13480,7 +13499,7 @@
             "runspeccounty_rows",
             "runspecmonth_rows"
           ],
-          "description": "S15(d)'s constant term, read from monthgrouphour. Constant across the run's counties, and shaped over them anyway: it is ADDED to a per-county heat index, and broadcasting it here is cheaper to read than an aggregate at every use."
+          "description": "S15(d)'s constant term, read from monthgrouphour. Constant across the run's counties, and shaped over them anyway: it is ADDED to a per-county heat index, and broadcasting it here is cheaper to read than an aggregate at every use. At `aggregateBy` Year it is PreAggYEAR.sql's MonthGroupWeighting mean over the months' groups (`mag_groupShare`; PLAN.md §7.3.65)."
         },
         "run_acActivityTermB": {
           "type": "unknown",
@@ -13490,7 +13509,7 @@
             "runspeccounty_rows",
             "runspecmonth_rows"
           ],
-          "description": "S15(d)'s linear term. Constant across the run's counties, and shaped over them anyway: it is ADDED to a per-county heat index, and broadcasting it here is cheaper to read than an aggregate at every use."
+          "description": "S15(d)'s linear term. Constant across the run's counties, and shaped over them anyway: it is ADDED to a per-county heat index, and broadcasting it here is cheaper to read than an aggregate at every use. At `aggregateBy` Year it is PreAggYEAR.sql's MonthGroupWeighting mean over the months' groups (`mag_groupShare`; PLAN.md §7.3.65)."
         },
         "run_acActivityTermC": {
           "type": "unknown",
@@ -13500,7 +13519,7 @@
             "runspeccounty_rows",
             "runspecmonth_rows"
           ],
-          "description": "S15(d)'s quadratic term. Constant across the run's counties, and shaped over them anyway: it is ADDED to a per-county heat index, and broadcasting it here is cheaper to read than an aggregate at every use."
+          "description": "S15(d)'s quadratic term. Constant across the run's counties, and shaped over them anyway: it is ADDED to a per-county heat index, and broadcasting it here is cheaper to read than an aggregate at every use. At `aggregateBy` Year it is PreAggYEAR.sql's MonthGroupWeighting mean over the months' groups (`mag_groupShare`; PLAN.md §7.3.65)."
         },
         "run_acActivityRaw": {
           "type": "unknown",
@@ -14399,7 +14418,7 @@
           "shape": [
             "runspecsourcetype_rows"
           ],
-          "description": "DayWeighting1's denominator, `sum(monthVMTFraction)` over the RunSpec's months."
+          "description": "DayWeighting1's denominator, `sum(monthVMTFraction)` over the RunSpec's months. Over the months the cell COLLECTS (`mag_collects`): PreAggMONTH.sql ran over the RunSpec's months before PreAggYEAR.sql collapsed them (PLAN.md §7.3.65)."
         },
         "dw_dayWeight": {
           "type": "unknown",
@@ -14409,7 +14428,7 @@
             "roadtype_rows",
             "rateday_rows"
           ],
-          "description": "PreAggMONTH.sql's DayWeighting1: `sum(dayVMTFraction x noOfRealDays x monthVMTFraction) / sum(monthVMTFraction)` over the RunSpec's months, by source type, road type and day type -- the day type's share of the week's travel. It weighs AvgSpeedDistribution's day types in a whole-week cell, and it does not cancel once a run aggregates TWO day types: weighting them equally misses the collapsed table by up to 0.36 (PLAN.md §7.3.63)."
+          "description": "PreAggMONTH.sql's DayWeighting1: `sum(dayVMTFraction x noOfRealDays x monthVMTFraction) / sum(monthVMTFraction)` over the RunSpec's months, by source type, road type and day type -- the day type's share of the week's travel. It weighs AvgSpeedDistribution's day types in a whole-week cell, and it does not cancel once a run aggregates TWO day types: weighting them equally misses the collapsed table by up to 0.36 (PLAN.md §7.3.63). Over the months the cell COLLECTS (`mag_collects`): PreAggMONTH.sql ran over the RunSpec's months before PreAggYEAR.sql collapsed them (PLAN.md §7.3.65)."
         },
         "dw_daySum": {
           "type": "unknown",
@@ -14428,7 +14447,7 @@
             "roadtype_rows",
             "rateday_rows"
           ],
-          "description": "Whether DayWeighting1 has a row at the source type, road type and day type: DayVMTFraction states one at some selected month. The inner join to it is what keeps the off-network road type, which has none, out of DayWeighting2."
+          "description": "Whether DayWeighting1 has a row at the source type, road type and day type: DayVMTFraction states one at some selected month. The inner join to it is what keeps the off-network road type, which has none, out of DayWeighting2. Over the months the cell COLLECTS (`mag_collects`): PreAggMONTH.sql ran over the RunSpec's months before PreAggYEAR.sql collapsed them (PLAN.md §7.3.65)."
         },
         "dw_roadWeighted": {
           "type": "unknown",
@@ -17523,7 +17542,7 @@
             "runspeccounty_rows",
             "runspecmonth_rows"
           ],
-          "description": "The temperature adjustment's argument, read for each county's zone at the run's month and hour. 59.5 degF in the one-county runs."
+          "description": "The temperature adjustment's argument, read for each county's zone at the run's month and hour. 59.5 degF in the one-county runs. At `aggregateBy` Year it is PreAggYEAR.sql's MonthWeighting mean of the months' day-collapsed values (`mag_meanShare`; PLAN.md §7.3.65)."
         },
         "rt_isEvEnergyRunning": {
           "type": "unknown",
@@ -18587,7 +18606,7 @@
             "runspeccounty_rows",
             "runspecmonth_rows"
           ],
-          "description": "S17 and S18: rate x activity, in the output's own units -- what `rtDay_quantDirect` was before `SulfatePMCalculator` took over six blocks. Exactly zero on a chained pollutant-process."
+          "description": "S17 and S18: rate x activity, in the output's own units -- what `rtDay_quantDirect` was before `SulfatePMCalculator` took over six blocks. Exactly zero on a chained pollutant-process. Times `rt_fuelSupplyScale`, 1 except at `aggregateBy` Year."
         },
         "rtDay_quantDirect": {
           "type": "unknown",
@@ -20857,7 +20876,7 @@
           "shape": [
             "run_rows"
           ],
-          "description": "How many things this run SELECTS that the model does not compute, beside its domain (`run_domainUnported`): 0, asserted by tools/check-runspec-shape.py. It counts an on-road pollutant-process other than running exhaust, crankcase running or an evaporative one (`occursOnRealRoads` = Y) in a run that also selects road type 1 (`run_onRoadPollutantProcessCount`); and what a run that aggregates hours or day types selects and the model does not compute (`run_aggregationUnported`; starts, hotelling and off-network idle under aggregation are ported, PLAN.md §7.3.63). None of these fails loudly -- each emits a plausible number or none. Evaporative processes on several road types and chained ones with parents both on and off the network are ported (PLAN.md §7.3.48 part C). At Rates scale it also counts `run_ratesUnported`, everything the Rates tables do not compute."
+          "description": "How many things this run SELECTS that the model does not compute, beside its domain (`run_domainUnported`): 0, asserted by tools/check-runspec-shape.py. It counts an on-road pollutant-process other than running exhaust, crankcase running, brake or tire wear or an evaporative one (`occursOnRealRoads` = Y) in a run that also selects road type 1 (`run_onRoadPollutantProcessCount`); and what a run that aggregates hours or day types selects and the model does not compute (`run_aggregationUnported`; starts, hotelling and off-network idle under aggregation are ported, PLAN.md §7.3.63). None of these fails loudly -- each emits a plausible number or none. Evaporative processes on several road types and chained ones with parents both on and off the network are ported (PLAN.md §7.3.48 part C). At Rates scale it also counts `run_ratesUnported`, everything the Rates tables do not compute."
         },
         "run_onRoadPollutantProcessCount": {
           "type": "unknown",
@@ -20865,7 +20884,7 @@
           "shape": [
             "run_rows"
           ],
-          "description": "How many of the run's pollutant-processes occur on a real road and are NOT running exhaust, crankcase running or evaporative. Read by `run_selectionUnported` only when the run also selects road type 1: MOVES writes off-network idle for running exhaust and the crankcase running it chains to, which `ppr_isOffNetworkIdle` ports, and evaporative rows over SHP, which `act_shp` ports but for vapor venting (`run_offNetworkLinkCount`); brake wear has no road-1 rates (`drivecycle.rs:513`) and tire wear's are not ported. Not in PROJECT domain, where road type 1 is the off-network link and MOVES writes no brake- or tire-wear row on it (`project-links`, PLAN.md §7.3.55)."
+          "description": "How many of the run's pollutant-processes occur on a real road and are NOT running exhaust, crankcase running or evaporative. Read by `run_selectionUnported` only when the run also selects road type 1: MOVES writes off-network idle for running exhaust and the crankcase running it chains to, which `ppr_isOffNetworkIdle` ports, and evaporative rows over SHP, which `act_shp` ports but for vapor venting (`run_offNetworkLinkCount`); brake and tire wear are not counted since `scale-county-timeagg-year` (PLAN.md §7.3.65) selected them beside road type 1 in the DEFAULT domain: MOVES writes no brake- or tire-wear row on road type 1 (brake wear has no road-1 rates, `drivecycle.rs:513`, and tire wear none either), the model writes none, and all 4,768 of their rows on road types 2-5 reproduce. Not in PROJECT domain, where road type 1 is the off-network link and MOVES writes no brake- or tire-wear row on it (`project-links`, PLAN.md §7.3.55)."
         },
         "run_offNetworkIdleBlocks": {
           "type": "unknown",
@@ -20940,7 +20959,7 @@
             "runspecmonth_rows",
             "roadtypedistribution_rows"
           ],
-          "description": "TotalActivityGenerator's VMTByAgeRoadwayDay.VMT: one age's VMT on one road type on the activity row's day type, summed over the day's 24 hours -- the hourly VMT of S5-S7 (HPMS base-year VMT x road-type share x travel fraction x month share x day share x hour share / weeks per month) on EVERY road type the source type drives, not only the run's. Hotelling is computed from the restricted-access road types whatever the RunSpec selects (the -single runs select 1 and 4, and MOVES's VMTByAgeRoadwayHour for them carries road types 2 to 5). The day type is the activity's, `tcell_actDayMatch`: a whole-week cell carries the week, PreAggMONTH.sql's `dayVMTFraction := 1`, written as the sum it is (conventions §66.2)."
+          "description": "TotalActivityGenerator's VMTByAgeRoadwayDay.VMT: one age's VMT on one road type on the activity row's day type, summed over the day's 24 hours -- the hourly VMT of S5-S7 (HPMS base-year VMT x road-type share x travel fraction x month share x day share x hour share / weeks per month) on EVERY road type the source type drives, not only the run's. Hotelling is computed from the restricted-access road types whatever the RunSpec selects (the -single runs select 1 and 4, and MOVES's VMTByAgeRoadwayHour for them carries road types 2 to 5). The day type is the activity's, `tcell_actDayMatch`: a whole-week cell carries the week, PreAggMONTH.sql's `dayVMTFraction := 1`, written as the sum it is (conventions §66.2). At `aggregateBy` Year PreAggYEAR.sql writes DayVMTFraction 1.0 at MonthOfAnyYear 0; the months' sums, each 1 within 2.2e-07, are averaged by `mag_meanShare` (PLAN.md §7.3.65)."
         },
         "hot_restrictedTotal": {
           "type": "unknown",
@@ -21286,7 +21305,7 @@
           "shape": [
             "run_rows"
           ],
-          "description": "What a run that pre-aggregates time selects and the model does not compute (PLAN.md §7.3.63), counted by `run_selectionUnported`; 0 on a run that does not aggregate. Starts, hotelling and off-network idle under PreAggDAY.sql and PreAggMONTH.sql are PORTED and are not counted. Counted, each unmeasured: (1) hotelling in a run of more than one calendar year, whose pooled AdjustHotelling chain (`hot_earlier*`) is written per hour of the clock; (2) off-network idle with any AdjustTotalIdleFraction.sql input (`run_idleGroupingRows`, `run_idleAdjustmentRows`), which PreAggMONTH.sql collapses (idleDayAdjust) before that script runs; (3) start, hotelling or off-network idle in a whole-week run whose RunSpec selects fewer day types than the week -- its starts tables are cut to the selected days and its travel is not (`db_rateday` against `db_actday`); (4) any evaporative process, whose TankTemperatureGenerator reads SampleVehicleTrip with every hour collapsed to 0."
+          "description": "What a run that pre-aggregates time selects and the model does not compute (PLAN.md §7.3.63), counted by `run_selectionUnported`; 0 on a run that does not aggregate. Starts, hotelling and off-network idle under PreAggDAY.sql, PreAggMONTH.sql and PreAggYEAR.sql are PORTED and are not counted. Counted, each unmeasured: (1) hotelling in a run of more than one calendar year, whose pooled AdjustHotelling chain (`hot_earlier*`) is written per hour of the clock; (2) off-network idle with any AdjustTotalIdleFraction.sql input (`run_idleGroupingRows`, `run_idleAdjustmentRows`), which PreAggMONTH.sql collapses (idleDayAdjust) before that script runs; (3) start, hotelling or off-network idle in a whole-week run whose RunSpec selects fewer day types than the week -- its starts tables are cut to the selected days and its travel is not (`db_rateday` against `db_actday`); (4) any evaporative process, whose TankTemperatureGenerator reads SampleVehicleTrip with every hour collapsed to 0; (5) at `aggregateBy` Year (`n_aggregatesMonths`), every pollutant-process on a selected road that `scale-county-timeagg-year` does not check (`run_yearUnportedSelected`): refueling, whose month-keyed fuel RVP and weather are uncaptured; air toxics, whose ATRatio PreAggYEAR.sql averages per month group rather than computing at the mean fuel; and anything outside THC, CO, NOx, energy, CO2 and brake/tire PM at running, start, the crankcase processes, extended idle, APU and wear. PreAggYEAR.sql's collapse itself -- MonthOfAnyYear 0, the weather, the A/C terms, the fuel supply's SUM, TotalIdleFraction -- is ported (PLAN.md §7.3.65)."
         },
         "run_aggregationHourCount": {
           "type": "unknown",
@@ -22442,7 +22461,7 @@
             "runspecsourcetype_rows",
             "runspecmonth_rows"
           ],
-          "description": "startsMonthAdjust at the source type and month."
+          "description": "startsMonthAdjust at the source type and month. At `aggregateBy` Year it is PreAggYEAR.sql's constant row at MonthOfAnyYear 0, which no default table holds (`year_value_or_own`; PLAN.md §7.3.65)."
         },
         "st_cellHourFraction": {
           "type": "unknown",
@@ -23583,7 +23602,7 @@
             "runspecsourcetype_rows",
             "runspecmonth_rows"
           ],
-          "description": "The default database's `totalIdleFraction` at the county's idle region and county type, the source type, the month, the day type and the model-year window holding the row's model year (3,120 rows nationally). What off-network idle reads when the domain states no `idleModelYearGrouping` row at a selected source type. In a whole-week cell it is PreAggMONTH.sql's `sum(totalIdleFraction x DayWeighting2Normalized)` over the day types (`oni_dayWeight`)."
+          "description": "The default database's `totalIdleFraction` at the county's idle region and county type, the source type, the month, the day type and the model-year window holding the row's model year (3,120 rows nationally). What off-network idle reads when the domain states no `idleModelYearGrouping` row at a selected source type. In a whole-week cell it is PreAggMONTH.sql's `sum(totalIdleFraction x DayWeighting2Normalized)` over the day types (`oni_dayWeight`). At `aggregateBy` Year it is PreAggYEAR.sql's `sum(totalIdleFraction x actFract)` over MonthWeightingBySourceType, NOT a mean (`mag_sourceSum`; PLAN.md §7.3.65)."
         },
         "oni_dayWeight": {
           "type": "unknown",
@@ -23826,7 +23845,7 @@
             "runspeccounty_rows",
             "runspecmonth_rows"
           ],
-          "description": "`hotellingMonthAdjust` rows at the county's zone and the month: whether AdjustHotelling.sql's monthAdjustment join finds one."
+          "description": "`hotellingMonthAdjust` rows at the county's zone and the month: whether AdjustHotelling.sql's monthAdjustment join finds one. At `aggregateBy` Year it is PreAggYEAR.sql's constant row at MonthOfAnyYear 0, which no default table holds (`year_value_or_own`; PLAN.md §7.3.65)."
         },
         "hot_monthAdjustStated": {
           "type": "unknown",
@@ -23835,7 +23854,7 @@
             "runspeccounty_rows",
             "runspecmonth_rows"
           ],
-          "description": "`hotellingMonthAdjust.monthAdjustment` at the county's zone and the month; read only where `hot_monthAdjustRows` finds the row."
+          "description": "`hotellingMonthAdjust.monthAdjustment` at the county's zone and the month; read only where `hot_monthAdjustRows` finds the row. At `aggregateBy` Year it is PreAggYEAR.sql's constant row at MonthOfAnyYear 0, which no default table holds (`year_value_or_own`; PLAN.md §7.3.65)."
         },
         "hot_monthHours": {
           "type": "unknown",
@@ -24780,6 +24799,296 @@
             "runspecroadtype_rows"
           ],
           "description": "1 where the user governs the combination (`omd_userGoverned`) and states no row for it: RatesOpModeDistribution then has nothing for it, BaseRateGenerator writes no base rate, and MOVES emits NO row -- an absence, not a zero (`rt_hasLinkModes`). `project-useromd-gaps`: running Total Energy on link 1, whose user states running CO only, and the light commercial trucks' brake wear there."
+        },
+        "run_ownDaysInMonth": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecmonth_rows"
+          ],
+          "description": "`MonthOfAnyYear.noOfDays` at the cell's month."
+        },
+        "run_ownMonthVMTFraction": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecsourcetype_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "`MonthVMTFraction` at the source type and the cell's month."
+        },
+        "st_ownMonthAdjustment": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecsourcetype_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "`startsMonthAdjust` at the source type and the cell's month."
+        },
+        "hot_ownMonthAdjustRows": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspeccounty_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "`hotellingMonthAdjust` rows at the county's zone and the cell's month."
+        },
+        "hot_ownMonthAdjustStated": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspeccounty_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "`hotellingMonthAdjust.monthAdjustment` at the county's zone and the cell's month."
+        },
+        "amo_monthID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "aggregationmonth_rows"
+          ],
+          "description": "The months a Year cell aggregates over: the RunSpec's months at `aggregateBy` Year, every month otherwise (`db_aggregationmonth`).",
+          "update": {
+            "kind": "data",
+            "source": "db_aggregationmonth",
+            "from": {
+              "file_variable": "monthID"
+            }
+          }
+        },
+        "amo_monthGroupID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "aggregationmonth_rows"
+          ],
+          "description": "The aggregation month's month group, by `MonthOfAnyYear` -- the key PreAggYEAR.sql's MonthGroupWeighting groups by."
+        },
+        "amo_monthVMTFraction": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecsourcetype_rows",
+            "aggregationmonth_rows"
+          ],
+          "description": "`MonthVMTFraction` at the source type and the aggregation month, BEFORE PreAggYEAR.sql replaces it by 1.0: the weight its MonthWeighting, MonthWeightingBySourceType and MonthGroupWeighting take, and PreAggMONTH.sql's DayWeighting1 sums."
+        },
+        "amo_monthVMTRows": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecsourcetype_rows",
+            "aggregationmonth_rows"
+          ],
+          "description": "`MonthVMTFraction` rows at the source type and the aggregation month."
+        },
+        "mag_isOwnMonth": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecmonth_rows",
+            "aggregationmonth_rows"
+          ],
+          "description": "1 where the aggregation month IS the cell's month: how a run that does not aggregate by year reads each month-keyed table at its own month."
+        },
+        "mag_collects": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecmonth_rows",
+            "aggregationmonth_rows"
+          ],
+          "description": "1 where the aggregation month belongs to the cell: its own month, or, at `aggregateBy` Year, every month the RunSpec selects -- the execution database's month tables are cut to those before PreAggYEAR.sql collapses them."
+        },
+        "mag_sourceTypeMonthTotal": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecsourcetype_rows"
+          ],
+          "description": "`SUM(monthVMTFraction)` over the collected months at the source type: PreAggYEAR.sql's `HAVING SUM(monthvmtfraction) > 0`, which a weighting source type must pass."
+        },
+        "mag_sourceTypeMonthRows": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecsourcetype_rows"
+          ],
+          "description": "`MonthVMTFraction` rows over the collected months at the source type: AggMonthVMTFraction's `GROUP BY sourceTypeID`, the source types PreAggYEAR.sql writes a 1.0 row for."
+        },
+        "mag_monthWeightingSourceTypeID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "run_rows"
+          ],
+          "description": "MonthWeighting's source type: `ORDER BY sourceTypeID DESC LIMIT 1` over the source types with travel -- the HIGHEST ID, not `SourceTypeOrdering`'s first, which MonthGroupWeighting takes."
+        },
+        "mag_isMonthWeightingSourceType": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecsourcetype_rows"
+          ],
+          "description": "1 at MonthWeighting's source type."
+        },
+        "mag_sourceTypeOrder": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecsourcetype_rows"
+          ],
+          "description": "The source type's place in `SourceTypeOrdering` (`preaggregation_source_type_order`), or past its end where it has no month travel."
+        },
+        "mag_groupWeightingOrder": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "run_rows"
+          ],
+          "description": "MonthGroupWeighting's `ORDER BY orderPreference LIMIT 1`."
+        },
+        "mag_isGroupWeightingSourceType": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecsourcetype_rows"
+          ],
+          "description": "1 at MonthGroupWeighting's source type, the first selected one in `SourceTypeOrdering` with month travel."
+        },
+        "mag_monthWeight": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "aggregationmonth_rows"
+          ],
+          "description": "MonthWeighting.actFract: the weighting source type's `monthVMTFraction` at the month (a FLOAT column copied into a FLOAT one). It weighs ZoneMonthHour."
+        },
+        "mag_groupWeight": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "aggregationmonth_rows"
+          ],
+          "description": "MonthGroupWeighting.actFract, by month: `SUM(monthVMTFraction)` of the group's months at its source type. One month per group in the default `MonthOfAnyYear`, so per month it is the group's weight, as the join to a group-keyed table spreads it."
+        },
+        "mag_monthWeightTotal": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecmonth_rows"
+          ],
+          "description": "`sum(actFract)` of MonthWeighting over the cell's months."
+        },
+        "mag_groupWeightTotal": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecmonth_rows"
+          ],
+          "description": "`sum(actFract)` of MonthGroupWeighting over the cell's months."
+        },
+        "mag_meanShare": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecmonth_rows",
+            "aggregationmonth_rows"
+          ],
+          "description": "The aggregation month's share of the cell in PreAggYEAR.sql's MonthWeighting MEAN (ZoneMonthHour): `actFract / sum(actFract)` at `aggregateBy` Year, the cell's own month otherwise. Also the share the day-VMT sums are averaged by, where the script writes the literal 1.0 that the per-month sums reach within 2.2e-07."
+        },
+        "mag_groupShare": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecmonth_rows",
+            "aggregationmonth_rows"
+          ],
+          "description": "The aggregation month's share of the cell in PreAggYEAR.sql's MonthGroupWeighting MEAN (MonthGroupHour, e10FuelProperties, ATBaseEmissions)."
+        },
+        "mag_groupSum": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecmonth_rows",
+            "aggregationmonth_rows"
+          ],
+          "description": "The aggregation month's weight in PreAggYEAR.sql's FuelSupply collapse, which is NOT a mean: `(1 - fractDontHave) x haveFract` = `sum(marketShare x actFract)` over MonthGroupWeighting, so a run of four months gives every formulation the share of the year's travel those months carry -- the comment's `these weightings will not sum to unity if all months are not included`."
+        },
+        "mag_sourceSum": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecsourcetype_rows",
+            "runspecmonth_rows",
+            "aggregationmonth_rows"
+          ],
+          "description": "The aggregation month's weight in PreAggYEAR.sql's TotalIdleFraction collapse, `sum(totalIdleFraction x actFract)` over MonthWeightingBySourceType -- the source type's own `monthVMTFraction`, and not normalised."
+        },
+        "run_yearUnportedSelected": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "run_rows"
+          ],
+          "description": "Pollutant-processes on a selected road that the Year capture does not check (`year_captured_process`, `year_captured_pollutant`; PLAN.md §7.3.65). Counted by `run_aggregationUnported` at `aggregateBy` Year."
+        },
+        "ffsup_suppliedShare": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspeccounty_rows",
+            "runspecmonth_rows",
+            "fuelformulation_rows",
+            "runspecyear_rows"
+          ],
+          "description": "`FuelSupply.marketShare` as the execution database holds it at the cell: the table's own row, or at `aggregateBy` Year PreAggYEAR.sql's `sum(marketShare x actFract)`, whose formulations of one fuel type sum to the selected months' share of the year's travel (0.334 for four months; PLAN.md §7.3.65)."
+        },
+        "ffsup_fuelTypeShare": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspeccounty_rows",
+            "runspecmonth_rows",
+            "fueltype_rows",
+            "runspecyear_rows"
+          ],
+          "description": "The fuel type's total market share at the cell: 1 on every run that does not aggregate by year; at `aggregateBy` Year PreAggYEAR.sql's sum over the selected months' groups of MonthGroupWeighting, 0.334 for January, April, July and October. BaseRateCalculator sums every rate over the formulations by `marketShare`, so this total multiplies every process -- brake and tire wear and energy included -- and not only the ones a fuel ratio covers (PLAN.md §7.3.65)."
+        },
+        "ffsup_normalizer": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspeccounty_rows",
+            "runspecmonth_rows",
+            "fuelformulation_rows",
+            "runspecyear_rows"
+          ],
+          "description": "1 on a run that does not aggregate by year; at `aggregateBy` Year one over the formulation's fuel-type total (`ffsup_fuelTypeShare`), which turns PreAggYEAR.sql's summed share into a share of the fuel type."
+        },
+        "rt_fuelTypeSupplyShare": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows",
+            "runspeccounty_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "`ffsup_fuelTypeShare` at the rate row's fuel type and calendar year."
+        },
+        "rt_fuelSupplyScale": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows",
+            "runspeccounty_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "What BaseRateCalculator's sum over the formulations by `marketShare` multiplies a rate by beyond the share-weighted MEANS the model's ratios are: 1 on a run that does not aggregate by year, whose shares sum to 1 per fuel type; at `aggregateBy` Year the fuel type's summed share, 0.334 at four months -- on brake and tire wear and energy as much as on THC (PLAN.md §7.3.65)."
         }
       },
       "equations": [
@@ -26612,7 +26921,7 @@
           }
         },
         {
-          "lhs": "run_monthVMTFraction",
+          "lhs": "run_ownMonthVMTFraction",
           "rhs": {
             "op": "faq",
             "args": [],
@@ -26659,7 +26968,7 @@
           }
         },
         {
-          "lhs": "run_daysInMonth",
+          "lhs": "run_ownDaysInMonth",
           "rhs": {
             "op": "faq",
             "args": [],
@@ -26869,13 +27178,16 @@
               },
               "h": {
                 "from": "aggregationhour_rows"
+              },
+              "am": {
+                "from": "aggregationmonth_rows"
               }
             },
             "join": [
               {
                 "on": [
                   [
-                    "run_monthGroupID",
+                    "amo_monthGroupID",
                     "mgh_monthGroupID"
                   ],
                   [
@@ -26889,18 +27201,31 @@
               "op": "*",
               "args": [
                 {
-                  "op": "index",
+                  "op": "*",
                   "args": [
-                    "mgh_ACActivityTermA",
-                    "x"
+                    {
+                      "op": "index",
+                      "args": [
+                        "mgh_ACActivityTermA",
+                        "x"
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "met_cellShare",
+                        "k",
+                        "h"
+                      ]
+                    }
                   ]
                 },
                 {
                   "op": "index",
                   "args": [
-                    "met_cellShare",
-                    "k",
-                    "h"
+                    "mag_groupShare",
+                    "m",
+                    "am"
                   ]
                 }
               ]
@@ -26933,13 +27258,16 @@
               },
               "h": {
                 "from": "aggregationhour_rows"
+              },
+              "am": {
+                "from": "aggregationmonth_rows"
               }
             },
             "join": [
               {
                 "on": [
                   [
-                    "run_monthGroupID",
+                    "amo_monthGroupID",
                     "mgh_monthGroupID"
                   ],
                   [
@@ -26953,18 +27281,31 @@
               "op": "*",
               "args": [
                 {
-                  "op": "index",
+                  "op": "*",
                   "args": [
-                    "mgh_ACActivityTermB",
-                    "x"
+                    {
+                      "op": "index",
+                      "args": [
+                        "mgh_ACActivityTermB",
+                        "x"
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "met_cellShare",
+                        "k",
+                        "h"
+                      ]
+                    }
                   ]
                 },
                 {
                   "op": "index",
                   "args": [
-                    "met_cellShare",
-                    "k",
-                    "h"
+                    "mag_groupShare",
+                    "m",
+                    "am"
                   ]
                 }
               ]
@@ -26997,13 +27338,16 @@
               },
               "h": {
                 "from": "aggregationhour_rows"
+              },
+              "am": {
+                "from": "aggregationmonth_rows"
               }
             },
             "join": [
               {
                 "on": [
                   [
-                    "run_monthGroupID",
+                    "amo_monthGroupID",
                     "mgh_monthGroupID"
                   ],
                   [
@@ -27017,18 +27361,31 @@
               "op": "*",
               "args": [
                 {
-                  "op": "index",
+                  "op": "*",
                   "args": [
-                    "mgh_ACActivityTermC",
-                    "x"
+                    {
+                      "op": "index",
+                      "args": [
+                        "mgh_ACActivityTermC",
+                        "x"
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "met_cellShare",
+                        "k",
+                        "h"
+                      ]
+                    }
                   ]
                 },
                 {
                   "op": "index",
                   "args": [
-                    "met_cellShare",
-                    "k",
-                    "h"
+                    "mag_groupShare",
+                    "m",
+                    "am"
                   ]
                 }
               ]
@@ -27175,6 +27532,9 @@
               },
               "h": {
                 "from": "aggregationhour_rows"
+              },
+              "am": {
+                "from": "aggregationmonth_rows"
               }
             },
             "join": [
@@ -27185,7 +27545,7 @@
                     "zmh_zoneID"
                   ],
                   [
-                    "run_monthID",
+                    "amo_monthID",
                     "zmh_monthID"
                   ],
                   [
@@ -27199,18 +27559,31 @@
               "op": "*",
               "args": [
                 {
-                  "op": "index",
+                  "op": "*",
                   "args": [
-                    "zmh_temperature",
-                    "z"
+                    {
+                      "op": "index",
+                      "args": [
+                        "zmh_temperature",
+                        "z"
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "met_cellShare",
+                        "k",
+                        "h"
+                      ]
+                    }
                   ]
                 },
                 {
                   "op": "index",
                   "args": [
-                    "met_cellShare",
-                    "k",
-                    "h"
+                    "mag_meanShare",
+                    "m",
+                    "am"
                   ]
                 }
               ]
@@ -27243,6 +27616,9 @@
               },
               "h": {
                 "from": "aggregationhour_rows"
+              },
+              "am": {
+                "from": "aggregationmonth_rows"
               }
             },
             "join": [
@@ -27253,7 +27629,7 @@
                     "zmh_zoneID"
                   ],
                   [
-                    "run_monthID",
+                    "amo_monthID",
                     "zmh_monthID"
                   ],
                   [
@@ -27267,18 +27643,31 @@
               "op": "*",
               "args": [
                 {
-                  "op": "index",
+                  "op": "*",
                   "args": [
-                    "zmh_relHumidity",
-                    "z"
+                    {
+                      "op": "index",
+                      "args": [
+                        "zmh_relHumidity",
+                        "z"
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "met_cellShare",
+                        "k",
+                        "h"
+                      ]
+                    }
                   ]
                 },
                 {
                   "op": "index",
                   "args": [
-                    "met_cellShare",
-                    "k",
-                    "h"
+                    "mag_meanShare",
+                    "m",
+                    "am"
                   ]
                 }
               ]
@@ -34950,14 +35339,30 @@
               },
               "m": {
                 "from": "runspecmonth_rows"
+              },
+              "am": {
+                "from": "aggregationmonth_rows"
               }
             },
             "expr": {
-              "op": "index",
+              "op": "*",
               "args": [
-                "run_monthVMTFraction",
-                "s",
-                "m"
+                {
+                  "op": "index",
+                  "args": [
+                    "amo_monthVMTFraction",
+                    "s",
+                    "am"
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "mag_collects",
+                    "m",
+                    "am"
+                  ]
+                }
               ]
             }
           }
@@ -34988,6 +35393,9 @@
               },
               "v": {
                 "from": "dayvmtfraction_rows"
+              },
+              "am": {
+                "from": "aggregationmonth_rows"
               }
             },
             "join": [
@@ -34998,7 +35406,7 @@
                     "dvf_sourceTypeID"
                   ],
                   [
-                    "run_monthID",
+                    "amo_monthID",
                     "dvf_monthID"
                   ],
                   [
@@ -35013,50 +35421,63 @@
               }
             ],
             "expr": {
-              "op": "apply_expression_template",
-              "args": [],
-              "name": "share_of_group",
-              "bindings": {
-                "numerator": {
-                  "op": "*",
-                  "args": [
-                    {
+              "op": "*",
+              "args": [
+                {
+                  "op": "apply_expression_template",
+                  "args": [],
+                  "name": "share_of_group",
+                  "bindings": {
+                    "numerator": {
                       "op": "*",
                       "args": [
                         {
-                          "op": "index",
+                          "op": "*",
                           "args": [
-                            "dvf_dayVMTFraction",
-                            "v"
+                            {
+                              "op": "index",
+                              "args": [
+                                "dvf_dayVMTFraction",
+                                "v"
+                              ]
+                            },
+                            {
+                              "op": "index",
+                              "args": [
+                                "rday_noOfRealDays",
+                                "d"
+                              ]
+                            }
                           ]
                         },
                         {
                           "op": "index",
                           "args": [
-                            "rday_noOfRealDays",
-                            "d"
+                            "amo_monthVMTFraction",
+                            "s",
+                            "am"
                           ]
                         }
                       ]
                     },
-                    {
+                    "group_total": {
                       "op": "index",
                       "args": [
-                        "run_monthVMTFraction",
-                        "s",
-                        "m"
+                        "dw_monthTotal",
+                        "s"
                       ]
                     }
-                  ]
+                  }
                 },
-                "group_total": {
+                {
                   "op": "index",
                   "args": [
-                    "dw_monthTotal",
-                    "s"
+                    "mag_collects",
+                    "m",
+                    "am"
                   ]
                 }
-              }
+              ]
             }
           }
         },
@@ -35118,6 +35539,9 @@
               },
               "v": {
                 "from": "dayvmtfraction_rows"
+              },
+              "am": {
+                "from": "aggregationmonth_rows"
               }
             },
             "join": [
@@ -35128,7 +35552,7 @@
                     "dvf_sourceTypeID"
                   ],
                   [
-                    "run_monthID",
+                    "amo_monthID",
                     "dvf_monthID"
                   ],
                   [
@@ -35142,7 +35566,14 @@
                 ]
               }
             ],
-            "expr": 1.0
+            "expr": {
+              "op": "index",
+              "args": [
+                "mag_collects",
+                "m",
+                "am"
+              ]
+            }
           }
         },
         {
@@ -43633,6 +44064,9 @@
               },
               "k": {
                 "from": "runspecday_rows"
+              },
+              "am": {
+                "from": "aggregationmonth_rows"
               }
             },
             "join": [
@@ -43651,7 +44085,7 @@
                     "dvf_sourceTypeID"
                   ],
                   [
-                    "run_monthID",
+                    "amo_monthID",
                     "dvf_monthID"
                   ],
                   [
@@ -43692,40 +44126,53 @@
                   "op": "*",
                   "args": [
                     {
-                      "op": "index",
+                      "op": "*",
                       "args": [
-                        "tcell_actDayMatch",
-                        "k",
-                        "a"
+                        {
+                          "op": "index",
+                          "args": [
+                            "tcell_actDayMatch",
+                            "k",
+                            "a"
+                          ]
+                        },
+                        {
+                          "op": "index",
+                          "args": [
+                            "tcell_hourMatch",
+                            "k",
+                            "h"
+                          ]
+                        }
                       ]
                     },
                     {
-                      "op": "index",
+                      "op": "*",
                       "args": [
-                        "tcell_hourMatch",
-                        "k",
-                        "h"
+                        {
+                          "op": "index",
+                          "args": [
+                            "dvf_dayVMTFraction",
+                            "v"
+                          ]
+                        },
+                        {
+                          "op": "index",
+                          "args": [
+                            "hvf_hourVMTFraction",
+                            "u"
+                          ]
+                        }
                       ]
                     }
                   ]
                 },
                 {
-                  "op": "*",
+                  "op": "index",
                   "args": [
-                    {
-                      "op": "index",
-                      "args": [
-                        "dvf_dayVMTFraction",
-                        "v"
-                      ]
-                    },
-                    {
-                      "op": "index",
-                      "args": [
-                        "hvf_hourVMTFraction",
-                        "u"
-                      ]
-                    }
+                    "mag_meanShare",
+                    "m",
+                    "am"
                   ]
                 }
               ]
@@ -44769,6 +45216,9 @@
               },
               "d": {
                 "from": "rateday_rows"
+              },
+              "am": {
+                "from": "aggregationmonth_rows"
               }
             },
             "join": [
@@ -44804,7 +45254,7 @@
                 "on": [
                   [
                     "tif_monthID",
-                    "run_monthID"
+                    "amo_monthID"
                   ]
                 ]
               },
@@ -44849,19 +45299,33 @@
               "op": "*",
               "args": [
                 {
-                  "op": "index",
+                  "op": "*",
                   "args": [
-                    "oni_dayWeight",
-                    "k",
-                    "d",
-                    "s"
+                    {
+                      "op": "index",
+                      "args": [
+                        "oni_dayWeight",
+                        "k",
+                        "d",
+                        "s"
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "tif_totalIdleFraction",
+                        "x"
+                      ]
+                    }
                   ]
                 },
                 {
                   "op": "index",
                   "args": [
-                    "tif_totalIdleFraction",
-                    "x"
+                    "mag_sourceSum",
+                    "s",
+                    "m",
+                    "am"
                   ]
                 }
               ]
@@ -73716,7 +74180,7 @@
           }
         },
         {
-          "lhs": "ffsup_marketShare",
+          "lhs": "ffsup_suppliedShare",
           "rhs": {
             "op": "faq",
             "args": [],
@@ -73745,6 +74209,9 @@
               },
               "x": {
                 "from": "runspeccountyyear_rows"
+              },
+              "am": {
+                "from": "aggregationmonth_rows"
               }
             },
             "join": [
@@ -73763,7 +74230,7 @@
                     "fs_fuelRegionID"
                   ],
                   [
-                    "run_monthGroupID",
+                    "amo_monthGroupID",
                     "fs_monthGroupID"
                   ],
                   [
@@ -73786,10 +74253,23 @@
               }
             ],
             "expr": {
-              "op": "index",
+              "op": "*",
               "args": [
-                "fs_marketShare",
-                "s"
+                {
+                  "op": "index",
+                  "args": [
+                    "fs_marketShare",
+                    "s"
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "mag_groupSum",
+                    "m",
+                    "am"
+                  ]
+                }
               ]
             }
           }
@@ -73836,6 +74316,9 @@
               },
               "x": {
                 "from": "runspeccountyyear_rows"
+              },
+              "am": {
+                "from": "aggregationmonth_rows"
               }
             },
             "join": [
@@ -73846,7 +74329,7 @@
                     "e10_fuelRegionID"
                   ],
                   [
-                    "run_monthGroupID",
+                    "amo_monthGroupID",
                     "e10_monthGroupID"
                   ],
                   [
@@ -73869,32 +74352,45 @@
               }
             ],
             "expr": {
-              "op": "apply_expression_template",
-              "args": [],
-              "name": "high_ethanol_property",
-              "bindings": {
-                "is_high_ethanol": {
-                  "op": "index",
-                  "args": [
-                    "ff_isHighEthanol",
-                    "f"
-                  ]
+              "op": "*",
+              "args": [
+                {
+                  "op": "apply_expression_template",
+                  "args": [],
+                  "name": "high_ethanol_property",
+                  "bindings": {
+                    "is_high_ethanol": {
+                      "op": "index",
+                      "args": [
+                        "ff_isHighEthanol",
+                        "f"
+                      ]
+                    },
+                    "own_value": {
+                      "op": "index",
+                      "args": [
+                        "ff_RVP",
+                        "f"
+                      ]
+                    },
+                    "substitute_value": {
+                      "op": "index",
+                      "args": [
+                        "e10_RVP",
+                        "p"
+                      ]
+                    }
+                  }
                 },
-                "own_value": {
+                {
                   "op": "index",
                   "args": [
-                    "ff_RVP",
-                    "f"
-                  ]
-                },
-                "substitute_value": {
-                  "op": "index",
-                  "args": [
-                    "e10_RVP",
-                    "p"
+                    "mag_groupShare",
+                    "m",
+                    "am"
                   ]
                 }
-              }
+              ]
             }
           }
         },
@@ -73941,6 +74437,9 @@
               },
               "x": {
                 "from": "runspeccountyyear_rows"
+              },
+              "am": {
+                "from": "aggregationmonth_rows"
               }
             },
             "join": [
@@ -73951,7 +74450,7 @@
                     "e10_fuelRegionID"
                   ],
                   [
-                    "run_monthGroupID",
+                    "amo_monthGroupID",
                     "e10_monthGroupID"
                   ],
                   [
@@ -73974,32 +74473,45 @@
               }
             ],
             "expr": {
-              "op": "apply_expression_template",
-              "args": [],
-              "name": "high_ethanol_property",
-              "bindings": {
-                "is_high_ethanol": {
-                  "op": "index",
-                  "args": [
-                    "ff_isHighEthanol",
-                    "f"
-                  ]
+              "op": "*",
+              "args": [
+                {
+                  "op": "apply_expression_template",
+                  "args": [],
+                  "name": "high_ethanol_property",
+                  "bindings": {
+                    "is_high_ethanol": {
+                      "op": "index",
+                      "args": [
+                        "ff_isHighEthanol",
+                        "f"
+                      ]
+                    },
+                    "own_value": {
+                      "op": "index",
+                      "args": [
+                        "ff_sulfurLevel",
+                        "f"
+                      ]
+                    },
+                    "substitute_value": {
+                      "op": "index",
+                      "args": [
+                        "e10_sulfurLevel",
+                        "p"
+                      ]
+                    }
+                  }
                 },
-                "own_value": {
+                {
                   "op": "index",
                   "args": [
-                    "ff_sulfurLevel",
-                    "f"
-                  ]
-                },
-                "substitute_value": {
-                  "op": "index",
-                  "args": [
-                    "e10_sulfurLevel",
-                    "p"
+                    "mag_groupShare",
+                    "m",
+                    "am"
                   ]
                 }
-              }
+              ]
             }
           }
         },
@@ -74033,6 +74545,9 @@
               },
               "x": {
                 "from": "runspeccountyyear_rows"
+              },
+              "am": {
+                "from": "aggregationmonth_rows"
               }
             },
             "join": [
@@ -74043,7 +74558,7 @@
                     "e10_fuelRegionID"
                   ],
                   [
-                    "run_monthGroupID",
+                    "amo_monthGroupID",
                     "e10_monthGroupID"
                   ],
                   [
@@ -74066,32 +74581,45 @@
               }
             ],
             "expr": {
-              "op": "apply_expression_template",
-              "args": [],
-              "name": "high_ethanol_property",
-              "bindings": {
-                "is_high_ethanol": {
-                  "op": "index",
-                  "args": [
-                    "ff_isHighEthanol",
-                    "f"
-                  ]
+              "op": "*",
+              "args": [
+                {
+                  "op": "apply_expression_template",
+                  "args": [],
+                  "name": "high_ethanol_property",
+                  "bindings": {
+                    "is_high_ethanol": {
+                      "op": "index",
+                      "args": [
+                        "ff_isHighEthanol",
+                        "f"
+                      ]
+                    },
+                    "own_value": {
+                      "op": "index",
+                      "args": [
+                        "ff_ETOHVolume",
+                        "f"
+                      ]
+                    },
+                    "substitute_value": {
+                      "op": "index",
+                      "args": [
+                        "e10_ETOHVolume",
+                        "p"
+                      ]
+                    }
+                  }
                 },
-                "own_value": {
+                {
                   "op": "index",
                   "args": [
-                    "ff_ETOHVolume",
-                    "f"
-                  ]
-                },
-                "substitute_value": {
-                  "op": "index",
-                  "args": [
-                    "e10_ETOHVolume",
-                    "p"
+                    "mag_groupShare",
+                    "m",
+                    "am"
                   ]
                 }
-              }
+              ]
             }
           }
         },
@@ -74125,6 +74653,9 @@
               },
               "x": {
                 "from": "runspeccountyyear_rows"
+              },
+              "am": {
+                "from": "aggregationmonth_rows"
               }
             },
             "join": [
@@ -74135,7 +74666,7 @@
                     "e10_fuelRegionID"
                   ],
                   [
-                    "run_monthGroupID",
+                    "amo_monthGroupID",
                     "e10_monthGroupID"
                   ],
                   [
@@ -74158,32 +74689,45 @@
               }
             ],
             "expr": {
-              "op": "apply_expression_template",
-              "args": [],
-              "name": "high_ethanol_property",
-              "bindings": {
-                "is_high_ethanol": {
-                  "op": "index",
-                  "args": [
-                    "ff_isHighEthanol",
-                    "f"
-                  ]
+              "op": "*",
+              "args": [
+                {
+                  "op": "apply_expression_template",
+                  "args": [],
+                  "name": "high_ethanol_property",
+                  "bindings": {
+                    "is_high_ethanol": {
+                      "op": "index",
+                      "args": [
+                        "ff_isHighEthanol",
+                        "f"
+                      ]
+                    },
+                    "own_value": {
+                      "op": "index",
+                      "args": [
+                        "ff_aromaticContent",
+                        "f"
+                      ]
+                    },
+                    "substitute_value": {
+                      "op": "index",
+                      "args": [
+                        "e10_aromaticContent",
+                        "p"
+                      ]
+                    }
+                  }
                 },
-                "own_value": {
+                {
                   "op": "index",
                   "args": [
-                    "ff_aromaticContent",
-                    "f"
-                  ]
-                },
-                "substitute_value": {
-                  "op": "index",
-                  "args": [
-                    "e10_aromaticContent",
-                    "p"
+                    "mag_groupShare",
+                    "m",
+                    "am"
                   ]
                 }
-              }
+              ]
             }
           }
         },
@@ -74217,6 +74761,9 @@
               },
               "x": {
                 "from": "runspeccountyyear_rows"
+              },
+              "am": {
+                "from": "aggregationmonth_rows"
               }
             },
             "join": [
@@ -74227,7 +74774,7 @@
                     "e10_fuelRegionID"
                   ],
                   [
-                    "run_monthGroupID",
+                    "amo_monthGroupID",
                     "e10_monthGroupID"
                   ],
                   [
@@ -74250,32 +74797,45 @@
               }
             ],
             "expr": {
-              "op": "apply_expression_template",
-              "args": [],
-              "name": "high_ethanol_property",
-              "bindings": {
-                "is_high_ethanol": {
-                  "op": "index",
-                  "args": [
-                    "ff_isHighEthanol",
-                    "f"
-                  ]
+              "op": "*",
+              "args": [
+                {
+                  "op": "apply_expression_template",
+                  "args": [],
+                  "name": "high_ethanol_property",
+                  "bindings": {
+                    "is_high_ethanol": {
+                      "op": "index",
+                      "args": [
+                        "ff_isHighEthanol",
+                        "f"
+                      ]
+                    },
+                    "own_value": {
+                      "op": "index",
+                      "args": [
+                        "ff_T50",
+                        "f"
+                      ]
+                    },
+                    "substitute_value": {
+                      "op": "index",
+                      "args": [
+                        "e10_T50",
+                        "p"
+                      ]
+                    }
+                  }
                 },
-                "own_value": {
+                {
                   "op": "index",
                   "args": [
-                    "ff_T50",
-                    "f"
-                  ]
-                },
-                "substitute_value": {
-                  "op": "index",
-                  "args": [
-                    "e10_T50",
-                    "p"
+                    "mag_groupShare",
+                    "m",
+                    "am"
                   ]
                 }
-              }
+              ]
             }
           }
         },
@@ -74309,6 +74869,9 @@
               },
               "x": {
                 "from": "runspeccountyyear_rows"
+              },
+              "am": {
+                "from": "aggregationmonth_rows"
               }
             },
             "join": [
@@ -74319,7 +74882,7 @@
                     "e10_fuelRegionID"
                   ],
                   [
-                    "run_monthGroupID",
+                    "amo_monthGroupID",
                     "e10_monthGroupID"
                   ],
                   [
@@ -74342,32 +74905,45 @@
               }
             ],
             "expr": {
-              "op": "apply_expression_template",
-              "args": [],
-              "name": "high_ethanol_property",
-              "bindings": {
-                "is_high_ethanol": {
-                  "op": "index",
-                  "args": [
-                    "ff_isHighEthanol",
-                    "f"
-                  ]
+              "op": "*",
+              "args": [
+                {
+                  "op": "apply_expression_template",
+                  "args": [],
+                  "name": "high_ethanol_property",
+                  "bindings": {
+                    "is_high_ethanol": {
+                      "op": "index",
+                      "args": [
+                        "ff_isHighEthanol",
+                        "f"
+                      ]
+                    },
+                    "own_value": {
+                      "op": "index",
+                      "args": [
+                        "ff_T90",
+                        "f"
+                      ]
+                    },
+                    "substitute_value": {
+                      "op": "index",
+                      "args": [
+                        "e10_T90",
+                        "p"
+                      ]
+                    }
+                  }
                 },
-                "own_value": {
+                {
                   "op": "index",
                   "args": [
-                    "ff_T90",
-                    "f"
-                  ]
-                },
-                "substitute_value": {
-                  "op": "index",
-                  "args": [
-                    "e10_T90",
-                    "p"
+                    "mag_groupShare",
+                    "m",
+                    "am"
                   ]
                 }
-              }
+              ]
             }
           }
         },
@@ -77765,6 +78341,9 @@
               },
               "x": {
                 "from": "runspeccountyyear_rows"
+              },
+              "am": {
+                "from": "aggregationmonth_rows"
               }
             },
             "join": [
@@ -77775,7 +78354,7 @@
                     "e10_fuelRegionID"
                   ],
                   [
-                    "run_monthGroupID",
+                    "amo_monthGroupID",
                     "e10_monthGroupID"
                   ],
                   [
@@ -77798,32 +78377,45 @@
               }
             ],
             "expr": {
-              "op": "apply_expression_template",
-              "args": [],
-              "name": "high_ethanol_property",
-              "bindings": {
-                "is_high_ethanol": {
-                  "op": "index",
-                  "args": [
-                    "ff_isHighEthanol",
-                    "f"
-                  ]
+              "op": "*",
+              "args": [
+                {
+                  "op": "apply_expression_template",
+                  "args": [],
+                  "name": "high_ethanol_property",
+                  "bindings": {
+                    "is_high_ethanol": {
+                      "op": "index",
+                      "args": [
+                        "ff_isHighEthanol",
+                        "f"
+                      ]
+                    },
+                    "own_value": {
+                      "op": "index",
+                      "args": [
+                        "ff_olefinContent",
+                        "f"
+                      ]
+                    },
+                    "substitute_value": {
+                      "op": "index",
+                      "args": [
+                        "e10_olefinContent",
+                        "p"
+                      ]
+                    }
+                  }
                 },
-                "own_value": {
+                {
                   "op": "index",
                   "args": [
-                    "ff_olefinContent",
-                    "f"
-                  ]
-                },
-                "substitute_value": {
-                  "op": "index",
-                  "args": [
-                    "e10_olefinContent",
-                    "p"
+                    "mag_groupShare",
+                    "m",
+                    "am"
                   ]
                 }
-              }
+              ]
             }
           }
         },
@@ -77857,6 +78449,9 @@
               },
               "x": {
                 "from": "runspeccountyyear_rows"
+              },
+              "am": {
+                "from": "aggregationmonth_rows"
               }
             },
             "join": [
@@ -77867,7 +78462,7 @@
                     "e10_fuelRegionID"
                   ],
                   [
-                    "run_monthGroupID",
+                    "amo_monthGroupID",
                     "e10_monthGroupID"
                   ],
                   [
@@ -77890,32 +78485,45 @@
               }
             ],
             "expr": {
-              "op": "apply_expression_template",
-              "args": [],
-              "name": "high_ethanol_property",
-              "bindings": {
-                "is_high_ethanol": {
-                  "op": "index",
-                  "args": [
-                    "ff_isHighEthanol",
-                    "f"
-                  ]
+              "op": "*",
+              "args": [
+                {
+                  "op": "apply_expression_template",
+                  "args": [],
+                  "name": "high_ethanol_property",
+                  "bindings": {
+                    "is_high_ethanol": {
+                      "op": "index",
+                      "args": [
+                        "ff_isHighEthanol",
+                        "f"
+                      ]
+                    },
+                    "own_value": {
+                      "op": "index",
+                      "args": [
+                        "ff_e200",
+                        "f"
+                      ]
+                    },
+                    "substitute_value": {
+                      "op": "index",
+                      "args": [
+                        "e10_e200",
+                        "p"
+                      ]
+                    }
+                  }
                 },
-                "own_value": {
+                {
                   "op": "index",
                   "args": [
-                    "ff_e200",
-                    "f"
-                  ]
-                },
-                "substitute_value": {
-                  "op": "index",
-                  "args": [
-                    "e10_e200",
-                    "p"
+                    "mag_groupShare",
+                    "m",
+                    "am"
                   ]
                 }
-              }
+              ]
             }
           }
         },
@@ -77949,6 +78557,9 @@
               },
               "x": {
                 "from": "runspeccountyyear_rows"
+              },
+              "am": {
+                "from": "aggregationmonth_rows"
               }
             },
             "join": [
@@ -77959,7 +78570,7 @@
                     "e10_fuelRegionID"
                   ],
                   [
-                    "run_monthGroupID",
+                    "amo_monthGroupID",
                     "e10_monthGroupID"
                   ],
                   [
@@ -77982,32 +78593,45 @@
               }
             ],
             "expr": {
-              "op": "apply_expression_template",
-              "args": [],
-              "name": "high_ethanol_property",
-              "bindings": {
-                "is_high_ethanol": {
-                  "op": "index",
-                  "args": [
-                    "ff_isHighEthanol",
-                    "f"
-                  ]
+              "op": "*",
+              "args": [
+                {
+                  "op": "apply_expression_template",
+                  "args": [],
+                  "name": "high_ethanol_property",
+                  "bindings": {
+                    "is_high_ethanol": {
+                      "op": "index",
+                      "args": [
+                        "ff_isHighEthanol",
+                        "f"
+                      ]
+                    },
+                    "own_value": {
+                      "op": "index",
+                      "args": [
+                        "ff_e300",
+                        "f"
+                      ]
+                    },
+                    "substitute_value": {
+                      "op": "index",
+                      "args": [
+                        "e10_e300",
+                        "p"
+                      ]
+                    }
+                  }
                 },
-                "own_value": {
+                {
                   "op": "index",
                   "args": [
-                    "ff_e300",
-                    "f"
-                  ]
-                },
-                "substitute_value": {
-                  "op": "index",
-                  "args": [
-                    "e10_e300",
-                    "p"
+                    "mag_groupShare",
+                    "m",
+                    "am"
                   ]
                 }
-              }
+              ]
             }
           }
         },
@@ -78042,6 +78666,9 @@
               },
               "x": {
                 "from": "runspeccountyyear_rows"
+              },
+              "am": {
+                "from": "aggregationmonth_rows"
               }
             },
             "join": [
@@ -78052,7 +78679,7 @@
                     "e10_fuelRegionID"
                   ],
                   [
-                    "run_monthGroupID",
+                    "amo_monthGroupID",
                     "e10_monthGroupID"
                   ],
                   [
@@ -78075,32 +78702,45 @@
               }
             ],
             "expr": {
-              "op": "apply_expression_template",
-              "args": [],
-              "name": "high_ethanol_property",
-              "bindings": {
-                "is_high_ethanol": {
-                  "op": "index",
-                  "args": [
-                    "ff_isHighEthanol",
-                    "f"
-                  ]
+              "op": "*",
+              "args": [
+                {
+                  "op": "apply_expression_template",
+                  "args": [],
+                  "name": "high_ethanol_property",
+                  "bindings": {
+                    "is_high_ethanol": {
+                      "op": "index",
+                      "args": [
+                        "ff_isHighEthanol",
+                        "f"
+                      ]
+                    },
+                    "own_value": {
+                      "op": "index",
+                      "args": [
+                        "ff_benzeneContent",
+                        "f"
+                      ]
+                    },
+                    "substitute_value": {
+                      "op": "index",
+                      "args": [
+                        "e10_benzeneContent",
+                        "p"
+                      ]
+                    }
+                  }
                 },
-                "own_value": {
+                {
                   "op": "index",
                   "args": [
-                    "ff_benzeneContent",
-                    "f"
-                  ]
-                },
-                "substitute_value": {
-                  "op": "index",
-                  "args": [
-                    "e10_benzeneContent",
-                    "p"
+                    "mag_groupShare",
+                    "m",
+                    "am"
                   ]
                 }
-              }
+              ]
             }
           }
         },
@@ -78135,6 +78775,9 @@
               },
               "x": {
                 "from": "runspeccountyyear_rows"
+              },
+              "am": {
+                "from": "aggregationmonth_rows"
               }
             },
             "join": [
@@ -78145,7 +78788,7 @@
                     "e10_fuelRegionID"
                   ],
                   [
-                    "run_monthGroupID",
+                    "amo_monthGroupID",
                     "e10_monthGroupID"
                   ],
                   [
@@ -78168,32 +78811,45 @@
               }
             ],
             "expr": {
-              "op": "apply_expression_template",
-              "args": [],
-              "name": "high_ethanol_property",
-              "bindings": {
-                "is_high_ethanol": {
-                  "op": "index",
-                  "args": [
-                    "ff_isHighEthanol",
-                    "f"
-                  ]
+              "op": "*",
+              "args": [
+                {
+                  "op": "apply_expression_template",
+                  "args": [],
+                  "name": "high_ethanol_property",
+                  "bindings": {
+                    "is_high_ethanol": {
+                      "op": "index",
+                      "args": [
+                        "ff_isHighEthanol",
+                        "f"
+                      ]
+                    },
+                    "own_value": {
+                      "op": "index",
+                      "args": [
+                        "ff_MTBEVolume",
+                        "f"
+                      ]
+                    },
+                    "substitute_value": {
+                      "op": "index",
+                      "args": [
+                        "e10_MTBEVolume",
+                        "p"
+                      ]
+                    }
+                  }
                 },
-                "own_value": {
+                {
                   "op": "index",
                   "args": [
-                    "ff_MTBEVolume",
-                    "f"
-                  ]
-                },
-                "substitute_value": {
-                  "op": "index",
-                  "args": [
-                    "e10_MTBEVolume",
-                    "p"
+                    "mag_groupShare",
+                    "m",
+                    "am"
                   ]
                 }
-              }
+              ]
             }
           }
         },
@@ -78227,6 +78883,9 @@
               },
               "x": {
                 "from": "runspeccountyyear_rows"
+              },
+              "am": {
+                "from": "aggregationmonth_rows"
               }
             },
             "join": [
@@ -78237,7 +78896,7 @@
                     "e10_fuelRegionID"
                   ],
                   [
-                    "run_monthGroupID",
+                    "amo_monthGroupID",
                     "e10_monthGroupID"
                   ],
                   [
@@ -78260,32 +78919,45 @@
               }
             ],
             "expr": {
-              "op": "apply_expression_template",
-              "args": [],
-              "name": "high_ethanol_property",
-              "bindings": {
-                "is_high_ethanol": {
-                  "op": "index",
-                  "args": [
-                    "ff_isHighEthanol",
-                    "f"
-                  ]
+              "op": "*",
+              "args": [
+                {
+                  "op": "apply_expression_template",
+                  "args": [],
+                  "name": "high_ethanol_property",
+                  "bindings": {
+                    "is_high_ethanol": {
+                      "op": "index",
+                      "args": [
+                        "ff_isHighEthanol",
+                        "f"
+                      ]
+                    },
+                    "own_value": {
+                      "op": "index",
+                      "args": [
+                        "ff_ETBEVolume",
+                        "f"
+                      ]
+                    },
+                    "substitute_value": {
+                      "op": "index",
+                      "args": [
+                        "e10_ETBEVolume",
+                        "p"
+                      ]
+                    }
+                  }
                 },
-                "own_value": {
+                {
                   "op": "index",
                   "args": [
-                    "ff_ETBEVolume",
-                    "f"
-                  ]
-                },
-                "substitute_value": {
-                  "op": "index",
-                  "args": [
-                    "e10_ETBEVolume",
-                    "p"
+                    "mag_groupShare",
+                    "m",
+                    "am"
                   ]
                 }
-              }
+              ]
             }
           }
         },
@@ -81792,6 +82464,9 @@
               },
               "x": {
                 "from": "runspeccountyyear_rows"
+              },
+              "am": {
+                "from": "aggregationmonth_rows"
               }
             },
             "join": [
@@ -81810,7 +82485,7 @@
                     "fs_fuelRegionID"
                   ],
                   [
-                    "run_monthGroupID",
+                    "amo_monthGroupID",
                     "fs_monthGroupID"
                   ],
                   [
@@ -81852,19 +82527,47 @@
               "op": "*",
               "args": [
                 {
-                  "op": "index",
+                  "op": "*",
                   "args": [
-                    "fs_marketShare",
-                    "v"
+                    {
+                      "op": "*",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "fs_marketShare",
+                            "v"
+                          ]
+                        },
+                        {
+                          "op": "index",
+                          "args": [
+                            "cmx_ratio",
+                            "h",
+                            "s",
+                            "a",
+                            "g",
+                            "m",
+                            "f",
+                            "cy"
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "mag_groupSum",
+                        "m",
+                        "am"
+                      ]
+                    }
                   ]
                 },
                 {
                   "op": "index",
                   "args": [
-                    "cmx_ratio",
-                    "h",
-                    "s",
-                    "a",
+                    "ffsup_normalizer",
                     "g",
                     "m",
                     "f",
@@ -81895,6 +82598,9 @@
               },
               "e": {
                 "from": "atbaseemissions_rows"
+              },
+              "am": {
+                "from": "aggregationmonth_rows"
               }
             },
             "join": [
@@ -81905,17 +82611,30 @@
                     "abe_polProcessID"
                   ],
                   [
-                    "run_monthGroupID",
+                    "amo_monthGroupID",
                     "abe_monthGroupID"
                   ]
                 ]
               }
             ],
             "expr": {
-              "op": "index",
+              "op": "*",
               "args": [
-                "abe_atBaseEmissions",
-                "e"
+                {
+                  "op": "index",
+                  "args": [
+                    "abe_atBaseEmissions",
+                    "e"
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "mag_groupShare",
+                    "m",
+                    "am"
+                  ]
+                }
               ]
             }
           }
@@ -85426,7 +86145,7 @@
                 {
                   "op": "index",
                   "args": [
-                    "ffsup_marketShare",
+                    "ffsup_suppliedShare",
                     "g",
                     "m",
                     "f",
@@ -85500,7 +86219,7 @@
                 {
                   "op": "index",
                   "args": [
-                    "ffsup_marketShare",
+                    "ffsup_suppliedShare",
                     "g",
                     "m",
                     "f",
@@ -92852,29 +93571,41 @@
               }
             },
             "expr": {
-              "op": "/",
+              "op": "*",
               "args": [
                 {
-                  "op": "*",
+                  "op": "/",
                   "args": [
                     {
-                      "op": "index",
+                      "op": "*",
                       "args": [
-                        "rtDay_adjustedMeanBaseRate",
-                        "b",
-                        "k",
-                        "g",
-                        "m"
+                        {
+                          "op": "index",
+                          "args": [
+                            "rtDay_adjustedMeanBaseRate",
+                            "b",
+                            "k",
+                            "g",
+                            "m"
+                          ]
+                        },
+                        {
+                          "op": "index",
+                          "args": [
+                            "rtDay_activity",
+                            "b",
+                            "k",
+                            "g",
+                            "m"
+                          ]
+                        }
                       ]
                     },
                     {
                       "op": "index",
                       "args": [
-                        "rtDay_activity",
-                        "b",
-                        "k",
-                        "g",
-                        "m"
+                        "rt_unitDivisor",
+                        "b"
                       ]
                     }
                   ]
@@ -92882,8 +93613,10 @@
                 {
                   "op": "index",
                   "args": [
-                    "rt_unitDivisor",
-                    "b"
+                    "rt_fuelSupplyScale",
+                    "b",
+                    "g",
+                    "m"
                   ]
                 }
               ]
@@ -99630,56 +100363,104 @@
                           "op": "or",
                           "args": [
                             {
-                              "op": "==",
+                              "op": "or",
                               "args": [
                                 {
-                                  "op": "index",
+                                  "op": "==",
                                   "args": [
-                                    "rspp_processID",
-                                    "p"
+                                    {
+                                      "op": "index",
+                                      "args": [
+                                        "rspp_processID",
+                                        "p"
+                                      ]
+                                    },
+                                    {
+                                      "op": "enum",
+                                      "args": [
+                                        "process",
+                                        "RunningExhaust"
+                                      ]
+                                    }
                                   ]
                                 },
                                 {
-                                  "op": "enum",
+                                  "op": "==",
                                   "args": [
-                                    "process",
-                                    "RunningExhaust"
+                                    {
+                                      "op": "index",
+                                      "args": [
+                                        "rspp_processID",
+                                        "p"
+                                      ]
+                                    },
+                                    {
+                                      "op": "enum",
+                                      "args": [
+                                        "process",
+                                        "CrankcaseRunningExhaust"
+                                      ]
+                                    }
                                   ]
                                 }
                               ]
                             },
                             {
-                              "op": "==",
+                              "op": ">",
                               "args": [
                                 {
                                   "op": "index",
                                   "args": [
-                                    "rspp_processID",
+                                    "rspp_usesEvapModes",
                                     "p"
                                   ]
                                 },
-                                {
-                                  "op": "enum",
-                                  "args": [
-                                    "process",
-                                    "CrankcaseRunningExhaust"
-                                  ]
-                                }
+                                0.5
                               ]
                             }
                           ]
                         },
                         {
-                          "op": ">",
+                          "op": "or",
                           "args": [
                             {
-                              "op": "index",
+                              "op": "==",
                               "args": [
-                                "rspp_usesEvapModes",
-                                "p"
+                                {
+                                  "op": "index",
+                                  "args": [
+                                    "rspp_processID",
+                                    "p"
+                                  ]
+                                },
+                                {
+                                  "op": "enum",
+                                  "args": [
+                                    "process",
+                                    "Brakewear"
+                                  ]
+                                }
                               ]
                             },
-                            0.5
+                            {
+                              "op": "==",
+                              "args": [
+                                {
+                                  "op": "index",
+                                  "args": [
+                                    "rspp_processID",
+                                    "p"
+                                  ]
+                                },
+                                {
+                                  "op": "enum",
+                                  "args": [
+                                    "process",
+                                    "Tirewear"
+                                  ]
+                                }
+                              ]
+                            }
                           ]
                         }
                       ]
@@ -99953,6 +100734,9 @@
               },
               "a": {
                 "from": "actday_rows"
+              },
+              "am": {
+                "from": "aggregationmonth_rows"
               }
             },
             "join": [
@@ -99979,7 +100763,7 @@
                     "dvf_sourceTypeID"
                   ],
                   [
-                    "run_monthID",
+                    "amo_monthID",
                     "dvf_monthID"
                   ],
                   [
@@ -100021,18 +100805,18 @@
               "op": "*",
               "args": [
                 {
-                  "op": "index",
-                  "args": [
-                    "tcell_actDayMatch",
-                    "k",
-                    "a"
-                  ]
-                },
-                {
-                  "op": "/",
+                  "op": "*",
                   "args": [
                     {
-                      "op": "*",
+                      "op": "index",
+                      "args": [
+                        "tcell_actDayMatch",
+                        "k",
+                        "a"
+                      ]
+                    },
+                    {
+                      "op": "/",
                       "args": [
                         {
                           "op": "*",
@@ -100044,18 +100828,31 @@
                                   "op": "*",
                                   "args": [
                                     {
-                                      "op": "index",
+                                      "op": "*",
                                       "args": [
-                                        "run_analysisYearVMT",
-                                        "s",
-                                        "cy"
+                                        {
+                                          "op": "index",
+                                          "args": [
+                                            "run_analysisYearVMT",
+                                            "s",
+                                            "cy"
+                                          ]
+                                        },
+                                        {
+                                          "op": "index",
+                                          "args": [
+                                            "rtd_roadTypeVMTFraction",
+                                            "q"
+                                          ]
+                                        }
                                       ]
                                     },
                                     {
                                       "op": "index",
                                       "args": [
-                                        "rtd_roadTypeVMTFraction",
-                                        "q"
+                                        "act_travelFraction",
+                                        "r",
+                                        "s"
                                       ]
                                     }
                                   ]
@@ -100063,51 +100860,51 @@
                                 {
                                   "op": "index",
                                   "args": [
-                                    "act_travelFraction",
-                                    "r",
-                                    "s"
+                                    "run_monthVMTFraction",
+                                    "s",
+                                    "m"
                                   ]
                                 }
                               ]
                             },
                             {
-                              "op": "index",
+                              "op": "*",
                               "args": [
-                                "run_monthVMTFraction",
-                                "s",
-                                "m"
+                                {
+                                  "op": "index",
+                                  "args": [
+                                    "dvf_dayVMTFraction",
+                                    "v"
+                                  ]
+                                },
+                                {
+                                  "op": "index",
+                                  "args": [
+                                    "hvf_hourVMTFraction",
+                                    "u"
+                                  ]
+                                }
                               ]
                             }
                           ]
                         },
                         {
-                          "op": "*",
+                          "op": "index",
                           "args": [
-                            {
-                              "op": "index",
-                              "args": [
-                                "dvf_dayVMTFraction",
-                                "v"
-                              ]
-                            },
-                            {
-                              "op": "index",
-                              "args": [
-                                "hvf_hourVMTFraction",
-                                "u"
-                              ]
-                            }
+                            "run_weeksPerMonth",
+                            "m"
                           ]
                         }
                       ]
-                    },
-                    {
-                      "op": "index",
-                      "args": [
-                        "run_weeksPerMonth",
-                        "m"
-                      ]
                     }
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "mag_meanShare",
+                    "m",
+                    "am"
                   ]
                 }
               ]
@@ -102605,7 +103402,7 @@
           }
         },
         {
-          "lhs": "hot_monthAdjustRows",
+          "lhs": "hot_ownMonthAdjustRows",
           "rhs": {
             "op": "faq",
             "args": [],
@@ -102647,7 +103444,7 @@
           }
         },
         {
-          "lhs": "hot_monthAdjustStated",
+          "lhs": "hot_ownMonthAdjustStated",
           "rhs": {
             "op": "faq",
             "args": [],
@@ -106890,10 +107687,28 @@
                       ]
                     },
                     {
-                      "op": "index",
+                      "op": "+",
                       "args": [
-                        "run_evapSelected",
-                        "n"
+                        {
+                          "op": "index",
+                          "args": [
+                            "run_evapSelected",
+                            "n"
+                          ]
+                        },
+                        {
+                          "op": "*",
+                          "args": [
+                            "n_aggregatesMonths",
+                            {
+                              "op": "index",
+                              "args": [
+                                "run_yearUnportedSelected",
+                                "n"
+                              ]
+                            }
+                          ]
+                        }
                       ]
                     }
                   ]
@@ -113980,7 +114795,7 @@
           }
         },
         {
-          "lhs": "st_monthAdjustment",
+          "lhs": "st_ownMonthAdjustment",
           "rhs": {
             "op": "faq",
             "args": [],
@@ -116131,6 +116946,1451 @@
                 "s",
                 "d"
               ]
+            }
+          }
+        },
+        {
+          "lhs": "amo_monthGroupID",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "am"
+            ],
+            "ranges": {
+              "am": {
+                "from": "aggregationmonth_rows"
+              },
+              "y": {
+                "from": "monthofanyyear_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "amo_monthID",
+                    "moy_monthID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "moy_monthGroupID",
+                "y"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "amo_monthVMTFraction",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "s",
+              "am"
+            ],
+            "ranges": {
+              "s": {
+                "from": "runspecsourcetype_rows"
+              },
+              "am": {
+                "from": "aggregationmonth_rows"
+              },
+              "v": {
+                "from": "monthvmtfraction_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rst_sourceTypeID",
+                    "mvf_sourceTypeID"
+                  ],
+                  [
+                    "amo_monthID",
+                    "mvf_monthID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "mvf_monthVMTFraction",
+                "v"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "amo_monthVMTRows",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "s",
+              "am"
+            ],
+            "ranges": {
+              "s": {
+                "from": "runspecsourcetype_rows"
+              },
+              "am": {
+                "from": "aggregationmonth_rows"
+              },
+              "v": {
+                "from": "monthvmtfraction_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rst_sourceTypeID",
+                    "mvf_sourceTypeID"
+                  ],
+                  [
+                    "amo_monthID",
+                    "mvf_monthID"
+                  ]
+                ]
+              }
+            ],
+            "expr": 1.0
+          }
+        },
+        {
+          "lhs": "mag_isOwnMonth",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "m",
+              "am"
+            ],
+            "ranges": {
+              "m": {
+                "from": "runspecmonth_rows"
+              },
+              "am": {
+                "from": "aggregationmonth_rows"
+              }
+            },
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                {
+                  "op": "==",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "amo_monthID",
+                        "am"
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "run_monthID",
+                        "m"
+                      ]
+                    }
+                  ]
+                },
+                1.0,
+                0.0
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "mag_collects",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "m",
+              "am"
+            ],
+            "ranges": {
+              "m": {
+                "from": "runspecmonth_rows"
+              },
+              "am": {
+                "from": "aggregationmonth_rows"
+              }
+            },
+            "expr": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "year_value_or_own",
+              "bindings": {
+                "aggregates_months": "n_aggregatesMonths",
+                "year_value": 1.0,
+                "own_value": {
+                  "op": "index",
+                  "args": [
+                    "mag_isOwnMonth",
+                    "m",
+                    "am"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "lhs": "mag_sourceTypeMonthTotal",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "s"
+            ],
+            "ranges": {
+              "s": {
+                "from": "runspecsourcetype_rows"
+              },
+              "m": {
+                "from": "runspecmonth_rows"
+              },
+              "am": {
+                "from": "aggregationmonth_rows"
+              }
+            },
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "mag_collects",
+                    "m",
+                    "am"
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "amo_monthVMTFraction",
+                    "s",
+                    "am"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "mag_sourceTypeMonthRows",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "s"
+            ],
+            "ranges": {
+              "s": {
+                "from": "runspecsourcetype_rows"
+              },
+              "m": {
+                "from": "runspecmonth_rows"
+              },
+              "am": {
+                "from": "aggregationmonth_rows"
+              }
+            },
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "mag_collects",
+                    "m",
+                    "am"
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "amo_monthVMTRows",
+                    "s",
+                    "am"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "mag_monthWeightingSourceTypeID",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "max_sum",
+            "output_idx": [
+              "n"
+            ],
+            "ranges": {
+              "n": {
+                "from": "run_rows"
+              },
+              "s": {
+                "from": "runspecsourcetype_rows"
+              }
+            },
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                {
+                  "op": ">",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "mag_sourceTypeMonthTotal",
+                        "s"
+                      ]
+                    },
+                    0.0
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "rst_sourceTypeID",
+                    "s"
+                  ]
+                },
+                0.0
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "mag_isMonthWeightingSourceType",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "s"
+            ],
+            "ranges": {
+              "s": {
+                "from": "runspecsourcetype_rows"
+              },
+              "n": {
+                "from": "run_rows"
+              }
+            },
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                {
+                  "op": "==",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "rst_sourceTypeID",
+                        "s"
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "mag_monthWeightingSourceTypeID",
+                        "n"
+                      ]
+                    }
+                  ]
+                },
+                1.0,
+                0.0
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "mag_sourceTypeOrder",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "s"
+            ],
+            "ranges": {
+              "s": {
+                "from": "runspecsourcetype_rows"
+              }
+            },
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                {
+                  "op": ">",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "mag_sourceTypeMonthTotal",
+                        "s"
+                      ]
+                    },
+                    0.0
+                  ]
+                },
+                {
+                  "op": "apply_expression_template",
+                  "args": [],
+                  "name": "preaggregation_source_type_order",
+                  "bindings": {
+                    "source_type_id": {
+                      "op": "index",
+                      "args": [
+                        "rst_sourceTypeID",
+                        "s"
+                      ]
+                    }
+                  }
+                },
+                {
+                  "op": "apply_expression_template",
+                  "args": [],
+                  "name": "preaggregation_source_type_order_none",
+                  "bindings": {}
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "mag_groupWeightingOrder",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "min_sum",
+            "output_idx": [
+              "n"
+            ],
+            "ranges": {
+              "n": {
+                "from": "run_rows"
+              },
+              "s": {
+                "from": "runspecsourcetype_rows"
+              }
+            },
+            "expr": {
+              "op": "index",
+              "args": [
+                "mag_sourceTypeOrder",
+                "s"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "mag_isGroupWeightingSourceType",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "s"
+            ],
+            "ranges": {
+              "s": {
+                "from": "runspecsourcetype_rows"
+              },
+              "n": {
+                "from": "run_rows"
+              }
+            },
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                {
+                  "op": "==",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "mag_sourceTypeOrder",
+                        "s"
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "mag_groupWeightingOrder",
+                        "n"
+                      ]
+                    }
+                  ]
+                },
+                1.0,
+                0.0
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "mag_monthWeight",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "am"
+            ],
+            "ranges": {
+              "am": {
+                "from": "aggregationmonth_rows"
+              },
+              "s": {
+                "from": "runspecsourcetype_rows"
+              }
+            },
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "mag_isMonthWeightingSourceType",
+                    "s"
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "amo_monthVMTFraction",
+                    "s",
+                    "am"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "mag_groupWeight",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "am"
+            ],
+            "ranges": {
+              "am": {
+                "from": "aggregationmonth_rows"
+              },
+              "s": {
+                "from": "runspecsourcetype_rows"
+              }
+            },
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "mag_isGroupWeightingSourceType",
+                    "s"
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "amo_monthVMTFraction",
+                    "s",
+                    "am"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "mag_monthWeightTotal",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "m"
+            ],
+            "ranges": {
+              "m": {
+                "from": "runspecmonth_rows"
+              },
+              "am": {
+                "from": "aggregationmonth_rows"
+              }
+            },
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "mag_collects",
+                    "m",
+                    "am"
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "mag_monthWeight",
+                    "am"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "mag_groupWeightTotal",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "m"
+            ],
+            "ranges": {
+              "m": {
+                "from": "runspecmonth_rows"
+              },
+              "am": {
+                "from": "aggregationmonth_rows"
+              }
+            },
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "mag_collects",
+                    "m",
+                    "am"
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "mag_groupWeight",
+                    "am"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "mag_meanShare",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "m",
+              "am"
+            ],
+            "ranges": {
+              "m": {
+                "from": "runspecmonth_rows"
+              },
+              "am": {
+                "from": "aggregationmonth_rows"
+              }
+            },
+            "expr": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "month_cell_share",
+              "bindings": {
+                "aggregates_months": "n_aggregatesMonths",
+                "is_own_month": {
+                  "op": "index",
+                  "args": [
+                    "mag_isOwnMonth",
+                    "m",
+                    "am"
+                  ]
+                },
+                "weight": {
+                  "op": "*",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "mag_collects",
+                        "m",
+                        "am"
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "mag_monthWeight",
+                        "am"
+                      ]
+                    }
+                  ]
+                },
+                "weight_total": {
+                  "op": "index",
+                  "args": [
+                    "mag_monthWeightTotal",
+                    "m"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "lhs": "mag_groupShare",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "m",
+              "am"
+            ],
+            "ranges": {
+              "m": {
+                "from": "runspecmonth_rows"
+              },
+              "am": {
+                "from": "aggregationmonth_rows"
+              }
+            },
+            "expr": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "month_cell_share",
+              "bindings": {
+                "aggregates_months": "n_aggregatesMonths",
+                "is_own_month": {
+                  "op": "index",
+                  "args": [
+                    "mag_isOwnMonth",
+                    "m",
+                    "am"
+                  ]
+                },
+                "weight": {
+                  "op": "*",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "mag_collects",
+                        "m",
+                        "am"
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "mag_groupWeight",
+                        "am"
+                      ]
+                    }
+                  ]
+                },
+                "weight_total": {
+                  "op": "index",
+                  "args": [
+                    "mag_groupWeightTotal",
+                    "m"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "lhs": "mag_groupSum",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "m",
+              "am"
+            ],
+            "ranges": {
+              "m": {
+                "from": "runspecmonth_rows"
+              },
+              "am": {
+                "from": "aggregationmonth_rows"
+              }
+            },
+            "expr": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "year_value_or_own",
+              "bindings": {
+                "aggregates_months": "n_aggregatesMonths",
+                "year_value": {
+                  "op": "*",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "mag_collects",
+                        "m",
+                        "am"
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "mag_groupWeight",
+                        "am"
+                      ]
+                    }
+                  ]
+                },
+                "own_value": {
+                  "op": "index",
+                  "args": [
+                    "mag_isOwnMonth",
+                    "m",
+                    "am"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "lhs": "mag_sourceSum",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "s",
+              "m",
+              "am"
+            ],
+            "ranges": {
+              "s": {
+                "from": "runspecsourcetype_rows"
+              },
+              "m": {
+                "from": "runspecmonth_rows"
+              },
+              "am": {
+                "from": "aggregationmonth_rows"
+              }
+            },
+            "expr": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "year_value_or_own",
+              "bindings": {
+                "aggregates_months": "n_aggregatesMonths",
+                "year_value": {
+                  "op": "*",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "mag_collects",
+                        "m",
+                        "am"
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "amo_monthVMTFraction",
+                        "s",
+                        "am"
+                      ]
+                    }
+                  ]
+                },
+                "own_value": {
+                  "op": "index",
+                  "args": [
+                    "mag_isOwnMonth",
+                    "m",
+                    "am"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "lhs": "run_daysInMonth",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "k"
+            ],
+            "ranges": {
+              "k": {
+                "from": "runspecmonth_rows"
+              }
+            },
+            "expr": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "year_value_or_own",
+              "bindings": {
+                "aggregates_months": "n_aggregatesMonths",
+                "year_value": {
+                  "op": "apply_expression_template",
+                  "args": [],
+                  "name": "whole_year_days",
+                  "bindings": {}
+                },
+                "own_value": {
+                  "op": "index",
+                  "args": [
+                    "run_ownDaysInMonth",
+                    "k"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "lhs": "run_monthVMTFraction",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "s",
+              "m"
+            ],
+            "ranges": {
+              "s": {
+                "from": "runspecsourcetype_rows"
+              },
+              "m": {
+                "from": "runspecmonth_rows"
+              }
+            },
+            "expr": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "year_value_or_own",
+              "bindings": {
+                "aggregates_months": "n_aggregatesMonths",
+                "year_value": {
+                  "op": "apply_expression_template",
+                  "args": [],
+                  "name": "row_is_present",
+                  "bindings": {
+                    "match_count": {
+                      "op": "index",
+                      "args": [
+                        "mag_sourceTypeMonthRows",
+                        "s"
+                      ]
+                    }
+                  }
+                },
+                "own_value": {
+                  "op": "index",
+                  "args": [
+                    "run_ownMonthVMTFraction",
+                    "s",
+                    "m"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "lhs": "st_monthAdjustment",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "s",
+              "m"
+            ],
+            "ranges": {
+              "s": {
+                "from": "runspecsourcetype_rows"
+              },
+              "m": {
+                "from": "runspecmonth_rows"
+              }
+            },
+            "expr": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "year_value_or_own",
+              "bindings": {
+                "aggregates_months": "n_aggregatesMonths",
+                "year_value": 1.0,
+                "own_value": {
+                  "op": "index",
+                  "args": [
+                    "st_ownMonthAdjustment",
+                    "s",
+                    "m"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "lhs": "hot_monthAdjustRows",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "g",
+              "m"
+            ],
+            "ranges": {
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "m": {
+                "from": "runspecmonth_rows"
+              }
+            },
+            "expr": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "year_value_or_own",
+              "bindings": {
+                "aggregates_months": "n_aggregatesMonths",
+                "year_value": 1.0,
+                "own_value": {
+                  "op": "index",
+                  "args": [
+                    "hot_ownMonthAdjustRows",
+                    "g",
+                    "m"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "lhs": "hot_monthAdjustStated",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "g",
+              "m"
+            ],
+            "ranges": {
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "m": {
+                "from": "runspecmonth_rows"
+              }
+            },
+            "expr": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "year_value_or_own",
+              "bindings": {
+                "aggregates_months": "n_aggregatesMonths",
+                "year_value": 1.0,
+                "own_value": {
+                  "op": "index",
+                  "args": [
+                    "hot_ownMonthAdjustStated",
+                    "g",
+                    "m"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "lhs": "run_yearUnportedSelected",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "n"
+            ],
+            "ranges": {
+              "n": {
+                "from": "run_rows"
+              },
+              "p": {
+                "from": "runspecpollutantprocess_rows"
+              }
+            },
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "rspp_occursOnSelectedRoad",
+                    "p"
+                  ]
+                },
+                {
+                  "op": "-",
+                  "args": [
+                    1.0,
+                    {
+                      "op": "*",
+                      "args": [
+                        {
+                          "op": "apply_expression_template",
+                          "args": [],
+                          "name": "year_captured_process",
+                          "bindings": {
+                            "process_id": {
+                              "op": "index",
+                              "args": [
+                                "rspp_processID",
+                                "p"
+                              ]
+                            }
+                          }
+                        },
+                        {
+                          "op": "apply_expression_template",
+                          "args": [],
+                          "name": "year_captured_pollutant",
+                          "bindings": {
+                            "pollutant_id": {
+                              "op": "index",
+                              "args": [
+                                "rspp_pollutantID",
+                                "p"
+                              ]
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "ffsup_fuelTypeShare",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "g",
+              "m",
+              "ft",
+              "cy"
+            ],
+            "ranges": {
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "m": {
+                "from": "runspecmonth_rows"
+              },
+              "ft": {
+                "from": "fueltype_rows"
+              },
+              "cy": {
+                "from": "runspecyear_rows"
+              },
+              "f": {
+                "from": "fuelformulation_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "ff_fuelTypeID",
+                    "ftp_fuelTypeID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "ffsup_suppliedShare",
+                "g",
+                "m",
+                "f",
+                "cy"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "ffsup_normalizer",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "g",
+              "m",
+              "f",
+              "cy"
+            ],
+            "ranges": {
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "m": {
+                "from": "runspecmonth_rows"
+              },
+              "f": {
+                "from": "fuelformulation_rows"
+              },
+              "cy": {
+                "from": "runspecyear_rows"
+              },
+              "ft": {
+                "from": "fueltype_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "ff_fuelTypeID",
+                    "ftp_fuelTypeID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "year_value_or_own",
+              "bindings": {
+                "aggregates_months": "n_aggregatesMonths",
+                "year_value": {
+                  "op": "apply_expression_template",
+                  "args": [],
+                  "name": "share_of_group",
+                  "bindings": {
+                    "numerator": 1.0,
+                    "group_total": {
+                      "op": "index",
+                      "args": [
+                        "ffsup_fuelTypeShare",
+                        "g",
+                        "m",
+                        "ft",
+                        "cy"
+                      ]
+                    }
+                  }
+                },
+                "own_value": 1.0
+              }
+            }
+          }
+        },
+        {
+          "lhs": "ffsup_marketShare",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "g",
+              "m",
+              "f",
+              "cy"
+            ],
+            "ranges": {
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "m": {
+                "from": "runspecmonth_rows"
+              },
+              "f": {
+                "from": "fuelformulation_rows"
+              },
+              "cy": {
+                "from": "runspecyear_rows"
+              }
+            },
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "ffsup_suppliedShare",
+                    "g",
+                    "m",
+                    "f",
+                    "cy"
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "ffsup_normalizer",
+                    "g",
+                    "m",
+                    "f",
+                    "cy"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rt_fuelTypeSupplyShare",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b",
+              "g",
+              "m"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "m": {
+                "from": "runspecmonth_rows"
+              },
+              "ft": {
+                "from": "fueltype_rows"
+              },
+              "cy": {
+                "from": "runspecyear_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rt_fuelTypeID",
+                    "ftp_fuelTypeID"
+                  ]
+                ]
+              },
+              {
+                "syms": [
+                  "b",
+                  "cy"
+                ],
+                "on": [
+                  [
+                    "rt_yearOrdinal",
+                    "year_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "ffsup_fuelTypeShare",
+                "g",
+                "m",
+                "ft",
+                "cy"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rt_fuelSupplyScale",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b",
+              "g",
+              "m"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "m": {
+                "from": "runspecmonth_rows"
+              }
+            },
+            "expr": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "year_value_or_own",
+              "bindings": {
+                "aggregates_months": "n_aggregatesMonths",
+                "year_value": {
+                  "op": "index",
+                  "args": [
+                    "rt_fuelTypeSupplyShare",
+                    "b",
+                    "g",
+                    "m"
+                  ]
+                },
+                "own_value": 1.0
+              }
             }
           }
         }

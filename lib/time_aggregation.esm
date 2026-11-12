@@ -2,7 +2,7 @@
   "esm": "1.2.0",
   "metadata": {
     "name": "moves.time_aggregation",
-    "description": "Template library: the shapes of MOVES's TIME pre-aggregation (PreAggDAY.sql, PreAggMONTH.sql; InputDataManager.preAggregateExecutionDB) and of its output time step (AggregationSQLGenerator), as `onroad/model.esm` reads them (PLAN.md §7.3.63, docs/esm-conventions.md §115).\n\n`hour_day_day` and `hour_day_hour` unpack a packed hour-day the way every MOVES script does, `mod(hourDayID,10)` and `floor(hourDayID/10)` (AdjustHotelling.sql): PreAggDAY.sql writes `hourDayID = dayID` at hour 0, which no default table holds, so the cell's day and hour cannot be looked up.\n\n`preaggregation_source_type_order` is PreAggDAY.sql's and PreAggMONTH.sql's `SourceTypeOrdering`, the preference by which HourWeighting3 takes ONE source type's travel to weigh the collapsed weather by: 21 first, then by default population, 11 last. It is a constant the scripts write as an INSERT, so it is written here as code (conventions §73); `preaggregation_source_type_order_none` is the place past its end.\n\n`output_step_column` reads one column of the output relation onto the output-time-step relation `outputstep_rows` through the representative cell `mosOutputOrdinal`, as `rate_output_column` reads one onto the Rates relation.",
+    "description": "Template library: the shapes of MOVES's TIME pre-aggregation (PreAggDAY.sql, PreAggMONTH.sql, PreAggYEAR.sql; InputDataManager.preAggregateExecutionDB) and of its output time step (AggregationSQLGenerator), as `onroad/model.esm` reads them (PLAN.md §7.3.63, docs/esm-conventions.md §115).\n\n`hour_day_day` and `hour_day_hour` unpack a packed hour-day the way every MOVES script does, `mod(hourDayID,10)` and `floor(hourDayID/10)` (AdjustHotelling.sql): PreAggDAY.sql writes `hourDayID = dayID` at hour 0, which no default table holds, so the cell's day and hour cannot be looked up.\n\n`preaggregation_source_type_order` is PreAggDAY.sql's and PreAggMONTH.sql's `SourceTypeOrdering`, the preference by which HourWeighting3 takes ONE source type's travel to weigh the collapsed weather by: 21 first, then by default population, 11 last. It is a constant the scripts write as an INSERT, so it is written here as code (conventions §73); `preaggregation_source_type_order_none` is the place past its end.\n\n`output_step_column` reads one column of the output relation onto the output-time-step relation `outputstep_rows` through the representative cell `mosOutputOrdinal`, as `rate_output_column` reads one onto the Rates relation.\n\n`whole_year_days`, `year_value_or_own` and `month_cell_share` are PreAggYEAR.sql's three kinds of collapse at the Year cell, MonthOfAnyYear 0: a constant the script inserts, a table it replaces by a constant row, and a weighted mean over the RunSpec's months (PLAN.md §7.3.65). `year_captured_process` and `year_captured_pollutant` list what the Year capture checks.",
     "authors": [
       "EarthSciML Authors and Contributors"
     ]
@@ -269,6 +269,323 @@
             "o"
           ]
         }
+      }
+    },
+    "whole_year_days": {
+      "description": "PreAggYEAR.sql's `INSERT INTO MonthOfAnyYear VALUES (0, \"Whole Year\", 365, 0)`: the days of the one month a Year-aggregated run has, so its weeks per month are 365/7. A constant the script writes, so it is written here as code (conventions §73).",
+      "params": [],
+      "body": 365.0
+    },
+    "year_value_or_own": {
+      "description": "A table PreAggYEAR.sql REPLACES with a constant row at MonthOfAnyYear 0 (MonthVMTFraction 1.0, StartsMonthAdjust 1, HotellingMonthAdjust 1.0, MonthOfAnyYear's 365 days): `year_value` when the run aggregates by year (`aggregates_months`, `n_aggregatesMonths`), and the table's own row at the cell's month otherwise.",
+      "params": [
+        "aggregates_months",
+        "year_value",
+        "own_value"
+      ],
+      "body": {
+        "op": "ifelse",
+        "args": [
+          {
+            "op": ">",
+            "args": [
+              "aggregates_months",
+              0.5
+            ]
+          },
+          "year_value",
+          "own_value"
+        ]
+      }
+    },
+    "month_cell_share": {
+      "description": "An aggregation month's share of a month cell for a table PreAggYEAR.sql collapses to a WEIGHTED MEAN, `sum(x * actFract) / sum(actFract)` (ZoneMonthHour by MonthWeighting; MonthGroupHour, e10FuelProperties, ATBaseEmissions by MonthGroupWeighting): `weight / weight_total` when the run aggregates by year, and on any other run 1 at the cell's own month and 0 elsewhere -- a mean over one month is that month.",
+      "params": [
+        "aggregates_months",
+        "is_own_month",
+        "weight",
+        "weight_total"
+      ],
+      "body": {
+        "op": "ifelse",
+        "args": [
+          {
+            "op": ">",
+            "args": [
+              "aggregates_months",
+              0.5
+            ]
+          },
+          {
+            "op": "ifelse",
+            "args": [
+              {
+                "op": ">",
+                "args": [
+                  "weight_total",
+                  0.0
+                ]
+              },
+              {
+                "op": "/",
+                "args": [
+                  "weight",
+                  "weight_total"
+                ]
+              },
+              0.0
+            ]
+          },
+          "is_own_month"
+        ]
+      }
+    },
+    "year_captured_process": {
+      "description": "1 for a process whose emissions a Year-aggregated capture checks (`scale-county-timeagg-year`, PLAN.md §7.3.65): running exhaust (1), start exhaust (2), brake wear (9), tire wear (10), crankcase running, start and extended idle (15, 16, 17), extended idle (90) and auxiliary power (91). Any other process under `aggregateBy` Year is refused (`run_yearUnportedSelected`): the evaporative ones are refused under every aggregation, and refueling reads month-keyed fuel and weather this port has not captured.",
+      "params": [
+        "process_id"
+      ],
+      "body": {
+        "op": "ifelse",
+        "args": [
+          {
+            "op": "==",
+            "args": [
+              "process_id",
+              1.0
+            ]
+          },
+          1.0,
+          {
+            "op": "ifelse",
+            "args": [
+              {
+                "op": "==",
+                "args": [
+                  "process_id",
+                  2.0
+                ]
+              },
+              1.0,
+              {
+                "op": "ifelse",
+                "args": [
+                  {
+                    "op": "==",
+                    "args": [
+                      "process_id",
+                      9.0
+                    ]
+                  },
+                  1.0,
+                  {
+                    "op": "ifelse",
+                    "args": [
+                      {
+                        "op": "==",
+                        "args": [
+                          "process_id",
+                          10.0
+                        ]
+                      },
+                      1.0,
+                      {
+                        "op": "ifelse",
+                        "args": [
+                          {
+                            "op": "==",
+                            "args": [
+                              "process_id",
+                              15.0
+                            ]
+                          },
+                          1.0,
+                          {
+                            "op": "ifelse",
+                            "args": [
+                              {
+                                "op": "==",
+                                "args": [
+                                  "process_id",
+                                  16.0
+                                ]
+                              },
+                              1.0,
+                              {
+                                "op": "ifelse",
+                                "args": [
+                                  {
+                                    "op": "==",
+                                    "args": [
+                                      "process_id",
+                                      17.0
+                                    ]
+                                  },
+                                  1.0,
+                                  {
+                                    "op": "ifelse",
+                                    "args": [
+                                      {
+                                        "op": "==",
+                                        "args": [
+                                          "process_id",
+                                          90.0
+                                        ]
+                                      },
+                                      1.0,
+                                      {
+                                        "op": "ifelse",
+                                        "args": [
+                                          {
+                                            "op": "==",
+                                            "args": [
+                                              "process_id",
+                                              91.0
+                                            ]
+                                          },
+                                          1.0,
+                                          0.0
+                                        ]
+                                      }
+                                    ]
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "year_captured_pollutant": {
+      "description": "1 for a pollutant a Year-aggregated capture checks (PLAN.md §7.3.65): THC, CO and NOx (1, 2, 3), Atmospheric CO2 and Total Energy (90, 91), and brake and tire wear PM10 and PM2.5 (106, 107, 116, 117). Air toxics read ATRatio, which PreAggYEAR.sql averages by MonthGroupWeighting and no capture checks.",
+      "params": [
+        "pollutant_id"
+      ],
+      "body": {
+        "op": "ifelse",
+        "args": [
+          {
+            "op": "==",
+            "args": [
+              "pollutant_id",
+              1.0
+            ]
+          },
+          1.0,
+          {
+            "op": "ifelse",
+            "args": [
+              {
+                "op": "==",
+                "args": [
+                  "pollutant_id",
+                  2.0
+                ]
+              },
+              1.0,
+              {
+                "op": "ifelse",
+                "args": [
+                  {
+                    "op": "==",
+                    "args": [
+                      "pollutant_id",
+                      3.0
+                    ]
+                  },
+                  1.0,
+                  {
+                    "op": "ifelse",
+                    "args": [
+                      {
+                        "op": "==",
+                        "args": [
+                          "pollutant_id",
+                          90.0
+                        ]
+                      },
+                      1.0,
+                      {
+                        "op": "ifelse",
+                        "args": [
+                          {
+                            "op": "==",
+                            "args": [
+                              "pollutant_id",
+                              91.0
+                            ]
+                          },
+                          1.0,
+                          {
+                            "op": "ifelse",
+                            "args": [
+                              {
+                                "op": "==",
+                                "args": [
+                                  "pollutant_id",
+                                  106.0
+                                ]
+                              },
+                              1.0,
+                              {
+                                "op": "ifelse",
+                                "args": [
+                                  {
+                                    "op": "==",
+                                    "args": [
+                                      "pollutant_id",
+                                      107.0
+                                    ]
+                                  },
+                                  1.0,
+                                  {
+                                    "op": "ifelse",
+                                    "args": [
+                                      {
+                                        "op": "==",
+                                        "args": [
+                                          "pollutant_id",
+                                          116.0
+                                        ]
+                                      },
+                                      1.0,
+                                      {
+                                        "op": "ifelse",
+                                        "args": [
+                                          {
+                                            "op": "==",
+                                            "args": [
+                                              "pollutant_id",
+                                              117.0
+                                            ]
+                                          },
+                                          1.0,
+                                          0.0
+                                        ]
+                                      }
+                                    ]
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
       }
     }
   }

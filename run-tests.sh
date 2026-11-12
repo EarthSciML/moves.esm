@@ -1709,6 +1709,12 @@ C7P_DOMAIN=moves-onroad.esm
 # collapsed tables; and their `<outputtimestep>` (Month, Year) sums the cells,
 # so their oracle source carries the `output-time-step` tag and is emitted
 # from the output-time-step relation `mos_*` as `movesoutput_step`.
+# `scale-county-timeagg-year` is the same county inventory at `aggregateBy`
+# Year (PLAN.md §7.3.65, conventions §117): PreAggYEAR.sql collapses the
+# months into MonthOfAnyYear 0, so its runspec declares `n_aggregatesMonths` 1
+# and the months it collapses (`db_aggregationmonth`, from the RunSpec XML), and
+# its four months' fuel supply sums to 0.334 of the year, which scales every
+# process. It also selects brake and tire wear beside road type 1.
 # `expand-multiyear` is the first run at two calendar years (PLAN.md §7.3.44,
 # conventions §98): the year is the cohort grid's and the activity relation's
 # slowest factor and a trailing axis of every other per-year relation, so the

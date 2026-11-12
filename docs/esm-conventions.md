@@ -9372,3 +9372,46 @@ The day-aggregated cell also exposed a lookup that only ever worked by
 coincidence: `rsd_dayID` was looked up in the default `hourday`, which holds no
 `hourDayID = dayID` at hour 0. It is now unpacked as every MOVES script unpacks
 it, `mod(hourDayID,10)` and `floor(hourDayID/10)`.
+
+## 117. A collapse that is not a mean scales the run, and a month cell reads its months through a weight **[PLAN.md §7.3.65; `scale-county-timeagg-year` 18,071 of 18,071, key-exact, worst cell 1.134e-05, no `cell_exception`; the runs that aggregate byte-identical]**
+
+§115 wrote each table PreAggDAY.sql and PreAggMONTH.sql collapse as a variable
+at the output cell. PreAggYEAR.sql collapses the MONTHS, and the month is the
+axis the whole fuel chain is keyed by, so the same rule needs one more relation
+and three kinds of weight.
+
+1. **The months a cell aggregates over are a relation beside the cells**
+   (`aggregationmonth_rows`, `db_aggregationmonth`), as the hours (`db_aggregationhour`)
+   and day types (`db_rateday`) are. Its DEFAULT is declared once, in the
+   default-database catalogue -- every month of `MonthOfAnyYear`, of which a cell
+   that does not aggregate by year reads its own (`mag_isOwnMonth`) -- and a Year
+   RunSpec declares its own, which wins over the catalogue's (esm-spec §4.7). So
+   no existing RunSpec changed, and a document added in parallel needs nothing.
+   Every month-keyed read joins the aggregation month instead of the cell's month
+   and multiplies by a weight that is exactly 1 at the own month and 0 elsewhere
+   on every other run: byte-identical by construction, not by tolerance.
+2. **PreAggYEAR.sql has three kinds of collapse, and only one is a mean.** A
+   constant row (MonthOfAnyYear's 365 days, MonthVMTFraction, StartsMonthAdjust,
+   HotellingMonthAdjust: `year_value_or_own`); a weighted MEAN (ZoneMonthHour by
+   MonthWeighting -- the HIGHEST selected source type ID, not `SourceTypeOrdering`'s
+   first -- and MonthGroupHour, e10FuelProperties, ATBaseEmissions by
+   MonthGroupWeighting: `month_cell_share`); and a weighted SUM, which does not
+   divide (FuelSupply's `(1 - fractDontHave) x haveFract`, TotalIdleFraction).
+   The sums do not sum to one unless the RunSpec selects all twelve months:
+   four months give every fuel type 0.334 of a market share.
+3. **A share that does not sum to one scales everything that sums over it.**
+   BaseRateCalculator sums every rate over the formulations by `marketShare`, so
+   the 0.334 multiplies brake and tire wear and energy as much as THC. The first
+   evaluation found every cell that no share-weighted fuel ratio covers exactly
+   2.992 = 1/0.334229 high and every covered one exact -- the uniform-factor
+   pattern again. The model's ratios are share-weighted MEANS that assume shares
+   summing to one per fuel type, so at Year the share is taken over its fuel
+   type's total (`ffsup_normalizer`) and the total multiplies the quantity once
+   (`rt_fuelSupplyScale`).
+4. **Atmospheric CO2 carries the total CUBED.** CarbonOxidationByFuelType
+   multiplies two SUMS over the raw shares (carbon content and oxidation
+   fraction), and its parent, energy, already carries one total; normalising
+   the contents left CO2 8.952 = 0.334229^-2 high. The two contents read the
+   shares as the execution database holds them (`ffsup_suppliedShare`). What
+   the SQL sums and what it averages is the measurement, not the intuition: a
+   quirk that a twelve-month run cannot see is still the run's number.

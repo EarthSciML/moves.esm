@@ -1,0 +1,287 @@
+{
+  "esm": "1.2.0",
+  "metadata": {
+    "name": "scale-county-timeagg-year-runspec",
+    "description": "PLAN.md §7.3.65, step 7f. `scale-county-timeagg-year`: `scale-county-timeagg-month`'s months (January, April, July and October 2020), day types, hours and source types with `<aggregateBy key=\"Year\"/>` and `<outputtimestep value=\"Year\"/>`, over the same county database (`inputs/washtenaw-county-timeagg.esm`), and with crankcase running and extended idle, brake and tire wear PM10 and PM2.5, and running Total Energy and Atmospheric CO2 beside THC, CO and NOx at running, start, crankcase start, extended idle and APU. MOVESOutput is 18,071 rows.\n\nWHAT IT DISCRIMINATES is PreAggYEAR.sql on top of PreAggDAY.sql and PreAggMONTH.sql, before any generator: MonthOfAnyYear becomes the one month 0 `Whole Year` of 365 days; ZoneMonthHour the MonthWeighting mean (source type 62, the HIGHEST selected ID); MonthGroupHour and e10FuelProperties the MonthGroupWeighting mean (source type 21, `SourceTypeOrdering`'s first); FuelSupply `sum(marketShare x actFract)` -- NOT a mean, so four months carry 0.334 of the year's gasoline, diesel and CNG; TotalIdleFraction `sum(totalIdleFraction x monthVMTFraction)` by source type, not a mean either; MonthVMTFraction, DayVMTFraction, StartsMonthAdjust and HotellingMonthAdjust constant 1. Measured in pandas against the execution database before the port (PLAN.md §7.3.65): ZoneMonthHour exact, MonthGroupHour 1.2e-16 (3.5e-08 with the FLOAT intermediate), FuelSupply exact from the default database's own rows, e10FuelProperties 1.4e-16, TotalIdleFraction 30 of 30 at 1.4e-08.\n\n`n_aggregatesMonths` is 1, the one fact no execution-database table records; `db_aggregationmonth` is the RunSpec's months, read from its XML by `tools/runspec-month-selection.py`, because MOVES overwrites the month list with month 0 after the collapse. `n_outputRate` is bound to 18071, the (pollutant-process, cohort) pairs of the one (county, month, day) cell, recomputed as `rateSurvivorCount`.\n\n`db_movesoutput` is DECLARED AND CONSUMED BY NOTHING, as in every RunSpec here.",
+    "authors": [
+      "EarthSciML Authors and Contributors"
+    ],
+    "tags": [
+      "fixture",
+      "onroad",
+      "default-database",
+      "single-county-domain",
+      "road-type-axis",
+      "off-network-idle",
+      "hotelling-adjustment",
+      "time-aggregation",
+      "starts",
+      "output-time-step",
+      "year-aggregation",
+      "brake-wear",
+      "tire-wear",
+      "crankcase"
+    ]
+  },
+  "data_sources": {
+    "db_runspecyear": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/scale-county-timeagg-year/tables/db__movesexecution1ccc0236_campuscluster_illinois_edu__runspecyear.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecyear"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, yearID 2020. The scope comes from these tables and never from the RunSpec XML, whose @key attributes are 0-based indices into sorted ID lists (docs/mixed-onroad.md §0.1).",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecmonth": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/scale-county-timeagg-year/tables/db__movesexecution1ccc0236_campuscluster_illinois_edu__runspecmonth.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecmonth"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, monthID 0 -- PreAggYEAR.sql's SYNTHESIZED `Whole Year`. The RunSpec selects January, April, July and October (`db_aggregationmonth`).",
+        "esio_format": "parquet"
+      }
+    },
+    "db_aggregationmonth": {
+      "kind": "static",
+      "source": {
+        "url_template": "./selections/scale-county-timeagg-year-month.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_aggregationmonth"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "THE MONTHS THE RUNSPEC SELECTED, monthIDs 1, 4, 7 and 10, read out of the RunSpec XML by `tools/runspec-month-selection.py` into `runspecs/selections/scale-county-timeagg-year-month.parquet`: MOVES overwrites the month list with MonthOfAnyYear 0 after PreAggYEAR.sql has collapsed the month tables over these (ExecutionRunSpec.java:424-445). It overrides the default database catalogue's entry, every month of MonthOfAnyYear.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspechour": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/scale-county-timeagg-year/tables/db__movesexecution1ccc0236_campuscluster_illinois_edu__runspechour.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspechour"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, hourID 0 -- the SYNTHESIZED `Entire Day`. The RunSpec selects all 24 hours.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_aggregationhour": {
+      "kind": "static",
+      "source": {
+        "url_template": "../movesdb/HourOfAnyDay.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_aggregationhour"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "THE 24 HOURS the run aggregates over: the default database's own `HourOfAnyDay` (PreAggDAY.sql).",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecday": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/scale-county-timeagg-year/tables/db__movesexecution1ccc0236_campuscluster_illinois_edu__runspechourday.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecday"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, hourDayID 0 -- the SYNTHESIZED `Whole Week` cell PreAggMONTH.sql writes, which `dayofanyweek` does not name, so every time cell belongs to it.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_rateday": {
+      "kind": "static",
+      "source": {
+        "url_template": "./selections/scale-county-timeagg-year-rateday.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_rateday"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "THE DAY TYPES THE RUNSPEC SELECTED, dayIDs 2 and 5, read out of the RunSpec XML by `tools/runspec-day-selection.py` into `runspecs/selections/scale-county-timeagg-year-rateday.parquet`: MOVES overwrites `RunSpecDay` with the synthesized day 0 AFTER the pre-aggregation has run (conventions §66.4). The execution database's tables were cut to these days before PreAggMONTH.sql collapsed them, so every collapse sums over them -- startsPerDay's `dayID/7`, startsOpModeDistribution's `dayID x startsPerDayPerVehicle`, the DayWeighting means.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_actday": {
+      "kind": "static",
+      "source": {
+        "url_template": "../movesdb/DayOfAnyWeek.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_actday"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "THE DAY TYPES THE ACTIVITY COVERS: the default database's own `DayOfAnyWeek`, both of them -- the whole week (`noOfRealDays` 7).",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecsourcetype": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/scale-county-timeagg-year/tables/db__movesexecution1ccc0236_campuscluster_illinois_edu__runspecsourcetype.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecsourcetype"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "3 rows, sourceTypeIDs 21 (passenger car), 32 (light commercial truck) and 62 (combination long-haul truck, the only source type that hotels). Three source types is what makes PreAggDAY.sql's HourWeighting3 pick ONE of them, by `SourceTypeOrdering` (`met_weightingSourceType`): 21.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecroadtype": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/scale-county-timeagg-year/tables/db__movesexecution1ccc0236_campuscluster_illinois_edu__runspecroadtype.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecroadtype"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "5 rows, road types 1 to 5. The RunSpec selects 1 and 4; MOVES adds 2, 3 and 5 because off-network idle (running exhaust on road type 1) is computed from every road type (\"Off-Network Idle requires all roadtypes\").",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecsourcefueltype": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/scale-county-timeagg-year/tables/db__movesexecution1ccc0236_campuscluster_illinois_edu__runspecsourcefueltype.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecsourcefueltype"
+      },
+      "metadata": {
+        "tags": [
+          "scope",
+          "cohorts"
+        ],
+        "note": "11 rows: source types 21 and 32 with gasoline, diesel, E85 and electricity, 62 with diesel, CNG and electricity (MOVES adds every fuel the RunSpec does not name).",
+        "esio_format": "parquet"
+      }
+    },
+    "db_movesoutput": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/scale-county-timeagg-year/tables/db__out_scale_county_timeagg_year__movesoutput.parquet"
+      },
+      "reader_options": {
+        "float_columns": [
+          "emissionQuant"
+        ]
+      },
+      "metadata": {
+        "tags": [
+          "oracle",
+          "expected-output",
+          "output-time-step"
+        ],
+        "note": "The 18,071-row expected output at `<outputtimestep value=\"Year\"/>`: monthID, dayID and hourID NULL, the one Whole Year cell scaled by its 365/7 weeks (AggregationSQLGenerator's convertWeeks). The model emits it from `mos_*` (`n_outputSumsDays` and `n_outputSumsMonths` 1).",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecpollutantprocess": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/scale-county-timeagg-year/tables/db__movesexecution1ccc0236_campuscluster_illinois_edu__runspecpollutantprocess.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecpollutantprocess"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "27 rows: THC, CO and NOx (1, 2, 3) at running exhaust, start exhaust, crankcase running, crankcase start, crankcase extended idle, extended idle and APU; Total Energy and Atmospheric CO2 at running exhaust; brake wear PM10 and PM2.5 (10609, 11609) and tire wear PM10 and PM2.5 (10710, 11710).",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecchainedto": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/scale-county-timeagg-year/tables/db__movesexecution1ccc0236_campuscluster_illinois_edu__runspecchainedto.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecchainedto"
+      },
+      "metadata": {
+        "tags": [
+          "scope",
+          "chain"
+        ],
+        "note": "11 rows: the nine crankcase chains (15, 16, 17 from 1, 2, 90; CrankcaseEmissionCalculator) and brake and tire wear PM10 from PM2.5. Atmospheric CO2 from Total Energy is a CO2AE edge MOVES keeps in Java, not here (conventions §78).",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspeccounty": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/scale-county-timeagg-year/tables/db__movesexecution1ccc0236_campuscluster_illinois_edu__runspeccounty.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspeccounty"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, countyID 26161, Washtenaw.",
+        "esio_format": "parquet"
+      }
+    }
+  },
+  "models": {
+    "Onroad": {
+      "ref": "../inputs/washtenaw-county-timeagg.esm",
+      "bindings": {
+        "n_outputRate": 18071,
+        "n_sourceBin": 3,
+        "n_physicsRow": 24,
+        "n_outputSumsDays": 1,
+        "n_outputSumsMonths": 1,
+        "n_aggregatesMonths": 1
+      }
+    }
+  }
+}
