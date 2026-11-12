@@ -10224,7 +10224,7 @@
             "fuelformulation_rows",
             "runspecyear_rows"
           ],
-          "description": "The share of its fuel type's volume that this formulation is, in this county and this month -- `FuelSupply` resolved against the county's fuel region, the month's month group and the run's fuel year, and laid out on the formulation axis. It is 1.0 for the five formulations any run in `runspecs/` carries and 0 for the other 2,153.\n\nIT EXISTS TO BE COMPUTED ONCE. `FuelSupply` is 105,651 national rows and the collapse used to live inside `cfr_suppliedRatio`, which was affordable while one lookup needed it. The hydrocarbon species need it seven more times -- the methane ratio and the two speciation constants, each at the row's own fuel subtype and again at the E10 one -- and seven more spines over 105,651 x 2,158 took `expand-day` from 60 seconds to 564. Every lookup now joins this instead, and the run that had one such spine has none. At `aggregateBy` Year the market share is PreAggYEAR.sql's `sum(marketShare x actFract)` over MonthGroupWeighting, NOT a mean (`mag_groupSum`; PLAN.md §7.3.65)."
+          "description": "The share of its fuel type's volume that this formulation is, in this county and this month: `ffsup_suppliedShare`, and at `aggregateBy` Year that share over its fuel type's total (`ffsup_normalizer`), so the share-weighted ratios and contents are MEANS as on every other run; the total itself scales the quantity once, `rt_fuelSupplyScale`. The share of its fuel type's volume that this formulation is, in this county and this month -- `FuelSupply` resolved against the county's fuel region, the month's month group and the run's fuel year, and laid out on the formulation axis. It is 1.0 for the five formulations any run in `runspecs/` carries and 0 for the other 2,153.\n\nIT EXISTS TO BE COMPUTED ONCE. `FuelSupply` is 105,651 national rows and the collapse used to live inside `cfr_suppliedRatio`, which was affordable while one lookup needed it. The hydrocarbon species need it seven more times -- the methane ratio and the two speciation constants, each at the row's own fuel subtype and again at the E10 one -- and seven more spines over 105,651 x 2,158 took `expand-day` from 60 seconds to 564. Every lookup now joins this instead, and the run that had one such spine has none. At `aggregateBy` Year the market share is PreAggYEAR.sql's `sum(marketShare x actFract)` over MonthGroupWeighting, NOT a mean (`mag_groupSum`; PLAN.md §7.3.65)."
         },
         "ffx_RVP": {
           "type": "unknown",
@@ -12266,7 +12266,7 @@
             "runspecmonth_rows",
             "runspecyear_rows"
           ],
-          "description": "The market-share-weighted ratio over the gasoline formulations the county's fuel supply carries. At `aggregateBy` Year the market share is PreAggYEAR.sql's `sum(marketShare x actFract)` over MonthGroupWeighting, NOT a mean (`mag_groupSum`; PLAN.md §7.3.65)."
+          "description": "The market-share-weighted ratio over the gasoline formulations the county's fuel supply carries. At `aggregateBy` Year the market share is PreAggYEAR.sql's `sum(marketShare x actFract)` over MonthGroupWeighting, NOT a mean (`mag_groupSum`; PLAN.md §7.3.65). At `aggregateBy` Year the shares are taken over the gasoline total (`ffsup_normalizer`)."
         },
         "atr_baseEmissions": {
           "type": "unknown",
@@ -18606,7 +18606,7 @@
             "runspeccounty_rows",
             "runspecmonth_rows"
           ],
-          "description": "S17 and S18: rate x activity, in the output's own units -- what `rtDay_quantDirect` was before `SulfatePMCalculator` took over six blocks. Exactly zero on a chained pollutant-process."
+          "description": "S17 and S18: rate x activity, in the output's own units -- what `rtDay_quantDirect` was before `SulfatePMCalculator` took over six blocks. Exactly zero on a chained pollutant-process. Times `rt_fuelSupplyScale`, 1 except at `aggregateBy` Year."
         },
         "rtDay_quantDirect": {
           "type": "unknown",
@@ -25036,6 +25036,59 @@
             "run_rows"
           ],
           "description": "Pollutant-processes on a selected road that the Year capture does not check (`year_captured_process`, `year_captured_pollutant`; PLAN.md §7.3.65). Counted by `run_aggregationUnported` at `aggregateBy` Year."
+        },
+        "ffsup_suppliedShare": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspeccounty_rows",
+            "runspecmonth_rows",
+            "fuelformulation_rows",
+            "runspecyear_rows"
+          ],
+          "description": "`FuelSupply.marketShare` as the execution database holds it at the cell: the table's own row, or at `aggregateBy` Year PreAggYEAR.sql's `sum(marketShare x actFract)`, whose formulations of one fuel type sum to the selected months' share of the year's travel (0.334 for four months; PLAN.md §7.3.65)."
+        },
+        "ffsup_fuelTypeShare": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspeccounty_rows",
+            "runspecmonth_rows",
+            "fueltype_rows",
+            "runspecyear_rows"
+          ],
+          "description": "The fuel type's total market share at the cell: 1 on every run that does not aggregate by year; at `aggregateBy` Year PreAggYEAR.sql's sum over the selected months' groups of MonthGroupWeighting, 0.334 for January, April, July and October. BaseRateCalculator sums every rate over the formulations by `marketShare`, so this total multiplies every process -- brake and tire wear and energy included -- and not only the ones a fuel ratio covers (PLAN.md §7.3.65)."
+        },
+        "ffsup_normalizer": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspeccounty_rows",
+            "runspecmonth_rows",
+            "fuelformulation_rows",
+            "runspecyear_rows"
+          ],
+          "description": "1 on a run that does not aggregate by year; at `aggregateBy` Year one over the formulation's fuel-type total (`ffsup_fuelTypeShare`), which turns PreAggYEAR.sql's summed share into a share of the fuel type."
+        },
+        "rt_fuelTypeSupplyShare": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows",
+            "runspeccounty_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "`ffsup_fuelTypeShare` at the rate row's fuel type and calendar year."
+        },
+        "rt_fuelSupplyScale": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows",
+            "runspeccounty_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "What BaseRateCalculator's sum over the formulations by `marketShare` multiplies a rate by beyond the share-weighted MEANS the model's ratios are: 1 on a run that does not aggregate by year, whose shares sum to 1 per fuel type; at `aggregateBy` Year the fuel type's summed share, 0.334 at four months -- on brake and tire wear and energy as much as on THC (PLAN.md §7.3.65)."
         }
       },
       "equations": [
@@ -74127,7 +74180,7 @@
           }
         },
         {
-          "lhs": "ffsup_marketShare",
+          "lhs": "ffsup_suppliedShare",
           "rhs": {
             "op": "faq",
             "args": [],
@@ -82477,23 +82530,36 @@
                   "op": "*",
                   "args": [
                     {
-                      "op": "index",
+                      "op": "*",
                       "args": [
-                        "fs_marketShare",
-                        "v"
+                        {
+                          "op": "index",
+                          "args": [
+                            "fs_marketShare",
+                            "v"
+                          ]
+                        },
+                        {
+                          "op": "index",
+                          "args": [
+                            "cmx_ratio",
+                            "h",
+                            "s",
+                            "a",
+                            "g",
+                            "m",
+                            "f",
+                            "cy"
+                          ]
+                        }
                       ]
                     },
                     {
                       "op": "index",
                       "args": [
-                        "cmx_ratio",
-                        "h",
-                        "s",
-                        "a",
-                        "g",
+                        "mag_groupSum",
                         "m",
-                        "f",
-                        "cy"
+                        "am"
                       ]
                     }
                   ]
@@ -82501,9 +82567,11 @@
                 {
                   "op": "index",
                   "args": [
-                    "mag_groupSum",
+                    "ffsup_normalizer",
+                    "g",
                     "m",
-                    "am"
+                    "f",
+                    "cy"
                   ]
                 }
               ]
@@ -93503,29 +93571,41 @@
               }
             },
             "expr": {
-              "op": "/",
+              "op": "*",
               "args": [
                 {
-                  "op": "*",
+                  "op": "/",
                   "args": [
                     {
-                      "op": "index",
+                      "op": "*",
                       "args": [
-                        "rtDay_adjustedMeanBaseRate",
-                        "b",
-                        "k",
-                        "g",
-                        "m"
+                        {
+                          "op": "index",
+                          "args": [
+                            "rtDay_adjustedMeanBaseRate",
+                            "b",
+                            "k",
+                            "g",
+                            "m"
+                          ]
+                        },
+                        {
+                          "op": "index",
+                          "args": [
+                            "rtDay_activity",
+                            "b",
+                            "k",
+                            "g",
+                            "m"
+                          ]
+                        }
                       ]
                     },
                     {
                       "op": "index",
                       "args": [
-                        "rtDay_activity",
-                        "b",
-                        "k",
-                        "g",
-                        "m"
+                        "rt_unitDivisor",
+                        "b"
                       ]
                     }
                   ]
@@ -93533,8 +93613,10 @@
                 {
                   "op": "index",
                   "args": [
-                    "rt_unitDivisor",
-                    "b"
+                    "rt_fuelSupplyScale",
+                    "b",
+                    "g",
+                    "m"
                   ]
                 }
               ]
@@ -117985,6 +118067,282 @@
                   ]
                 }
               ]
+            }
+          }
+        },
+        {
+          "lhs": "ffsup_fuelTypeShare",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "g",
+              "m",
+              "ft",
+              "cy"
+            ],
+            "ranges": {
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "m": {
+                "from": "runspecmonth_rows"
+              },
+              "ft": {
+                "from": "fueltype_rows"
+              },
+              "cy": {
+                "from": "runspecyear_rows"
+              },
+              "f": {
+                "from": "fuelformulation_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "ff_fuelTypeID",
+                    "ftp_fuelTypeID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "ffsup_suppliedShare",
+                "g",
+                "m",
+                "f",
+                "cy"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "ffsup_normalizer",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "g",
+              "m",
+              "f",
+              "cy"
+            ],
+            "ranges": {
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "m": {
+                "from": "runspecmonth_rows"
+              },
+              "f": {
+                "from": "fuelformulation_rows"
+              },
+              "cy": {
+                "from": "runspecyear_rows"
+              },
+              "ft": {
+                "from": "fueltype_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "ff_fuelTypeID",
+                    "ftp_fuelTypeID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "year_value_or_own",
+              "bindings": {
+                "aggregates_months": "n_aggregatesMonths",
+                "year_value": {
+                  "op": "apply_expression_template",
+                  "args": [],
+                  "name": "share_of_group",
+                  "bindings": {
+                    "numerator": 1.0,
+                    "group_total": {
+                      "op": "index",
+                      "args": [
+                        "ffsup_fuelTypeShare",
+                        "g",
+                        "m",
+                        "ft",
+                        "cy"
+                      ]
+                    }
+                  }
+                },
+                "own_value": 1.0
+              }
+            }
+          }
+        },
+        {
+          "lhs": "ffsup_marketShare",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "g",
+              "m",
+              "f",
+              "cy"
+            ],
+            "ranges": {
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "m": {
+                "from": "runspecmonth_rows"
+              },
+              "f": {
+                "from": "fuelformulation_rows"
+              },
+              "cy": {
+                "from": "runspecyear_rows"
+              }
+            },
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "ffsup_suppliedShare",
+                    "g",
+                    "m",
+                    "f",
+                    "cy"
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "ffsup_normalizer",
+                    "g",
+                    "m",
+                    "f",
+                    "cy"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rt_fuelTypeSupplyShare",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b",
+              "g",
+              "m"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "m": {
+                "from": "runspecmonth_rows"
+              },
+              "ft": {
+                "from": "fueltype_rows"
+              },
+              "cy": {
+                "from": "runspecyear_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rt_fuelTypeID",
+                    "ftp_fuelTypeID"
+                  ]
+                ]
+              },
+              {
+                "syms": [
+                  "b",
+                  "cy"
+                ],
+                "on": [
+                  [
+                    "rt_yearOrdinal",
+                    "year_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "ffsup_fuelTypeShare",
+                "g",
+                "m",
+                "ft",
+                "cy"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rt_fuelSupplyScale",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b",
+              "g",
+              "m"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "m": {
+                "from": "runspecmonth_rows"
+              }
+            },
+            "expr": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "year_value_or_own",
+              "bindings": {
+                "aggregates_months": "n_aggregatesMonths",
+                "year_value": {
+                  "op": "index",
+                  "args": [
+                    "rt_fuelTypeSupplyShare",
+                    "b",
+                    "g",
+                    "m"
+                  ]
+                },
+                "own_value": 1.0
+              }
             }
           }
         }
