@@ -23667,7 +23667,7 @@
             "runspecday_rows",
             "runspecsourcetype_rows"
           ],
-          "description": "`idleDayAdjust` rows at the cell's day type and the source type: whether AdjustTotalIdleFraction.sql's `update ... inner join idleDayAdjust` finds one."
+          "description": "`idleDayAdjust` rows at the cell's day types and the source type: whether AdjustTotalIdleFraction.sql's `update ... inner join idleDayAdjust` finds one. In a whole-week cell PreAggMONTH.sql has already collapsed the table to one row per source type, which exists when the source type has a row at ANY of the RunSpec's day types (`tcell_dayMatch`)."
         },
         "oni_dayAdjustStated": {
           "type": "unknown",
@@ -23676,7 +23676,7 @@
             "runspecday_rows",
             "runspecsourcetype_rows"
           ],
-          "description": "`idleDayAdjust.idleDayAdjust` at the cell's day type and the source type; read only where `oni_dayAdjustRows` finds the row."
+          "description": "`idleDayAdjust.idleDayAdjust` at the cell's day type and the source type; read only where `oni_dayAdjustRows` finds the row. In a whole-week cell it is PreAggMONTH.sql's collapse `sum(idleDayAdjust x noOfRealDays / 7)` over the RunSpec's day types (`tcell_dayWeekShare`), and a day type the table does not state adds NOTHING to it -- not the identity: `scale-county-idle-adjust-month`'s long-haul truck states the weekday alone, 1.12, and MOVES multiplies its whole week by 1.12 x 5/7 = 0.8 (PLAN.md §7.3.66)."
         },
         "oni_totalIdleFraction": {
           "type": "unknown",
@@ -45194,6 +45194,9 @@
               "s": {
                 "from": "runspecsourcetype_rows"
               },
+              "d": {
+                "from": "rateday_rows"
+              },
               "x": {
                 "from": "idledayadjust_rows"
               }
@@ -45210,13 +45213,20 @@
               {
                 "on": [
                   [
-                    "rsd_dayID",
+                    "rday_dayID",
                     "ida_dayID"
                   ]
                 ]
               }
             ],
-            "expr": 1.0
+            "expr": {
+              "op": "index",
+              "args": [
+                "tcell_dayMatch",
+                "k",
+                "d"
+              ]
+            }
           }
         },
         {
@@ -45236,6 +45246,9 @@
               "s": {
                 "from": "runspecsourcetype_rows"
               },
+              "d": {
+                "from": "rateday_rows"
+              },
               "x": {
                 "from": "idledayadjust_rows"
               }
@@ -45252,17 +45265,30 @@
               {
                 "on": [
                   [
-                    "rsd_dayID",
+                    "rday_dayID",
                     "ida_dayID"
                   ]
                 ]
               }
             ],
             "expr": {
-              "op": "index",
+              "op": "*",
               "args": [
-                "ida_idleDayAdjust",
-                "x"
+                {
+                  "op": "index",
+                  "args": [
+                    "tcell_dayWeekShare",
+                    "k",
+                    "d"
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "ida_idleDayAdjust",
+                    "x"
+                  ]
+                }
               ]
             }
           }
