@@ -21334,7 +21334,15 @@
           "shape": [
             "run_rows"
           ],
-          "description": "What a run that pre-aggregates time selects and the model does not compute (PLAN.md §7.3.63), counted by `run_selectionUnported`; 0 on a run that does not aggregate. Starts, hotelling and off-network idle under PreAggDAY.sql and PreAggMONTH.sql are PORTED and are not counted (§7.3.63), and so, since PLAN.md §7.3.64, are the evaporative processes -- TankTemperatureGenerator over the collapsed ZoneMonthHour writes no cold-soak tank temperature, so permeation has no row, the soak is all cold (mode 151 at 1), venting has no cold-soak vapor, and TankFuelGenerator's temperature range is one point (`ttg_hasColdSoakTankTemperature`) -- and refueling, crankcase, brake and tire wear, which the two captures `scale-county-timeagg-processes-day` and `-month` check. Counted, each unmeasured: (1) hotelling in a run of more than one calendar year, whose pooled AdjustHotelling chain (`hot_earlier*`) is written per hour of the clock; (2) off-network idle with any AdjustTotalIdleFraction.sql input (`run_idleGroupingRows`, `run_idleAdjustmentRows`), which PreAggMONTH.sql collapses (idleDayAdjust) before that script runs; (3) start, hotelling or off-network idle in a whole-week run whose RunSpec selects fewer day types than the week -- its starts tables are cut to the selected days and its travel is not (`db_rateday` against `db_actday`)."
+          "description": "What a run that pre-aggregates time selects and the model does not compute (PLAN.md §7.3.63), counted by `run_selectionUnported`; 0 on a run that does not aggregate. Starts, hotelling and off-network idle under PreAggDAY.sql and PreAggMONTH.sql are PORTED and are not counted (§7.3.63), and so, since PLAN.md §7.3.64, are the evaporative processes -- TankTemperatureGenerator over the collapsed ZoneMonthHour writes no cold-soak tank temperature, so permeation has no row, the soak is all cold (mode 151 at 1), venting has no cold-soak vapor, and TankFuelGenerator's temperature range is one point (`ttg_hasColdSoakTankTemperature`) -- and refueling, crankcase, brake and tire wear, which the two captures `scale-county-timeagg-processes-day` and `-month` check. Counted, each unmeasured: (1) hotelling in a run of more than one calendar year, whose pooled AdjustHotelling chain (`hot_earlier*`) is written per hour of the clock; (2) off-network idle with any AdjustTotalIdleFraction.sql input (`run_idleGroupingRows`, `run_idleAdjustmentRows`), which PreAggMONTH.sql collapses (idleDayAdjust) before that script runs; (3) start, hotelling or off-network idle in a whole-week run whose RunSpec selects fewer day types than the week -- its starts tables are cut to the selected days and its travel is not (`db_rateday` against `db_actday`). (4) an evaporative process over a STATED soakActivityFraction (`run_soakActivityInputRows`): PreAggDAY.sql collapses the user's hourly rows to `sum(soakActivityFraction x HourWeighting2)` per day type, and PreAggMONTH.sql those by DayWeighting2, before TTG-6 reads them, where the model reads them at the cell's own hour-day and finds none. Unmeasured; about four variables (the two weightings exist as `met_hourWeight` and `dw_roadDayWeight`) and a capture with a county database stating the table (PLAN.md §7.3.64)."
+        },
+        "run_soakActivityInputRows": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "run_rows"
+          ],
+          "description": "Stated `soakActivityFraction` rows at the run's zone, source types and months (`evap_soakActivityInputCount` summed). The default database has none; a county or user database may state them, and TTG-6 then keeps them in place of its own."
         },
         "run_aggregationHourCount": {
           "type": "unknown",
@@ -107137,27 +107145,70 @@
                       "op": "+",
                       "args": [
                         {
-                          "op": "*",
+                          "op": "+",
                           "args": [
                             {
-                              "op": "index",
+                              "op": "*",
                               "args": [
-                                "run_hotellingSelected",
-                                "n"
+                                {
+                                  "op": "index",
+                                  "args": [
+                                    "run_hotellingSelected",
+                                    "n"
+                                  ]
+                                },
+                                {
+                                  "op": "ifelse",
+                                  "args": [
+                                    {
+                                      "op": ">",
+                                      "args": [
+                                        "n_runspecyear",
+                                        1.5
+                                      ]
+                                    },
+                                    1.0,
+                                    0.0
+                                  ]
+                                }
                               ]
                             },
                             {
-                              "op": "ifelse",
+                              "op": "*",
                               "args": [
                                 {
-                                  "op": ">",
-                                  "args": [
-                                    "n_runspecyear",
-                                    1.5
-                                  ]
+                                  "op": "apply_expression_template",
+                                  "args": [],
+                                  "name": "row_is_present",
+                                  "bindings": {
+                                    "match_count": {
+                                      "op": "index",
+                                      "args": [
+                                        "run_offNetworkIdleBlocks",
+                                        "n"
+                                      ]
+                                    }
+                                  }
                                 },
-                                1.0,
-                                0.0
+                                {
+                                  "op": "+",
+                                  "args": [
+                                    {
+                                      "op": "index",
+                                      "args": [
+                                        "run_idleGroupingRows",
+                                        "n"
+                                      ]
+                                    },
+                                    {
+                                      "op": "index",
+                                      "args": [
+                                        "run_idleAdjustmentRows",
+                                        "n"
+                                      ]
+                                    }
+                                  ]
+                                }
                               ]
                             }
                           ]
@@ -107173,29 +107224,36 @@
                                 "match_count": {
                                   "op": "index",
                                   "args": [
-                                    "run_offNetworkIdleBlocks",
+                                    "run_offNetworkActivitySelected",
                                     "n"
                                   ]
                                 }
                               }
                             },
                             {
-                              "op": "+",
+                              "op": "ifelse",
                               "args": [
                                 {
-                                  "op": "index",
+                                  "op": "<",
                                   "args": [
-                                    "run_idleGroupingRows",
-                                    "n"
+                                    {
+                                      "op": "index",
+                                      "args": [
+                                        "run_dayCount",
+                                        "n"
+                                      ]
+                                    },
+                                    {
+                                      "op": "index",
+                                      "args": [
+                                        "run_actDayCount",
+                                        "n"
+                                      ]
+                                    }
                                   ]
                                 },
-                                {
-                                  "op": "index",
-                                  "args": [
-                                    "run_idleAdjustmentRows",
-                                    "n"
-                                  ]
-                                }
+                                1.0,
+                                0.0
                               ]
                             }
                           ]
@@ -107206,6 +107264,13 @@
                       "op": "*",
                       "args": [
                         {
+                          "op": "index",
+                          "args": [
+                            "run_needsTankTemperature",
+                            "n"
+                          ]
+                        },
+                        {
                           "op": "apply_expression_template",
                           "args": [],
                           "name": "row_is_present",
@@ -107213,42 +107278,50 @@
                             "match_count": {
                               "op": "index",
                               "args": [
-                                "run_offNetworkActivitySelected",
+                                "run_soakActivityInputRows",
                                 "n"
                               ]
                             }
                           }
-                        },
-                        {
-                          "op": "ifelse",
-                          "args": [
-                            {
-                              "op": "<",
-                              "args": [
-                                {
-                                  "op": "index",
-                                  "args": [
-                                    "run_dayCount",
-                                    "n"
-                                  ]
-                                },
-                                {
-                                  "op": "index",
-                                  "args": [
-                                    "run_actDayCount",
-                                    "n"
-                                  ]
-                                }
-                              ]
-                            },
-                            1.0,
-                            0.0
-                          ]
                         }
                       ]
                     }
                   ]
                 }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "run_soakActivityInputRows",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "n"
+            ],
+            "ranges": {
+              "n": {
+                "from": "run_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "s": {
+                "from": "runspecsourcetype_rows"
+              },
+              "mm": {
+                "from": "runspecmonth_rows"
+              }
+            },
+            "expr": {
+              "op": "index",
+              "args": [
+                "evap_soakActivityInputCount",
+                "g",
+                "s",
+                "mm"
               ]
             }
           }
