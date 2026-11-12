@@ -681,6 +681,11 @@
       "default": 0,
       "description": "THE RUNSPEC'S `<outputtimestep>`, second half: 1 when it is `Year`, whose MOVESOutput also sums the months; 0 (the default) otherwise. Only with `n_outputSumsDays` 1 (PLAN.md §7.3.63)."
     },
+    "n_aggregatesMonths": {
+      "type": "integer",
+      "default": 0,
+      "description": "THE RUNSPEC'S `<aggregateBy>` at `Year`: 1 when InputDataManager.preAggregateExecutionDB runs PreAggYEAR.sql after PreAggDAY.sql and PreAggMONTH.sql, collapsing the RunSpec's months into MonthOfAnyYear 0 (`Whole Year`, 365 days) before any generator; 0 (the default) at `Hour`, `24-Hour Day` and `Month`. No table in the execution database says so -- the RunSpec XML does -- so a Year RunSpec binds it beside `n_outputSumsMonths` (PLAN.md §7.3.65)."
+    },
     "n_cumtvvcoeffs": {
       "type": "integer",
       "default": 0,
@@ -21286,7 +21291,7 @@
           "shape": [
             "run_rows"
           ],
-          "description": "What a run that pre-aggregates time selects and the model does not compute (PLAN.md §7.3.63), counted by `run_selectionUnported`; 0 on a run that does not aggregate. Starts, hotelling and off-network idle under PreAggDAY.sql and PreAggMONTH.sql are PORTED and are not counted. Counted, each unmeasured: (1) hotelling in a run of more than one calendar year, whose pooled AdjustHotelling chain (`hot_earlier*`) is written per hour of the clock; (2) off-network idle with any AdjustTotalIdleFraction.sql input (`run_idleGroupingRows`, `run_idleAdjustmentRows`), which PreAggMONTH.sql collapses (idleDayAdjust) before that script runs; (3) start, hotelling or off-network idle in a whole-week run whose RunSpec selects fewer day types than the week -- its starts tables are cut to the selected days and its travel is not (`db_rateday` against `db_actday`); (4) any evaporative process, whose TankTemperatureGenerator reads SampleVehicleTrip with every hour collapsed to 0."
+          "description": "What a run that pre-aggregates time selects and the model does not compute (PLAN.md §7.3.63), counted by `run_selectionUnported`; 0 on a run that does not aggregate. Starts, hotelling and off-network idle under PreAggDAY.sql and PreAggMONTH.sql are PORTED and are not counted. Counted, each unmeasured: (1) hotelling in a run of more than one calendar year, whose pooled AdjustHotelling chain (`hot_earlier*`) is written per hour of the clock; (2) off-network idle with any AdjustTotalIdleFraction.sql input (`run_idleGroupingRows`, `run_idleAdjustmentRows`), which PreAggMONTH.sql collapses (idleDayAdjust) before that script runs; (3) start, hotelling or off-network idle in a whole-week run whose RunSpec selects fewer day types than the week -- its starts tables are cut to the selected days and its travel is not (`db_rateday` against `db_actday`); (4) any evaporative process, whose TankTemperatureGenerator reads SampleVehicleTrip with every hour collapsed to 0; (5) `aggregateBy` Year (`n_aggregatesMonths`), whose PreAggYEAR.sql collapse of the months is not ported (PLAN.md §7.3.65)."
         },
         "run_aggregationHourCount": {
           "type": "unknown",
@@ -106890,10 +106895,16 @@
                       ]
                     },
                     {
-                      "op": "index",
+                      "op": "+",
                       "args": [
-                        "run_evapSelected",
-                        "n"
+                        {
+                          "op": "index",
+                          "args": [
+                            "run_evapSelected",
+                            "n"
+                          ]
+                        },
+                        "n_aggregatesMonths"
                       ]
                     }
                   ]
