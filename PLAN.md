@@ -6681,7 +6681,7 @@ hour-day) were re-emitted with `tools/emit-oracle-table.py` and `cmp`'d against
 the main tree's `.fixtures-run/`: every relation, shape and Rates table
 byte-identical. `scale-county-timeagg-day` evaluates in 9 min 19 s (470 s user CPU)
 at 7.5 GB, `-month` in 14 min 44 s (667 s) at 7.8 GB, `run_domainUnported` and
-`run_selectionUnported` 0 on both. The Python binding loads both.
+`run_selectionUnported` 0 on both. The Python binding loads both. `./run-tests.sh` in the branch's sibling worktree: 738 ok / 2 FAIL against main's 729 / 0 -- eleven new `ok` (the two runs' validate, test, number and shape lines, the data-open domain document, and `lib/time_aggregation.esm` twice), and the two FAILs are `run-link-omd-oracle.sh` and `run-project-tag-oracle.sh` sweeping two PROJECT snapshots (`project-zerospeed`, `project-driveschedule`) a parallel branch added to the shared moves.rs corpus mid-run; both oracles pass over the corpus without them. 3 h 01 min wall, 10,309 s user CPU (main 2 h 50 min, 9,200 s), 7.8 GB peak.
 
 ### 7.4 Upstream asks
 
