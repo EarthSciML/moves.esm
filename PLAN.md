@@ -7265,6 +7265,150 @@ directories against the 85 docs/omd-generator-reachability.md states), so the no
 is refreshed once, after the lanes merge. 4 h 51 min wall, 16,593 s user CPU, 33.5 GB
 peak (`scale-county-outstep-hourday`), with the two other lanes' suites on the node.
 
+#### 7.3.69 The species at `aggregateBy` Year: three calculators sum the raw FuelSupply shares themselves
+
+2026-11-12. §7.3.65 ported PreAggYEAR.sql's month collapse for what one capture
+checks and refused, at `aggregateBy` Year, every other pollutant-process
+(`run_yearUnportedSelected`), naming air toxics among them on the belief that
+ATRatio's MonthGroupWeighting mean of per-group ratios is not the ratio at the mean
+fuel. Two captures of the running- and start-exhaust species now reproduce,
+**key set exact, no `cell_exception`:**
+
+| run | selections | rows | worst cell | model change |
+|---|---|---|---|---|
+| `scale-county-timeagg-year-pm` | running PM10, PM2.5, OC, EC, sulfate, non-EC PM, aerosol water | 5390 of 5390 | 8.761e-06 | F69 |
+| `scale-county-timeagg-year-toxics` | running: 32 gases (CH4, N2O, NH3, SO2, NO/NO2/HONO, NMHC, NMOG, TOG, VOC, NonHAPTOG, 15 toxics, energy, CO2, CO2e); start: 23 of them | @TOXROWS@ | @TOXWORST@ | F70, the altTHC quotient |
+
+and a third, of the same gases at extended idle, APU and the crankcase processes,
+is measured and pending (`runspecs/pending/scale-county-timeagg-year-toxics-idle.esm`).
+
+**The captures** (moves.rs branch `capture-year-toxics`, host token `1ccc0236`,
+moves-snapshot/v2; snapshots are not versioned and were copied into the main
+checkout's `characterization/snapshots/`): all three over the unchanged
+`setup-timeagg.sql`, `scale-county-timeagg-year`'s months (January, April, July,
+October 2020), both day types, all 24 hours and road types 1 and 4, for the
+gasoline car (21) and the diesel long-haul truck (62); `aggregateBy` Year, output
+Year. `-pm` 133 MB, `-toxics` 293 MB, `-toxics-idle` 59 MB (apparent size).
+The first `-toxics` shape also selected start-exhaust N2O, CO2 Equivalent and the
+six ATRatio toxics; the model computes none of them at start at ANY aggregation
+(below), so they were dropped and the fixture recaptured.
+
+**Measured before porting** (pandas, the toxics capture's execution database):
+PreAggYEAR.sql's `AggATRatio` is EMPTY -- 0 rows. ATRatio is not an input: the
+default database ships it empty and FuelEffectsGenerator.doAirToxicsCalculations
+(FuelEffectsGenerator.java:1522-1975) writes it AFTER the pre-aggregation, at the
+one month group 0 the collapsed RunSpec has, as `relATEmissions /
+relATEmissionsVOC` over the collapsed formulations and the collapsed
+ATBaseEmissions. That table's MonthGroupWeighting mean reproduces at 2.6e-16 (10
+of 10 rows), and the default database's ATBaseEmissions does not vary by month
+group at all (max/min 1.0 on every polProcessID). So §7.3.65's stated reason was
+wrong: there is no mean of ratios to port. The other ratio tables
+(ATRatioNonGas, minorHAPRatio, pahGasRatio, methaneTHCRatio, hcSpeciation,
+nono2ratio, sulfateFractions, pmSpeciation) carry no month.
+
+**What MOVES does, and in which order.** PreAggYEAR.sql collapses FuelSupply to
+`sum(marketShare x actFract)` (§7.3.65): four months give each fuel type 0.334229
+of a share, and BaseRateCalculator's per-formulation sum carries that total into
+every rate once (`rt_fuelSupplyScale`, F63). Three species calculators then sum
+over FuelSupply AGAIN, with the raw shares:
+
+1. **SulfatePMCalculator.sql** (lines 61-130): `oneCountyYearSulfateFractions` is
+   `sum(fs.marketShare x SulfatenonECPMFraction x (1 + BaseFuelSulfateFraction x
+   (sulfurLevel/BaseFuelSulfurLevel - 1)))`, and the water fraction likewise, over
+   the fuel type's formulations; `sPMOneCountyYearGeneralFuelRatio`, the residue's
+   (NonECNonSO4PM, 120) fuel effect, `sum(fuelEffectRatio x marketShare)`. Both
+   multiply NonECPM, which already carries the total. **First evaluation: every
+   sulfate cell 2.99196 = 1/0.334229 high; non-EC PM, OC, PM2.5 and PM10 high by
+   the residue's and sulfate's share of them (1.0 to 2.99); EC exact** (finding
+   **F69**). Where `generalFuelRatio` has no residue row the SQL's UPDATE finds
+   nothing and the residue keeps one total.
+2. **AirToxicsCalculator.sql** (lines 277, 549-559, 635-699): each toxic is
+   `emissions[VOC] x marketShare x ATRatio` per formulation, summed (ATRatio,
+   ATRatioGas2, ATRatioNonGas), and minorHAPRatio arrives as
+   `sum(atRatio x marketShare)`. **Every toxic 2.99196 high, at running and start,
+   gasoline, diesel, CNG and E85 alike, at extended idle too** (finding **F70**).
+   pahGasRatio is joined by fuel type, without a share, and is right.
+3. **The E85 speciation** (HCSpeciationCalculator; `altTHC`, pollutant 10001):
+   MOVES carries THC and the pseudo-THC tally `altTHC` per formulation and sums
+   each, so NMOG's and VOC's `altTHC/THC` operand is the THC-weighted mean of each
+   formulation's `altCriteriaRatio/criteriaRatio`. PreAggYEAR.sql's FuelSupply
+   holds TWO E85 formulations (27001 at RVP 10.5, 27002 at 7.7), where every
+   earlier run had one. **Every E85 NMOG, VOC, TOG, naphthalene and toxic 1.0004
+   to 1.0006 high**: the model took `exp` of the share-weighted exponent
+   difference, a mean of exponents where MOVES means the exponentials -- §
+   an-exact-answer-can-be-exact-by-luck, at one formulation the two agree.
+
+CH4, NMHC, N2O, NH3, SO2 (whose SO2Calculator divides one raw-share sum by
+another), NO, NO2, HONO, energy, CO2 and CO2 Equivalent reproduced with no change.
+
+**What the model does** (conventions §121; hand-edited, spliced by scratch
+scripts):
+
+1. `rt_spmSulfateFraction` and `rt_spmWaterFraction` sum `ffsup_suppliedShare`, the
+   shares as the execution database holds them, and `rt_residueFuelRatioExact`
+   multiplies by `rt_fuelSupplyScale` -- the same total, where a residue row
+   covers. (F69)
+2. `atx_suppliedClosedFormRatio`, `atr_suppliedComplexRatio`, `rt_atNonGasRatio`
+   and `rt_minorHapRatio` sum `ffsup_suppliedShare`. (F70)
+3. `cfr_suppliedAltQuotient` replaces `cfr_suppliedExponentDelta`:
+   `Sum_f share_of_group(s_f r_f, Sum s r) x exp(delta_f)`, and
+   `rt_speciationSuppliedAltQuotient` replaces `rt_speciationExponentDelta`. At
+   one formulation the weight is `r/r`, exactly 1, so the number is the old
+   `exp(delta)` bit for bit. Where no criteria row covers the THC (diesel and CNG
+   start exhaust) the old form was `exp` of an empty sum, 1, and a weighted mean
+   over no formulation is 0 -- the second evaluation put every diesel and CNG
+   start NMOG, VOC and toxic at zero -- so `rt_hasSpeciationAltQuotient` keeps 1
+   there (`exact_else_wildcard`).
+4. `year_captured_species` (lib/time_aggregation.esm) names the (process,
+   pollutant) pairs the two captures check, and `run_yearUnportedSelected` stops
+   counting them.
+
+`ffsup_suppliedShare` IS `ffsup_marketShare` on every run that does not aggregate
+by year (the normaliser is exactly 1.0), and `rt_fuelSupplyScale` is exactly 1.0, so
+1 and 2 are byte-identical there by construction; 3 is wherever each fuel type has
+one supplied formulation, as every earlier species run does.
+
+**The extended-idle, APU and crankcase species are not the month collapse.**
+`scale-county-timeagg-year-toxics-idle` (3,898 MOVES rows, all source type 62's)
+evaluates to 2,214 rows, 2,164 sharing a key: the hotelling processes' species chain
+is deeper than the three rungs the model unrolls (`run_chainDepthExceeded` 2,444),
+APU's species reach 164 of MOVES's 1,148 keys, crankcase extended idle's CH4, NMHC,
+NMOG and VOC are 4x to 100x off, and `run_selectionUnported` counts 122. MOVES
+writes no crankcase running or start row (their parent processes are not selected)
+and no NH3 at APU or crankcase extended idle. The extended-idle toxics that share
+a key were 2.99196 high before F70, the same factor. No capture at any aggregation
+had selected a species at these processes; it waits in `runspecs/pending/` on a
+deeper chain and the two species paths, and `run_yearUnportedSelected` keeps
+counting them.
+
+**Found on the way, not the month collapse (not fixed, not refused):** at START
+exhaust the model emits N2O as 0 (MOVES: nonzero on every cohort), so CO2
+Equivalent is 0.2-1.0 of MOVES's; and it emits no gasoline or E85 start benzene,
+ethanol, 1,3-butadiene, formaldehyde, acetaldehyde or acrolein at all (their
+`generalFuelRatioExpression` start strings, 700-2000 characters each, are not
+ported; diesel's ATRatioNonGas start rows are), padding the relation with 366
+empty rows. `run_selectionUnported` was 0 on both, at every aggregation: no
+earlier capture selected a start species but SO2. At Year they stay counted
+(`year_captured_species` omits them); at other aggregations and none they are
+silent.
+
+**What is refused now.** `run_yearUnportedSelected` at `aggregateBy` Year counts
+every pair outside `year_captured_process x year_captured_pollutant` and
+`year_captured_species`: the evaporative processes and refueling (the year-evap
+lane), every species at extended idle, APU and the crankcase processes (measured,
+pending), start-exhaust PM, N2O, CO2 Equivalent and the ATRatio toxics, and the
+metals, dioxins, PAH particles and mechanism species (none captured).
+
+**Unchanged runs.** @REEMIT@
+
+**Cost.** `scale-county-timeagg-year-pm` evaluates in 3 min 18 s (173 s user CPU)
+at 3.1 GB; `scale-county-timeagg-year-toxics` in @TOXTIME@ at @TOXRSS@;
+the pending `-toxics-idle` in 10 min 20 s (546 s) at 16.7 GB.
+`tools/check-sources.py` passes (124 catalogues); `tools/check-reachability-counts.py`
+reports 24 of 129 document claims stale against the shared corpus, which the
+parallel lanes' captures and these three have grown -- refreshed once, after the
+lanes merge, as §7.3.66 left it.
+
 ### 7.4 Upstream asks
 
 **None is blocking.** This section has said "still none", "already exists,
