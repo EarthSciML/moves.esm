@@ -9549,3 +9549,36 @@ table.
    tables and the generator writes over the collapsed weather as at Month. The
    refusal belongs to the stated-table case (`run_soakActivityInputRows`), not
    to the process: read the order of the scripts before porting a quirk in one.
+
+## 121. A calculator that sums the supply itself reads the shares as the database holds them, and a quotient of two collapses is a weighted mean of quotients **[PLAN.md §7.3.69; `scale-county-timeagg-year-pm` 5,390 of 5,390 and `scale-county-timeagg-year-toxics` 27,782 of 27,782, key-exact, no `cell_exception`; the species, PM and aggregating runs byte-identical]**
+
+§117 normalised PreAggYEAR.sql's summed FuelSupply so that the model's share-weighted
+collapses stay MEANS, and multiplied the total in once where BaseRateCalculator's
+per-formulation sum puts it. That is right for every collapse that stands in for
+BaseRateCalculator's own sum, and wrong for every calculator that sums FuelSupply
+AGAIN downstream of it.
+
+1. **Read the calculator's SQL for its own `marketShare`.** SulfatePMCalculator
+   (the sulfate and water fractions, the residue's fuel effect) and
+   AirToxicsCalculator (`VOC x marketShare x ATRatio` per formulation,
+   `sum(atRatio x marketShare)`) multiply a parent that already carries the total
+   by the raw shares, so their species carry it twice -- sulfate and every toxic
+   2.99196 = 1/0.334229 high at four months, the uniform-factor pattern a third
+   time. Those collapses read `ffsup_suppliedShare`, as CarbonOxidationByFuelType's
+   did (§117.4). SO2Calculator sums the raw shares too, but in a numerator AND a
+   denominator, and needs nothing. The two shares are the same number, bit for bit,
+   on a run that does not aggregate by year, so the choice is invisible until one
+   does: write down which one each calculator's SQL multiplies, not which one
+   looks like a mean.
+2. **A quotient of two share-weighted sums is the mean of the per-formulation
+   quotients weighted by the denominator's terms**, not the quotient at the mean
+   argument. The E85 `altTHC/THC` operand was `exp` of the share-weighted exponent
+   difference -- exact at one formulation, 4e-4 off at the two E85 formulations
+   PreAggYEAR.sql's collapse supplies. Written as `share_of_group(s_f r_f, Sum s r)
+   x exp(delta_f)` the weight is `r/r = 1` exactly at one formulation, so the
+   rewrite is byte-identical where the old form was right.
+3. **A table the pre-aggregation collapses may be empty when it does.** ATRatio is
+   written by FuelEffectsGenerator after PreAggYEAR.sql runs; the script's
+   MonthGroupWeighting mean of it averages nothing (`AggATRatio`, 0 rows). Before
+   porting a collapse, check that the table it collapses has rows at that point in
+   the run -- §7.3.65's refusal of air toxics was a mean that never happens.

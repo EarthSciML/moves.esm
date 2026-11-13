@@ -1728,6 +1728,14 @@ C7P_DOMAIN=moves-onroad.esm
 # refueling processes over the month-collapsed fuel supply, whose summed shares
 # TankFuelGenerator's gasohol share and RefuelingLossCalculator's RVP and energy
 # content read as sums, and which venting and leaks never read.
+
+# `scale-county-timeagg-year-toxics` and `-pm` are the same Year collapse for
+# the gaseous species, air toxics and PM species at running and start exhaust
+# (PLAN.md §7.3.69, conventions §121): SulfatePMCalculator and AirToxicsCalculator
+# sum the RAW FuelSupply shares themselves, so their species carry the months'
+# share of the year twice, and two E85 formulations make the altTHC quotient a
+# THC-weighted mean. `runspecs/pending/scale-county-timeagg-year-toxics-idle`
+# measures the species at extended idle, APU and the crankcase processes.
 # `scale-county-outstep-hourday`, `-week` and `-dayagg` are the 24-Hour Day
 # and Portion of Week output steps (PLAN.md §7.3.66, conventions §118): a
 # day type's hour cells summed, as classical days or as a portion of a week;

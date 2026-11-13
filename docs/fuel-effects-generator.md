@@ -610,11 +610,34 @@ def general_fuel_ratio(snap, promote, litdiv):
     if not ge: return {}, 0
     sub2type = {r["fuelSubtypeID"]: r["fuelTypeID"] for r in table(snap, "fuelsubtype")}
     forms, by_type = {}, {}
+    # alterHighEthanolFuelProperties (FuelEffectsGenerator.java:4369-4430)
+    # overwrites an E70/E85 formulation's properties with its usage's
+    # e10FuelProperties row (the fuel region's, else the nation's) before the
+    # expressions run. The FLOAT column then holds binary32(e10 value), and the
+    # capture's six-digit text of it is NOT that float when the e10 value has
+    # more digits than six -- which it does at `aggregateBy` Year, where
+    # PreAggYEAR.sql writes the MonthGroupWeighting MEAN (21.47022497693518 is
+    # captured as 2.14702e+01; PLAN.md 7.3.69). So where the text is the
+    # six-digit rendering of a usage's e10 value, the FLOAT is that value's.
+    e10 = {(r["fuelRegionID"], r["fuelYearID"], r["monthGroupID"]): r
+           for r in (table(snap, "e10fuelproperties") or [])}
+    usages = {}
+    for r in (table(snap, "fuelsupply") or []):
+        usages.setdefault(r["fuelFormulationID"], []).append(
+            (r["fuelRegionID"], r["fuelYearID"], r["monthGroupID"]))
+    def written_float(fid, c, x):
+        if c == "RVP": return f32(x)        # E85 keeps its RVP; e10's is altRVP
+        for reg, fy, mg in usages.get(fid, []):
+            for row in (e10.get((reg, fy, mg)), e10.get((0, fy, mg))):
+                y = row.get(c) if row else None
+                if y is not None and float("%.6g" % f32(float(y))) == x:
+                    return f32(float(y))
+        return f32(x)
     for r in table(snap, "fuelformulation"):
         v = {}
         for c in PROPS:
             x = float(r[c]) if r[c] is not None else 0.0
-            v[c.lower()] = f32(x) if promote == "float" else x
+            v[c.lower()] = written_float(r["fuelFormulationID"], c, x) if promote == "float" else x
         # `altRVP` is a column the Java ADDS to fuelFormulation in setup(); the
         # snapshot does not carry it. Only the derived Pseudo-THC expressions
         # read it, and every one of those is handed off, so no compared cell
