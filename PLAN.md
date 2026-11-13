@@ -8015,21 +8015,35 @@ particles and every `pmSpeciation` species but organic carbon had never been
 captured at running or start exhaust either. All four new runs reproduce, **key set
 exact, no `cell_exception`:**
 
-TABLE
+| run | selections | rows | worst cell |
+|---|---|---|---|
+| `scale-county-minor-offnet` (NEW, `aggregateBy` Hour, output Hour: July, weekdays, hour 8; road type 1) | 38 PM species and PAH particles at start, extended idle, APU, crankcase start and crankcase extended idle | 17062 of 17062 | 9.425e-06 |
+| `scale-county-minor-running` (NEW, Hour; road type 4, VMT output on) | the same 38 at running and crankcase running, and 24 metals and dioxins at running | 11704 of 11704 | 1.242e-05 |
+| `scale-county-timeagg-year-minor-offnet` (NEW, `aggregateBy` Year) | `-minor-offnet`'s | 17062 of 17062 | 9.194e-06 |
+| `scale-county-timeagg-year-minor-running` (NEW, `aggregateBy` Year) | `-minor-running`'s | 11704 of 11704 | Y_RUNNING_WORST |
 
 **The captures** (moves.rs branch `capture-idle-minor`, commits 7c949152..a53f83eb,
 host token `1ccc0236`, moves-snapshot/v2, capture binary rebuilt in the lane's
 scratch; all copied into the main checkout's `characterization/snapshots/`):
-SNAPSHOTS. Running and start are in the same captures as the idle processes, as the
+`scale-county-minor-offnet` (139 MB apparent), `scale-county-minor-running` (155 MB),
+`scale-county-timeagg-year-minor-offnet` (136 MB) and `-minor-running` (152 MB), the
+fixtures `scale-county-idle-species.xml` and `-timeagg-year-toxics-idle.xml` with the
+selections replaced, over the unchanged `setup-timeagg.sql`. Running and start are in the same captures as the idle processes, as the
 brief asked, because the same calculators write them -- but split by ROAD TYPE: one
 capture of all seven processes (`scale-county-minor-species`, 75,582 rows at one
 hour, 81 MB) passed 57 GB of RSS inside ten minutes of evaluation and was killed
 before it could endanger the node; its snapshots were deleted and its
 recipe replaced. Road type 1 carries start, extended idle, APU and crankcase start and
 extended idle; road type 4 running and crankcase running and the metals and dioxins.
-`scale-county-metals-novmt` (0 rows) is the metals and dioxins with the VMT output off.
+`scale-county-metals-novmt` (0 rows, 65 MB) is the metals and dioxins with the VMT output off.
 
-**(1) Every species was SILENT at Hour (finding F80).** BASELINE. Nothing counted it:
+**(1) Every species was SILENT at Hour (finding F80).** `scale-county-minor-offnet` on the unchanged model (base 7d52db9): 1,510 of its 17,062
+rows emitted, 15,552 ABSENT -- the 13 other `pmSpeciation` species, TOM, the residual and
+the 16 PAH particles at every process, every crankcase start and crankcase extended idle
+PM row, and five of APU's seven PM blocks (PM10, PM2.5, organic carbon, sulfate, water) --
+and 157 of the 1,510 2.8% high (extended idle's pre-2007 and APU's 2010-and-later diesel
+EC, NonECPM and what is made of them; F82). Only start exhaust's seven PM blocks, which
+§7.3.71 ported, were right. Nothing counted it:
 `run_selectionUnported` 0.
 
 **Measured before porting** (pandas, `/scratch.local/ctessum/idle-minor/py/measure.py`,
