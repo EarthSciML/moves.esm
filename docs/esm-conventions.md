@@ -9519,6 +9519,37 @@ two rules came out of porting them and the last three aggregation refusals.
    nothing rather than the identity -- is PreAggMONTH.sql's idleDayAdjust: a
    source type stating only the weekday's 1.12 gets a whole week of 0.8.
 
+## 119. A collapse of a user's table is a weight at the cell, a generator's "is it stated" test has its own key, and a mounting catalogue may shadow one mounted table **[PLAN.md §7.3.67; `scale-county-timeagg-soak-day` 768 of 768 and `scale-county-timeagg-soak-month` 768 of 768, key-exact, one scoped precision exception; the evaporative and aggregating runs byte-identical]**
+
+1. **A pre-aggregated USER table is read through the cell's weight, like the
+   default tables §115 collapses.** PreAggDAY.sql and PreAggMONTH.sql collapse the
+   user's soakActivityFraction before TankTemperatureGenerator keeps it, so the
+   model reads the stated hourly rows through one weight per (cell, day type, hour,
+   source type) -- `tcell_dayMatch x tcell_hourMatch`, times HourWeighting2 where the
+   cell collects hours and DayWeighting2 where it collects days (`evap_soakCellWeight`)
+   -- and is the cell's own row, exactly, on a run that does not aggregate. Measure
+   the weight's normalisation before trusting the word "average": DayWeighting2 sums
+   to about 4.25, so the Month collapse is a sum and the evaporative residual clamps.
+2. **"Does the user state it" is a predicate with its OWN key, and it is often
+   coarser than the rows.** TTG-6 excludes stated (source type, zone, month) keys,
+   but whether it runs at all is one `hasRecord` per ZONE: a zone stating one row
+   gets no generated row anywhere. Read the guard that decides whether a generator
+   runs, not only the exclusion inside it (F65).
+3. **A residual grouped over inserted rows is absent where nothing was inserted.**
+   `greatest(0, 1 - sum)` reads like "1 when there are no soak rows", and in SQL it is
+   no row at all, because it is `GROUP BY` over the rows the same generator just
+   wrote. Absence then travels: no distribution, no rate row, no output row. The
+   model carries it as a presence (`evap_hasSoakRow`, `rtDay_hasRow`) and an
+   output-step membership flag (`mos_inTable`); where the emitted relation has no
+   flag (`out_*`, output step Hour) the cells are refused instead (F66).
+4. **A catalogue that differs from another by one table mounts it and declares that
+   table.** The loader (EarthSciAST ref_loading.rs, `hoist_subsystem_data_sources`)
+   lets the mounting document's OWN data source win a name clash with a mounted one;
+   only two MOUNTS contributing different entries conflict. §59.4's "no channel for a
+   mounting document to override a mounted one's `data_sources`" predates that rule.
+   `inputs/washtenaw-county-timeagg-soak.esm` is the relay of the metaparameters plus
+   one source; the Python binding resolves it the same way.
+
 ## 120. A summed share is read as a sum only by the reader that sums it, and a pre-aggregation of a generated table acts on what the user stated **[PLAN.md §7.3.68; `scale-county-timeagg-processes-year` 19,628 of 19,628, key-exact, worst cell 1.134e-05, no `cell_exception`; the evaporative, refueling and aggregating runs byte-identical]**
 
 §117 found PreAggYEAR.sql's FuelSupply a SUM over the months and scaled every

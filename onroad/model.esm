@@ -5796,6 +5796,17 @@
           ],
           "description": "How many mounted `soakActivityFraction` rows the source type, zone and month have. TTG-6 computes only where there are none (`SoakActivityFractionKeys`)."
         },
+        "evap_soakCellWeight": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecday_rows",
+            "rateday_rows",
+            "aggregationhour_rows",
+            "runspecsourcetype_rows"
+          ],
+          "description": "A stated soakActivityFraction row's weight in the cell, by its day type and hour (PLAN.md §7.3.67). In a cell of its own hour-day, 1 at that hour-day and 0 elsewhere. PreAggDAY.sql collapses the user's hourly rows BEFORE TankTemperatureGenerator keeps them (`sum(soakActivityFraction x HourWeighting2)` per day type, InputDataManager.preAggregateExecutionDB precedes every generator), so in a cell that collects hours each hour weighs its HourWeighting2 (`met_hourWeight`), which sums to about 1 over the hours; and PreAggMONTH.sql collapses those to `sum(x DayWeighting2)` at hourDayID 0, so in a whole-week cell each day type weighs DayWeighting2 (`dw_roadDayWeight`), which is NOT normalised -- it sums to the week's travel-weighted days, not to 1. Neither is divided, and the collapsed fraction is what EvaporativeEmissionsOperatingModeDistributionGenerator multiplies by `1 - fractionOfOperating`."
+        },
         "evap_soakActivityInput": {
           "type": "unknown",
           "units": "1",
@@ -5806,7 +5817,27 @@
             "runspecsourcetype_rows",
             "runspecmonth_rows"
           ],
-          "description": "The mounted soakActivityFraction at the run's source type, zone, month, hour-day and mode."
+          "description": "The mounted soakActivityFraction at the run's source type, zone, month and mode, in the cell: its own hour-day's row, or, in a cell that pre-aggregates time, PreAggDAY.sql's and PreAggMONTH.sql's collapse of the stated hourly rows (`evap_soakCellWeight`), which is what TTG-6 then keeps."
+        },
+        "evap_zoneSoakActivityInputCount": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspeccounty_rows"
+          ],
+          "description": "How many mounted `soakActivityFraction` rows the zone has at the run's source types and months. TTG-6 runs only for a zone with NONE (`needSoakActivityFraction = !hasRecord(... where zoneID = ...)`, TankTemperatureGenerator.java:301): ONE stated row anywhere in the zone switches the generator off for every source type and month of it, and its per-key exclusion (`SoakActivityFractionKeys`) never comes into play. Measured on `scale-county-timeagg-soak-day` (PLAN.md §7.3.67): the county states the light commercial truck's rows for January alone, and the execution database holds no July row of it."
+        },
+        "evap_soakActivityInputRows": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecday_rows",
+            "operating_mode_rows",
+            "runspeccounty_rows",
+            "runspecsourcetype_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "How many mounted soakActivityFraction rows the cell collects at the mode: its own hour-day's, or every hour (and day type) PreAggDAY.sql (and PreAggMONTH.sql) fold into it. A count and not the collapsed value, because a stated 0 is a row (EvaporativeEmissionsOperatingModeDistributionGenerator inner-joins SoakActivityFraction, and its mode-300 residual is grouped over the rows that join)."
         },
         "evap_soakActivityFraction": {
           "type": "unknown",
@@ -5818,7 +5849,7 @@
             "runspecsourcetype_rows",
             "runspecmonth_rows"
           ],
-          "description": "The soak activity fraction the evaporative distribution reads: the mounted rows where the source type, zone and month have any, TTG-6's otherwise."
+          "description": "The soak activity fraction the evaporative distribution reads: the mounted rows (collapsed to the cell, `evap_soakActivityInput`) in a zone that states any, TTG-6's in a zone that states none. The switch is the ZONE's (`evap_zoneSoakActivityInputCount`), as TankTemperatureGenerator's is: a source type or month the zone does not state then has NO row, not TTG-6's (PLAN.md §7.3.67)."
         },
         "evap_hasMode": {
           "type": "unknown",
@@ -14688,6 +14719,30 @@
           ],
           "description": "The soaking modes' share of the hour, summed. E3 subtracts it."
         },
+        "evap_soakActivityProcessRows": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecpollutantprocess_rows",
+            "runspecday_rows",
+            "runspeccounty_rows",
+            "runspecsourcetype_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "The stated soakActivityFraction rows the cell collects at the modes the pollutant-process has (`evap_hasMode`): what EvaporativeEmissionsOperatingModeDistributionGenerator's inner join to `OpModePolProcAssoc` keeps."
+        },
+        "evap_hasSoakRow": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecpollutantprocess_rows",
+            "runspecday_rows",
+            "runspeccounty_rows",
+            "runspecsourcetype_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "On a pollutant-process of the evaporative mode family (`rspp_usesEvapModes`; 1 on every other), whether EvaporativeEmissionsOperatingModeDistributionGenerator writes ANY row for the pollutant-process in the cell: its soaking modes are inserted from SoakActivityFraction rows joined to `OpModePolProcAssoc`, and the All Running residual is grouped over what was inserted, so with no soak row there is no residual either -- and no distribution, and no output row. 1 where TTG-6 writes the table (it writes mode 151 at every hour-day it has vehicles for); in a zone that states rows, whether the cell collects a stated row at a mode the pollutant-process has (`evap_soakActivityInputRows`, `evap_hasMode`)."
+        },
         "evap_operatingWeightRaw": {
           "type": "unknown",
           "units": "1",
@@ -14700,7 +14755,7 @@
             "runspecyear_rows",
             "runspecroadtype_rows"
           ],
-          "description": "E3 before its clamp: one minus the soaking share."
+          "description": "E3 before its clamp: one minus the soaking share. Only where the distribution exists at all (`evap_hasSoakRow`)."
         },
         "evap_operatingWeight": {
           "type": "unknown",
@@ -20972,7 +21027,7 @@
           "shape": [
             "run_rows"
           ],
-          "description": "How many things this run SELECTS that the model does not compute, beside its domain (`run_domainUnported`): 0, asserted by tools/check-runspec-shape.py. It counts an on-road pollutant-process other than running exhaust, crankcase running, brake or tire wear or an evaporative one (`occursOnRealRoads` = Y) in a run that also selects road type 1 (`run_onRoadPollutantProcessCount`); and what a run that aggregates hours or day types selects and the model does not compute (`run_aggregationUnported`; starts, hotelling and off-network idle under aggregation are ported, PLAN.md §7.3.63, with the idle adjustment tables, at two calendar years and over a partial week, §7.3.66; every evaporative, refueling, crankcase and wear process, §7.3.64; and the month collapse of `aggregateBy` Year for what `scale-county-timeagg-year` checks, §7.3.65). None of these fails loudly -- each emits a plausible number or none. Evaporative processes on several road types and chained ones with parents both on and off the network are ported (PLAN.md §7.3.48 part C). At Rates scale it also counts `run_ratesUnported`, everything the Rates tables do not compute."
+          "description": "How many things this run SELECTS that the model does not compute, beside its domain (`run_domainUnported`): 0, asserted by tools/check-runspec-shape.py. It counts an on-road pollutant-process other than running exhaust, crankcase running, brake or tire wear or an evaporative one (`occursOnRealRoads` = Y) in a run that also selects road type 1 (`run_onRoadPollutantProcessCount`); and what a run that aggregates hours or day types selects and the model does not compute (`run_aggregationUnported`; starts, hotelling and off-network idle under aggregation are ported, PLAN.md §7.3.63, with the idle adjustment tables, at two calendar years and over a partial week, §7.3.66; every evaporative, refueling, crankcase and wear process, §7.3.64; the month collapse of `aggregateBy` Year for what `scale-county-timeagg-year` checks, §7.3.65; and a stated soakActivityFraction under 24-Hour Day and Month, §7.3.67); and the cells of a zone stating soakActivityFraction that MOVES writes no evaporative row for, on a run emitted at `<outputtimestep>` Hour, whose output relation has no membership flag (`run_soakActivityGapsEmitted`, §7.3.67). None of these fails loudly -- each emits a plausible number or none. Evaporative processes on several road types and chained ones with parents both on and off the network are ported (PLAN.md §7.3.48 part C). At Rates scale it also counts `run_ratesUnported`, everything the Rates tables do not compute."
         },
         "run_onRoadPollutantProcessCount": {
           "type": "unknown",
@@ -21385,7 +21440,7 @@
           "shape": [
             "run_rows"
           ],
-          "description": "What a run that pre-aggregates time selects and the model does not compute (PLAN.md §7.3.63-§7.3.69), counted by `run_selectionUnported`; 0 on a run that does not aggregate. PORTED and not counted: starts, hotelling and off-network idle under PreAggDAY.sql and PreAggMONTH.sql (§7.3.63); the evaporative processes, refueling, crankcase, brake and tire wear under both (§7.3.64: TankTemperatureGenerator over the collapsed ZoneMonthHour writes no cold-soak tank temperature, `ttg_hasColdSoakTankTemperature`); hotelling at two calendar years (`userdb-hotelling-multiyear-day`, `-month`; a third year is `hot_adjustmentRowsUnported`'s), off-network idle with the AdjustTotalIdleFraction.sql inputs (`scale-county-idle-adjust-day`, `-month`) and a whole-week cell of a RunSpec selecting fewer day types than the week (`scale-county-timeagg-weekday`) under both (§7.3.66); and PreAggYEAR.sql's month collapse for what `scale-county-timeagg-year` checks (§7.3.65), in `scale-county-timeagg-processes-year`, the evaporative processes and refueling (§7.3.68: PreAggYEAR.sql's AverageTankTemperature and SoakActivityFraction SUMS act on tables no generator has written yet, so they collapse nothing unless the user states them -- (1) below; what the month collapse reaches is FuelSupply's summed share, which TankFuelGenerator's gasohol share and RefuelingLossCalculator's RVP and energy content read as sums and venting and leaks never read), and the gaseous species, air toxics and PM species at running and start exhaust that `scale-county-timeagg-year-toxics` and `-pm` check (§7.3.69: SulfatePMCalculator's and AirToxicsCalculator's own sums over the raw FuelSupply shares, findings F69, F70). Counted, each unmeasured: (1) an evaporative process over a STATED soakActivityFraction (`run_soakActivityInputRows`): PreAggDAY.sql collapses the user's hourly rows to `sum(soakActivityFraction x HourWeighting2)` per day type, and PreAggMONTH.sql those by DayWeighting2, before TTG-6 reads them, where the model reads them at the cell's own hour-day and finds none; about four variables (`met_hourWeight`, `dw_roadDayWeight` exist) and a capture with a county database stating the table (§7.3.64). At `aggregateBy` Year (`n_aggregatesMonths`) only: (2) every pollutant-process on a selected road that no Year capture checks (`run_yearUnportedSelected`): anything outside THC, CO, NOx, energy, CO2 and brake/tire PM at running, start, the crankcase processes, extended idle, APU and wear, THC at permeation, venting, leaks and refueling, and `year_captured_species` at running and start: every species at extended idle, APU and the crankcase processes, measured and NOT reproduced at Year by `runspecs/pending/scale-county-timeagg-year-toxics-idle.esm` for reasons that are not the month collapse (a species chain deeper than three rungs, APU's and crankcase extended idle's species paths), start-exhaust PM, N2O, CO2 Equivalent and the ATRatio toxics (not computed at start at any aggregation), and the metals, dioxins, PAH particles and mechanism species (§7.3.69). ATRatio itself needs nothing: PreAggYEAR.sql averages an EMPTY table, and FuelEffectsGenerator writes it afterwards at month group 0 from the collapsed ATBaseEmissions (`aggatratio` 0 rows in the capture); (3) the three configurations §7.3.66 ported at Day and Month, which no Year capture checks: hotelling at more than one calendar year, off-network idle with any AdjustTotalIdleFraction.sql input (`run_idleGroupingRows`, `run_idleAdjustmentRows`), and start, hotelling or off-network idle in a whole-week cell of a RunSpec selecting fewer day types than the week (`run_offNetworkActivitySelected`, `db_rateday` against `db_actday`)."
+          "description": "What a run that pre-aggregates time selects and the model does not compute (PLAN.md §7.3.63-§7.3.69), counted by `run_selectionUnported`; 0 on a run that does not aggregate. PORTED and not counted: starts, hotelling and off-network idle under PreAggDAY.sql and PreAggMONTH.sql (§7.3.63); the evaporative processes, refueling, crankcase, brake and tire wear under both (§7.3.64: TankTemperatureGenerator over the collapsed ZoneMonthHour writes no cold-soak tank temperature, `ttg_hasColdSoakTankTemperature`); hotelling at two calendar years (`userdb-hotelling-multiyear-day`, `-month`; a third year is `hot_adjustmentRowsUnported`'s), off-network idle with the AdjustTotalIdleFraction.sql inputs (`scale-county-idle-adjust-day`, `-month`) and a whole-week cell of a RunSpec selecting fewer day types than the week (`scale-county-timeagg-weekday`) under both (§7.3.66); an evaporative process over a STATED soakActivityFraction under both (§7.3.67, `scale-county-timeagg-soak-day`, `-month`: PreAggDAY.sql collapses the user's hourly rows to `sum(soakActivityFraction x HourWeighting2)` per day type and PreAggMONTH.sql those by DayWeighting2, before TTG-6 keeps them, `evap_soakCellWeight`); and PreAggYEAR.sql's month collapse for what `scale-county-timeagg-year` checks (§7.3.65), in `scale-county-timeagg-processes-year`, the evaporative processes and refueling (§7.3.68: PreAggYEAR.sql's AverageTankTemperature and SoakActivityFraction SUMS act on tables no generator has written yet, so they collapse nothing unless the user states them -- (1) below; what the month collapse reaches is FuelSupply's summed share, which TankFuelGenerator's gasohol share and RefuelingLossCalculator's RVP and energy content read as sums and venting and leaks never read), and the gaseous species, air toxics and PM species at running and start exhaust that `scale-county-timeagg-year-toxics` and `-pm` check (§7.3.69: SulfatePMCalculator's and AirToxicsCalculator's own sums over the raw FuelSupply shares, findings F69, F70). Counted, each unmeasured, at `aggregateBy` Year (`n_aggregatesMonths`) only: (1) an evaporative process over a STATED soakActivityFraction (`run_soakActivityInputRows`), which PreAggYEAR.sql then SUMS by MonthWeighting into month 0; (2) every pollutant-process on a selected road that no Year capture checks (`run_yearUnportedSelected`): anything outside THC, CO, NOx, energy, CO2 and brake/tire PM at running, start, the crankcase processes, extended idle, APU and wear, THC at permeation, venting, leaks and refueling, and `year_captured_species` at running and start: every species at extended idle, APU and the crankcase processes, measured and NOT reproduced at Year by `runspecs/pending/scale-county-timeagg-year-toxics-idle.esm` for reasons that are not the month collapse (a species chain deeper than three rungs, APU's and crankcase extended idle's species paths), start-exhaust PM, N2O, CO2 Equivalent and the ATRatio toxics (not computed at start at any aggregation), and the metals, dioxins, PAH particles and mechanism species (§7.3.69). ATRatio itself needs nothing: PreAggYEAR.sql averages an EMPTY table, and FuelEffectsGenerator writes it afterwards at month group 0 from the collapsed ATBaseEmissions (`aggatratio` 0 rows in the capture); (3) the three configurations §7.3.66 ported at Day and Month, which no Year capture checks: hotelling at more than one calendar year, off-network idle with any AdjustTotalIdleFraction.sql input (`run_idleGroupingRows`, `run_idleAdjustmentRows`), and start, hotelling or off-network idle in a whole-week cell of a RunSpec selecting fewer day types than the week (`run_offNetworkActivitySelected`, `db_rateday` against `db_actday`)."
         },
         "run_soakActivityInputRows": {
           "type": "unknown",
@@ -25273,6 +25328,41 @@
             "run_rows"
           ],
           "description": "Hotelling and start pollutant-processes on a selected road, and off-network idle blocks: the activities this model reads at the run's hours without a pre-aggregation (ONI's `totalIdleFraction` is keyed by the day type the SHO row carries)."
+        },
+        "rtDay_hasRow": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows",
+            "runspecday_rows",
+            "runspeccounty_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "Whether MOVES writes the rate row in the cell at all: 0 where the evaporative distribution has no row (`evap_hasSoakRow`), 1 everywhere else. A zero-weighted rate is a row; this is its absence (PLAN.md §7.3.67)."
+        },
+        "outMissing": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "output_rows"
+          ],
+          "description": "1 when the output row's rate row is absent in its cell (`rtDay_hasRow`), 0 otherwise -- a shore-power row, which no rate row of its own carries, included."
+        },
+        "mos_inTable": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "outputstep_rows"
+          ],
+          "description": "Whether MOVESOutput has the row at the output time step: some cell of the slot has it (`outMissing`). AggregationSQLGenerator sums the rows that EXIST; a slot none of whose cells has a row is no row. `tools/emit-oracle-table.py` keeps the rows where it is 1. Measured on `scale-county-timeagg-soak-day` and `-month` (PLAN.md §7.3.67): the light commercial truck's July venting and leaks, 256 rows."
+        },
+        "run_soakActivityGapsEmitted": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "run_rows"
+          ],
+          "description": "Cells whose evaporative distribution MOVES does not write (`evap_hasSoakRow` 0: a zone stating soakActivityFraction, and no stated row in the cell) on a run emitted from the output relation itself, `<outputtimestep>` Hour: that relation has no membership flag, so the model would emit a zero row where MOVES writes none. Counted by `run_selectionUnported`; the coarser steps drop them (`mos_inTable`). No capture is at Hour (PLAN.md §7.3.67)."
         }
       },
       "equations": [
@@ -43315,6 +43405,152 @@
           }
         },
         {
+          "lhs": "evap_soakActivityProcessRows",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "p",
+              "k",
+              "g",
+              "s",
+              "m"
+            ],
+            "ranges": {
+              "p": {
+                "from": "runspecpollutantprocess_rows"
+              },
+              "k": {
+                "from": "runspecday_rows"
+              },
+              "o": {
+                "from": "operating_mode_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "s": {
+                "from": "runspecsourcetype_rows"
+              },
+              "m": {
+                "from": "runspecmonth_rows"
+              }
+            },
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "evap_hasMode",
+                    "p",
+                    "o"
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "evap_soakActivityInputRows",
+                    "k",
+                    "o",
+                    "g",
+                    "s",
+                    "m"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "evap_hasSoakRow",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "p",
+              "k",
+              "g",
+              "s",
+              "m"
+            ],
+            "ranges": {
+              "p": {
+                "from": "runspecpollutantprocess_rows"
+              },
+              "k": {
+                "from": "runspecday_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "s": {
+                "from": "runspecsourcetype_rows"
+              },
+              "m": {
+                "from": "runspecmonth_rows"
+              }
+            },
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                {
+                  "op": "and",
+                  "args": [
+                    {
+                      "op": ">",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "rspp_usesEvapModes",
+                            "p"
+                          ]
+                        },
+                        0.5
+                      ]
+                    },
+                    {
+                      "op": ">",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "evap_zoneSoakActivityInputCount",
+                            "g"
+                          ]
+                        },
+                        0.5
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "op": "apply_expression_template",
+                  "args": [],
+                  "name": "row_is_present",
+                  "bindings": {
+                    "match_count": {
+                      "op": "index",
+                      "args": [
+                        "evap_soakActivityProcessRows",
+                        "p",
+                        "k",
+                        "g",
+                        "s",
+                        "m"
+                      ]
+                    }
+                  }
+                },
+                1.0
+              ]
+            }
+          }
+        },
+        {
           "_comment": "E3's subtraction, evap_op_mode_distribution.rs:443 stage 3.",
           "lhs": "evap_operatingWeightRaw",
           "rhs": {
@@ -43354,20 +43590,36 @@
               }
             },
             "expr": {
-              "op": "-",
+              "op": "*",
               "args": [
-                1.0,
                 {
                   "op": "index",
                   "args": [
-                    "evap_soakTotal",
+                    "evap_hasSoakRow",
                     "p",
                     "k",
                     "g",
                     "s",
-                    "m",
-                    "cy",
-                    "rd"
+                    "m"
+                  ]
+                },
+                {
+                  "op": "-",
+                  "args": [
+                    1.0,
+                    {
+                      "op": "index",
+                      "args": [
+                        "evap_soakTotal",
+                        "p",
+                        "k",
+                        "g",
+                        "s",
+                        "m",
+                        "cy",
+                        "rd"
+                      ]
+                    }
                   ]
                 }
               ]
@@ -54615,6 +54867,120 @@
           }
         },
         {
+          "lhs": "evap_soakCellWeight",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "k",
+              "d",
+              "h",
+              "s"
+            ],
+            "ranges": {
+              "k": {
+                "from": "runspecday_rows"
+              },
+              "d": {
+                "from": "rateday_rows"
+              },
+              "h": {
+                "from": "aggregationhour_rows"
+              },
+              "s": {
+                "from": "runspecsourcetype_rows"
+              }
+            },
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "*",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "tcell_dayMatch",
+                        "k",
+                        "d"
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "tcell_hourMatch",
+                        "k",
+                        "h"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "op": "*",
+                  "args": [
+                    {
+                      "op": "ifelse",
+                      "args": [
+                        {
+                          "op": ">",
+                          "args": [
+                            {
+                              "op": "index",
+                              "args": [
+                                "tcell_collectsHours",
+                                "k"
+                              ]
+                            },
+                            0.5
+                          ]
+                        },
+                        {
+                          "op": "index",
+                          "args": [
+                            "met_hourWeight",
+                            "d",
+                            "h",
+                            "s"
+                          ]
+                        },
+                        1.0
+                      ]
+                    },
+                    {
+                      "op": "ifelse",
+                      "args": [
+                        {
+                          "op": ">",
+                          "args": [
+                            {
+                              "op": "index",
+                              "args": [
+                                "tcell_collectsDays",
+                                "k"
+                              ]
+                            },
+                            0.5
+                          ]
+                        },
+                        {
+                          "op": "index",
+                          "args": [
+                            "dw_roadDayWeight",
+                            "s",
+                            "d"
+                          ]
+                        },
+                        1.0
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
           "lhs": "evap_soakActivityInput",
           "rhs": {
             "op": "faq",
@@ -54645,6 +55011,15 @@
               },
               "a": {
                 "from": "soakactivityfraction_rows"
+              },
+              "w": {
+                "from": "hourday_rows"
+              },
+              "d": {
+                "from": "rateday_rows"
+              },
+              "h": {
+                "from": "aggregationhour_rows"
               }
             },
             "join": [
@@ -54663,21 +55038,190 @@
                     "rsm_monthID"
                   ],
                   [
+                    "saf_opModeID",
+                    "om_opModeID"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
                     "saf_hourDayID",
-                    "day_hourDayID"
+                    "hd_hourDayID"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "hd_dayID",
+                    "rday_dayID"
+                  ],
+                  [
+                    "hd_hourID",
+                    "ahr_hourID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "evap_soakCellWeight",
+                    "k",
+                    "d",
+                    "h",
+                    "s"
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "saf_soakActivityFraction",
+                    "a"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "evap_zoneSoakActivityInputCount",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "g"
+            ],
+            "ranges": {
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "s": {
+                "from": "runspecsourcetype_rows"
+              },
+              "m": {
+                "from": "runspecmonth_rows"
+              }
+            },
+            "expr": {
+              "op": "index",
+              "args": [
+                "evap_soakActivityInputCount",
+                "g",
+                "s",
+                "m"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "evap_soakActivityInputRows",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "k",
+              "o",
+              "g",
+              "s",
+              "m"
+            ],
+            "ranges": {
+              "k": {
+                "from": "runspecday_rows"
+              },
+              "o": {
+                "from": "operating_mode_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "s": {
+                "from": "runspecsourcetype_rows"
+              },
+              "m": {
+                "from": "runspecmonth_rows"
+              },
+              "a": {
+                "from": "soakactivityfraction_rows"
+              },
+              "w": {
+                "from": "hourday_rows"
+              },
+              "d": {
+                "from": "rateday_rows"
+              },
+              "h": {
+                "from": "aggregationhour_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "saf_sourceTypeID",
+                    "rst_sourceTypeID"
+                  ],
+                  [
+                    "saf_zoneID",
+                    "run_zoneID"
+                  ],
+                  [
+                    "saf_monthID",
+                    "rsm_monthID"
                   ],
                   [
                     "saf_opModeID",
                     "om_opModeID"
                   ]
                 ]
+              },
+              {
+                "on": [
+                  [
+                    "saf_hourDayID",
+                    "hd_hourDayID"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "hd_dayID",
+                    "rday_dayID"
+                  ],
+                  [
+                    "hd_hourID",
+                    "ahr_hourID"
+                  ]
+                ]
               }
             ],
             "expr": {
-              "op": "index",
+              "op": "*",
               "args": [
-                "saf_soakActivityFraction",
-                "a"
+                {
+                  "op": "index",
+                  "args": [
+                    "tcell_dayMatch",
+                    "k",
+                    "d"
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "tcell_hourMatch",
+                    "k",
+                    "h"
+                  ]
+                }
               ]
             }
           }
@@ -54721,10 +55265,8 @@
                     {
                       "op": "index",
                       "args": [
-                        "evap_soakActivityInputCount",
-                        "g",
-                        "s",
-                        "m"
+                        "evap_zoneSoakActivityInputCount",
+                        "g"
                       ]
                     },
                     0.5
@@ -100773,38 +101315,50 @@
                           "op": "+",
                           "args": [
                             {
-                              "op": "*",
+                              "op": "+",
                               "args": [
                                 {
                                   "op": "*",
                                   "args": [
                                     {
-                                      "op": "index",
+                                      "op": "*",
                                       "args": [
-                                        "run_offNetworkSelected",
-                                        "n"
+                                        {
+                                          "op": "index",
+                                          "args": [
+                                            "run_offNetworkSelected",
+                                            "n"
+                                          ]
+                                        },
+                                        {
+                                          "op": "index",
+                                          "args": [
+                                            "run_onRoadPollutantProcessCount",
+                                            "n"
+                                          ]
+                                        }
                                       ]
                                     },
                                     {
-                                      "op": "index",
+                                      "op": "-",
                                       "args": [
-                                        "run_onRoadPollutantProcessCount",
-                                        "n"
+                                        1.0,
+                                        {
+                                          "op": "index",
+                                          "args": [
+                                            "run_isProjectDomain",
+                                            "n"
+                                          ]
+                                        }
                                       ]
                                     }
                                   ]
                                 },
                                 {
-                                  "op": "-",
+                                  "op": "index",
                                   "args": [
-                                    1.0,
-                                    {
-                                      "op": "index",
-                                      "args": [
-                                        "run_isProjectDomain",
-                                        "n"
-                                      ]
-                                    }
+                                    "run_aggregationUnported",
+                                    "n"
                                   ]
                                 }
                               ]
@@ -100812,7 +101366,7 @@
                             {
                               "op": "index",
                               "args": [
-                                "run_aggregationUnported",
+                                "run_startModeAgeVariation",
                                 "n"
                               ]
                             }
@@ -100821,7 +101375,7 @@
                         {
                           "op": "index",
                           "args": [
-                            "run_startModeAgeVariation",
+                            "run_startPMSelected",
                             "n"
                           ]
                         }
@@ -100830,7 +101384,7 @@
                     {
                       "op": "index",
                       "args": [
-                        "run_startPMSelected",
+                        "run_ratesUnported",
                         "n"
                       ]
                     }
@@ -100839,7 +101393,7 @@
                 {
                   "op": "index",
                   "args": [
-                    "run_ratesUnported",
+                    "run_soakActivityGapsEmitted",
                     "n"
                   ]
                 }
@@ -107999,26 +108553,32 @@
                         {
                           "op": "*",
                           "args": [
+                            "n_aggregatesMonths",
                             {
-                              "op": "index",
+                              "op": "*",
                               "args": [
-                                "run_needsTankTemperature",
-                                "n"
-                              ]
-                            },
-                            {
-                              "op": "apply_expression_template",
-                              "args": [],
-                              "name": "row_is_present",
-                              "bindings": {
-                                "match_count": {
+                                {
                                   "op": "index",
                                   "args": [
-                                    "run_soakActivityInputRows",
+                                    "run_needsTankTemperature",
                                     "n"
                                   ]
+                                },
+                                {
+                                  "op": "apply_expression_template",
+                                  "args": [],
+                                  "name": "row_is_present",
+                                  "bindings": {
+                                    "match_count": {
+                                      "op": "index",
+                                      "args": [
+                                        "run_soakActivityInputRows",
+                                        "n"
+                                      ]
+                                    }
+                                  }
                                 }
-                              }
+                              ]
                             }
                           ]
                         },
@@ -119696,6 +120256,275 @@
                 },
                 "own_value": 1.0
               }
+            }
+          }
+        },
+        {
+          "lhs": "rtDay_hasRow",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b",
+              "k",
+              "g",
+              "n"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "k": {
+                "from": "runspecday_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "n": {
+                "from": "runspecmonth_rows"
+              },
+              "p": {
+                "from": "runspecpollutantprocess_rows"
+              },
+              "s": {
+                "from": "runspecsourcetype_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rt_polProcOrdinal",
+                    "rspp_ordinal"
+                  ]
+                ]
+              },
+              {
+                "on": [
+                  [
+                    "rt_sourceTypeOrdinal",
+                    "rst_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "evap_hasSoakRow",
+                "p",
+                "k",
+                "g",
+                "s",
+                "n"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "outMissing",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "row_is_present",
+            "bindings": {
+              "match_count": {
+                "op": "faq",
+                "args": [],
+                "semiring": "sum_product",
+                "output_idx": [
+                  "o"
+                ],
+                "ranges": {
+                  "o": {
+                    "from": "output_rows"
+                  },
+                  "b": {
+                    "from": "rate_rows"
+                  },
+                  "k": {
+                    "from": "runspecday_rows"
+                  },
+                  "g": {
+                    "from": "runspeccounty_rows"
+                  },
+                  "m": {
+                    "from": "runspecmonth_rows"
+                  }
+                },
+                "join": [
+                  {
+                    "on": [
+                      [
+                        "outRateOrdinal",
+                        "rt_outputOrdinal"
+                      ],
+                      [
+                        "outDayOrdinal",
+                        "day_ordinal"
+                      ],
+                      [
+                        "outCountyOrdinal",
+                        "rsc_ordinal"
+                      ],
+                      [
+                        "outMonthOrdinal",
+                        "month_ordinal"
+                      ]
+                    ]
+                  }
+                ],
+                "expr": {
+                  "op": "-",
+                  "args": [
+                    1.0,
+                    {
+                      "op": "index",
+                      "args": [
+                        "rtDay_hasRow",
+                        "b",
+                        "k",
+                        "g",
+                        "m"
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "lhs": "mos_inTable",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "row_is_present",
+            "bindings": {
+              "match_count": {
+                "op": "faq",
+                "args": [],
+                "semiring": "sum_product",
+                "output_idx": [
+                  "x"
+                ],
+                "ranges": {
+                  "x": {
+                    "from": "outputstep_rows"
+                  },
+                  "o": {
+                    "from": "output_rows"
+                  }
+                },
+                "join": [
+                  {
+                    "on": [
+                      [
+                        "mosRateOrdinal",
+                        "outRateOrdinal"
+                      ],
+                      [
+                        "mosCountyOrdinal",
+                        "outCountyOrdinal"
+                      ],
+                      [
+                        "mosMonthSlot",
+                        "outMonthSlot"
+                      ],
+                      [
+                        "mosDaySlot",
+                        "outDaySlot"
+                      ]
+                    ]
+                  }
+                ],
+                "expr": {
+                  "op": "-",
+                  "args": [
+                    1.0,
+                    {
+                      "op": "index",
+                      "args": [
+                        "outMissing",
+                        "o"
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "lhs": "run_soakActivityGapsEmitted",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "n"
+            ],
+            "ranges": {
+              "n": {
+                "from": "run_rows"
+              },
+              "p": {
+                "from": "runspecpollutantprocess_rows"
+              },
+              "k": {
+                "from": "runspecday_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "s": {
+                "from": "runspecsourcetype_rows"
+              },
+              "mm": {
+                "from": "runspecmonth_rows"
+              }
+            },
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "*",
+                  "args": [
+                    {
+                      "op": "-",
+                      "args": [
+                        1.0,
+                        "n_outputSumsDays"
+                      ]
+                    },
+                    {
+                      "op": "-",
+                      "args": [
+                        1.0,
+                        "n_outputSumsHours"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "op": "-",
+                  "args": [
+                    1.0,
+                    {
+                      "op": "index",
+                      "args": [
+                        "evap_hasSoakRow",
+                        "p",
+                        "k",
+                        "g",
+                        "s",
+                        "mm"
+                      ]
+                    }
+                  ]
+                }
+              ]
             }
           }
         }
