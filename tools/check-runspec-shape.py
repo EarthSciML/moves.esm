@@ -56,12 +56,13 @@ chain counts what it could not reach and this asserts the counts are zero.
 `run_chainDepthExceeded` is a third kind again, and the one this file exists to
 make cheap. A chained pollutant-process can itself be a parent -- THC to NMHC to
 NMOG to TOG -- so the chain is a fixed point, and `onroad/model.esm` unrolls it
-THREE times because three is the longest chain in the whole snapshot corpus
-(lib/chaining.esm). A run needing a fourth would not be wrong: its deepest
+FOUR times because four is the longest path in MOVES's own on-road chain graph
+outside SulfatePMCalculator's cycle (lib/chaining.esm, PLAN.md §7.3.72). A run
+needing a fifth would not be wrong: its deepest
 species would be ZERO, which the row count above would report as missing rows
 with no hint of why. So the model runs one extra PRESENCE pass -- a presence
 pass carries no day, county or month, so it is nearly free -- and counts the
-rows a fourth rung would newly emit. Zero means the unroll converged on THIS
+rows a fifth rung would newly emit. Zero means the unroll converged on THIS
 run, which is a measurement and not the corpus-wide claim.
 
 `run_offNetworkLinkCount` is a FOURTH kind, and it guards an identity rather
@@ -295,7 +296,7 @@ def main(emitted_path, shape_path, rpd_path=None):
     ragged = pairs_emitted != blocks * cohorts
     print("%d rows = %d (pollutant-process, cohort) pair%s x %d %s x %d "
           "month(s) x %d day type(s) x %d hour(s); %d block(s) and %d cohort(s), %s; no source "
-          "bin and no vehicle dropped, and the chain converged in three rungs%s"
+          "bin and no vehicle dropped, and the chain converged in four rungs%s"
           % (len(rows), pairs_emitted, "" if pairs_emitted == 1 else "s",
              len(counties), "county" if len(counties) == 1 else "counties",
              len(months), len(days), len(hours),
