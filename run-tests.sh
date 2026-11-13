@@ -1740,8 +1740,14 @@ C7P_DOMAIN=moves-onroad.esm
 # (PLAN.md §7.3.69, conventions §121): SulfatePMCalculator and AirToxicsCalculator
 # sum the RAW FuelSupply shares themselves, so their species carry the months'
 # share of the year twice, and two E85 formulations make the altTHC quotient a
-# THC-weighted mean. `runspecs/pending/scale-county-timeagg-year-toxics-idle`
-# measures the species at extended idle, APU and the crankcase processes.
+# THC-weighted mean. `scale-county-timeagg-year-toxics-idle` is the same
+# gases at extended idle, APU and the crankcase processes, and
+# `scale-county-idle-species` its non-aggregated twin (PLAN.md §7.3.72,
+# conventions §124): the chain closes at FOUR rungs, the longest path in
+# MOVES's on-road chain graph -- a crankcase copy of a three-rung species --
+# CrankcaseEmissionCalculator alone writes a crankcase row, CO2AE writes CO2
+# equivalent there from the copied methane, and a hotelling species block
+# is an output block like its parent's.
 # `scale-county-start-species` and its Year twin `scale-county-timeagg-year-start-species`
 # select START exhaust's species (PLAN.md §7.3.71, conventions §123): N2O at the
 # opModeID 100 mode StartOperatingModeDistributionGenerator weights at 1, CO2

@@ -9689,3 +9689,56 @@ AGAIN downstream of it.
    unchanged; the SQL's trailing `+ C` on the multiplicative rows is unweighted and the
    port weights it, which agrees because C is 0.0 on all 4,224 PM rows of the table --
    a data fact written into the description, where a change to it would show.
+
+## 124. A chain is closed at the longest path of MOVES's own graph, and a row a copy calculator owns takes no other calculator's ratio **[PLAN.md §7.3.72; `scale-county-idle-species` 7,796 of 7,796 at 8.421e-06 and `scale-county-timeagg-year-toxics-idle` 3,898 of 3,898 at 6.841e-06, key-exact, no `cell_exception`; the chained, crankcase, hotelling and Year runs byte-identical]**
+
+§71 unrolled the chain's fixed point three times because three was the longest
+chain in the snapshot corpus, and asserted per run that a fourth rung adds
+nothing. The first capture to select a species at a crankcase process broke the
+assertion (`run_chainDepthExceeded` 2,444): crankcase extended idle's benzene is
+THC, NMHC, VOC and benzene at extended idle, then CrankcaseEmissionCalculator's
+copy -- four rungs.
+
+1. **Measure the depth on MOVES's graph, not on the corpus.** The corpus says
+   what has been captured; `pollutantprocessassoc.chainedTo1/2`, with the edges
+   a calculator's Java declares (CO2AE, refueling; §77), says what can be. Its
+   longest path outside SulfatePMCalculator's cycle and the particles chained off
+   it is FOUR (107 on-road pollutant-processes at depth 4 in the default database's 786-row table, none deeper),
+   and every depth-4 path is a process copy on a three-rung species: a crankcase
+   copy of an extended-idle, running or start toxic, TOG or PAH gas, or a
+   refueling species off its process's THC, which is chained from energy. Unrolled
+   to that depth the chain is closed for every on-road RunSpec MOVES accepts; the
+   fifth-generation presence pass is the run's own check that it is.
+2. **Why unrolled and not recurred.** A rung reads the PARENT'S row of the rate
+   relation. A recurrence over a generation axis would read the defined array at
+   another row -- a non-identity index on a non-recurrence axis, which esm-spec
+   §4.3.1.1 rejects -- and a recurrence along the rate relation needs every parent
+   before its children, which output order does not give (benzene, 20, before VOC,
+   87). §19's recurrence is the right tool when the axis is DISCOVERED and the
+   state is a row's own; here the axis is a graph and the state is another row's.
+   A closure operator would be a new AST operation. The value, presence and
+   road-type closures are each spelled out four times; what they share is
+   `chained_emits` and the self-join clause.
+3. **A copy calculator owns its rows.** CrankcaseEmissionCalculator writes every
+   gaseous species at 15, 16 and 17 as `crankcaseRatio x` the SAME pollutant at
+   the parent process -- `runspecchainedto` holds that one edge -- yet
+   `methaneTHCRatio` and `HCSpeciation` carry crankcase rows and TOG's arm is a
+   pollutant test. The arms were a union "disjoint by pollutant-process", and at a
+   crankcase row they were not: methane summed its methane ratio into its
+   crankcase ratio, 12x to 105x high. Disjointness is a claim about the TABLES and
+   must be checked per calculator that writes the row; `rt_isCrankcaseCopy` switches
+   the species arms off where the copy owns the row, and leaves the arms another
+   calculator legitimately writes there -- CO2AE's CO2 equivalent (registered at
+   15, 16, 17 in its Java, from the process's own methane) and PM10.
+4. **A selection a capture checks is checked absent too.** MOVES writes no crankcase
+   running or start row when their parents are not selected, and no NH3 at APU or
+   crankcase extended idle; `year_captured_idle_species` names them with the rest,
+   because the capture verifies the model writes none.
+5. **A gate that asks a row about its own rates must not be asked of a chained row.**
+   `rt_ownBlockEmits` dropped an APU row with no rate outside shore power -- right
+   for a rated row baseratecalculator.go retags to process 93, and true of EVERY
+   chained APU row, which has no rate at all; all 24 species blocks vanished with
+   their quantities right. The test now asks rated rows only, and the retag's other
+   half -- the chained calculators never see a process-91 row that was retagged --
+   is a presence the parent passes (`rt_chainVisible`), which the first fix alone
+   missed: 18 CNG CO2 and CO2-equivalent rows MOVES does not write.
