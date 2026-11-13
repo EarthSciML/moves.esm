@@ -1,0 +1,279 @@
+{
+  "esm": "1.2.0",
+  "metadata": {
+    "name": "userdb-hotelling-threeyear-runspec",
+    "description": "PLAN.md §7.3.70, step 7f. PENDING. `userdb-hotelling-threeyear`: `userdb-hotelling-multiyear` at THREE calendar years, 2015, 2020 and 2025 -- the same selections (Total Energy at running exhaust, extended idle and APU; the passenger car and the combination long-haul truck; April and August, both day types, hours 7 and 8; DEFAULT domain) over the same user input database with every year-keyed table stated at 2025 too and `hotellingHoursPerDay` 1900 / 2300 hours at 2025 (`db_hotellinghoursperday` overrides the domain document's). MOVESOutput is 24,288 rows; 2015's and 2020's are `userdb-hotelling-multiyear`'s to the digit.\n\nWHAT IT WAITS ON: AdjustHotelling.sql at a THIRD calendar year (`hot_adjustmentRowsUnported`, read by `run_domainUnported`, counts this run's 89 adjustment rows). TotalActivityGenerator clears hotellingHours only when the process changes, so when it adjusts 2025 the table holds 2015's rows as 2020's hour, age and month blocks left them -- rescaled a second time -- beside 2020's, and 2025's defaults pool all three years and rescale every row. Measured in pandas (PLAN.md §7.3.70): replaying the four blocks over `userdb-hotelling-multiyear`'s final table plus 2025's own TAG hours reproduces all 2952 rows of this run's final hotellingHours, every year's, at 9.5e-15; pooling 2020's rows alone misses 2025 by up to 84% (median 23%), adjusting 2025 alone by up to x2.75. The table each year adjusts over is the previous year's table times that year's three block factors, plus that year's own rows: a recurrence over the year axis whose step normalises a whole slice (each default is a ratio of sums over the other axes), which a §4.3.1.2 recurrence group cannot express -- its reads must be the identity on every axis but the recurrence's. Two years are ported (§7.3.61); the model does not carry N. Evaluated anyway on the two-year chain: 2015's and 2020's rows within 1.2e-05, every 2025 extended-idle and APU cell wrong, by up to 31% (572 cells over tolerance).\n\n`n_outputRate` is bound to 3036, the (pollutant-process, cohort) pairs per (county, month, hour-day) cell over the three years, as the evaluation recomputed it (`rateSurvivorCount`). `n_sourceBin` is 4: at 3, the two-year runs' value, one source bin of a 2025 cohort falls past the last slot (`run_sourceBinsDropped` 1).\n\n`db_movesoutput` is DECLARED AND CONSUMED BY NOTHING, as in every RunSpec here.",
+    "authors": [
+      "EarthSciML Authors and Contributors"
+    ],
+    "tags": [
+      "fixture",
+      "onroad",
+      "default-database",
+      "road-type-axis",
+      "off-network-idle",
+      "idle-adjustment",
+      "hotelling-adjustment",
+      "user-input-database",
+      "multi-year"
+    ]
+  },
+  "data_sources": {
+    "db_runspecyear": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../../moves.rs/characterization/snapshots/userdb-hotelling-threeyear/tables/db__movesexecution1ccc0236_campuscluster_illinois_edu__runspecyear.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecyear"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "3 ROWS, yearIDs 2015, 2020 and 2025, all base years: TotalActivityGenerator adjusts 2025's hotelling hours over a table that still holds 2015's and 2020's adjusted rows.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecmonth": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../../moves.rs/characterization/snapshots/userdb-hotelling-threeyear/tables/db__movesexecution1ccc0236_campuscluster_illinois_edu__runspecmonth.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecmonth"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "2 rows, monthIDs 4 and 8 (`<month key=\"3\"/>` and `\"7\"` are 0-based).",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspechour": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../../moves.rs/characterization/snapshots/userdb-hotelling-threeyear/tables/db__movesexecution1ccc0236_campuscluster_illinois_edu__runspechour.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspechour"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "2 rows, hourIDs 7 and 8. `<beginhour key=\"6\">`/`<endhour key=\"7\">` are 0-based indices into the sorted hour list (docs/mixed-onroad.md 0.1).",
+        "esio_format": "parquet"
+      }
+    },
+    "db_aggregationhour": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../../moves.rs/characterization/snapshots/userdb-hotelling-threeyear/tables/db__movesexecution1ccc0236_campuscluster_illinois_edu__runspechour.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_aggregationhour"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "The hours the run aggregates over. This run does not set `aggregateBy`, so it is `runspechour` itself and the same file.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecday": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../../moves.rs/characterization/snapshots/userdb-hotelling-threeyear/tables/db__movesexecution1ccc0236_campuscluster_illinois_edu__runspechourday.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecday"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "4 rows, hourDayIDs 72, 75, 82, 85: both day types at both hours. The output cell is the hour-day (conventions §108); `<aggregateBy key=\"Hour\"/>` aggregates nothing.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_rateday": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../../moves.rs/characterization/snapshots/userdb-hotelling-threeyear/tables/db__movesexecution1ccc0236_campuscluster_illinois_edu__runspecday.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_rateday"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "The day types the RATE-side time pre-aggregation is scoped to. This run does not set `aggregateBy`, so it is `runspecday` itself and the same file: the pre-aggregation averages over one cell and returns the table's own value. A run that aggregates points this somewhere else, because MOVES overwrites `runspecday` with the synthesized output day AFTER the pre-aggregation has run.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_actday": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../../moves.rs/characterization/snapshots/userdb-hotelling-threeyear/tables/db__movesexecution1ccc0236_campuscluster_illinois_edu__runspecday.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_actday"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "The day types the output day's ACTIVITY covers. This run does not set `aggregateBy`, so it is `runspecday` itself and the same file, and `noOfRealDays` is that one day type's.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecsourcetype": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../../moves.rs/characterization/snapshots/userdb-hotelling-threeyear/tables/db__movesexecution1ccc0236_campuscluster_illinois_edu__runspecsourcetype.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecsourcetype"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "2 rows, sourceTypeIDs 21 (passenger car) and 62 (combination long-haul truck, the only source type that hotels).",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecroadtype": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../../moves.rs/characterization/snapshots/userdb-hotelling-threeyear/tables/db__movesexecution1ccc0236_campuscluster_illinois_edu__runspecroadtype.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecroadtype"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "5 rows, road types 1 to 5. The RunSpec selects 1 and 4; MOVES adds 2, 3 and 5 because off-network idle (running exhaust on road type 1) is computed from every road type (\"Off-Network Idle requires all roadtypes\").",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecsourcefueltype": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../../moves.rs/characterization/snapshots/userdb-hotelling-threeyear/tables/db__movesexecution1ccc0236_campuscluster_illinois_edu__runspecsourcefueltype.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecsourcefueltype"
+      },
+      "metadata": {
+        "tags": [
+          "scope",
+          "cohorts"
+        ],
+        "note": "7 rows: source type 21 with gasoline, diesel, E85 and electricity, 62 with diesel, CNG and electricity (MOVES adds every fuel the RunSpec does not name).",
+        "esio_format": "parquet"
+      }
+    },
+    "db_movesoutput": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../../moves.rs/characterization/snapshots/userdb-hotelling-threeyear/tables/db__out_userdb_hotelling_threeyear__movesoutput.parquet"
+      },
+      "reader_options": {
+        "float_columns": [
+          "emissionQuant"
+        ]
+      },
+      "metadata": {
+        "tags": [
+          "oracle",
+          "expected-output"
+        ],
+        "note": "The 24,288-row expected output: 7,488 rows at 2015, 8,128 at 2020 and 8,672 at 2025, each over the 8 (month, day, hour) cells -- Total Energy (91) at running exhaust on road types 1-5, extended idle and APU.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecpollutantprocess": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../../moves.rs/characterization/snapshots/userdb-hotelling-threeyear/tables/db__movesexecution1ccc0236_campuscluster_illinois_edu__runspecpollutantprocess.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecpollutantprocess"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "3 rows: 9101, 9190, 9191 (Total Energy at running exhaust, extended idle and APU).",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecchainedto": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../../moves.rs/characterization/snapshots/userdb-hotelling-threeyear/tables/db__movesexecution1ccc0236_campuscluster_illinois_edu__runspecchainedto.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecchainedto"
+      },
+      "metadata": {
+        "tags": [
+          "scope",
+          "chain"
+        ],
+        "note": "0 rows: Total Energy is chained to nothing.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspeccounty": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../../moves.rs/characterization/snapshots/userdb-hotelling-threeyear/tables/db__movesexecution1ccc0236_campuscluster_illinois_edu__runspeccounty.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspeccounty"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, countyID 26161, Washtenaw.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_hotellinghoursperday": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../inputs/washtenaw-userdb-hotelling-threeyear/hotellingHoursPerDay.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_hotellinghoursperday"
+      },
+      "metadata": {
+        "tags": [
+          "domain",
+          "hotelling"
+        ],
+        "note": "The three-year user database's hotellingHoursPerDay (moves.rs `county-inputs/washtenaw-userdb-hotelling-threeyear/setup-userdb-hotelling-threeyear.sql`, written by `tools/build-scale-input-db.py`): 6 rows at zone 261610 -- `washtenaw-userdb-hotelling-multiyear`'s four and 2025's 1900 hours on a weekend day, 2300 on a weekday. It overrides the domain document's entry; every other table of the two databases is byte-identical.",
+        "esio_format": "parquet"
+      }
+    }
+  },
+  "models": {
+    "Onroad": {
+      "ref": "../../inputs/washtenaw-userdb-hotelling-multiyear.esm",
+      "bindings": {
+        "n_outputRate": 3036,
+        "n_sourceBin": 4,
+        "n_physicsRow": 21
+      }
+    }
+  }
+}

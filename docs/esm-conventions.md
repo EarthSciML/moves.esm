@@ -9613,3 +9613,39 @@ AGAIN downstream of it.
    MonthGroupWeighting mean of it averages nothing (`AggATRatio`, 0 rows). Before
    porting a collapse, check that the table it collapses has rows at that point in
    the run -- §7.3.65's refusal of air toxics was a mean that never happens.
+
+## 122. A collapse over the rows present is a mean of what the merge left, and a table that accumulates across an axis is a recurrence whose step reads a whole slice **[PLAN.md §7.3.70; `scale-county-idle-adjust-year` 1,016 of 1,016, `userdb-hotelling-multiyear-year` 1,952 of 1,952, `scale-county-timeagg-weekday-year` 6,288 of 6,288, every key set exact, no `cell_exception`; `userdb-hotelling-threeyear` measured and pending]**
+
+1. **An unweighted collapse averages the rows the INPUT MERGE left, not the
+   rows the database states.** PreAggYEAR.sql writes idleMonthAdjust as
+   `avg(idleMonthAdjust)` by source type. InputDataManager has by then cut the
+   table to the RunSpec's months and source types, so the mean is over April and
+   August (1.01), not over the twelve months the county database states (1.025),
+   and a source type with no row at a selected month gets no collapsed row and
+   keeps its fraction -- not a mean of nothing, and not the identity by default
+   but by absence. The model reads the county database, so it restricts the
+   mean itself: a count and a sum over `db_aggregationmonth` x the stated rows,
+   and their ratio through `share_of_group`, behind `year_value_or_own`
+   (`oni_yearMonthAdjustRows`, `oni_yearMonthAdjustSum`). The same rule as
+   §118.2's idleDayAdjust, one level up: measure which rows a collapse sees in
+   the EXECUTION database before deciding what it averages.
+2. **A table that one loop iteration rewrites and the next iteration reads is a
+   recurrence over that loop's axis, and its step is the whole table.**
+   AdjustHotelling.sql runs per (zone, year) over a hotellingHours table that only
+   a PROCESS change clears; each year's hour, age and month blocks take their
+   defaults over every row present and rescale every row. So year k's table is
+   year k-1's table times year k-1's block factors plus year k's own rows.
+   Verify the step, not just the output: replaying year k's blocks over year k-1's
+   FINAL table (a shorter capture of the same database) reproduced every row of
+   the longer run's final table -- every earlier year's rows too, which is the
+   step's own fingerprint -- at 1e-14. A chain written for k = 1 and 2 is two
+   unrolled steps, and it gives no warning at k = 3: run as is, it pools only
+   the previous year's rows and misses by up to 84%.
+3. **When a step divides by a sum over the other axes, it is not a §4.3.1.2
+   recurrence group.** A group's reads must be the identity on every
+   non-recurrence axis, so a member at (year, hour) cannot read the previous
+   year's sum over hours, and every default here is such a share. Count the
+   unrolled steps the model carries, refuse beyond them with the measurement in
+   the refusal's description, and record the format relaxation that would carry
+   N (a strictly-earlier slice read under a contraction) as a decision for the
+   user rather than an unroll per year.
