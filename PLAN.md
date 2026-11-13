@@ -7285,15 +7285,15 @@ exactly and stays refused.**
 
 **The captures** (moves.rs branch `capture-year-configs`, host token `1ccc0236`,
 moves-snapshot/v2; snapshots not versioned, copied into the main checkout's
-`characterization/snapshots/`): `scale-county-idle-adjust-year` (63 MB),
-`userdb-hotelling-multiyear-year` (68 MB) and `scale-county-timeagg-weekday-year`
-(218 MB) are their `-month` twins' XML at `<aggregateBy key="Year"/>`, output
+`characterization/snapshots/`): `scale-county-idle-adjust-year` (60 MB),
+`userdb-hotelling-multiyear-year` (65 MB) and `scale-county-timeagg-weekday-year`
+(215 MB) are their `-month` twins' XML at `<aggregateBy key="Year"/>`, output
 Year, over the unchanged county and user databases. For the third year,
 `county-inputs/washtenaw-userdb-hotelling-threeyear/setup-userdb-hotelling-threeyear.sql`
 is the two-year user database with every year-keyed table at 2025 too and
 `hotellingHoursPerDay` 1900 / 2300 at 2025; `userdb-hotelling-threeyear` (hours
-7-8, no aggregation, 82 MB) and `userdb-hotelling-threeyear-month` (`aggregateBy`
-Month, all 24 hours, 26 MB) select 2015, 2020 and 2025. Both reproduce the
+7-8, no aggregation, 129 MB) and `userdb-hotelling-threeyear-month` (`aggregateBy`
+Month, all 24 hours, 70 MB) select 2015, 2020 and 2025. Both reproduce the
 two-year runs' 2015 and 2020 rows to the digit (15616 of 15616, 3904 of 3904).
 
 **What MOVES does at Year.**
