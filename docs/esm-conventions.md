@@ -9742,3 +9742,44 @@ copy -- four rungs.
    half -- the chained calculators never see a process-91 row that was retagged --
    is a presence the parent passes (`rt_chainVisible`), which the first fix alone
    missed: 18 CNG CO2 and CO2-equivalent rows MOVES does not write.
+
+## 125. A pseudo-pollutant is a calculator's switch, and the calculator writes its product wherever the switch is thrown, on the rows of its input **[PLAN.md §7.3.73; `scale-county-idle-nonhaptog` 67,752 of 67,752 at 1.028e-05 and `scale-county-timeagg-year-nonhaptog` 33,876 of 33,876 at 1.060e-05, key-exact, no `cell_exception`; the NonHAPTOG, mechanism, species and Year runs byte-identical]**
+
+1. **Read where a calculator WRITES from its registration and its SQL, not from
+   `pollutantProcessAssoc`.** NonHAPTOG (88) is a pollutant-process at running
+   exhaust and crankcase running only (8801, 8815), so a reading of the association
+   table says MOVES can write it there and nowhere else. TOGSpeciationCalculator
+   registers 88 at every process `rocspeciation` gives a TOG profile, runs on an
+   iteration whenever the MECHANISM pseudo-pollutant (3000) is selected on the
+   iteration's process (doExecute's `mechanismIDs`), and its SQL inserts 88 rows from
+   the process's NMOG and integrated species whatever the RunSpec selected. The capture
+   holds 88 at all seven exhaust processes the mechanism was selected at. The model
+   had no row for five of them and nothing counted the absence: 898 of 3,978
+   NonHAPTOG rows, `run_selectionUnported` 0.
+2. **The product's block belongs to the switch where the product is not selectable.**
+   The output relation's blocks are the expanded `runspecpollutantprocess`'s rows; the
+   mechanism's row is one at every process, 88's only at two. So the 88 block of a
+   process is the selected 88's where there is one, and otherwise the mechanism's own,
+   relabelled 88 at the output key (`rspp_writesNonHapTog`, `rspp_outputPollutantID`).
+   The relabel cannot double a key: a mechanism row beside a selected 88 writes
+   nothing, and MOVES writes no row for the mechanism itself. The switch still gates:
+   88 selected without a mechanism writes nothing (`chain-nonhaptog`, §72).
+3. **A row stamped on another calculator's rows lives where those rows live.** The
+   road type of a pollutant-process with no rate row is its chain parents' (§102); the
+   mechanism has none at start, extended idle or APU, and fell to the run's on-network
+   road type, where those processes have no row -- its NonHAPTOG blocks were all
+   empty, or on start's case on the wrong roads (the first port's 17 phantom blocks).
+   TOGSpeciation's input is the process's NMOG, so a NonHAPTOG writer takes NMOG's road
+   type at its process (`rspp_processNmogRoadTypeID`); running and crankcase running
+   NonHAPTOG lived on the on-network road type by the default and now by the rule, the
+   same value.
+4. **A non-pair the RunSpec expands to is a -1 row.** ExecutionRunSpec.addLumpedSpecies
+   adds 88 at each mechanism process that does not select it, keyed by
+   `getDatabaseKey(db)`, which is -1 where `pollutantProcessAssoc` has no such pair;
+   `runspecpollutantprocess` keeps ONE -1 row for all of them. It names the rows
+   (2) gives the mechanism, so the Year capture's template checks it with them rather
+   than counting it as an unported selection of pollutant -1 at process 99.
+5. **A crankcase process's NonHAPTOG is not a copy.** CrankcaseEmissionCalculator has
+   no NonHAPTOG ratio; at 15, 16 and 17 TOGSpeciation runs on the crankcase copies of
+   NMOG and the species, so 88 there is NMOG minus the species on the crankcase rows
+   (measured at every cell, worst 9e-06 against MOVES's printed precision).
