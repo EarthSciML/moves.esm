@@ -7760,7 +7760,7 @@ particles and mechanism species at these processes are not captured; at Year
 `run_yearUnportedSelected` counts them, at other aggregations they are uncounted
 as before (no capture has shown them wrong).
 
-**Unchanged runs.** @REEMIT@
+**Unchanged runs.** Re-emitted on the final model with `tools/emit-oracle-table.py` (the suite's shape fields) and `cmp`'d, every relation, shape and table byte-identical: against the main tree's `.fixtures-run/` -- `process-apu`, `-apu-single`, `process-extended-idle`, `-extended-idle-single`, `process-crankcase-running`, `-start`, `-extidle`, `-start-single`, `-extidle-single`, `chain-tog-speciation`, `chain-nonhaptog`, `chain-so2-co2e-mechanism`, `-control`, `process-airtoxics`, `process-nox-speciation`, `process-refueling`, `process-pm-exhaust`, `project-crankcase`, `rates-project-chained`, `rates-nonhaptog`, `rates-hotelling` and `rates-mechanism` (every Rates table), `scale-county` (relation AND shape), `expand-month` and `scale-county-timeagg-year` -- and, where main's `.fixtures-run/` has no file yet, against the base commit ecd71e8 emitted from a `git archive` of it in the lane's scratch: `scale-county-timeagg-year-toxics`, `-year-pm` and `scale-county-timeagg-processes-year`. `tools/check-sources.py` passes (129 catalogues, 2172 sources), all 20 `./run-*-oracle.sh` pass, both runspecs validate with `./esm` and load with the Python binding.
 
 **Cost.** `scale-county-idle-species` evaluates in 11 min 33 s (587 s user CPU)
 at 16.75 GB; `scale-county-timeagg-year-toxics-idle` in 10 min 44 s (546 s user CPU) at 16.77 GB. Both were the
