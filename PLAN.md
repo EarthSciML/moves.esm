@@ -8020,7 +8020,7 @@ exact, no `cell_exception`:**
 | `scale-county-minor-offnet` (NEW, `aggregateBy` Hour, output Hour: July, weekdays, hour 8; road type 1) | 38 PM species and PAH particles at start, extended idle, APU, crankcase start and crankcase extended idle | 17062 of 17062 | 9.425e-06 |
 | `scale-county-minor-running` (NEW, Hour; road type 4, VMT output on) | the same 38 at running and crankcase running, and 24 metals and dioxins at running | 11704 of 11704 | 1.242e-05 |
 | `scale-county-timeagg-year-minor-offnet` (NEW, `aggregateBy` Year) | `-minor-offnet`'s | 17062 of 17062 | 9.194e-06 |
-| `scale-county-timeagg-year-minor-running` (NEW, `aggregateBy` Year) | `-minor-running`'s | 11704 of 11704 | Y_RUNNING_WORST |
+| `scale-county-timeagg-year-minor-running` (NEW, `aggregateBy` Year) | `-minor-running`'s | 11704 of 11704 | 8.955e-06 |
 
 **The captures** (moves.rs branch `capture-idle-minor`, commits 7c949152..a53f83eb,
 host token `1ccc0236`, moves-snapshot/v2, capture binary rebuilt in the lane's
@@ -8108,8 +8108,9 @@ by scratch scripts):
    now ask `rt_survivesRated`.
 5. `year_captured_minor_species` (lib/time_aggregation.esm, beside the other two lists)
    names what the Year twins check, the metals and dioxins as absences;
-   `run_yearUnportedSelected` stops counting them (Year offnet BEFORE_Y_OFFNET -> 0,
-   running BEFORE_Y_RUNNING -> 0).
+   `run_yearUnportedSelected` stops counting them: by the lists before, the Year
+   twins counted 183 of `-minor-offnet`'s 190 selections (all but start exhaust's seven
+   PM species) and 93 of `-minor-running`'s 100; both read 0.
 
 Byte-identical elsewhere by construction -- organic carbon's fraction is the same sum
 with one live term, its membership equals its positive share (no 0.0 organic-carbon

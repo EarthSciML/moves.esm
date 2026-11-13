@@ -9780,8 +9780,17 @@ copy -- four rungs.
    output has no metal or dioxin row with the VMT output on or off (`scale-county-metals-novmt`,
    0 rows), the model writes none either, and `year_captured_minor_species` names them so
    that the capture's agreement on their absence is what retires their count.
-5. **Size a capture to the evaluation, not to the selection.** All seven exhaust processes
+5. **A gate that asks a row about its own rates asks RATED rows, and a new kind of
+   rateless row finds every gate that forgot it.** §124.5 found APU's shore-power
+   test dropping the chained species; it was asked of `rt_survives`, which a
+   SulfatePMCalculator block also satisfies without a rate, so every APU PM block but
+   the rated EC and NonECPM vanished the same way. `rt_survivesRated` is the predicate
+   a rate question means. And a pollutant a capture never selected at a process can
+   carry a missing table row: extended idle's and APU's EC and residue fuel ratios
+   (2.8%, F82) were absent from the hand-ported `basefuelratio_rows` because no run
+   had asked -- grep the table for the new process's keys before trusting the port.
+6. **Size a capture to the evaluation, not to the selection.** All seven exhaust processes
    in one capture were 75,582 rows at one hour, and the evaluation passed 57 GB inside ten
    minutes; split by road type (road type 1's start, hotelling and crankcase processes;
-   road type 4's running and crankcase running) the halves evaluate in RSS_OFFNET and
-   RSS_RUNNING. A single process family per capture also keeps MOVES from adding road types.
+   road type 4's running and crankcase running) the halves evaluate at 11.7 GB and
+   6.7 GB. A single process family per capture also keeps MOVES from adding road types.
