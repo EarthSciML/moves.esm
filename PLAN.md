@@ -8117,7 +8117,7 @@ five processes are the `idle-minor` lane's.
 **Cost.** `scale-county-idle-nonhaptog` evaluates in 1,575 s user CPU (26 min; 65 min
 wall on a shared node) at 35.9 GB peak RSS -- the same before the change (1,519 s,
 35.9 GB): running exhaust for two source types beside every species is what costs, not
-NonHAPTOG. `scale-county-timeagg-year-nonhaptog` in 1,497 s user CPU at 35.9 GB (91 min wall, queued behind two other lanes' evaluations).
+NonHAPTOG. `scale-county-timeagg-year-nonhaptog` in 1,390-1,497 s user CPU (two evaluations; 39 min wall on the second) at 35.9 GB.
 
 ### 7.4 Upstream asks
 
