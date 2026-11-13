@@ -8089,7 +8089,7 @@ by scratch scripts):
 2. **Membership, not a positive share** (`rt_hasPmSpeciation`, `rt_spmShareMember`,
    `pm_speciation_member`): nitrate and ammonium are 0.0 on diesel from 2007 and MOVES
    writes the rows.
-3. **The crankcase split** (finding **F82**): `rt_spmProcessID`
+3. **The crankcase split** (part of finding F80): `rt_spmProcessID`
    (`crankcase_parent_process`) is the process whose species are split; the parent
    self-joins (`rtDay_spmParent`, `rtRate_spmParent`, `rt_spmParentSurvives`),
    `sulfateFractions` (`rt_hasSulfateFractions`, the sulfate, water and residue
@@ -8120,9 +8120,9 @@ fraction in `pmSpeciation`), and `rt_spmProcessID` is the row's own process off 
 **Not ported, and how it is held:** nothing in this lane's set. N2O, NonHAPTOG and the
 mechanism species at these processes are the other lane's (§7.3.73).
 
-REEMIT
+**Unchanged runs.** Re-emitted on the final model with `tools/emit-oracle-table.py` (the suite's shape fields; the Year runs' `movesoutput_step`) and `cmp`'d against the main tree's `.fixtures-run/`, every relation, shape and oracle table byte-identical: `process-pm-exhaust`, `rates-pm` (all six Rates tables), `scale-county-timeagg-year-pm`, `scale-county-start-species`, `scale-county-timeagg-year-start-species`, `process-apu`, `process-extended-idle`, `process-crankcase-extidle`, `process-crankcase-start`, `scale-county-idle-species`, `scale-county-timeagg-year-toxics-idle`, `expand-month`, `scale-county`, `scale-county-timeagg-day` and `scale-county-timeagg-year-toxics`. No earlier runspec selects a PM species at extended idle, APU or a crankcase process, so every change is byte-identical elsewhere by construction as well. All four new runspecs validate with `./esm`, round-trip, and load with the Python binding; all 115 runspecs, pending runspecs, fixtures and the 7c spike validate; `tools/check-sources.py` passes (139 catalogues); `tools/check-conventions.py` and `tools/faq-filter-lint.py` are clean; `tools/check-reachability-counts.py` reports 24 of 145 claims stale against the grown corpus, as §7.3.69 left it for the post-merge refresh.
 
-**Cost.** COST
+**Cost.** Evaluated one at a time under `/scratch.local/ctessum/eval.lock`: `scale-county-minor-offnet` 453 s user CPU at 11.7 GB peak RSS, `scale-county-minor-running` 316 s at 6.7 GB, `scale-county-timeagg-year-minor-offnet` 451 s at 11.7 GB and `-minor-running` 284 s at 6.7 GB. The unchanged model on `-minor-offnet` was the same size (462 s, 11.7 GB). The all-process capture they replace passed 57 GB inside ten minutes and was stopped.
 
 ### 7.4 Upstream asks
 
