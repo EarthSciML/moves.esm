@@ -12825,7 +12825,7 @@
           "shape": [
             "rate_rows"
           ],
-          "description": "Pollutant 88, NonHAPTOG."
+          "description": "Does this row carry NonHAPTOG? Pollutant 88's rows, and a mechanism pseudo-pollutant's at a process where 88 is not itself selected (`rspp_writesNonHapTog`, PLAN.md §7.3.73). Before that it was pollutant 88 alone, and `scale-county-idle-nonhaptog`'s 88 at start, crankcase start, crankcase extended idle, extended idle and APU -- 898 of its 3,978 NonHAPTOG rows -- were absent with nothing counting them."
         },
         "rt_isNMOG": {
           "type": "unknown",
@@ -16889,6 +16889,38 @@
           ],
           "description": "The PSEUDO-POLLUTANT that selects this mechanism: 1000 + 500 x (mechanismID - 1), which is 3000 for mechanism 5. `TOGSpeciationCalculator.java` decodes it the other way, `1 + (pollutantID - 1000) / 500`. A run selects a mechanism by selecting that pollutant on a process -- `chain-so2-co2e-mechanism` selects 300001 -- and NOT by selecting NonHAPTOG: `chain-nonhaptog` selects 8801 and no mechanism, and MOVES emits no NonHAPTOG for it."
         },
+        "rspp_isMechanism": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecpollutantprocess_rows"
+          ],
+          "description": "Is this pollutant-process a MECHANISM pseudo-pollutant at its process -- 3000, `NonHAPTOG Mechanism`, the only one `integratedSpeciesSet` holds (`iss_mechanismPollutantID`)? MOVES writes no row of it: what selecting it does is make TOGSpeciationCalculator run on the process (PLAN.md §7.3.73)."
+        },
+        "rspp_processSelectsNonHapTog": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecpollutantprocess_rows"
+          ],
+          "description": "Does the run select NonHAPTOG (88) itself on this pollutant-process's process? It can only at running exhaust and crankcase running (pollutantProcessAssoc 8801, 8815): NonHAPTOG has no other on-road pair."
+        },
+        "rspp_writesNonHapTog": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecpollutantprocess_rows"
+          ],
+          "description": "Is this the pollutant-process whose rows carry the process's NonHAPTOG? TOGSpeciationCalculator registers 88 at every process `rocspeciation` gives a TOG profile and writes it wherever the MECHANISM is selected on the process, whether 88 is selected there or not (`scale-county-idle-nonhaptog`: 88 at start, crankcase start, crankcase extended idle, extended idle and APU, none of them a NonHAPTOG pollutant-process). So the 88 block of a process is the selected 88's where there is one -- running exhaust and crankcase running -- and otherwise the mechanism's own, emitted as pollutant 88 (`rspp_outputPollutantID`). Either way `rt_mechanismSelected` still gates it: 88 selected without a mechanism writes nothing (`chain-nonhaptog`). PLAN.md §7.3.73."
+        },
+        "rspp_outputPollutantID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecpollutantprocess_rows"
+          ],
+          "description": "The pollutant its output rows carry: its own, but 88 for a mechanism pseudo-pollutant, whose only output is the NonHAPTOG TOGSpeciationCalculator writes for it (`rspp_writesNonHapTog`). A mechanism row that does not write NonHAPTOG -- at a process where 88 is itself selected -- emits nothing, so the relabel never doubles a key."
+        },
         "zmh_temperature": {
           "type": "parameter",
           "units": "degF",
@@ -19410,7 +19442,7 @@
           "shape": [
             "output_rows"
           ],
-          "description": "Its pollutant: 91, 107 or 117. A KEY column is read from the relation that OWNS it -- this one from the cohort relation through the rank, not from the rate relation through `rt_outputOrdinal` -- because since 7e several rate rows can share an output row and a `sum_product` over them would add their keys together. The VALUE columns below keep the rate join, where that sum is the point."
+          "description": "Its pollutant: 91, 107 or 117. A KEY column is read from the relation that OWNS it -- this one from the cohort relation through the rank, not from the rate relation through `rt_outputOrdinal` -- because since 7e several rate rows can share an output row and a `sum_product` over them would add their keys together. The VALUE columns below keep the rate join, where that sum is the point. It is `rspp_outputPollutantID`, which relabels a mechanism pseudo-pollutant's block as the NonHAPTOG it carries (PLAN.md §7.3.73)."
         },
         "out_processID": {
           "type": "unknown",
@@ -91665,15 +91697,169 @@
           }
         },
         {
+          "lhs": "rspp_isMechanism",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "bool_and_or",
+            "output_idx": [
+              "p"
+            ],
+            "ranges": {
+              "p": {
+                "from": "runspecpollutantprocess_rows"
+              },
+              "s": {
+                "from": "integratedspeciesset_rows"
+              }
+            },
+            "join": [
+              {
+                "syms": [
+                  "p",
+                  "s"
+                ],
+                "on": [
+                  [
+                    "rspp_pollutantID",
+                    "iss_mechanismPollutantID"
+                  ]
+                ]
+              }
+            ],
+            "expr": 1.0
+          }
+        },
+        {
+          "lhs": "rspp_processSelectsNonHapTog",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "max_product",
+            "output_idx": [
+              "p"
+            ],
+            "ranges": {
+              "p": {
+                "from": "runspecpollutantprocess_rows"
+              },
+              "p2": {
+                "from": "runspecpollutantprocess_rows"
+              }
+            },
+            "join": [
+              {
+                "syms": [
+                  "p",
+                  "p2"
+                ],
+                "on": [
+                  [
+                    "rspp_processID",
+                    "rspp_processID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "in_half_open_range",
+              "bindings": {
+                "lower": 87.5,
+                "upper": 88.5,
+                "value": {
+                  "op": "index",
+                  "args": [
+                    "rspp_pollutantID",
+                    "p2"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "lhs": "rspp_writesNonHapTog",
+          "rhs": {
+            "op": "max",
+            "args": [
+              {
+                "op": "apply_expression_template",
+                "args": [],
+                "name": "in_half_open_range",
+                "bindings": {
+                  "lower": 87.5,
+                  "upper": 88.5,
+                  "value": "rspp_pollutantID"
+                }
+              },
+              {
+                "op": "*",
+                "args": [
+                  "rspp_isMechanism",
+                  {
+                    "op": "-",
+                    "args": [
+                      1.0,
+                      "rspp_processSelectsNonHapTog"
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "lhs": "rspp_outputPollutantID",
+          "rhs": {
+            "op": "ifelse",
+            "args": [
+              {
+                "op": ">",
+                "args": [
+                  "rspp_isMechanism",
+                  0.5
+                ]
+              },
+              88.0,
+              "rspp_pollutantID"
+            ]
+          }
+        },
+        {
           "lhs": "rt_isNonHapTog",
           "rhs": {
-            "op": "apply_expression_template",
+            "op": "faq",
             "args": [],
-            "name": "in_half_open_range",
-            "bindings": {
-              "lower": 87.5,
-              "upper": 88.5,
-              "value": "rt_pollutantID"
+            "semiring": "sum_product",
+            "output_idx": [
+              "b"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "p": {
+                "from": "runspecpollutantprocess_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rt_polProcOrdinal",
+                    "rspp_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "rspp_writesNonHapTog",
+                "p"
+              ]
             }
           }
         },
@@ -103625,7 +103811,7 @@
             "expr": {
               "op": "index",
               "args": [
-                "rspp_pollutantID",
+                "rspp_outputPollutantID",
                 "p"
               ]
             }
