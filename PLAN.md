@@ -7409,7 +7409,7 @@ lane), every species at extended idle, APU and the crankcase processes (measured
 pending), start-exhaust PM, N2O, CO2 Equivalent and the ATRatio toxics, and the
 metals, dioxins, PAH particles and mechanism species (none captured).
 
-**Unchanged runs.** @REEMIT@
+**Unchanged runs.** Re-emitted on the final model with `tools/emit-oracle-table.py` and `cmp`'d against the main tree's `.fixtures-run/`, every relation, shape and table byte-identical: `process-pm-exhaust`, `process-airtoxics`, `process-nox-speciation`, `chain-tog-speciation`, `chain-nonhaptog`, `chain-so2-co2e-mechanism`, `chain-so2-co2e-mechanism-control`, `rates-pm` and `rates-nonhaptog` (all eight Rates tables each), @RATESMECH@`expand-month`, `expand-fullyear`, `scale-county` (relation; its shape file in main still has the retired `run_offNetworkLinkCount` column, every shared value equal), `scale-county-timeagg-day`, `-month`, `-year`, `-processes-day` and `-processes-month`. Byte-identical by construction where it is not by measurement: off Year `ffsup_suppliedShare` is `ffsup_marketShare` times exactly 1.0 and `rt_fuelSupplyScale` is exactly 1.0; the altTHC weight is `r/r` = 1 at one formulation. The Python binding loads the two new runspecs and the pending one; all 99 runspecs, pending runspecs and fixtures validate with `./esm`; `tools/check-sources.py` passes.
 
 **Cost.** `scale-county-timeagg-year-pm` evaluates in 3 min 18 s (173 s user CPU)
 at 3.1 GB; `scale-county-timeagg-year-toxics` in 13 min 35 s (701 s user CPU) at 16.4 GB;
