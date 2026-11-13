@@ -9649,3 +9649,43 @@ AGAIN downstream of it.
    the refusal's description, and record the format relaxation that would carry
    N (a strictly-earlier slice read under a contraction) as a decision for the
    user rather than an unroll per year.
+
+## 123. A string that shares a key with another is told apart by its own shape, and a mode a generator adds after the distribution is a weight of its own **[PLAN.md §7.3.71; `scale-county-start-species` 3,521 of 3,521, key-exact, worst cell 9.258e-06, no `cell_exception`; the species, PM, start and aggregating runs byte-identical]**
+
+1. **Factor the second family of strings into the first's templates, and measure the
+   factoring.** The start-exhaust air-toxic strings of `generalFuelRatioExpression`
+   (2002-2702) are the running ones' forms with two differences: their exponents add an
+   RVP term and second-order standardized terms `c((z_a z_b - m)/s)`, and benzene and
+   1,3-butadiene multiply their property factor by the ratio of exponentials where the
+   running strings multiply it by a constant. Both became one template each
+   (`standardized_cross_term` over `standardized_value`; `atx_baseFactor`), and the data
+   gained 24 coefficient columns. A parser over the strings (scratch, measurement only)
+   checked the claims the templates rest on before a line was written: every
+   second-order factor is its exponent's own standardized property, each pair's `m` and
+   `s` are one number across every string, and the strings' values reproduce the
+   capture's ATRatio at 1.6e-07. A new term with a zero coefficient adds exactly 0, so
+   the running rows are unchanged bit for bit.
+2. **A flag computed from a join is only as narrow as the join's key.** Whether a form
+   row multiplies the ratio of exponentials was first computed as "some exponent row
+   joins it" on (polProcessID, fuelTypeID). The 1950-2000 gasoline acrolein constant
+   shares that key with the 2001-and-later ratio, so every pre-2001 gasoline start
+   acrolein cell came out 2.108 high -- the later ratio over the constant -- and the
+   flag is now data (`atx_hasExponentialRatio`). When a computed presence stands for a
+   property of ONE row, check that the join cannot reach a sibling row with a
+   different shape; a model-year band that is not in the join is the usual way it can.
+3. **A row a generator inserts after the distribution it otherwise copies is a weight
+   of its own, not a row of that distribution.** StartOperatingModeDistributionGenerator
+   copies startsOpModeDistribution into RatesOpModeDistribution and then inserts
+   opModeID 100 at fraction 1 for polProcessID 602 alone. Start N2O's only rates are at
+   mode 100, so without that row the model weighted every start N2O cell 0, and CO2
+   Equivalent short by it, with nothing counted. It is `sod_allStartsWeight`, added to
+   the copied weight, and 0 everywhere else; a zero emitted on every cohort of a
+   pollutant is a weight that is missing, not a rate that is small.
+4. **A CASE on the pollutant-process inside a shared update is two forms.**
+   BaseRateCalculator.sql adjusts start temperature additively for every start
+   pollutant-process but EC and non-EC PM (11202, 11802), which it multiplies by
+   `B exp(A (72 - min(T, 72)))`. Ported as a factor that is exactly 1 off those rows
+   (`rtMode_startTemperatureFactor`) beside the increment, so every additive row is
+   unchanged; the SQL's trailing `+ C` on the multiplicative rows is unweighted and the
+   port weights it, which agrees because C is 0.0 on all 4,224 PM rows of the table --
+   a data fact written into the description, where a change to it would show.

@@ -1742,6 +1742,12 @@ C7P_DOMAIN=moves-onroad.esm
 # share of the year twice, and two E85 formulations make the altTHC quotient a
 # THC-weighted mean. `runspecs/pending/scale-county-timeagg-year-toxics-idle`
 # measures the species at extended idle, APU and the crankcase processes.
+# `scale-county-start-species` and its Year twin `scale-county-timeagg-year-start-species`
+# select START exhaust's species (PLAN.md §7.3.71, conventions §123): N2O at the
+# opModeID 100 mode StartOperatingModeDistributionGenerator weights at 1, CO2
+# Equivalent, the six ATRatio toxics from the start strings of
+# generalFuelRatioExpression and the Complex Model's start configurations, and
+# the PM species under the multiplicative start temperature adjustment.
 # `scale-county-outstep-hourday`, `-week` and `-dayagg` are the 24-Hour Day
 # and Portion of Week output steps (PLAN.md §7.3.66, conventions §118): a
 # day type's hour cells summed, as classical days or as a portion of a week;
