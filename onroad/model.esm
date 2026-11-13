@@ -17967,6 +17967,14 @@
           ],
           "description": "`cfr_suppliedAltQuotient` for the THC this row descends from: its fuel type, THC pollutant-process, source type and model-year range. 1 on every formulation that is not high-ethanol (`cfr_exponentDelta` 0)."
         },
+        "rt_hasSpeciationAltQuotient": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "Does a criteria row cover the THC this row descends from? Where none does (no `criteriaRatio` for the fuel type, process, source type and model year: diesel and CNG start exhaust here) MOVES's altTHC is THC itself and the quotient is 1, which `exp` of an empty sum gave for free and a weighted mean over no formulation does not."
+        },
         "rt_speciationAltQuotient": {
           "type": "unknown",
           "units": "1",
@@ -90150,6 +90158,72 @@
           }
         },
         {
+          "lhs": "rt_hasSpeciationAltQuotient",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "bool_and_or",
+            "output_idx": [
+              "b"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "c": {
+                "from": "criteriafuel_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rt_fuelTypeID",
+                    "cfr_fuelTypeID"
+                  ],
+                  [
+                    "rt_thcPolProcessID",
+                    "cfr_polProcessID"
+                  ],
+                  [
+                    "rt_sourceTypeID",
+                    "cfr_sourceTypeID"
+                  ]
+                ]
+              }
+            ],
+            "filter": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "model_year_in_range",
+              "bindings": {
+                "first_model_year": {
+                  "op": "index",
+                  "args": [
+                    "cfr_minModelYearID",
+                    "c"
+                  ]
+                },
+                "last_model_year": {
+                  "op": "index",
+                  "args": [
+                    "cfr_maxModelYearID",
+                    "c"
+                  ]
+                },
+                "model_year": {
+                  "op": "index",
+                  "args": [
+                    "rt_modelYearID",
+                    "b"
+                  ]
+                }
+              }
+            },
+            "expr": 1.0
+          }
+        },
+        {
           "lhs": "rt_speciationAltQuotient",
           "rhs": {
             "op": "ifelse",
@@ -90161,7 +90235,16 @@
                   0.5
                 ]
               },
-              "rt_speciationSuppliedAltQuotient",
+              {
+                "op": "apply_expression_template",
+                "args": [],
+                "name": "exact_else_wildcard",
+                "bindings": {
+                  "exact_value": "rt_speciationSuppliedAltQuotient",
+                  "has_exact": "rt_hasSpeciationAltQuotient",
+                  "wildcard_value": 1.0
+                }
+              },
               1.0
             ]
           }
