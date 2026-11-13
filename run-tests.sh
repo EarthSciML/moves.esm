@@ -1723,6 +1723,11 @@ C7P_DOMAIN=moves-onroad.esm
 # and the months it collapses (`db_aggregationmonth`, from the RunSpec XML), and
 # its four months' fuel supply sums to 0.334 of the year, which scales every
 # process. It also selects brake and tire wear beside road type 1.
+# `scale-county-timeagg-processes-year` is `-processes-month`'s selections at
+# `aggregateBy` Year (PLAN.md §7.3.68, conventions §120): the evaporative and
+# refueling processes over the month-collapsed fuel supply, whose summed shares
+# TankFuelGenerator's gasohol share and RefuelingLossCalculator's RVP and energy
+# content read as sums, and which venting and leaks never read.
 # `scale-county-outstep-hourday`, `-week` and `-dayagg` are the 24-Hour Day
 # and Portion of Week output steps (PLAN.md §7.3.66, conventions §118): a
 # day type's hour cells summed, as classical days or as a portion of a week;

@@ -9518,3 +9518,34 @@ two rules came out of porting them and the last three aggregation refusals.
    shape -- a collapse that sums the rows PRESENT, so a day type with no row adds
    nothing rather than the identity -- is PreAggMONTH.sql's idleDayAdjust: a
    source type stating only the weekday's 1.12 gets a whole week of 0.8.
+
+## 120. A summed share is read as a sum only by the reader that sums it, and a pre-aggregation of a generated table acts on what the user stated **[PLAN.md §7.3.68; `scale-county-timeagg-processes-year` 19,628 of 19,628, key-exact, worst cell 1.134e-05, no `cell_exception`; the evaporative, refueling and aggregating runs byte-identical]**
+
+§117 found PreAggYEAR.sql's FuelSupply a SUM over the months and scaled every
+BaseRateCalculator process by it once (`rt_fuelSupplyScale`), with the shares
+normalised so the model's share-weighted ratios stay MEANS. The evaporative and
+refueling processes showed that this is a property of each READER, not of the
+table.
+
+1. **Port each reader of a summed share as the SQL writes it: a mean if it
+   divides, a sum if it does not.** TankFuelGenerator's RVP and ethanol means
+   divide by `sum(marketShare)` and see nothing; its `gasoholMarketShare` is a
+   bare sum, and at four months it moves the commingling factor from 1.000 to
+   1.035. RefuelingLossCalculator's `averageRVP` and `energyContent` are bare
+   sums. The variables that read them take `ffsup_suppliedShare` (the share as
+   the execution database holds it), the means `ffsup_marketShare`; on a run
+   whose shares sum to one they are the same number, so the change is
+   byte-identical elsewhere by construction.
+2. **A run-level scale belongs to the calculators that sum over the supply,
+   not to the rate relation.** Vapor venting and fuel leaks read no market
+   share (venting reads the fuel only through TankFuelGenerator's per-fuel-type
+   output), so `rt_fuelSupplyScale` is 1 for them (`fuel_supply_summing_process`).
+   Applied uniformly, it put both exactly 0.334229 low -- §117.3's uniform-factor
+   signature, in the other direction.
+3. **A pre-aggregation section over a GENERATED table acts only on rows the user
+   stated.** PreAggYEAR.sql really does sum AverageTankTemperature and
+   SoakActivityFraction over the months without dividing, but it runs before
+   TankTemperatureGenerator, so on a run that states neither it sums empty
+   tables and the generator writes over the collapsed weather as at Month. The
+   refusal belongs to the stated-table case (`run_soakActivityInputRows`), not
+   to the process: read the order of the scripts before porting a quirk in one.
