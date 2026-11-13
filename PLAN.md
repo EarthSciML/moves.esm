@@ -7772,6 +7772,13 @@ hotellingAgeFraction or hotellingMonthAdjust row in a run of three or more years
 description, and `runspecs/pending/userdb-hotelling-threeyear.esm` is the
 written measurement (`WHAT IT WAITS ON`).
 
+**Decision (2026-11-13, the user): left refused.** Neither the format change nor
+a fixed unroll. The shape arises only in ONE RunSpec selecting three or more
+calendar years beside user hotelling adjustment rows, and its later years' values
+are an artifact of MOVES's table reuse (a one-year run of the same year gives a
+different, single-year answer, which the model reproduces). The refusal and the
+pending runspec stay as written.
+
 **What the model changed** (conventions §122; hand-written, spliced by scratch
 scripts): `oni_monthAdjustRows` and `oni_monthAdjustStated` take a Year arm
 through `year_value_or_own` -- the row count over the collapsed months
