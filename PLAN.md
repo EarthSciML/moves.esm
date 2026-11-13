@@ -7392,6 +7392,16 @@ earlier capture selected a start species but SO2. At Year they stay counted
 (`year_captured_species` omits them); at other aggregations and none they are
 silent.
 
+**The corpus oracles.** `./run-fuel-effects-oracle.sh` (docs/fuel-effects-generator.md
+§6.5) walks every snapshot and failed on `-pm` at 4.1e-07 (E85 formulation 27001,
+11201): alterHighEthanolFuelProperties (FuelEffectsGenerator.java:4369-4430) writes
+the usage's e10FuelProperties row into the E85 formulation's FLOAT columns, and at
+Year that row is PreAggYEAR.sql's MonthGroupWeighting mean, 21.47022497693518,
+whose binary32 the capture's six-digit text (2.14702e+01) does not round back to.
+The reproduction now takes the FLOAT from the usage's e10 value wherever the text
+is that value's six-digit rendering, and is bit-identical on all 2390 rows again.
+All 21 `run-*-oracle.sh` pass.
+
 **What is refused now.** `run_yearUnportedSelected` at `aggregateBy` Year counts
 every pair outside `year_captured_process x year_captured_pollutant` and
 `year_captured_species`: the evaporative processes and refueling (the year-evap
