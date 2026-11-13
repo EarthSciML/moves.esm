@@ -7325,7 +7325,7 @@ source type 21 every month, 32 January only. `scale-county-timeagg-soak-day`:
 SINGLE domain, January and July 2020, both day types, all 24 hours, the gasoline
 car and light commercial truck, road types 1 and 4, THC at permeation, venting and
 leaks, `aggregateBy` 24-Hour Day, output Month; `-month` the same at `aggregateBy`
-Month. 22 MB and 61 MB.
+Month. 59 MB and 58 MB, 831 tables each; MOVES ran under two minutes each.
 
 **What the model does** (conventions §119; hand-written, spliced by scratch scripts):
 
@@ -7368,6 +7368,22 @@ MonthWeighting; the year-evap lane's), beside §7.3.65's Year refusals.
 captured: a stated soakActivityFraction at `aggregateBy` Hour (the model's own-hour-day
 read, unchanged), and a zone stating only some hours (`evap_soakActivityInputRows`
 counts what the cell collects, so it is expected right by construction).
+
+**Unchanged runs.** Re-emitted with `tools/emit-oracle-table.py` on the final model
+and `cmp`'d against the main tree's `.fixtures-run/`, all 76 files byte-identical
+(every relation, shape, movesoutput and Rates table): `expand-month`,
+`expand-fullyear`, `scale-county`, `scale-county-idle-adjust`,
+`process-evap-permeation`, `-leaks`, `-fvv`, `-fvv-day`, `rates-evap`,
+`rates-venting`, `scale-county-timeagg-day`, `-month`, `-year`, `-weekday`,
+`-processes-day`, `-processes-month`, `scale-county-outstep-week`, `-dayagg`,
+`scale-county-idle-adjust-day`, `-month`, `userdb-hotelling-multiyear-day` and
+`-month` -- 22 runs, every output-step run among them, since `mos_inTable` is new to
+all of them. Byte-identical by construction: every other run mounts the national
+soakActivityFraction, which has no rows, so the zone switch is TTG-6's,
+`evap_hasSoakRow` 1 and `mos_inTable` 1. `scale-county-outstep-hourday` (33.5 GB) was
+not re-run. The Python binding (EarthSciAST `main` 0ea122b7d) loads both new runspecs
+and resolves the shadowed source to the stated table. **Runtime:**
+`scale-county-timeagg-soak-day` 2 min 7 s at 2.7 GB, `-month` 2 min 36 s at 2.4 GB.
 
 ### 7.4 Upstream asks
 
