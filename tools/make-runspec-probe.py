@@ -156,9 +156,11 @@ def no_county_join(logic, fixture):
     # meteorology, per-activity rate (two blocks) and population are read once
     # as `rto_*`, and RatePerDistance's link and rate read their own. 23 since
     # PROJECT domain at Rates scale (§7.3.59): `rto_linkID` reads the project's
-    # link and `rto_distance` the link's speed at the output row's county.
-    if dropped != 23:
-        sys.exit("expected 23 county key pairs, dropped %d" % dropped)
+    # link and `rto_distance` the link's speed at the output row's county. 24
+    # since the rows MOVES does not write (§7.3.67): `outMissing` reads the
+    # soak-activity gaps at the output row's county.
+    if dropped != 24:
+        sys.exit("expected 24 county key pairs, dropped %d" % dropped)
 
 
 def no_source_type_join(logic, fixture):
