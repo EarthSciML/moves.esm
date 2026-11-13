@@ -7763,6 +7763,8 @@ the start PM species (refused before, now ported). **Nothing is newly refused.**
 **Cost.** Each new run evaluates in about 180 s of user CPU at 3.7 GB peak RSS
 (wall clock was dominated by the shared evaluation lock).
 
+**Unchanged runs.** Re-emitted on the final model with `tools/emit-oracle-table.py` and `cmp`'d against the main tree's `.fixtures-run/`, every relation, shape and table byte-identical: `process-airtoxics`, `process-pm-exhaust`, `process-nox-speciation`, `chain-tog-speciation`, `chain-nonhaptog`, `chain-so2-co2e-mechanism`, `-control`, `rates-pm`, `rates-nonhaptog`, `rates-mechanism` and `rates-start` (all eight Rates tables each), `process-crankcase-start`, `scale-county` (relation and shape), `scale-county-timeagg-day`, `scale-county-timeagg-year` and `expand-month`. `scale-county-timeagg-year-toxics` and `-pm` have no reference in the main tree yet; against MOVES they reproduce at their §7.3.69 figures, 27782 of 27782 at 1.086e-05 and 5390 of 5390 at 8.761e-06. By construction: every new exponent term has a zero coefficient on a running row, `atx_baseFactor` selects exactly what each running row multiplied before, the Complex Model's VOC divisor selects the same 8701 at process 1, and `sod_allStartsWeight` and `rtMode_startTemperatureFactor` are exactly 0 and 1 off 602 and off 11202/11802. All 21 `run-*-oracle.sh` and `run-oracle.sh` pass over the corpus with both new snapshots; `tools/check-sources.py` passes (130 catalogues); the 104 runspecs, pending runspecs and fixtures validate with `./esm`; the Python binding loads both new runspecs.
+
 ### 7.4 Upstream asks
 
 **None is blocking.** This section has said "still none", "already exists,
