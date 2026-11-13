@@ -1748,6 +1748,12 @@ C7P_DOMAIN=moves-onroad.esm
 # CrankcaseEmissionCalculator alone writes a crankcase row, CO2AE writes CO2
 # equivalent there from the copied methane, and a hotelling species block
 # is an output block like its parent's.
+# `scale-county-idle-nonhaptog` and its Year twin `scale-county-timeagg-year-nonhaptog`
+# select NonHAPTOG and its mechanism (3000) at all seven exhaust processes
+# (PLAN.md §7.3.73, conventions §125): TOGSpeciationCalculator writes 88
+# wherever the mechanism is selected, also where 88 is no pollutant-process
+# (start, crankcase start and extended idle, extended idle, APU), on the rows
+# and road types of the process's NMOG.
 # `scale-county-start-species` and its Year twin `scale-county-timeagg-year-start-species`
 # select START exhaust's species (PLAN.md §7.3.71, conventions §123): N2O at the
 # opModeID 100 mode StartOperatingModeDistributionGenerator weights at 1, CO2
