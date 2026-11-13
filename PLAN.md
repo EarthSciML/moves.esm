@@ -7364,7 +7364,7 @@ the 0.334 as BaseRateCalculator's does (`fuel_supply_summing_process` keeps 11
 scaled for that reason).
 
 **The capture** (moves.rs branch `capture-year-evap`; host token `1ccc0236`,
-moves-snapshot/v2, capture binary rebuilt first; 145 MB):
+moves-snapshot/v2, capture binary rebuilt first; 257 MB):
 `characterization/fixtures/scale-county-timeagg-processes-year.xml` --
 `-processes-month`'s selections (THC, CO, NOx at running, start, extended idle and the
 three crankcase processes; Total Energy at running; THC at permeation, venting, leaks,
@@ -7376,6 +7376,21 @@ about two minutes; 19,628 output rows.
 
 **Runtime.** `scale-county-timeagg-processes-year` evaluates in 10 min 24 s
 (547 s user CPU) at 13.3 GB peak RSS.
+
+**Unchanged runs.** Re-emitted on the final model with `tools/emit-oracle-table.py`
+and `cmp`'d against the main tree's `.fixtures-run/` (refreshed by main's suite the
+same evening): `process-evap-permeation`, `-leaks`, `-fvv`, `-fvv-day`,
+`process-refueling`, `rates-evap`, `rates-venting` (and their six Rates tables),
+`project-refueling`, `rates-project-evap`, `expand-month`, `expand-fullyear`,
+`scale-county`, `scale-county-timeagg-day`, `-month`, `-year`, `-processes-day` and
+`-processes-month`: 17 runs, 66 files -- every relation, oracle table and shape file
+byte-identical. By construction: off Year `ffsup_suppliedShare` and
+`ffsup_marketShare` are the same number, and `rt_fuelSupplyScale`'s Year arm is not
+taken; `scale-county-timeagg-year` selects neither venting nor leaks. The Python
+binding (EarthSciAST `main` 0ea122b7d) loads the new runspec; all 97 runspecs and
+fixtures validate; `tools/check-sources.py` passes. `tools/check-reachability-counts.py`
+reports the shared corpus's figures moved (24 of 129 claims), as every lane's new
+snapshots move them; the document is re-derived once the lanes merge.
 
 ### 7.4 Upstream asks
 
