@@ -1300,11 +1300,11 @@
     },
     "airtoxicsexponent_rows": {
       "kind": "interval",
-      "size": 58
+      "size": 62
     },
     "basefuelratio_rows": {
       "kind": "interval",
-      "size": 12
+      "size": 18
     },
     "complexmodelparameters_rows": {
       "kind": "interval",
@@ -1931,7 +1931,9 @@
             "start_temperature_log_increment",
             "start_temperature_poly_increment",
             "fuel_sulfur_sulfate_adjustment",
-            "gpa_blend"
+            "gpa_blend",
+            "pm_start_temperature_offset",
+            "start_temperature_pm_factor"
           ]
         },
         {
@@ -10868,7 +10870,7 @@
           "shape": [
             "basefuelratio_rows"
           ],
-          "description": "generalFuelRatioExpression.polProcessID for the ratios BaseRateCalculator applies to a RATED pollutant-process -- the ones `copyGeneralFuelRatioTo*` never moves into `criteriaRatio` or `ATRatio` -- and for `SulfatePMCalculator`'s residue: 11201, PM elemental carbon, and 12001, the residue, which carries the same strings and is read through `rt_residueFuelRatio` because no rate row is ever a residue. Rows 7-9 are EXTENDED IDLE's THC, CO and NOx (190, 290, 390): diesel's biodiesel form B with the running-exhaust coefficients, -0.705, -0.690 and +0.110, for model years 1950-2006. Rows 10-12 are APU's THC, CO and NOx (191, 291, 391): the same three coefficients for model years 1950-2060 -- generalFuelRatioExpression's own window, which no Total Energy run could see and `scale-county-timeagg-day` measured, 2.5% on THC and CO and 0.4% on NOx for the 2010-2020 diesel APU cohorts, the only ones with an APU fraction (PLAN.md §7.3.63). BaseRateCalculator applies them to the rated rows; the crankcase rows chained from them (117, 217, 317) carry the same strings in the table and MOVES's crankcase output is the parent's times the crankcase ratio alone, measured: 0.037000 exactly on every pre-2007 diesel cohort of `process-crankcase-extidle-single`."
+          "description": "generalFuelRatioExpression.polProcessID for the ratios BaseRateCalculator applies to a RATED pollutant-process -- the ones `copyGeneralFuelRatioTo*` never moves into `criteriaRatio` or `ATRatio` -- and for `SulfatePMCalculator`'s residue: 11201, PM elemental carbon, and 12001, the residue, which carries the same strings and is read through `rt_residueFuelRatio` because no rate row is ever a residue. Rows 7-9 are EXTENDED IDLE's THC, CO and NOx (190, 290, 390): diesel's biodiesel form B with the running-exhaust coefficients, -0.705, -0.690 and +0.110, for model years 1950-2006. Rows 10-12 are APU's THC, CO and NOx (191, 291, 391): the same three coefficients for model years 1950-2060 -- generalFuelRatioExpression's own window, which no Total Energy run could see and `scale-county-timeagg-day` measured, 2.5% on THC and CO and 0.4% on NOx for the 2010-2020 diesel APU cohorts, the only ones with an APU fraction (PLAN.md §7.3.63). BaseRateCalculator applies them to the rated rows; the crankcase rows chained from them (117, 217, 317) carry the same strings in the table and MOVES's crankcase output is the parent's times the crankcase ratio alone, measured: 0.037000 exactly on every pre-2007 diesel cohort of `process-crankcase-extidle-single`. Rows 13-18 are START exhaust's EC and residue (11202, 12002; PLAN.md §7.3.71): form A for gasoline and E85, whose exponent carries a T50-squared second-order term the running strings do not (`standardized_cross_term`), and divisor 1.66064403031; form B for diesel with the running coefficient, -0.780."
         },
         "gfb_fuelTypeID": {
           "type": "unknown",
@@ -22740,7 +22742,7 @@
             "runspeccounty_rows",
             "runspecmonth_rows"
           ],
-          "description": "baseratecalculator.go:1041-1060 and :1339-1350: what start exhaust ADDS to a mode's rate before the mode is weighted -- `weightFraction x (B exp(A (min(T,75)-75)) + C)` for a LOG row, the cubic in `min(T,75)-75` for a POLY one -- where the weight fraction is the same mode weight the rate is under. Written here per unit weight, so that `rtDay_meanBaseRate` weights it as it weights the rate. 0 off start exhaust and where StartTempAdjustment has no row. PM's multiplicative form (11202, 11802) is not written: no RunSpec here selects start PM, and `run_selectionUnported` counts one that would."
+          "description": "baseratecalculator.go:1041-1060 and :1339-1350: what start exhaust ADDS to a mode's rate before the mode is weighted -- `weightFraction x (B exp(A (min(T,75)-75)) + C)` for a LOG row, the cubic in `min(T,75)-75` for a POLY one -- where the weight fraction is the same mode weight the rate is under. Written here per unit weight, so that `rtDay_meanBaseRate` weights it as it weights the rate. 0 off start exhaust and where StartTempAdjustment has no row. On PM's multiplicative rows (11202, 11802; `rt_startTempIsMultiplicative`) it is the SQL's trailing `+ C` alone, and the factor is `rtMode_startTemperatureFactor`. The SQL adds that C to the mode's already-weighted rate unweighted; this weights it like every other increment. The two agree because C is 0.0 on all 4,224 PM rows of StartTempAdjustment (PLAN.md §7.3.71)."
         },
         "rtMode_rateRows": {
           "type": "unknown",
@@ -25586,6 +25588,47 @@
             "operating_mode_rows"
           ],
           "description": "The `All Starts` operating mode, 100, weighted 1 for start N2O (602) at every hour-day and source type, beside the start mode distribution: StartOperatingModeDistributionGenerator writes that one RatesOpModeDistribution row for 602 alone, in the default and the PROJECT domain (StartOperatingModeDistributionGenerator.java:434-458), and N2O's start rates are all at mode 100. 0 at every other pollutant-process and mode, where `sod_weight` is the whole weight (PLAN.md §7.3.71)."
+        },
+        "rt_startTempIsMultiplicative": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "1 on start-exhaust EC (11202) and non-EC PM (11802), the two pollutant-processes BaseRateCalculator.sql adjusts for start temperature MULTIPLICATIVELY, `rate x B exp(A (72 - min(T, 72))) + C`, in place of the additive LOG/POLY increment every other start pollutant-process gets (BaseRateCalculator.sql:902-990). The pollutant-processes are literals in the SQL and are literals here."
+        },
+        "rtMode_hasStartTemperatureRow": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows",
+            "operating_mode_rows"
+          ],
+          "description": "1 where StartTempAdjustment has a row for the rate row's fuel type, pollutant-process and model-year group at this mode."
+        },
+        "rtMode_startTemperatureFactorExact": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows",
+            "operating_mode_rows",
+            "runspecday_rows",
+            "runspeccounty_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "`B exp(A (72 - min(T, 72)))` over the joined StartTempAdjustment row (`start_temperature_pm_factor`); 0 where none joins."
+        },
+        "rtMode_startTemperatureFactor": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows",
+            "operating_mode_rows",
+            "runspecday_rows",
+            "runspeccounty_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "What start exhaust MULTIPLIES a mode's rate by before the mode is weighted: PM's start-temperature factor on 11202 and 11802 (BaseRateCalculator.sql:902-990), 1 on every other rate row, so the additive pollutant-processes are unchanged bit for bit (PLAN.md §7.3.71)."
         }
       },
       "equations": [
@@ -70378,12 +70421,28 @@
                       "op": "+",
                       "args": [
                         {
-                          "op": "index",
+                          "op": "*",
                           "args": [
-                            "rtMode_weightedRate",
-                            "b",
-                            "m",
-                            "g"
+                            {
+                              "op": "index",
+                              "args": [
+                                "rtMode_weightedRate",
+                                "b",
+                                "m",
+                                "g"
+                              ]
+                            },
+                            {
+                              "op": "index",
+                              "args": [
+                                "rtMode_startTemperatureFactor",
+                                "b",
+                                "m",
+                                "k",
+                                "g",
+                                "n"
+                              ]
+                            }
                           ]
                         },
                         {
@@ -78054,7 +78113,11 @@
               2702,
               2702,
               2702,
-              2702
+              2702,
+              11202,
+              11202,
+              12002,
+              12002
             ]
           }
         },
@@ -78121,6 +78184,10 @@
               1,
               5,
               5,
+              5,
+              1,
+              5,
+              1,
               5
             ]
           }
@@ -78188,7 +78255,11 @@
               -4.307862502,
               -7.93380668346,
               -0.952,
-              -4.307862502
+              -4.307862502,
+              0.0,
+              0.0,
+              0.0,
+              0.0
             ]
           }
         },
@@ -78255,7 +78326,11 @@
               0.1904,
               0.466109696377,
               0.1978,
-              0.1904
+              0.1904,
+              1.0443,
+              1.0443,
+              1.0443,
+              1.0443
             ]
           }
         },
@@ -78322,7 +78397,11 @@
               0.0,
               1.0,
               0.0,
-              0.0
+              0.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0
             ]
           }
         },
@@ -78389,7 +78468,11 @@
               -1.0,
               0.0,
               1.0,
-              -1.0
+              -1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0
             ]
           }
         },
@@ -78456,7 +78539,11 @@
               0.120428583,
               0.247571774876,
               0.07981,
-              0.120428583
+              0.120428583,
+              0.1582,
+              0.1582,
+              0.1582,
+              0.1582
             ]
           }
         },
@@ -78523,7 +78610,11 @@
               11.018182,
               10.313704,
               10.313704,
-              11.018182
+              11.018182,
+              10.313704,
+              10.313704,
+              10.313704,
+              10.313704
             ]
           }
         },
@@ -78590,7 +78681,11 @@
               8.059247,
               7.879557,
               7.879557,
-              8.059247
+              8.059247,
+              7.879557,
+              7.879557,
+              7.879557,
+              7.879557
             ]
           }
         },
@@ -78657,7 +78752,11 @@
               -0.172817765,
               0.112171738068,
               0.08789,
-              -0.172817765
+              -0.172817765,
+              0.3833,
+              0.3833,
+              0.3833,
+              0.3833
             ]
           }
         },
@@ -78724,7 +78823,11 @@
               24.390909,
               25.62963,
               25.62963,
-              24.390909
+              24.390909,
+              25.62963,
+              25.62963,
+              25.62963,
+              25.62963
             ]
           }
         },
@@ -78791,7 +78894,11 @@
               9.924259,
               10.015366,
               10.015366,
-              9.924259
+              9.924259,
+              10.015366,
+              10.015366,
+              10.015366,
+              10.015366
             ]
           }
         },
@@ -78858,7 +78965,11 @@
               0.216898917,
               0.188036345941,
               0.1344,
-              0.216898917
+              0.216898917,
+              0.055,
+              0.055,
+              0.055,
+              0.055
             ]
           }
         },
@@ -78925,7 +79036,11 @@
               197.0,
               190.611111,
               190.611111,
-              197.0
+              197.0,
+              190.611111,
+              190.611111,
+              190.611111,
+              190.611111
             ]
           }
         },
@@ -78992,7 +79107,11 @@
               23.453614,
               28.579112,
               28.579112,
-              23.453614
+              23.453614,
+              28.579112,
+              28.579112,
+              28.579112,
+              28.579112
             ]
           }
         },
@@ -79059,7 +79178,11 @@
               0.095308473,
               0.248875726738,
               0.01593,
-              0.095308473
+              0.095308473,
+              0.2923,
+              0.2923,
+              0.2923,
+              0.2923
             ]
           }
         },
@@ -79126,7 +79249,11 @@
               323.527273,
               320.533333,
               320.533333,
-              323.527273
+              323.527273,
+              320.533333,
+              320.533333,
+              320.533333,
+              320.533333
             ]
           }
         },
@@ -79193,7 +79320,11 @@
               19.601484,
               19.480128,
               19.480128,
-              19.601484
+              19.601484,
+              19.480128,
+              19.480128,
+              19.480128,
+              19.480128
             ]
           }
         },
@@ -79260,6 +79391,10 @@
               0.0,
               10.0,
               10.0,
+              10.0,
+              0.0,
+              10.0,
+              0.0,
               10.0
             ]
           }
@@ -79327,6 +79462,10 @@
               0.0,
               1.0,
               1.0,
+              1.0,
+              0.0,
+              1.0,
+              0.0,
               1.0
             ]
           }
@@ -79394,6 +79533,10 @@
               0.0,
               -0.0645011875352,
               -0.04596,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
               0.0
             ]
           }
@@ -79461,6 +79604,10 @@
               0.0,
               8.517778,
               8.517778,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
               0.0
             ]
           }
@@ -79528,6 +79675,10 @@
               1.0,
               1.611374,
               1.611374,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
               1.0
             ]
           }
@@ -79595,6 +79746,10 @@
               0.0,
               -0.0831008246151,
               0.04594,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
               0.0
             ]
           }
@@ -79662,6 +79817,10 @@
               0.0,
               0.962963,
               0.962963,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
               0.0
             ]
           }
@@ -79729,6 +79888,10 @@
               1.0,
               0.802769,
               0.802769,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
               1.0
             ]
           }
@@ -79796,7 +79959,11 @@
               0.0,
               0.0,
               0.0768,
-              0.0
+              0.0,
+              0.0935,
+              0.0935,
+              0.0935,
+              0.0935
             ]
           }
         },
@@ -79863,7 +80030,11 @@
               0.0,
               0.0,
               0.962963,
-              0.0
+              0.0,
+              0.962963,
+              0.962963,
+              0.962963,
+              0.962963
             ]
           }
         },
@@ -79930,7 +80101,11 @@
               1.0,
               1.0,
               0.739766,
-              1.0
+              1.0,
+              0.739766,
+              0.739766,
+              0.739766,
+              0.739766
             ]
           }
         },
@@ -79997,6 +80172,10 @@
               0.0,
               0.0,
               0.01636,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
               0.0
             ]
           }
@@ -80064,6 +80243,10 @@
               0.0,
               0.0,
               -0.036738,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
               0.0
             ]
           }
@@ -80131,6 +80314,10 @@
               1.0,
               1.0,
               0.978461,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
               1.0
             ]
           }
@@ -80198,6 +80385,10 @@
               0.0,
               -0.118575183514,
               0.04754,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
               0.0
             ]
           }
@@ -80265,6 +80456,10 @@
               0.0,
               -0.541342,
               -0.541342,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
               0.0
             ]
           }
@@ -80332,6 +80527,10 @@
               1.0,
               0.769153,
               0.769153,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
               1.0
             ]
           }
@@ -80399,6 +80598,10 @@
               0.0,
               0.0461666056871,
               0.0196,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
               0.0
             ]
           }
@@ -80466,6 +80669,10 @@
               0.0,
               0.016328,
               0.016328,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
               0.0
             ]
           }
@@ -80533,6 +80740,10 @@
               1.0,
               0.972825,
               0.972825,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
               1.0
             ]
           }
@@ -80593,6 +80804,10 @@
               0.0,
               0.0,
               0.0219399869736,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
               0.0,
               0.0,
               0.0,
@@ -80667,6 +80882,10 @@
               0.0,
               0.0,
               0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
               0.0
             ]
           }
@@ -80727,6 +80946,10 @@
               1.0,
               1.0,
               0.999615,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
               1.0,
               1.0,
               1.0,
@@ -80801,6 +81024,10 @@
               0.0,
               0.0598593292319,
               0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
               0.0
             ]
           }
@@ -80868,6 +81095,10 @@
               0.0,
               -0.036304,
               0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
               0.0
             ]
           }
@@ -80934,6 +81165,10 @@
               1.0,
               1.0,
               0.960011,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
               1.0,
               1.0
             ]
@@ -82521,7 +82756,13 @@
               390,
               191,
               291,
-              391
+              391,
+              11202,
+              11202,
+              11202,
+              12002,
+              12002,
+              12002
             ]
           }
         },
@@ -82542,6 +82783,12 @@
               2,
               2,
               2,
+              2,
+              1,
+              5,
+              2,
+              1,
+              5,
               2
             ]
           }
@@ -82563,6 +82810,12 @@
               1950,
               1950,
               1950,
+              1950,
+              2001,
+              2001,
+              1950,
+              2001,
+              2001,
               1950
             ]
           }
@@ -82584,7 +82837,13 @@
               2006,
               2060,
               2060,
-              2060
+              2060,
+              2060,
+              2060,
+              2006,
+              2060,
+              2060,
+              2006
             ]
           }
         },
@@ -82605,6 +82864,12 @@
               1.0,
               1.0,
               1.0,
+              1.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
               1.0
             ]
           }
@@ -82626,7 +82891,13 @@
               0.11,
               -0.705,
               -0.69,
-              0.11
+              0.11,
+              0.0,
+              0.0,
+              -0.78,
+              0.0,
+              0.0,
+              -0.78
             ]
           }
         },
@@ -82647,6 +82918,12 @@
               1.0,
               1.0,
               1.0,
+              1.0,
+              1.66064403031,
+              1.66064403031,
+              1.0,
+              1.66064403031,
+              1.66064403031,
               1.0
             ]
           }
@@ -120606,6 +120883,77 @@
           }
         },
         {
+          "_comment": "BaseRateCalculator.sql:902-990: `CASE WHEN polProcessID in (11202,11802) THEN rate*B*exp(A*(72.0-least(temperature,72)))+C ELSE rate + generalFraction*(...)`.",
+          "lhs": "rt_startTempIsMultiplicative",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              }
+            },
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                {
+                  "op": "or",
+                  "args": [
+                    {
+                      "op": "==",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "rt_polProcessID",
+                            "b"
+                          ]
+                        },
+                        {
+                          "op": "apply_expression_template",
+                          "args": [],
+                          "name": "pol_process_id",
+                          "bindings": {
+                            "pollutant_id": 112,
+                            "process_id": 2
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "op": "==",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "rt_polProcessID",
+                            "b"
+                          ]
+                        },
+                        {
+                          "op": "apply_expression_template",
+                          "args": [],
+                          "name": "pol_process_id",
+                          "bindings": {
+                            "pollutant_id": 118,
+                            "process_id": 2
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                },
+                1.0,
+                0.0
+              ]
+            }
+          }
+        },
+        {
           "lhs": "rtMode_startTemperatureIncrement",
           "rhs": {
             "op": "faq",
@@ -120661,163 +121009,446 @@
               }
             ],
             "expr": {
-              "op": "*",
+              "op": "ifelse",
               "args": [
                 {
-                  "op": "index",
+                  "op": ">",
                   "args": [
-                    "rt_isStart",
-                    "b"
+                    {
+                      "op": "index",
+                      "args": [
+                        "rt_startTempIsMultiplicative",
+                        "b"
+                      ]
+                    },
+                    0.5
                   ]
                 },
                 {
-                  "op": "ifelse",
+                  "op": "*",
                   "args": [
                     {
-                      "op": "==",
+                      "op": "index",
                       "args": [
-                        {
-                          "op": "index",
-                          "args": [
-                            "stadj_equationType",
-                            "x"
-                          ]
-                        },
-                        2.0
+                        "rt_isStart",
+                        "b"
                       ]
                     },
                     {
                       "op": "apply_expression_template",
                       "args": [],
-                      "name": "start_temperature_log_increment",
+                      "name": "fuel_property_or_zero",
                       "bindings": {
-                        "term_a": {
-                          "op": "apply_expression_template",
-                          "args": [],
-                          "name": "fuel_property_or_zero",
-                          "bindings": {
-                            "value": {
-                              "op": "index",
-                              "args": [
-                                "stadj_tempAdjustTermA",
-                                "x"
-                              ]
-                            }
-                          }
-                        },
-                        "term_b": {
-                          "op": "apply_expression_template",
-                          "args": [],
-                          "name": "fuel_property_or_zero",
-                          "bindings": {
-                            "value": {
-                              "op": "index",
-                              "args": [
-                                "stadj_tempAdjustTermB",
-                                "x"
-                              ]
-                            }
-                          }
-                        },
-                        "term_c": {
-                          "op": "apply_expression_template",
-                          "args": [],
-                          "name": "fuel_property_or_zero",
-                          "bindings": {
-                            "value": {
-                              "op": "index",
-                              "args": [
-                                "stadj_tempAdjustTermC",
-                                "x"
-                              ]
-                            }
-                          }
-                        },
-                        "offset": {
-                          "op": "apply_expression_template",
-                          "args": [],
-                          "name": "start_temperature_offset",
-                          "bindings": {
-                            "temperature": {
-                              "op": "index",
-                              "args": [
-                                "run_temperature",
-                                "k",
-                                "g",
-                                "n"
-                              ]
-                            }
-                          }
-                        }
-                      }
-                    },
-                    {
-                      "op": "apply_expression_template",
-                      "args": [],
-                      "name": "start_temperature_poly_increment",
-                      "bindings": {
-                        "term_a": {
-                          "op": "apply_expression_template",
-                          "args": [],
-                          "name": "fuel_property_or_zero",
-                          "bindings": {
-                            "value": {
-                              "op": "index",
-                              "args": [
-                                "stadj_tempAdjustTermA",
-                                "x"
-                              ]
-                            }
-                          }
-                        },
-                        "term_b": {
-                          "op": "apply_expression_template",
-                          "args": [],
-                          "name": "fuel_property_or_zero",
-                          "bindings": {
-                            "value": {
-                              "op": "index",
-                              "args": [
-                                "stadj_tempAdjustTermB",
-                                "x"
-                              ]
-                            }
-                          }
-                        },
-                        "term_c": {
-                          "op": "apply_expression_template",
-                          "args": [],
-                          "name": "fuel_property_or_zero",
-                          "bindings": {
-                            "value": {
-                              "op": "index",
-                              "args": [
-                                "stadj_tempAdjustTermC",
-                                "x"
-                              ]
-                            }
-                          }
-                        },
-                        "offset": {
-                          "op": "apply_expression_template",
-                          "args": [],
-                          "name": "start_temperature_offset",
-                          "bindings": {
-                            "temperature": {
-                              "op": "index",
-                              "args": [
-                                "run_temperature",
-                                "k",
-                                "g",
-                                "n"
-                              ]
-                            }
-                          }
+                        "value": {
+                          "op": "index",
+                          "args": [
+                            "stadj_tempAdjustTermC",
+                            "x"
+                          ]
                         }
                       }
                     }
                   ]
+                },
+                {
+                  "op": "*",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "rt_isStart",
+                        "b"
+                      ]
+                    },
+                    {
+                      "op": "ifelse",
+                      "args": [
+                        {
+                          "op": "==",
+                          "args": [
+                            {
+                              "op": "index",
+                              "args": [
+                                "stadj_equationType",
+                                "x"
+                              ]
+                            },
+                            2.0
+                          ]
+                        },
+                        {
+                          "op": "apply_expression_template",
+                          "args": [],
+                          "name": "start_temperature_log_increment",
+                          "bindings": {
+                            "term_a": {
+                              "op": "apply_expression_template",
+                              "args": [],
+                              "name": "fuel_property_or_zero",
+                              "bindings": {
+                                "value": {
+                                  "op": "index",
+                                  "args": [
+                                    "stadj_tempAdjustTermA",
+                                    "x"
+                                  ]
+                                }
+                              }
+                            },
+                            "term_b": {
+                              "op": "apply_expression_template",
+                              "args": [],
+                              "name": "fuel_property_or_zero",
+                              "bindings": {
+                                "value": {
+                                  "op": "index",
+                                  "args": [
+                                    "stadj_tempAdjustTermB",
+                                    "x"
+                                  ]
+                                }
+                              }
+                            },
+                            "term_c": {
+                              "op": "apply_expression_template",
+                              "args": [],
+                              "name": "fuel_property_or_zero",
+                              "bindings": {
+                                "value": {
+                                  "op": "index",
+                                  "args": [
+                                    "stadj_tempAdjustTermC",
+                                    "x"
+                                  ]
+                                }
+                              }
+                            },
+                            "offset": {
+                              "op": "apply_expression_template",
+                              "args": [],
+                              "name": "start_temperature_offset",
+                              "bindings": {
+                                "temperature": {
+                                  "op": "index",
+                                  "args": [
+                                    "run_temperature",
+                                    "k",
+                                    "g",
+                                    "n"
+                                  ]
+                                }
+                              }
+                            }
+                          }
+                        },
+                        {
+                          "op": "apply_expression_template",
+                          "args": [],
+                          "name": "start_temperature_poly_increment",
+                          "bindings": {
+                            "term_a": {
+                              "op": "apply_expression_template",
+                              "args": [],
+                              "name": "fuel_property_or_zero",
+                              "bindings": {
+                                "value": {
+                                  "op": "index",
+                                  "args": [
+                                    "stadj_tempAdjustTermA",
+                                    "x"
+                                  ]
+                                }
+                              }
+                            },
+                            "term_b": {
+                              "op": "apply_expression_template",
+                              "args": [],
+                              "name": "fuel_property_or_zero",
+                              "bindings": {
+                                "value": {
+                                  "op": "index",
+                                  "args": [
+                                    "stadj_tempAdjustTermB",
+                                    "x"
+                                  ]
+                                }
+                              }
+                            },
+                            "term_c": {
+                              "op": "apply_expression_template",
+                              "args": [],
+                              "name": "fuel_property_or_zero",
+                              "bindings": {
+                                "value": {
+                                  "op": "index",
+                                  "args": [
+                                    "stadj_tempAdjustTermC",
+                                    "x"
+                                  ]
+                                }
+                              }
+                            },
+                            "offset": {
+                              "op": "apply_expression_template",
+                              "args": [],
+                              "name": "start_temperature_offset",
+                              "bindings": {
+                                "temperature": {
+                                  "op": "index",
+                                  "args": [
+                                    "run_temperature",
+                                    "k",
+                                    "g",
+                                    "n"
+                                  ]
+                                }
+                              }
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  ]
                 }
+              ]
+            }
+          }
+        },
+        {
+          "_comment": "Does a StartTempAdjustment row cover this (rate row, mode)? The SQL's UPDATE joins it; a row it does not reach keeps its rate.",
+          "lhs": "rtMode_hasStartTemperatureRow",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "bool_and_or",
+            "output_idx": [
+              "b",
+              "m"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "m": {
+                "from": "operating_mode_rows"
+              },
+              "x": {
+                "from": "starttempadjustment_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rt_fuelTypeID",
+                    "stadj_fuelTypeID"
+                  ],
+                  [
+                    "rt_polProcessID",
+                    "stadj_polProcessID"
+                  ],
+                  [
+                    "rt_startModelYearGroupID",
+                    "stadj_modelYearGroupID"
+                  ],
+                  [
+                    "om_opModeID",
+                    "stadj_opModeID"
+                  ]
+                ]
+              }
+            ],
+            "expr": 1.0
+          }
+        },
+        {
+          "_comment": "PM's start-temperature factor, `B exp(A (72 - min(T, 72)))`, where a row covers.",
+          "lhs": "rtMode_startTemperatureFactorExact",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b",
+              "m",
+              "k",
+              "g",
+              "n"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "m": {
+                "from": "operating_mode_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "n": {
+                "from": "runspecmonth_rows"
+              },
+              "x": {
+                "from": "starttempadjustment_rows"
+              },
+              "k": {
+                "from": "runspecday_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rt_fuelTypeID",
+                    "stadj_fuelTypeID"
+                  ],
+                  [
+                    "rt_polProcessID",
+                    "stadj_polProcessID"
+                  ],
+                  [
+                    "rt_startModelYearGroupID",
+                    "stadj_modelYearGroupID"
+                  ],
+                  [
+                    "om_opModeID",
+                    "stadj_opModeID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "start_temperature_pm_factor",
+              "bindings": {
+                "term_a": {
+                  "op": "apply_expression_template",
+                  "args": [],
+                  "name": "fuel_property_or_zero",
+                  "bindings": {
+                    "value": {
+                      "op": "index",
+                      "args": [
+                        "stadj_tempAdjustTermA",
+                        "x"
+                      ]
+                    }
+                  }
+                },
+                "term_b": {
+                  "op": "apply_expression_template",
+                  "args": [],
+                  "name": "fuel_property_or_zero",
+                  "bindings": {
+                    "value": {
+                      "op": "index",
+                      "args": [
+                        "stadj_tempAdjustTermB",
+                        "x"
+                      ]
+                    }
+                  }
+                },
+                "offset": {
+                  "op": "apply_expression_template",
+                  "args": [],
+                  "name": "pm_start_temperature_offset",
+                  "bindings": {
+                    "temperature": {
+                      "op": "index",
+                      "args": [
+                        "run_temperature",
+                        "k",
+                        "g",
+                        "n"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "_comment": "1 off PM's multiplicative rows and where no row covers, so every other start rate is multiplied by exactly 1.",
+          "lhs": "rtMode_startTemperatureFactor",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b",
+              "m",
+              "k",
+              "g",
+              "n"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "m": {
+                "from": "operating_mode_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "n": {
+                "from": "runspecmonth_rows"
+              },
+              "k": {
+                "from": "runspecday_rows"
+              }
+            },
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                {
+                  "op": ">",
+                  "args": [
+                    {
+                      "op": "*",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "rt_isStart",
+                            "b"
+                          ]
+                        },
+                        {
+                          "op": "index",
+                          "args": [
+                            "rt_startTempIsMultiplicative",
+                            "b"
+                          ]
+                        },
+                        {
+                          "op": "index",
+                          "args": [
+                            "rtMode_hasStartTemperatureRow",
+                            "b",
+                            "m"
+                          ]
+                        }
+                      ]
+                    },
+                    0.5
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "rtMode_startTemperatureFactorExact",
+                    "b",
+                    "m",
+                    "k",
+                    "g",
+                    "n"
+                  ]
+                },
+                1.0
               ]
             }
           }
