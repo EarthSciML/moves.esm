@@ -8006,6 +8006,109 @@ as before (no capture has shown them wrong).
 at 16.75 GB; `scale-county-timeagg-year-toxics-idle` in 10 min 44 s (546 s user CPU) at 16.77 GB. Both were the
 same size before the change (the pending Year run: 10 min 20 s at 16.7 GB).
 
+#### 7.3.74 The PM species, PAH particles, metals and dioxins at every exhaust process: a calculator that rescales another's output is a row of its matrix, and a crankcase split reads its parent's tables
+
+2026-11-13. §7.3.72 left the PM species, the PAH particles, the metals and the
+dioxins at extended idle, APU and the crankcase processes counted at `aggregateBy`
+Year only (`run_yearUnportedSelected`) and SILENT at Hour; the metals, dioxins, PAH
+particles and every `pmSpeciation` species but organic carbon had never been
+captured at running or start exhaust either. All four new runs reproduce, **key set
+exact, no `cell_exception`:**
+
+TABLE
+
+**The captures** (moves.rs branch `capture-idle-minor`, commits 7c949152..a53f83eb,
+host token `1ccc0236`, moves-snapshot/v2, capture binary rebuilt in the lane's
+scratch; all copied into the main checkout's `characterization/snapshots/`):
+SNAPSHOTS. Running and start are in the same captures as the idle processes, as the
+brief asked, because the same calculators write them -- but split by ROAD TYPE: one
+capture of all seven processes (`scale-county-minor-species`, 75,582 rows at one
+hour, 81 MB) passed 57 GB of RSS inside ten minutes of evaluation and was killed
+before it could endanger the node; its snapshots were deleted and its
+recipe replaced. Road type 1 carries start, extended idle, APU and crankcase start and
+extended idle; road type 4 running and crankcase running and the metals and dioxins.
+`scale-county-metals-novmt` (0 rows) is the metals and dioxins with the VMT output off.
+
+**(1) Every species was SILENT at Hour (finding F80).** BASELINE. Nothing counted it:
+`run_selectionUnported` 0.
+
+**Measured before porting** (pandas, `/scratch.local/ctessum/idle-minor/py/measure.py`,
+off the captures' MOVESOutput and the default database):
+- SulfatePMCalculator.sql speciates its residue (120) by `pmSpeciation` into 14
+  outputs -- nitrate, ammonium, the elements 51-59, organic carbon, PMOTHR, NCOM --
+  then writes TOM (123) as `sum(111, 122)` and the residual (124) as
+  `sum(120) x (1 - f111 - f122)` (`ratio124`, one `pmSpeciation` group per cohort:
+  all 329 groups carry all 14 outputs). Each species / organic carbon = its fraction
+  / organic carbon's, TOM = OC + NCOM, residual = residue x (1 - f111 - f122): worst
+  8.3e-06 over all seven processes and both twins.
+- AirToxicsCalculator.sql's UsePAHParticleRatio: `particle = organic carbon (111) x
+  pahParticleRatio.atRatio` at the SAME process, model-year group and fuel type --
+  crankcase included (pahParticleRatio has rows at 15, 16, 17); worst 7.4e-06.
+  `runspecchainedto` declares a crankcase particle chained from the same particle at
+  the parent process instead; that edge is not the arithmetic.
+- The crankcase processes' PM is SulfatePMCalculator's crankcase split
+  (`##primaryAndCrankcaseProcessIDs##`, `crankcaseSplit`): the PARENT process's EC,
+  sulfate, water and residue times `crankcaseEmissionRatio` at the crankcase process
+  (crankcase / parent = 0.008-1.643 by cohort; water is 0 at both). `sulfateFractions`
+  has rows at 1, 2, 90 and 91 only and the residue's fuel ratio is applied before the
+  split, so both are the parent's; `pmSpeciation` is read at the crankcase process.
+- The metals and dioxins (finding **F81**): MOVES 5 does not instantiate
+  AirToxicsDistanceCalculator; BaseRateGenerator weights `DistanceEmissionRate` by the
+  source-bin distribution (`SBWeightedDistanceRate`), and SourceBinDistributionGenerator
+  writes none for a pollutant-process without a `sourceTypePolProcess` row -- "No
+  SourceBinDistribution for pollutant-process ... because there is no SourceTypePolProcess
+  information for it", 24 times in each log. The default database has no such row for
+  any of the 24, so MOVES writes NO metal or dioxin row, VMT output on or off
+  (`scale-county-metals-novmt`). The model writes none either: their pollutant-processes
+  have no rate and no chain.
+
+**What the model does now** (conventions §126; onroad/model.esm, lib/adjustments.esm,
+lib/identifiers.esm, lib/time_aggregation.esm, the catalogues; hand-written and spliced
+by scratch scripts):
+
+1. **The share matrix gains 31 speciated entries** (`spmsh_*`, 11 -> 42): the 13
+   other `pmSpeciation` outputs, TOM, the residual and the 16 PAH particles, each the
+   residue times `rt_pmSpeciationFraction` -- now `pm_speciation_weight` summed over the
+   cohort's `pmSpeciation` rows (+1 for the residual), times `rt_pahParticleRatio` on
+   organic carbon's row for a particle. `pahParticleRatio` is mounted (default database,
+   execution-database fixture catalogue, the 7c spike).
+2. **Membership, not a positive share** (`rt_hasPmSpeciation`, `rt_spmShareMember`,
+   `pm_speciation_member`): nitrate and ammonium are 0.0 on diesel from 2007 and MOVES
+   writes the rows.
+3. **The crankcase split** (finding **F82**): `rt_spmProcessID`
+   (`crankcase_parent_process`) is the process whose species are split; the parent
+   self-joins (`rtDay_spmParent`, `rtRate_spmParent`, `rt_spmParentSurvives`),
+   `sulfateFractions` (`rt_hasSulfateFractions`, the sulfate, water and residue
+   fractions) and the residue's fuel ratio (`rt_residuePolProcessID`) read it, and
+   `crankcaseEmissionRatio` and `pmSpeciation` stay at the row's own process. Before,
+   every crankcase PM row joined no parent and was absent.
+4. **Two pre-existing silent errors at extended idle and APU** (finding **F82**), both on
+   pollutants earlier captures had checked only at running and start: (a) the model
+   applied no `generalFuelRatioExpression` to extended idle's and APU's EC and residue
+   (11290, 12090, 11291, 12091: biodiesel form B, -0.780, model years 1950-2006 and
+   1950-2060), so EC was 1/0.9727 = 1.02807 and NonECPM 1.02715 high on every covered
+   diesel cohort -- `basefuelratio_rows` 18 -> 22; (b) `rt_ownBlockEmits` and
+   `rt_chainVisible` asked APU's shore-power retag test of every SURVIVING row, and a
+   SulfatePMCalculator block survives without a rate, so every APU PM block but the rated
+   EC and NonECPM was dropped -- §124.5's failure for a second kind of rateless row; both
+   now ask `rt_survivesRated`.
+5. `year_captured_minor_species` (lib/time_aggregation.esm, beside the other two lists)
+   names what the Year twins check, the metals and dioxins as absences;
+   `run_yearUnportedSelected` stops counting them (Year offnet BEFORE_Y_OFFNET -> 0,
+   running BEFORE_Y_RUNNING -> 0).
+
+Byte-identical elsewhere by construction -- organic carbon's fraction is the same sum
+with one live term, its membership equals its positive share (no 0.0 organic-carbon
+fraction in `pmSpeciation`), and `rt_spmProcessID` is the row's own process off 15, 16,
+17, where no earlier capture selects a PM species -- and by measurement (below).
+
+**Not ported, and how it is held:** nothing in this lane's set. N2O, NonHAPTOG and the
+mechanism species at these processes are the other lane's (§7.3.73).
+
+REEMIT
+
+**Cost.** COST
+
 ### 7.4 Upstream asks
 
 **None is blocking.** This section has said "still none", "already exists,
