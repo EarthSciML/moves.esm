@@ -1717,6 +1717,12 @@ C7P_DOMAIN=moves-onroad.esm
 # cold-soak tank temperature, so permeation has no row and the soak is all cold,
 # and the RunSpec selects Total Energy beside refueling, so its running-energy
 # block is a selection and not a stripped prerequisite (`n_statedEnergyProcesses`).
+# `scale-county-timeagg-soak-day` and `-month` are evaporative processes under
+# the same two collapses over a county database that STATES soakActivityFraction
+# (PLAN.md §7.3.67, conventions §119): PreAggDAY.sql and PreAggMONTH.sql collapse
+# the user's hourly rows before TankTemperatureGenerator keeps them, one stated
+# row switches TTG-6 off for the whole zone, and a cell with no soak row has no
+# evaporative row at all, which the output step drops (`mos_inTable`).
 # `scale-county-timeagg-year` is the same county inventory at `aggregateBy`
 # Year (PLAN.md §7.3.65, conventions §117): PreAggYEAR.sql collapses the
 # months into MonthOfAnyYear 0, so its runspec declares `n_aggregatesMonths` 1
