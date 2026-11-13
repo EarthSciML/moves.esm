@@ -16921,6 +16921,22 @@
           ],
           "description": "The pollutant its output rows carry: its own, but 88 for a mechanism pseudo-pollutant, whose only output is the NonHAPTOG TOGSpeciationCalculator writes for it (`rspp_writesNonHapTog`). A mechanism row that does not write NonHAPTOG -- at a process where 88 is itself selected -- emits nothing, so the relabel never doubles a key."
         },
+        "rspp_processNmogCount": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecpollutantprocess_rows"
+          ],
+          "description": "How many NMOG (80) pollutant-processes the run holds at this pollutant-process's process: 1 wherever a mechanism is selected, because TOGSpeciationCalculator.getMechanismRequirements adds NMOG at the mechanism's process to the expanded set `runspecpollutantprocess` records; 0 or 1 elsewhere."
+        },
+        "rspp_processNmogRoadTypeID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecpollutantprocess_rows"
+          ],
+          "description": "The road type NMOG lives on at this pollutant-process's process (`rspp_chainRoadTypeID4` of the process's NMOG); 0 where the process has none."
+        },
         "zmh_temperature": {
           "type": "parameter",
           "units": "degF",
@@ -17015,7 +17031,7 @@
           "shape": [
             "runspecpollutantprocess_rows"
           ],
-          "description": "The road type this pollutant-process's rows live on. `BaseRateGenerator` writes a real-road process's rates on the run's on-network road type and an off-network one's (start exhaust, extended idle, auxiliary power) on road type 1 alone (`rspp_ratedRoadTypeID`). A pollutant-process with no row in either rate table is not `BaseRateGenerator`'s at all -- it is a chained calculator's, stamped on its PARENT's row -- so it takes its parents' road type, closed over the chain in four rungs (`rspp_chainRoadTypeID1..4`): crankcase extended idle (17) is chained to extended idle (90) and lives on road type 1 with it, while a refueling loss, whose start and extended-idle energy parents are on no selected road in a run that selects road type 4 alone, lives on 4 with its running-energy parent. Until the off-network processes arrived every chained process took the run's road type, and every one still does that has an on-network parent."
+          "description": "The road type this pollutant-process's rows live on. `BaseRateGenerator` writes a real-road process's rates on the run's on-network road type and an off-network one's (start exhaust, extended idle, auxiliary power) on road type 1 alone (`rspp_ratedRoadTypeID`). A pollutant-process with no row in either rate table is not `BaseRateGenerator`'s at all -- it is a chained calculator's, stamped on its PARENT's row -- so it takes its parents' road type, closed over the chain in four rungs (`rspp_chainRoadTypeID1..4`): crankcase extended idle (17) is chained to extended idle (90) and lives on road type 1 with it, while a refueling loss, whose start and extended-idle energy parents are on no selected road in a run that selects road type 4 alone, lives on 4 with its running-energy parent. Until the off-network processes arrived every chained process took the run's road type, and every one still does that has an on-network parent. A NonHAPTOG writer (`rspp_writesNonHapTog`) is neither: TOGSpeciationCalculator stamps 88 on its process's NMOG rows, so it lives where its process's NMOG does (`rspp_processNmogRoadTypeID`). Without that, the mechanism's NonHAPTOG at start, extended idle and APU, which no rate table carries and no chain edge reaches, took the run's on-network road type, where its process has no row (PLAN.md §7.3.73). NonHAPTOG at running exhaust and crankcase running lived on the on-network road type by that default before, and lives there now because their NMOG does."
         },
         "rspp_isEmitted": {
           "type": "unknown",
@@ -32323,7 +32339,26 @@
         {
           "_comment": "The fourth rung of the road-type closure: four because four is the longest path in MOVES's on-road chain graph (lib/chaining.esm), so a road type reaches every pollutant-process the chain can -- crankcase extended idle's TOG among them, which the third left on the run's on-network road type.",
           "lhs": "rspp_rateRoadTypeID",
-          "rhs": "rspp_chainRoadTypeID4"
+          "rhs": {
+            "op": "ifelse",
+            "args": [
+              {
+                "op": ">",
+                "args": [
+                  {
+                    "op": "*",
+                    "args": [
+                      "rspp_writesNonHapTog",
+                      "rspp_processNmogCount"
+                    ]
+                  },
+                  0.5
+                ]
+              },
+              "rspp_processNmogRoadTypeID",
+              "rspp_chainRoadTypeID4"
+            ]
+          }
         },
         {
           "lhs": "rspp_ratedRoadTypeID",
@@ -91825,6 +91860,116 @@
               88.0,
               "rspp_pollutantID"
             ]
+          }
+        },
+        {
+          "lhs": "rspp_processNmogCount",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "p"
+            ],
+            "ranges": {
+              "p": {
+                "from": "runspecpollutantprocess_rows"
+              },
+              "q": {
+                "from": "runspecpollutantprocess_rows"
+              }
+            },
+            "join": [
+              {
+                "syms": [
+                  "p",
+                  "q"
+                ],
+                "on": [
+                  [
+                    "rspp_processID",
+                    "rspp_processID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "in_half_open_range",
+              "bindings": {
+                "lower": 79.5,
+                "upper": 80.5,
+                "value": {
+                  "op": "index",
+                  "args": [
+                    "rspp_pollutantID",
+                    "q"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "lhs": "rspp_processNmogRoadTypeID",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "p"
+            ],
+            "ranges": {
+              "p": {
+                "from": "runspecpollutantprocess_rows"
+              },
+              "q": {
+                "from": "runspecpollutantprocess_rows"
+              }
+            },
+            "join": [
+              {
+                "syms": [
+                  "p",
+                  "q"
+                ],
+                "on": [
+                  [
+                    "rspp_processID",
+                    "rspp_processID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "apply_expression_template",
+                  "args": [],
+                  "name": "in_half_open_range",
+                  "bindings": {
+                    "lower": 79.5,
+                    "upper": 80.5,
+                    "value": {
+                      "op": "index",
+                      "args": [
+                        "rspp_pollutantID",
+                        "q"
+                      ]
+                    }
+                  }
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "rspp_chainRoadTypeID4",
+                    "q"
+                  ]
+                }
+              ]
+            }
           }
         },
         {
