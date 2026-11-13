@@ -10438,7 +10438,7 @@
           ],
           "description": "The market-share-weighted ratio over the formulations the county's fuel supply actually carries for the criteria row's fuel type. This is where the 2,158-row formulation table collapses to the five formulations a run uses."
         },
-        "cfr_suppliedExponentDelta": {
+        "cfr_suppliedAltQuotient": {
           "type": "unknown",
           "units": "1",
           "shape": [
@@ -10447,7 +10447,7 @@
             "runspecmonth_rows",
             "runspecyear_rows"
           ],
-          "description": "The market-share-weighted exponent difference over the formulations the county's fuel supply carries for this row's fuel type -- `cfr_suppliedRatio`'s collapse, applied to the difference instead of the ratio. With one formulation per fuel type at market share 1.0, which is every run in `runspecs/`, the weighting is the identity and the number is that formulation's."
+          "description": "`altCriteriaRatio / criteriaRatio` over the county's supply of this row's fuel type: `Sum_f marketShare x criteriaRatio x exp(exponentDelta)` over `Sum_f marketShare x criteriaRatio` (`cfr_suppliedRatio`), written as each formulation's share of the supplied ratio times its own quotient. MOVES carries THC and the pseudo-THC tally `altTHC` per formulation and sums each, so the quotient of the two collapses is the mean of the per-formulation quotients weighted by the per-formulation THC -- not `exp` of the share-weighted exponent difference, which is what this was until PLAN.md §7.3.69: the two agree at one formulation per fuel type, and at `aggregateBy` Year, where PreAggYEAR.sql's FuelSupply holds two E85 formulations of different RVP (27001, 27002), the mean of the exponent put every E85 NMOG, VOC, TOG and toxic 4e-4 high. At one formulation the weight is `r / r`, exactly 1."
         },
         "atx_polProcessID": {
           "type": "unknown",
@@ -17957,7 +17957,7 @@
           ],
           "description": "How many `HCSpeciation` rows this row's joins reach whose `oxySpeciation` is not zero. It is 0 for every row of the national table, which is why this document carries no oxygenate term: `speciationConstant + oxySpeciation x volToWtPercentOxy x totalOxygenate` is the form (lib/adjustments.esm's `speciation_factor`) and its second summand is identically absent. Counted rather than assumed, because it is a fact about the DATA."
         },
-        "rt_speciationExponentDelta": {
+        "rt_speciationSuppliedAltQuotient": {
           "type": "unknown",
           "units": "1",
           "shape": [
@@ -17965,7 +17965,7 @@
             "runspeccounty_rows",
             "runspecmonth_rows"
           ],
-          "description": "How much the alternate criteria exponent exceeds the ordinary one for the THC this row descends from. Zero except on a high-ethanol formulation."
+          "description": "`cfr_suppliedAltQuotient` for the THC this row descends from: its fuel type, THC pollutant-process, source type and model-year range. 1 on every formulation that is not high-ethanol (`cfr_exponentDelta` 0)."
         },
         "rt_speciationAltQuotient": {
           "type": "unknown",
@@ -17975,7 +17975,7 @@
             "runspeccounty_rows",
             "runspecmonth_rows"
           ],
-          "description": "`altCriteriaRatio / criteriaRatio` -- the ratio of the pseudo-THC tally `altTHC` to the reported THC -- computed as the exponential of the exponent difference, because the two ratios share every other factor. 0.9934070 for formulation 27002 on this corpus, against 0.993396 read off the run. One outside the E10 model years and processes."
+          "description": "`altCriteriaRatio / criteriaRatio` -- the ratio of the pseudo-THC tally `altTHC` to the reported THC -- over the county's supply (`rt_speciationSuppliedAltQuotient`). Each formulation's quotient is the exponential of its exponent difference, because the two ratios share every other factor. 0.9934070 for formulation 27002 on this corpus, against 0.993396 read off the run. One outside the E10 model years and processes."
         },
         "rt_speciationOperandCorrection": {
           "type": "unknown",
@@ -76357,7 +76357,7 @@
           }
         },
         {
-          "lhs": "cfr_suppliedExponentDelta",
+          "lhs": "cfr_suppliedAltQuotient",
           "rhs": {
             "op": "faq",
             "args": [],
@@ -76399,24 +76399,62 @@
               "op": "*",
               "args": [
                 {
-                  "op": "index",
-                  "args": [
-                    "ffsup_marketShare",
-                    "g",
-                    "m",
-                    "f",
-                    "cy"
-                  ]
+                  "op": "apply_expression_template",
+                  "args": [],
+                  "name": "share_of_group",
+                  "bindings": {
+                    "numerator": {
+                      "op": "*",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "ffsup_marketShare",
+                            "g",
+                            "m",
+                            "f",
+                            "cy"
+                          ]
+                        },
+                        {
+                          "op": "index",
+                          "args": [
+                            "cfr_ratio",
+                            "c",
+                            "g",
+                            "m",
+                            "f",
+                            "cy"
+                          ]
+                        }
+                      ]
+                    },
+                    "group_total": {
+                      "op": "index",
+                      "args": [
+                        "cfr_suppliedRatio",
+                        "c",
+                        "g",
+                        "m",
+                        "cy"
+                      ]
+                    }
+                  }
                 },
                 {
-                  "op": "index",
+                  "op": "exp",
                   "args": [
-                    "cfr_exponentDelta",
-                    "c",
-                    "g",
-                    "m",
-                    "f",
-                    "cy"
+                    {
+                      "op": "index",
+                      "args": [
+                        "cfr_exponentDelta",
+                        "c",
+                        "g",
+                        "m",
+                        "f",
+                        "cy"
+                      ]
+                    }
                   ]
                 }
               ]
@@ -90014,7 +90052,7 @@
           }
         },
         {
-          "lhs": "rt_speciationExponentDelta",
+          "lhs": "rt_speciationSuppliedAltQuotient",
           "rhs": {
             "op": "faq",
             "args": [],
@@ -90102,7 +90140,7 @@
             "expr": {
               "op": "index",
               "args": [
-                "cfr_suppliedExponentDelta",
+                "cfr_suppliedAltQuotient",
                 "c",
                 "g",
                 "m",
@@ -90123,12 +90161,7 @@
                   0.5
                 ]
               },
-              {
-                "op": "exp",
-                "args": [
-                  "rt_speciationExponentDelta"
-                ]
-              },
+              "rt_speciationSuppliedAltQuotient",
               1.0
             ]
           }
