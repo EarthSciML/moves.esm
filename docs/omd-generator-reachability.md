@@ -27,9 +27,9 @@ Java classes MOVES loaded for that run.
 
 > **The brief for this work said the evidence is a `kind: "generator"` entry in
 > `java_classes`. There is no such entry anywhere in the corpus.** Rolled over
-> all 109 traces, `java_classes[*].kind` takes exactly five values —
-> `common` (7,434), `framework` (7,358), `master` (5,787), `utils` (214) and
-> `worker` (109). Generators are `kind: "master"` (or `framework`, for the
+> all 116 traces, `java_classes[*].kind` takes exactly five values —
+> `common` (7,947), `framework` (7,855), `master` (6,212), `utils` (228) and
+> `worker` (116). Generators are `kind: "master"` (or `framework`, for the
 > abstract `Generator` base). The signal that works is the class NAME.
 
 ```
@@ -68,9 +68,9 @@ that key is `(roadTypeID, avgSpeedBinID)`, and
 What the intersection buys is that a generator nothing loaded can no longer be
 credited with a sibling's rows.
 
-The corpus as measured: **110 snapshot directories, 109 with an
+The corpus as measured: **117 snapshot directories, 116 with an
 `execution-trace.json`** (`mixed-onroad-nonroad` carries `tables/` only), at
-`moves.rs` main after the 2026-11-13 merges: the fourteen captures of branches `capture-agg-soak` (`scale-county-timeagg-soak-day`, `-month`, PLAN.md §7.3.67), `capture-year-evap` (`scale-county-timeagg-processes-year`, §7.3.68), `capture-year-toxics` (`scale-county-timeagg-year-pm`, `-year-toxics`, `-year-toxics-idle`, §7.3.69), `capture-year-configs` (`scale-county-idle-adjust-year`, `userdb-hotelling-multiyear-year`, `scale-county-timeagg-weekday-year`, `userdb-hotelling-threeyear`, `-month`, §7.3.70), `capture-start-species` (`scale-county-start-species`, `scale-county-timeagg-year-start-species`, §7.3.71) and `capture-idle-species` (`scale-county-idle-species`, §7.3.72), on top of the 2026-11-12 merges: the eleven time-aggregation captures of branches `capture-timeagg-processes` (`scale-county-timeagg-processes-day`, `-month`, every on-road process, PLAN.md §7.3.64), `capture-timeagg-year` (`scale-county-timeagg-year`, §7.3.65) and `capture-timeagg-outputsteps` (`scale-county-outstep-hourday`, `-week`, `-dayagg`, `scale-county-idle-adjust-day`, `-month`, `scale-county-timeagg-weekday`, `userdb-hotelling-multiyear-day`, `-month`, §7.3.66), on top of the 2026-11-11 merges: the two time-aggregation captures of branch `capture-time-aggregation` (`scale-county-timeagg-day` and `scale-county-timeagg-month`, the first runs that aggregate time and select start exhaust, PLAN.md §7.3.63), the two drive-schedule PROJECT captures of branch `capture-project-driveschedule` (`project-driveschedule`, `project-zerospeed`, PLAN.md §7.3.62), the four PROJECT captures of branch `capture-project-structural` (`project-multilink`, `project-grades`, `project-useromd-gaps`, `project-startconflict`, PLAN.md §7.3.60), the three PROJECT Rates-scale captures of `capture-rates-project-more` (`rates-project-chained`, `rates-project-evap-links`, `rates-project-useromd`, PLAN.md §7.3.59) and `userdb-hotelling-multiyear` of `capture-hotelling-multiyear` (PLAN.md §7.3.61), on top of branch `capture-project-more`: `scale-county-idle-adjust` (PLAN.md §7.3.57) and the four PROJECT captures of 2026-11-10 (`project-crankcase`, `project-refueling`, `rates-project-evap`, `project-useromd`, PLAN.md §7.3.58) on commit `9285647a` plus the three PROJECT captures of 2026-11-09 (`project-links`, `project-offnetwork`, `project-hotelling`, PLAN.md §7.3.55; before them, 2026-11-02: `expand-ev-heat`, an electric car and transit bus at a hot hour, PLAN.md §7.3.50; before it `5389ead6`, the same day: `rates-venting` and `process-evap-fvv-day`, the first 24-hour runs, and `rates-hotelling-sourcetypes`, PLAN.md §7.3.49; before it `46cff1e6`, the same day: three more Rates-scale twins, `rates-pm`, `rates-nonhaptog` and
+`moves.rs` main after the 2026-11-13 merges: the seven captures of branches `capture-idle-gaspm` (`scale-county-idle-nonhaptog`, `scale-county-timeagg-year-nonhaptog`, PLAN.md §7.3.73) and `capture-idle-minor` (`scale-county-minor-offnet`, `-minor-running`, `scale-county-timeagg-year-minor-offnet`, `-minor-running`, and `scale-county-metals-novmt`, evidence with no runspec, §7.3.74), on top of the fourteen captures of branches `capture-agg-soak` (`scale-county-timeagg-soak-day`, `-month`, PLAN.md §7.3.67), `capture-year-evap` (`scale-county-timeagg-processes-year`, §7.3.68), `capture-year-toxics` (`scale-county-timeagg-year-pm`, `-year-toxics`, `-year-toxics-idle`, §7.3.69), `capture-year-configs` (`scale-county-idle-adjust-year`, `userdb-hotelling-multiyear-year`, `scale-county-timeagg-weekday-year`, `userdb-hotelling-threeyear`, `-month`, §7.3.70), `capture-start-species` (`scale-county-start-species`, `scale-county-timeagg-year-start-species`, §7.3.71) and `capture-idle-species` (`scale-county-idle-species`, §7.3.72), on top of the 2026-11-12 merges: the eleven time-aggregation captures of branches `capture-timeagg-processes` (`scale-county-timeagg-processes-day`, `-month`, every on-road process, PLAN.md §7.3.64), `capture-timeagg-year` (`scale-county-timeagg-year`, §7.3.65) and `capture-timeagg-outputsteps` (`scale-county-outstep-hourday`, `-week`, `-dayagg`, `scale-county-idle-adjust-day`, `-month`, `scale-county-timeagg-weekday`, `userdb-hotelling-multiyear-day`, `-month`, §7.3.66), on top of the 2026-11-11 merges: the two time-aggregation captures of branch `capture-time-aggregation` (`scale-county-timeagg-day` and `scale-county-timeagg-month`, the first runs that aggregate time and select start exhaust, PLAN.md §7.3.63), the two drive-schedule PROJECT captures of branch `capture-project-driveschedule` (`project-driveschedule`, `project-zerospeed`, PLAN.md §7.3.62), the four PROJECT captures of branch `capture-project-structural` (`project-multilink`, `project-grades`, `project-useromd-gaps`, `project-startconflict`, PLAN.md §7.3.60), the three PROJECT Rates-scale captures of `capture-rates-project-more` (`rates-project-chained`, `rates-project-evap-links`, `rates-project-useromd`, PLAN.md §7.3.59) and `userdb-hotelling-multiyear` of `capture-hotelling-multiyear` (PLAN.md §7.3.61), on top of branch `capture-project-more`: `scale-county-idle-adjust` (PLAN.md §7.3.57) and the four PROJECT captures of 2026-11-10 (`project-crankcase`, `project-refueling`, `rates-project-evap`, `project-useromd`, PLAN.md §7.3.58) on commit `9285647a` plus the three PROJECT captures of 2026-11-09 (`project-links`, `project-offnetwork`, `project-hotelling`, PLAN.md §7.3.55; before them, 2026-11-02: `expand-ev-heat`, an electric car and transit bus at a hot hour, PLAN.md §7.3.50; before it `5389ead6`, the same day: `rates-venting` and `process-evap-fvv-day`, the first 24-hour runs, and `rates-hotelling-sourcetypes`, PLAN.md §7.3.49; before it `46cff1e6`, the same day: three more Rates-scale twins, `rates-pm`, `rates-nonhaptog` and
 `rates-mechanism`, PLAN.md §7.3.48 part E; before it `5cc407df`, 2026-11-01: `rates-project`, captured with the execution
 database named `MOVESExecution`; before that `6c11d458`, the five Rates-scale twins `rates-running`,
 `rates-wear`, `rates-start`, `rates-hotelling` and `rates-evap`, PLAN.md §7.3.48; before
@@ -128,15 +128,15 @@ which three of these rows share.
 
 | generator | class-loaded in | writes | snapshots with rows | reachable? |
 |---|---:|---|---:|---|
-| `RatesOperatingModeDistributionGenerator` | **97** / 109 | `RatesOpModeDistribution` | **74** |
-| `StartOperatingModeDistributionGenerator` | **43** / 109 | `StartOpModeDistribution` | **35** |
-| `LinkOperatingModeDistributionGenerator` | **17** / 109 | `OpModeDistribution` | **17** |
-| `OperatingModeDistributionGenerator` | 0 / 109 | `OpModeDistribution` | 0 |
-| `MesoscaleLookupOperatingModeDistributionGenerator` | 0 / 109 | `OpModeDistribution` | 0 |
-| `MesoscaleLookupTotalActivityGenerator` | 0 / 109 | `SourceHours`, `SHO` | 0 |
-| `NewTvvYearGenerator` | 0 / 109 | — | — |
+| `RatesOperatingModeDistributionGenerator` | **104** / 116 | `RatesOpModeDistribution` | **78** |
+| `StartOperatingModeDistributionGenerator` | **47** / 116 | `StartOpModeDistribution` | **39** |
+| `LinkOperatingModeDistributionGenerator` | **17** / 116 | `OpModeDistribution` | **17** |
+| `OperatingModeDistributionGenerator` | 0 / 116 | `OpModeDistribution` | 0 |
+| `MesoscaleLookupOperatingModeDistributionGenerator` | 0 / 116 | `OpModeDistribution` | 0 |
+| `MesoscaleLookupTotalActivityGenerator` | 0 / 116 | `SourceHours`, `SHO` | 0 |
+| `NewTvvYearGenerator` | 0 / 116 | — | — |
 
-`FuelEffectsGenerator` (95 / 109) is the eighth unported generator and belongs to
+`FuelEffectsGenerator` (102 / 116) is the eighth unported generator and belongs to
 a parallel rung; it is listed here only so the eight add up. It has since been
 ported (`docs/fuel-effects-generator.md`), as have the first two rows of the
 table (`docs/operating-mode-distribution.md`).
@@ -152,24 +152,24 @@ write it.
 
 ### Which snapshots, exactly
 
-`RatesOpModeDistribution` is non-empty in 74 snapshots:
+`RatesOpModeDistribution` is non-empty in 78 snapshots:
 
 | snapshot | rows | | snapshot | rows |
 |---|---:|---|---|---:|
-| `expand-counties` | 9 | | `rates-minimal` | 9 |
-| `expand-counties-large` | 9 | | `rates-project` | 22 |
-| `expand-criteria` | 33 | | `rates-project-chained` | 707 |
-| `expand-day` | 18 | | `rates-project-evap-links` | 20 |
-| `expand-fueltype-diesel` | 18 | | `rates-project-useromd` | 436 |
-| `expand-fullyear` | 9 | | `rates-start` | 49 |
-| `expand-month` | 9 | | `rates-wear` | 16 |
-| `expand-multifuel` | 9 | | `sample-runspec` | 9 |
-| `expand-multiyear` | 9 | | `scale-county` | 9 |
-| `expand-roadtypes` | 9 | | `scale-county-idle-adjust` | 16 |
-| `expand-sourcetype` | 46 | | `scale-county-idle-adjust-day` | 8 |
-| `mixed-onroad` | 9 | | `scale-county-idle-adjust-month` | 4 |
-| `process-apu` | 3 | | `scale-county-idle-adjust-year` | 4 |
-| `process-apu-single` | 3 | | `scale-county-idle-species` | 232 |
+| `expand-counties` | 9 | | `rates-project-chained` | 707 |
+| `expand-counties-large` | 9 | | `rates-project-evap-links` | 20 |
+| `expand-criteria` | 33 | | `rates-project-useromd` | 436 |
+| `expand-day` | 18 | | `rates-start` | 49 |
+| `expand-fueltype-diesel` | 18 | | `rates-wear` | 16 |
+| `expand-fullyear` | 9 | | `sample-runspec` | 9 |
+| `expand-month` | 9 | | `scale-county` | 9 |
+| `expand-multifuel` | 9 | | `scale-county-idle-adjust` | 16 |
+| `expand-multiyear` | 9 | | `scale-county-idle-adjust-day` | 8 |
+| `expand-roadtypes` | 9 | | `scale-county-idle-adjust-month` | 4 |
+| `expand-sourcetype` | 46 | | `scale-county-idle-adjust-year` | 4 |
+| `mixed-onroad` | 9 | | `scale-county-idle-nonhaptog` | 1268 |
+| `process-apu` | 3 | | `scale-county-idle-species` | 232 |
+| `process-apu-single` | 3 | | `scale-county-minor-offnet` | 1370 |
 | `process-crankcase-extidle` | 3 | | `scale-county-outstep-dayagg` | 72 |
 | `process-crankcase-extidle-single` | 3 | | `scale-county-outstep-hourday` | 912 |
 | `process-crankcase-start` | 49 | | `scale-county-outstep-week` | 72 |
@@ -182,17 +182,19 @@ write it.
 | `project-driveschedule` | 776 | | `scale-county-timeagg-weekday` | 159 |
 | `project-grades` | 275 | | `scale-county-timeagg-weekday-year` | 159 |
 | `project-hotelling` | 272 | | `scale-county-timeagg-year` | 399 |
-| `project-links` | 273 | | `scale-county-timeagg-year-start-species` | 370 |
-| `project-multilink` | 294 | | `scale-county-timeagg-year-toxics` | 370 |
-| `project-offnetwork` | 272 | | `scale-county-timeagg-year-toxics-idle` | 116 |
-| `project-refueling` | 221 | | `scale-project` | 22 |
-| `project-startconflict` | 208 | | `scale-rates` | 9 |
-| `project-useromd` | 436 | | `userdb-hotelling-multiyear` | 16 |
-| `project-useromd-gaps` | 170 | | `userdb-hotelling-multiyear-day` | 8 |
-| `project-zerospeed` | 50 | | `userdb-hotelling-multiyear-month` | 4 |
-| `rates-evap` | 9 | | `userdb-hotelling-multiyear-year` | 4 |
-| `rates-hotelling` | 8 | | `userdb-hotelling-threeyear` | 16 |
-| `rates-hotelling-sourcetypes` | 8 | | `userdb-hotelling-threeyear-month` | 4 |
+| `project-links` | 273 | | `scale-county-timeagg-year-minor-offnet` | 1370 |
+| `project-multilink` | 294 | | `scale-county-timeagg-year-nonhaptog` | 634 |
+| `project-offnetwork` | 272 | | `scale-county-timeagg-year-start-species` | 370 |
+| `project-refueling` | 221 | | `scale-county-timeagg-year-toxics` | 370 |
+| `project-startconflict` | 208 | | `scale-county-timeagg-year-toxics-idle` | 116 |
+| `project-useromd` | 436 | | `scale-project` | 22 |
+| `project-useromd-gaps` | 170 | | `scale-rates` | 9 |
+| `project-zerospeed` | 50 | | `userdb-hotelling-multiyear` | 16 |
+| `rates-evap` | 9 | | `userdb-hotelling-multiyear-day` | 8 |
+| `rates-hotelling` | 8 | | `userdb-hotelling-multiyear-month` | 4 |
+| `rates-hotelling-sourcetypes` | 8 | | `userdb-hotelling-multiyear-year` | 4 |
+| `rates-minimal` | 9 | | `userdb-hotelling-threeyear` | 16 |
+| `rates-project` | 22 | | `userdb-hotelling-threeyear-month` | 4 |
 
 **`scale-project`'s 22 are not all the same generator's** (nor `rates-project`'s), and that is the
 sharpest illustration in the corpus of why the `writes` column cannot be read
@@ -204,12 +206,12 @@ freshly-computed `OpModeDistribution` across —
 `LinkOperatingModeDistributionGenerator.java:448-458`. Four generators write
 this table and `(roadTypeID, avgSpeedBinID)` is what separates them.
 
-`StartOpModeDistribution` is non-empty in 35:
+`StartOpModeDistribution` is non-empty in 39:
 
 | snapshot | rows | | snapshot | rows |
 |---|---:|---|---|---:|
-| `expand-counties` | 5 | | `sample-runspec` | 4 |
-| `expand-counties-large` | 5 | | `scale-county` | 5 |
+| `expand-counties` | 5 | | `scale-county-idle-nonhaptog` | 24 |
+| `expand-counties-large` | 5 | | `scale-county-minor-offnet` | 13 |
 | `expand-criteria` | 5 | | `scale-county-outstep-dayagg` | 29 |
 | `expand-day` | 9 | | `scale-county-outstep-hourday` | 486 |
 | `expand-fueltype-diesel` | 12 | | `scale-county-outstep-week` | 29 |
@@ -222,12 +224,14 @@ this table and `(roadTypeID, avgSpeedBinID)` is what separates them.
 | `mixed-onroad` | 7 | | `scale-county-timeagg-weekday` | 24 |
 | `process-crankcase-start` | 5 | | `scale-county-timeagg-weekday-year` | 24 |
 | `process-crankcase-start-single` | 5 | | `scale-county-timeagg-year` | 24 |
-| `process-refueling` | 5 | | `scale-county-timeagg-year-start-species` | 16 |
-| `rates-evap` | 5 | | `scale-county-timeagg-year-toxics` | 16 |
-| `rates-minimal` | 5 | | `scale-rates` | 5 |
-| `rates-start` | 5 | |  | |
+| `process-refueling` | 5 | | `scale-county-timeagg-year-minor-offnet` | 16 |
+| `rates-evap` | 5 | | `scale-county-timeagg-year-nonhaptog` | 16 |
+| `rates-minimal` | 5 | | `scale-county-timeagg-year-start-species` | 16 |
+| `rates-start` | 5 | | `scale-county-timeagg-year-toxics` | 16 |
+| `sample-runspec` | 4 | | `scale-rates` | 5 |
+| `scale-county` | 5 | |  | |
 
-The same 35 are the only ones carrying `SOMDGOpModes` (the generator's own
+The same 39 are the only ones carrying `SOMDGOpModes` (the generator's own
 working table) and a populated `StartOpMode` input table — three independent
 corroborations of one predicate.
 
@@ -237,7 +241,7 @@ equinumerous"). `scale-project` and `rates-project` class-load
 `StartOperatingModeDistributionGenerator` and leave `StartOpModeDistribution`
 **empty**, so the load set is larger than the row set -- 23 and 21 since
 `rates-project` joined the corpus on 2026-11-01, and 24 and 21 since `project-links` (2026-11-09), whose
-PROJECT-domain start exhaust takes the user's modes, 26 and 21 since the 2026-11-10 PROJECT captures, and 29 and 21 since the 2026-11-11 captures: `project-multilink` and `project-startconflict`, and `rates-project-chained`, the one Rates-scale PROJECT capture that selects start exhaust; 31 and 23 since the two time-aggregated county runs, which load it and write rows; 38 and 30 since the seven 2026-11-12 time-aggregation captures that select start exhaust; 43 and 35 since the five 2026-11-13 captures that do (`scale-county-timeagg-processes-year`, `scale-county-timeagg-weekday-year`, `scale-county-timeagg-year-toxics`, `scale-county-start-species` and `scale-county-timeagg-year-start-species`). The generator
+PROJECT-domain start exhaust takes the user's modes, 26 and 21 since the 2026-11-10 PROJECT captures, and 29 and 21 since the 2026-11-11 captures: `project-multilink` and `project-startconflict`, and `rates-project-chained`, the one Rates-scale PROJECT capture that selects start exhaust; 31 and 23 since the two time-aggregated county runs, which load it and write rows; 38 and 30 since the seven 2026-11-12 time-aggregation captures that select start exhaust; 43 and 35 since the five 2026-11-13 captures that do (`scale-county-timeagg-processes-year`, `scale-county-timeagg-weekday-year`, `scale-county-timeagg-year-toxics`, `scale-county-start-species` and `scale-county-timeagg-year-start-species`); 47 and 39 since the four later 2026-11-13 captures that do (`scale-county-idle-nonhaptog`, `scale-county-timeagg-year-nonhaptog`, `scale-county-minor-offnet` and `scale-county-timeagg-year-minor-offnet`). The generator
 did run — its All-Starts row is in `RatesOpModeDistribution` — but in PROJECT
 domain its step 400 takes a different branch that reads `OpModeDistribution`
 instead of `startsOpModeDistribution`
