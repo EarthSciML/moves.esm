@@ -9519,7 +9519,7 @@ two rules came out of porting them and the last three aggregation refusals.
    nothing rather than the identity -- is PreAggMONTH.sql's idleDayAdjust: a
    source type stating only the weekday's 1.12 gets a whole week of 0.8.
 
-## 121. A calculator that sums the supply itself reads the shares as the database holds them, and a quotient of two collapses is a weighted mean of quotients **[PLAN.md §7.3.69; `scale-county-timeagg-year-pm` 5,390 of 5,390 and `scale-county-timeagg-year-toxics` @TOXROWS@, key-exact, no `cell_exception`; the species, PM and aggregating runs byte-identical]**
+## 121. A calculator that sums the supply itself reads the shares as the database holds them, and a quotient of two collapses is a weighted mean of quotients **[PLAN.md §7.3.69; `scale-county-timeagg-year-pm` 5,390 of 5,390 and `scale-county-timeagg-year-toxics` 27,782 of 27,782, key-exact, no `cell_exception`; the species, PM and aggregating runs byte-identical]**
 
 §117 normalised PreAggYEAR.sql's summed FuelSupply so that the model's share-weighted
 collapses stay MEANS, and multiplied the total in once where BaseRateCalculator's
