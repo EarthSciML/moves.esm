@@ -9783,3 +9783,55 @@ copy -- four rungs.
    no NonHAPTOG ratio; at 15, 16 and 17 TOGSpeciation runs on the crankcase copies of
    NMOG and the species, so 88 there is NMOG minus the species on the crankcase rows
    (measured at every cell, worst 9e-06 against MOVES's printed precision).
+
+## 126. A chained calculator's arithmetic is a row of the share matrix it reads, a copy calculator's split reads its parent's tables, and a selection MOVES writes nothing for is checked absent **[PLAN.md §7.3.74; `scale-county-minor-offnet` 17,062 of 17,062, `scale-county-minor-running` 11,704 of 11,704 and their Year twins, key-exact, no `cell_exception`; the PM, crankcase and Year runs byte-identical]**
+
+1. **Write a calculator that only rescales another calculator's output as an entry of
+   that output's matrix.** SulfatePMCalculator.sql speciates its residue (120) into
+   fourteen `pmSpeciation` outputs, then sums two of them into TOM (123) and writes the
+   residual (124) as the residue times one minus the same two fractions; AirToxicsCalculator
+   multiplies organic carbon at the same process by `pahParticleRatio`. Every one of those
+   rows is the residue times a per-row fraction, so each is one more speciated entry of
+   §76's share matrix (`spmsh_*`, 11 to 42 entries) weighted by `pm_speciation_weight`, and
+   it inherits everything the matrix already carries -- the crankcase split, the Rates bins,
+   the Year collapse -- instead of a new chain arm per calculator. Measure the identities
+   first: in pandas off the capture, each species / organic carbon equals its fraction /
+   organic carbon's to 8e-06, TOM = OC + NCOM and the residual = residue x (1 - f111 - f122)
+   to 8e-06, the particles = OC x ratio to 7e-06.
+2. **Presence is a join, not a positive share.** `rt_spmParentSurvives` asked `share > 0`,
+   which was right while organic carbon was the only speciated entry and its fraction is
+   never 0. Nitrate and ammonium are 0.0 on diesel from 2007 and MOVES writes those rows;
+   membership is `pm_speciation_member` (the `pmSpeciation` row, and for a particle its
+   `pahParticleRatio` row, exist), §69's rule a fourth time.
+3. **A copy calculator's split reads the parent's tables where the SQL does.**
+   SulfatePMCalculator writes crankcase running, start and extended idle PM by splitting
+   the PARENT process's species with `crankcaseEmissionRatio` at the crankcase process
+   (`##primaryAndCrankcaseProcessIDs##`); `sulfateFractions` has no crankcase row and the
+   residue's fuel ratio is applied before the split, so both are read at the parent, while
+   `pmSpeciation` and `pahParticleRatio` have crankcase rows and are read at the crankcase
+   process. `rt_spmProcessID` (`crankcase_parent_process`) is the one place that says
+   which. `runspecchainedto` says the opposite for the particles -- a crankcase particle
+   chained from the SAME particle at the parent process -- and is not the arithmetic.
+4. **A selection MOVES writes nothing for is checked absent, and the reason is a data
+   fact.** MOVES 5 computes the on-road metals and dioxins through BaseRateGenerator's
+   distance-rate weighting (`DistanceEmissionRate`, `SBWeightedDistanceRate`), not
+   AirToxicsDistanceCalculator, and that weighting needs the source-bin distribution
+   SourceBinDistributionGenerator writes only for a pollutant-process with a
+   `sourceTypePolProcess` row -- of which the default database has none for them. So the
+   output has no metal or dioxin row with the VMT output on or off (`scale-county-metals-novmt`,
+   0 rows), the model writes none either, and `year_captured_minor_species` names them so
+   that the capture's agreement on their absence is what retires their count.
+5. **A gate that asks a row about its own rates asks RATED rows, and a new kind of
+   rateless row finds every gate that forgot it.** §124.5 found APU's shore-power
+   test dropping the chained species; it was asked of `rt_survives`, which a
+   SulfatePMCalculator block also satisfies without a rate, so every APU PM block but
+   the rated EC and NonECPM vanished the same way. `rt_survivesRated` is the predicate
+   a rate question means. And a pollutant a capture never selected at a process can
+   carry a missing table row: extended idle's and APU's EC and residue fuel ratios
+   (2.8%, F82) were absent from the hand-ported `basefuelratio_rows` because no run
+   had asked -- grep the table for the new process's keys before trusting the port.
+6. **Size a capture to the evaluation, not to the selection.** All seven exhaust processes
+   in one capture were 75,582 rows at one hour, and the evaluation passed 57 GB inside ten
+   minutes; split by road type (road type 1's start, hotelling and crankcase processes;
+   road type 4's running and crankcase running) the halves evaluate at 11.7 GB and
+   6.7 GB. A single process family per capture also keeps MOVES from adding road types.

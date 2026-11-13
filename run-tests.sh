@@ -1760,6 +1760,14 @@ C7P_DOMAIN=moves-onroad.esm
 # Equivalent, the six ATRatio toxics from the start strings of
 # generalFuelRatioExpression and the Complex Model's start configurations, and
 # the PM species under the multiplicative start temperature adjustment.
+# `scale-county-minor-offnet` and `scale-county-minor-running`, and their Year
+# twins `scale-county-timeagg-year-minor-offnet` and `-running`, select the PM
+# species, PAH particles, metals and dioxins at every exhaust process (PLAN.md
+# §7.3.74, conventions §126): SulfatePMCalculator's other `pmSpeciation`
+# outputs, TOM and the residual and AirToxicsCalculator's PAH particles as
+# speciated entries of the share matrix, the crankcase processes' PM split from
+# the PARENT process's species, and the metals and dioxins checked ABSENT, as
+# MOVES writes them (no `sourceTypePolProcess` row, so no source-bin distribution).
 # `scale-county-outstep-hourday`, `-week` and `-dayagg` are the 24-Hour Day
 # and Portion of Week output steps (PLAN.md §7.3.66, conventions §118): a
 # day type's hour cells summed, as classical days or as a portion of a week;

@@ -411,6 +411,11 @@
       "default": 0,
       "description": "Rows in pahgasratio."
     },
+    "n_pahparticleratio": {
+      "type": "integer",
+      "default": 0,
+      "description": "Rows in pahparticleratio."
+    },
     "n_sulfateemissionrate": {
       "type": "integer",
       "default": 0,
@@ -1180,6 +1185,10 @@
       "kind": "interval",
       "size": "n_pahgasratio"
     },
+    "pahparticleratio_rows": {
+      "kind": "interval",
+      "size": "n_pahparticleratio"
+    },
     "sulfateemissionrate_rows": {
       "kind": "interval",
       "size": "n_sulfateemissionrate"
@@ -1304,7 +1313,7 @@
     },
     "basefuelratio_rows": {
       "kind": "interval",
-      "size": 18
+      "size": 22
     },
     "complexmodelparameters_rows": {
       "kind": "interval",
@@ -1360,7 +1369,7 @@
     },
     "spmshare_rows": {
       "kind": "interval",
-      "size": 11
+      "size": 42
     },
     "soakactivityfraction_rows": {
       "kind": "interval",
@@ -1876,7 +1885,8 @@
             "process_id_of",
             "null_output_column",
             "model_year_group_first",
-            "model_year_group_last"
+            "model_year_group_last",
+            "crankcase_parent_process"
           ]
         },
         {
@@ -1933,7 +1943,9 @@
             "fuel_sulfur_sulfate_adjustment",
             "gpa_blend",
             "pm_start_temperature_offset",
-            "start_temperature_pm_factor"
+            "start_temperature_pm_factor",
+            "pm_speciation_weight",
+            "pm_speciation_member"
           ]
         },
         {
@@ -2096,7 +2108,8 @@
             "output_step_cell_slots",
             "year_captured_species",
             "year_captured_idle_species",
-            "year_captured_nonhaptog"
+            "year_captured_nonhaptog",
+            "year_captured_minor_species"
           ]
         }
       ],
@@ -10872,7 +10885,7 @@
           "shape": [
             "basefuelratio_rows"
           ],
-          "description": "generalFuelRatioExpression.polProcessID for the ratios BaseRateCalculator applies to a RATED pollutant-process -- the ones `copyGeneralFuelRatioTo*` never moves into `criteriaRatio` or `ATRatio` -- and for `SulfatePMCalculator`'s residue: 11201, PM elemental carbon, and 12001, the residue, which carries the same strings and is read through `rt_residueFuelRatio` because no rate row is ever a residue. Rows 7-9 are EXTENDED IDLE's THC, CO and NOx (190, 290, 390): diesel's biodiesel form B with the running-exhaust coefficients, -0.705, -0.690 and +0.110, for model years 1950-2006. Rows 10-12 are APU's THC, CO and NOx (191, 291, 391): the same three coefficients for model years 1950-2060 -- generalFuelRatioExpression's own window, which no Total Energy run could see and `scale-county-timeagg-day` measured, 2.5% on THC and CO and 0.4% on NOx for the 2010-2020 diesel APU cohorts, the only ones with an APU fraction (PLAN.md §7.3.63). BaseRateCalculator applies them to the rated rows; the crankcase rows chained from them (117, 217, 317) carry the same strings in the table and MOVES's crankcase output is the parent's times the crankcase ratio alone, measured: 0.037000 exactly on every pre-2007 diesel cohort of `process-crankcase-extidle-single`. Rows 13-18 are START exhaust's EC and residue (11202, 12002; PLAN.md §7.3.71): form A for gasoline and E85, whose exponent carries a T50-squared second-order term the running strings do not (`standardized_cross_term`), and divisor 1.66064403031; form B for diesel with the running coefficient, -0.780."
+          "description": "generalFuelRatioExpression.polProcessID for the ratios BaseRateCalculator applies to a RATED pollutant-process -- the ones `copyGeneralFuelRatioTo*` never moves into `criteriaRatio` or `ATRatio` -- and for `SulfatePMCalculator`'s residue: 11201, PM elemental carbon, and 12001, the residue, which carries the same strings and is read through `rt_residueFuelRatio` because no rate row is ever a residue. Rows 7-9 are EXTENDED IDLE's THC, CO and NOx (190, 290, 390): diesel's biodiesel form B with the running-exhaust coefficients, -0.705, -0.690 and +0.110, for model years 1950-2006. Rows 10-12 are APU's THC, CO and NOx (191, 291, 391): the same three coefficients for model years 1950-2060 -- generalFuelRatioExpression's own window, which no Total Energy run could see and `scale-county-timeagg-day` measured, 2.5% on THC and CO and 0.4% on NOx for the 2010-2020 diesel APU cohorts, the only ones with an APU fraction (PLAN.md §7.3.63). BaseRateCalculator applies them to the rated rows; the crankcase rows chained from them (117, 217, 317) carry the same strings in the table and MOVES's crankcase output is the parent's times the crankcase ratio alone, measured: 0.037000 exactly on every pre-2007 diesel cohort of `process-crankcase-extidle-single`. Rows 13-18 are START exhaust's EC and residue (11202, 12002; PLAN.md §7.3.71): form A for gasoline and E85, whose exponent carries a T50-squared second-order term the running strings do not (`standardized_cross_term`), and divisor 1.66064403031; form B for diesel with the running coefficient, -0.780. Rows 19-22 are EXTENDED IDLE's and APU's EC and residue (11290, 12090, 11291, 12091; PLAN.md §7.3.74): diesel's form B with the running coefficient, -0.780, for model years 1950-2006 at extended idle and 1950-2060 at APU -- the table's own windows. No capture selected PM at either process before, and the model applied no fuel ratio there: EC 1/0.9727 = 1.02807 high and NonECPM 1.02715 on every pre-2007 extended-idle and every 2010-and-later APU diesel cohort of `scale-county-minor-offnet`, silently. Crankcase extended idle's PM takes the ratio through its parent's species, as SulfatePMCalculator.sql applies `sPMOneCountyYearGeneralFuelRatio` before the crankcase split; the table has no crankcase PM string."
         },
         "gfb_fuelTypeID": {
           "type": "unknown",
@@ -12572,6 +12585,22 @@
             "rate_rows"
           ],
           "description": "Does `pahGasRatio` cover this rate row?"
+        },
+        "rt_pahParticleRatio": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "`pahParticleRatio` at the row's pollutant-process, fuel type and model year: AirToxicsCalculator.sql's UsePAHParticleRatio, `PAH particle = organic carbon (111) x atRatio` at the same process, cohort and cell. 0 on every other row."
+        },
+        "rt_hasPahParticleRatio": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "Does `pahParticleRatio` cover this row? The calculator's inner join: a cohort without one writes no particle."
         },
         "rt_airToxicsChainRatio": {
           "type": "unknown",
@@ -16738,6 +16767,86 @@
           ],
           "description": "The last model year of the same identifier."
         },
+        "ppt_polProcessID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "pahparticleratio_rows"
+          ],
+          "description": "pahParticleRatio.polProcessID: the OUTPUT PAH particle's pollutant-process. MOVES chains it from organic carbon at running, start, extended idle and APU and from the same particle at the parent process at the crankcase ones (`pollutantProcessAssoc`), but AirToxicsCalculator.sql computes every one, crankcase included, from organic carbon (111) at the SAME process.",
+          "update": {
+            "kind": "data",
+            "source": "db_pahparticleratio",
+            "from": {
+              "file_variable": "polProcessID"
+            }
+          }
+        },
+        "ppt_fuelTypeID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "pahparticleratio_rows"
+          ],
+          "description": "pahParticleRatio.fuelTypeID: the fuel TYPE, as `pahGasRatio`'s.",
+          "update": {
+            "kind": "data",
+            "source": "db_pahparticleratio",
+            "from": {
+              "file_variable": "fuelTypeID"
+            }
+          }
+        },
+        "ppt_modelYearGroupID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "pahparticleratio_rows"
+          ],
+          "description": "pahParticleRatio.modelYearGroupID, self-describing: 19502050 is 1950 to 2050.",
+          "update": {
+            "kind": "data",
+            "source": "db_pahparticleratio",
+            "from": {
+              "file_variable": "modelYearGroupID"
+            }
+          }
+        },
+        "ppt_atRatio": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "pahparticleratio_rows"
+          ],
+          "description": "pahParticleRatio.atRatio: grams of the PAH particle per gram of organic carbon.",
+          "update": {
+            "kind": "data",
+            "source": "db_pahparticleratio",
+            "from": {
+              "file_variable": "atRatio"
+            }
+          }
+        },
+        "ppt_firstModelYearID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "pahparticleratio_rows"
+          ],
+          "description": "The model-year group's first year."
+        },
+        "ppt_lastModelYearID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "pahparticleratio_rows"
+          ],
+          "description": "The model-year group's last year."
+        },
         "ser_polProcessID": {
           "type": "parameter",
           "units": "1",
@@ -18632,7 +18741,7 @@
           "shape": [
             "spmshare_rows"
           ],
-          "description": "THE SHARE MATRIX, long format: which species an emitted block is made of. It is the split AND the re-sum at once -- NonECPM is sulfate + water + residue, PM2.5 is all four -- which is why MOVES's chain declaration has a 2-cycle (11801 -> 11501 -> 11801) and this relation does not need one (docs/process-pm-exhaust.md 2.8)."
+          "description": "THE SHARE MATRIX, long format: which species an emitted block is made of. It is the split AND the re-sum at once -- NonECPM is sulfate + water + residue, PM2.5 is all four -- which is why MOVES's chain declaration has a 2-cycle (11801 -> 11501 -> 11801) and this relation does not need one (docs/process-pm-exhaust.md 2.8). Since PLAN.md §7.3.74 it has 42 entries: the 11 of the four species' re-sums, and 31 speciated entries of the residue -- nitrate, ammonium, the elements 51-59, PMOTHR, NCOM, TOM, the residual and the 16 PAH particles. A PAH particle is organic carbon times a ratio, and organic carbon is the residue times its fraction, so its entry is the residue times their product; that is AirToxicsCalculator's chained arithmetic written as one more row of this matrix, which carries the crankcase processes and the Rates bins with it."
         },
         "spmsh_speciesPollutantID": {
           "type": "unknown",
@@ -18648,7 +18757,7 @@
           "shape": [
             "spmshare_rows"
           ],
-          "description": "1 on organic carbon's one entry, whose share of the residue is `pmSpeciation`'s fraction rather than 1."
+          "description": "1 on an entry whose share of the residue is `rt_pmSpeciationFraction` rather than 1: organic carbon's, and since PLAN.md §7.3.74 every other `pmSpeciation` output, TOM, the residual and the PAH particles -- all of them the residue times a per-row fraction."
         },
         "rt_isSPMOutput": {
           "type": "unknown",
@@ -18656,7 +18765,7 @@
           "shape": [
             "rate_rows"
           ],
-          "description": "1 on a rate row whose pollutant `SulfatePMCalculator` produces: 110, 111, 112, 115, 118 or 119. Its quantity is the share matrix times the four species, and not its own rate or a chain. PM10 is not one -- it chains off PM2.5 by `PM10EmissionRatio` as before."
+          "description": "1 on a rate row whose pollutant `SulfatePMCalculator` produces -- 110, 111, 112, 115, 118 or 119, and since PLAN.md §7.3.74 the rest of `pmSpeciation`'s outputs (35, 36, 51-59, 121, 122), TOM and the residual (123, 124) -- or that AirToxicsCalculator makes from organic carbon at the same process, the PAH particles (23, 68-78, 81-84). Its quantity is the share matrix times the four species, and not its own rate or a chain. PM10 is not one -- it chains off PM2.5 by `PM10EmissionRatio` as before."
         },
         "rt_hasSulfateFractions": {
           "type": "unknown",
@@ -18664,7 +18773,7 @@
           "shape": [
             "rate_rows"
           ],
-          "description": "Does `sulfateFractions` cover this row's process, fuel type, source type and model year? The calculator's inner join: a cohort without one emits no PM species at all."
+          "description": "Does `sulfateFractions` cover this row's SPLIT process (`rt_spmProcessID`), fuel type, source type and model year? The calculator's inner join: a cohort without one emits no PM species at all. The table has rows at 1, 2, 90 and 91 only, so a crankcase row reads its parent process's."
         },
         "rt_spmSulfateFraction": {
           "type": "unknown",
@@ -18700,7 +18809,7 @@
           "shape": [
             "rate_rows"
           ],
-          "description": "The residue's own pollutant-process at this row's process, 12001 on running exhaust: the key its base-rate fuel ratio is stored under."
+          "description": "The residue's own pollutant-process at this row's process, 12001 on running exhaust: the key its base-rate fuel ratio is stored under. At a crankcase row it is the residue at the PARENT process (`rt_spmProcessID`): SulfatePMCalculator.sql applies `sPMOneCountyYearGeneralFuelRatio` to the primary process's species before it splits them onto the crankcase process (PLAN.md §7.3.74)."
         },
         "rt_residueFuelRatioExact": {
           "type": "unknown",
@@ -18756,7 +18865,32 @@
           "shape": [
             "rate_rows"
           ],
-          "description": "`pmSpeciation`'s fraction of the residue that is this row's pollutant -- organic carbon's, on the 11101 rows."
+          "description": "`pmSpeciation`'s fraction of the residue (120) that this row's pollutant takes, `pm_speciation_weight` summed over the rows that join its process, source type, fuel type and model year: organic carbon's on the 11101 rows, and since PLAN.md §7.3.74 nitrate, ammonium, the elements 51-59, PMOTHR and NCOM (SulfatePMCalculator.sql's `species output = pmSpeciationFraction x species input`), Total Organic Matter as organic carbon's plus NCOM's, the residual (124) as 1 minus them (`ratio124`), and a PAH particle as organic carbon's times `pahParticleRatio`. Read at the row's OWN process: `pmSpeciation` has crankcase rows, and the calculator speciates the crankcase split at the crankcase process."
+        },
+        "rt_spmProcessID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "The process whose EC and NonECPM SulfatePMCalculator splits for this row: its own, except at a crankcase process, whose PM species the calculator writes by splitting its PARENT process's species (`##primaryAndCrankcaseProcessIDs##`, `crankcaseSplit`): `sulfateFractions` and the residue's fuel ratio are read at the parent (the table has no crankcase row), `crankcaseEmissionRatio` and `pmSpeciation` at the crankcase process itself (PLAN.md §7.3.74)."
+        },
+        "rt_hasPmSpeciation": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "Does a `pmSpeciation` row of the residue make this row exist (`pm_speciation_member`)? Presence and not positivity: nitrate's and ammonium's fractions are 0.0 on diesel from 2007 and MOVES writes those rows as zeros."
+        },
+        "rt_spmShareMember": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows",
+            "spmspecies_rows"
+          ],
+          "description": "Is the species an ENTRY of this row's share matrix: 1 for an unspeciated entry, `rt_hasPmSpeciation` for a speciated one. What `rt_spmParentSurvives` asks, in place of a positive share, so that a zero fraction is a row."
         },
         "rt_spmShare": {
           "type": "unknown",
@@ -18777,7 +18911,7 @@
             "runspeccounty_rows",
             "runspecmonth_rows"
           ],
-          "description": "Each species' parent quantity: the RATED quantity of the EC or NonECPM row of the same source bin and process. A self-join of the rate relation, the one `rtDay_quantChained` uses."
+          "description": "Each species' parent quantity: the RATED quantity of the EC or NonECPM row of the same source bin at the process SulfatePMCalculator splits (`rt_spmProcessID`) -- the row's own, or its parent process's at a crankcase process, whose PM is the parent's species times the crankcase split (PLAN.md §7.3.74). A self-join of the rate relation, the one `rtDay_quantChained` uses."
         },
         "rtDay_spmSpecies": {
           "type": "unknown",
@@ -18808,7 +18942,7 @@
           "shape": [
             "rate_rows"
           ],
-          "description": "Does a rated parent of some species this row takes survive in the same source bin?"
+          "description": "Does a rated parent of some species this row takes survive in the same source bin, at the process SulfatePMCalculator splits for it (`rt_spmProcessID`: the parent process for a crankcase row)? An entry is asked by membership (`rt_spmShareMember`), not by a positive share."
         },
         "rt_spmSurvives": {
           "type": "unknown",
@@ -21151,7 +21285,7 @@
           "shape": [
             "run_rows"
           ],
-          "description": "How many things this run SELECTS that the model does not compute, beside its domain (`run_domainUnported`): 0, asserted by tools/check-runspec-shape.py. It counts an on-road pollutant-process other than running exhaust, crankcase running, brake or tire wear or an evaporative one (`occursOnRealRoads` = Y) in a run that also selects road type 1 (`run_onRoadPollutantProcessCount`); and what a run that aggregates hours or day types selects and the model does not compute (`run_aggregationUnported`; starts, hotelling and off-network idle under aggregation are ported, PLAN.md §7.3.63, with the idle adjustment tables, at two calendar years and over a partial week, §7.3.66, and all three at `aggregateBy` Year, §7.3.70; every evaporative, refueling, crankcase and wear process, §7.3.64; the month collapse of `aggregateBy` Year for what `scale-county-timeagg-year` checks, §7.3.65; and a stated soakActivityFraction under 24-Hour Day and Month, §7.3.67); and the cells of a zone stating soakActivityFraction that MOVES writes no evaporative row for, on a run emitted at `<outputtimestep>` Hour, whose output relation has no membership flag (`run_soakActivityGapsEmitted`, §7.3.67). None of these fails loudly -- each emits a plausible number or none. Evaporative processes on several road types and chained ones with parents both on and off the network are ported (PLAN.md §7.3.48 part C). At Rates scale it also counts `run_ratesUnported`, everything the Rates tables do not compute. It does NOT count the species at extended idle, APU and the crankcase processes, which are ported (PLAN.md §7.3.72): before that, `scale-county-idle-species` read 0 here while crankcase extended idle's methane, NMHC, NMOG and VOC were 12x-105x high and every APU species block was absent -- the one failure that was counted was `run_chainDepthExceeded`. Nor NonHAPTOG wherever the mechanism (3000) is selected, ported in PLAN.md §7.3.73: before that, `scale-county-idle-nonhaptog` read 0 here while 898 of its 3,978 NonHAPTOG rows -- at start, crankcase start, crankcase extended idle, extended idle and APU, where 88 is no pollutant-process and TOGSpeciationCalculator writes it from the mechanism's selection alone -- were absent.\n"
+          "description": "How many things this run SELECTS that the model does not compute, beside its domain (`run_domainUnported`): 0, asserted by tools/check-runspec-shape.py. It counts an on-road pollutant-process other than running exhaust, crankcase running, brake or tire wear or an evaporative one (`occursOnRealRoads` = Y) in a run that also selects road type 1 (`run_onRoadPollutantProcessCount`); and what a run that aggregates hours or day types selects and the model does not compute (`run_aggregationUnported`; starts, hotelling and off-network idle under aggregation are ported, PLAN.md §7.3.63, with the idle adjustment tables, at two calendar years and over a partial week, §7.3.66, and all three at `aggregateBy` Year, §7.3.70; every evaporative, refueling, crankcase and wear process, §7.3.64; the month collapse of `aggregateBy` Year for what `scale-county-timeagg-year` checks, §7.3.65; and a stated soakActivityFraction under 24-Hour Day and Month, §7.3.67); and the cells of a zone stating soakActivityFraction that MOVES writes no evaporative row for, on a run emitted at `<outputtimestep>` Hour, whose output relation has no membership flag (`run_soakActivityGapsEmitted`, §7.3.67). None of these fails loudly -- each emits a plausible number or none. Evaporative processes on several road types and chained ones with parents both on and off the network are ported (PLAN.md §7.3.48 part C). At Rates scale it also counts `run_ratesUnported`, everything the Rates tables do not compute. It does NOT count the species at extended idle, APU and the crankcase processes, which are ported (PLAN.md §7.3.72): before that, `scale-county-idle-species` read 0 here while crankcase extended idle's methane, NMHC, NMOG and VOC were 12x-105x high and every APU species block was absent -- the one failure that was counted was `run_chainDepthExceeded`. Nor NonHAPTOG wherever the mechanism (3000) is selected, ported in PLAN.md §7.3.73: before that, `scale-county-idle-nonhaptog` read 0 here while 898 of its 3,978 NonHAPTOG rows -- at start, crankcase start, crankcase extended idle, extended idle and APU, where 88 is no pollutant-process and TOGSpeciationCalculator writes it from the mechanism's selection alone -- were absent.\n Nor the PM species, PAH particles, metals and dioxins at every exhaust process, which are ported or, for the metals and dioxins, absent as MOVES writes them (PLAN.md §7.3.74): before that, `scale-county-minor-offnet` read 0 here while 15,552 of its 17,062 rows were absent -- SulfatePMCalculator's 13 other `pmSpeciation` species, TOM, the residual, the 16 PAH particles, every crankcase PM row and five of APU's seven PM blocks (findings F80, F82) -- and 157 of the rest were 2.8% high (extended idle's and APU's EC and residue took no biodiesel fuel ratio, F82). The metals and dioxins MOVES does not write at all (F81)."
         },
         "run_onRoadPollutantProcessCount": {
           "type": "unknown",
@@ -21564,7 +21698,7 @@
           "shape": [
             "run_rows"
           ],
-          "description": "What a run that pre-aggregates time selects and the model does not compute (PLAN.md §7.3.63-§7.3.72), counted by `run_selectionUnported`; 0 on a run that does not aggregate. PORTED and not counted: starts, hotelling and off-network idle under PreAggDAY.sql and PreAggMONTH.sql (§7.3.63); the evaporative processes, refueling, crankcase, brake and tire wear under both (§7.3.64: TankTemperatureGenerator over the collapsed ZoneMonthHour writes no cold-soak tank temperature, `ttg_hasColdSoakTankTemperature`); hotelling at two calendar years (`userdb-hotelling-multiyear-day`, `-month`; a third year is `hot_adjustmentRowsUnported`'s), off-network idle with the AdjustTotalIdleFraction.sql inputs (`scale-county-idle-adjust-day`, `-month`) and a whole-week cell of a RunSpec selecting fewer day types than the week (`scale-county-timeagg-weekday`) under both (§7.3.66), and the same three at `aggregateBy` Year (§7.3.70: `userdb-hotelling-multiyear-year`; `scale-county-idle-adjust-year`, idleMonthAdjust collapsed by PreAggYEAR.sql to its unweighted mean over the rows the input merge left; `scale-county-timeagg-weekday-year`; a third calendar year of hotelling stays `hot_adjustmentRowsUnported`'s, read by `run_domainUnported`); an evaporative process over a STATED soakActivityFraction under both (§7.3.67, `scale-county-timeagg-soak-day`, `-month`: PreAggDAY.sql collapses the user's hourly rows to `sum(soakActivityFraction x HourWeighting2)` per day type and PreAggMONTH.sql those by DayWeighting2, before TTG-6 keeps them, `evap_soakCellWeight`); and PreAggYEAR.sql's month collapse for what `scale-county-timeagg-year` checks (§7.3.65), in `scale-county-timeagg-processes-year`, the evaporative processes and refueling (§7.3.68: PreAggYEAR.sql's AverageTankTemperature and SoakActivityFraction SUMS act on tables no generator has written yet, so they collapse nothing unless the user states them -- (1) below; what the month collapse reaches is FuelSupply's summed share, which TankFuelGenerator's gasohol share and RefuelingLossCalculator's RVP and energy content read as sums and venting and leaks never read), and the gaseous species, air toxics and PM species at running and start exhaust that `scale-county-timeagg-year-toxics` and `-pm` check (§7.3.69: SulfatePMCalculator's and AirToxicsCalculator's own sums over the raw FuelSupply shares, findings F69, F70), with start-exhaust N2O, CO2 Equivalent, the six ATRatio toxics and the PM species that `scale-county-timeagg-year-start-species` checks (§7.3.71). Counted, each unmeasured, at `aggregateBy` Year (`n_aggregatesMonths`) only: (1) an evaporative process over a STATED soakActivityFraction (`run_soakActivityInputRows`), which PreAggYEAR.sql then SUMS by MonthWeighting into month 0; (2) every pollutant-process on a selected road that no Year capture checks (`run_yearUnportedSelected`): anything outside THC, CO, NOx, energy, CO2 and brake/tire PM at running, start, the crankcase processes, extended idle, APU and wear, THC at permeation, venting, leaks and refueling, and `year_captured_species` at running and start: the PM species at extended idle, APU and the crankcase processes (the gases and toxics there are `year_captured_idle_species`, checked by `scale-county-timeagg-year-toxics-idle`, §7.3.72; NonHAPTOG and its mechanism at all seven exhaust processes `year_captured_nonhaptog`, checked by `scale-county-timeagg-year-nonhaptog`, §7.3.73; N2O is a pollutant-process at running and start alone), the metals, dioxins and PAH particles (§7.3.69), and the mechanism at the evaporative and refueling processes. ATRatio itself needs nothing: PreAggYEAR.sql averages an EMPTY table, and FuelEffectsGenerator writes it afterwards at month group 0 from the collapsed ATBaseEmissions (`aggatratio` 0 rows in the capture)."
+          "description": "What a run that pre-aggregates time selects and the model does not compute (PLAN.md §7.3.63-§7.3.74), counted by `run_selectionUnported`; 0 on a run that does not aggregate. PORTED and not counted: starts, hotelling and off-network idle under PreAggDAY.sql and PreAggMONTH.sql (§7.3.63); the evaporative processes, refueling, crankcase, brake and tire wear under both (§7.3.64: TankTemperatureGenerator over the collapsed ZoneMonthHour writes no cold-soak tank temperature, `ttg_hasColdSoakTankTemperature`); hotelling at two calendar years (`userdb-hotelling-multiyear-day`, `-month`; a third year is `hot_adjustmentRowsUnported`'s), off-network idle with the AdjustTotalIdleFraction.sql inputs (`scale-county-idle-adjust-day`, `-month`) and a whole-week cell of a RunSpec selecting fewer day types than the week (`scale-county-timeagg-weekday`) under both (§7.3.66), and the same three at `aggregateBy` Year (§7.3.70: `userdb-hotelling-multiyear-year`; `scale-county-idle-adjust-year`, idleMonthAdjust collapsed by PreAggYEAR.sql to its unweighted mean over the rows the input merge left; `scale-county-timeagg-weekday-year`; a third calendar year of hotelling stays `hot_adjustmentRowsUnported`'s, read by `run_domainUnported`); an evaporative process over a STATED soakActivityFraction under both (§7.3.67, `scale-county-timeagg-soak-day`, `-month`: PreAggDAY.sql collapses the user's hourly rows to `sum(soakActivityFraction x HourWeighting2)` per day type and PreAggMONTH.sql those by DayWeighting2, before TTG-6 keeps them, `evap_soakCellWeight`); and PreAggYEAR.sql's month collapse for what `scale-county-timeagg-year` checks (§7.3.65), in `scale-county-timeagg-processes-year`, the evaporative processes and refueling (§7.3.68: PreAggYEAR.sql's AverageTankTemperature and SoakActivityFraction SUMS act on tables no generator has written yet, so they collapse nothing unless the user states them -- (1) below; what the month collapse reaches is FuelSupply's summed share, which TankFuelGenerator's gasohol share and RefuelingLossCalculator's RVP and energy content read as sums and venting and leaks never read), and the gaseous species, air toxics and PM species at running and start exhaust that `scale-county-timeagg-year-toxics` and `-pm` check (§7.3.69: SulfatePMCalculator's and AirToxicsCalculator's own sums over the raw FuelSupply shares, findings F69, F70), with start-exhaust N2O, CO2 Equivalent, the six ATRatio toxics and the PM species that `scale-county-timeagg-year-start-species` checks (§7.3.71). Counted, each unmeasured, at `aggregateBy` Year (`n_aggregatesMonths`) only: (1) an evaporative process over a STATED soakActivityFraction (`run_soakActivityInputRows`), which PreAggYEAR.sql then SUMS by MonthWeighting into month 0; (2) every pollutant-process on a selected road that no Year capture checks (`run_yearUnportedSelected`): anything outside THC, CO, NOx, energy, CO2 and brake/tire PM at running, start, the crankcase processes, extended idle, APU and wear, THC at permeation, venting, leaks and refueling, and `year_captured_species` at running and start: the mechanism at the evaporative and refueling processes. At extended idle, APU and the crankcase processes the gases and toxics are `year_captured_idle_species`, checked by `scale-county-timeagg-year-toxics-idle` (§7.3.72); NonHAPTOG and its mechanism at all seven exhaust processes are `year_captured_nonhaptog`, checked by `scale-county-timeagg-year-nonhaptog` (§7.3.73; N2O is a pollutant-process at running and start alone); and the PM species, PAH particles, metals and dioxins at every exhaust process are `year_captured_minor_species`, checked by `scale-county-timeagg-year-minor-offnet` and `-running` (§7.3.74; the metals and dioxins checked ABSENT, as MOVES writes them). ATRatio itself needs nothing: PreAggYEAR.sql averages an EMPTY table, and FuelEffectsGenerator writes it afterwards at month group 0 from the collapsed ATBaseEmissions (`aggatratio` 0 rows in the capture)."
         },
         "run_soakActivityInputRows": {
           "type": "unknown",
@@ -21720,7 +21854,7 @@
           "shape": [
             "rate_rows"
           ],
-          "description": "Whether the rate row puts a number in its OWN pollutant-process's block: `rt_emits`, and on a retagging pollutant-process only where it has a rate at a mode the retag leaves -- a CNG truck's APU rates are all shore power, so it has a process-93 row and no process-91 one. A CHAINED row of a retagging pollutant-process (a species at auxiliary power) has no rate of its own, so the test is not asked of it: before PLAN.md §7.3.72 it was, `rt_otherModeRateRows` was 0 on every such row, and all 24 species blocks at APU in `scale-county-idle-species` emitted no row although their quantities were right. Its presence is its parent's at process 91, and a parent whose every rate is shore power -- a CNG truck's -- passes none (`rt_chainVisible`)."
+          "description": "Whether the rate row puts a number in its OWN pollutant-process's block: `rt_emits`, and on a retagging pollutant-process only where it has a rate at a mode the retag leaves -- a CNG truck's APU rates are all shore power, so it has a process-93 row and no process-91 one. A CHAINED row of a retagging pollutant-process (a species at auxiliary power) has no rate of its own, so the test is not asked of it: before PLAN.md §7.3.72 it was, `rt_otherModeRateRows` was 0 on every such row, and all 24 species blocks at APU in `scale-county-idle-species` emitted no row although their quantities were right. Its presence is its parent's at process 91, and a parent whose every rate is shore power -- a CNG truck's -- passes none (`rt_chainVisible`). Asked of a RATED row (`rt_survivesRated`), not of a surviving one: SulfatePMCalculator's blocks at APU -- PM2.5, PM10's parent, organic carbon, sulfate, water and the speciated outputs -- survive by `rt_spmSurvives` with no rate of their own, and with `rt_survives` here every one was dropped, silently, the same failure §7.3.72 fixed for the chained species (PLAN.md §7.3.74, finding F82: in `scale-county-minor-offnet` every APU block but the rated EC and NonECPM, PM2.5, organic carbon, sulfate and water among them). `rt_survives` and `rt_survivesRated` are the same number off `SulfatePMCalculator`'s blocks."
         },
         "rt_chainVisible": {
           "type": "unknown",
@@ -21728,7 +21862,7 @@
           "shape": [
             "rate_rows"
           ],
-          "description": "Whether a row's presence reaches the rows chained from it: 1 everywhere except on a RATED row of a retagging pollutant-process (auxiliary power) whose every rate is at shore power. baseratecalculator.go rewrites that row to process 93, so MOVESWorkerOutput holds no process-91 row for the chained calculators to read, and MOVES writes no species, CO2 or CO2 equivalent at APU for that cohort -- a CNG long-haul truck's, in `scale-county-idle-species` (PLAN.md §7.3.72). Every presence pass of the chain reads its parent through it."
+          "description": "Whether a row's presence reaches the rows chained from it: 1 everywhere except on a RATED row of a retagging pollutant-process (auxiliary power) whose every rate is at shore power. baseratecalculator.go rewrites that row to process 93, so MOVESWorkerOutput holds no process-91 row for the chained calculators to read, and MOVES writes no species, CO2 or CO2 equivalent at APU for that cohort -- a CNG long-haul truck's, in `scale-county-idle-species` (PLAN.md §7.3.72). Every presence pass of the chain reads its parent through it. A RATED row is `rt_survivesRated` (PLAN.md §7.3.74): a SulfatePMCalculator block at APU survives without a rate and is not retagged."
         },
         "rt_shorePowerEmits": {
           "type": "unknown",
@@ -25448,7 +25582,7 @@
           "shape": [
             "run_rows"
           ],
-          "description": "Pollutant-processes on a selected road that no Year capture checks: neither a (process, pollutant) pair `scale-county-timeagg-year` or `scale-county-timeagg-processes-year` checks (`year_captured_process` times `year_captured_pollutant`; PLAN.md §7.3.65, §7.3.68) nor a species `scale-county-timeagg-year-toxics`, `-pm` or `-start-species` checks at running or start exhaust (`year_captured_species`; §7.3.69, §7.3.71), nor one `scale-county-timeagg-year-toxics-idle` checks at extended idle, APU and the crankcase processes (`year_captured_idle_species`; §7.3.72), nor NonHAPTOG or its mechanism (3000) at those five and running and start exhaust, which `scale-county-timeagg-year-nonhaptog` checks (`year_captured_nonhaptog`; §7.3.73). Counted by `run_aggregationUnported` at `aggregateBy` Year."
+          "description": "Pollutant-processes on a selected road that no Year capture checks: neither a (process, pollutant) pair `scale-county-timeagg-year` or `scale-county-timeagg-processes-year` checks (`year_captured_process` times `year_captured_pollutant`; PLAN.md §7.3.65, §7.3.68) nor a species `scale-county-timeagg-year-toxics`, `-pm` or `-start-species` checks at running or start exhaust (`year_captured_species`; §7.3.69, §7.3.71), nor one `scale-county-timeagg-year-toxics-idle` checks at extended idle, APU and the crankcase processes (`year_captured_idle_species`; §7.3.72), nor NonHAPTOG or its mechanism (3000) at those five and running and start exhaust, which `scale-county-timeagg-year-nonhaptog` checks (`year_captured_nonhaptog`; §7.3.73), nor a PM species, PAH particle, metal or dioxin `scale-county-timeagg-year-minor-offnet` or `-running` checks at any exhaust process (`year_captured_minor_species`; §7.3.74). Counted by `run_aggregationUnported` at `aggregateBy` Year."
         },
         "ffsup_suppliedShare": {
           "type": "unknown",
@@ -83032,7 +83166,11 @@
               11202,
               12002,
               12002,
-              12002
+              12002,
+              11290,
+              12090,
+              11291,
+              12091
             ]
           }
         },
@@ -83059,6 +83197,10 @@
               2,
               1,
               5,
+              2,
+              2,
+              2,
+              2,
               2
             ]
           }
@@ -83086,6 +83228,10 @@
               1950,
               2001,
               2001,
+              1950,
+              1950,
+              1950,
+              1950,
               1950
             ]
           }
@@ -83113,7 +83259,11 @@
               2006,
               2060,
               2060,
-              2006
+              2006,
+              2006,
+              2006,
+              2060,
+              2060
             ]
           }
         },
@@ -83140,6 +83290,10 @@
               1.0,
               0.0,
               0.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
               1.0
             ]
           }
@@ -83167,6 +83321,10 @@
               -0.78,
               0.0,
               0.0,
+              -0.78,
+              -0.78,
+              -0.78,
+              -0.78,
               -0.78
             ]
           }
@@ -83194,6 +83352,10 @@
               1.0,
               1.66064403031,
               1.66064403031,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
               1.0
             ]
           }
@@ -83497,6 +83659,28 @@
             "name": "model_year_group_last",
             "bindings": {
               "model_year_group_id": "pgr_modelYearGroupID"
+            }
+          }
+        },
+        {
+          "lhs": "ppt_firstModelYearID",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "model_year_group_first",
+            "bindings": {
+              "model_year_group_id": "ppt_modelYearGroupID"
+            }
+          }
+        },
+        {
+          "lhs": "ppt_lastModelYearID",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "model_year_group_last",
+            "bindings": {
+              "model_year_group_id": "ppt_modelYearGroupID"
             }
           }
         },
@@ -89612,6 +89796,136 @@
                   "op": "index",
                   "args": [
                     "pgr_lastModelYearID",
+                    "p"
+                  ]
+                },
+                "model_year": {
+                  "op": "index",
+                  "args": [
+                    "rt_modelYearID",
+                    "b"
+                  ]
+                }
+              }
+            },
+            "expr": 1.0
+          }
+        },
+        {
+          "lhs": "rt_pahParticleRatio",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "p": {
+                "from": "pahparticleratio_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rt_polProcessID",
+                    "ppt_polProcessID"
+                  ],
+                  [
+                    "rt_fuelTypeID",
+                    "ppt_fuelTypeID"
+                  ]
+                ]
+              }
+            ],
+            "filter": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "model_year_in_range",
+              "bindings": {
+                "first_model_year": {
+                  "op": "index",
+                  "args": [
+                    "ppt_firstModelYearID",
+                    "p"
+                  ]
+                },
+                "last_model_year": {
+                  "op": "index",
+                  "args": [
+                    "ppt_lastModelYearID",
+                    "p"
+                  ]
+                },
+                "model_year": {
+                  "op": "index",
+                  "args": [
+                    "rt_modelYearID",
+                    "b"
+                  ]
+                }
+              }
+            },
+            "expr": {
+              "op": "index",
+              "args": [
+                "ppt_atRatio",
+                "p"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rt_hasPahParticleRatio",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "bool_and_or",
+            "output_idx": [
+              "b"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "p": {
+                "from": "pahparticleratio_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rt_polProcessID",
+                    "ppt_polProcessID"
+                  ],
+                  [
+                    "rt_fuelTypeID",
+                    "ppt_fuelTypeID"
+                  ]
+                ]
+              }
+            ],
+            "filter": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "model_year_in_range",
+              "bindings": {
+                "first_model_year": {
+                  "op": "index",
+                  "args": [
+                    "ppt_firstModelYearID",
+                    "p"
+                  ]
+                },
+                "last_model_year": {
+                  "op": "index",
+                  "args": [
+                    "ppt_lastModelYearID",
                     "p"
                   ]
                 },
@@ -98113,7 +98427,38 @@
               118,
               118,
               118,
-              119
+              119,
+              35,
+              36,
+              51,
+              52,
+              53,
+              54,
+              55,
+              56,
+              57,
+              58,
+              59,
+              121,
+              122,
+              123,
+              124,
+              23,
+              68,
+              69,
+              70,
+              71,
+              72,
+              73,
+              74,
+              75,
+              76,
+              77,
+              78,
+              81,
+              82,
+              83,
+              84
             ]
           }
         },
@@ -98133,7 +98478,38 @@
               115,
               119,
               120,
-              119
+              119,
+              120,
+              120,
+              120,
+              120,
+              120,
+              120,
+              120,
+              120,
+              120,
+              120,
+              120,
+              120,
+              120,
+              120,
+              120,
+              120,
+              120,
+              120,
+              120,
+              120,
+              120,
+              120,
+              120,
+              120,
+              120,
+              120,
+              120,
+              120,
+              120,
+              120,
+              120
             ]
           }
         },
@@ -98153,7 +98529,38 @@
               0.0,
               0.0,
               0.0,
-              0.0
+              0.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0
             ]
           }
         },
@@ -98208,7 +98615,7 @@
               {
                 "on": [
                   [
-                    "rt_processID",
+                    "rt_spmProcessID",
                     "sfr_processID"
                   ],
                   [
@@ -98293,7 +98700,7 @@
                 ],
                 "on": [
                   [
-                    "rt_processID",
+                    "rt_spmProcessID",
                     "sfr_processID"
                   ],
                   [
@@ -98458,7 +98865,7 @@
                 ],
                 "on": [
                   [
-                    "rt_processID",
+                    "rt_spmProcessID",
                     "sfr_processID"
                   ],
                   [
@@ -98605,7 +99012,7 @@
               {
                 "on": [
                   [
-                    "rt_processID",
+                    "rt_spmProcessID",
                     "sfr_processID"
                   ],
                   [
@@ -98698,7 +99105,7 @@
                 "process_id": {
                   "op": "index",
                   "args": [
-                    "rt_processID",
+                    "rt_spmProcessID",
                     "b"
                   ]
                 }
@@ -99304,9 +99711,171 @@
         {
           "lhs": "rt_pmSpeciationFraction",
           "rhs": {
+            "op": "+",
+            "args": [
+              {
+                "op": "faq",
+                "args": [],
+                "semiring": "sum_product",
+                "output_idx": [
+                  "b"
+                ],
+                "ranges": {
+                  "b": {
+                    "from": "rate_rows"
+                  },
+                  "p": {
+                    "from": "pmspeciation_rows"
+                  }
+                },
+                "join": [
+                  {
+                    "on": [
+                      [
+                        "rt_processID",
+                        "pms_processID"
+                      ],
+                      [
+                        "rt_sourceTypeID",
+                        "pms_sourceTypeID"
+                      ],
+                      [
+                        "rt_fuelTypeID",
+                        "pms_fuelTypeID"
+                      ]
+                    ]
+                  }
+                ],
+                "filter": {
+                  "op": "*",
+                  "args": [
+                    {
+                      "op": "apply_expression_template",
+                      "args": [],
+                      "name": "model_year_in_range",
+                      "bindings": {
+                        "first_model_year": {
+                          "op": "index",
+                          "args": [
+                            "pms_minModelYearID",
+                            "p"
+                          ]
+                        },
+                        "last_model_year": {
+                          "op": "index",
+                          "args": [
+                            "pms_maxModelYearID",
+                            "p"
+                          ]
+                        },
+                        "model_year": {
+                          "op": "index",
+                          "args": [
+                            "rt_modelYearID",
+                            "b"
+                          ]
+                        }
+                      }
+                    },
+                    {
+                      "op": "apply_expression_template",
+                      "args": [],
+                      "name": "in_half_open_range",
+                      "bindings": {
+                        "lower": 119.5,
+                        "upper": 120.5,
+                        "value": {
+                          "op": "index",
+                          "args": [
+                            "pms_inputPollutantID",
+                            "p"
+                          ]
+                        }
+                      }
+                    }
+                  ]
+                },
+                "expr": {
+                  "op": "*",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "pms_fraction",
+                        "p"
+                      ]
+                    },
+                    {
+                      "op": "apply_expression_template",
+                      "args": [],
+                      "name": "pm_speciation_weight",
+                      "bindings": {
+                        "output_pollutant_id": {
+                          "op": "index",
+                          "args": [
+                            "rt_pollutantID",
+                            "b"
+                          ]
+                        },
+                        "species_pollutant_id": {
+                          "op": "index",
+                          "args": [
+                            "pms_outputPollutantID",
+                            "p"
+                          ]
+                        },
+                        "pah_particle_ratio": {
+                          "op": "index",
+                          "args": [
+                            "rt_pahParticleRatio",
+                            "b"
+                          ]
+                        }
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "op": "*",
+                "args": [
+                  {
+                    "op": "ifelse",
+                    "args": [
+                      {
+                        "op": "==",
+                        "args": [
+                          "rt_pollutantID",
+                          124.0
+                        ]
+                      },
+                      1.0,
+                      0.0
+                    ]
+                  },
+                  "rt_hasPmSpeciation"
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "lhs": "rt_spmProcessID",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "crankcase_parent_process",
+            "bindings": {
+              "process_id": "rt_processID"
+            }
+          }
+        },
+        {
+          "lhs": "rt_hasPmSpeciation",
+          "rhs": {
             "op": "faq",
             "args": [],
-            "semiring": "sum_product",
+            "semiring": "bool_and_or",
             "output_idx": [
               "b"
             ],
@@ -99332,10 +99901,6 @@
                   [
                     "rt_fuelTypeID",
                     "pms_fuelTypeID"
-                  ],
-                  [
-                    "rt_pollutantID",
-                    "pms_outputPollutantID"
                   ]
                 ]
               }
@@ -99390,10 +99955,106 @@
               ]
             },
             "expr": {
-              "op": "index",
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "pm_speciation_member",
+              "bindings": {
+                "output_pollutant_id": {
+                  "op": "index",
+                  "args": [
+                    "rt_pollutantID",
+                    "b"
+                  ]
+                },
+                "species_pollutant_id": {
+                  "op": "index",
+                  "args": [
+                    "pms_outputPollutantID",
+                    "p"
+                  ]
+                },
+                "has_pah_particle_ratio": {
+                  "op": "index",
+                  "args": [
+                    "rt_hasPahParticleRatio",
+                    "b"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "lhs": "rt_spmShareMember",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "bool_and_or",
+            "output_idx": [
+              "b",
+              "e"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "e": {
+                "from": "spmspecies_rows"
+              },
+              "h": {
+                "from": "spmshare_rows"
+              }
+            },
+            "join": [
+              {
+                "syms": [
+                  "b",
+                  "h"
+                ],
+                "on": [
+                  [
+                    "rt_pollutantID",
+                    "spmsh_outputPollutantID"
+                  ]
+                ]
+              },
+              {
+                "syms": [
+                  "e",
+                  "h"
+                ],
+                "on": [
+                  [
+                    "spmsp_pollutantID",
+                    "spmsh_speciesPollutantID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "ifelse",
               "args": [
-                "pms_fraction",
-                "p"
+                {
+                  "op": ">",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "spmsh_isSpeciated",
+                        "h"
+                      ]
+                    },
+                    0.5
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "rt_hasPmSpeciation",
+                    "b"
+                  ]
+                },
+                1.0
               ]
             }
           }
@@ -99518,7 +100179,7 @@
                     "rt_binOrdinal"
                   ],
                   [
-                    "rt_processID",
+                    "rt_spmProcessID",
                     "rt_processID"
                   ],
                   [
@@ -99710,7 +100371,7 @@
                     "rt_binOrdinal"
                   ],
                   [
-                    "rt_processID",
+                    "rt_spmProcessID",
                     "rt_processID"
                   ],
                   [
@@ -99736,24 +100397,11 @@
               "op": "*",
               "args": [
                 {
-                  "op": "ifelse",
+                  "op": "index",
                   "args": [
-                    {
-                      "op": ">",
-                      "args": [
-                        {
-                          "op": "index",
-                          "args": [
-                            "rt_spmShare",
-                            "b",
-                            "e"
-                          ]
-                        },
-                        0.0
-                      ]
-                    },
-                    1.0,
-                    0.0
+                    "rt_spmShareMember",
+                    "b",
+                    "e"
                   ]
                 },
                 {
@@ -101862,7 +102510,7 @@
                     "rt_binOrdinal"
                   ],
                   [
-                    "rt_processID",
+                    "rt_spmProcessID",
                     "rt_processID"
                   ],
                   [
@@ -114812,7 +115460,7 @@
                     "op": "*",
                     "args": [
                       "rt_retagsShorePower",
-                      "rt_survives"
+                      "rt_survivesRated"
                     ]
                   },
                   0.5
@@ -114850,7 +115498,7 @@
                     "op": "*",
                     "args": [
                       "rt_retagsShorePower",
-                      "rt_survives"
+                      "rt_survivesRated"
                     ]
                   },
                   {
@@ -125774,25 +126422,51 @@
                               }
                             },
                             {
-                              "op": "apply_expression_template",
-                              "args": [],
-                              "name": "year_captured_nonhaptog",
-                              "bindings": {
-                                "process_id": {
-                                  "op": "index",
-                                  "args": [
-                                    "rspp_processID",
-                                    "p"
-                                  ]
+                              "op": "max",
+                              "args": [
+                                {
+                                  "op": "apply_expression_template",
+                                  "args": [],
+                                  "name": "year_captured_nonhaptog",
+                                  "bindings": {
+                                    "process_id": {
+                                      "op": "index",
+                                      "args": [
+                                        "rspp_processID",
+                                        "p"
+                                      ]
+                                    },
+                                    "pollutant_id": {
+                                      "op": "index",
+                                      "args": [
+                                        "rspp_pollutantID",
+                                        "p"
+                                      ]
+                                    }
+                                  }
                                 },
-                                "pollutant_id": {
-                                  "op": "index",
-                                  "args": [
-                                    "rspp_pollutantID",
-                                    "p"
-                                  ]
+                                {
+                                  "op": "apply_expression_template",
+                                  "args": [],
+                                  "name": "year_captured_minor_species",
+                                  "bindings": {
+                                    "process_id": {
+                                      "op": "index",
+                                      "args": [
+                                        "rspp_processID",
+                                        "p"
+                                      ]
+                                    },
+                                    "pollutant_id": {
+                                      "op": "index",
+                                      "args": [
+                                        "rspp_pollutantID",
+                                        "p"
+                                      ]
+                                    }
+                                  }
                                 }
-                              }
+                              ]
                             }
                           ]
                         }
