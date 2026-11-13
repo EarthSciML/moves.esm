@@ -8051,7 +8051,7 @@ selections each; MOVES's `runspecpollutantprocess` holds them plus its -1 row (1
   precision), the clamp never binding. At the crankcase processes that is the
   crankcase copies' NMOG and species: TOGSpeciation runs on CrankcaseEmissionCalculator's
   rows (CrankcaseEmissionRatio has no 88 or 3000 row), so 88 at 15 is not a copy of 88 at 1.
-- TOGSpeciationCalculator.java: `subscribeToMe` registers 88 at every process
+- TOGSpeciationCalculator.java: its constructor registers 88 at every process
   `rocspeciation` gives a TOG profile (1, 2, 11-13, 15-19, 90, 91), `doExecute`
   builds `mechanismIDs` from the mechanism pollutants selected on the iteration's
   process (or a chained process), and returns no SQL when there are none -- so a
@@ -8063,9 +8063,10 @@ selections each; MOVES's `runspecpollutantprocess` holds them plus its -1 row (1
   and records it as `getDatabaseKey(db)`, which is -1 where 88 is no pair: the capture's
   `runspecpollutantprocess` has one -1 row standing for five non-pairs.
 
-**(1) It was SILENT at Hour.** The unchanged model's first evaluation: 66,856 of
-67,752 rows (two garbage rows past its own count, `n_outputRate` being the capture's),
-every value it emitted right (worst 1.0e-05), and NonHAPTOG ABSENT at start, crankcase
+**(1) It was SILENT at Hour.** The unchanged model's first evaluation: 66,854 of
+67,752 rows (33,427 pairs per hour against the bound `n_outputRate` 33,876, the rest
+padding the comparator caught as duplicate keys), every value it emitted right (worst
+1.0e-05), and NonHAPTOG ABSENT at start, crankcase
 start, crankcase extended idle, extended idle and APU -- 898 rows -- with
 `run_selectionUnported` **0**. Nothing counted it at any aggregation but Year.
 
@@ -8112,7 +8113,7 @@ same rule writes NonHAPTOG from that process's NMOG: uncaptured, counted at Year
 equations, not shown wrong. The PM species, metals, dioxins and PAH particles at the
 five processes are the `idle-minor` lane's.
 
-**Unchanged runs.** __REEMIT__
+**Unchanged runs.** Re-emitted on the final model with `tools/emit-oracle-table.py` (the suite's shape fields) and `cmp`'d against the main tree's `.fixtures-run/`, every relation, shape and table byte-identical: `chain-nonhaptog`, `chain-so2-co2e-mechanism`, `-control`, `rates-nonhaptog` and `rates-mechanism` (every Rates table) -- the five runs that select NonHAPTOG or the mechanism -- and `process-extended-idle`, `process-apu`, `process-crankcase-extidle`, `process-crankcase-start`, `expand-month`, `scale-county`, `scale-county-timeagg-day`, `scale-county-idle-species`, `scale-county-timeagg-year-toxics-idle`, `scale-county-start-species` and `scale-county-timeagg-year-start-species`; `scale-county-timeagg-year-toxics` (which selects 8801 without a mechanism) reproduces its oracle with `run_selectionUnported` 0, __YTOX__. `tools/check-sources.py` passes, both new runspecs validate with `./esm` and load with the Python binding (`earthsci_ast.load_path`).
 
 **Cost.** `scale-county-idle-nonhaptog` evaluates in 1,575 s user CPU (26 min; 65 min
 wall on a shared node) at 35.9 GB peak RSS -- the same before the change (1,519 s,
