@@ -100,7 +100,15 @@ echo "building esm from $AST ..."
   # The message points at a dependency and has nothing to do with the code, and
   # it has cost real time three times on this project. Detect it and self-heal
   # once rather than making the next person diagnose it again.
-  build() { cargo build --release --features esio,parallel --bin esm "${CFG[@]}" 2>&1; }
+  # Since EarthSciAST #725 (0.12.1) `esm` is the `earthsci-ast-cli` crate's
+  # binary, a workspace member beside the library: the library's features are
+  # spelled through it. An older checkout builds `esm` as the library's own
+  # binary, with the features named directly.
+  if [[ -f cli/Cargo.toml ]]; then
+    build() { cargo build --release -p earthsci-ast-cli --features esio,earthsci-ast/parallel --bin esm "${CFG[@]}" 2>&1; }
+  else
+    build() { cargo build --release --features esio,parallel --bin esm "${CFG[@]}" 2>&1; }
+  fi
   out="$(build)"; rc=$?
   if [[ $rc -ne 0 ]] && grep -q "undefined hidden symbol" <<<"$out"; then
     echo "note: stale build artifacts from an interrupted compile; cleaning and retrying" >&2
@@ -166,7 +174,9 @@ fi
 # newer than every source is the correct outcome of a no-op rebuild, so the
 # test is staleness and not "did this run write it": cargo rightly leaves an
 # up-to-date artifact alone.
-STALE="$(find "$AST/pkg/earthsci-ast-rs/src" "$AST/pkg/earthsci-ast-rs/Cargo.toml" \
+STALE_SRC=("$AST/pkg/earthsci-ast-rs/src" "$AST/pkg/earthsci-ast-rs/Cargo.toml")
+[[ -d "$AST/pkg/earthsci-ast-rs/cli" ]] && STALE_SRC+=("$AST/pkg/earthsci-ast-rs/cli/src" "$AST/pkg/earthsci-ast-rs/cli/Cargo.toml")
+STALE="$(find "${STALE_SRC[@]}" \
            -newer "$BIN" -print -quit 2>/dev/null)"
 if [[ -n "$STALE" ]]; then
   echo "error: '$BIN' is OLDER than the source it would be recorded against" >&2
@@ -215,7 +225,7 @@ commit    = $(git -C "$AST" rev-parse HEAD)
 subject   = $(git -C "$AST" log -1 --format=%s)
 date      = $(git -C "$AST" log -1 --format=%cI)
 version   = $(./esm --version)
-features  = esio,parallel
+features  = esio,parallel (earthsci-ast/parallel through earthsci-ast-cli since 0.12.1)
 
 # The earthsciio cargo linked: a crates.io release, or a patched-in EarthSciIO
 # checkout (IO=) by commit. build-esm.sh refuses one without a parquet reader.

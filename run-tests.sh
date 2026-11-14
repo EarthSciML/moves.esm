@@ -230,6 +230,14 @@ else
   fail "data-source cache is stale"
   printf '%s\n' "$out"
 fi
+# With the cache checked against its sources above, every evaluation below may
+# trust it: EARTHSCI_REVALIDATE_FILE=0 stops earthsciio re-hashing each
+# `file://` source on every `esm` invocation (its memo of the source's sha256
+# lives one process, and the default database is 517 MB). Measured: 5.8 s of an
+# 11.3 s evaluation (PLAN.md §7.3.77). Nothing below replaces a source, and the
+# check above is what refuses a cache whose sources were replaced in place
+# (finding F42, EarthSciAST#293).
+export EARTHSCI_REVALIDATE_FILE=0
 
 head2 "data sources"
 if out=$(python3 tools/check-sources.py 2>&1); then

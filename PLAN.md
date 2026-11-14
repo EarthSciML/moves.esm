@@ -8342,6 +8342,92 @@ presence mask, which is what the source-bin axis does by hand; (3) a window sum
 `sum over k3 with lo(k) <= key[k3] <= hi(k)` over an ordered key is a prefix scan.
 None is a format change; all three are evaluator planning.
 
+#### 7.3.77 The suite's cost is the evaluator's, measured per rule, and four exact changes upstream take the heaviest run from 29 to 7 minutes
+
+2026-11-14. A cost fix; every output is byte-identical. The user's target is
+moves.rs's: tens to hundreds of milliseconds of engine time per county run
+(`../moves.rs/docs/benchmark-report.md`), and runs here took minutes and up to
+36 GB. This section is what that gap is made of, measured, and the part of it
+closed so far.
+
+**Where a run's time goes.** A local `ESM_VERBOSE` switch on a profiling build
+(frame pointers, line tables) prints each build-time observed's wall time; the
+suite's own `tools/emit-oracle-table.py` call was timed through a wrapper.
+
+- `process-tirewear` (375 rows, 492 rate rows): 66 s, 1.85 GB. 1,411 of 1,622
+  observeds are in the `--observed` cone, and about 25 s of the 45 s of rule
+  time is calculators the run does not select (the Complex Model `cmx_*` 11 s,
+  the tank-temperature and drive-schedule chains `tvh/ttg/tsk/dss` 12 s, `atr_*`
+  2 s): the model computes every calculator and zeroes what is unselected.
+  Another 6.6 s is loading, of which earthsciio re-hashing every `file://` source
+  to revalidate its cache is about 5.8 s per evaluation.
+- `scale-county-outstep-hourday`: 40 min 31 s, 35.2 GB, 88 % in the `tvv_*`
+  family -- §7.3.76.
+- `scale-county-idle-nonhaptog` (533,820 rate rows): 29 min 29 s, 36.0 GB, and
+  1,431 s of 1,755 s of rule time in `rt_*` rules over the rate relation: per-row
+  lookups whose per-tuple cost was fine (~0.16 µs) and whose tuple count was not.
+- The per-run mtimes of the last green suite's `.fixtures-run/` put
+  `scale-county-outstep-hourday`, `process-evap-fvv-day`, the NonHAPTOG pair and
+  `scale-county-timeagg-processes-month` at the top, with a long tail.
+
+**What changed upstream** (EarthSciML/EarthSciAST#734; every change exact):
+
+1. *Packed integer join keys, the smaller side bucketed.* A composite `on` key of
+   integers is one mixed-radix integer per row over the two sides' joint ranges,
+   order-preserving; the hash table is built on the smaller side. The
+   seven-column `emissionRateByAge` joins of the tire-wear run: 1.7 s -> 0.8 s each.
+2. *Same-pair on-gates merge across clauses.* `rt_tvvRegClassFraction`'s two
+   clauses over (rate row, sample-vehicle row) were priced and built as two
+   gates, and the second -- `regClassID` alone -- materialised ~900M pairs and
+   spent ~100 s sorting them. Merged, it is one composite gate. NonHAPTOG peak
+   RSS 36 -> 21 GB.
+3. *The faq bare-array lint reads a view*, not a per-equation copy of every
+   variable's shape: ~1 s per build.
+4. *Row dedup.* A rule over the rate relation that reads its row only through
+   key columns and other arrays' rows (`index(V, ..., b, ...)`, join keys on
+   `b`'s side) gives equal rows equal values; the evaluator groups the rows by the
+   bits of everything read at `b`, evaluates one representative per signature
+   and gathers back. 337 rules of the NonHAPTOG run take it (533,820 rows, a few
+   thousand signatures each); rule time 1,755 s -> 357 s.
+
+| run | before | after |
+|---|---|---|
+| `scale-county-idle-nonhaptog` | 29:29, 36.0 GB | 6:55, 11.8 GB |
+| `process-tirewear` | 0:47, 1.85 GB | 0:33, 1.64 GB |
+| `scale-county-outstep-hourday` (with §7.3.76) | 40:31, 35.2 GB | 6:19, 7.3 GB |
+
+Byte-identical, every output file of the run against the last green suite's
+`.fixtures-run/`: `process-tirewear`, `scale-county-idle-nonhaptog`,
+`process-pm-exhaust`, `chain-so2-co2e-mechanism`, `rates-pm`, `process-airtoxics`,
+`scale-county-timeagg-year`, `process-evap-fvv`, `expand-sourcetype`,
+`scale-county` (EarthSciAST changes), and `scale-county-outstep-hourday`,
+`process-evap-fvv-day`, `rates-venting` (with §7.3.76).
+
+**In this repository.** `run-tests.sh` exports `EARTHSCI_REVALIDATE_FILE=0` after
+stage 2b, whose `tools/check-source-cache.py` is what refuses a cache whose
+sources were replaced (F42); `build-esm.sh` builds `esm` from the
+`earthsci-ast-cli` crate that EarthSciAST 0.12.1 (#725) moved it into.
+
+**What is left between this and milliseconds**, in the order measured:
+
+- *Calculators a run does not select.* About half of a small run's rule time.
+  The model computes every calculator over national relations; a relation sized
+  by the run's selection would make an unselected calculator free. EarthSciAST
+  #416 (a zero-length axis panicked) no longer reproduces on 0.12.1 -- a
+  reduction over an empty axis is 0 and a join into an empty relation gives the
+  identity -- so the format allows it; what is missing is the model's derived
+  relations (a calculator's rows by run selection) and, where a mounted table
+  must narrow, the way to narrow it.
+- *Sums over every national fuel formulation.* About fifteen rules range over
+  `fuelformulation_rows` (2,158 national) where a county's supply has a handful;
+  row dedup took most of their cost on NonHAPTOG, but a relation of the supply's
+  formulations is the structural fix.
+- *Key columns rebuilt per rule.* Each join re-reads and re-keys its data
+  columns; a per-build cache of exact-integer key columns would remove it.
+- *Engine planning.* The tvv lane's three asks (§7.3.76): an equality lookup on a
+  1-D column as a gather, a 1-D presence mask as a row filter, and a window sum
+  over an ordered key as a prefix scan.
+
 ### 7.4 Upstream asks
 
 **None is blocking.** This section has said "still none", "already exists,
