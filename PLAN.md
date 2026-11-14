@@ -8245,6 +8245,103 @@ mechanism species at these processes are the other lane's (§7.3.73).
 
 **Cost.** Evaluated one at a time under `/scratch.local/ctessum/eval.lock`: `scale-county-minor-offnet` 453 s user CPU at 11.7 GB peak RSS, `scale-county-minor-running` 316 s at 6.7 GB, `scale-county-timeagg-year-minor-offnet` 451 s at 11.7 GB and `-minor-running` 284 s at 6.7 GB. The unchanged model on `-minor-offnet` was the same size (462 s, 11.7 GB). The all-process capture they replace passed 57 GB inside ten minutes and was stopped.
 
+#### 7.3.76 The vapor-venting cold-soak chain is per source bin, and its hour windows are gathered or recurred
+
+2026-11-14. A cost fix; every output is byte-identical. No new RunSpec, no new
+declared number, no change to `run-tests.sh`.
+
+**Measured first.** On the suite's own `tools/emit-oracle-table.py` call (profiling
+build of EarthSciAST main, `ESM_VERBOSE=1` per-observed timings),
+`scale-county-outstep-hourday` took 40 min 31 s wall, 2,311 s user CPU and
+35.2 GB peak RSS, and 2,131 s of its rule evaluation were the 29 `tvv_*` rules
+of §7.3.49 -- on a run that selects CO and no vapor venting at all, so every one of
+those cells was a computed zero. The arrays were dense over (rate row 12,915,
+cell 48, initial cell 48, county, month[, soaking day 5]), about 150M cells each,
+and seven rules added a FOURTH cell range `k3` to find the previous hour, an hour
+window or the peak by an equality scan: `tvv_unweighted` 854 s, `tvv_hourly` 259 s,
+`tvv_sumInitialToHour` 175 s, `tvv_sumAfterHour` 147 s, `tvv_sumInitialToEnd`
+133 s, `tvv_sumStartToHour` 113 s, `tvv_canisterLoad` 112 s.
+
+**What changed** (conventions §128):
+
+* **The chain runs over `sourcebin_rows`**, not `rate_rows`. Every input it read
+  per rate row -- tank size and fill, back-purge and canister capacity, the P/Q
+  quadratic coefficients, the leak and regulatory-class fractions, the source type,
+  fuel and year -- is a property of the source bin; a bin's rate rows differ by
+  road type and pollutant-process, and only polProcess 112 has NewTVVYear
+  coefficients. `tvv_binVentingRow` finds a venting row of the bin with
+  coefficients (0 when none), `tvv_binRateRow` is that row or an in-range default,
+  the chain gathers its coefficients there, and `rtDay_coldSoakWeightedRate` gathers
+  the rate back at `rt_binOrdinal` for its venting rows. The bin relation is never
+  empty, so no zero-length computed axis (F56) can arise: a run without venting has
+  bins whose presence is 0. A relation of the venting rows alone would be smaller
+  on a venting run, but empty on every other and a new declared, checked number per
+  RunSpec; the bin is already declared.
+* **A cell named by its hour is gathered.** `tvv_priorHourRow`, `tvv_wrapHourRow`,
+  `tvv_dayFirstRow`, `tvv_dayLastRow` and `tvv_peakRow` are row numbers, each a
+  `max_sum` over (cell, cell) of the new template `same_day_cell_at_hour`
+  (lib/evaporative.esm), 0 when the hour is not selected; `tvv_hourly`,
+  `tvv_unweighted`/`tvv_unweightedFirstDay` and `tvv_coldSoakRate` read the one
+  cell they need instead of scanning 48.
+* **The hour window is a recurrence.** `tvv_sumInitialToHour` is this hour's
+  increment plus the window's sum at the day's previous selected row
+  (`tvv_dayPriorRow`, one or two rows back in hour-major `runspechourday`, a
+  contracted `a` in the literal range `[1, 2]`). The scan was an ascending left
+  fold, so the recurrence produces the same partial sums in the same order.
+  `tvv_pairsInitialToHour` is the same recurrence over the 0/1 presence, and
+  `tvgSumI24`, `tvgSum1H` and their INNER-join presences are gathers of the two at
+  the day's last row and at hour 1. `tvgSumH24` (`tvv_sumAfterHour`) starts after
+  H, so no recurrence reproduces its association; it stays a scan, now 48 x 48 per
+  bin rather than per (rate row, initial cell).
+* **The later soaking days are pinned.** Their weight is non-zero only at the
+  day's hour-1 cell (`sampleVehicleSoaking`), so `tvv_canisterLoad`, `tvv_vented`,
+  `tvv_unweighted` and the soaking weight lost the initial-cell axis; the first day
+  keeps it (`tvv_ventedFirstDay`, `tvv_unweightedFirstDay`, `tvv_firstDayWeight`).
+  `tvv_hourlyVented` still sums (initial cell, soaking day) in the original range
+  order, a discarded term now `0` where it was `max(0, x) * 0`, so its partial
+  sums are the same. `tvv_dayExists` is gone, its test inlined in the two
+  `vented` rules.
+
+**Measured** (same profiling binary, one evaluation each under the eval lock;
+before = main 8d5ef4d):
+
+| run | wall | user CPU | peak RSS | `tvv_*` rules |
+|---|---|---|---|---|
+| `scale-county-outstep-hourday` | 40:31 -> 6:14 | 2,311 s -> 294 s | 35.2 -> 7.3 GB | 2,131 s -> 24 s |
+| `process-evap-fvv-day` | 4:53 -> 2:06 | 278 s -> 117 s | 5.4 -> 3.3 GB | 163 s -> 4.0 s |
+| `rates-venting` | 2:59 -> 2:00 | 167 s -> 112 s | 3.7 -> 3.1 GB | 52 s -> 4.1 s |
+| `expand-fullyear` (control) | 4:52 -> 4:58 | 253 s -> 249 s | 8.6 -> 8.6 GB | 0.0 -> 0.1 s |
+| `process-tirewear` (control) | 0:55 -> 0:50 | 48 s -> 45 s | 1.9 -> 1.9 GB | 0 -> 0 |
+
+On `scale-county-outstep-hourday` the largest tvv rule is now `tvv_ventedFirstDay`
+at 6.6 s, the vented-vapor template evaluated per (bin, cell, initial cell); the
+family is 1 % of the run, whose next costs are the trip chain and the operating-mode
+folds (`ttg_hotSoakTemperatureSum` 28 s, `lomd_modeSeconds` 22 s), outside this
+change.
+
+**Byte-identical.** Re-emitted with the suite's `./esm` through
+`tools/emit-oracle-table.py` with `run-tests.sh`'s arguments and `cmp`'d against the
+main tree's `.fixtures-run/`: all 70 files of `scale-county-outstep-hourday`,
+`-dayagg`, `-week`, `process-evap-fvv`, `process-evap-fvv-day`, `rates-venting`,
+`rates-evap`, `scale-county`, `scale-county-timeagg-day`, `-month`, `-year`,
+`scale-county-timeagg-processes-day`, `-month`, `-year`,
+`scale-county-timeagg-soak-day`, `-month`, `expand-fullyear`, `expand-month`, and
+the non-venting controls `process-tirewear` and `expand-day` -- every relation,
+shape file and oracle table identical, the first time. Every comparison and shape
+check passes. `tools/check-conventions.py`, `tools/faq-filter-lint.py` and
+`tools/check-sources.py` are clean; `rates-venting` loads with the Python binding.
+
+**What the evaluator could have done instead.** Every cost removed here is one an
+engine could remove from the original document: (1) an equality between an index
+symbol's row attribute and a computable value of the output indices
+(`rsd_hourID[k3] == rsd_hourID[k] - 1`) is a lookup, which a planner could turn
+into a gather by building the value-to-row map of the 1-D column once; (2) a
+contraction whose body is non-zero only on a statically-gated set
+(`rt_isVenting[b] > 0.5`) could skip the gated rows, i.e. sparse evaluation under a
+presence mask, which is what the source-bin axis does by hand; (3) a window sum
+`sum over k3 with lo(k) <= key[k3] <= hi(k)` over an ordered key is a prefix scan.
+None is a format change; all three are evaluator planning.
+
 ### 7.4 Upstream asks
 
 **None is blocking.** This section has said "still none", "already exists,
