@@ -14416,7 +14416,7 @@
           "shape": [
             "polprocroad_rows"
           ],
-          "description": "Does the pollutant-process happen on this pair's road type? `rspp_rateRoadTypeID` says where it lives -- the off-network road type 1, or the run's on-network road types, for which it carries their representative `run_roadTypeID` -- so an off-network one occurs on road type 1 alone, an on-network one on every selected on-network road type, and running exhaust on road type 1 as well when that block is off-network idle. This is what `rspp_occursOnSelectedRoad` was, per block; it is the OR over a pollutant-process's blocks now. On the off-network road type also: permeation and leaks, whose SourceHours there are SHP, and a chained pollutant-process with an off-network parent even where it has an on-network one -- refueling's start energy (PLAN.md §7.3.48 part C). Vapor venting's cold-soak insert is ported per cell (PLAN.md §7.3.49) and, in a run that aggregates its hours, is empty as MOVES's is (§7.3.64)."
+          "description": "Does the pollutant-process happen on this pair's road type? `rspp_rateRoadTypeID` says where it lives -- the off-network road type 1, or the run's on-network road types, for which it carries their representative `run_roadTypeID` -- so an off-network one occurs on road type 1 alone, an on-network one on every selected on-network road type, and running exhaust on road type 1 as well when that block is off-network idle. This is what `rspp_occursOnSelectedRoad` was, per block; it is the OR over a pollutant-process's blocks now. On the off-network road type also: permeation and leaks, whose SourceHours there are SHP, and a chained pollutant-process with an off-network parent even where it has an on-network one -- refueling's start energy (PLAN.md §7.3.48 part C). Vapor venting's cold-soak insert is ported per cell (PLAN.md §7.3.49) and, in a run that aggregates its hours, is empty as MOVES's is (§7.3.64). And a NonHAPTOG writer whose process's NMOG occurs there (`rspp_processNmogOffNetworkParents`): refueling's NonHAPTOG (PLAN.md §7.3.75)."
         },
         "ppr_isEmitted": {
           "type": "unknown",
@@ -26000,6 +26000,14 @@
             "runspecmonth_rows"
           ],
           "description": "What methane and NMHC multiply THC by beyond their ratio where THC reaches the Go HC speciation through the MOVESWorkerOutput file (`worker_output_split_process`: the evaporative and refueling processes): the Go reader splits the row over the formulations by `marketShare`, so the species carry the fuel type's SUMMED share -- 1 on a run that does not aggregate by year, 0.334229 at `aggregateBy` Year over four months (`rt_fuelTypeSupplyShare`). Measured on `scale-county-timeagg-year-evap-species`: NMHC / THC is 0.334229 at venting, leaks and both refueling processes, for gasoline, E85 and diesel alike, where every evaporative CH4THCRatio is 0.0 (PLAN.md §7.3.75, finding F84). NMOG, VOC and TOG follow from NMHC; the toxics take the sum AGAIN through their own ratios (`ffsup_suppliedShare`, F70)."
+        },
+        "rspp_processNmogOffNetworkParents": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecpollutantprocess_rows"
+          ],
+          "description": "How many off-network parents NMOG has at this pollutant-process's process, where that NMOG is chained (no base-rate row): `rspp_offNetworkParents4` of the process's NMOG. A NonHAPTOG writer (`rspp_writesNonHapTog`) occurs on road type 1 where its NMOG does (PLAN.md §7.3.75): at refueling, NMOG occurs there with its THC, whose start and extended-idle energy parents are off-network, though its road type is the on-network one (F78 gave the writer that road type, `rspp_processNmogRoadTypeID`)."
         }
       },
       "equations": [
@@ -35199,32 +35207,68 @@
                               "op": "ifelse",
                               "args": [
                                 {
-                                  "op": "and",
+                                  "op": "or",
                                   "args": [
                                     {
-                                      "op": "<",
+                                      "op": "and",
                                       "args": [
                                         {
-                                          "op": "index",
+                                          "op": "<",
                                           "args": [
-                                            "rspp_hasBaseRateTableRow",
-                                            "p"
+                                            {
+                                              "op": "index",
+                                              "args": [
+                                                "rspp_hasBaseRateTableRow",
+                                                "p"
+                                              ]
+                                            },
+                                            0.5
                                           ]
                                         },
-                                        0.5
+                                        {
+                                          "op": ">",
+                                          "args": [
+                                            {
+                                              "op": "index",
+                                              "args": [
+                                                "rspp_offNetworkParents4",
+                                                "p"
+                                              ]
+                                            },
+                                            0.5
+                                          ]
+                                        }
                                       ]
                                     },
                                     {
-                                      "op": ">",
+                                      "op": "and",
                                       "args": [
                                         {
-                                          "op": "index",
+                                          "op": ">",
                                           "args": [
-                                            "rspp_offNetworkParents4",
-                                            "p"
+                                            {
+                                              "op": "index",
+                                              "args": [
+                                                "rspp_writesNonHapTog",
+                                                "p"
+                                              ]
+                                            },
+                                            0.5
                                           ]
                                         },
-                                        0.5
+                                        {
+                                          "op": ">",
+                                          "args": [
+                                            {
+                                              "op": "index",
+                                              "args": [
+                                                "rspp_processNmogOffNetworkParents",
+                                                "p"
+                                              ]
+                                            },
+                                            0.5
+                                          ]
+                                        }
                                       ]
                                     }
                                   ]
@@ -93000,6 +93044,92 @@
                   "args": [
                     "rspp_chainRoadTypeID4",
                     "q"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rspp_processNmogOffNetworkParents",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "p"
+            ],
+            "ranges": {
+              "p": {
+                "from": "runspecpollutantprocess_rows"
+              },
+              "q": {
+                "from": "runspecpollutantprocess_rows"
+              }
+            },
+            "join": [
+              {
+                "syms": [
+                  "p",
+                  "q"
+                ],
+                "on": [
+                  [
+                    "rspp_processID",
+                    "rspp_processID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "apply_expression_template",
+                  "args": [],
+                  "name": "in_half_open_range",
+                  "bindings": {
+                    "lower": 79.5,
+                    "upper": 80.5,
+                    "value": {
+                      "op": "index",
+                      "args": [
+                        "rspp_pollutantID",
+                        "q"
+                      ]
+                    }
+                  }
+                },
+                {
+                  "op": "*",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "rspp_offNetworkParents4",
+                        "q"
+                      ]
+                    },
+                    {
+                      "op": "ifelse",
+                      "args": [
+                        {
+                          "op": "<",
+                          "args": [
+                            {
+                              "op": "index",
+                              "args": [
+                                "rspp_hasBaseRateTableRow",
+                                "q"
+                              ]
+                            },
+                            0.5
+                          ]
+                        },
+                        1.0,
+                        0.0
+                      ]
+                    }
                   ]
                 }
               ]
