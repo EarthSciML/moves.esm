@@ -9835,3 +9835,68 @@ copy -- four rungs.
    minutes; split by road type (road type 1's start, hotelling and crankcase processes;
    road type 4's running and crankcase running) the halves evaluate at 11.7 GB and
    6.7 GB. A single process family per capture also keeps MOVES from adding road types.
+
+## 128. A window over an ordered axis is a gather or a recurrence, not a scan, and a chain that reads a few per-row coefficients runs over the relation they vary on **[PLAN.md §7.3.76; `scale-county-outstep-hourday` 40 min / 35.2 GB to 6 min / 7.3 GB, the `tvv_*` family 2,131 s to 24 s; every run whose cone holds it byte-identical]**
+
+The vapor-venting cold-soak chain (`tvv_*`, §7.3.49) cost 88 % of the slowest
+RunSpec's rule evaluation, and none of it was arithmetic. Two shapes did it, and both
+recur wherever a chain is written by transcribing SQL joins:
+
+1. **"The cell at hour H of my day" is a row number, gathered.** `tvv_hourly`,
+   `tvv_unweighted` and `tvv_coldSoakRate` each summed a fourth `runspecday` range `k3`
+   under `ifelse(rsd_hourID[k3] == rsd_hourID[k] - 1 ...)`: 48 body evaluations to
+   find one cell, for every cell of a 150M-cell array. The cell is COMPUTABLE from `k`
+   alone, so compute it once, over `k` x `k3` (48 x 48), as
+   `max_sum over k3 of same_day_cell_at_hour(...)` -- the row, or 0 when the hour is not
+   selected -- and gather: `ifelse(row > 0.5, V[..., max(row, 1), ...], 0)`. The `max`
+   keeps the index in range on the branch the `ifelse` discards (§86). This is §7.3.51's
+   rule ("gather a computable index") applied to the hour instead of the soak slice.
+   With exactly two non-zero terms the scan's sum and the gather's difference are the
+   same number: `0 + (-p) + c` and `c - p` agree to the bit because IEEE addition is
+   commutative.
+2. **A window sum over an ordered axis is a recurrence on its previous row, in the
+   scan's own order.** `tvv_sumInitialToHour` summed the day's selected hours from the
+   initial hour to H, ascending. An ascending scan IS a left fold, so
+   `V[k] = term[k] + V[prior(k)]` -- §4.3.1.1's causal self-reference, the prior row
+   `a` rows back with `a` a contracted range -- gives the same partial sums in the same
+   order, and an engine that pins its reductions as ascending folds (CONFORMANCE §5.19)
+   makes that bit-exact. Three things decide whether it is legal:
+   * the self-read must be `k - a` with `a` a range symbol, the lag picked by a guard
+     (`a == k - tvv_dayPriorRow[k]`) -- `k - index(lag, k)` is refused (F28, §34.3);
+   * the range of `a` must be provably >= 1 to the VALIDATOR, which sees metaparameters
+     at their defaults: `[1, "n_dayofanyweek"]` is `[1, 0]` there and is rejected as a
+     same-cell read, so the bound is the literal `[1, 2]` -- MOVES has two day types and
+     `runspechourday` is hour-major, so a day's previous row is one or two rows back
+     (§19.3's precedent: a literal that only has to cover);
+   * a window that starts LATER than the recurrence's anchor (`tvv_sumAfterHour`, from
+     H + 1 to the day's end, ascending) is NOT a recurrence in either direction: a
+     backward fold associates the other way. Keep it a scan, and make the scan small.
+   A window ending at a fixed row is then a gather of the recurrence there
+   (`tvv_sumInitialToEnd` at `tvv_dayLastRow`); its presence twin is the same recurrence
+   over the 0/1 presence, a count read as `> 0.5`.
+3. **Pin an axis a weight pins.** Every soaking day after the first starts at hour 1,
+   so the chain for days 2-5 was 47/48 cells that a zero weight discarded. Those
+   variables now carry no initial-cell axis (`tvv_canisterLoad[u,k,g,n,q]`, read at
+   `tvv_dayFirstRow`), the first day keeps it (`tvv_ventedFirstDay`), and the one sum
+   that combines them (`tvv_hourlyVented`) still walks (initial cell, soaking day) in its
+   original range order, so its partial sums are unchanged: a term that was
+   `max(0, x) * 0` is now `0`.
+4. **A chain that reads a few coefficients of a row runs over the relation those
+   coefficients vary on.** Every `rt_tvv*` input is a property of the source bin; the
+   rate rows of a bin differ by road type and pollutant-process, and only polProcess
+   112 has NewTVVYear rows. So the chain runs over `sourcebin_rows` (861 rows where
+   `rate_rows` has 12,915), gathers its coefficients at the bin's venting row
+   (`tvv_binRateRow`, the "first row satisfying P" of §86, defaulting to an in-range
+   row), and the one reader gathers back at `rt_binOrdinal`. The relation is never
+   empty -- a run with no venting row has bins, each with presence 0 -- so the F56
+   panic on a zero-length computed axis cannot arise, and no new declared number is
+   needed. A relation of only the VENTING rows would be smaller on a venting run but
+   empty on every other, and would need a declared, checked size per RunSpec.
+
+The order of the three changes is the order of their price: the gathers and the
+recurrence turned 48x scans into 1-2x reads, the bin axis divided what was left by
+the number of (pollutant-process, road type) blocks, and the pinning removed a factor
+of five from the multi-day part. Measured per rule on `scale-county-outstep-hourday`
+(which selects no venting at all, and paid in full for a chain of zeros):
+`tvv_unweighted` 854 s to 0.94 s (the first day's) and 0.08 s (the pinned days'),
+`tvv_hourly` 259 s to 0.89 s, `tvv_sumInitialToHour` 175 s to 2.4 s.
