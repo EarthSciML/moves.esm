@@ -2,7 +2,7 @@
   "esm": "1.2.0",
   "metadata": {
     "name": "moves.time_aggregation",
-    "description": "Template library: the shapes of MOVES's TIME pre-aggregation (PreAggDAY.sql, PreAggMONTH.sql, PreAggYEAR.sql; InputDataManager.preAggregateExecutionDB) and of its output time step (AggregationSQLGenerator), as `onroad/model.esm` reads them (PLAN.md §7.3.63, docs/esm-conventions.md §115).\n\n`hour_day_day` and `hour_day_hour` unpack a packed hour-day the way every MOVES script does, `mod(hourDayID,10)` and `floor(hourDayID/10)` (AdjustHotelling.sql): PreAggDAY.sql writes `hourDayID = dayID` at hour 0, which no default table holds, so the cell's day and hour cannot be looked up.\n\n`preaggregation_source_type_order` is PreAggDAY.sql's and PreAggMONTH.sql's `SourceTypeOrdering`, the preference by which HourWeighting3 takes ONE source type's travel to weigh the collapsed weather by: 21 first, then by default population, 11 last. It is a constant the scripts write as an INSERT, so it is written here as code (conventions §73); `preaggregation_source_type_order_none` is the place past its end.\n\n`output_step_column` reads one column of the output relation onto the output-time-step relation `outputstep_rows` through the representative cell `mosOutputOrdinal`, as `rate_output_column` reads one onto the Rates relation.\n\n`whole_year_days`, `year_value_or_own` and `month_cell_share` are PreAggYEAR.sql's three kinds of collapse at the Year cell, MonthOfAnyYear 0: a constant the script inserts, a table it replaces by a constant row, and a weighted mean over the RunSpec's months (PLAN.md §7.3.65). `year_captured_process` and `year_captured_pollutant` list what the Year capture checks; `year_captured_species`, `year_captured_idle_species` `year_captured_nonhaptog` and `year_captured_minor_species` the species the Year species captures check.\n\n`output_step_month_slots` and `output_step_cell_slots` are how many month and cell slots each (pollutant-process, cohort, county) keeps at the output time step: the months unless `n_outputSumsMonths`; and the (day type, hour) cells at Hour, the day types (`n_rateday`) when `n_outputSumsHours` sums each day's hours (24-Hour Day, Portion of Week), and one when `n_outputSumsDays` sums them all (Month, Year). `outputstep_rows` is sized by the same product, written out because an index-set size is a metaparameter expression (PLAN.md §7.3.66).",
+    "description": "Template library: the shapes of MOVES's TIME pre-aggregation (PreAggDAY.sql, PreAggMONTH.sql, PreAggYEAR.sql; InputDataManager.preAggregateExecutionDB) and of its output time step (AggregationSQLGenerator), as `onroad/model.esm` reads them (PLAN.md §7.3.63, docs/esm-conventions.md §115).\n\n`hour_day_day` and `hour_day_hour` unpack a packed hour-day the way every MOVES script does, `mod(hourDayID,10)` and `floor(hourDayID/10)` (AdjustHotelling.sql): PreAggDAY.sql writes `hourDayID = dayID` at hour 0, which no default table holds, so the cell's day and hour cannot be looked up.\n\n`preaggregation_source_type_order` is PreAggDAY.sql's and PreAggMONTH.sql's `SourceTypeOrdering`, the preference by which HourWeighting3 takes ONE source type's travel to weigh the collapsed weather by: 21 first, then by default population, 11 last. It is a constant the scripts write as an INSERT, so it is written here as code (conventions §73); `preaggregation_source_type_order_none` is the place past its end.\n\n`output_step_column` reads one column of the output relation onto the output-time-step relation `outputstep_rows` through the representative cell `mosOutputOrdinal`, as `rate_output_column` reads one onto the Rates relation.\n\n`whole_year_days`, `year_value_or_own` and `month_cell_share` are PreAggYEAR.sql's three kinds of collapse at the Year cell, MonthOfAnyYear 0: a constant the script inserts, a table it replaces by a constant row, and a weighted mean over the RunSpec's months (PLAN.md §7.3.65). `year_captured_process` and `year_captured_pollutant` list what the Year capture checks; `year_captured_species`, `year_captured_idle_species` `year_captured_nonhaptog`, `year_captured_minor_species` and `year_captured_evap_species` the species the Year species captures check. `worker_output_split_process` names the processes whose THC the Go HC speciation re-splits by market share (PLAN.md §7.3.75).\n\n`output_step_month_slots` and `output_step_cell_slots` are how many month and cell slots each (pollutant-process, cohort, county) keeps at the output time step: the months unless `n_outputSumsMonths`; and the (day type, hour) cells at Hour, the day types (`n_rateday`) when `n_outputSumsHours` sums each day's hours (24-Hour Day, Portion of Week), and one when `n_outputSumsDays` sums them all (Month, Year). `outputstep_rows` is sized by the same product, written out because an index-set size is a metaparameter expression (PLAN.md §7.3.66).",
     "authors": [
       "EarthSciML Authors and Contributors"
     ]
@@ -2073,6 +2073,335 @@
                 "args": [
                   "pollutant_id",
                   -1.0
+                ]
+              }
+            ]
+          },
+          1.0,
+          0.0
+        ]
+      }
+    },
+    "year_captured_evap_species": {
+      "description": "1 for a (process, pollutant) pair `scale-county-timeagg-year-evap-species` checks (PLAN.md §7.3.75): at evaporative permeation, fuel vapor venting and fuel leaks (11, 12, 13) and refueling displacement and spillage (18, 19), every pollutant MOVES 5 associates with them in `pollutantProcessAssoc` -- THC (1), benzene and ethanol (20, 21), 2,2,4-trimethylpentane, ethyl benzene and hexane (40-42), toluene and xylene (45, 46), NMHC and NMOG (79, 80), TOG, VOC and NonHAPTOG (86-88; 88 a pair at 18 and 19 only, written at 11, 12 and 13 from the mechanism's row, PLAN.md §7.3.73), naphthalene gas (185) and the NonHAPTOG mechanism (3000) -- and methane (5) at 18 and 19, its only evaporative pairs. Permeation is checked as the EMPTY output MOVES writes at `aggregateBy` Year (no cold-soak tank temperature under the collapse, §7.3.64); the mechanism as the absence MOVES writes for it. Written as ID ranges, each holding no other pollutant MOVES associates with these processes. A template of its own, beside the other Year species lists, so that each capture's list stays separate.",
+      "params": [
+        "process_id",
+        "pollutant_id"
+      ],
+      "body": {
+        "op": "ifelse",
+        "args": [
+          {
+            "op": "or",
+            "args": [
+              {
+                "op": "and",
+                "args": [
+                  {
+                    "op": "or",
+                    "args": [
+                      {
+                        "op": "==",
+                        "args": [
+                          "process_id",
+                          11.0
+                        ]
+                      },
+                      {
+                        "op": "or",
+                        "args": [
+                          {
+                            "op": "==",
+                            "args": [
+                              "process_id",
+                              12.0
+                            ]
+                          },
+                          {
+                            "op": "or",
+                            "args": [
+                              {
+                                "op": "==",
+                                "args": [
+                                  "process_id",
+                                  13.0
+                                ]
+                              },
+                              {
+                                "op": "or",
+                                "args": [
+                                  {
+                                    "op": "==",
+                                    "args": [
+                                      "process_id",
+                                      18.0
+                                    ]
+                                  },
+                                  {
+                                    "op": "==",
+                                    "args": [
+                                      "process_id",
+                                      19.0
+                                    ]
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "op": "or",
+                    "args": [
+                      {
+                        "op": "==",
+                        "args": [
+                          "pollutant_id",
+                          1.0
+                        ]
+                      },
+                      {
+                        "op": "or",
+                        "args": [
+                          {
+                            "op": "and",
+                            "args": [
+                              {
+                                "op": "<=",
+                                "args": [
+                                  20.0,
+                                  "pollutant_id"
+                                ]
+                              },
+                              {
+                                "op": "<=",
+                                "args": [
+                                  "pollutant_id",
+                                  21.0
+                                ]
+                              }
+                            ]
+                          },
+                          {
+                            "op": "or",
+                            "args": [
+                              {
+                                "op": "and",
+                                "args": [
+                                  {
+                                    "op": "<=",
+                                    "args": [
+                                      40.0,
+                                      "pollutant_id"
+                                    ]
+                                  },
+                                  {
+                                    "op": "<=",
+                                    "args": [
+                                      "pollutant_id",
+                                      42.0
+                                    ]
+                                  }
+                                ]
+                              },
+                              {
+                                "op": "or",
+                                "args": [
+                                  {
+                                    "op": "and",
+                                    "args": [
+                                      {
+                                        "op": "<=",
+                                        "args": [
+                                          45.0,
+                                          "pollutant_id"
+                                        ]
+                                      },
+                                      {
+                                        "op": "<=",
+                                        "args": [
+                                          "pollutant_id",
+                                          46.0
+                                        ]
+                                      }
+                                    ]
+                                  },
+                                  {
+                                    "op": "or",
+                                    "args": [
+                                      {
+                                        "op": "and",
+                                        "args": [
+                                          {
+                                            "op": "<=",
+                                            "args": [
+                                              79.0,
+                                              "pollutant_id"
+                                            ]
+                                          },
+                                          {
+                                            "op": "<=",
+                                            "args": [
+                                              "pollutant_id",
+                                              80.0
+                                            ]
+                                          }
+                                        ]
+                                      },
+                                      {
+                                        "op": "or",
+                                        "args": [
+                                          {
+                                            "op": "and",
+                                            "args": [
+                                              {
+                                                "op": "<=",
+                                                "args": [
+                                                  86.0,
+                                                  "pollutant_id"
+                                                ]
+                                              },
+                                              {
+                                                "op": "<=",
+                                                "args": [
+                                                  "pollutant_id",
+                                                  88.0
+                                                ]
+                                              }
+                                            ]
+                                          },
+                                          {
+                                            "op": "or",
+                                            "args": [
+                                              {
+                                                "op": "==",
+                                                "args": [
+                                                  "pollutant_id",
+                                                  185.0
+                                                ]
+                                              },
+                                              {
+                                                "op": "==",
+                                                "args": [
+                                                  "pollutant_id",
+                                                  3000.0
+                                                ]
+                                              }
+                                            ]
+                                          }
+                                        ]
+                                      }
+                                    ]
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "op": "and",
+                "args": [
+                  {
+                    "op": "or",
+                    "args": [
+                      {
+                        "op": "==",
+                        "args": [
+                          "process_id",
+                          18.0
+                        ]
+                      },
+                      {
+                        "op": "==",
+                        "args": [
+                          "process_id",
+                          19.0
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "op": "==",
+                    "args": [
+                      "pollutant_id",
+                      5.0
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          1.0,
+          0.0
+        ]
+      }
+    },
+    "worker_output_split_process": {
+      "description": "1 for a process whose THC reaches MOVES 5's Go HC speciation (calc/hcspeciation) through the MOVESWorkerOutput FILE, written by an SQL calculator without a fuel formulation: evaporative permeation, fuel vapor venting and fuel leaks (11, 12, 13; EvaporativePermeationCalculator.sql, TankVaporVentingCalculator, LiquidLeakingCalculator.sql) and refueling displacement and spillage (18, 19; RefuelingLossCalculator.sql). The Go reader (calc/mwo/mworeader.go, readMOVESWorkerOutput) splits every such row over the county's FuelSupply formulations by `marketShare`, so methane and NMHC there are `THC x share x ratio` summed over the formulations -- at `aggregateBy` Year, where PreAggYEAR.sql's shares sum to the months' fraction of the year (0.334229 at four months), the species carry that sum once more than THC does (PLAN.md §7.3.75, finding F84). Running, start and extended idle THC is BaseRateCalculator's, already per formulation in the Go pipeline and not re-split.",
+      "params": [
+        "process_id"
+      ],
+      "body": {
+        "op": "ifelse",
+        "args": [
+          {
+            "op": "or",
+            "args": [
+              {
+                "op": "==",
+                "args": [
+                  "process_id",
+                  11.0
+                ]
+              },
+              {
+                "op": "or",
+                "args": [
+                  {
+                    "op": "==",
+                    "args": [
+                      "process_id",
+                      12.0
+                    ]
+                  },
+                  {
+                    "op": "or",
+                    "args": [
+                      {
+                        "op": "==",
+                        "args": [
+                          "process_id",
+                          13.0
+                        ]
+                      },
+                      {
+                        "op": "or",
+                        "args": [
+                          {
+                            "op": "==",
+                            "args": [
+                              "process_id",
+                              18.0
+                            ]
+                          },
+                          {
+                            "op": "==",
+                            "args": [
+                              "process_id",
+                              19.0
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  }
                 ]
               }
             ]

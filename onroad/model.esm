@@ -1145,7 +1145,7 @@
         "op": "+",
         "args": [
           "n_runspecchainedto",
-          36
+          40
         ]
       }
     },
@@ -1305,7 +1305,7 @@
     },
     "airtoxicsform_rows": {
       "kind": "interval",
-      "size": 28
+      "size": 43
     },
     "airtoxicsexponent_rows": {
       "kind": "interval",
@@ -1802,6 +1802,10 @@
     "aggregationmonth_rows": {
       "kind": "interval",
       "size": "n_aggregationmonth"
+    },
+    "hcedge_rows": {
+      "kind": "interval",
+      "size": 4
     }
   },
   "enums": {
@@ -1985,7 +1989,9 @@
             "ratio_with_zero_guard",
             "criteria_ethanol_cross_terms",
             "standardized_term",
-            "standardized_cross_term"
+            "standardized_cross_term",
+            "stepwise_property_ratio_right_closed",
+            "ethanol_rvp_linear_ratio"
           ]
         },
         {
@@ -2109,7 +2115,9 @@
             "year_captured_species",
             "year_captured_idle_species",
             "year_captured_nonhaptog",
-            "year_captured_minor_species"
+            "year_captured_minor_species",
+            "year_captured_evap_species",
+            "worker_output_split_process"
           ]
         }
       ],
@@ -10506,7 +10514,7 @@
           "shape": [
             "airtoxicsform_rows"
           ],
-          "description": "generalFuelRatioExpression.polProcessID for the six gaseous air toxics this chain emits: 2001 benzene, 2101 ethanol, 2401 1,3-butadiene, 2501 formaldehyde, 2601 acetaldehyde and 2701 acrolein at running exhaust (rows 1-14), and 2002-2702 at START exhaust (rows 15-28, PLAN.md §7.3.71), whose strings are the running forms with the property factors of benzene and 1,3-butadiene multiplying the ratio of exponentials (`atx_baseFactor`) and exponents carrying RVP and second-order terms."
+          "description": "generalFuelRatioExpression.polProcessID for the six gaseous air toxics this chain emits: 2001 benzene, 2101 ethanol, 2401 1,3-butadiene, 2501 formaldehyde, 2601 acetaldehyde and 2701 acrolein at running exhaust (rows 1-14), and 2002-2702 at START exhaust (rows 15-28, PLAN.md §7.3.71), whose strings are the running forms with the property factors of benzene and 1,3-butadiene multiplying the ratio of exponentials (`atx_baseFactor`) and exponents carrying RVP and second-order terms. Rows 29-43 are the evaporative and refueling strings (PLAN.md §7.3.75): benzene 2011, 2012, 2013, 2018, 2019 and ethanol 2111 (two model-year bands), 2112, 2113, 2118, 2119 (two identical bands each, as the table holds them) -- gasoline only; E85 and diesel reach `ATRatioNonGas`. The model-year 2004-and-later ethanol rows carry sourceTypeID 0 in `generalFuelRatioExpression`, a wildcard (the capture's ATRatio applies them to every source type), and the earlier rows name every on-road source type, so the form row needs no source type."
         },
         "atx_fuelTypeID": {
           "type": "unknown",
@@ -10538,7 +10546,7 @@
           "shape": [
             "airtoxicsform_rows"
           ],
-          "description": "WHICH ALGEBRAIC FORM THE STRING IS: 1 the centred linear ratio benzene is written in, 2 the quadratic-over-base 1,3-butadiene is, 3 the ratio of exponentials formaldehyde, ethanol and acetaldehyde are, 4 the ETHANOL STEP -- a piecewise constant in the ethanol volume. docs/fuel-effects-generator.md 2.1 counts six forms in the corpus and names 1, 2 and 3 as D, E and F; form 4 is a SEVENTH, found here and not in that census, because every row that uses it leaves `generalFuelRatio` before a snapshot is taken. Acrolein's three rows need no form of their own: a bare constant is form 1 with a zero slope, which is what that census called `plus a bare constant`."
+          "description": "WHICH ALGEBRAIC FORM THE STRING IS: 1 the centred linear ratio benzene is written in, 2 the quadratic-over-base 1,3-butadiene is, 3 the ratio of exponentials formaldehyde, ethanol and acetaldehyde are, 4 the ETHANOL STEP -- a piecewise constant in the ethanol volume. docs/fuel-effects-generator.md 2.1 counts six forms in the corpus and names 1, 2 and 3 as D, E and F; form 4 is a SEVENTH, found here and not in that census, because every row that uses it leaves `generalFuelRatio` before a snapshot is taken. Acrolein's three rows need no form of their own: a bare constant is form 1 with a zero slope, which is what that census called `plus a bare constant`. Three more, found at the EVAPORATIVE and REFUELING processes (11, 12, 13, 18, 19; PLAN.md §7.3.75), all on gasoline: 5 the same ethanol step closed on the RIGHT -- permeation ethanol to model year 2003 writes `IF(ETOHVolume<=0.1, 0.0, IF(ETOHVolume > 0.1 and ETOHVolume <= 12.5, 0.202, ...))`, so each cut belongs to the level BELOW it, where form 4's `<` gives it to the one above; 6 the benzene content times a linear combination of the weighted ethanol volume and the RVP, `benzeneContent*1.77*(-0.02895*(ETOHVolume*0.3653) - 0.080274*RVP + 1.3758)/100.0` at permeation and the same with -0.03420 and 1.4448 at the other four; 7 the ethanol volume times a constant, `0.03334*ETOHVolume` and `0.011896*ETOHVolume`."
         },
         "atx_scale": {
           "type": "unknown",
@@ -10866,7 +10874,7 @@
             "fuelformulation_rows",
             "runspecyear_rows"
           ],
-          "description": "`ATRatio` wherever `generalFuelRatioExpression` supplies it: whichever of the four forms this row is written in, times the E85 scale. The three unused arms are evaluated and masked rather than branched on, and their coefficients are chosen so that each is zero or safe where its form is not the row's -- the quadratic divisor is 1.0 and not 0.0 for exactly that reason, and the step's three breakpoints are 0.0, so a masked step falls through to `atx_stepLevelThree`, which is 0.0 there."
+          "description": "`ATRatio` wherever `generalFuelRatioExpression` supplies it: whichever of the four forms this row is written in, times the E85 scale. The three unused arms are evaluated and masked rather than branched on, and their coefficients are chosen so that each is zero or safe where its form is not the row's -- the quadratic divisor is 1.0 and not 0.0 for exactly that reason, and the step's three breakpoints are 0.0, so a masked step falls through to `atx_stepLevelThree`, which is 0.0 there. Forms 5-7 (the evaporative and refueling strings, PLAN.md §7.3.75) are three more masked arms: the right-closed ethanol step, the benzene content times `ethanol_rvp_linear_ratio` times the scale, and `ethanol_rvp_linear_ratio` times the scale. Form 7 reuses form 6's linear combination with the RVP coefficient and constant at 0.0 -- `0.03334*(ETOHVolume*1.0) + 0.0*RVP + 0.0`, which is the string's own number."
         },
         "atx_suppliedClosedFormRatio": {
           "type": "unknown",
@@ -12514,7 +12522,7 @@
           "shape": [
             "rate_rows"
           ],
-          "description": "Does that half cover this rate row? Gasoline and E85 at one of the six toxics, at running and start exhaust, in the model years each string covers."
+          "description": "Does that half cover this rate row? Gasoline and E85 at one of the six toxics, at running and start exhaust -- and, since PLAN.md §7.3.75, benzene and ethanol at the evaporative and refueling processes -- in the model years each string covers."
         },
         "rt_atComplexRatio": {
           "type": "unknown",
@@ -15870,7 +15878,7 @@
           "shape": [
             "chainlink_rows"
           ],
-          "description": "THE CHAIN'S EDGE LIST: `runspecchainedto`'s rows CONCATENATED with the CO2AE edges crossed with their processes, and with the refueling edges crossed with theirs."
+          "description": "THE CHAIN'S EDGE LIST: `runspecchainedto`'s rows CONCATENATED with the CO2AE edges crossed with their processes, and with the refueling edges crossed with theirs, and with the hydrocarbon edges hcspeciation.go draws at refueling and the chain table does not (`hce_*`, PLAN.md §7.3.75)."
         },
         "lnk_inputPolProcessID": {
           "type": "unknown",
@@ -18222,7 +18230,7 @@
             "runspeccounty_rows",
             "runspecmonth_rows"
           ],
-          "description": "The methane arm."
+          "description": "The methane arm. Times `rt_hcWorkerOutputScale` (1 except at `aggregateBy` Year on an evaporative or refueling process, PLAN.md §7.3.75)."
         },
         "rt_nmhcChainRatio": {
           "type": "unknown",
@@ -18232,7 +18240,7 @@
             "runspeccounty_rows",
             "runspecmonth_rows"
           ],
-          "description": "The NMHC arm: the complement of the same ratio."
+          "description": "The NMHC arm: the complement of the same ratio. Times `rt_hcWorkerOutputScale` (1 except at `aggregateBy` Year on an evaporative or refueling process, PLAN.md §7.3.75)."
         },
         "rt_hcSpeciationChainRatio": {
           "type": "unknown",
@@ -21698,15 +21706,7 @@
           "shape": [
             "run_rows"
           ],
-          "description": "What a run that pre-aggregates time selects and the model does not compute (PLAN.md §7.3.63-§7.3.74), counted by `run_selectionUnported`; 0 on a run that does not aggregate. PORTED and not counted: starts, hotelling and off-network idle under PreAggDAY.sql and PreAggMONTH.sql (§7.3.63); the evaporative processes, refueling, crankcase, brake and tire wear under both (§7.3.64: TankTemperatureGenerator over the collapsed ZoneMonthHour writes no cold-soak tank temperature, `ttg_hasColdSoakTankTemperature`); hotelling at two calendar years (`userdb-hotelling-multiyear-day`, `-month`; a third year is `hot_adjustmentRowsUnported`'s), off-network idle with the AdjustTotalIdleFraction.sql inputs (`scale-county-idle-adjust-day`, `-month`) and a whole-week cell of a RunSpec selecting fewer day types than the week (`scale-county-timeagg-weekday`) under both (§7.3.66), and the same three at `aggregateBy` Year (§7.3.70: `userdb-hotelling-multiyear-year`; `scale-county-idle-adjust-year`, idleMonthAdjust collapsed by PreAggYEAR.sql to its unweighted mean over the rows the input merge left; `scale-county-timeagg-weekday-year`; a third calendar year of hotelling stays `hot_adjustmentRowsUnported`'s, read by `run_domainUnported`); an evaporative process over a STATED soakActivityFraction under both (§7.3.67, `scale-county-timeagg-soak-day`, `-month`: PreAggDAY.sql collapses the user's hourly rows to `sum(soakActivityFraction x HourWeighting2)` per day type and PreAggMONTH.sql those by DayWeighting2, before TTG-6 keeps them, `evap_soakCellWeight`); and PreAggYEAR.sql's month collapse for what `scale-county-timeagg-year` checks (§7.3.65), in `scale-county-timeagg-processes-year`, the evaporative processes and refueling (§7.3.68: PreAggYEAR.sql's AverageTankTemperature and SoakActivityFraction SUMS act on tables no generator has written yet, so they collapse nothing unless the user states them -- (1) below; what the month collapse reaches is FuelSupply's summed share, which TankFuelGenerator's gasohol share and RefuelingLossCalculator's RVP and energy content read as sums and venting and leaks never read), and the gaseous species, air toxics and PM species at running and start exhaust that `scale-county-timeagg-year-toxics` and `-pm` check (§7.3.69: SulfatePMCalculator's and AirToxicsCalculator's own sums over the raw FuelSupply shares, findings F69, F70), with start-exhaust N2O, CO2 Equivalent, the six ATRatio toxics and the PM species that `scale-county-timeagg-year-start-species` checks (§7.3.71). Counted, each unmeasured, at `aggregateBy` Year (`n_aggregatesMonths`) only: (1) an evaporative process over a STATED soakActivityFraction (`run_soakActivityInputRows`), which PreAggYEAR.sql then SUMS by MonthWeighting into month 0; (2) every pollutant-process on a selected road that no Year capture checks (`run_yearUnportedSelected`): anything outside THC, CO, NOx, energy, CO2 and brake/tire PM at running, start, the crankcase processes, extended idle, APU and wear, THC at permeation, venting, leaks and refueling, and `year_captured_species` at running and start: the mechanism at the evaporative and refueling processes. At extended idle, APU and the crankcase processes the gases and toxics are `year_captured_idle_species`, checked by `scale-county-timeagg-year-toxics-idle` (§7.3.72); NonHAPTOG and its mechanism at all seven exhaust processes are `year_captured_nonhaptog`, checked by `scale-county-timeagg-year-nonhaptog` (§7.3.73; N2O is a pollutant-process at running and start alone); and the PM species, PAH particles, metals and dioxins at every exhaust process are `year_captured_minor_species`, checked by `scale-county-timeagg-year-minor-offnet` and `-running` (§7.3.74; the metals and dioxins checked ABSENT, as MOVES writes them). ATRatio itself needs nothing: PreAggYEAR.sql averages an EMPTY table, and FuelEffectsGenerator writes it afterwards at month group 0 from the collapsed ATBaseEmissions (`aggatratio` 0 rows in the capture)."
-        },
-        "run_soakActivityInputRows": {
-          "type": "unknown",
-          "units": "1",
-          "shape": [
-            "run_rows"
-          ],
-          "description": "Stated `soakActivityFraction` rows at the run's zone, source types and months (`evap_soakActivityInputCount` summed). The default database has none; a county or user database may state them, and TTG-6 then keeps them in place of its own."
+          "description": "What a run that pre-aggregates time selects and the model does not compute (PLAN.md §7.3.63-§7.3.74), counted by `run_selectionUnported`; 0 on a run that does not aggregate. PORTED and not counted: starts, hotelling and off-network idle under PreAggDAY.sql and PreAggMONTH.sql (§7.3.63); the evaporative processes, refueling, crankcase, brake and tire wear under both (§7.3.64: TankTemperatureGenerator over the collapsed ZoneMonthHour writes no cold-soak tank temperature, `ttg_hasColdSoakTankTemperature`); hotelling at two calendar years (`userdb-hotelling-multiyear-day`, `-month`; a third year is `hot_adjustmentRowsUnported`'s), off-network idle with the AdjustTotalIdleFraction.sql inputs (`scale-county-idle-adjust-day`, `-month`) and a whole-week cell of a RunSpec selecting fewer day types than the week (`scale-county-timeagg-weekday`) under both (§7.3.66), and the same three at `aggregateBy` Year (§7.3.70: `userdb-hotelling-multiyear-year`; `scale-county-idle-adjust-year`, idleMonthAdjust collapsed by PreAggYEAR.sql to its unweighted mean over the rows the input merge left; `scale-county-timeagg-weekday-year`; a third calendar year of hotelling stays `hot_adjustmentRowsUnported`'s, read by `run_domainUnported`); an evaporative process over a STATED soakActivityFraction under both (§7.3.67, `scale-county-timeagg-soak-day`, `-month`: PreAggDAY.sql collapses the user's hourly rows to `sum(soakActivityFraction x HourWeighting2)` per day type and PreAggMONTH.sql those by DayWeighting2, before TTG-6 keeps them, `evap_soakCellWeight`); and PreAggYEAR.sql's month collapse for what `scale-county-timeagg-year` checks (§7.3.65), in `scale-county-timeagg-processes-year`, the evaporative processes and refueling (§7.3.68: PreAggYEAR.sql's AverageTankTemperature and SoakActivityFraction SUMS act on tables no generator has written yet, so they collapse nothing unless the user states them -- the stated case below; what the month collapse reaches is FuelSupply's summed share, which TankFuelGenerator's gasohol share and RefuelingLossCalculator's RVP and energy content read as sums and venting and leaks never read), and the gaseous species, air toxics and PM species at running and start exhaust that `scale-county-timeagg-year-toxics` and `-pm` check (§7.3.69: SulfatePMCalculator's and AirToxicsCalculator's own sums over the raw FuelSupply shares, findings F69, F70), with start-exhaust N2O, CO2 Equivalent, the six ATRatio toxics and the PM species that `scale-county-timeagg-year-start-species` checks (§7.3.71). An evaporative process over a STATED soakActivityFraction at `aggregateBy` Year is ported too (§7.3.75, `scale-county-timeagg-soak-year`): PreAggYEAR.sql SUMS the month-collapsed rows by MonthWeighting into month 0, undivided (`mag_monthSum`). Before §7.3.75 that case was counted here by `run_soakActivityInputRows`, which joined the stated rows at the RunSpec's month -- month 0 at Year, which no stated row carries -- so it read 0 on the very run it refused and the model ran TTG-6 in place of the user's rows (THC 60% low; finding F83). Counted, unmeasured, at `aggregateBy` Year (`n_aggregatesMonths`) only: every pollutant-process on a selected road that no Year capture checks (`run_yearUnportedSelected`): anything outside THC, CO, NOx, energy, CO2 and brake/tire PM at running, start, the crankcase processes, extended idle, APU and wear, THC at permeation, venting, leaks and refueling, and `year_captured_species` at running and start. Every pollutant MOVES associates with the evaporative and refueling processes is `year_captured_evap_species`, checked by `scale-county-timeagg-year-evap-species` (§7.3.75). At extended idle, APU and the crankcase processes the gases and toxics are `year_captured_idle_species`, checked by `scale-county-timeagg-year-toxics-idle` (§7.3.72); NonHAPTOG and its mechanism at all seven exhaust processes are `year_captured_nonhaptog`, checked by `scale-county-timeagg-year-nonhaptog` (§7.3.73; N2O is a pollutant-process at running and start alone); and the PM species, PAH particles, metals and dioxins at every exhaust process are `year_captured_minor_species`, checked by `scale-county-timeagg-year-minor-offnet` and `-running` (§7.3.74; the metals and dioxins checked ABSENT, as MOVES writes them). ATRatio itself needs nothing: PreAggYEAR.sql averages an EMPTY table, and FuelEffectsGenerator writes it afterwards at month group 0 from the collapsed ATBaseEmissions (`aggatratio` 0 rows in the capture)."
         },
         "run_aggregationHourCount": {
           "type": "unknown",
@@ -22014,7 +22014,7 @@
           "shape": [
             "runspecpollutantprocess_rows"
           ],
-          "description": "Rung 2: how many live on the selected OFF-network road type 1."
+          "description": "Rung 2: how many live on the selected OFF-network road type 1 -- whose road type at rung 1 is road type 1, or which are themselves chained (no base-rate row) and have a parent there at rung 1. The second arm is a refueling loss's species (PLAN.md §7.3.75): THC at refueling lives on the on-network road type with its running-energy parent but occurs on road type 1 too, by its start and extended-idle energy parents, and MOVES writes its NMHC, NMOG, TOG, VOC, toxics and NonHAPTOG on road type 1 with it; before, they stopped at the on-network road types."
         },
         "rspp_chainRoadTypeID2": {
           "type": "unknown",
@@ -22046,7 +22046,7 @@
           "shape": [
             "runspecpollutantprocess_rows"
           ],
-          "description": "Rung 3: how many live on the selected OFF-network road type 1."
+          "description": "Rung 3: how many live on the selected OFF-network road type 1 -- whose road type at rung 2 is road type 1, or which are themselves chained (no base-rate row) and have a parent there at rung 2. The second arm is a refueling loss's species (PLAN.md §7.3.75): THC at refueling lives on the on-network road type with its running-energy parent but occurs on road type 1 too, by its start and extended-idle energy parents, and MOVES writes its NMHC, NMOG, TOG, VOC, toxics and NonHAPTOG on road type 1 with it; before, they stopped at the on-network road types."
         },
         "rspp_chainRoadTypeID3": {
           "type": "unknown",
@@ -22078,7 +22078,7 @@
           "shape": [
             "runspecpollutantprocess_rows"
           ],
-          "description": "Rung 4: how many live on the selected OFF-network road type 1."
+          "description": "Rung 4: how many live on the selected OFF-network road type 1 -- whose road type at rung 3 is road type 1, or which are themselves chained (no base-rate row) and have a parent there at rung 3. The second arm is a refueling loss's species (PLAN.md §7.3.75): THC at refueling lives on the on-network road type with its running-energy parent but occurs on road type 1 too, by its start and extended-idle energy parents, and MOVES writes its NMHC, NMOG, TOG, VOC, toxics and NonHAPTOG on road type 1 with it; before, they stopped at the on-network road types."
         },
         "rspp_chainRoadTypeID4": {
           "type": "unknown",
@@ -25582,7 +25582,7 @@
           "shape": [
             "run_rows"
           ],
-          "description": "Pollutant-processes on a selected road that no Year capture checks: neither a (process, pollutant) pair `scale-county-timeagg-year` or `scale-county-timeagg-processes-year` checks (`year_captured_process` times `year_captured_pollutant`; PLAN.md §7.3.65, §7.3.68) nor a species `scale-county-timeagg-year-toxics`, `-pm` or `-start-species` checks at running or start exhaust (`year_captured_species`; §7.3.69, §7.3.71), nor one `scale-county-timeagg-year-toxics-idle` checks at extended idle, APU and the crankcase processes (`year_captured_idle_species`; §7.3.72), nor NonHAPTOG or its mechanism (3000) at those five and running and start exhaust, which `scale-county-timeagg-year-nonhaptog` checks (`year_captured_nonhaptog`; §7.3.73), nor a PM species, PAH particle, metal or dioxin `scale-county-timeagg-year-minor-offnet` or `-running` checks at any exhaust process (`year_captured_minor_species`; §7.3.74). Counted by `run_aggregationUnported` at `aggregateBy` Year."
+          "description": "Pollutant-processes on a selected road that no Year capture checks: neither a (process, pollutant) pair `scale-county-timeagg-year` or `scale-county-timeagg-processes-year` checks (`year_captured_process` times `year_captured_pollutant`; PLAN.md §7.3.65, §7.3.68) nor a species `scale-county-timeagg-year-toxics`, `-pm` or `-start-species` checks at running or start exhaust (`year_captured_species`; §7.3.69, §7.3.71), nor one `scale-county-timeagg-year-toxics-idle` checks at extended idle, APU and the crankcase processes (`year_captured_idle_species`; §7.3.72), nor NonHAPTOG or its mechanism (3000) at those five and running and start exhaust, which `scale-county-timeagg-year-nonhaptog` checks (`year_captured_nonhaptog`; §7.3.73), nor a PM species, PAH particle, metal or dioxin `scale-county-timeagg-year-minor-offnet` or `-running` checks at any exhaust process (`year_captured_minor_species`; §7.3.74). Counted by `run_aggregationUnported` at `aggregateBy` Year, nor a pollutant MOVES associates with the evaporative and refueling processes that `scale-county-timeagg-year-evap-species` checks there (`year_captured_evap_species`; §7.3.75). Before §7.3.75 every species but THC at 11, 12, 13, 18, 19 was counted here, 69 of that capture's selections; it reads 0 now."
         },
         "ffsup_suppliedShare": {
           "type": "unknown",
@@ -25933,6 +25933,73 @@
             "runspecmonth_rows"
           ],
           "description": "What start exhaust MULTIPLIES a mode's rate by before the mode is weighted: PM's start-temperature factor on 11202 and 11802 (BaseRateCalculator.sql:902-990), 1 on every other rate row, so the additive pollutant-processes are unchanged bit for bit (PLAN.md §7.3.71)."
+        },
+        "mag_monthSum": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecmonth_rows",
+            "aggregationmonth_rows"
+          ],
+          "description": "The aggregation month's weight in PreAggYEAR.sql's SoakActivityFraction collapse, `sum(soakActivityFraction x actFract)` over MonthWeighting (`mag_monthWeight`) into MonthOfAnyYear 0 -- a SUM, NOT normalised (the script's `these weightings will not sum to unity if all months are not included`), so a run of two months carries about a sixth of the year's weight (PLAN.md §7.3.75). On any other run 1 at the cell's own month and 0 elsewhere."
+        },
+        "atx_ethanolCoefficient": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "airtoxicsform_rows"
+          ],
+          "description": "Forms 6 and 7's coefficient of the (weighted) ethanol volume: -0.02895 in permeation benzene's string, -0.03420 in the other four evaporative benzene strings, 0.03334 and 0.011896 in the evaporative ethanol strings (PLAN.md §7.3.75). 0.0 on every row of forms 1-5."
+        },
+        "atx_ethanolWeight": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "airtoxicsform_rows"
+          ],
+          "description": "Forms 6 and 7's factor INSIDE the ethanol term, `ETOHVolume*0.3653` in the evaporative benzene strings (the weight-to-volume conversion the string carries), 1.0 in the ethanol strings, which write the volume bare. 0.0 on forms 1-5."
+        },
+        "atx_rvpCoefficient": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "airtoxicsform_rows"
+          ],
+          "description": "Form 6's coefficient of the RVP, -0.080274 in all five evaporative benzene strings. 0.0 elsewhere."
+        },
+        "atx_constantTerm": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "airtoxicsform_rows"
+          ],
+          "description": "Form 6's constant term: 1.3758 (permeation), 1.4448 (venting, leaks, refueling). 0.0 elsewhere."
+        },
+        "hce_outputPolProcessID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "hcedge_rows"
+          ],
+          "description": "THE HYDROCARBON EDGES `runspecchainedto` does not hold (PLAN.md §7.3.75): methane at refueling displacement and spillage (518, 519) from THC at the same process, and TOG there (8618, 8619) from that methane. `pollutantProcessAssoc.chainedTo1` is NULL on 518 and 519, so MOVES's chain table has no methane edge and no TOG-from-methane edge at 18 and 19 -- but hcspeciation.go (MOVES 5's HC speciation, a Go calculator) writes methane = THC x CH4THCRatio for EVERY needed methane pollutant-process whose THC it sees (`mwo.NeededPolProcessIDs[5*100+processID]`), and TOG = NMOG + that methane, without consulting the chain. `scale-county-evap-species` has methane at 18 and 19 on every THC cohort (all 0.0: every evaporative and refueling `methaneTHCRatio` row is 0.0). Declared as code, as the CO2AE and refueling edges are (conventions §77)."
+        },
+        "hce_inputPolProcessID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "hcedge_rows"
+          ],
+          "description": "The edge's input: THC (118, 119) for methane, methane (518, 519) for TOG."
+        },
+        "rt_hcWorkerOutputScale": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows",
+            "runspeccounty_rows",
+            "runspecmonth_rows"
+          ],
+          "description": "What methane and NMHC multiply THC by beyond their ratio where THC reaches the Go HC speciation through the MOVESWorkerOutput file (`worker_output_split_process`: the evaporative and refueling processes): the Go reader splits the row over the formulations by `marketShare`, so the species carry the fuel type's SUMMED share -- 1 on a run that does not aggregate by year, 0.334229 at `aggregateBy` Year over four months (`rt_fuelTypeSupplyShare`). Measured on `scale-county-timeagg-year-evap-species`: NMHC / THC is 0.334229 at venting, leaks and both refueling processes, for gasoline, E85 and diesel alike, where every evaporative CH4THCRatio is 0.0 (PLAN.md §7.3.75, finding F84). NMOG, VOC and TOG follow from NMHC; the toxics take the sum AGAIN through their own ratios (`ffsup_suppliedShare`, F70)."
         }
       },
       "equations": [
@@ -55496,6 +55563,9 @@
               },
               "a": {
                 "from": "soakactivityfraction_rows"
+              },
+              "am": {
+                "from": "aggregationmonth_rows"
               }
             },
             "join": [
@@ -55511,12 +55581,19 @@
                   ],
                   [
                     "saf_monthID",
-                    "rsm_monthID"
+                    "amo_monthID"
                   ]
                 ]
               }
             ],
-            "expr": 1.0
+            "expr": {
+              "op": "index",
+              "args": [
+                "mag_collects",
+                "m",
+                "am"
+              ]
+            }
           }
         },
         {
@@ -55673,6 +55750,9 @@
               },
               "h": {
                 "from": "aggregationhour_rows"
+              },
+              "am": {
+                "from": "aggregationmonth_rows"
               }
             },
             "join": [
@@ -55688,7 +55768,7 @@
                   ],
                   [
                     "saf_monthID",
-                    "rsm_monthID"
+                    "amo_monthID"
                   ],
                   [
                     "saf_opModeID",
@@ -55721,20 +55801,33 @@
               "op": "*",
               "args": [
                 {
-                  "op": "index",
+                  "op": "*",
                   "args": [
-                    "evap_soakCellWeight",
-                    "k",
-                    "d",
-                    "h",
-                    "s"
+                    {
+                      "op": "index",
+                      "args": [
+                        "evap_soakCellWeight",
+                        "k",
+                        "d",
+                        "h",
+                        "s"
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "saf_soakActivityFraction",
+                        "a"
+                      ]
+                    }
                   ]
                 },
                 {
                   "op": "index",
                   "args": [
-                    "saf_soakActivityFraction",
-                    "a"
+                    "mag_monthSum",
+                    "m",
+                    "am"
                   ]
                 }
               ]
@@ -55812,6 +55905,9 @@
               },
               "h": {
                 "from": "aggregationhour_rows"
+              },
+              "am": {
+                "from": "aggregationmonth_rows"
               }
             },
             "join": [
@@ -55827,7 +55923,7 @@
                   ],
                   [
                     "saf_monthID",
-                    "rsm_monthID"
+                    "amo_monthID"
                   ],
                   [
                     "saf_opModeID",
@@ -55860,19 +55956,32 @@
               "op": "*",
               "args": [
                 {
-                  "op": "index",
+                  "op": "*",
                   "args": [
-                    "tcell_dayMatch",
-                    "k",
-                    "d"
+                    {
+                      "op": "index",
+                      "args": [
+                        "tcell_dayMatch",
+                        "k",
+                        "d"
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "tcell_hourMatch",
+                        "k",
+                        "h"
+                      ]
+                    }
                   ]
                 },
                 {
                   "op": "index",
                   "args": [
-                    "tcell_hourMatch",
-                    "k",
-                    "h"
+                    "mag_collects",
+                    "m",
+                    "am"
                   ]
                 }
               ]
@@ -77742,7 +77851,22 @@
               2602,
               2702,
               2702,
-              2702
+              2702,
+              2011,
+              2012,
+              2013,
+              2018,
+              2019,
+              2111,
+              2111,
+              2112,
+              2112,
+              2113,
+              2113,
+              2118,
+              2118,
+              2119,
+              2119
             ]
           }
         },
@@ -77779,7 +77903,22 @@
               5,
               1,
               1,
-              5
+              5,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1
             ]
           }
         },
@@ -77816,7 +77955,22 @@
               2001,
               1950,
               2001,
-              2001
+              2001,
+              1950,
+              1950,
+              1950,
+              1950,
+              1950,
+              1950,
+              2004,
+              1950,
+              2004,
+              1950,
+              2004,
+              1950,
+              2004,
+              1950,
+              2004
             ]
           }
         },
@@ -77853,6 +78007,21 @@
               2060,
               2000,
               2060,
+              2060,
+              2060,
+              2060,
+              2060,
+              2060,
+              2060,
+              2003,
+              2060,
+              2003,
+              2060,
+              2003,
+              2060,
+              2003,
+              2060,
+              2003,
               2060
             ]
           }
@@ -77890,7 +78059,22 @@
               3,
               1,
               3,
-              3
+              3,
+              6,
+              6,
+              6,
+              6,
+              6,
+              5,
+              7,
+              7,
+              7,
+              7,
+              7,
+              7,
+              7,
+              7,
+              7
             ]
           }
         },
@@ -77927,7 +78111,22 @@
               0.0,
               0.000628499,
               0.0,
-              0.0
+              0.0,
+              0.0177,
+              0.01,
+              0.01,
+              0.01,
+              0.01,
+              0.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0
             ]
           }
         },
@@ -77964,6 +78163,21 @@
               7.1263182195,
               1.0,
               1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
               1.0
             ]
           }
@@ -77992,6 +78206,21 @@
               0.0,
               0.0,
               0.66,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
               0.0,
               0.0,
               0.0,
@@ -78038,6 +78267,21 @@
               0.0,
               0.0,
               0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
               0.0
             ]
           }
@@ -78067,6 +78311,21 @@
               0.0,
               0.0,
               8e-06,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
               0.0,
               0.0,
               0.0,
@@ -78112,6 +78371,21 @@
               0.0,
               0.0,
               0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
               0.0
             ]
           }
@@ -78149,6 +78423,21 @@
               0.0,
               0.0,
               0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
               0.0
             ]
           }
@@ -78178,6 +78467,21 @@
               1.0,
               1.0,
               0.008823,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
               1.0,
               1.0,
               1.0,
@@ -78224,6 +78528,21 @@
               0.0,
               0.0,
               0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.1,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
               0.0
             ]
           }
@@ -78255,6 +78574,21 @@
               0.0,
               0.0,
               6.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              12.5,
+              0.0,
+              0.0,
               0.0,
               0.0,
               0.0,
@@ -78298,6 +78632,21 @@
               0.0,
               0.0,
               0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              17.5,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
               0.0
             ]
           }
@@ -78308,6 +78657,21 @@
             "op": "const",
             "args": [],
             "value": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
               0.0,
               0.0,
               0.0,
@@ -78372,6 +78736,21 @@
               0.0,
               0.0,
               0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.202,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
               0.0
             ]
           }
@@ -78409,6 +78788,21 @@
               0.0,
               0.0,
               0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.2694,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
               0.0
             ]
           }
@@ -78440,6 +78834,21 @@
               0.0,
               0.0,
               0.0239,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.3296,
+              0.0,
+              0.0,
               0.0,
               0.0,
               0.0,
@@ -78484,7 +78893,22 @@
               1.0,
               0.0,
               1.0,
-              1.0
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0
             ]
           }
         },
@@ -82799,65 +83223,276 @@
                           "op": "+",
                           "args": [
                             {
-                              "op": "*",
+                              "op": "+",
                               "args": [
                                 {
-                                  "op": "apply_expression_template",
-                                  "args": [],
-                                  "name": "in_half_open_range",
-                                  "bindings": {
-                                    "lower": 0.5,
-                                    "upper": 1.5,
-                                    "value": {
-                                      "op": "index",
+                                  "op": "+",
+                                  "args": [
+                                    {
+                                      "op": "+",
                                       "args": [
-                                        "atx_formID",
-                                        "x"
+                                        {
+                                          "op": "*",
+                                          "args": [
+                                            {
+                                              "op": "apply_expression_template",
+                                              "args": [],
+                                              "name": "in_half_open_range",
+                                              "bindings": {
+                                                "lower": 0.5,
+                                                "upper": 1.5,
+                                                "value": {
+                                                  "op": "index",
+                                                  "args": [
+                                                    "atx_formID",
+                                                    "x"
+                                                  ]
+                                                }
+                                              }
+                                            },
+                                            {
+                                              "op": "apply_expression_template",
+                                              "args": [],
+                                              "name": "centered_linear_ratio",
+                                              "bindings": {
+                                                "value": {
+                                                  "op": "index",
+                                                  "args": [
+                                                    "ffx_benzeneContent",
+                                                    "g",
+                                                    "m",
+                                                    "f",
+                                                    "cy"
+                                                  ]
+                                                },
+                                                "pivot": {
+                                                  "op": "index",
+                                                  "args": [
+                                                    "atx_linearPivot",
+                                                    "x"
+                                                  ]
+                                                },
+                                                "slope": {
+                                                  "op": "index",
+                                                  "args": [
+                                                    "atx_linearSlope",
+                                                    "x"
+                                                  ]
+                                                },
+                                                "scale": {
+                                                  "op": "index",
+                                                  "args": [
+                                                    "atx_baseFactor",
+                                                    "x",
+                                                    "g",
+                                                    "m",
+                                                    "f",
+                                                    "cy"
+                                                  ]
+                                                }
+                                              }
+                                            }
+                                          ]
+                                        },
+                                        {
+                                          "op": "*",
+                                          "args": [
+                                            {
+                                              "op": "apply_expression_template",
+                                              "args": [],
+                                              "name": "in_half_open_range",
+                                              "bindings": {
+                                                "lower": 1.5,
+                                                "upper": 2.5,
+                                                "value": {
+                                                  "op": "index",
+                                                  "args": [
+                                                    "atx_formID",
+                                                    "x"
+                                                  ]
+                                                }
+                                              }
+                                            },
+                                            {
+                                              "op": "apply_expression_template",
+                                              "args": [],
+                                              "name": "quadratic_property_ratio",
+                                              "bindings": {
+                                                "value": {
+                                                  "op": "index",
+                                                  "args": [
+                                                    "ffx_olefinContent",
+                                                    "g",
+                                                    "m",
+                                                    "f",
+                                                    "cy"
+                                                  ]
+                                                },
+                                                "coefficient_square": {
+                                                  "op": "index",
+                                                  "args": [
+                                                    "atx_quadraticSquare",
+                                                    "x"
+                                                  ]
+                                                },
+                                                "coefficient_linear": {
+                                                  "op": "index",
+                                                  "args": [
+                                                    "atx_quadraticLinear",
+                                                    "x"
+                                                  ]
+                                                },
+                                                "constant": {
+                                                  "op": "index",
+                                                  "args": [
+                                                    "atx_quadraticConstant",
+                                                    "x"
+                                                  ]
+                                                },
+                                                "base": {
+                                                  "op": "index",
+                                                  "args": [
+                                                    "atx_quadraticBase",
+                                                    "x"
+                                                  ]
+                                                },
+                                                "scale": {
+                                                  "op": "index",
+                                                  "args": [
+                                                    "atx_baseFactor",
+                                                    "x",
+                                                    "g",
+                                                    "m",
+                                                    "f",
+                                                    "cy"
+                                                  ]
+                                                }
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "op": "*",
+                                      "args": [
+                                        {
+                                          "op": "apply_expression_template",
+                                          "args": [],
+                                          "name": "in_half_open_range",
+                                          "bindings": {
+                                            "lower": 2.5,
+                                            "upper": 3.5,
+                                            "value": {
+                                              "op": "index",
+                                              "args": [
+                                                "atx_formID",
+                                                "x"
+                                              ]
+                                            }
+                                          }
+                                        },
+                                        {
+                                          "op": "index",
+                                          "args": [
+                                            "atx_baseFactor",
+                                            "x",
+                                            "g",
+                                            "m",
+                                            "f",
+                                            "cy"
+                                          ]
+                                        }
                                       ]
                                     }
-                                  }
+                                  ]
                                 },
                                 {
-                                  "op": "apply_expression_template",
-                                  "args": [],
-                                  "name": "centered_linear_ratio",
-                                  "bindings": {
-                                    "value": {
-                                      "op": "index",
-                                      "args": [
-                                        "ffx_benzeneContent",
-                                        "g",
-                                        "m",
-                                        "f",
-                                        "cy"
-                                      ]
+                                  "op": "*",
+                                  "args": [
+                                    {
+                                      "op": "apply_expression_template",
+                                      "args": [],
+                                      "name": "in_half_open_range",
+                                      "bindings": {
+                                        "lower": 3.5,
+                                        "upper": 4.5,
+                                        "value": {
+                                          "op": "index",
+                                          "args": [
+                                            "atx_formID",
+                                            "x"
+                                          ]
+                                        }
+                                      }
                                     },
-                                    "pivot": {
-                                      "op": "index",
-                                      "args": [
-                                        "atx_linearPivot",
-                                        "x"
-                                      ]
-                                    },
-                                    "slope": {
-                                      "op": "index",
-                                      "args": [
-                                        "atx_linearSlope",
-                                        "x"
-                                      ]
-                                    },
-                                    "scale": {
-                                      "op": "index",
-                                      "args": [
-                                        "atx_baseFactor",
-                                        "x",
-                                        "g",
-                                        "m",
-                                        "f",
-                                        "cy"
-                                      ]
+                                    {
+                                      "op": "apply_expression_template",
+                                      "args": [],
+                                      "name": "stepwise_property_ratio",
+                                      "bindings": {
+                                        "value": {
+                                          "op": "index",
+                                          "args": [
+                                            "ffx_ETOHVolume",
+                                            "g",
+                                            "m",
+                                            "f",
+                                            "cy"
+                                          ]
+                                        },
+                                        "cut_one": {
+                                          "op": "index",
+                                          "args": [
+                                            "atx_stepCutOne",
+                                            "x"
+                                          ]
+                                        },
+                                        "cut_two": {
+                                          "op": "index",
+                                          "args": [
+                                            "atx_stepCutTwo",
+                                            "x"
+                                          ]
+                                        },
+                                        "cut_three": {
+                                          "op": "index",
+                                          "args": [
+                                            "atx_stepCutThree",
+                                            "x"
+                                          ]
+                                        },
+                                        "level_zero": {
+                                          "op": "index",
+                                          "args": [
+                                            "atx_stepLevelZero",
+                                            "x"
+                                          ]
+                                        },
+                                        "level_one": {
+                                          "op": "index",
+                                          "args": [
+                                            "atx_stepLevelOne",
+                                            "x"
+                                          ]
+                                        },
+                                        "level_two": {
+                                          "op": "index",
+                                          "args": [
+                                            "atx_stepLevelTwo",
+                                            "x"
+                                          ]
+                                        },
+                                        "level_three": {
+                                          "op": "index",
+                                          "args": [
+                                            "atx_stepLevelThree",
+                                            "x"
+                                          ]
+                                        }
+                                      }
                                     }
-                                  }
+                                  ]
                                 }
                               ]
                             },
@@ -82869,8 +83504,8 @@
                                   "args": [],
                                   "name": "in_half_open_range",
                                   "bindings": {
-                                    "lower": 1.5,
-                                    "upper": 2.5,
+                                    "lower": 4.5,
+                                    "upper": 5.5,
                                     "value": {
                                       "op": "index",
                                       "args": [
@@ -82883,55 +83518,65 @@
                                 {
                                   "op": "apply_expression_template",
                                   "args": [],
-                                  "name": "quadratic_property_ratio",
+                                  "name": "stepwise_property_ratio_right_closed",
                                   "bindings": {
                                     "value": {
                                       "op": "index",
                                       "args": [
-                                        "ffx_olefinContent",
+                                        "ffx_ETOHVolume",
                                         "g",
                                         "m",
                                         "f",
                                         "cy"
                                       ]
                                     },
-                                    "coefficient_square": {
+                                    "cut_one": {
                                       "op": "index",
                                       "args": [
-                                        "atx_quadraticSquare",
+                                        "atx_stepCutOne",
                                         "x"
                                       ]
                                     },
-                                    "coefficient_linear": {
+                                    "cut_two": {
                                       "op": "index",
                                       "args": [
-                                        "atx_quadraticLinear",
+                                        "atx_stepCutTwo",
                                         "x"
                                       ]
                                     },
-                                    "constant": {
+                                    "cut_three": {
                                       "op": "index",
                                       "args": [
-                                        "atx_quadraticConstant",
+                                        "atx_stepCutThree",
                                         "x"
                                       ]
                                     },
-                                    "base": {
+                                    "level_zero": {
                                       "op": "index",
                                       "args": [
-                                        "atx_quadraticBase",
+                                        "atx_stepLevelZero",
                                         "x"
                                       ]
                                     },
-                                    "scale": {
+                                    "level_one": {
                                       "op": "index",
                                       "args": [
-                                        "atx_baseFactor",
-                                        "x",
-                                        "g",
-                                        "m",
-                                        "f",
-                                        "cy"
+                                        "atx_stepLevelOne",
+                                        "x"
+                                      ]
+                                    },
+                                    "level_two": {
+                                      "op": "index",
+                                      "args": [
+                                        "atx_stepLevelTwo",
+                                        "x"
+                                      ]
+                                    },
+                                    "level_three": {
+                                      "op": "index",
+                                      "args": [
+                                        "atx_stepLevelThree",
+                                        "x"
                                       ]
                                     }
                                   }
@@ -82948,12 +83593,173 @@
                               "args": [],
                               "name": "in_half_open_range",
                               "bindings": {
-                                "lower": 2.5,
-                                "upper": 3.5,
+                                "lower": 5.5,
+                                "upper": 6.5,
                                 "value": {
                                   "op": "index",
                                   "args": [
                                     "atx_formID",
+                                    "x"
+                                  ]
+                                }
+                              }
+                            },
+                            {
+                              "op": "*",
+                              "args": [
+                                {
+                                  "op": "*",
+                                  "args": [
+                                    {
+                                      "op": "index",
+                                      "args": [
+                                        "ffx_benzeneContent",
+                                        "g",
+                                        "m",
+                                        "f",
+                                        "cy"
+                                      ]
+                                    },
+                                    {
+                                      "op": "apply_expression_template",
+                                      "args": [],
+                                      "name": "ethanol_rvp_linear_ratio",
+                                      "bindings": {
+                                        "ethanol_volume": {
+                                          "op": "index",
+                                          "args": [
+                                            "ffx_ETOHVolume",
+                                            "g",
+                                            "m",
+                                            "f",
+                                            "cy"
+                                          ]
+                                        },
+                                        "rvp": {
+                                          "op": "index",
+                                          "args": [
+                                            "ffx_RVP",
+                                            "f"
+                                          ]
+                                        },
+                                        "ethanol_coefficient": {
+                                          "op": "index",
+                                          "args": [
+                                            "atx_ethanolCoefficient",
+                                            "x"
+                                          ]
+                                        },
+                                        "ethanol_weight": {
+                                          "op": "index",
+                                          "args": [
+                                            "atx_ethanolWeight",
+                                            "x"
+                                          ]
+                                        },
+                                        "rvp_coefficient": {
+                                          "op": "index",
+                                          "args": [
+                                            "atx_rvpCoefficient",
+                                            "x"
+                                          ]
+                                        },
+                                        "constant": {
+                                          "op": "index",
+                                          "args": [
+                                            "atx_constantTerm",
+                                            "x"
+                                          ]
+                                        }
+                                      }
+                                    }
+                                  ]
+                                },
+                                {
+                                  "op": "index",
+                                  "args": [
+                                    "atx_baseFactor",
+                                    "x",
+                                    "g",
+                                    "m",
+                                    "f",
+                                    "cy"
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "op": "*",
+                      "args": [
+                        {
+                          "op": "apply_expression_template",
+                          "args": [],
+                          "name": "in_half_open_range",
+                          "bindings": {
+                            "lower": 6.5,
+                            "upper": 7.5,
+                            "value": {
+                              "op": "index",
+                              "args": [
+                                "atx_formID",
+                                "x"
+                              ]
+                            }
+                          }
+                        },
+                        {
+                          "op": "*",
+                          "args": [
+                            {
+                              "op": "apply_expression_template",
+                              "args": [],
+                              "name": "ethanol_rvp_linear_ratio",
+                              "bindings": {
+                                "ethanol_volume": {
+                                  "op": "index",
+                                  "args": [
+                                    "ffx_ETOHVolume",
+                                    "g",
+                                    "m",
+                                    "f",
+                                    "cy"
+                                  ]
+                                },
+                                "rvp": {
+                                  "op": "index",
+                                  "args": [
+                                    "ffx_RVP",
+                                    "f"
+                                  ]
+                                },
+                                "ethanol_coefficient": {
+                                  "op": "index",
+                                  "args": [
+                                    "atx_ethanolCoefficient",
+                                    "x"
+                                  ]
+                                },
+                                "ethanol_weight": {
+                                  "op": "index",
+                                  "args": [
+                                    "atx_ethanolWeight",
+                                    "x"
+                                  ]
+                                },
+                                "rvp_coefficient": {
+                                  "op": "index",
+                                  "args": [
+                                    "atx_rvpCoefficient",
+                                    "x"
+                                  ]
+                                },
+                                "constant": {
+                                  "op": "index",
+                                  "args": [
+                                    "atx_constantTerm",
                                     "x"
                                   ]
                                 }
@@ -82971,93 +83777,6 @@
                               ]
                             }
                           ]
-                        }
-                      ]
-                    },
-                    {
-                      "op": "*",
-                      "args": [
-                        {
-                          "op": "apply_expression_template",
-                          "args": [],
-                          "name": "in_half_open_range",
-                          "bindings": {
-                            "lower": 3.5,
-                            "upper": 4.5,
-                            "value": {
-                              "op": "index",
-                              "args": [
-                                "atx_formID",
-                                "x"
-                              ]
-                            }
-                          }
-                        },
-                        {
-                          "op": "apply_expression_template",
-                          "args": [],
-                          "name": "stepwise_property_ratio",
-                          "bindings": {
-                            "value": {
-                              "op": "index",
-                              "args": [
-                                "ffx_ETOHVolume",
-                                "g",
-                                "m",
-                                "f",
-                                "cy"
-                              ]
-                            },
-                            "cut_one": {
-                              "op": "index",
-                              "args": [
-                                "atx_stepCutOne",
-                                "x"
-                              ]
-                            },
-                            "cut_two": {
-                              "op": "index",
-                              "args": [
-                                "atx_stepCutTwo",
-                                "x"
-                              ]
-                            },
-                            "cut_three": {
-                              "op": "index",
-                              "args": [
-                                "atx_stepCutThree",
-                                "x"
-                              ]
-                            },
-                            "level_zero": {
-                              "op": "index",
-                              "args": [
-                                "atx_stepLevelZero",
-                                "x"
-                              ]
-                            },
-                            "level_one": {
-                              "op": "index",
-                              "args": [
-                                "atx_stepLevelOne",
-                                "x"
-                              ]
-                            },
-                            "level_two": {
-                              "op": "index",
-                              "args": [
-                                "atx_stepLevelTwo",
-                                "x"
-                              ]
-                            },
-                            "level_three": {
-                              "op": "index",
-                              "args": [
-                                "atx_stepLevelThree",
-                                "x"
-                              ]
-                            }
-                          }
                         }
                       ]
                     }
@@ -95696,8 +96415,14 @@
           "rhs": {
             "op": "*",
             "args": [
-              "rt_isMethane",
-              "rt_ch4RatioOwn"
+              {
+                "op": "*",
+                "args": [
+                  "rt_isMethane",
+                  "rt_ch4RatioOwn"
+                ]
+              },
+              "rt_hcWorkerOutputScale"
             ]
           }
         },
@@ -95706,14 +96431,20 @@
           "rhs": {
             "op": "*",
             "args": [
-              "rt_isNMHC",
               {
-                "op": "-",
+                "op": "*",
                 "args": [
-                  1.0,
-                  "rt_ch4RatioOwn"
+                  "rt_isNMHC",
+                  {
+                    "op": "-",
+                    "args": [
+                      1.0,
+                      "rt_ch4RatioOwn"
+                    ]
+                  }
                 ]
-              }
+              },
+              "rt_hcWorkerOutputScale"
             ]
           }
         },
@@ -97839,7 +98570,8 @@
             "args": [
               "rct_outputPolProcessID",
               "caee_outputPolProcessID",
-              "rfe_outputPolProcessID"
+              "rfe_outputPolProcessID",
+              "hce_outputPolProcessID"
             ],
             "axis": 0
           }
@@ -97851,7 +98583,8 @@
             "args": [
               "rct_inputPolProcessID",
               "caee_inputPolProcessID",
-              "rfe_inputPolProcessID"
+              "rfe_inputPolProcessID",
+              "hce_inputPolProcessID"
             ],
             "axis": 0
           }
@@ -114284,89 +115017,18 @@
                   ]
                 },
                 {
-                  "op": "+",
+                  "op": "*",
                   "args": [
+                    "n_aggregatesMonths",
                     {
-                      "op": "*",
+                      "op": "index",
                       "args": [
-                        "n_aggregatesMonths",
-                        {
-                          "op": "*",
-                          "args": [
-                            {
-                              "op": "index",
-                              "args": [
-                                "run_needsTankTemperature",
-                                "n"
-                              ]
-                            },
-                            {
-                              "op": "apply_expression_template",
-                              "args": [],
-                              "name": "row_is_present",
-                              "bindings": {
-                                "match_count": {
-                                  "op": "index",
-                                  "args": [
-                                    "run_soakActivityInputRows",
-                                    "n"
-                                  ]
-                                }
-                              }
-                            }
-                          ]
-                        }
-                      ]
-                    },
-                    {
-                      "op": "*",
-                      "args": [
-                        "n_aggregatesMonths",
-                        {
-                          "op": "index",
-                          "args": [
-                            "run_yearUnportedSelected",
-                            "n"
-                          ]
-                        }
+                        "run_yearUnportedSelected",
+                        "n"
                       ]
                     }
                   ]
                 }
-              ]
-            }
-          }
-        },
-        {
-          "lhs": "run_soakActivityInputRows",
-          "rhs": {
-            "op": "faq",
-            "args": [],
-            "semiring": "sum_product",
-            "output_idx": [
-              "n"
-            ],
-            "ranges": {
-              "n": {
-                "from": "run_rows"
-              },
-              "g": {
-                "from": "runspeccounty_rows"
-              },
-              "s": {
-                "from": "runspecsourcetype_rows"
-              },
-              "mm": {
-                "from": "runspecmonth_rows"
-              }
-            },
-            "expr": {
-              "op": "index",
-              "args": [
-                "evap_soakActivityInputCount",
-                "g",
-                "s",
-                "mm"
               ]
             }
           }
@@ -120215,20 +120877,56 @@
               "op": "ifelse",
               "args": [
                 {
-                  "op": "==",
+                  "op": "or",
                   "args": [
                     {
-                      "op": "index",
+                      "op": "==",
                       "args": [
-                        "rspp_chainRoadTypeID1",
-                        "q"
+                        {
+                          "op": "index",
+                          "args": [
+                            "rspp_chainRoadTypeID1",
+                            "q"
+                          ]
+                        },
+                        {
+                          "op": "enum",
+                          "args": [
+                            "road_type",
+                            "OffNetwork"
+                          ]
+                        }
                       ]
                     },
                     {
-                      "op": "enum",
+                      "op": "and",
                       "args": [
-                        "road_type",
-                        "OffNetwork"
+                        {
+                          "op": "<",
+                          "args": [
+                            {
+                              "op": "index",
+                              "args": [
+                                "rspp_hasBaseRateTableRow",
+                                "q"
+                              ]
+                            },
+                            0.5
+                          ]
+                        },
+                        {
+                          "op": ">",
+                          "args": [
+                            {
+                              "op": "index",
+                              "args": [
+                                "rspp_offNetworkParents1",
+                                "q"
+                              ]
+                            },
+                            0.5
+                          ]
+                        }
                       ]
                     }
                   ]
@@ -120524,20 +121222,56 @@
               "op": "ifelse",
               "args": [
                 {
-                  "op": "==",
+                  "op": "or",
                   "args": [
                     {
-                      "op": "index",
+                      "op": "==",
                       "args": [
-                        "rspp_chainRoadTypeID2",
-                        "q"
+                        {
+                          "op": "index",
+                          "args": [
+                            "rspp_chainRoadTypeID2",
+                            "q"
+                          ]
+                        },
+                        {
+                          "op": "enum",
+                          "args": [
+                            "road_type",
+                            "OffNetwork"
+                          ]
+                        }
                       ]
                     },
                     {
-                      "op": "enum",
+                      "op": "and",
                       "args": [
-                        "road_type",
-                        "OffNetwork"
+                        {
+                          "op": "<",
+                          "args": [
+                            {
+                              "op": "index",
+                              "args": [
+                                "rspp_hasBaseRateTableRow",
+                                "q"
+                              ]
+                            },
+                            0.5
+                          ]
+                        },
+                        {
+                          "op": ">",
+                          "args": [
+                            {
+                              "op": "index",
+                              "args": [
+                                "rspp_offNetworkParents2",
+                                "q"
+                              ]
+                            },
+                            0.5
+                          ]
+                        }
                       ]
                     }
                   ]
@@ -120833,20 +121567,56 @@
               "op": "ifelse",
               "args": [
                 {
-                  "op": "==",
+                  "op": "or",
                   "args": [
                     {
-                      "op": "index",
+                      "op": "==",
                       "args": [
-                        "rspp_chainRoadTypeID3",
-                        "q"
+                        {
+                          "op": "index",
+                          "args": [
+                            "rspp_chainRoadTypeID3",
+                            "q"
+                          ]
+                        },
+                        {
+                          "op": "enum",
+                          "args": [
+                            "road_type",
+                            "OffNetwork"
+                          ]
+                        }
                       ]
                     },
                     {
-                      "op": "enum",
+                      "op": "and",
                       "args": [
-                        "road_type",
-                        "OffNetwork"
+                        {
+                          "op": "<",
+                          "args": [
+                            {
+                              "op": "index",
+                              "args": [
+                                "rspp_hasBaseRateTableRow",
+                                "q"
+                              ]
+                            },
+                            0.5
+                          ]
+                        },
+                        {
+                          "op": ">",
+                          "args": [
+                            {
+                              "op": "index",
+                              "args": [
+                                "rspp_offNetworkParents3",
+                                "q"
+                              ]
+                            },
+                            0.5
+                          ]
+                        }
                       ]
                     }
                   ]
@@ -126106,6 +126876,62 @@
           }
         },
         {
+          "lhs": "mag_monthSum",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "m",
+              "am"
+            ],
+            "ranges": {
+              "m": {
+                "from": "runspecmonth_rows"
+              },
+              "am": {
+                "from": "aggregationmonth_rows"
+              }
+            },
+            "expr": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "year_value_or_own",
+              "bindings": {
+                "aggregates_months": "n_aggregatesMonths",
+                "year_value": {
+                  "op": "*",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "mag_collects",
+                        "m",
+                        "am"
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "mag_monthWeight",
+                        "am"
+                      ]
+                    }
+                  ]
+                },
+                "own_value": {
+                  "op": "index",
+                  "args": [
+                    "mag_isOwnMonth",
+                    "m",
+                    "am"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
           "lhs": "run_daysInMonth",
           "rhs": {
             "op": "faq",
@@ -126335,12 +127161,45 @@
                   "args": [
                     1.0,
                     {
-                      "op": "*",
+                      "op": "max",
                       "args": [
+                        {
+                          "op": "*",
+                          "args": [
+                            {
+                              "op": "apply_expression_template",
+                              "args": [],
+                              "name": "year_captured_process",
+                              "bindings": {
+                                "process_id": {
+                                  "op": "index",
+                                  "args": [
+                                    "rspp_processID",
+                                    "p"
+                                  ]
+                                }
+                              }
+                            },
+                            {
+                              "op": "apply_expression_template",
+                              "args": [],
+                              "name": "year_captured_pollutant",
+                              "bindings": {
+                                "pollutant_id": {
+                                  "op": "index",
+                                  "args": [
+                                    "rspp_pollutantID",
+                                    "p"
+                                  ]
+                                }
+                              }
+                            }
+                          ]
+                        },
                         {
                           "op": "apply_expression_template",
                           "args": [],
-                          "name": "year_captured_process",
+                          "name": "year_captured_evap_species",
                           "bindings": {
                             "process_id": {
                               "op": "index",
@@ -126348,14 +127207,7 @@
                                 "rspp_processID",
                                 "p"
                               ]
-                            }
-                          }
-                        },
-                        {
-                          "op": "apply_expression_template",
-                          "args": [],
-                          "name": "year_captured_pollutant",
-                          "bindings": {
+                            },
                             "pollutant_id": {
                               "op": "index",
                               "args": [
@@ -127046,6 +127898,308 @@
                   ]
                 }
               ]
+            }
+          }
+        },
+        {
+          "lhs": "atx_ethanolCoefficient",
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              -0.02895,
+              -0.0342,
+              -0.0342,
+              -0.0342,
+              -0.0342,
+              0.0,
+              0.03334,
+              0.011896,
+              0.011896,
+              0.011896,
+              0.011896,
+              0.011896,
+              0.011896,
+              0.011896,
+              0.011896
+            ]
+          }
+        },
+        {
+          "lhs": "atx_ethanolWeight",
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.3653,
+              0.3653,
+              0.3653,
+              0.3653,
+              0.3653,
+              0.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "lhs": "atx_rvpCoefficient",
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              -0.080274,
+              -0.080274,
+              -0.080274,
+              -0.080274,
+              -0.080274,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0
+            ]
+          }
+        },
+        {
+          "lhs": "atx_constantTerm",
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.3758,
+              1.4448,
+              1.4448,
+              1.4448,
+              1.4448,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0
+            ]
+          }
+        },
+        {
+          "lhs": "hce_outputPolProcessID",
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              518,
+              519,
+              8618,
+              8619
+            ]
+          }
+        },
+        {
+          "lhs": "hce_inputPolProcessID",
+          "rhs": {
+            "op": "const",
+            "args": [],
+            "value": [
+              118,
+              119,
+              518,
+              519
+            ]
+          }
+        },
+        {
+          "lhs": "rt_hcWorkerOutputScale",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b",
+              "g",
+              "m"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "m": {
+                "from": "runspecmonth_rows"
+              }
+            },
+            "expr": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "year_value_or_own",
+              "bindings": {
+                "aggregates_months": "n_aggregatesMonths",
+                "year_value": {
+                  "op": "ifelse",
+                  "args": [
+                    {
+                      "op": ">",
+                      "args": [
+                        {
+                          "op": "apply_expression_template",
+                          "args": [],
+                          "name": "worker_output_split_process",
+                          "bindings": {
+                            "process_id": {
+                              "op": "index",
+                              "args": [
+                                "rt_processID",
+                                "b"
+                              ]
+                            }
+                          }
+                        },
+                        0.5
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "rt_fuelTypeSupplyShare",
+                        "b",
+                        "g",
+                        "m"
+                      ]
+                    },
+                    1.0
+                  ]
+                },
+                "own_value": 1.0
+              }
             }
           }
         }
