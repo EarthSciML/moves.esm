@@ -1776,6 +1776,15 @@ C7P_DOMAIN=moves-onroad.esm
 # speciated entries of the share matrix, the crankcase processes' PM split from
 # the PARENT process's species, and the metals and dioxins checked ABSENT, as
 # MOVES writes them (no `sourceTypePolProcess` row, so no source-bin distribution).
+# `scale-county-evap-species` and its Year twin `scale-county-timeagg-year-evap-species`
+# select every pollutant MOVES associates with the evaporative and refueling
+# processes (PLAN.md §7.3.75, conventions §127): the evaporative benzene and
+# ethanol strings of generalFuelRatioExpression (three more closed forms),
+# methane at refueling from THC (an edge hcspeciation.go draws and
+# `runspecchainedto` does not), the refueling species on road type 1 with
+# their THC, and at Year the Go HC speciation's second market-share split.
+# `scale-county-timeagg-soak-year` is `-soak-month` at `aggregateBy` Year:
+# PreAggYEAR.sql SUMS the stated soakActivityFraction by MonthWeighting.
 # `scale-county-outstep-hourday`, `-week` and `-dayagg` are the 24-Hour Day
 # and Portion of Week output steps (PLAN.md §7.3.66, conventions §118): a
 # day type's hour cells summed, as classical days or as a portion of a week;

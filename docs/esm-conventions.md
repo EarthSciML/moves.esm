@@ -9836,6 +9836,46 @@ copy -- four rungs.
    road type 4's running and crankcase running) the halves evaluate at 11.7 GB and
    6.7 GB. A single process family per capture also keeps MOVES from adding road types.
 
+## 127. A calculator in another language is read from its own source, a chain edge it draws without the table is code, and a refusal is tested on the run it refuses **[PLAN.md §7.3.75; `scale-county-evap-species` 54,220 of 54,220, `scale-county-timeagg-year-evap-species` 22,950 of 22,950, `scale-county-timeagg-soak-year` 512 of 512, key-exact, no `cell_exception`; the evaporative, refueling, species and Year runs byte-identical]**
+
+1. **MOVES 5's HC speciation is Go, and its rules are in the Go.** calc/hcspeciation
+   writes methane, NMHC, NMOG, TOG and VOC for every pollutant-process the run NEEDS
+   (`mwo.NeededPolProcessIDs`), not for every `runspecchainedto` edge: methane at 18 and 19
+   has no `chainedTo1` and no edge, and MOVES writes it on every THC cohort. An edge the
+   calculator draws and the table does not is declared as code beside the CO2AE and
+   refueling edges (§77; `hce_*`). Grep calc/ before concluding a species has no writer.
+2. **A file between two calculators is an arithmetic step.** The Go reader splits every
+   MOVESWorkerOutput row over the county's FuelSupply formulations by `marketShare`
+   (`readMOVESWorkerOutput`); a THC an SQL calculator wrote per fuel type therefore
+   reaches the species as `THC x share`, and at `aggregateBy` Year, where the shares sum to
+   the months' share of the year, every species carries that sum once more than its THC
+   (`rt_hcWorkerOutputScale`, `worker_output_split_process`). Where a calculator hands the
+   next one an in-memory per-formulation block (BaseRateCalculator) there is no split. Ask
+   of each process which path its parent took.
+3. **A table of strings is ported row by row, and a new process brings new forms.** The
+   evaporative benzene and ethanol strings were three more algebraic forms of
+   `generalFuelRatioExpression` (§24): a right-closed step (`<=`, where the running
+   string's `<` gives a cut to the level above), the benzene content times a linear
+   combination of the weighted ethanol volume and the RVP, and the ethanol volume times a
+   constant. Each became a template in lib/fuel_effects.esm and fifteen coefficient rows;
+   the string's grouping (`ETOHVolume*0.3653` inside the product) is kept as its own
+   coefficient. Measure the strings against the capture's `ATRatio` first.
+4. **A road-type rule closed over the chain closes over what a parent DOES, not what it
+   IS.** A refueling THC's road type is the on-network one (its running-energy parent),
+   but it occurs on road type 1 too; counting only parents whose own road type is 1 left
+   its species off road type 1. The rung counts a rateless parent with off-network
+   parents of its own, and a writer that lives with another pollutant-process's rows
+   (NonHAPTOG with NMOG, F78) takes that pollutant-process's occurrence too.
+5. **Evaluate a refusal on the run it refuses.** `run_soakActivityInputRows` joined the
+   stated rows at the RunSpec's month, which is 0 at Year and in no stated row, so it read
+   0 on exactly the configuration it existed to count, and the model silently ran TTG-6
+   instead (F83). A refusal is a computed number like any other: build the capture it
+   names, evaluate the unchanged model on it, and read the count before porting.
+6. **PreAggYEAR.sql's soak collapse is a SUM.** `sum(soakActivityFraction x actFract)` over
+   MonthWeighting, undivided, on top of PreAggDAY.sql's mean and PreAggMONTH.sql's sum: the
+   stated rows join through the aggregation months (`amo_monthID`), counted by
+   `mag_collects` and weighed by `mag_monthSum`, the own-month indicator off Year.
+
 ## 128. A window over an ordered axis is a gather or a recurrence, not a scan, and a chain that reads a few per-row coefficients runs over the relation they vary on **[PLAN.md §7.3.76; `scale-county-outstep-hourday` 40 min / 35.2 GB to 6 min / 7.3 GB, the `tvv_*` family 2,131 s to 24 s; every run whose cone holds it byte-identical]**
 
 The vapor-venting cold-soak chain (`tvv_*`, §7.3.49) cost 88 % of the slowest
