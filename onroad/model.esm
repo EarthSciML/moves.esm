@@ -186,6 +186,11 @@
       "default": 0,
       "description": "Rows in samplevehiclepopulation."
     },
+    "n_avft": {
+      "type": "integer",
+      "default": 0,
+      "description": "Rows in avft, the Alternative Vehicle Fuels & Technologies table a county or project database states (PLAN.md §7.3.78). ZERO in the national default database, which ships it empty, and in every catalogue whose database states AVFTTool's default projection: that projection is applyNewFraction's own `old`, so MOVES applies it as the identity (docs/esm-conventions.md §129)."
+    },
     "n_pollutantprocessmodelyear": {
       "type": "integer",
       "default": 0,
@@ -886,6 +891,10 @@
     "samplevehiclepopulation_rows": {
       "kind": "interval",
       "size": "n_samplevehiclepopulation"
+    },
+    "avft_rows": {
+      "kind": "interval",
+      "size": "n_avft"
     },
     "pollutantprocessmodelyear_rows": {
       "kind": "interval",
@@ -2119,6 +2128,12 @@
             "year_captured_minor_species",
             "year_captured_evap_species",
             "worker_output_split_process"
+          ]
+        },
+        {
+          "ref": "../lib/avft.esm",
+          "only": [
+            "avft_branch"
           ]
         }
       ],
@@ -8613,6 +8628,118 @@
               "file_variable": "stmyFraction"
             }
           }
+        },
+        "avft_sourceTypeID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "avft_rows"
+          ],
+          "description": "avft.sourceTypeID.",
+          "update": {
+            "kind": "data",
+            "source": "db_avft",
+            "from": {
+              "file_variable": "sourceTypeID"
+            }
+          }
+        },
+        "avft_modelYearID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "avft_rows"
+          ],
+          "description": "avft.modelYearID.",
+          "update": {
+            "kind": "data",
+            "source": "db_avft",
+            "from": {
+              "file_variable": "modelYearID"
+            }
+          }
+        },
+        "avft_fuelTypeID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "avft_rows"
+          ],
+          "description": "avft.fuelTypeID.",
+          "update": {
+            "kind": "data",
+            "source": "db_avft",
+            "from": {
+              "file_variable": "fuelTypeID"
+            }
+          }
+        },
+        "avft_engTechID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "avft_rows"
+          ],
+          "description": "avft.engTechID.",
+          "update": {
+            "kind": "data",
+            "source": "db_avft",
+            "from": {
+              "file_variable": "engTechID"
+            }
+          }
+        },
+        "avft_fuelEngFraction": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "avft_rows"
+          ],
+          "description": "avft.fuelEngFraction: the share of its (source type, model year) the user states for this fuel and engine technology, summed over regulatory class. AVFTMasterLoopable reads it as a double and casts it to float before comparing it (lib/avft.esm).",
+          "update": {
+            "kind": "data",
+            "source": "db_avft",
+            "from": {
+              "file_variable": "fuelEngFraction"
+            }
+          }
+        },
+        "svp_fuelEngFraction": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "samplevehiclepopulation_rows"
+          ],
+          "description": "applyNewFraction's `old`: sum(stmyFraction) over the sample-vehicle rows of this row's (source type, model year, fuel, engine technology), i.e. over regulatory class -- AVFTMasterLoopable.doSetup's `tableFraction`, read once before any row is rewritten, so every avft row is compared with the DEFAULT fleet. AVFTTool's default projection of an avft table is exactly this sum."
+        },
+        "svp_avftStated": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "samplevehiclepopulation_rows"
+          ],
+          "description": "How many avft rows state this row's (source type, model year, fuel, engine technology): 0 or 1 (avft's primary key). A row the avft does not state keeps its stmyFraction; an avft row no sample-vehicle row matches is ignored (applyNewFraction's `find` misses), which here is simply a row nothing joins to."
+        },
+        "svp_avftFraction": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "samplevehiclepopulation_rows"
+          ],
+          "description": "applyNewFraction's `new`: the stated avft.fuelEngFraction at this row's combination, 0 where none is stated (`svp_avftStated` says which)."
+        },
+        "svp_avftBranch": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "samplevehiclepopulation_rows"
+          ],
+          "description": "Which UPDATE AVFTMasterLoopable issues for this row's combination: 1 ADD, -1 SUBTRACT, 0 none (`avft_branch`, lib/avft.esm)."
         },
         "svp_salesWeight": {
           "type": "unknown",
@@ -20882,7 +21009,15 @@
           "shape": [
             "run_rows"
           ],
-          "description": "How many things this run asks of its DOMAIN that the model does not do: 0, asserted by tools/check-runspec-shape.py, and the licence for every PROJECT-domain number. It counts a runspecdomain that is not one row; in PROJECT domain (`run_projectShortfall`), a selected road type without a link, a walked drive schedule -- a user's or a zero-speed link's -- at Rates scale, beside an evaporative process or under user brake-wear rows (`run_projectScheduleUnported`), a second county, an emitted pollutant-process without a project generator here (`rspp_hasProjectGenerator`), user link operating-mode rows the model does not read (`run_userLinkModeRows`) or that cover some but not all selected hour-days (`run_userLinkGaps`), and two links on one road type at Rates scale; and outside it, any linkSourceTypeHour row, which only ProjectTAG reads. None of those fail loudly on their own -- each would emit a plausible wrong number -- which is why they are counted rather than trusted. In every domain it counts the two declared PROJECT shapes (`run_extraLinksUndeclared`, `run_gradesUndeclared`, PLAN.md §7.3.60). Since the SINGLE-county runs it also counts a ZoneRoadType input row whose key the default lacks (a row the merge would ADD, which relations on the default side's axis cannot see), and a hotellingHourFraction, hotellingAgeFraction or hotellingMonthAdjust row at a run's zone when it selects a hotelling process over more than TWO calendar years (`hot_adjustmentRowsUnported`): AdjustHotelling's four blocks are ported for a run's first year (PLAN.md §7.3.57) and for its second, over a table that still holds the first year's rows (§7.3.61). And a Zone input row whose zone the default lacks. AdjustTotalIdleFraction.sql's override and multipliers are ported (`oni_totalIdleFraction`) and no longer counted. Since PLAN.md §7.3.59 it no longer counts the crankcase and refueling processes at Rates scale, a second link at Rates scale or the evaporative rows a PROJECT Rates run writes to RatePerDistance; since §7.3.60 it no longer counts two links on one road type at inventory scale, links of different grades, an out-of-bounds bracket (MOVES extrapolates, with a warning), conflicting user start modes, or user running and brake-wear rows that leave a gap. Since §7.3.62 it no longer counts a user drive schedule or an on-network link of zero speed at inventory scale."
+          "description": "How many things this run asks of its DOMAIN that the model does not do: 0, asserted by tools/check-runspec-shape.py, and the licence for every PROJECT-domain number. It counts a runspecdomain that is not one row; in PROJECT domain (`run_projectShortfall`), a selected road type without a link, a walked drive schedule -- a user's or a zero-speed link's -- at Rates scale, beside an evaporative process or under user brake-wear rows (`run_projectScheduleUnported`), a second county, an emitted pollutant-process without a project generator here (`rspp_hasProjectGenerator`), user link operating-mode rows the model does not read (`run_userLinkModeRows`) or that cover some but not all selected hour-days (`run_userLinkGaps`), and two links on one road type at Rates scale; and outside it, any linkSourceTypeHour row, which only ProjectTAG reads. None of those fail loudly on their own -- each would emit a plausible wrong number -- which is why they are counted rather than trusted. In every domain it counts the two declared PROJECT shapes (`run_extraLinksUndeclared`, `run_gradesUndeclared`, PLAN.md §7.3.60). Since the SINGLE-county runs it also counts a ZoneRoadType input row whose key the default lacks (a row the merge would ADD, which relations on the default side's axis cannot see), and a hotellingHourFraction, hotellingAgeFraction or hotellingMonthAdjust row at a run's zone when it selects a hotelling process over more than TWO calendar years (`hot_adjustmentRowsUnported`): AdjustHotelling's four blocks are ported for a run's first year (PLAN.md §7.3.57) and for its second, over a table that still holds the first year's rows (§7.3.61). And a Zone input row whose zone the default lacks. AdjustTotalIdleFraction.sql's override and multipliers are ported (`oni_totalIdleFraction`) and no longer counted. Since PLAN.md §7.3.59 it no longer counts the crankcase and refueling processes at Rates scale, a second link at Rates scale or the evaporative rows a PROJECT Rates run writes to RatePerDistance; since §7.3.60 it no longer counts two links on one road type at inventory scale, links of different grades, an out-of-bounds bracket (MOVES extrapolates, with a warning), conflicting user start modes, or user running and brake-wear rows that leave a gap. Since §7.3.62 it no longer counts a user drive schedule or an on-network link of zero speed at inventory scale. And, since PLAN.md §7.3.78, every sample-vehicle row the run's avft rewrites (`run_avftUnported`)."
+        },
+        "run_avftUnported": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "run_rows"
+          ],
+          "description": "How many sample-vehicle rows of a SELECTED source type the run's avft would rewrite (`svp_avftBranch` nonzero): MOVES's AVFTControlStrategy rewrites sampleVehiclePopulation from them before any generator runs, and this model does not -- it reads the default fleet. Counted by `run_domainUnported`. 0 on every catalogue whose avft is AVFTTool's default projection, which the strategy applies as the identity (PLAN.md §7.3.78)."
         },
         "run_projectShortfall": {
           "type": "unknown",
@@ -29146,14 +29281,70 @@
                   }
                 },
                 "expr": {
-                  "op": "index",
+                  "op": "+",
                   "args": [
-                    "run_zoneRowsAdded",
-                    "n"
+                    {
+                      "op": "index",
+                      "args": [
+                        "run_zoneRowsAdded",
+                        "n"
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "run_avftUnported",
+                        "n"
+                      ]
+                    }
                   ]
                 }
               }
             ]
+          }
+        },
+        {
+          "lhs": "run_avftUnported",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "n"
+            ],
+            "ranges": {
+              "n": {
+                "from": "run_rows"
+              },
+              "v": {
+                "from": "samplevehiclepopulation_rows"
+              },
+              "s": {
+                "from": "runspecsourcetype_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "svp_sourceTypeID",
+                    "rst_sourceTypeID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "abs",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "svp_avftBranch",
+                    "v"
+                  ]
+                }
+              ]
+            }
           }
         },
         {
@@ -48333,6 +48524,191 @@
                 "coh_fuelTypeID",
                 "c"
               ]
+            }
+          }
+        },
+        {
+          "lhs": "svp_fuelEngFraction",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "v"
+            ],
+            "ranges": {
+              "v": {
+                "from": "samplevehiclepopulation_rows"
+              },
+              "w": {
+                "from": "samplevehiclepopulation_rows"
+              }
+            },
+            "join": [
+              {
+                "syms": [
+                  "v",
+                  "w"
+                ],
+                "on": [
+                  [
+                    "svp_sourceTypeID",
+                    "svp_sourceTypeID"
+                  ],
+                  [
+                    "svp_modelYearID",
+                    "svp_modelYearID"
+                  ],
+                  [
+                    "svp_fuelTypeID",
+                    "svp_fuelTypeID"
+                  ],
+                  [
+                    "svp_engTechID",
+                    "svp_engTechID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "svp_stmyFraction",
+                "w"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "svp_avftStated",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "v"
+            ],
+            "ranges": {
+              "v": {
+                "from": "samplevehiclepopulation_rows"
+              },
+              "a": {
+                "from": "avft_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "svp_sourceTypeID",
+                    "avft_sourceTypeID"
+                  ],
+                  [
+                    "svp_modelYearID",
+                    "avft_modelYearID"
+                  ],
+                  [
+                    "svp_fuelTypeID",
+                    "avft_fuelTypeID"
+                  ],
+                  [
+                    "svp_engTechID",
+                    "avft_engTechID"
+                  ]
+                ]
+              }
+            ],
+            "expr": 1.0
+          }
+        },
+        {
+          "lhs": "svp_avftFraction",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "v"
+            ],
+            "ranges": {
+              "v": {
+                "from": "samplevehiclepopulation_rows"
+              },
+              "a": {
+                "from": "avft_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "svp_sourceTypeID",
+                    "avft_sourceTypeID"
+                  ],
+                  [
+                    "svp_modelYearID",
+                    "avft_modelYearID"
+                  ],
+                  [
+                    "svp_fuelTypeID",
+                    "avft_fuelTypeID"
+                  ],
+                  [
+                    "svp_engTechID",
+                    "avft_engTechID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "avft_fuelEngFraction",
+                "a"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "svp_avftBranch",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "output_idx": [
+              "v"
+            ],
+            "ranges": {
+              "v": {
+                "from": "samplevehiclepopulation_rows"
+              }
+            },
+            "expr": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "avft_branch",
+              "bindings": {
+                "stated": {
+                  "op": "index",
+                  "args": [
+                    "svp_avftStated",
+                    "v"
+                  ]
+                },
+                "old_fraction": {
+                  "op": "index",
+                  "args": [
+                    "svp_fuelEngFraction",
+                    "v"
+                  ]
+                },
+                "new_fraction": {
+                  "op": "index",
+                  "args": [
+                    "svp_avftFraction",
+                    "v"
+                  ]
+                }
+              }
             }
           }
         },

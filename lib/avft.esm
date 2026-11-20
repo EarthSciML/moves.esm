@@ -1,0 +1,145 @@
+{
+  "esm": "1.2.0",
+  "metadata": {
+    "name": "avft",
+    "description": "Template library: AVFTControlStrategy, MOVES 5's Alternative Vehicle Fuels & Technologies control strategy (PLAN.md §7.3.78, docs/esm-conventions.md §129). MOVES runs it whenever the execution database's `avft` table has a row (MOVESInstantiator.addAutomaticInternalControlStrategies, java:1718-1806), before any generator: AVFTMasterLoopable.doDatabaseUpdatesUsingAVFTTable joins each avft row to sourceTypeModelYear and runspecModelYear and hands it to applyNewFraction, which compares the row's fuelEngFraction, cast to float, with `old` -- sum(stmyFraction) of sampleVehiclePopulation over regulatory class at the row's (sourceTypeModelYearID, fuelTypeID, engTechID), read before any row is rewritten -- and issues one UPDATE of sampleVehiclePopulation for that combination: ADD when new - old >= 1e-6, SUBTRACT when new - old <= -1e-6, nothing otherwise. A combination sampleVehiclePopulation has no row for is ignored (its `tableFraction.find` misses). Then ExecutionRunSpec.runUpdateScript reruns UpdateExecution.sql, which rebuilds RegClassSourceTypeFraction from the rewritten table.\n\nTHE TWO BRANCHES ARE NOT ONE FORMULA WRITTEN TWICE. ADD sets stmyFraction = stmyFuelEngFraction x new: the regulatory-class split comes from stmyFuelEngFraction, which is defined on a row whose stmyFraction is 0, so ADD is the only branch that can move vehicles INTO a combination the default fleet does not have (a source bin SourceBinDistributionGenerator's `stmyFraction > 0.0` then admits). SUBTRACT scales the rows in place, stmyFraction x new / old, so it keeps whatever split they had. In the national default the two agree wherever old > 0 (stmyFraction / old equals stmyFuelEngFraction there to 1.2e-15), so the asymmetry shows only at old = 0, where SUBTRACT cannot fire. The float cast moves `new` and `old` by at most half a float ulp (3e-8 near 1), which changes the branch only within that distance of the 1e-6 threshold and changes the rewritten fraction by less than the FLOAT column MOVES stores it in already rounds to; it is not reproduced.",
+    "authors": [
+      "EarthSciML Authors and Contributors"
+    ],
+    "tags": [
+      "control-strategy",
+      "avft",
+      "onroad"
+    ]
+  },
+  "expression_templates": {
+    "avft_branch": {
+      "description": "applyNewFraction's decision for one sample-vehicle combination: 1 (ADD) when the avft states it and `new_fraction - old_fraction >= 1e-6`, -1 (SUBTRACT) when it states it and the difference is `<= -1e-6`, and 0 otherwise -- a combination the avft does not state (`stated` 0), or one it restates within the threshold. AVFTMasterLoopable.java applyNewFraction.",
+      "params": [
+        "stated",
+        "old_fraction",
+        "new_fraction"
+      ],
+      "body": {
+        "op": "ifelse",
+        "args": [
+          {
+            "op": ">",
+            "args": [
+              "stated",
+              0.0
+            ]
+          },
+          {
+            "op": "ifelse",
+            "args": [
+              {
+                "op": ">=",
+                "args": [
+                  {
+                    "op": "-",
+                    "args": [
+                      "new_fraction",
+                      "old_fraction"
+                    ]
+                  },
+                  1e-06
+                ]
+              },
+              1.0,
+              {
+                "op": "ifelse",
+                "args": [
+                  {
+                    "op": "<=",
+                    "args": [
+                      {
+                        "op": "-",
+                        "args": [
+                          "new_fraction",
+                          "old_fraction"
+                        ]
+                      },
+                      -1e-06
+                    ]
+                  },
+                  -1.0,
+                  0.0
+                ]
+              }
+            ]
+          },
+          0.0
+        ]
+      }
+    },
+    "avft_rewritten_fraction": {
+      "description": "A sample-vehicle row's stmyFraction after AVFTMasterLoopable: under ADD (`branch` 1) `UPDATE sampleVehiclePopulation SET stmyFraction = stmyFuelEngFraction * new`, under SUBTRACT (-1) `SET stmyFraction = stmyFraction * new / old` (old > 0 whenever SUBTRACT fires, since new >= 0; the guard only keeps the untaken branch finite), and otherwise the row as it was. `branch` is `avft_branch`'s.",
+      "params": [
+        "branch",
+        "stmy_fraction",
+        "fuel_engine_fraction",
+        "old_fraction",
+        "new_fraction"
+      ],
+      "body": {
+        "op": "ifelse",
+        "args": [
+          {
+            "op": ">",
+            "args": [
+              "branch",
+              0.5
+            ]
+          },
+          {
+            "op": "*",
+            "args": [
+              "fuel_engine_fraction",
+              "new_fraction"
+            ]
+          },
+          {
+            "op": "ifelse",
+            "args": [
+              {
+                "op": "<",
+                "args": [
+                  "branch",
+                  -0.5
+                ]
+              },
+              {
+                "op": "ifelse",
+                "args": [
+                  {
+                    "op": ">",
+                    "args": [
+                      "old_fraction",
+                      0.0
+                    ]
+                  },
+                  {
+                    "op": "/",
+                    "args": [
+                      {
+                        "op": "*",
+                        "args": [
+                          "stmy_fraction",
+                          "new_fraction"
+                        ]
+                      },
+                      "old_fraction"
+                    ]
+                  },
+                  0.0
+                ]
+              },
+              "stmy_fraction"
+            ]
+          }
+        ]
+      }
+    }
+  }
+}
