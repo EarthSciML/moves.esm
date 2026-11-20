@@ -19771,6 +19771,14 @@
           ],
           "description": "The row's own rate path, before the chain -- 0 on every PM10 row."
         },
+        "outRateRowCount": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "output_rows"
+          ],
+          "description": "How many rate rows the output row gathers (`outRateOrdinal` = `rt_outputOrdinal`): its cohort's source bins at its pollutant-process and road type. Read by `run_ratesMultiBinRows`."
+        },
         "out_emissionQuant": {
           "type": "unknown",
           "units": "1",
@@ -23846,7 +23854,15 @@
           "shape": [
             "run_rows"
           ],
-          "description": "At Rates scale, what is NOT ported: time aggregation, 1 -- MOVES refuses it at Rates scale, so it is an invalid RunSpec rather than unported work. SulfatePMCalculator's species and the non-HAP TOG residual are ported per bin (PLAN.md §7.3.48 part E). The off-network evaporative rows are ported, vapor venting's cold soak included (PLAN.md §7.3.49; under aggregation §7.3.64, which MOVES refuses at Rates scale anyway). Zero at inventory scale. Inside `run_selectionUnported`."
+          "description": "At Rates scale, what is NOT ported: time aggregation, 1 -- MOVES refuses it at Rates scale, so it is an invalid RunSpec rather than unported work. SulfatePMCalculator's species and the non-HAP TOG residual are ported per bin (PLAN.md §7.3.48 part E). The off-network evaporative rows are ported, vapor venting's cold soak included (PLAN.md §7.3.49; under aggregation §7.3.64, which MOVES refuses at Rates scale anyway). Zero at inventory scale. Inside `run_selectionUnported`. And (PLAN.md §7.3.79) every per-speed-bin rate row of an output row that gathers more than one source bin (`run_ratesMultiBinRows`), whose RatePerDistance is wrong and was silent."
+        },
+        "run_ratesMultiBinRows": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "run_rows"
+          ],
+          "description": "At Rates scale, the per-speed-bin rate rows (`rt_isBinRated`: running exhaust, brake and tire wear off PROJECT domain) of an output row that gathers MORE THAN ONE source bin -- a cohort of several regulatory classes or engine technologies. RatePerDistance sums `rtRate_total` over an output row's rate rows, which is a rate per vehicle only while the cohort has one bin. Every Rates capture before PLAN.md §7.3.79 selected the single-bin gasoline passenger car on that path, and `rates-retrofit` (52 and 62 diesel, every cohort two to four bins) measured it wrong by 1.9x to 112x on road types 2-5 while road type 1, RatePerStart and RatePerVehicle reproduced (finding F89's run; `runspecs/pending/rates-retrofit.esm`). Not diagnosed; counted by `run_ratesUnported`."
         },
         "run_startBlockCount": {
           "type": "unknown",
@@ -107956,6 +107972,36 @@
           }
         },
         {
+          "lhs": "outRateRowCount",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "o"
+            ],
+            "ranges": {
+              "o": {
+                "from": "output_rows"
+              },
+              "b": {
+                "from": "rate_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "outRateOrdinal",
+                    "rt_outputOrdinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": 1.0
+          }
+        },
+        {
           "lhs": "out_emissionQuant",
           "rhs": {
             "op": "+",
@@ -110176,6 +110222,84 @@
           "_comment": "PLAN.md §7.3.48: what a Rates run could ask for that the Rates tables do not yet carry, counted rather than emitted wrong.",
           "lhs": "run_ratesUnported",
           "rhs": {
+            "op": "+",
+            "args": [
+              {
+                "op": "faq",
+                "args": [],
+                "semiring": "sum_product",
+                "output_idx": [
+                  "n"
+                ],
+                "ranges": {
+                  "n": {
+                    "from": "run_rows"
+                  }
+                },
+                "expr": {
+                  "op": "*",
+                  "args": [
+                    "n_ratesScale",
+                    {
+                      "op": "ifelse",
+                      "args": [
+                        {
+                          "op": "and",
+                          "args": [
+                            {
+                              "op": "==",
+                              "args": [
+                                {
+                                  "op": "index",
+                                  "args": [
+                                    "run_aggregationHourCount",
+                                    "n"
+                                  ]
+                                },
+                                {
+                                  "op": "index",
+                                  "args": [
+                                    "run_hourCount",
+                                    "n"
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "op": "==",
+                              "args": [
+                                {
+                                  "op": "index",
+                                  "args": [
+                                    "run_actDayCount",
+                                    "n"
+                                  ]
+                                },
+                                {
+                                  "op": "index",
+                                  "args": [
+                                    "run_dayCount",
+                                    "n"
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        0.0,
+                        1.0
+                      ]
+                    }
+                  ]
+                }
+              },
+              "run_ratesMultiBinRows"
+            ]
+          }
+        },
+        {
+          "lhs": "run_ratesMultiBinRows",
+          "rhs": {
             "op": "faq",
             "args": [],
             "semiring": "sum_product",
@@ -110185,8 +110309,28 @@
             "ranges": {
               "n": {
                 "from": "run_rows"
+              },
+              "o": {
+                "from": "output_rows"
+              },
+              "b": {
+                "from": "rate_rows"
               }
             },
+            "join": [
+              {
+                "syms": [
+                  "o",
+                  "b"
+                ],
+                "on": [
+                  [
+                    "outRateOrdinal",
+                    "rt_outputOrdinal"
+                  ]
+                ]
+              }
+            ],
             "expr": {
               "op": "*",
               "args": [
@@ -110198,47 +110342,35 @@
                       "op": "and",
                       "args": [
                         {
-                          "op": "==",
+                          "op": ">",
                           "args": [
                             {
                               "op": "index",
                               "args": [
-                                "run_aggregationHourCount",
-                                "n"
+                                "rt_isBinRated",
+                                "b"
                               ]
                             },
-                            {
-                              "op": "index",
-                              "args": [
-                                "run_hourCount",
-                                "n"
-                              ]
-                            }
+                            0.5
                           ]
                         },
                         {
-                          "op": "==",
+                          "op": ">",
                           "args": [
                             {
                               "op": "index",
                               "args": [
-                                "run_actDayCount",
-                                "n"
+                                "outRateRowCount",
+                                "o"
                               ]
                             },
-                            {
-                              "op": "index",
-                              "args": [
-                                "run_dayCount",
-                                "n"
-                              ]
-                            }
+                            1.5
                           ]
                         }
                       ]
                     },
-                    0.0,
-                    1.0
+                    1.0,
+                    0.0
                   ]
                 }
               ]

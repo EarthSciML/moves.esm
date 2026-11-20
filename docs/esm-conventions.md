@@ -9940,3 +9940,42 @@ of five from the multi-day part. Measured per rule on `scale-county-outstep-hour
 (which selects no venting at all, and paid in full for a chain of zeros):
 `tvv_unweighted` 854 s to 0.94 s (the first day's) and 0.08 s (the pinned days'),
 `tvv_hourly` 259 s to 0.89 s, `tvv_sumInitialToHour` 175 s to 2.4 s.
+
+## 130. A control strategy that UPDATEs the worker's output multiplies the finished row by its own key, and a strategy that switches itself off is a refusal **[PLAN.md §7.3.79; `scale-county-retrofit` 17,358 of 17,358 and `userdb-retrofit-multiyear` 3,552 of 3,552, key-exact, no `cell_exception`; `rates-retrofit` pending on a pre-existing multi-bin RatePerDistance gap (F91); every run whose output stage holds `rtDay_quant` or `rtRate_total` byte-identical]**
+
+1. **Find WHERE the strategy's SQL runs before deciding what it multiplies.** On-Road
+   Retrofit's `update MOVESWorkerOutput ... where pollutantID=...` is registered through
+   `ExecutionRunSpec.addRetrofitSQL`, prepended to the worker's aggregation SQL, which
+   `EmissionCalculator` writes after every calculator's processing SQL -- the chained
+   calculators and the Go external calculator (which runs on the first statement after its
+   markers) included. So it multiplies FINISHED rows, each by its own pollutant's factor, and
+   no child inherits a parent's: a THC program leaves NMHC, VOC and methane alone, a PM2.5
+   program leaves EC, and an EC program leaves the PM2.5 total that was summed from EC. The
+   model applies such a factor to the relation that only the output tables read
+   (`rtDay_quant`, `rtRate_total`), never to a quantity a chain reads.
+2. **A step function in a calendar year is a max, then a join.** "A later row replaces an
+   earlier one at the model years it names" is the latest key at or before the year:
+   `max_product` over the matching rows (`rt_retrofitYear`; −∞ where none matches), then a
+   `join.on` of that year against the rows' own to sum the ones that hold. The repository's
+   lint forbids the `==` filter; the max semiring's identity makes "no row" a key nothing
+   joins.
+3. **Measure the factor as a ratio to an un-retrofitted twin.** Two captures that differ by
+   one table divide out every other mechanism: a Python transcription of `compile()` predicted
+   all 15,190 nonzero county cells and 71,757 rate cells within 1e-05 before an equation was
+   written, and the groups with no program came back at ratio 1 -- which is the inheritance
+   question answered by data rather than by reading.
+4. **A strategy that validates its whole table and switches itself off is a table-level
+   refusal.** `loadFromDB` returns false on ONE invalid row and `compile` on one key over 100%,
+   and then MOVES applies nothing at all. The model counts those rows
+   (`run_retrofitTableOff`, `retrofit_row_is_invalid`, `orr_cumFractionAtBeginModelYear`)
+   rather than porting "everything off", because no capture has such a table. The maximum of
+   a sum of model-year ranges at a key is reached at some row's first model year, so a
+   per-row sum over the rows covering it is the exact over-100% test, without a model-year
+   axis. A variable over a mounted table's axis that every other catalogue mounts empty
+   evaluated cleanly on esm 0.14.0 (the F56 shape, probed before relying on it).
+5. **A new capture that fails somewhere else is a refusal to add, not a run to bend.**
+   `rates-retrofit`'s RatePerDistance failed on road types 2-5 for multi-bin cohorts, which no
+   Rates capture before it had selected on the per-speed-bin path, while every table the
+   retrofit factor reaches reproduced. The failure was localised by key (source type, fuel,
+   road type, model year: exactly the multi-bin cells) before it was attributed, then counted
+   (`run_ratesMultiBinRows`) and the run parked in `runspecs/pending/` with its numbers.
