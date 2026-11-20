@@ -1833,6 +1833,12 @@ C7P_DOMAIN=moves-onroad.esm
 # twin `process-evap-fvv-day` select all 24 hours of both day types (PLAN.md
 # §7.3.49): the output cell is a (day type, hour) pair, and vapor venting's
 # cold soak pairs the selected hours.
+# `scale-county-avft` and `project-avft` state a NON-DEFAULT avft (PLAN.md
+# §7.3.78, conventions §129): MOVES's AVFTControlStrategy rewrites
+# sampleVehiclePopulation before any generator runs (`svp_avftStmyFraction`,
+# both of applyNewFraction's branches, its 1e-6 threshold and an ignored
+# combination), and in PROJECT domain ProjectTAG's hotelling hours read the
+# avft rows themselves (`hot_avftTotal`).
 mapfile -t RUNSPECS < <(find runspecs -maxdepth 1 -name '*.esm' -not -name '.*' 2>/dev/null | sort)
 mapfile -t RUNSPECS_PENDING < <(find runspecs/pending -maxdepth 1 -name '*.esm' -not -name '.*' 2>/dev/null | sort)
 
