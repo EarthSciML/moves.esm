@@ -9941,7 +9941,7 @@ of five from the multi-day part. Measured per rule on `scale-county-outstep-hour
 `tvv_unweighted` 854 s to 0.94 s (the first day's) and 0.08 s (the pinned days'),
 `tvv_hourly` 259 s to 0.89 s, `tvv_sumInitialToHour` 175 s to 2.4 s.
 
-## 129. A control strategy that rewrites an input relation is a derived column every consumer reads, and a reader that bypasses the rewrite keeps the source **[PLAN.md §7.3.78; `scale-county-avft` 10,188 of 10,188 at 9.757e-06, key-exact, no `cell_exception`; every run with an avft byte-identical]**
+## 129. A control strategy that rewrites an input relation is a derived column every consumer reads, and a reader that bypasses the rewrite keeps the source **[PLAN.md §7.3.78; `scale-county-avft` 10,188 of 10,188 at 9.757e-06 and `project-avft` 489 of 489 at 8.316e-06, key-exact, no `cell_exception`; every run whose database states an avft byte-identical]**
 
 AVFTControlStrategy (MOVES 5's Alternative Vehicle Fuels & Technologies) is not a
 calculator and writes no output: before any generator runs, AVFTMasterLoopable issues
@@ -9977,7 +9977,8 @@ the rewritten table. Four rules came out of porting it (`lib/avft.esm`).
    inside the 1e-6 threshold (which the strategy leaves alone). Its total is the
    rewritten fleet's only when the avft is the projection, so the DEFAULT path's
    `hot_stmyTotal` was a correct surrogate exactly until a project database stated
-   anything else (F88). A strategy port asks of every table the strategy READS, not
+   anything else (F88: 0.18% of `project-avft`'s 2018 long-haul hotelling hours are a
+   gasoline share the fleet has no row for). A strategy port asks of every table the strategy READS, not
    only the one it writes, who else reads it.
 5. **Measure the rewritten table before porting.** The capture dumps the execution
    database after the run, so the strategy's output is in the snapshot: 37 rewritten
