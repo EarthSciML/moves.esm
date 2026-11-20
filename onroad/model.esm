@@ -19237,6 +19237,33 @@
           ],
           "description": "The rate row's cohort's share of its source type, every bin and regulatory class of it: what a per-activity rate at Rates scale is normalized by. The cohort's activity -- its starts, hotelling hours, idle hours -- is the age's times this share, so the inventory's source-bin-weighted rate over it is the rate of a vehicle of that fuel (PLAN.md §7.3.48). Running exhaust's per-bin rate normalizes within each regulatory class instead, by `rtMode_activityFractionSum`, which is BaseRateGenerator step 008's GROUP BY; a row that sums classes is a per-activity row and divides by their sum."
         },
+        "rt_regClassActivityFraction": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows",
+            "runspeccounty_rows"
+          ],
+          "description": "BaseRateCalculator.sql's `smfrSBDSummary.sbdTotal` read back at the rate row: the used source-bin activity fractions (`rt_usedFraction`) summed over the rate row's block, cohort and REGULATORY CLASS -- every bin of the class, whether or not it has a rate, because the SQL sums `sourceBinDistributionFuelUsage` alone. Read only by `rt_regClassRateShare` (PLAN.md §7.3.80)."
+        },
+        "rt_cohortActivityFraction": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows",
+            "runspeccounty_rows"
+          ],
+          "description": "The same sum over every regulatory class of the rate row's block and cohort: `activityTotal` in baseratecalculator.go's `calculateActivityWeight` once `BRC_DiscardRegClassID` has zeroed the class in its key. The hour-day's activity multiplies numerator and denominator alike and cancels, because only the class is discarded: the output keeps source type (SCC forces it), model year and fuel (PLAN.md §7.3.80)."
+        },
+        "rt_regClassRateShare": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows",
+            "runspeccounty_rows"
+          ],
+          "description": "`smfrRatesFraction`: the rate row's regulatory class's share of its cohort, which BaseRateCalculator multiplies every emissionRate by at Rates scale when the output discards regClassID (`BRC_AggregateSMFR`, BaseRateCalculator.java; baseratecalculator.go `aggregateAndApplyActivity`), BEFORE the chained calculators and before BaseRateOutput is summed over the class. The per-speed-bin rate (`rtRate_rated` where `rt_isBinRated`) is normalized WITHIN its class (`rtMode_activityFractionSum`, BaseRateGenerator step 008), so without it a cohort of several classes summed their per-class rates (finding F91). Exactly 1 on a cohort of one class -- a quotient of a number by itself. The per-activity rates need no share: they divide the cohort's inventory by its whole share (`rt_cohortShare`) (PLAN.md §7.3.80)."
+        },
         "rt_isBinRated": {
           "type": "unknown",
           "units": "1",
@@ -19335,7 +19362,7 @@
             "runspeccounty_rows",
             "runspecmonth_rows"
           ],
-          "description": "BaseRateOutput.emissionRate at Rates scale -- what `rtRate_direct` was before `SulfatePMCalculator`'s six blocks took the share matrix, in the output's units: the normalized rate at the bin over the bin speed -- per mile -- where the bin is kept, and the inventory's adjusted rate over the cohort's share -- per start, per idle hour, per hour of a hotelling mode -- everywhere else, the same at every bin -- and that per-hour rate over the bin speed for an evaporative row on an on-network road type. Exactly zero on a chained pollutant-process. Computed at inventory scale too, over the single bin `ratespeedbin_rows` holds there. In PROJECT domain running exhaust, brake and tire wear are per hour over the link's average speed. An evaporative row on a PROJECT link takes this per-bin quotient too, but RatePerDistance does not read it there: `rpd_ratePerDistance` divides MOVESOutput by the link's distance instead."
+          "description": "BaseRateOutput.emissionRate at Rates scale -- what `rtRate_direct` was before `SulfatePMCalculator`'s six blocks took the share matrix, in the output's units: the normalized rate at the bin over the bin speed -- per mile -- times its regulatory class's share of the cohort (`rt_regClassRateShare`, BaseRateCalculator's `smfrRatesFraction`; PLAN.md §7.3.80) where the bin is kept, and the inventory's adjusted rate over the cohort's share -- per start, per idle hour, per hour of a hotelling mode -- everywhere else, the same at every bin -- and that per-hour rate over the bin speed for an evaporative row on an on-network road type. Exactly zero on a chained pollutant-process. Computed at inventory scale too, over the single bin `ratespeedbin_rows` holds there. In PROJECT domain running exhaust, brake and tire wear are per hour over the link's average speed. An evaporative row on a PROJECT link takes this per-bin quotient too, but RatePerDistance does not read it there: `rpd_ratePerDistance` divides MOVESOutput by the link's distance instead."
         },
         "rtRate_spmParent": {
           "type": "unknown",
@@ -19770,14 +19797,6 @@
             "output_rows"
           ],
           "description": "The row's own rate path, before the chain -- 0 on every PM10 row."
-        },
-        "outRateRowCount": {
-          "type": "unknown",
-          "units": "1",
-          "shape": [
-            "output_rows"
-          ],
-          "description": "How many rate rows the output row gathers (`outRateOrdinal` = `rt_outputOrdinal`): its cohort's source bins at its pollutant-process and road type. Read by `run_ratesMultiBinRows`."
         },
         "out_emissionQuant": {
           "type": "unknown",
@@ -23854,15 +23873,7 @@
           "shape": [
             "run_rows"
           ],
-          "description": "At Rates scale, what is NOT ported: time aggregation, 1 -- MOVES refuses it at Rates scale, so it is an invalid RunSpec rather than unported work. SulfatePMCalculator's species and the non-HAP TOG residual are ported per bin (PLAN.md §7.3.48 part E). The off-network evaporative rows are ported, vapor venting's cold soak included (PLAN.md §7.3.49; under aggregation §7.3.64, which MOVES refuses at Rates scale anyway). Zero at inventory scale. Inside `run_selectionUnported`. And (PLAN.md §7.3.79) every per-speed-bin rate row of an output row that gathers more than one source bin (`run_ratesMultiBinRows`), whose RatePerDistance is wrong and was silent."
-        },
-        "run_ratesMultiBinRows": {
-          "type": "unknown",
-          "units": "1",
-          "shape": [
-            "run_rows"
-          ],
-          "description": "At Rates scale, the per-speed-bin rate rows (`rt_isBinRated`: running exhaust, brake and tire wear off PROJECT domain) of an output row that gathers MORE THAN ONE source bin -- a cohort of several regulatory classes or engine technologies. RatePerDistance sums `rtRate_total` over an output row's rate rows, which is a rate per vehicle only while the cohort has one bin. Every Rates capture before PLAN.md §7.3.79 selected the single-bin gasoline passenger car on that path, and `rates-retrofit` (52 and 62 diesel, every cohort two to four bins) measured it wrong by 1.9x to 112x on road types 2-5 while road type 1, RatePerStart and RatePerVehicle reproduced (finding F89's run; `runspecs/pending/rates-retrofit.esm`). Not diagnosed; counted by `run_ratesUnported`."
+          "description": "At Rates scale, what is NOT ported: time aggregation, 1 -- MOVES refuses it at Rates scale, so it is an invalid RunSpec rather than unported work. SulfatePMCalculator's species and the non-HAP TOG residual are ported per bin (PLAN.md §7.3.48 part E). The off-network evaporative rows are ported, vapor venting's cold soak included (PLAN.md §7.3.49; under aggregation §7.3.64, which MOVES refuses at Rates scale anyway). Zero at inventory scale. Inside `run_selectionUnported`."
         },
         "run_startBlockCount": {
           "type": "unknown",
@@ -103806,6 +103817,122 @@
           }
         },
         {
+          "_comment": "BaseRateCalculator.sql, Section AggregateSMFR: smfrSBDSummary, sum(sourceBinActivityFraction) grouped by source type, model year, fuel and regulatory class.",
+          "lhs": "rt_regClassActivityFraction",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b",
+              "g"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "b2": {
+                "from": "rate_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              }
+            },
+            "join": [
+              {
+                "syms": [
+                  "b",
+                  "b2"
+                ],
+                "on": [
+                  [
+                    "rt_blockOrdinal",
+                    "rt_blockOrdinal"
+                  ],
+                  [
+                    "rt_cohortOrdinal",
+                    "rt_cohortOrdinal"
+                  ],
+                  [
+                    "rt_regClassID",
+                    "rt_regClassID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "rt_usedFraction",
+                "b2",
+                "g"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rt_cohortActivityFraction",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b",
+              "g"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "b2": {
+                "from": "rate_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              }
+            },
+            "join": [
+              {
+                "syms": [
+                  "b",
+                  "b2"
+                ],
+                "on": [
+                  [
+                    "rt_blockOrdinal",
+                    "rt_blockOrdinal"
+                  ],
+                  [
+                    "rt_cohortOrdinal",
+                    "rt_cohortOrdinal"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "rt_usedFraction",
+                "b2",
+                "g"
+              ]
+            }
+          }
+        },
+        {
+          "_comment": "baseratecalculator.go calculateActivityWeight: smfrRatesFraction = activity x sbdTotal over its total with regClassID discarded.",
+          "lhs": "rt_regClassRateShare",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "share_of_group",
+            "bindings": {
+              "numerator": "rt_regClassActivityFraction",
+              "group_total": "rt_cohortActivityFraction"
+            }
+          }
+        },
+        {
           "lhs": "rt_isBinRated",
           "rhs": {
             "op": "faq",
@@ -104866,24 +104993,37 @@
                       ]
                     },
                     {
-                      "op": "/",
+                      "op": "*",
                       "args": [
                         {
-                          "op": "index",
+                          "op": "/",
                           "args": [
-                            "rtBin_adjustedMeanBaseRate",
-                            "b",
-                            "k",
-                            "j",
-                            "g",
-                            "m"
+                            {
+                              "op": "index",
+                              "args": [
+                                "rtBin_adjustedMeanBaseRate",
+                                "b",
+                                "k",
+                                "j",
+                                "g",
+                                "m"
+                              ]
+                            },
+                            {
+                              "op": "index",
+                              "args": [
+                                "asb_avgBinSpeed",
+                                "v"
+                              ]
+                            }
                           ]
                         },
                         {
                           "op": "index",
                           "args": [
-                            "asb_avgBinSpeed",
-                            "v"
+                            "rt_regClassRateShare",
+                            "b",
+                            "g"
                           ]
                         }
                       ]
@@ -107972,36 +108112,6 @@
           }
         },
         {
-          "lhs": "outRateRowCount",
-          "rhs": {
-            "op": "faq",
-            "args": [],
-            "semiring": "sum_product",
-            "output_idx": [
-              "o"
-            ],
-            "ranges": {
-              "o": {
-                "from": "output_rows"
-              },
-              "b": {
-                "from": "rate_rows"
-              }
-            },
-            "join": [
-              {
-                "on": [
-                  [
-                    "outRateOrdinal",
-                    "rt_outputOrdinal"
-                  ]
-                ]
-              }
-            ],
-            "expr": 1.0
-          }
-        },
-        {
           "lhs": "out_emissionQuant",
           "rhs": {
             "op": "+",
@@ -110222,84 +110332,6 @@
           "_comment": "PLAN.md §7.3.48: what a Rates run could ask for that the Rates tables do not yet carry, counted rather than emitted wrong.",
           "lhs": "run_ratesUnported",
           "rhs": {
-            "op": "+",
-            "args": [
-              {
-                "op": "faq",
-                "args": [],
-                "semiring": "sum_product",
-                "output_idx": [
-                  "n"
-                ],
-                "ranges": {
-                  "n": {
-                    "from": "run_rows"
-                  }
-                },
-                "expr": {
-                  "op": "*",
-                  "args": [
-                    "n_ratesScale",
-                    {
-                      "op": "ifelse",
-                      "args": [
-                        {
-                          "op": "and",
-                          "args": [
-                            {
-                              "op": "==",
-                              "args": [
-                                {
-                                  "op": "index",
-                                  "args": [
-                                    "run_aggregationHourCount",
-                                    "n"
-                                  ]
-                                },
-                                {
-                                  "op": "index",
-                                  "args": [
-                                    "run_hourCount",
-                                    "n"
-                                  ]
-                                }
-                              ]
-                            },
-                            {
-                              "op": "==",
-                              "args": [
-                                {
-                                  "op": "index",
-                                  "args": [
-                                    "run_actDayCount",
-                                    "n"
-                                  ]
-                                },
-                                {
-                                  "op": "index",
-                                  "args": [
-                                    "run_dayCount",
-                                    "n"
-                                  ]
-                                }
-                              ]
-                            }
-                          ]
-                        },
-                        0.0,
-                        1.0
-                      ]
-                    }
-                  ]
-                }
-              },
-              "run_ratesMultiBinRows"
-            ]
-          }
-        },
-        {
-          "lhs": "run_ratesMultiBinRows",
-          "rhs": {
             "op": "faq",
             "args": [],
             "semiring": "sum_product",
@@ -110309,28 +110341,8 @@
             "ranges": {
               "n": {
                 "from": "run_rows"
-              },
-              "o": {
-                "from": "output_rows"
-              },
-              "b": {
-                "from": "rate_rows"
               }
             },
-            "join": [
-              {
-                "syms": [
-                  "o",
-                  "b"
-                ],
-                "on": [
-                  [
-                    "outRateOrdinal",
-                    "rt_outputOrdinal"
-                  ]
-                ]
-              }
-            ],
             "expr": {
               "op": "*",
               "args": [
@@ -110342,35 +110354,47 @@
                       "op": "and",
                       "args": [
                         {
-                          "op": ">",
+                          "op": "==",
                           "args": [
                             {
                               "op": "index",
                               "args": [
-                                "rt_isBinRated",
-                                "b"
+                                "run_aggregationHourCount",
+                                "n"
                               ]
                             },
-                            0.5
+                            {
+                              "op": "index",
+                              "args": [
+                                "run_hourCount",
+                                "n"
+                              ]
+                            }
                           ]
                         },
                         {
-                          "op": ">",
+                          "op": "==",
                           "args": [
                             {
                               "op": "index",
                               "args": [
-                                "outRateRowCount",
-                                "o"
+                                "run_actDayCount",
+                                "n"
                               ]
                             },
-                            1.5
+                            {
+                              "op": "index",
+                              "args": [
+                                "run_dayCount",
+                                "n"
+                              ]
+                            }
                           ]
                         }
                       ]
                     },
-                    1.0,
-                    0.0
+                    0.0,
+                    1.0
                   ]
                 }
               ]
