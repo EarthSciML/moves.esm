@@ -287,7 +287,10 @@ def main(emitted_path, shape_path, rpd_path=None):
                         "or day types, or at Rates scale an evaporative or "
                         "refueling block, a kept chain prerequisite, a sulfate-PM "
                         "or non-HAP TOG row, a PROJECT domain or any time "
-                        "aggregation (run_ratesUnported)" % unselected)
+                        "aggregation or a per-speed-bin rate row of a cohort with "
+                        "several source bins (run_ratesUnported), or an "
+                        "onRoadRetrofit row outside what the retrofit captures "
+                        "check (run_retrofitUnported)" % unselected)
     if problems:
         for p in problems:
             print(p)
