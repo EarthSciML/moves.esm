@@ -864,9 +864,8 @@ fixtures exercises them, so this is scope beyond reproducing the examples.
 
 **On-Road Retrofit: ported 2026-11-20 (§7.3.79).** A non-empty `onRoadRetrofit` is read
 (`rt_retrofitFactor` on the finished rows), checked by `scale-county-retrofit` and
-`userdb-retrofit-multiyear` (and at Rates scale by `rates-retrofit`'s per-start,
-per-vehicle and road-type-1 tables; that run is pending on a pre-existing multi-bin
-RatePerDistance gap, F91, now counted). What no capture checks -- other processes,
+`userdb-retrofit-multiyear` and, at Rates scale, `rates-retrofit` (every table since
+§7.3.80 closed the pre-existing multi-class RatePerDistance gap, F91). What no capture checks -- other processes,
 `aggregateBy`, PROJECT domain, summed output steps, and a table MOVES switches off --
 stays counted (`run_retrofitUnported`).
 
@@ -8678,10 +8677,15 @@ before the port; it now counts every row at a process other than running and sta
 exhaust (shore power's arm, `rtDay_quantShorePower`, takes no factor, and no capture
 checks the rest), every row of a run that sets `aggregateBy` (`run_aggregates`,
 `n_aggregatesMonths`), is in PROJECT domain, or sums its output over hours, days or months
-(`n_outputSums*`), plus `run_retrofitTableOff`. All three new runs read 0 there; `rates-retrofit` reads its multi-bin rows in `run_ratesMultiBinRows` (F91).
+(`n_outputSums*`), plus `run_retrofitTableOff`. All three new runs read 0 there; `rates-retrofit` read its multi-bin rows in `run_ratesMultiBinRows` (F91; removed in §7.3.80).
 
 **Finding F91: Rates-scale RatePerDistance is wrong for a cohort of several source bins,
-and nothing counted it (pre-existing).** Every retrofit-eligible diesel cohort has two to
+and nothing counted it (pre-existing). FIXED 2026-11-20, §7.3.80:** the per-class rates
+were summed without BaseRateCalculator's class weight (`smfrRatesFraction`), now
+`rt_regClassRateShare`; `run_ratesMultiBinRows` is gone and `rates-retrofit` is in
+`runspecs/`, every table key-exact. The diagnosis below ("sums the output row's rate rows")
+was right about where and not about why: summing is MOVES's own aggregation; the missing
+piece is the weight each class's rate carries into it. Every retrofit-eligible diesel cohort has two to
 four source bins (regulatory classes and engine technologies; `sampleVehiclePopulation`),
 and every earlier Rates capture selected the single-bin gasoline passenger car on the
 per-speed-bin path (`rt_isBinRated`: running exhaust, brake and tire wear outside PROJECT
@@ -8718,6 +8722,69 @@ selection"), hence 11 source-type/fuel pairs in the county run.
 
 **Unchanged** (re-emitted with tools/emit-oracle-table.py and `cmp`'d against the base
 commit's output): `chain-so2-co2e-mechanism`, `process-tirewear`, `expand-sourcetype`, `process-pm-exhaust`, `rates-pm` (all six Rates tables) and `rates-project` (all six) byte-identical to the base commit's 0.14.0 suite output; `scale-county`, `scale-project` and `scale-county-timeagg-year` byte-identical to the previous suite's (their 0.14.0 files were not yet rewritten when compared); every one reproduces its oracle and its shape, `run_selectionUnported` 0. The factor is exactly 1.0 where no row holds, and x 1.0 is exact.
+
+#### 7.3.80 Rates scale with several regulatory classes: each class's per-bin rate carries its share of the cohort (F91 fixed)
+
+2026-11-20. Closes F91 (§7.3.79). `rates-retrofit` leaves `runspecs/pending/`, and its
+un-retrofitted twin `rates-retrofit-base` is wired beside it.
+
+**Localized, then reproduced before the equation changed** (`/scratch.local/ctessum/rates-multibin/py/loc.py`,
+`repro.py`, against `rates-retrofit`'s capture and the retrofit lane's emitted RatePerDistance).
+The error is exactly the cohort's class count: 0 bad cells on road type 1 and 13,216 on each
+of road types 2-5; 0 of 17,920 cells at one-class cohorts, 15,680 of 17,920 at two classes,
+14,784 of 16,896 at three, 22,400 of 25,600 at four (the rest are cells where one class
+carries all the rate). In this run every source bin of a cohort is its own regulatory class
+(`sampleVehiclePopulation`: 52 gasoline and diesel 41/42/46/47, 62 diesel 46/47/49, CNG 47
+alone). The ratio varies by speed bin within a cohort (up to 8.9x), so it is a MIX, not a
+factor. From the execution database's own tables -- `baseRateByAge_1_2020` (BaseRateGenerator's
+per-class emissionRate, already per mile at the bin, summed over operating modes) as E_rc,
+and `sourceBinDistributionFuelUsage_1_26161_2020` summed per class as the class weight w_rc
+-- the model's value over MOVES's is sum_rc E_rc / sum_rc w_rc E_rc within 6e-06 at all
+39,168 nonzero cells of THC, CO, EC and NonECPM (the four calculated running pollutants;
+NMHC and the PM2.5 group chain off them). The usage fractions are identical across the
+run's four running pollutant-processes (spread 0.0), so which one MOVES picks does not matter.
+
+**The cause** (MOVES 5.0.1, `/opt/moves`). At Rates scale, when the output discards
+regClassID, `BaseRateCalculator.java` enables `AggregateSMFR` (+ `DiscardRegClassID`, and
+`AdjustMeanBaseRateAndEmissionRate` for running, brake and tire wear, `AdjustEmissionRateOnly`
+for starts, extended idle and APU). `BaseRateCalculator.sql`'s Section AggregateSMFR writes
+`smfrSBDSummary` -- sum(sourceBinActivityFraction) by source type, model year, fuel and
+regulatory class, from `sourceBinDistributionFuelUsage` at ONE pollutant-process
+(`##sbdPolProcessID##`, the first with a nonzero class) -- and `baseratecalculator.go`
+`calculateActivityWeight` turns it into `smfrRatesFraction` = activity x sbdTotal over the
+same summed with the class zeroed; `aggregateAndApplyActivity` multiplies each block's
+emissionRate by it BEFORE the chained calculators, and the worker's aggregation then sums
+BaseRateOutput over the class. BaseRateGenerator's per-bin rate is normalized WITHIN the class
+(step 008, `rtMode_activityFractionSum`), so without the weight the classes' per-vehicle rates
+were added. The per-activity rates (starts, idle, hotelling, and running on road type 1) never
+showed it: the model writes them as the cohort's inventory over its WHOLE share
+(`rt_cohortShare`), which is the same weighted mean. The output always keeps source type (an
+SCC output forces it, `RunSpecXML.enforceConsistency`), model year and fuel, so the hour-day
+activity cancels and only the class's share remains.
+
+**The fix** (`onroad/model.esm`): `rt_regClassActivityFraction` (the used fractions over the
+rate row's block, cohort and class -- every bin of the class, rated or not, as the SQL sums
+the distribution alone), `rt_cohortActivityFraction` (the same without the class), and
+`rt_regClassRateShare` = `share_of_group` of the two (lib/onroad_activity.esm), which
+multiplies `rtRate_rated`'s per-speed-bin branch and nothing else. A one-class cohort's share
+is a number over itself, exactly 1.0, so every earlier Rates run is unchanged bit for bit.
+`run_ratesMultiBinRows` and `outRateRowCount` (a31d868) are removed, and
+`tools/check-runspec-shape.py`'s refusal message with them: the fix covers every Rates run the
+model emits, because the model's output never carries regClassID (`out_regClassID` is NULL).
+
+| run | rows | worst cell |
+|---|---|---|
+| `rates-retrofit` (moved out of pending/) | RatePerDistance 79,560 of 79,560, RatePerStart 1,224, RatePerVehicle 1,224, StartsPerVehicle 160; RatePerHour and RatePerProfile empty in both | 6.487e-06 / 4.776e-06 / 1.097e-05 / 8.064e-06 |
+| `rates-retrofit-base` (NEW, DEFAULT, the same RunSpec without the user database) | RatePerDistance 79,560 of 79,560, RatePerStart 1,224, RatePerVehicle 1,224, StartsPerVehicle 160; RatePerHour and RatePerProfile empty in both | 6.487e-06 / 4.776e-06 / 1.097e-05 / 8.064e-06 |
+
+Key sets exact, no `cell_exception`, `run_selectionUnported` 0. `rates-retrofit-base` is
+wired because it is free and separates two things: with no retrofit row `rt_retrofitFactor`
+is 1, so it checks the class share alone, and beside `rates-retrofit` it keeps the pair the
+retrofit's factors were measured against (§7.3.79) in the suite. Cost: `rates-retrofit`
+6.0 GB peak RSS, 392 s user CPU (7:12 wall), unchanged from §7.3.79; `rates-retrofit-base` 6.0 GB, 373 s -- the two new sums are
+over rate rows joined to their own cohort.
+
+**Unchanged:** UNCHANGED_LIST
 
 ### 7.4 Upstream asks
 

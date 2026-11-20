@@ -9979,3 +9979,26 @@ of five from the multi-day part. Measured per rule on `scale-county-outstep-hour
    retrofit factor reaches reproduced. The failure was localised by key (source type, fuel,
    road type, model year: exactly the multi-bin cells) before it was attributed, then counted
    (`run_ratesMultiBinRows`) and the run parked in `runspecs/pending/` with its numbers.
+   (Since fixed, §131: the counter is gone and the run is in `runspecs/`.)
+
+## 131. A mean taken within a group is added across groups only with the groups' weights, and a one-member group cannot tell **[PLAN.md §7.3.80; F91 fixed; `rates-retrofit` 79,560 of 79,560 RatePerDistance cells at 6.487e-06 and `rates-retrofit-base` likewise, key-exact, no `cell_exception`; every earlier Rates run byte-identical]**
+
+1. **A rate normalized within a group is that group's MEAN; summing it over the groups an
+   output discards needs each group's share.** BaseRateGenerator normalizes the per-speed-bin
+   rate within its regulatory class (step 008); BaseRateCalculator then multiplies it by the
+   class's share of the cohort (`smfrRatesFraction`, from `smfrSBDSummary`) before the worker
+   sums BaseRateOutput over the class. The model had the normalization and the sum and not
+   the weight. When a relation is "normalized over X, then summed over a coarser key", look
+   for the weight in the step BETWEEN them -- here a Go function, not the SQL either side.
+2. **A per-activity rate written as inventory over the whole cohort's share already is the
+   weighted mean**, which is why starts, idle and road type 1 never showed it; only a rate
+   built per group and divided per group needs the explicit share.
+3. **The share of a one-member group is x/x, exactly 1.0 in IEEE arithmetic**, so a weight
+   added this way leaves every one-member run byte-identical -- and no such run can test it.
+   A corpus whose every Rates cohort had one source bin checked the per-group rate and not
+   the combination; name the member count of the corpus's groups before calling a path
+   checked.
+4. **Localize by the group count, then reproduce in pandas from the execution database's own
+   intermediate tables** (`baseRateByAge_<process>_<year>` holds the per-class rate,
+   `sourceBinDistributionFuelUsage_*` the weights): model/MOVES = sum E / sum wE to 6e-06 at
+   every cell before an equation changed.
