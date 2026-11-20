@@ -1800,6 +1800,12 @@ C7P_DOMAIN=moves-onroad.esm
 # (PLAN.md §7.3.70, conventions §122): idleMonthAdjust collapses to its
 # unweighted mean over the RunSpec's months. `runspecs/pending/userdb-hotelling-threeyear`
 # is hotelling at a THIRD calendar year, refused (`hot_adjustmentRowsUnported`).
+# `scale-county-retrofit`, `rates-retrofit` and `userdb-retrofit-multiyear` carry
+# thirteen On-Road Retrofit programs (PLAN.md §7.3.79, conventions §130): a
+# county database, and a user database of a DEFAULT-domain Rates run and a
+# two-year inventory. `rt_retrofitFactor` multiplies the finished rows by their
+# OWN pollutant's factor -- no child inherits a parent's -- at the latest
+# retrofit year at or before the row's own.
 # `expand-multiyear` is the first run at two calendar years (PLAN.md §7.3.44,
 # conventions §98): the year is the cohort grid's and the activity relation's
 # slowest factor and a trailing axis of every other per-year relation, so the

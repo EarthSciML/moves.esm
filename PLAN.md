@@ -862,6 +862,14 @@ AVFT, Rate-of-Progress, OnRoad/NonRoad retrofit, LEV
 (`moves.rs/docs/control-strategies.md`). Deferred deliberately: none of the 39
 fixtures exercises them, so this is scope beyond reproducing the examples.
 
+**On-Road Retrofit: ported 2026-11-20 (§7.3.79).** A non-empty `onRoadRetrofit` is read
+(`rt_retrofitFactor` on the finished rows), checked by `scale-county-retrofit` and
+`userdb-retrofit-multiyear` (and at Rates scale by `rates-retrofit`'s per-start,
+per-vehicle and road-type-1 tables; that run is pending on a pre-existing multi-bin
+RatePerDistance gap, F91, now counted). What no capture checks -- other processes,
+`aggregateBy`, PROJECT domain, summed output steps, and a table MOVES switches off --
+stays counted (`run_retrofitUnported`).
+
 ---
 
 ## 4. Testing and analyses
@@ -1043,7 +1051,8 @@ blocks what.
    `docs/evap-fvv.md` §8.3 and `docs/esm-conventions.md` §23.
 
 Phase 6 (control strategies) stays deferred: none of the 39 fixtures exercises
-them, so it is scope beyond reproducing the examples.
+them, so it is scope beyond reproducing the examples. On-Road Retrofit is the
+exception since §7.3.79.
 
 ### 6.1 What the fidelity gate now consists of
 
@@ -8571,6 +8580,144 @@ sources were replaced (F42); `build-esm.sh` builds `esm` from the
 - *Engine planning.* The tvv lane's three asks (§7.3.76): an equality lookup on a
   1-D column as a gather, a 1-D presence mask as a row filter, and a window sum
   over an ordered key as a prefix scan.
+
+#### 7.3.79 On-Road Retrofit: a factor on the finished row, keyed by the row's own pollutant, and a strategy that can switch itself off
+
+2026-11-20. Phase 6's first strategy. MOVES 5 instantiates OnRoadRetrofitStrategy from
+DATA -- `MOVESInstantiator.addAutomaticInternalControlStrategies`
+(MOVESInstantiator.java:1718-1806) adds it whenever the execution database's
+`onRoadRetrofit` has a row -- and before this section the model did not read the table, so
+a run with retrofit rows emitted the un-retrofitted inventory, silently. Every one of the
+119 earlier snapshots has the table empty (row_count 0 in every `.meta.json`). The first
+commit of this lane only mounted the table and counted every row (`run_retrofitUnported`);
+the port followed. Two new runs reproduce, **key set exact, no `cell_exception`**, and the
+third reproduces every table but one, whose failure is not the retrofit's (F91):
+
+| run | what | rows | worst cell |
+|---|---|---|---|
+| `scale-county-retrofit` (NEW, SINGLE, Inventory, 2020) | 11 pollutants at running and start, 42/52/62 and every fuel MOVES adds, over scale-county's county database + 13 programs | 17,358 of 17,358 | 1.045e-05 |
+| `rates-retrofit` (NEW, PENDING; DEFAULT + user database, Rates, 2020) | THC, CO, NMHC and the PM2.5 group at running and start, 52/62 | RatePerStart 1,224, RatePerVehicle 1,224, StartsPerVehicle 160, RatePerDistance on road type 1 -- all of them; RatePerDistance on road types 2-5 52,864 of 79,560 cells high (F91) | 1.097e-05 (the reproducing tables) |
+| `userdb-retrofit-multiyear` (NEW, DEFAULT + user database, Inventory, 2015 and 2020) | THC and CO at running and start, 52/62 | 3,552 of 3,552 | 9.174e-06 |
+
+**What MOVES does, in order** (MOVES 5.0.1, `/opt/moves` in canonical-moves.sif):
+1. InputDataManager copies `onRoadRetrofit` into the execution database cut to the
+   RunSpec's pollutants, processes, source types and fuels (InputDataManager.java:3308).
+2. `OnRoadRetrofitStrategy.subscribeToMe` loads it (`loadFromDB`) and validates EVERY row
+   (`DBLine.load`): diesel only, source types 32, 41, 42, 43, 51, 52, 53, 61, 62 only,
+   calendar year 1990-2060, model years 1950-2060 and ordered, cumulative fraction 0-1,
+   effectiveness at most 1 (negative accepted), first model year no more than 40 before
+   the calendar year. ONE failing row and it returns: no row of the table applies.
+3. `compile()` expands each row over its model years, keyed (pollutant, process, fuel,
+   source type, retrofitYearID, model year), SUMS rows sharing a key --
+   `retrofitFactor += cum x (1 - eff)`, `nonRetrofitFactor -= cum` -- and refuses the
+   whole table if any key's `nonRetrofitFactor` goes below 0 (over 100%). Each key holds
+   from its retrofitYearID until the year before the next retrofitYearID any key of the
+   same (pollutant, process, fuel, source type, model year) names: a later row REPLACES an
+   earlier one, at the model years it names and only there. Adjacent model years with
+   equal factors merge (`matchAndMerge`), which changes the SQL and not the numbers.
+4. `buildSQL` registers, through `ExecutionRunSpec.addRetrofitSQL`, `update
+   MOVESWorkerOutput set emissionQuant = emissionQuant x F, emissionRate = emissionRate x F`
+   and (DO_RATES_FIRST is true) `update BaseRateOutput set emissionRate = ... x F,
+   meanBaseRate = ... x F`, `where` pollutant, process, fuel, source type, a yearID range
+   and a modelYearID range, F = retrofitFactor + nonRetrofitFactor = 1 - sum(cum x eff).
+5. `ExecutionRunSpec.initializeBeforeIteration` PREPENDS those statements to the worker's
+   aggregation SQL, and `EmissionCalculator` writes the aggregation SQL into worker.sql
+   AFTER every calculator's processing SQL (chained calculators included, recursively)
+   and its cleanup. The Go external calculator (`ExternalCalculator.absorbAndExecute`) runs
+   when the first non-marker statement follows its markers, so it too has finished. The
+   update therefore multiplies FINISHED rows, before the worker aggregates them.
+
+**Measured before porting** (`/scratch.local/ctessum/retrofit/py/measure.py`: a
+transcription of `compile()` against the ratio of each capture to an un-retrofitted twin
+captured beside it, `scale-county-retrofit-base` and `rates-retrofit-base`, which are in
+the corpus but not wired here): all 15,190 nonzero MOVESOutput cells of the county run
+within 7.0e-06 of the predicted factor, 69,615 RatePerDistance, 1,071 RatePerStart and
+1,071 RatePerVehicle cells within 9.9e-06, and every zero cell zero in both. The factors
+the programs give (one calendar year, 2020): THC running on 62 0.82 / 0.405 / 0.64 by
+model-year band (the 2018 row replacing the 2015 row at 2005-2012 only), CO running on 52
+0.76 / 0.66 / 0.90 (two 2015 rows SUMMED at 2010-2012), NOx running on 42 1.1 (negative
+effectiveness), the PM2.5 total on 62 0.3625, EC on 52 0.64, start THC on 52 0.75, NMHC
+running on 52 0.75.
+
+**Finding F89: no child inherits its parent's factor, in either direction.** Because the
+UPDATE runs after the calculators and filters on the row's own pollutantID, methane, NMHC
+and VOC are not reduced by a THC program (they are written FROM THC by the Go HC
+speciation before the update), EC, NonECPM, sulfate and water are not reduced by a PM2.5
+program, and -- the surprising one -- the PM2.5 TOTAL is not reduced by an EC program,
+although SulfatePMCalculator summed it from that EC: the county run's 148 (pollutant,
+process, fuel, source type) groups without a program, these among them, are the twin's to
+1e-05. A user who wants a fleet-wide PM2.5 reduction must write a row per species AND
+one for the total. The same holds at Rates scale, and RatePerStart and RatePerVehicle take
+the factor exactly as RatePerDistance does.
+
+**The port** (`onroad/model.esm`, `lib/adjustments.esm`):
+`rt_retrofitYear` is the latest retrofitYearID at or before the rate row's own year among
+the rows at its pollutant, process, fuel and source type whose model years hold its own
+(`max_product`, −∞ where none); `rt_retrofitShareRemoved` sums `retrofit_share_removed`
+(cum x eff) over the rows JOINED at that year; `rt_retrofitFactor` = 1 - that. It
+multiplies `rtDay_quant` (MOVESOutput, and RatePerVehicle through it) and `rtRate_total`
+(RatePerDistance, RatePerStart/RatePerHour through `rto_ratePerActivity`) -- the two
+relations only the output tables read, so no chain sees it, exactly as no calculator sees
+MOVES's update. The table is declared once in `onroad/default-database.esm` (the default's,
+empty) and in the fixture catalogue (each snapshot's, empty), and shadowed by
+`inputs/washtenaw-county-retrofit.esm` (SINGLE) and `inputs/washtenaw-userdb-retrofit.esm`
+(DEFAULT + user database), which share one parquet built by `tools/build-scale-input-db.py`
+from moves.rs `setup-retrofit.sql`.
+
+**Finding F90: the strategy switches itself off, silently.** One invalid row, or one key
+over 100% (in Java's order of double subtraction), and MOVES applies no row -- `compile(false)`
+logs nothing. Not ported (no capture has such a table) but COUNTED: `run_retrofitTableOff`
+= rows `retrofit_row_is_invalid` rejects + rows at which `orr_cumFractionAtBeginModelYear`
+exceeds 1 (a key's sum over model-year ranges peaks at some row's first model year, so the
+per-row test is exact). The model reads the input database's rows, not InputDataManager's
+cut, so a rejected row the run would not have copied is counted too -- a refusal, never a
+wrong number.
+
+**Refusals.** `run_retrofitUnported` (inside `run_selectionUnported`) counted every row
+before the port; it now counts every row at a process other than running and start
+exhaust (shore power's arm, `rtDay_quantShorePower`, takes no factor, and no capture
+checks the rest), every row of a run that sets `aggregateBy` (`run_aggregates`,
+`n_aggregatesMonths`), is in PROJECT domain, or sums its output over hours, days or months
+(`n_outputSums*`), plus `run_retrofitTableOff`. All three new runs read 0 there; `rates-retrofit` reads its multi-bin rows in `run_ratesMultiBinRows` (F91).
+
+**Finding F91: Rates-scale RatePerDistance is wrong for a cohort of several source bins,
+and nothing counted it (pre-existing).** Every retrofit-eligible diesel cohort has two to
+four source bins (regulatory classes and engine technologies; `sampleVehiclePopulation`),
+and every earlier Rates capture selected the single-bin gasoline passenger car on the
+per-speed-bin path (`rt_isBinRated`: running exhaust, brake and tire wear outside PROJECT
+domain; the heavy-truck Rates runs `rates-hotelling*` select hotelling only, and PROJECT
+Rates runs rate per link speed). `rates-retrofit` is 1.9x to 112x high on road types 2-5 for
+52 gasoline, 52 diesel and 62 diesel at exactly their multi-bin model years, while CNG
+(single-bin), road type 1, RatePerStart and RatePerVehicle reproduce -- so it is the
+per-bin rate's combination across bins (`rtRate_rated` -> `rpdEmissionRate` sums the
+output row's rate rows), not the retrofit, and it was SILENT (`run_selectionUnported` 0).
+Not diagnosed here (out of this lane); now counted: `run_ratesMultiBinRows` (inside
+`run_ratesUnported`) counts the per-bin rate rows of an output row that gathers more than
+one rate row (`outRateRowCount`), 0 on every earlier Rates run. `rates-retrofit` waits in
+`runspecs/pending/` with its numbers. The retrofit factor at Rates scale is nonetheless
+checked: RatePerStart and RatePerVehicle carry it on start THC, CO and PM2.5, and
+RatePerDistance on road type 1 on THC, CO, EC, NMHC and PM2.5 running.
+
+A user input database must also carry MOVES 5's five hotelling tables:
+`MOVESEngine.hasWrongHotellingTables` queries hotellingHoursPerDay, -HourFraction,
+-AgeFraction, -ActivityDistribution and -MonthAdjust in every database a RunSpec names and
+refuses the run ("Old table definition found for hotellingHoursPerDay table of database
+washtenaw_cdb") when one is missing, so a user database holding only `onRoadRetrofit`
+cannot run; `setup-retrofit.sql` creates them empty.
+
+**The captures** (moves.rs branch `capture-retrofit`, commits 8fab5c7b and 0033713c, host
+token `1ccc0236`, moves-snapshot/v2 on every table, capture binary rebuilt in the lane's
+scratch; copied into the main checkout's `characterization/snapshots/`):
+`scale-county-retrofit` (335 MB apparent), its twin `scale-county-retrofit-base` (335 MB),
+`rates-retrofit` (1,093 MB), `rates-retrofit-base` (1,093 MB), `userdb-retrofit-multiyear`
+(163 MB). MOVES adds every fuel of a selected source type ("Added missing vehicle
+selection"), hence 11 source-type/fuel pairs in the county run.
+
+**Cost** (peak RSS / evaluation, `n_sourceBin` 8 and `n_physicsRow` 57 or 41 from
+`sampleVehiclePopulation` and `sourceUseTypePhysics`; CPU time, which unlike wall time does not include waits on the shared evaluation lock): `scale-county-retrofit` 8.9 GB, 521 s CPU (12.3 GB and 15.6 min wall at bindings 12/80 -- the declared widths are the cost); `userdb-retrofit-multiyear` 5.2 GB, 165 s CPU; `rates-retrofit` (pending) 6.0 GB, 415 s CPU.
+
+**Unchanged** (re-emitted with tools/emit-oracle-table.py and `cmp`'d against the base
+commit's output): `chain-so2-co2e-mechanism`, `process-tirewear`, `expand-sourcetype`, `process-pm-exhaust`, `rates-pm` (all six Rates tables) and `rates-project` (all six) byte-identical to the base commit's 0.14.0 suite output; `scale-county`, `scale-project` and `scale-county-timeagg-year` byte-identical to the previous suite's (their 0.14.0 files were not yet rewritten when compared); every one reproduces its oracle and its shape, `run_selectionUnported` 0. The factor is exactly 1.0 where no row holds, and x 1.0 is exact.
 
 ### 7.4 Upstream asks
 
