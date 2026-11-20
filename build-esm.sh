@@ -104,7 +104,11 @@ echo "building esm from $AST ..."
   # binary, a workspace member beside the library: the library's features are
   # spelled through it. An older checkout builds `esm` as the library's own
   # binary, with the features named directly.
-  if [[ -f cli/Cargo.toml ]]; then
+  # Since 0.14.0 the library has no `parallel` feature: its rayon pool is
+  # always on for native targets, so naming the feature is an error.
+  if [[ -f cli/Cargo.toml ]] && ! grep -q '^parallel *=' Cargo.toml; then
+    build() { cargo build --release -p earthsci-ast-cli --features esio --bin esm "${CFG[@]}" 2>&1; }
+  elif [[ -f cli/Cargo.toml ]]; then
     build() { cargo build --release -p earthsci-ast-cli --features esio,earthsci-ast/parallel --bin esm "${CFG[@]}" 2>&1; }
   else
     build() { cargo build --release --features esio,parallel --bin esm "${CFG[@]}" 2>&1; }
@@ -225,7 +229,7 @@ commit    = $(git -C "$AST" rev-parse HEAD)
 subject   = $(git -C "$AST" log -1 --format=%s)
 date      = $(git -C "$AST" log -1 --format=%cI)
 version   = $(./esm --version)
-features  = esio,parallel (earthsci-ast/parallel through earthsci-ast-cli since 0.12.1)
+features  = esio (threading is always on since 0.14.0; earlier: esio,parallel)
 
 # The earthsciio cargo linked: a crates.io release, or a patched-in EarthSciIO
 # checkout (IO=) by commit. build-esm.sh refuses one without a parquet reader.
