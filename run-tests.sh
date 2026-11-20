@@ -1805,7 +1805,11 @@ C7P_DOMAIN=moves-onroad.esm
 # county database, and a user database of a DEFAULT-domain Rates run and a
 # two-year inventory. `rt_retrofitFactor` multiplies the finished rows by their
 # OWN pollutant's factor -- no child inherits a parent's -- at the latest
-# retrofit year at or before the row's own.
+# retrofit year at or before the row's own. `rates-retrofit-base` is
+# `rates-retrofit` without its user database, and both are the first Rates
+# runs with cohorts of several regulatory classes on the per-speed-bin path:
+# each class's rate takes its share of the cohort, `rt_regClassRateShare`
+# (PLAN.md §7.3.80, finding F91, conventions §131).
 # `expand-multiyear` is the first run at two calendar years (PLAN.md §7.3.44,
 # conventions §98): the year is the cohort grid's and the activity relation's
 # slowest factor and a trailing axis of every other per-year relation, so the
