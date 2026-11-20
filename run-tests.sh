@@ -754,8 +754,10 @@ fi
 # and one fault on every route (docs/findings/README.md, F26).
 # So the fourth field is what the native run must say, defaulting to the
 # second; both runs must refuse and both must name the operand.
+# Since esm 0.14.0 `native` names the operand scope-qualified
+# (`FreeIndexSymbol.i`), as the interpreter's fault does not.
 for control in "$F25|Unknown variable 'undeclaredFloor'|ingesting a real snapshot table|" \
-               "$F26|E_TREEWALK_UNBOUND_NAME: 'i'|a free index symbol on the array path|unresolved symbol (forcing/NaN sentinel?) \`i\`"; do
+               "$F26|E_TREEWALK_UNBOUND_NAME: 'i'|a free index symbol on the array path|unresolved symbol (forcing/NaN sentinel?) \`FreeIndexSymbol.i\`"; do
   doc="${control%%|*}"; rest="${control#*|}"
   name="${rest%%|*}"; rest="${rest#*|}"
   what="${rest%%|*}"; native_name="${rest#*|}"
