@@ -2133,7 +2133,8 @@
         {
           "ref": "../lib/avft.esm",
           "only": [
-            "avft_branch"
+            "avft_branch",
+            "avft_rewritten_fraction"
           ]
         }
       ],
@@ -8620,12 +8621,28 @@
           "shape": [
             "samplevehiclepopulation_rows"
           ],
-          "description": "samplevehiclepopulation.stmyFraction: the row rule and the activity weight in one column.",
+          "description": "samplevehiclepopulation.stmyFraction as the database states it: the DEFAULT fleet. Every consumer reads `svp_avftStmyFraction`, the fleet after AVFTControlStrategy, except BaseRateGenerator's EV sales share (`svp_salesWeight`), which MOVES reads from `samplevehiclepopulationdefault` at county and project scale (PLAN.md §7.3.78).",
           "update": {
             "kind": "data",
             "source": "db_samplevehiclepopulation",
             "from": {
               "file_variable": "stmyFraction"
+            }
+          }
+        },
+        "svp_stmyFuelEngFraction": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "samplevehiclepopulation_rows"
+          ],
+          "description": "samplevehiclepopulation.stmyFuelEngFraction: this row's regulatory class's share of its (source type, model year, fuel, engine technology). Read only by AVFTMasterLoopable's ADD branch, which takes the class split from it rather than from stmyFraction -- the only split there is where stmyFraction is 0 (lib/avft.esm).",
+          "update": {
+            "kind": "data",
+            "source": "db_samplevehiclepopulation",
+            "from": {
+              "file_variable": "stmyFuelEngFraction"
             }
           }
         },
@@ -8741,13 +8758,21 @@
           ],
           "description": "Which UPDATE AVFTMasterLoopable issues for this row's combination: 1 ADD, -1 SUBTRACT, 0 none (`avft_branch`, lib/avft.esm)."
         },
+        "svp_avftStmyFraction": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "samplevehiclepopulation_rows"
+          ],
+          "description": "samplevehiclepopulation.stmyFraction AFTER AVFTControlStrategy: what the execution database holds when every generator and calculator runs (AVFTMasterLoopable.subscribeToMe runs before any of them, then UpdateExecution.sql rebuilds RegClassSourceTypeFraction from it). `avft_rewritten_fraction` (lib/avft.esm) of the row's branch; the row itself, bit for bit, wherever the branch is 0 -- every row of a run whose avft is empty or AVFTTool's default projection. The row rule and the activity weight of the source-bin distribution (`bin_stmyFraction`), TankVaporVenting's regulatory-class weights (`rt_tvv*`) and TAG's hotelling split (`hot_stmyTotal`) all read it."
+        },
         "svp_salesWeight": {
           "type": "unknown",
           "units": "1",
           "shape": [
             "samplevehiclepopulation_rows"
           ],
-          "description": "This sample-vehicle row's contribution to its model year's age-0 sales: sourceTypePopulation x ageFraction x stmyFraction, at age 0 so the model year IS the calendar year. A row whose source type and model year have no sourcetypeyear or age-0 sourcetypeagedistribution row weighs nothing, which is the same as MOVES skipping it (BaseRateGenerator.java:315-341)."
+          "description": "This sample-vehicle row's contribution to its model year's age-0 sales: sourceTypePopulation x ageFraction x stmyFraction, at age 0 so the model year IS the calendar year. A row whose source type and model year have no sourcetypeyear or age-0 sourcetypeagedistribution row weighs nothing, which is the same as MOVES skipping it (BaseRateGenerator.java:315-341). It reads the DEFAULT `svp_stmyFraction`, not `svp_avftStmyFraction`: BaseRateGenerator's evSalesFraction joins `samplevehiclepopulationdefault`, InputDataManager's copy of the default database's table made before any input database is merged (BaseRateGenerator.java:263-282, InputDataManager.java:2784), so an avft moves vehicles into and out of electric drive without moving the national EV share the fleet-average adjustment divides by. MOVES reads the run's own table only at NATION geography, which no capture here selects and nothing here counts."
         },
         "svp_binOrdinal": {
           "type": "unknown",
@@ -21017,7 +21042,7 @@
           "shape": [
             "run_rows"
           ],
-          "description": "How many sample-vehicle rows of a SELECTED source type the run's avft would rewrite (`svp_avftBranch` nonzero): MOVES's AVFTControlStrategy rewrites sampleVehiclePopulation from them before any generator runs, and this model does not -- it reads the default fleet. Counted by `run_domainUnported`. 0 on every catalogue whose avft is AVFTTool's default projection, which the strategy applies as the identity (PLAN.md §7.3.78)."
+          "description": "How many sample-vehicle rows of source type 62 the run's avft rewrites (`svp_avftBranch` nonzero) in PROJECT domain, counted by `run_domainUnported`. Since PLAN.md §7.3.78 the rewrite itself is ported (`svp_avftStmyFraction`), but ProjectTAG's hotelling hours read avft.fuelEngFraction DIRECTLY (ProjectTAG.java:440-466, summed over avft's rows of each fuel), and `hot_projectHours` reads the rewritten fleet's total in its place, which is the same number only when the avft is AVFTTool's default projection. No capture states a non-default project avft. Before §7.3.78 this counted every rewritten row of a selected source type in every domain: `scale-county-avft` read 37."
         },
         "run_projectShortfall": {
           "type": "unknown",
@@ -21658,7 +21683,7 @@
             "activity_rows",
             "runspecsourcetype_rows"
           ],
-          "description": "sum(stmyFraction) over the sample-vehicle population of the row's source type and model year: what TAG step 190's split of hotelling hours by fuel type sums back to when BaseRateCalculator's `activity=hotellingHours` adds the fuel types up again. 1 for source type 62 at every model year, within 1.3e-16."
+          "description": "sum(stmyFraction), after AVFTControlStrategy (`svp_avftStmyFraction`), over the sample-vehicle population of the row's source type and model year: what TAG step 190's split of hotelling hours by fuel type sums back to when BaseRateCalculator's `activity=hotellingHours` adds the fuel types up again. 1 for source type 62 at every model year, within 1.3e-16."
         },
         "hot_dayDistribution": {
           "type": "unknown",
@@ -21784,7 +21809,7 @@
             "runspecsourcetype_rows",
             "runspecmonth_rows"
           ],
-          "description": "ProjectTAG.allocateTotalActivityBasis's hotellingHours (java:435-463), summed over fuel type: the zone's off-network fleet x extendedIdleFraction x ageFraction x noOfRealDays x the cohort's avft fuelEngFraction, for source type 62 only. The project database's avft is the default sampleVehiclePopulation summed over regulatory class (AVFTTool's query), so its fractions summed over fuel and engine are `hot_stmyTotal`, the same sum the DEFAULT path carries. No AdjustHotelling: the domain's hotellingHoursPerDay is empty in every project database here, and MOVES's table holds ProjectTAG's product unadjusted (docs/project-tag.md §6.5)."
+          "description": "ProjectTAG.allocateTotalActivityBasis's hotellingHours (java:435-463), summed over fuel type: the zone's off-network fleet x extendedIdleFraction x ageFraction x noOfRealDays x the cohort's avft fuelEngFraction, for source type 62 only. The project database's avft is the default sampleVehiclePopulation summed over regulatory class (AVFTTool's query), so its fractions summed over fuel and engine are `hot_stmyTotal`, the same sum the DEFAULT path carries; a project avft that rewrites source type 62 is counted by `run_avftUnported` (PLAN.md §7.3.78). No AdjustHotelling: the domain's hotellingHoursPerDay is empty in every project database here, and MOVES's table holds ProjectTAG's product unadjusted (docs/project-tag.md §6.5)."
         },
         "rtDay_activityBasis": {
           "type": "unknown",
@@ -29334,13 +29359,56 @@
               }
             ],
             "expr": {
-              "op": "abs",
+              "op": "*",
               "args": [
                 {
-                  "op": "index",
+                  "op": "*",
                   "args": [
-                    "svp_avftBranch",
-                    "v"
+                    {
+                      "op": "index",
+                      "args": [
+                        "run_isProjectDomain",
+                        "n"
+                      ]
+                    },
+                    {
+                      "op": "ifelse",
+                      "args": [
+                        {
+                          "op": "==",
+                          "args": [
+                            {
+                              "op": "index",
+                              "args": [
+                                "svp_sourceTypeID",
+                                "v"
+                              ]
+                            },
+                            {
+                              "op": "enum",
+                              "args": [
+                                "source_type",
+                                "CombinationLongHaulTruck"
+                              ]
+                            }
+                          ]
+                        },
+                        1.0,
+                        0.0
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "op": "abs",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "svp_avftBranch",
+                        "v"
+                      ]
+                    }
                   ]
                 }
               ]
@@ -48713,6 +48781,63 @@
           }
         },
         {
+          "lhs": "svp_avftStmyFraction",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "output_idx": [
+              "v"
+            ],
+            "ranges": {
+              "v": {
+                "from": "samplevehiclepopulation_rows"
+              }
+            },
+            "expr": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "avft_rewritten_fraction",
+              "bindings": {
+                "branch": {
+                  "op": "index",
+                  "args": [
+                    "svp_avftBranch",
+                    "v"
+                  ]
+                },
+                "stmy_fraction": {
+                  "op": "index",
+                  "args": [
+                    "svp_stmyFraction",
+                    "v"
+                  ]
+                },
+                "fuel_engine_fraction": {
+                  "op": "index",
+                  "args": [
+                    "svp_stmyFuelEngFraction",
+                    "v"
+                  ]
+                },
+                "old_fraction": {
+                  "op": "index",
+                  "args": [
+                    "svp_fuelEngFraction",
+                    "v"
+                  ]
+                },
+                "new_fraction": {
+                  "op": "index",
+                  "args": [
+                    "svp_avftFraction",
+                    "v"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
           "lhs": "bin_stmyFraction",
           "rhs": {
             "op": "faq",
@@ -48754,7 +48879,7 @@
             "expr": {
               "op": "index",
               "args": [
-                "svp_stmyFraction",
+                "svp_avftStmyFraction",
                 "v"
               ]
             }
@@ -60864,7 +60989,7 @@
             "expr": {
               "op": "index",
               "args": [
-                "svp_stmyFraction",
+                "svp_avftStmyFraction",
                 "w"
               ]
             }
@@ -60946,7 +61071,7 @@
                 {
                   "op": "index",
                   "args": [
-                    "svp_stmyFraction",
+                    "svp_avftStmyFraction",
                     "w"
                   ]
                 },
@@ -61037,7 +61162,7 @@
                 {
                   "op": "index",
                   "args": [
-                    "svp_stmyFraction",
+                    "svp_avftStmyFraction",
                     "w"
                   ]
                 },
@@ -61128,7 +61253,7 @@
                 {
                   "op": "index",
                   "args": [
-                    "svp_stmyFraction",
+                    "svp_avftStmyFraction",
                     "w"
                   ]
                 },
@@ -61219,7 +61344,7 @@
                 {
                   "op": "index",
                   "args": [
-                    "svp_stmyFraction",
+                    "svp_avftStmyFraction",
                     "w"
                   ]
                 },
@@ -110956,7 +111081,7 @@
             "expr": {
               "op": "index",
               "args": [
-                "svp_stmyFraction",
+                "svp_avftStmyFraction",
                 "w"
               ]
             }
