@@ -1,0 +1,261 @@
+{
+  "esm": "1.2.0",
+  "metadata": {
+    "name": "scale-county-retrofit-runspec",
+    "description": "PLAN.md §7.3.79: `scale-county-retrofit` -- THC, CO, NOx, methane, NMHC, VOC and the PM2.5 total with EC, NonECPM, sulfate and aerosol water, at running and start exhaust, for the single-unit short-haul truck (52; MOVES adds every fuel of 42, 52 and 62), the combination long-haul truck (62) and the transit bus (42) in Washtenaw County at SINGLE scale, August 2020, weekday, hour 7, from the default database plus scale-county's county database WITH thirteen On-Road Retrofit programs (`inputs/washtenaw-county-retrofit.esm`, moves.rs `setup-retrofit.sql`). MOVES instantiates OnRoadRetrofitStrategy because onRoadRetrofit has rows and multiplies the finished MOVESWorkerOutput rows by each program's factor.\n\nWHAT IT DISCRIMINATES. The factor `rt_retrofitFactor` = 1 - sum(cumFractionRetrofit x retrofitEffectiveFraction) over the rows at the latest calendar year at or before 2020 whose model years hold the cohort's: THC running on 62 at 0.82 (model years 2000-2004, the 2012 row), 0.405 (2005-2012, the 2018 row REPLACING the 2015 row) and 0.64 (2013-2014, the 2015 row), with a 2021 row reaching nothing; CO running on 52 at 0.66 where two 2015 rows overlap (2010-2012) and SUM; NOx running on 42 at 1.1 (a negative effectiveness); the PM2.5 total on 62 at 0.3625; EC alone on 52 at 0.64; start THC on 52 at 0.75; NMHC running on 52 at 0.75. And what it does NOT reach: no child takes its parent's factor -- methane, NMHC and VOC under the THC programs, EC, NonECPM, sulfate and water under the PM2.5 program -- and the PM2.5 total does not take EC's, because the UPDATE runs after every calculator. Measured before porting against the un-retrofitted twin `scale-county-retrofit-base` (moves.rs, not wired here): every one of 15,190 nonzero cells is the twin's times the predicted factor within 7.0e-06, 2,168 cells are zero in both, and 148 (pollutant, process, fuel, source type) groups with no program are the twin's.\n\n`n_outputRate` is bound to 17,358, recomputed as `rateSurvivorCount`.\n\n`db_movesoutput` is DECLARED AND CONSUMED BY NOTHING, as in every RunSpec here.",
+    "authors": [
+      "EarthSciML Authors and Contributors"
+    ],
+    "tags": [
+      "fixture",
+      "onroad",
+      "default-database",
+      "single-county-domain",
+      "road-type-axis",
+      "off-network-idle",
+      "control-strategy",
+      "on-road-retrofit"
+    ]
+  },
+  "data_sources": {
+    "db_runspecyear": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/scale-county-retrofit/tables/db__movesexecution1ccc0236_campuscluster_illinois_edu__runspecyear.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecyear"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, yearID 2020: every retrofit row at or before it applies at its model years until a later row replaces it (`rt_retrofitYear`).",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecmonth": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/scale-county-retrofit/tables/db__movesexecution1ccc0236_campuscluster_illinois_edu__runspecmonth.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecmonth"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, monthID 8 (`<month key=\"7\">` is 0-based).",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspechour": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/scale-county-retrofit/tables/db__movesexecution1ccc0236_campuscluster_illinois_edu__runspechour.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspechour"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, hourID 7.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_aggregationhour": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/scale-county-retrofit/tables/db__movesexecution1ccc0236_campuscluster_illinois_edu__runspechour.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_aggregationhour"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "The hours the run aggregates over. This run does not set `aggregateBy`, so it is `runspechour` itself and the same file.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecday": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/scale-county-retrofit/tables/db__movesexecution1ccc0236_campuscluster_illinois_edu__runspechourday.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecday"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, hourDayID 75: the weekday at hour 7.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_rateday": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/scale-county-retrofit/tables/db__movesexecution1ccc0236_campuscluster_illinois_edu__runspecday.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_rateday"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "The day types the RATE-side time pre-aggregation is scoped to: `runspecday` itself (no `aggregateBy`).",
+        "esio_format": "parquet"
+      }
+    },
+    "db_actday": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/scale-county-retrofit/tables/db__movesexecution1ccc0236_campuscluster_illinois_edu__runspecday.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_actday"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "The day types the output day's ACTIVITY covers: `runspecday` itself (no `aggregateBy`).",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecsourcetype": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/scale-county-retrofit/tables/db__movesexecution1ccc0236_campuscluster_illinois_edu__runspecsourcetype.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecsourcetype"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "3 rows, sourceTypeIDs 42, 52, 62.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecroadtype": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/scale-county-retrofit/tables/db__movesexecution1ccc0236_campuscluster_illinois_edu__runspecroadtype.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecroadtype"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "5 rows, road types 1 to 5. The RunSpec selects 1 and 4; MOVES adds 2, 3 and 5 because off-network idle needs their SHO (conventions §102).",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecsourcefueltype": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/scale-county-retrofit/tables/db__movesexecution1ccc0236_campuscluster_illinois_edu__runspecsourcefueltype.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecsourcefueltype"
+      },
+      "metadata": {
+        "tags": [
+          "scope",
+          "cohorts"
+        ],
+        "note": "11 rows: 42 and 52 with gasoline, diesel, CNG and electricity, 62 with diesel, CNG and electricity -- MOVES adds every fuel the RunSpec does not name ('Added missing vehicle selection').",
+        "esio_format": "parquet"
+      }
+    },
+    "db_movesoutput": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/scale-county-retrofit/tables/db__out_scale_county_retrofit__movesoutput.parquet"
+      },
+      "reader_options": {
+        "float_columns": [
+          "emissionQuant"
+        ]
+      },
+      "metadata": {
+        "tags": [
+          "oracle",
+          "expected-output"
+        ],
+        "note": "The 17,358-row expected output: 22 pollutant-processes over every fuel of the three source types, running exhaust on road types 1 to 5 and start exhaust on road type 1. The retrofit programs' cells are the un-retrofitted run's times their factor.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecpollutantprocess": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/scale-county-retrofit/tables/db__movesexecution1ccc0236_campuscluster_illinois_edu__runspecpollutantprocess.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecpollutantprocess"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "22 rows: 1, 2, 3, 5, 79, 87, 110, 112, 115, 118 and 119 at running (1) and start (2) exhaust.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecchainedto": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/scale-county-retrofit/tables/db__movesexecution1ccc0236_campuscluster_illinois_edu__runspecchainedto.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecchainedto"
+      },
+      "metadata": {
+        "tags": [
+          "scope",
+          "chain"
+        ],
+        "note": "18 rows: methane, NMHC and VOC off THC, and the PM2.5 total, sulfate, NonECPM and water off EC and NonECPM, at both processes.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspeccounty": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/scale-county-retrofit/tables/db__movesexecution1ccc0236_campuscluster_illinois_edu__runspeccounty.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspeccounty"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, countyID 26161, Washtenaw.",
+        "esio_format": "parquet"
+      }
+    }
+  },
+  "models": {
+    "Onroad": {
+      "ref": "../inputs/washtenaw-county-retrofit.esm",
+      "bindings": {
+        "n_outputRate": 17358,
+        "n_sourceBin": 8,
+        "n_physicsRow": 57
+      }
+    }
+  }
+}

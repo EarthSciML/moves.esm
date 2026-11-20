@@ -357,6 +357,33 @@
           ] }
         ]
       }
+    },
+    "retrofit_share_removed": {
+      "description": "The share of a cohort's emissions one On-Road Retrofit row removes: the fraction of the model year retrofitted by the row's calendar year times the fraction of a retrofitted vehicle's emissions the retrofit removes. OnRoadRetrofitStrategy.compile() keeps two sums over the rows sharing a (pollutant, process, fuel, source type, calendar year, model year) key -- retrofitFactor += cum x (1 - eff), nonRetrofitFactor -= cum -- and buildSQL multiplies the worker's rows by retrofitFactor + nonRetrofitFactor, which is 1 minus the sum of this term (PLAN.md §7.3.79). A negative effectiveness, an increase (OnRoadRetrofitImporter.sql's NOTE), gives a negative share.",
+      "params": ["cum_fraction_retrofit", "retrofit_effective_fraction"],
+      "body": { "op": "*", "args": ["cum_fraction_retrofit", "retrofit_effective_fraction"] }
+    },
+    "retrofit_row_is_invalid": {
+      "description": "1 when OnRoadRetrofitStrategy.DBLine.load rejects an onRoadRetrofit row, else 0. One rejected row makes loadFromDB return false and subscribeToMe return before compiling, so MOVES applies NO row of the table (OnRoadRetrofitStrategy.java:477-487). The rules, in load()'s order: a fuel other than diesel (`allowedFuelTypes` = 2) or a source type outside `allowedSourceTypes` (32, 41, 42, 43, 51, 52, 53, 61, 62); a calendar year outside 1990-2060; a first or last model year outside 1950-2060, or first after last; a cumulative fraction outside 0-1; an effectiveness above 1 (a negative one is accepted); and a first model year more than 40 years before the calendar year.",
+      "params": ["fuel_type_id", "source_type_id", "retrofit_year_id", "begin_model_year_id", "end_model_year_id", "cum_fraction_retrofit", "retrofit_effective_fraction"],
+      "body": {
+        "op": "ifelse",
+        "args": [
+          { "op": "or", "args": [
+            { "op": "!=", "args": ["fuel_type_id", 2] },
+            { "op": "and", "args": [{ "op": "!=", "args": ["source_type_id", 32] }, { "op": "!=", "args": ["source_type_id", 41] }, { "op": "!=", "args": ["source_type_id", 42] }, { "op": "!=", "args": ["source_type_id", 43] }, { "op": "!=", "args": ["source_type_id", 51] }, { "op": "!=", "args": ["source_type_id", 52] }, { "op": "!=", "args": ["source_type_id", 53] }, { "op": "!=", "args": ["source_type_id", 61] }, { "op": "!=", "args": ["source_type_id", 62] }] },
+            { "op": "or", "args": [{ "op": "<", "args": ["retrofit_year_id", 1990] }, { "op": ">", "args": ["retrofit_year_id", 2060] }] },
+            { "op": "or", "args": [{ "op": "<", "args": ["begin_model_year_id", 1950] }, { "op": ">", "args": ["begin_model_year_id", 2060] }] },
+            { "op": "or", "args": [{ "op": "<", "args": ["end_model_year_id", 1950] }, { "op": ">", "args": ["end_model_year_id", 2060] }] },
+            { "op": ">", "args": ["begin_model_year_id", "end_model_year_id"] },
+            { "op": "or", "args": [{ "op": "<", "args": ["cum_fraction_retrofit", 0.0] }, { "op": ">", "args": ["cum_fraction_retrofit", 1.0] }] },
+            { "op": ">", "args": ["retrofit_effective_fraction", 1.0] },
+            { "op": "<", "args": ["begin_model_year_id", { "op": "-", "args": ["retrofit_year_id", 40] }] }
+          ] },
+          1.0,
+          0.0
+        ]
+      }
     }
   }
 }

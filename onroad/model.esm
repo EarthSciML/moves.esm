@@ -1958,7 +1958,9 @@
             "pm_start_temperature_offset",
             "start_temperature_pm_factor",
             "pm_speciation_weight",
-            "pm_speciation_member"
+            "pm_speciation_member",
+            "retrofit_share_removed",
+            "retrofit_row_is_invalid"
           ]
         },
         {
@@ -17413,6 +17415,30 @@
           ],
           "description": "The rate row's cohort's year ordinal: what every per-year quantity the rate reads -- the fuel supply, the evaporative weights, the activity -- is joined to it by."
         },
+        "rt_retrofitYear": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "The calendar year of the On-Road Retrofit rows that hold for this rate row: the latest retrofitYearID at or before the row's own calendar year among the rows at its (pollutant, process, fuel, source type) whose model-year range holds its model year. compile() keys its lines by calendar year and model year and bounds each line at the next calendar year a line of the same (pollutant, process, fuel, source type, model year) names, minus one, so a later row REPLACES an earlier one -- at the model years it names, and only there (the 2012/2015/2018 phase-in of `userdb-retrofit-multiyear`). -inf, the max semiring's identity, where no row holds: then no row joins on it and the factor is 1."
+        },
+        "rt_retrofitShareRemoved": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "The share of the rate row's emissions its On-Road Retrofit rows remove (`retrofit_share_removed`), summed over the rows at `rt_retrofitYear` -- compile() sums rows sharing a key, and two programs at one calendar year whose model years overlap both apply (`scale-county-retrofit`'s CO at 2010-2012). 0 where no row holds."
+        },
+        "rt_retrofitFactor": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "OnRoadRetrofitStrategy's factor, retrofitFactor + nonRetrofitFactor = 1 - `rt_retrofitShareRemoved`, per rate row: buildSQL's `update MOVESWorkerOutput set emissionQuant = emissionQuant x factor` and `update BaseRateOutput set emissionRate = emissionRate x factor, meanBaseRate = meanBaseRate x factor`, keyed by pollutant, process, fuel, source type, calendar year and model year. The UPDATE is the first of the worker's aggregation statements (ExecutionRunSpec.initializeBeforeIteration prepends it), which EmissionCalculator writes AFTER every calculator's processing SQL -- the chained ones and the Go external calculator included -- so it multiplies each FINISHED row by its OWN pollutant's factor: a child pollutant does not inherit its parent's (NMHC, VOC and methane are not reduced by a THC program, EC by a PM2.5 program, nor the PM2.5 total by an EC program; PLAN.md §7.3.79). It therefore multiplies `rtDay_quant` and `rtRate_total`, which nothing but the output tables reads, and no chain input. 1 where no row holds."
+        },
         "rt_fuelTypeID": {
           "type": "unknown",
           "units": "1",
@@ -19200,7 +19226,7 @@
             "runspeccounty_rows",
             "runspecmonth_rows"
           ],
-          "description": "The emitted quantity: its own rate path plus its chain. Every rate row is exactly one of the two, so the sum is a union and not a double count -- `run_chainedRowCount` is the test. Per county, which is the axis the output relation's second level reads it at. Plus NonHAPTOG, which is neither and is zero off pollutant 88."
+          "description": "The emitted quantity: its own rate path plus its chain. Every rate row is exactly one of the two, so the sum is a union and not a double count -- `run_chainedRowCount` is the test. Per county, which is the axis the output relation's second level reads it at. Plus NonHAPTOG, which is neither and is zero off pollutant 88. Times the row's On-Road Retrofit factor (`rt_retrofitFactor`, 1 without a retrofit row): MOVES multiplies the finished MOVESWorkerOutput row, after every calculator, so the factor applies HERE and to no quantity a chain reads (PLAN.md §7.3.79)."
         },
         "rt_cohortShare": {
           "type": "unknown",
@@ -19479,7 +19505,7 @@
             "runspeccounty_rows",
             "runspecmonth_rows"
           ],
-          "description": "The rate MOVES writes for the rate row: own, chained, and the non-HAP TOG residual, as `rtDay_quant`."
+          "description": "The rate MOVES writes for the rate row: own, chained, and the non-HAP TOG residual, as `rtDay_quant`. Times the row's On-Road Retrofit factor (`rt_retrofitFactor`): OnRoadRetrofitStrategy updates BaseRateOutput's emissionRate and meanBaseRate as it does MOVESWorkerOutput's emissionQuant (PLAN.md §7.3.79)."
         },
         "rt_parentEmitsGen4": {
           "type": "unknown",
@@ -21411,7 +21437,15 @@
           "shape": [
             "run_rows"
           ],
-          "description": "onRoadRetrofit rows the model does not apply: every row, until PLAN.md §7.3.79 ports OnRoadRetrofitStrategy. MOVES instantiates the strategy whenever the execution database's onRoadRetrofit has a row (MOVESInstantiator.java:1718-1806) and multiplies MOVESWorkerOutput and BaseRateOutput by its factor, so a run with retrofit rows would otherwise emit the un-retrofitted inventory, silently. Counted by `run_selectionUnported`."
+          "description": "onRoadRetrofit rows the model does not apply as MOVES does, counted by `run_selectionUnported`. OnRoadRetrofitStrategy is PORTED (PLAN.md §7.3.79, `rt_retrofitFactor`) for what three captures check -- running and start exhaust (1, 2), SINGLE-county and DEFAULT domain, Inventory and Rates scale, one and two calendar years, every run at `<outputtimestep>` Hour without `aggregateBy` -- and this counts every row outside that: a row at another process (shore power's arm, `rtDay_quantShorePower`, takes no factor, and no capture checks the rest), every row of a run that pre-aggregates time (`run_aggregates`, `n_aggregatesMonths`), is in PROJECT domain (`run_isProjectDomain`) or sums its output over hours, days or months (`n_outputSumsHours`, `n_outputSumsDays`, `n_outputSumsMonths`), and every row MOVES would ignore because the table switches the strategy off (`run_retrofitTableOff`). Before §7.3.79 it counted every row; no capture before it had one, and the model ignored the table."
+        },
+        "run_retrofitTableOff": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "run_rows"
+          ],
+          "description": "onRoadRetrofit rows that switch MOVES's strategy OFF altogether: a row DBLine.load rejects (`retrofit_row_is_invalid`) or a row at which a key's cumulative fraction exceeds 1 (`orr_cumFractionAtBeginModelYear`). MOVES then applies no row of the table, and the model would apply them all, so each is counted by `run_retrofitUnported`. Unmeasured: no capture has such a table. The rows are the input database's, not InputDataManager's copy cut to the RunSpec's pollutants, processes, source types and fuels, so a rejected row the run would not have copied is counted too -- a refusal, not a wrong number."
         },
         "run_onRoadPollutantProcessCount": {
           "type": "unknown",
@@ -24167,6 +24201,14 @@
               "file_variable": "retrofitEffectiveFraction"
             }
           }
+        },
+        "orr_cumFractionAtBeginModelYear": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "onroadretrofit_rows"
+          ],
+          "description": "The cumulative fraction ALL rows of this row's (pollutant, process, fuel, source type, calendar year) key put on this row's FIRST model year. compile() sums the rows sharing a key model year by model year and refuses a sum over 1 (`nonRetrofitFactor < 0`: 'total affected population exceeds 100%'), and then subscribeToMe returns before writing any SQL, so MOVES applies NO row (OnRoadRetrofitStrategy.java:1272-1285, 485). The sum over a key's rows only rises at a row's first model year, so its maximum is this value at some row: `run_retrofitTableOff` counts the rows where it exceeds 1. A sum within one ulp of 1 can fall either way in Java's order of subtraction; the model compares the sum."
         },
         "hhf_dayID": {
           "type": "parameter",
@@ -49365,6 +49407,233 @@
                 "c"
               ]
             }
+          }
+        },
+        {
+          "lhs": "rt_retrofitYear",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "max_product",
+            "output_idx": [
+              "b"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "r": {
+                "from": "onroadretrofit_rows"
+              },
+              "s": {
+                "from": "runspecyear_rows"
+              }
+            },
+            "join": [
+              {
+                "syms": [
+                  "b",
+                  "r"
+                ],
+                "on": [
+                  [
+                    "rt_pollutantID",
+                    "orr_pollutantID"
+                  ],
+                  [
+                    "rt_processID",
+                    "orr_processID"
+                  ],
+                  [
+                    "rt_fuelTypeID",
+                    "orr_fuelTypeID"
+                  ],
+                  [
+                    "rt_sourceTypeID",
+                    "orr_sourceTypeID"
+                  ]
+                ]
+              },
+              {
+                "syms": [
+                  "b",
+                  "s"
+                ],
+                "on": [
+                  [
+                    "rt_yearOrdinal",
+                    "year_ordinal"
+                  ]
+                ]
+              }
+            ],
+            "filter": {
+              "op": "and",
+              "args": [
+                {
+                  "op": "apply_expression_template",
+                  "args": [],
+                  "name": "model_year_in_range",
+                  "bindings": {
+                    "model_year": {
+                      "op": "index",
+                      "args": [
+                        "rt_modelYearID",
+                        "b"
+                      ]
+                    },
+                    "first_model_year": {
+                      "op": "index",
+                      "args": [
+                        "orr_beginModelYearID",
+                        "r"
+                      ]
+                    },
+                    "last_model_year": {
+                      "op": "index",
+                      "args": [
+                        "orr_endModelYearID",
+                        "r"
+                      ]
+                    }
+                  }
+                },
+                {
+                  "op": "<=",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "orr_retrofitYearID",
+                        "r"
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "run_yearID",
+                        "s"
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            "expr": {
+              "op": "index",
+              "args": [
+                "orr_retrofitYearID",
+                "r"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "rt_retrofitShareRemoved",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "r": {
+                "from": "onroadretrofit_rows"
+              }
+            },
+            "join": [
+              {
+                "syms": [
+                  "b",
+                  "r"
+                ],
+                "on": [
+                  [
+                    "rt_pollutantID",
+                    "orr_pollutantID"
+                  ],
+                  [
+                    "rt_processID",
+                    "orr_processID"
+                  ],
+                  [
+                    "rt_fuelTypeID",
+                    "orr_fuelTypeID"
+                  ],
+                  [
+                    "rt_sourceTypeID",
+                    "orr_sourceTypeID"
+                  ],
+                  [
+                    "rt_retrofitYear",
+                    "orr_retrofitYearID"
+                  ]
+                ]
+              }
+            ],
+            "filter": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "model_year_in_range",
+              "bindings": {
+                "model_year": {
+                  "op": "index",
+                  "args": [
+                    "rt_modelYearID",
+                    "b"
+                  ]
+                },
+                "first_model_year": {
+                  "op": "index",
+                  "args": [
+                    "orr_beginModelYearID",
+                    "r"
+                  ]
+                },
+                "last_model_year": {
+                  "op": "index",
+                  "args": [
+                    "orr_endModelYearID",
+                    "r"
+                  ]
+                }
+              }
+            },
+            "expr": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "retrofit_share_removed",
+              "bindings": {
+                "cum_fraction_retrofit": {
+                  "op": "index",
+                  "args": [
+                    "orr_cumFractionRetrofit",
+                    "r"
+                  ]
+                },
+                "retrofit_effective_fraction": {
+                  "op": "index",
+                  "args": [
+                    "orr_retrofitEffectiveFraction",
+                    "r"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "lhs": "rt_retrofitFactor",
+          "rhs": {
+            "op": "-",
+            "args": [
+              1.0,
+              "rt_retrofitShareRemoved"
+            ]
           }
         },
         {
@@ -103426,25 +103695,40 @@
               }
             },
             "expr": {
-              "op": "+",
+              "op": "*",
               "args": [
                 {
                   "op": "+",
                   "args": [
                     {
-                      "op": "index",
+                      "op": "+",
                       "args": [
-                        "rtDay_quantDirect",
-                        "b",
-                        "k",
-                        "g",
-                        "m"
+                        {
+                          "op": "index",
+                          "args": [
+                            "rtDay_quantDirect",
+                            "b",
+                            "k",
+                            "g",
+                            "m"
+                          ]
+                        },
+                        {
+                          "op": "index",
+                          "args": [
+                            "rtDay_quantChained",
+                            "b",
+                            "k",
+                            "g",
+                            "m"
+                          ]
+                        }
                       ]
                     },
                     {
                       "op": "index",
                       "args": [
-                        "rtDay_quantChained",
+                        "rtDay_nonHapTog",
                         "b",
                         "k",
                         "g",
@@ -103456,11 +103740,8 @@
                 {
                   "op": "index",
                   "args": [
-                    "rtDay_nonHapTog",
-                    "b",
-                    "k",
-                    "g",
-                    "m"
+                    "rt_retrofitFactor",
+                    "b"
                   ]
                 }
               ]
@@ -105605,16 +105886,22 @@
         {
           "lhs": "rtRate_total",
           "rhs": {
-            "op": "+",
+            "op": "*",
             "args": [
               {
                 "op": "+",
                 "args": [
-                  "rtRate_direct",
-                  "rtRate_chained"
+                  {
+                    "op": "+",
+                    "args": [
+                      "rtRate_direct",
+                      "rtRate_chained"
+                    ]
+                  },
+                  "rtRate_nonHapTog"
                 ]
               },
-              "rtRate_nonHapTog"
+              "rt_retrofitFactor"
             ]
           }
         },
@@ -109551,6 +109838,237 @@
         {
           "lhs": "run_retrofitUnported",
           "rhs": {
+            "op": "+",
+            "args": [
+              {
+                "op": "faq",
+                "args": [],
+                "semiring": "sum_product",
+                "output_idx": [
+                  "n"
+                ],
+                "ranges": {
+                  "n": {
+                    "from": "run_rows"
+                  },
+                  "r": {
+                    "from": "onroadretrofit_rows"
+                  }
+                },
+                "expr": {
+                  "op": "ifelse",
+                  "args": [
+                    {
+                      "op": "or",
+                      "args": [
+                        {
+                          "op": "or",
+                          "args": [
+                            {
+                              "op": "or",
+                              "args": [
+                                {
+                                  "op": "or",
+                                  "args": [
+                                    {
+                                      "op": "and",
+                                      "args": [
+                                        {
+                                          "op": "!=",
+                                          "args": [
+                                            {
+                                              "op": "index",
+                                              "args": [
+                                                "orr_processID",
+                                                "r"
+                                              ]
+                                            },
+                                            {
+                                              "op": "enum",
+                                              "args": [
+                                                "process",
+                                                "RunningExhaust"
+                                              ]
+                                            }
+                                          ]
+                                        },
+                                        {
+                                          "op": "!=",
+                                          "args": [
+                                            {
+                                              "op": "index",
+                                              "args": [
+                                                "orr_processID",
+                                                "r"
+                                              ]
+                                            },
+                                            {
+                                              "op": "enum",
+                                              "args": [
+                                                "process",
+                                                "StartExhaust"
+                                              ]
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "op": ">",
+                                      "args": [
+                                        {
+                                          "op": "index",
+                                          "args": [
+                                            "run_aggregates",
+                                            "n"
+                                          ]
+                                        },
+                                        0.5
+                                      ]
+                                    }
+                                  ]
+                                },
+                                {
+                                  "op": ">",
+                                  "args": [
+                                    "n_aggregatesMonths",
+                                    0.5
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "op": ">",
+                              "args": [
+                                {
+                                  "op": "index",
+                                  "args": [
+                                    "run_isProjectDomain",
+                                    "n"
+                                  ]
+                                },
+                                0.5
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "op": ">",
+                          "args": [
+                            {
+                              "op": "+",
+                              "args": [
+                                {
+                                  "op": "+",
+                                  "args": [
+                                    "n_outputSumsHours",
+                                    "n_outputSumsDays"
+                                  ]
+                                },
+                                "n_outputSumsMonths"
+                              ]
+                            },
+                            0.5
+                          ]
+                        }
+                      ]
+                    },
+                    1.0,
+                    0.0
+                  ]
+                }
+              },
+              "run_retrofitTableOff"
+            ]
+          }
+        },
+        {
+          "lhs": "orr_cumFractionAtBeginModelYear",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "r"
+            ],
+            "ranges": {
+              "r": {
+                "from": "onroadretrofit_rows"
+              },
+              "r2": {
+                "from": "onroadretrofit_rows"
+              }
+            },
+            "join": [
+              {
+                "syms": [
+                  "r",
+                  "r2"
+                ],
+                "on": [
+                  [
+                    "orr_pollutantID",
+                    "orr_pollutantID"
+                  ],
+                  [
+                    "orr_processID",
+                    "orr_processID"
+                  ],
+                  [
+                    "orr_fuelTypeID",
+                    "orr_fuelTypeID"
+                  ],
+                  [
+                    "orr_sourceTypeID",
+                    "orr_sourceTypeID"
+                  ],
+                  [
+                    "orr_retrofitYearID",
+                    "orr_retrofitYearID"
+                  ]
+                ]
+              }
+            ],
+            "filter": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "model_year_in_range",
+              "bindings": {
+                "model_year": {
+                  "op": "index",
+                  "args": [
+                    "orr_beginModelYearID",
+                    "r"
+                  ]
+                },
+                "first_model_year": {
+                  "op": "index",
+                  "args": [
+                    "orr_beginModelYearID",
+                    "r2"
+                  ]
+                },
+                "last_model_year": {
+                  "op": "index",
+                  "args": [
+                    "orr_endModelYearID",
+                    "r2"
+                  ]
+                }
+              }
+            },
+            "expr": {
+              "op": "index",
+              "args": [
+                "orr_cumFractionRetrofit",
+                "r2"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "run_retrofitTableOff",
+          "rhs": {
             "op": "faq",
             "args": [],
             "semiring": "sum_product",
@@ -109565,7 +110083,93 @@
                 "from": "onroadretrofit_rows"
               }
             },
-            "expr": 1.0
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                {
+                  "op": "or",
+                  "args": [
+                    {
+                      "op": ">",
+                      "args": [
+                        {
+                          "op": "apply_expression_template",
+                          "args": [],
+                          "name": "retrofit_row_is_invalid",
+                          "bindings": {
+                            "fuel_type_id": {
+                              "op": "index",
+                              "args": [
+                                "orr_fuelTypeID",
+                                "r"
+                              ]
+                            },
+                            "source_type_id": {
+                              "op": "index",
+                              "args": [
+                                "orr_sourceTypeID",
+                                "r"
+                              ]
+                            },
+                            "retrofit_year_id": {
+                              "op": "index",
+                              "args": [
+                                "orr_retrofitYearID",
+                                "r"
+                              ]
+                            },
+                            "begin_model_year_id": {
+                              "op": "index",
+                              "args": [
+                                "orr_beginModelYearID",
+                                "r"
+                              ]
+                            },
+                            "end_model_year_id": {
+                              "op": "index",
+                              "args": [
+                                "orr_endModelYearID",
+                                "r"
+                              ]
+                            },
+                            "cum_fraction_retrofit": {
+                              "op": "index",
+                              "args": [
+                                "orr_cumFractionRetrofit",
+                                "r"
+                              ]
+                            },
+                            "retrofit_effective_fraction": {
+                              "op": "index",
+                              "args": [
+                                "orr_retrofitEffectiveFraction",
+                                "r"
+                              ]
+                            }
+                          }
+                        },
+                        0.5
+                      ]
+                    },
+                    {
+                      "op": ">",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "orr_cumFractionAtBeginModelYear",
+                            "r"
+                          ]
+                        },
+                        1.0
+                      ]
+                    }
+                  ]
+                },
+                1.0,
+                0.0
+              ]
+            }
           }
         },
         {
