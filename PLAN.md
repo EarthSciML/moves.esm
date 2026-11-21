@@ -897,6 +897,16 @@ Still counted (`run_levUnported`): user rows at other pollutant-processes, at ke
 lacks, and in PROJECT domain. Inspection and maintenance, found unported and silent on the way, is
 now counted too (`run_imUnported`, F95). Nonroad retrofit is not ported.
 
+**Inspection and maintenance: ported 2026-11-21 (§7.3.83, findings F96-F98).** BaseRateCalculator
+blends meanBaseRateIM into every THC, CO and NOx running and start rate by IMAdjustFract -- the county's
+IMCoverage programs times IMFactor times compliance, per (pollutant-process, model year, source type,
+fuel) -- and the multiday venting calculator does the same for venting THC with the I/M leak fraction.
+Both are ported (`rt_imAdjustFract`, `rtMode_imBlendedRate`, the `tvv_*` I/M track) and checked by
+`im-cook`, `im-cook-venting` and `rates-im` in Cook County, key-exact. Still counted (`run_imUnported`):
+programs in SINGLE-county and PROJECT runs, whose IMCoverage is the domain database's, and programs at
+a pollutant-process no capture checks (leaks, which IMFactor does not key, F97). Found on the way: MOVES
+writes RatePerDistance 0 where a row has no SHO (F96, fixed).
+
 ---
 
 ## 4. Testing and analyses
@@ -9126,6 +9136,8 @@ in Washtenaw, which has no I/M program, or selects no pollutant-process a progra
 nothing measured has seen it. `IMCoverage` is now declared in the three catalogues and
 `run_imUnported`, inside `run_selectionUnported`, counts its useIMyn 'Y' rows at the run's county,
 year and pollutant-processes: 0 in every run of the corpus.
+**Resolved in §7.3.83:** the blend is ported and checked in Cook County; `run_imUnported` now counts
+only what that section leaves unported.
 
 **Refusals.** `run_levUnported`, inside `run_selectionUnported`, counts a user emissionRateByAge row
 at a pollutant-process other than the template's ten (`run_inputRateByAgeOtherRows`), a row whose key
