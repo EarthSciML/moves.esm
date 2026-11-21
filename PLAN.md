@@ -886,8 +886,16 @@ aborts after rewriting `year.fuelYearID` alone, logs ERROR and leaves MOVESOutpu
 (`scale-county-rop-running` against its twin). There is no oracle to port it against, so the
 RunSpec's strategy is now READ -- `db_runspecinternalcontrolstrategy`, a per-run declaration mounted
 empty everywhere (conventions §132) -- and every run that turns it on is counted
-(`run_ropUnported`, inside `run_selectionUnported`) instead of being read as strategy-off. LEV and
-nonroad retrofit are not ported.
+(`run_ropUnported`, inside `run_selectionUnported`) instead of being read as strategy-off.
+
+**LEV and NLEV: ported 2026-11-21 (§7.3.82, findings F93-F95).** They are not run-time strategies
+but user input databases holding one table, emissionRateByAge, which MOVES merges ahead of the
+default so a user row replaces the default row at its key; before this a LEV database was silently
+ignored. The merge (`erba_mergedMeanBaseRate`, the `input_row_or_default` template) is checked by
+`userdb-lev`, `scale-county-lev`, `rates-lev` and `userdb-lev-2025`, key-exact, no `cell_exception`.
+Still counted (`run_levUnported`): user rows at other pollutant-processes, at keys the default
+lacks, and in PROJECT domain. Inspection and maintenance, found unported and silent on the way, is
+now counted too (`run_imUnported`, F95). Nonroad retrofit is not ported.
 
 ---
 
@@ -1072,7 +1080,9 @@ blocks what.
 Phase 6 (control strategies) stayed deferred until 2026-11-20, when AVFT
 (§7.3.78) and On-Road Retrofit (§7.3.79) were ported over new captures and
 Rate-of-Progress, which MOVES 5.0.1 itself fails to run, was made a counted
-refusal (§7.3.81); see §3's Phase 6 for its status.
+refusal (§7.3.81); LEV and NLEV, which are user input databases rather than strategies, followed
+on 2026-11-21 (§7.3.82), with I/M found unported and made a counted refusal; see §3's Phase 6 for
+its status.
 
 ### 6.1 What the fidelity gate now consists of
 
@@ -9045,8 +9055,102 @@ tools/emit-oracle-table.py and `cmp`'d against the main tree's `.fixtures-run/` 
 **Not done:** the snapshots `scale-county-rop-running` (forced) and `-running-base` were NOT copied
 into the main checkout's corpus. The first is a run MOVES reports as failed and the pipeline refuses;
 the second is valid but nothing in moves.esm reads it, and adding either would move the corpus counts
-`docs/omd-generator-reachability.md` checks. Both stay in `/scratch.local/ctessum/rop/snapshots/`
-(node `ccc0236`) and are regenerable from the committed recipe.
+`docs/omd-generator-reachability.md` checks. They were kept in `/scratch.local/ctessum/rop/snapshots/`
+(node `ccc0236`) until the merge and then deleted (2026-11-21); both are regenerable from the
+committed recipe.
+
+#### 7.3.82 LEV and NLEV: a user input database's emissionRateByAge replaces the default rows at its keys (F93-F95)
+
+2026-11-21. Phase 6's fourth item. **LEV and NLEV are not run-time control strategies in MOVES 5.**
+Tools > Build LEV / NLEV Input Database (gui/BuildLEVNLEV.java, BuildLEVAction, BuildNLEVAction) runs
+database/LEV_NLEVScripts/MOVES5_MyLEVS_Template.sql or MOVES5_MyNLEVS.sql
+(`DatabaseUtilities.executeBuildScript`) into a new database holding ONE table, `emissionratebyage`:
+for LEV, the default's `emissionratebyagelev` at `polprocessid in
+(101,201,301,102,202,302,11201,11202,11801,11802)` and `mid(sourcebinid,8,2) in` the model-year groups
+the user keeps; for NLEV, every row of `emissionratebyagenlev` (groups 1999 and 2000). The user adds
+that database to `<databaseselections>`. At run time MOVES only merges it: MasterLoop.java:206-250
+merges every user database (last-listed first), then the domain database, then the default, in both
+passes, and InputDataManager copies `EmissionRateByAge` filtered by the run's pollutant-processes alone
+(InputDataManager.java:3102) through `DatabaseUtilities.copyTable`'s INSERT IGNORE, so the first
+writer of a primary key wins and a user row replaces the default row at its key. Before this section
+the runspecs read `emissionRateByAge` from `movesdb` alone, so a LEV run was silently computed with
+federal rates (measured below).
+
+**Measured before porting** (`/scratch.local/ctessum/lev/py/measure.py`). In all four captures the
+execution `emissionratebyage` equals "the default's at the run's pollutant-processes, with the user
+rows in place", every row exact: 1,384,677 rows in three of them and 796,173 in `rates-lev`, of which
+48,657 (or 92,274 in the 2025 run) are the user's. Every LEV and NLEV key is also a default key (92,274
+and 7,812), so the merge only replaces values and never adds a row. The user parquets built by
+`tools/build-scale-input-db.py --copy` (which now evaluates the template's `INSERT ... SELECT ... WHERE
+in(...) AND mid(...) in(...)` as MySQL does) match the user databases the captures dumped, row for row.
+
+**The port.** `input_row_or_default(match_count, input_value, default_value)` (lib/keys.esm) is the
+shadow merge of conventions §93 written once; the three existing shadow merges
+(`zrt_mergedSHOAllocFactor`, `zn_mergedStartAllocFactor`, `zn_mergedSHPAllocFactor`) now call it,
+unchanged in expansion. `erba_inputRowCount` and `erba_inputMeanBaseRate` join the user table
+(`db_input_emissionratebyage`) to the default's on its four-column primary key, on the default's axis;
+`erba_mergedMeanBaseRate` applies the template, and `rtMode_rateByAge` reads it. The input side is
+declared empty (`inputs/default-domain/EmissionRateByAge.parquet`) in `onroad/default-database.esm`,
+the fixture catalogue and the 7c spike, and shadowed by the run that has one. Inline test:
+`components/user_table_row_merge.esm`, 8 assertions. No AST or spec change.
+
+**Captures** (moves.rs branch `capture-lev`, host token `1ccc0236`, moves-snapshot/v2, capture binary
+rebuilt in the lane's scratch). Each is Washtenaw, 2020 unless stated, August, weekday, hour 7, source
+types 21, 31 and 32, every fuel MOVES adds.
+
+| run | what it checks | result | cost (user CPU, wall, peak RSS) |
+|---|---|---|---|
+| `userdb-lev` (354 MB) | DEFAULT domain plus the template keeping groups 1999-2003 and 2010-2017 (48,657 rows); THC, CO, NOx, NMHC and the PM2.5 group at running and start exhaust. Cohorts outside the kept groups, and 1994-1998 / 2004-2009 which the LEV table covers and the user dropped, keep default rates | 17,748 of 17,748, worst cell 9.765e-06 | 80 s, 3:21, 2.96 GB |
+| `scale-county-lev` (351 MB) | the same through the SINGLE-county catalogue chain, the LEV database as a second input beside scale-county's county database | 17,748 of 17,748, worst cell 9.765e-06 | 83 s, 4:06, 3.09 GB |
+| `rates-lev` (1.1 GB) | the same at Rates scale (THC, CO, NOx, NMHC; no PM, see below) | RatePerDistance 90,220 keys / 270,660 cells at 5.890e-06, RatePerStart and RatePerVehicle 1,388 keys at 5.127e-06 and 1.089e-05, StartsPerVehicle 373 at 1.005e-05 | 81 s, 8:20, 2.67 GB |
+| `userdb-lev-2025` (359 MB) | 2025 with the unedited template (all 92,274 rows), which reaches the LEV table's PM rows (F93) | 18,558 of 18,558, worst cell 1.112e-05 | 83 s, 8:22, 3.09 GB |
+
+Every run key-exact, no `cell_exception`, shape check passing. Measured the other way: `userdb-lev`
+evaluated WITHOUT its LEV database (the pre-port model) is 10-14% high per pollutant (THC 10.4%, CO
+13.9%, NOx 11.8%, NMHC 10.1%) and up to 12.2x on single cells (model year 2000 gasoline). An NLEV twin
+was not captured: it goes through the identical merge with every key a default key.
+
+**Finding F93: emissionRateByAgeLEV's elemental-carbon and non-EC PM rows are at model-year group 45
+(2025) only.** A LEV run before 2025 gets no LEV PM rates; its PM2.5 group equals the federal one.
+`userdb-lev-2025` is the run that reads them.
+
+**Finding F94: MOVES 5's LEV tool opens a file that is not there on a case-sensitive filesystem.**
+BuildLEVNLEV.java opens `database/LEV_NLEVScripts/MOVES5_MyLEVs_Template.sql`; the file is
+`MOVES5_MyLEVS_Template.sql`. The captures ran the script directly.
+
+**Finding F95: inspection and maintenance is not ported, and was silent.** The model reads
+`meanBaseRate` and never `meanBaseRateIM`; MOVES blends them by IMAdjustFract
+(calc/baseratecalculator/baseratecalculator.go:184, 580-617). Every on-road capture in the corpus is
+in Washtenaw, which has no I/M program, or selects no pollutant-process a program covers
+(`expand-counties` and `expand-counties-large` reach Los Angeles and Cook at other pollutants), so
+nothing measured has seen it. `IMCoverage` is now declared in the three catalogues and
+`run_imUnported`, inside `run_selectionUnported`, counts its useIMyn 'Y' rows at the run's county,
+year and pollutant-processes: 0 in every run of the corpus.
+
+**Refusals.** `run_levUnported`, inside `run_selectionUnported`, counts a user emissionRateByAge row
+at a pollutant-process other than the template's ten (`run_inputRateByAgeOtherRows`), a row whose key
+the default lacks, which a merge on the default's axis cannot see (`run_inputRateByAgeRowsAdded`),
+and every user row in PROJECT domain, where no capture checks the merge. `run_imUnported` as above.
+
+**Also found.** `run-moves.sh` leaves `/opt/moves/sharedwork` on the capture container's tmpfs: the
+first `rates-lev` capture with the PM2.5 group failed bundling into it ("No space left on device") and
+retried in a loop, so `rates-lev` selects no PM. A DEFAULT-domain capture recipe must give
+`<scaleinputdatabase>` a non-placeholder description, or `capture-county-snapshot.sh` makes the user
+database the domain database too and MOVESEngine's domain-only hotelling-table check refuses it.
+
+**Unchanged.** Re-emitted with tools/emit-oracle-table.py and `cmp`'d against the main tree's
+`.fixtures-run/` (main 45ece0a, whose suite ended `exit=0`): 12 runs -- `expand-criteria`,
+`chain-so2-co2e-mechanism`, `userdb-retrofit-multiyear`, `userdb-hotelling-multiyear`, `scale-county`,
+`scale-county-start-species`, `process-extended-idle-single`, `rates-pm`, `rates-start` (every Rates
+table), `project-links`, `project-crankcase`, `process-tirewear` -- 46 files (output relation, shape
+scalars, every oracle table), every one byte-identical, every run reproducing its oracle with
+`run_selectionUnported` 0. `scale-county`, `process-extended-idle-single` and `project-links` read a
+non-empty zone input side, so they check the three shadow merges now written through
+`input_row_or_default`. Cost of the existing runs unchanged (one empty table joined to
+emissionRateByAge, and IMCoverage): e.g. `userdb-retrofit-multiyear` 145 s user CPU at 5.4 GB,
+`scale-county-start-species` 61 s / 3.4 GB. The Python binding loads the four new runspecs.
+tools/check-conventions.py, faq-filter-lint.py, check-sources.py and check-reachability-counts.py
+(after `docs/omd-generator-reachability.md` took the four captures) pass.
 
 ### 7.4 Upstream asks
 
